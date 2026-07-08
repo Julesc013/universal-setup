@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/verify_report.v1.schema.json",
+  "title": "Verify Report",
+  "type": "object",
+  "required": ["schema", "report_id", "install_id", "status", "checked_at", "checks"],
+  "properties": {
+    "schema": { "const": "usk.verify_report.v1" },
+    "report_id": { "type": "string", "minLength": 1 },
+    "install_id": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "warn", "fail", "refused"]
+    },
+    "checked_at": { "type": "string", "minLength": 1 },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check_id", "status", "subject"],
+        "properties": {
+          "check_id": { "type": "string", "minLength": 1 },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "warn", "fail", "skipped", "refused"]
+          },
+          "subject": { "type": "string", "minLength": 1 },
+          "message": { "type": "string" },
+          "expected_sha256": { "type": "string" },
+          "actual_sha256": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

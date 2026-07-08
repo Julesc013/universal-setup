@@ -19,6 +19,21 @@ It also must not absorb Universal Launcher. The two systems share contracts,
 but setup owns installed software state while launcher owns runnable product
 state.
 
+`USETUP-CONTRACT-01` freezes the first setup contract spine before mutation:
+
+- install plan
+- installed state
+- verify report
+- audit log
+- transaction
+- rollback
+- ownership
+- refusal
+- policy
+
+The first policy forbids network access, registry changes, package-manager
+changes, and product-specific installer execution.
+
 Public ABI namespaces:
 
 - `usk/` is the setup kernel ABI for manifests, plans, transactions, state,

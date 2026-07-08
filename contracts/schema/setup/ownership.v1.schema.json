@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/ownership.v1.schema.json",
+  "title": "Ownership",
+  "type": "object",
+  "required": ["schema", "install_id", "kind", "may_verify", "may_repair", "may_uninstall", "reason"],
+  "properties": {
+    "schema": { "const": "usk.ownership.v1" },
+    "install_id": { "type": "string", "minLength": 1 },
+    "kind": {
+      "type": "string",
+      "enum": ["managed", "foreign_owned", "imported", "adopted", "staged"]
+    },
+    "may_verify": { "type": "boolean" },
+    "may_repair": { "type": "boolean" },
+    "may_uninstall": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "operator_adopted_at": { "type": "string" }
+  },
+  "additionalProperties": false
+}

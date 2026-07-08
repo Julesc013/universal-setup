@@ -10,6 +10,15 @@ abstract platform.
 - Keep setup product-neutral and free of Factorio, Dominium, Eureka, and AIDE
   semantics.
 
+## USETUP-CONTRACT-01
+
+- Define install plan, installed-state, verify report, audit log,
+  transaction, rollback, ownership, refusal, and policy contracts.
+- Keep the first policy local-only: no network, registry, package-manager, GUI,
+  or product-specific installer mutation.
+- Make validators and tests preserve the contract spine before setup commands
+  begin mutating state.
+
 ## USETUP-MIN-01
 
 - Manifest parser.

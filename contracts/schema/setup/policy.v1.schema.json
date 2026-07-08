@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/policy.v1.schema.json",
+  "title": "Setup Policy",
+  "type": "object",
+  "required": [
+    "schema",
+    "policy_id",
+    "mutation_scope",
+    "network_allowed",
+    "registry_allowed",
+    "package_manager_allowed",
+    "product_specific_installer_allowed",
+    "rules"
+  ],
+  "properties": {
+    "schema": { "const": "usk.policy.v1" },
+    "policy_id": { "type": "string", "minLength": 1 },
+    "mutation_scope": {
+      "type": "string",
+      "enum": ["staged_root_only", "managed_install_only"]
+    },
+    "network_allowed": { "const": false },
+    "registry_allowed": { "const": false },
+    "package_manager_allowed": { "const": false },
+    "product_specific_installer_allowed": { "const": false },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rule_id", "effect", "message"],
+        "properties": {
+          "rule_id": { "type": "string", "minLength": 1 },
+          "effect": {
+            "type": "string",
+            "enum": ["allow", "refuse"]
+          },
+          "message": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/audit_log.v1.schema.json",
+  "title": "Audit Log",
+  "type": "object",
+  "required": ["schema", "audit_log_id", "events"],
+  "properties": {
+    "schema": { "const": "usk.audit_log.v1" },
+    "audit_log_id": { "type": "string", "minLength": 1 },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event_id", "created_at", "operation", "status", "message"],
+        "properties": {
+          "event_id": { "type": "string", "minLength": 1 },
+          "created_at": { "type": "string", "minLength": 1 },
+          "transaction_id": { "type": "string" },
+          "operation": {
+            "type": "string",
+            "enum": ["plan", "stage", "commit", "rollback", "verify", "refuse", "audit"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "warn", "fail", "refused"]
+          },
+          "message": { "type": "string" },
+          "details": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/rollback.v1.schema.json",
+  "title": "Rollback Journal",
+  "type": "object",
+  "required": ["schema", "rollback_id", "transaction_id", "status", "journal", "steps"],
+  "properties": {
+    "schema": { "const": "usk.rollback.v1" },
+    "rollback_id": { "type": "string", "minLength": 1 },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["available", "not_required", "applied", "failed"]
+    },
+    "journal": { "type": "string", "minLength": 1 },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_id", "rollback_action"],
+        "properties": {
+          "step_id": { "type": "string", "minLength": 1 },
+          "rollback_action": {
+            "type": "string",
+            "enum": ["delete_created_path", "restore_file", "restore_state", "noop"]
+          },
+          "path": { "type": "string" },
+          "backup_ref": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

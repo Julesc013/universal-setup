@@ -3,11 +3,18 @@
   "$id": "https://schemas.example.invalid/usk/transaction/transaction_plan.v1.schema.json",
   "title": "Setup Transaction Plan",
   "type": "object",
-  "required": ["schema", "transaction_id", "steps"],
+  "required": ["schema", "transaction_id", "plan_id", "operation", "dry_run", "steps", "rollback_required"],
   "properties": {
     "schema": { "const": "usk.transaction_plan.v1" },
     "transaction_id": { "type": "string", "minLength": 1 },
-    "steps": { "type": "array", "items": { "type": "object" } }
+    "plan_id": { "type": "string", "minLength": 1 },
+    "operation": {
+      "type": "string",
+      "enum": ["install_local", "verify", "repair", "uninstall", "adopt", "audit"]
+    },
+    "dry_run": { "type": "boolean" },
+    "steps": { "type": "array", "items": { "type": "object" } },
+    "rollback_required": { "type": "boolean" }
   },
   "additionalProperties": true
 }

@@ -3,10 +3,21 @@
   "$id": "https://schemas.example.invalid/usk/state/installed_state.v1.schema.json",
   "title": "Installed State",
   "type": "object",
-  "required": ["schema", "product_id", "components"],
+  "required": ["schema", "install_id", "product_id", "version", "root", "ownership", "state", "components"],
   "properties": {
     "schema": { "const": "usk.installed_state.v1" },
+    "install_id": { "type": "string", "minLength": 1 },
     "product_id": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "root": { "type": "string", "minLength": 1 },
+    "ownership": {
+      "type": "string",
+      "enum": ["managed", "foreign_owned", "imported", "adopted", "staged"]
+    },
+    "state": {
+      "type": "string",
+      "enum": ["planned", "installed", "partial", "verified", "uninstalled", "refused", "error"]
+    },
     "components": { "type": "array", "items": { "type": "object" } }
   },
   "additionalProperties": true

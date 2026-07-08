@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/refusal.v1.schema.json",
+  "title": "Refusal",
+  "type": "object",
+  "required": ["schema", "refusal_id", "operation", "code", "reason", "recoverable"],
+  "properties": {
+    "schema": { "const": "usk.refusal.v1" },
+    "refusal_id": { "type": "string", "minLength": 1 },
+    "operation": {
+      "type": "string",
+      "enum": ["install_local", "verify", "repair", "uninstall", "adopt", "audit"]
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "ownership_denied",
+        "unsafe_target",
+        "network_forbidden",
+        "registry_forbidden",
+        "package_manager_forbidden",
+        "product_policy_denied",
+        "unsupported_platform",
+        "invalid_manifest",
+        "missing_artifact"
+      ]
+    },
+    "reason": { "type": "string", "minLength": 1 },
+    "recoverable": { "type": "boolean" },
+    "policy_ref": { "type": "string" }
+  },
+  "additionalProperties": false
+}
