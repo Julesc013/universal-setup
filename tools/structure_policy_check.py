@@ -129,6 +129,7 @@ def check_required_paths() -> list[str]:
         ROOT / "contracts" / "schema" / "setup" / "refusal.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "policy.v1.schema.json",
         ROOT / "docs" / "architecture" / "boundary.md",
+        ROOT / "docs" / "architecture" / "command_graph.md",
         ROOT / "docs" / "architecture" / "ecosystem_vision.md",
         ROOT / "docs" / "architecture" / "root_grammar.md",
         ROOT / "docs" / "architecture" / "setup_contracts.md",

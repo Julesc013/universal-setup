@@ -21,6 +21,7 @@ abstract platform.
 
 ## USETUP-MIN-01
 
+- Native command graph over the setup contracts.
 - Manifest parser.
 - Resolver.
 - Install/repair/uninstall plan model.

@@ -1,7 +1,7 @@
 #ifndef USK_RESULT_H
 #define USK_RESULT_H
 
-typedef unsigned long usk_size;
+#include "usk_types.h"
 
 typedef enum usk_status {
     USK_STATUS_OK = 0,
