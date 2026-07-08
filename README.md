@@ -24,9 +24,10 @@ installed-state records, transactions, platform capabilities, and audit.
 ## Durable Layout
 
 ```text
-include/    public `usk` C ABI headers
-runtime/    setup kernel implementation, platform adapters, base helpers
-apps/       optional setup frontends
+include/    public `usk` kernel and `usu` utility/platform C ABI headers
+runtime/    setup kernel implementation, command service, diagnostics,
+            platform adapters, base helpers
+apps/       optional setup frontends; GUI providers live under `apps/gui/`
 contracts/  ABI, command, schema, result, diagnostic, refusal, policy contracts
 content/    universal setup templates and policy
 release/    package manifests and release profiles
@@ -48,6 +49,24 @@ packaging/
 factorio/
 launcher/
 ```
+
+The app grammar is:
+
+```text
+apps/
+  cli/
+  tui/
+  daemon/
+  gui/
+    win32/
+    appkit/
+    gtk/
+    qt/
+```
+
+`win32` is the architecture label for the Windows GUI provider. A concrete
+consumer may still implement that provider with WinForms while keeping setup
+logic in the command model and runtime.
 
 ## Bootstrap Validation
 

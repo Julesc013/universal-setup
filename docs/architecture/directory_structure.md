@@ -2,9 +2,10 @@
 
 ```text
 universal-setup/
-  include/    public `usk` C ABI headers
-  runtime/    setup kernel implementation, platform adapters, base helpers
-  apps/       optional setup frontends
+  include/    public `usk` kernel and `usu` utility/platform C ABI headers
+  runtime/    setup kernel, command service, diagnostics, platform adapters,
+              base helpers
+  apps/       optional setup frontends; GUI providers live under apps/gui/
   contracts/  ABI, command, schema, result, diagnostic, refusal, policy
   content/    universal setup templates and policy
   release/    package manifests and release profiles
@@ -21,3 +22,43 @@ directories. Implementation belongs under `runtime/` or app entrypoint roots.
 Universal Setup must not contain product-specific behavior. In particular, it
 must not contain Factorio discovery, mods, saves, servers, Mod Portal behavior,
 launcher profiles, or launch-plan semantics.
+
+## App Shells
+
+```text
+apps/
+  cli/
+  tui/
+  daemon/
+  gui/
+    win32/
+    appkit/
+    gtk/
+    qt/
+```
+
+The GUI provider directories are grouped under `apps/gui/` so `apps/` remains a
+small set of frontend classes instead of a flat list of toolkits.
+
+## Setup Runtime Modules
+
+```text
+runtime/setup/
+  kernel/
+  manifest/
+  resolver/
+  plan/
+  fetch/
+  verify/
+  transaction/
+  rollback/
+  state/
+  ownership/
+  policy/
+  audit/
+  package/
+```
+
+Setup is transaction-first: manifests resolve into plans, plans fetch and stage
+payloads, verification gates commit, and rollback/state/audit preserve repair
+truth.

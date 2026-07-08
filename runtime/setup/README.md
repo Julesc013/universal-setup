@@ -3,4 +3,6 @@
 Universal setup owns install mutation: install, verify, repair, uninstall,
 stage, commit, rollback, installed-state manifests, and setup audit logs.
 
-Public ABI lives under `include/usk/`. Private implementation belongs here.
+Public setup kernel ABI lives under `include/usk/`. Public setup utility,
+execution, and platform-facing ABI lives under `include/usu/`. Private
+implementation belongs here.

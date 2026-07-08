@@ -25,14 +25,29 @@ ALLOWED_TOP_LEVEL = {
 
 IGNORED_TOP_LEVEL = {".git", "__pycache__", ".pytest_cache", "build", "dist", "out", "bin", "obj"}
 RETIRED_ROOTS = {"core", "data", "factorio", "launcher", "packages", "packaging", "schema", "schemas", "setup", "source", "src", "ui"}
-ALLOWED_RUNTIME_ROOTS = {"base", "setup", "platform"}
-ALLOWED_SETUP_MODULES = {"audit", "install", "kernel", "manifest", "resolver", "rollback", "state", "transaction", "verify"}
+ALLOWED_RUNTIME_ROOTS = {"base", "command", "diagnostics", "setup", "platform"}
+ALLOWED_SETUP_MODULES = {
+    "audit",
+    "fetch",
+    "kernel",
+    "manifest",
+    "ownership",
+    "package",
+    "plan",
+    "policy",
+    "resolver",
+    "rollback",
+    "state",
+    "transaction",
+    "verify",
+}
 ALLOWED_CONTRACT_ROOTS = {"abi", "command", "diagnostic", "policy", "refusal", "result", "schema"}
 ALLOWED_SCHEMA_ROOTS = {"audit", "common", "install", "package", "setup", "state", "transaction"}
 ALLOWED_CONTENT_ROOTS = {"policy", "templates"}
 ALLOWED_RELEASE_ROOTS = {"packaging", "profiles"}
-ALLOWED_PACKAGING_ROOTS = {"linux", "macos", "portable", "windows"}
-ALLOWED_APPS = {"appkit", "cli", "daemon", "gtk", "qt", "tui", "winforms"}
+ALLOWED_PACKAGING_ROOTS = {"bsd", "linux", "macos", "portable", "windows"}
+ALLOWED_APPS = {"cli", "daemon", "gui", "tui"}
+ALLOWED_GUI_PROVIDERS = {"appkit", "gtk", "qt", "win32"}
 
 
 def main() -> int:
@@ -48,6 +63,7 @@ def main() -> int:
     problems.extend(check_children("release", ALLOWED_RELEASE_ROOTS))
     problems.extend(check_children("release/packaging", ALLOWED_PACKAGING_ROOTS))
     problems.extend(check_children("apps", ALLOWED_APPS))
+    problems.extend(check_children("apps/gui", ALLOWED_GUI_PROVIDERS))
     problems.extend(check_required_paths())
     problems.extend(check_forbidden_product_semantics())
     if problems:
@@ -97,7 +113,9 @@ def check_children(relative_root: str, allowed: set[str]) -> list[str]:
 def check_required_paths() -> list[str]:
     required = [
         ROOT / "include" / "usk" / "usk_api.h",
+        ROOT / "include" / "usu" / "usu_api.h",
         ROOT / "runtime" / "setup" / "kernel" / "usk_api.c",
+        ROOT / "runtime" / "setup" / "plan" / "README.md",
         ROOT / "contracts" / "schema" / "install" / "install_manifest.v1.schema.json",
         ROOT / "contracts" / "schema" / "transaction" / "transaction_plan.v1.schema.json",
         ROOT / "contracts" / "schema" / "state" / "installed_state.v1.schema.json",
