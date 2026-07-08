@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/usk/package/package_manifest.v1.schema.json",
+  "title": "Setup Package Manifest",
+  "type": "object",
+  "required": ["schema", "package_id", "components"],
+  "properties": {
+    "schema": { "const": "usk.package_manifest.v1" },
+    "package_id": { "type": "string", "minLength": 1 },
+    "components": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/setup_manifest.v1.schema.json",
+  "title": "Setup Manifest",
+  "type": "object",
+  "required": ["schema_version", "install_id", "product_id"],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "install_id": { "type": "string" },
+    "product_id": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/usk/common/result.v1.schema.json",
+  "title": "Universal Setup Result",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string" },
+    "error": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/installed_state.v1.schema.json",
+  "title": "Installed State",
+  "type": "object",
+  "required": ["schema_version", "install_id", "state"],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "install_id": { "type": "string" },
+    "state": { "type": "string" }
+  },
+  "additionalProperties": true
+}

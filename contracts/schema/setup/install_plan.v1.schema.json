@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/install_plan.v1.schema.json",
+  "title": "Install Plan",
+  "type": "object",
+  "required": ["schema_version", "steps", "dry_run"],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "steps": { "type": "array", "items": { "type": "string" } },
+    "dry_run": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

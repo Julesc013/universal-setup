@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/audit_event.v1.schema.json",
+  "title": "Setup Audit Event",
+  "type": "object",
+  "required": ["schema_version", "event_type", "created_at"],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "event_type": { "type": "string" },
+    "created_at": { "type": "string" }
+  },
+  "additionalProperties": true
+}

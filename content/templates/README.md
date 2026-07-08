@@ -1,0 +1,3 @@
+# Templates
+
+Generic setup templates.

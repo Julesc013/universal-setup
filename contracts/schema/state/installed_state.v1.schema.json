@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/usk/state/installed_state.v1.schema.json",
+  "title": "Installed State",
+  "type": "object",
+  "required": ["schema", "product_id", "components"],
+  "properties": {
+    "schema": { "const": "usk.installed_state.v1" },
+    "product_id": { "type": "string", "minLength": 1 },
+    "components": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": true
+}

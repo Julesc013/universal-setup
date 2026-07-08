@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/usk/audit/audit_event.v1.schema.json",
+  "title": "Setup Audit Event",
+  "type": "object",
+  "required": ["schema", "event_id", "event_type"],
+  "properties": {
+    "schema": { "const": "usk.audit_event.v1" },
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}
