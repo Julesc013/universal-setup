@@ -14,12 +14,36 @@ adapters.
 ```text
 universal-setup     install / repair / uninstall / rollback authority
 universal-launcher  cross-product orchestration and launch plans
-factorio-launcher   Factorio product binding and app frontends
+factorio-launcher   FacMan product binding and app frontends
 ```
 
 Universal Setup must not contain Factorio, Dominium, Eureka, or AIDE product
 semantics. It knows products, components, payloads, install plans,
 installed-state records, transactions, platform capabilities, and audit.
+
+## Proof Role
+
+```text
+Factorio proves the universal launcher through FacMan.
+Dominium proves the universal setup.
+FacMan ships as the first serious Factorio product binding.
+```
+
+Universal Setup should learn from Dominium's real setup requirements without
+becoming Dominium-specific. FacMan may call Universal Setup for managed
+Factorio installs later, but FacMan is not the proof project for setup
+mutation.
+
+Permanent rule:
+
+```text
+Universal setup mutates installed software state.
+Universal launcher orchestrates runnable product state.
+Product bindings interpret product-specific facts.
+Frontends present commands and reports.
+Contracts preserve compatibility.
+Validators prevent regression.
+```
 
 ## Durable Layout
 

@@ -1,8 +1,10 @@
 # Documentation
 
 - [Architecture](architecture/overview.md)
+- [Ecosystem Vision](architecture/ecosystem_vision.md)
 - [Boundary](architecture/boundary.md)
 - [Directory Structure](architecture/directory_structure.md)
+- [Root Grammar](architecture/root_grammar.md)
 - [Module Graph](architecture/module_graph.md)
 - [Data Flow](architecture/data_flow.md)
 - [Ownership](architecture/ownership.md)
@@ -11,3 +13,4 @@
 - [No Arbitrary Scripts](security/no_arbitrary_scripts.md)
 - [Determinism](reproducibility/determinism.md)
 - [Bootstrap Prompt](planning/bootstrap_prompt.md)
+- [Roadmap](roadmap.md)

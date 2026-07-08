@@ -15,6 +15,10 @@ Universal Setup must not own product-specific launcher orchestration or
 Factorio-specific semantics. Launchers consume installed-state records; they do
 not reimplement setup mutation.
 
+It also must not absorb Universal Launcher. The two systems share contracts,
+but setup owns installed software state while launcher owns runnable product
+state.
+
 Public ABI namespaces:
 
 - `usk/` is the setup kernel ABI for manifests, plans, transactions, state,
