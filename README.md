@@ -51,7 +51,7 @@ Validators prevent regression.
 include/    public `usk` kernel and `usu` utility/platform C ABI headers
 runtime/    setup kernel implementation, command service, diagnostics,
             platform adapters, base helpers
-apps/       optional setup frontends; GUI providers live under `apps/gui/`
+apps/       optional CLI, TUI, daemon, and reference app shells
 contracts/  ABI, command, schema, result, diagnostic, refusal, policy contracts
 content/    universal setup templates and policy
 release/    package manifests and release profiles
@@ -82,15 +82,12 @@ apps/
   tui/
   daemon/
   gui/
-    win32/
-    appkit/
-    gtk/
-    qt/
 ```
 
-`win32` is the architecture label for the Windows GUI provider. A concrete
-consumer may still implement that provider with WinForms while keeping setup
-logic in the command model and runtime.
+Universal Setup does not own product GUI matrices. Products can ship GUI
+frontends over setup command contracts, but setup mutation, ownership,
+transaction, rollback, state, and audit logic stay in this repo's runtime and
+contracts.
 
 ## Bootstrap Validation
 

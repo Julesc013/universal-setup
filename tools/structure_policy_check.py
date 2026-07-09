@@ -47,7 +47,6 @@ ALLOWED_CONTENT_ROOTS = {"policy", "templates"}
 ALLOWED_RELEASE_ROOTS = {"packaging", "profiles"}
 ALLOWED_PACKAGING_ROOTS = {"bsd", "linux", "macos", "portable", "windows"}
 ALLOWED_APPS = {"cli", "daemon", "gui", "tui"}
-ALLOWED_GUI_PROVIDERS = {"appkit", "gtk", "qt", "win32"}
 
 
 def main() -> int:
@@ -63,7 +62,8 @@ def main() -> int:
     problems.extend(check_children("release", ALLOWED_RELEASE_ROOTS))
     problems.extend(check_children("release/packaging", ALLOWED_PACKAGING_ROOTS))
     problems.extend(check_children("apps", ALLOWED_APPS))
-    problems.extend(check_children("apps/gui", ALLOWED_GUI_PROVIDERS))
+    problems.extend(check_children("apps/gui", set()))
+    problems.extend(check_no_language_version_runtime_buckets())
     problems.extend(check_required_paths())
     problems.extend(check_forbidden_product_semantics())
     if problems:
@@ -93,6 +93,15 @@ def check_no_src_source_dirs() -> list[str]:
     for path in ROOT.rglob("*"):
         if path.is_dir() and path.name in {"src", "source"}:
             problems.append(f"forbidden implementation bucket: {path.relative_to(ROOT)}")
+    return problems
+
+
+def check_no_language_version_runtime_buckets() -> list[str]:
+    problems: list[str] = []
+    forbidden = {"c11", "c17", "cpp98", "cpp11", "cpp17", "cxx98", "cxx11", "cxx17"}
+    for path in (ROOT / "runtime").rglob("*"):
+        if path.is_dir() and path.name.lower() in forbidden:
+            problems.append(f"runtime folders must be domain-based, not language-version buckets: {path.relative_to(ROOT)}")
     return problems
 
 

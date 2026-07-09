@@ -5,7 +5,7 @@ universal-setup/
   include/    public `usk` kernel and `usu` utility/platform C ABI headers
   runtime/    setup kernel, command service, diagnostics, platform adapters,
               base helpers
-  apps/       optional setup frontends; GUI providers live under apps/gui/
+  apps/       optional CLI, TUI, daemon, and reference app shells
   contracts/  ABI, command, schema, result, diagnostic, refusal, policy
   content/    universal setup templates and policy
   release/    package manifests and release profiles
@@ -31,14 +31,11 @@ apps/
   tui/
   daemon/
   gui/
-    win32/
-    appkit/
-    gtk/
-    qt/
 ```
 
-The GUI provider directories are grouped under `apps/gui/` so `apps/` remains a
-small set of frontend classes instead of a flat list of toolkits.
+Universal Setup keeps GUI ownership to product-neutral reference policy.
+Concrete product GUI stacks live in product repos and call setup command
+contracts without owning mutation logic.
 
 ## Setup Runtime Modules
 
