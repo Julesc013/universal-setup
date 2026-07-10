@@ -224,6 +224,12 @@ std::map<std::string, std::string> parse_toml_scalars(const std::string& text)
     return values;
 }
 
+std::map<std::string, std::string> parse_toml_header(const std::string& text)
+{
+    const std::size_t section = text.find("\n[");
+    return parse_toml_scalars(section == std::string::npos ? text : text.substr(0, section));
+}
+
 std::map<std::string, std::string> parse_workspace_pins(const std::string& text)
 {
     std::map<std::string, std::string> pins;
@@ -302,7 +308,8 @@ std::map<std::string, Component> parse_components(const std::string& text)
             !size_found || (component.role != "runtime_required" &&
                             component.role != "compatibility_reference") ||
             !components.emplace(destination, component).second) {
-            throw std::runtime_error("invalid or duplicate component: " + destination);
+            throw std::runtime_error(
+                "runtime_role is invalid or component metadata is malformed: " + destination);
         }
         if (components.size() > max_files) throw std::runtime_error("component count exceeds budget");
         position = end + 1;
@@ -419,6 +426,18 @@ std::string verify_package(const std::string& request, bool audit)
     }
 
     const auto manifest = parse_toml_scalars(read_bounded(package_manifest_path, max_manifest_bytes));
+    const std::set<std::string> allowed_manifest_keys = {
+        "schema", "profile_id", "lane", "target_os", "target_arch", "package_type",
+        "entrypoint", "linkage_model", "release_profile", "package_manifest",
+        "workspace_lock", "source_revision", "proof_baseline_revision",
+        "universal_launcher_revision", "universal_setup_revision", "artifact_level",
+        "signed", "published", "source_dirty", "python_runtime", "bundles_factorio_binaries"};
+    for (const auto& [key, value] : manifest) {
+        (void)value;
+        if (allowed_manifest_keys.find(key) == allowed_manifest_keys.end()) {
+            throw std::runtime_error("unsupported package manifest field: " + key);
+        }
+    }
     auto required = [&](const std::string& key) -> std::string {
         const auto found = manifest.find(key);
         if (found == manifest.end()) throw std::runtime_error("package manifest is missing " + key);
@@ -433,6 +452,8 @@ std::string verify_package(const std::string& request, bool audit)
     report.linkage_model = required("linkage_model");
     const std::string entrypoint = required("entrypoint");
     const std::string workspace_lock = required("workspace_lock");
+    const fs::path release_profile(required("release_profile"));
+    const fs::path package_definition(required("package_manifest"));
     report.authenticity = required("signed") == "false"
         ? "not_proven_unsigned"
         : "not_proven_declared_signed";
@@ -443,6 +464,32 @@ std::string verify_package(const std::string& request, bool audit)
     const auto files = package_files(root, report);
 
     bool compatibility_ok = true;
+    for (const fs::path& metadata : {release_profile, package_definition}) {
+        std::string metadata_problem;
+        if (!safe_path(root, metadata, metadata_problem) || !fs::is_regular_file(root / metadata)) {
+            compatibility_ok = false;
+            report.problems.push_back(metadata_problem.empty()
+                ? "declared compatibility metadata is missing: " + metadata.generic_string()
+                : metadata_problem);
+        }
+    }
+    if (compatibility_ok) {
+        const auto profile = parse_toml_header(read_bounded(root / release_profile, max_manifest_bytes));
+        const auto definition = parse_toml_header(read_bounded(root / package_definition, max_manifest_bytes));
+        const bool profile_matches = profile.find("id") != profile.end() &&
+            profile.at("id") == report.profile_id && profile.find("target_os") != profile.end() &&
+            profile.at("target_os") == report.target_os && profile.find("target_arch") != profile.end() &&
+            profile.at("target_arch") == report.target_arch;
+        const bool definition_matches = definition.find("platform") != definition.end() &&
+            definition.at("platform") == report.target_os && definition.find("architecture") != definition.end() &&
+            definition.at("architecture") == report.target_arch && definition.find("linkage_model") != definition.end() &&
+            definition.at("linkage_model") == report.linkage_model && definition.find("entrypoint") != definition.end() &&
+            definition.at("entrypoint") == entrypoint;
+        if (!profile_matches || !definition_matches) {
+            compatibility_ok = false;
+            report.problems.push_back("unknown built package profile or profile metadata mismatch");
+        }
+    }
     for (const auto& [path, component] : components) {
         const auto hash = hashes.find(path);
         if (hash == hashes.end() || hash->second != component.sha256) {
@@ -465,7 +512,7 @@ std::string verify_package(const std::string& request, bool audit)
         for (const auto& [id, pin] : expected_pins) {
             if (pins.find(id) == pins.end() || pins.at(id) != pin || !valid_revision(pin)) {
                 compatibility_ok = false;
-                report.problems.push_back("workspace lock revision mismatch: " + id);
+                report.problems.push_back("source revisions disagree with workspace lock: " + id);
             }
         }
     }
@@ -523,7 +570,10 @@ std::string verify_package(const std::string& request, bool audit)
             (expected_arch.empty() || expected_arch == report.target_arch) &&
             (expected_linkage.empty() || expected_linkage == report.linkage_model);
         report.target_match = matches ? "pass" : "fail";
-        if (!matches) report.problems.push_back("package target or linkage does not match the request");
+        if (!matches) {
+            report.problems.push_back(
+                "target, linkage, or entrypoint identity does not match the request");
+        }
     }
     if (report.authenticity == "not_proven_declared_signed") {
         report.problems.push_back("package declares signing but no trusted signature proof is available");

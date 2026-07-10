@@ -52,6 +52,17 @@ void create_package(const fs::path& root)
         "[[component]]\nid = \"factorio_binding\"\npin = \"1111111111111111111111111111111111111111\"\n"
         "[[component]]\nid = \"universal_launcher\"\npin = \"2222222222222222222222222222222222222222\"\n"
         "[[component]]\nid = \"universal_setup\"\npin = \"3333333333333333333333333333333333333333\"\n");
+    write(root / "release" / "profiles" / "synthetic_linux_x64" / "profile.toml",
+        "schema = \"facman.release_profile.v1\"\n"
+        "id = \"synthetic_linux_x64\"\n"
+        "target_os = \"linux\"\n"
+        "target_arch = \"x64\"\n");
+    write(root / "release" / "packaging" / "synthetic.v1.toml",
+        "schema = \"facman.packaging.bundle_manifest.v1\"\n"
+        "platform = \"linux\"\n"
+        "architecture = \"x64\"\n"
+        "linkage_model = \"static_first\"\n"
+        "entrypoint = \"bin/facman\"\n");
     write(root / "manifest" / "package.v1.toml",
         "schema = \"facman.built_package.v1\"\n"
         "profile_id = \"synthetic_linux_x64\"\n"
@@ -60,6 +71,8 @@ void create_package(const fs::path& root)
         "linkage_model = \"static_first\"\n"
         "entrypoint = \"bin/facman\"\n"
         "workspace_lock = \"release/index/workspace_lock.v1.toml\"\n"
+        "release_profile = \"release/profiles/synthetic_linux_x64/profile.toml\"\n"
+        "package_manifest = \"release/packaging/synthetic.v1.toml\"\n"
         "proof_baseline_revision = \"1111111111111111111111111111111111111111\"\n"
         "universal_launcher_revision = \"2222222222222222222222222222222222222222\"\n"
         "universal_setup_revision = \"3333333333333333333333333333333333333333\"\n"
@@ -185,7 +198,7 @@ int main(int argc, char** argv)
     write_hashes(root);
     response = execute(context, "package.audit", root, "linux");
     if (!contains(response, "\"status\":\"refused\"") ||
-        !contains(response, "invalid or duplicate component")) return 29;
+        !contains(response, "runtime_role is invalid")) return 29;
     create_package(root);
 
     write(root / "manifest" / "hashes.sha256", std::string(4u * 1024u * 1024u + 1u, 'x'));
