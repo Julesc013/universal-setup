@@ -1,10 +1,11 @@
 #include "usk/usk_api.h"
+#include "usk_package_verify.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 struct usk_context {
-    char reserved;
+    char* response_storage;
 };
 
 typedef struct usk_static_response {
@@ -63,10 +64,13 @@ static void usk_set_response(
     }
 }
 
-static usk_static_response usk_dispatch_command(const usk_command_request_v1* request)
+static usk_static_response usk_dispatch_command(
+    usk_context* context,
+    const usk_command_request_v1* request
+)
 {
     static const char command_graph_payload[] =
-        "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\",\"payload\":{\"schema\":\"usk.command_graph.v1\",\"commands\":[{\"command\":\"command_graph.inspect\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"policy.inspect\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"install_local.plan\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"verify.report\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"uninstall.plan\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"audit.log\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"diagnostics.report\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true}]},\"error\":null}";
+        "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\",\"payload\":{\"schema\":\"usk.command_graph.v1\",\"commands\":[{\"command\":\"command_graph.inspect\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"policy.inspect\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"install_local.plan\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"package.verify\",\"request_schema\":\"usk.package_verify_request.v1\",\"response_schema\":\"usk.package_verify_report.v1\",\"dry_run\":true},{\"command\":\"package.audit\",\"request_schema\":\"usk.package_verify_request.v1\",\"response_schema\":\"usk.package_verify_report.v1\",\"dry_run\":true},{\"command\":\"verify.report\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"uninstall.plan\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"audit.log\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true},{\"command\":\"diagnostics.report\",\"request_schema\":\"usk.command_request.v1\",\"response_schema\":\"usk.command_response.v1\",\"dry_run\":true}]},\"error\":null}";
     static const char policy_payload[] =
         "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\",\"payload\":{\"schema\":\"usk.policy.v1\",\"policy_id\":\"usk.policy.local_only.v1\",\"mutation_scope\":\"staged_root_only\",\"network_allowed\":false,\"registry_allowed\":false,\"package_manager_allowed\":false,\"product_specific_installer_allowed\":false,\"rules\":[{\"rule_id\":\"no_network\",\"effect\":\"refuse\",\"message\":\"network access is not part of the minimal setup contract\"},{\"rule_id\":\"no_registry\",\"effect\":\"refuse\",\"message\":\"registry mutation is not part of the minimal setup contract\"},{\"rule_id\":\"no_package_manager\",\"effect\":\"refuse\",\"message\":\"package-manager mutation is not part of the minimal setup contract\"}]},\"error\":null}";
     static const char install_plan_payload[] =
@@ -99,6 +103,21 @@ static usk_static_response usk_dispatch_command(const usk_command_request_v1* re
     }
     if (usk_string_equals(request->command_name, "install_local.plan")) {
         result.payload = install_plan_payload;
+        return result;
+    }
+    if (usk_string_equals(request->command_name, "package.verify") ||
+        usk_string_equals(request->command_name, "package.audit")) {
+        int command_status = USK_STATUS_ERROR;
+        context->response_storage = usk_package_verify_command_json(
+            request->json_payload.data,
+            (size_t)request->json_payload.size,
+            usk_string_equals(request->command_name, "package.audit"),
+            &command_status);
+        result.status = command_status;
+        result.payload = context->response_storage;
+        result.error_message = command_status == USK_STATUS_OK
+            ? 0
+            : "package verification request was refused";
         return result;
     }
     if (usk_string_equals(request->command_name, "verify.report")) {
@@ -177,7 +196,13 @@ int usk_command_execute_v1(
         return USK_STATUS_INVALID_ARGUMENT;
     }
 
-    dispatched = usk_dispatch_command(request);
+    if (context == 0) {
+        usk_set_response(response, USK_STATUS_INVALID_ARGUMENT, invalid_payload, invalid_message);
+        return USK_STATUS_INVALID_ARGUMENT;
+    }
+    usk_package_verify_command_free(context->response_storage);
+    context->response_storage = 0;
+    dispatched = usk_dispatch_command(context, request);
     usk_set_response(response, dispatched.status, dispatched.payload, dispatched.error_message);
     return dispatched.status;
 }
@@ -189,5 +214,8 @@ uint32_t usk_abi_version_v1(void)
 
 void usk_context_destroy_v1(usk_context* context)
 {
+    if (context != 0) {
+        usk_package_verify_command_free(context->response_storage);
+    }
     free(context);
 }

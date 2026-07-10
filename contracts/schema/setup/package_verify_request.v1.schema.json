@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/package_verify_request.v1.schema.json",
+  "title": "Package Verify Request",
+  "type": "object",
+  "required": ["schema", "package_root"],
+  "properties": {
+    "schema": { "const": "usk.package_verify_request.v1" },
+    "package_root": { "type": "string", "minLength": 1 },
+    "expected_target_os": { "type": "string", "minLength": 1 },
+    "expected_target_arch": { "type": "string", "minLength": 1 },
+    "expected_linkage_model": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

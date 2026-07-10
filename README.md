@@ -98,5 +98,11 @@ cmake -S . -B build/native-smoke
 cmake --build build/native-smoke
 ```
 
-The current repository is a canonical bootstrap, not a production installer
-implementation yet.
+The repository now includes bounded read-only `package.verify` and
+`package.audit` commands for local built-package roots. They separate integrity,
+authenticity, compatibility, completeness, and target match. They do not grant
+installation, repair, uninstall, rollback, elevation, registry, package-manager,
+or publication authority.
+
+The current repository remains a canonical bootstrap, not a production
+installer implementation.

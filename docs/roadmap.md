@@ -32,6 +32,15 @@ abstract platform.
 - Installed-state write.
 - Audit log.
 
+## USETUP-PACKAGE-VERIFY-AUDIT-01
+
+- Implemented read-only `package.verify` and `package.audit` over bounded local
+  package roots.
+- Validates built-package identity, component metadata, SHA-256 closure,
+  workspace-lock revisions, and caller-requested target/linkage identity.
+- Reports unsigned integrity without claiming publisher authenticity.
+- Does not perform setup mutation or integrate a product frontend yet.
+
 ## DOMINIUM-PROOF-01
 
 - Use Dominium setup requirements to prove rollback, repair, ownership,

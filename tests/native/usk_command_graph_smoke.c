@@ -87,6 +87,10 @@ int main(void)
     if (run_command(context, "command_graph.inspect", 1, "\"command\":\"install_local.plan\"") != 0) {
         return 20;
     }
+    if (run_command(context, "command_graph.inspect", 1, "\"command\":\"package.verify\"") != 0 ||
+        run_command(context, "command_graph.inspect", 1, "\"command\":\"package.audit\"") != 0) {
+        return 34;
+    }
     if (run_command(context, "policy.inspect", 1, "\"network_allowed\":false") != 0) {
         return 21;
     }

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/package_verify_report.v1.schema.json",
+  "title": "Package Verify Report",
+  "type": "object",
+  "required": [
+    "schema",
+    "command",
+    "status",
+    "package_root",
+    "profile_id",
+    "target_os",
+    "target_arch",
+    "linkage_model",
+    "integrity",
+    "authenticity",
+    "compatibility",
+    "completeness",
+    "target_match",
+    "files_verified",
+    "problems"
+  ],
+  "properties": {
+    "schema": { "const": "usk.package_verify_report.v1" },
+    "command": { "enum": ["package.verify", "package.audit"] },
+    "status": { "enum": ["pass", "warn", "fail", "refused"] },
+    "package_root": { "type": "string" },
+    "profile_id": { "type": "string" },
+    "target_os": { "type": "string" },
+    "target_arch": { "type": "string" },
+    "linkage_model": { "type": "string" },
+    "integrity": { "enum": ["pass", "fail", "not_checked"] },
+    "authenticity": {
+      "enum": ["verified", "not_proven_unsigned", "not_proven_declared_signed", "not_checked"]
+    },
+    "compatibility": { "enum": ["pass", "fail", "not_checked"] },
+    "completeness": { "enum": ["pass", "fail", "not_checked"] },
+    "target_match": { "enum": ["pass", "fail", "not_requested"] },
+    "files_verified": { "type": "integer", "minimum": 0 },
+    "problems": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}
