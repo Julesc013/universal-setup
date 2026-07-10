@@ -184,7 +184,7 @@ int main(int argc, char** argv)
     fs::remove(root / "bin" / "facman");
     response = execute(context, "package.verify", root, "linux");
     if (!contains(response, "\"integrity\":\"fail\"") ||
-        !contains(response, "hashed file is missing")) return 28;
+        !contains(response, "missing or unsafe hashed file")) return 28;
     create_package(root);
 
     std::string components;

@@ -462,6 +462,7 @@ std::string verify_package(const std::string& request, bool audit)
     const auto hashes = parse_hashes(read_bounded(hashes_path, max_metadata_bytes));
     const std::size_t traversal_problem_count = report.problems.size();
     const auto files = package_files(root, report);
+    const bool traversal_ok = report.problems.size() == traversal_problem_count;
 
     bool compatibility_ok = true;
     for (const fs::path& metadata : {release_profile, package_definition}) {
@@ -482,7 +483,9 @@ std::string verify_package(const std::string& request, bool audit)
             profile.at("target_arch") == report.target_arch;
         const bool definition_matches = definition.find("platform") != definition.end() &&
             definition.at("platform") == report.target_os && definition.find("architecture") != definition.end() &&
-            definition.at("architecture") == report.target_arch && definition.find("linkage_model") != definition.end() &&
+            (definition.at("architecture") == report.target_arch ||
+             definition.at("architecture") == "configured_by_track") &&
+            definition.find("linkage_model") != definition.end() &&
             definition.at("linkage_model") == report.linkage_model && definition.find("entrypoint") != definition.end() &&
             definition.at("entrypoint") == entrypoint;
         if (!profile_matches || !definition_matches) {
@@ -518,8 +521,7 @@ std::string verify_package(const std::string& request, bool audit)
     }
     report.compatibility = compatibility_ok ? "pass" : "fail";
 
-    bool completeness_ok = files.size() == hashes.size() &&
-        report.problems.size() == traversal_problem_count;
+    bool completeness_ok = files.size() == hashes.size() && traversal_ok;
     if (!completeness_ok) report.problems.push_back("package file closure differs from hashes.sha256");
     if (hashes.find(entrypoint) == hashes.end()) {
         completeness_ok = false;
@@ -546,7 +548,9 @@ std::string verify_package(const std::string& request, bool audit)
         const fs::path path = root / relative_path;
         if (!safe_path(root, relative_path, path_problem) || !fs::is_regular_file(path)) {
             integrity_ok = false;
-            report.problems.push_back(path_problem.empty() ? "hashed file is missing: " + relative : path_problem);
+            report.problems.push_back(path_problem.empty()
+                ? "missing or unsafe hashed file: " + relative
+                : path_problem);
             continue;
         }
         const auto component = components.find(relative);
