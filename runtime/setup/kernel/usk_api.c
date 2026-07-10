@@ -43,11 +43,10 @@ static void usk_set_response(
     const char* error_message
 )
 {
-    if (response == 0) {
-        return;
-    }
-
-    memset(response, 0, sizeof(*response));
+    response->status = 0;
+    response->json_payload.data = 0;
+    response->json_payload.size = 0;
+    memset(&response->error, 0, sizeof(response->error));
     response->struct_size = sizeof(*response);
     response->status = status;
 
@@ -73,7 +72,8 @@ static usk_static_response usk_dispatch_command(const usk_command_request_v1* re
     static const char install_plan_payload[] =
         "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\",\"payload\":{\"schema\":\"usk.install_plan.v1\",\"plan_id\":\"usk.plan.install_local.preview\",\"operation\":\"install_local\",\"dry_run\":true,\"product_id\":\"external.product\",\"target\":{\"root\":\"operator.required\",\"platform\":\"portable\"},\"ownership\":{\"kind\":\"staged\",\"may_mutate\":true,\"reason\":\"dry-run local plan only\"},\"steps\":[{\"step_id\":\"stage_root\",\"action\":\"create_dir\",\"path\":\"operator.required\",\"rollback_required\":true},{\"step_id\":\"write_state\",\"action\":\"write_state\",\"path\":\"operator.required/installed-state.json\",\"rollback_required\":true}],\"refusal_policy\":{\"refuse_network\":true,\"refuse_registry\":true,\"refuse_package_manager\":true,\"refuse_product_specific_installer\":true}},\"error\":null}";
     static const char verify_report_payload[] =
-        "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\",\"payload\":{\"schema\":\"usk.verify_report.v1\",\"report_id\":\"usk.verify.minimal\",\"install_id\":\"operator.required\",\"status\":\"pass\",\"checked_at\":\"not-recorded\",\"checks\":[{\"check_id\":\"command_graph\",\"status\":\"pass\",\"subject\":\"usk_command_execute_v1\"},{\"check_id\":\"local_only_policy\",\"status\":\"pass\",\"subject\":\"usk.policy.local_only.v1\"}]},\"error\":null}";
+        "{\"schema\":\"usk.command_response.v1\",\"status\":\"unavailable\",\"payload\":{\"schema\":\"usk.verify_report.v1\",\"report_id\":\"usk.verify.unavailable\",\"install_id\":null,\"status\":\"not_implemented\",\"checked_at\":\"not-run\",\"checks\":[]},\"error\":{\"code\":\"verification_not_implemented\",\"message\":\"package verification is not implemented\"}}";
+    static const char verify_report_message[] = "package verification is not implemented";
     static const char uninstall_plan_payload[] =
         "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\",\"payload\":{\"schema\":\"usk.install_plan.v1\",\"plan_id\":\"usk.plan.uninstall.preview\",\"operation\":\"uninstall\",\"dry_run\":true,\"product_id\":\"external.product\",\"target\":{\"root\":\"operator.required\",\"platform\":\"portable\"},\"ownership\":{\"kind\":\"managed\",\"may_mutate\":true,\"reason\":\"dry-run uninstall plan only\"},\"steps\":[{\"step_id\":\"remove_state\",\"action\":\"delete_file\",\"path\":\"operator.required/installed-state.json\",\"rollback_required\":true},{\"step_id\":\"remove_root\",\"action\":\"remove_dir\",\"path\":\"operator.required\",\"rollback_required\":true}],\"refusal_policy\":{\"refuse_network\":true,\"refuse_registry\":true,\"refuse_package_manager\":true,\"refuse_product_specific_installer\":true}},\"error\":null}";
     static const char audit_log_payload[] =
@@ -102,7 +102,9 @@ static usk_static_response usk_dispatch_command(const usk_command_request_v1* re
         return result;
     }
     if (usk_string_equals(request->command_name, "verify.report")) {
+        result.status = USK_STATUS_ERROR;
         result.payload = verify_report_payload;
+        result.error_message = verify_report_message;
         return result;
     }
     if (usk_string_equals(request->command_name, "uninstall.plan")) {
@@ -131,9 +133,11 @@ int usk_context_create_v1(
 {
     usk_context* context;
 
-    (void)config;
-
     if (out_context == 0) {
+        return USK_STATUS_INVALID_ARGUMENT;
+    }
+    if (config != 0 && config->struct_size < (usk_size)sizeof(*config)) {
+        *out_context = 0;
         return USK_STATUS_INVALID_ARGUMENT;
     }
 
@@ -161,6 +165,10 @@ int usk_command_execute_v1(
 
     (void)context;
 
+    if (response == 0 || response->struct_size < (usk_size)sizeof(*response)) {
+        return USK_STATUS_INVALID_ARGUMENT;
+    }
+
     if (request == 0 ||
         request->struct_size < (usk_size)sizeof(*request) ||
         request->command_name.data == 0 ||
@@ -172,6 +180,11 @@ int usk_command_execute_v1(
     dispatched = usk_dispatch_command(request);
     usk_set_response(response, dispatched.status, dispatched.payload, dispatched.error_message);
     return dispatched.status;
+}
+
+uint32_t usk_abi_version_v1(void)
+{
+    return ((uint32_t)USK_API_VERSION_MAJOR << 16) | (uint32_t)USK_API_VERSION_MINOR;
 }
 
 void usk_context_destroy_v1(usk_context* context)

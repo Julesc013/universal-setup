@@ -12,6 +12,7 @@ target_include_directories(usk_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/includ
 
 add_library(usk_shared SHARED runtime/setup/kernel/usk_api.c)
 target_include_directories(usk_shared PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_definitions(usk_shared PRIVATE USK_BUILD_SHARED)
 set_target_properties(usk_shared PROPERTIES OUTPUT_NAME usk WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 add_library(usk ALIAS usk_static)
