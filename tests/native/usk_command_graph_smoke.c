@@ -46,6 +46,7 @@ static int run_command(
 
     memset(&request, 0, sizeof(request));
     memset(&response, 0, sizeof(response));
+    response.struct_size = sizeof(response);
     request.struct_size = sizeof(request);
     request.command_name = view_from_cstr(command_name);
     request.json_payload = view_from_cstr("{}");
@@ -74,9 +75,13 @@ int main(void)
     usk_command_request_v1 request;
     usk_command_response_v1 response;
     int status;
+    usk_config_v1 truncated_config;
 
     if (usk_context_create_v1(0, &context) != USK_STATUS_OK || context == 0) {
         return 10;
+    }
+    if (usk_abi_version_v1() != ((USK_API_VERSION_MAJOR << 16) | USK_API_VERSION_MINOR)) {
+        return 11;
     }
 
     if (run_command(context, "command_graph.inspect", 1, "\"command\":\"install_local.plan\"") != 0) {
@@ -88,7 +93,17 @@ int main(void)
     if (run_command(context, "install_local.plan", 1, "\"schema\":\"usk.install_plan.v1\"") != 0) {
         return 22;
     }
-    if (run_command(context, "verify.report", 1, "\"schema\":\"usk.verify_report.v1\"") != 0) {
+    memset(&request, 0, sizeof(request));
+    memset(&response, 0, sizeof(response));
+    request.struct_size = sizeof(request);
+    response.struct_size = sizeof(response);
+    request.command_name = view_from_cstr("verify.report");
+    request.json_payload = view_from_cstr("{}");
+    request.dry_run = 1;
+    status = usk_command_execute_v1(context, &request, &response);
+    if (status != USK_STATUS_ERROR || response.status != USK_STATUS_ERROR ||
+        !contains(response.json_payload, "\"status\":\"not_implemented\"") ||
+        !contains(response.json_payload, "\"code\":\"verification_not_implemented\"")) {
         return 23;
     }
     if (run_command(context, "uninstall.plan", 1, "\"operation\":\"uninstall\"") != 0) {
@@ -103,6 +118,7 @@ int main(void)
 
     memset(&request, 0, sizeof(request));
     memset(&response, 0, sizeof(response));
+    response.struct_size = sizeof(response);
     request.struct_size = sizeof(request);
     request.command_name = view_from_cstr("missing.command");
     request.json_payload = view_from_cstr("{}");
@@ -115,6 +131,7 @@ int main(void)
     }
 
     memset(&response, 0, sizeof(response));
+    response.struct_size = sizeof(response);
     status = usk_command_execute_v1(context, 0, &response);
     if (status != USK_STATUS_INVALID_ARGUMENT ||
         response.status != USK_STATUS_INVALID_ARGUMENT ||
@@ -122,6 +139,20 @@ int main(void)
         return 31;
     }
 
+    memset(&response, 0, sizeof(response));
+    response.struct_size = sizeof(response) - 1;
+    status = usk_command_execute_v1(context, &request, &response);
+    if (status != USK_STATUS_INVALID_ARGUMENT) {
+        return 32;
+    }
+
     usk_context_destroy_v1(context);
+
+    memset(&truncated_config, 0, sizeof(truncated_config));
+    truncated_config.struct_size = sizeof(truncated_config) - 1;
+    context = 0;
+    if (usk_context_create_v1(&truncated_config, &context) != USK_STATUS_INVALID_ARGUMENT || context != 0) {
+        return 33;
+    }
     return 0;
 }

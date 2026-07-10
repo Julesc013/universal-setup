@@ -21,7 +21,9 @@ Initial commands:
 - `diagnostics.report`
 
 `install_local.plan` and `uninstall.plan` return install-plan contracts with
-`dry_run: true`. `verify.report` and `audit.log` return report contracts. The
+`dry_run: true`. `audit.log` returns a report contract. `verify.report`
+currently returns `verification_not_implemented`; it must not report pass until
+it receives and checks a package path, manifest identity, and hashes. The
 minimal diagnostics report explicitly marks mutation execution as not
 implemented.
 
