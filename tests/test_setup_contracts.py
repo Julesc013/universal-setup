@@ -10,6 +10,8 @@ EXPECTED_SETUP_SCHEMAS = {
     "install_plan": "usk.install_plan.v1",
     "installed_state": "usk.installed_state.v1",
     "verify_report": "usk.verify_report.v1",
+    "package_verify_request": "usk.package_verify_request.v1",
+    "package_verify_report": "usk.package_verify_report.v1",
     "audit_log": "usk.audit_log.v1",
     "transaction": "usk.transaction.v1",
     "rollback": "usk.rollback.v1",
