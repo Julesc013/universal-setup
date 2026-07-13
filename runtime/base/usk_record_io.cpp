@@ -16,6 +16,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#endif
 #endif
 
 namespace fs = std::filesystem;
@@ -159,6 +163,27 @@ std::string read_stable_text(const fs::path& path, std::size_t max_bytes)
     const std::vector<unsigned char> bytes = file.read(0, static_cast<std::size_t>(file.identity().size_bytes));
     file.verify_unchanged();
     return {bytes.begin(), bytes.end()};
+}
+
+void rename_no_replace(const fs::path& source, const fs::path& target)
+{
+    require_safe_directory(source.parent_path());
+    require_safe_directory(target.parent_path());
+#if defined(_WIN32)
+    if (!MoveFileExW(source.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        throw std::runtime_error("no-replace record move failed");
+    }
+#elif defined(__linux__)
+    if (::syscall(SYS_renameat2, AT_FDCWD, source.c_str(), AT_FDCWD, target.c_str(), RENAME_NOREPLACE) != 0) {
+        throw std::runtime_error("platform or filesystem lacks a successful no-replace move");
+    }
+#elif defined(__APPLE__)
+    if (::renamex_np(source.c_str(), target.c_str(), RENAME_EXCL) != 0) {
+        throw std::runtime_error("no-replace record move failed");
+    }
+#else
+    throw std::runtime_error("platform lacks a proven no-replace move primitive");
+#endif
 }
 
 } // namespace usk::record_io

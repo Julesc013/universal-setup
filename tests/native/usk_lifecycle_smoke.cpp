@@ -132,20 +132,64 @@ int run()
         fixture.roots, "install.synthetic", "verify.synthetic.3", "2026-07-14T00:10:05Z");
     if (foreign.status != "warn" || foreign.unknown_paths != std::vector<std::string>{"user-created.txt"}) return 6;
 
+    write_text(target / "app/readme.txt", "damaged-again");
+    const auto repair_plan = usk::lifecycle::plan_repair(
+        fixture.roots, "install.synthetic", "plan.synthetic.repair", "2026-07-14T00:10:06Z", payload());
+    const auto repair_result = usk::lifecycle::apply_repair(
+        repair_plan, repair_plan.plan_digest, "tx.synthetic.repair", "2026-07-14T00:10:07Z");
+    if (repair_result.after.status != "warn" ||
+        repair_result.repaired_files != std::vector<std::string>{"app/readme.txt"} ||
+        repair_result.retained_unknown_paths != std::vector<std::string>{"user-created.txt"}) {
+        return 7;
+    }
+
+    const fs::path moved_target = fixture.root / "targets/moved-portable";
+    const auto move_plan = usk::lifecycle::plan_move(
+        fixture.roots, "install.synthetic", "plan.synthetic.move", "2026-07-14T00:10:08Z", moved_target);
+    const auto move_result = usk::lifecycle::apply_move(
+        move_plan, move_plan.plan_digest, "tx.synthetic.move", "2026-07-14T00:10:09Z");
+    if (move_result.verification.status != "warn" || !fs::is_directory(target) ||
+        !fs::is_regular_file(moved_target / "app/bin/program.exe") ||
+        !fs::is_regular_file(moved_target / "user-created.txt") ||
+        move_result.installed_state.lifecycle_status != "move_pending_acceptance") {
+        return 8;
+    }
+
+    const auto blocked_plan = usk::lifecycle::plan_uninstall(
+        fixture.roots, "install.synthetic", "plan.synthetic.uninstall.blocked", "2026-07-14T00:10:10Z");
+    const auto blocked = usk::lifecycle::apply_uninstall(
+        blocked_plan, blocked_plan.plan_digest, "tx.synthetic.uninstall.blocked", "2026-07-14T00:10:11Z");
+    if (blocked.target_removed || blocked.deleted_owned_files.size() != 2 ||
+        blocked.retained_unknown_paths != std::vector<std::string>{"user-created.txt"} ||
+        blocked.installed_state.lifecycle_status != "uninstall_blocked" ||
+        !fs::is_regular_file(moved_target / "user-created.txt")) {
+        return 9;
+    }
+
+    fs::remove(moved_target / "user-created.txt");
+    const auto clean_plan = usk::lifecycle::plan_uninstall(
+        fixture.roots, "install.synthetic", "plan.synthetic.uninstall.clean", "2026-07-14T00:10:12Z");
+    const auto clean = usk::lifecycle::apply_uninstall(
+        clean_plan, clean_plan.plan_digest, "tx.synthetic.uninstall.clean", "2026-07-14T00:10:13Z");
+    if (!clean.target_removed || fs::exists(moved_target) ||
+        clean.installed_state.lifecycle_status != "retired") {
+        return 10;
+    }
+
     const auto chain = usk::audit::AuditRepository(fixture.roots.audit_root)
         .read_and_validate_chain("audit.install.synthetic");
-    if (chain.size() != 2 || chain.front().phase != "validated" || chain.back().phase != "completed") return 7;
+    if (chain.size() != 6 || chain.front().phase != "validated" || chain.back().operation != "uninstall") return 11;
 
     const fs::path occupied = fixture.root / "targets/occupied";
     fs::create_directory(occupied);
     const auto occupied_plan = usk::lifecycle::plan_install(
-        "plan.synthetic.occupied", "install.occupied", "2026-07-14T00:10:06Z",
+        "plan.synthetic.occupied", "install.occupied", "2026-07-14T00:10:14Z",
         occupied, fixture.roots, recipe(), payload());
     if (!refuses([&] {
             (void)usk::lifecycle::apply_install(
-                occupied_plan, occupied_plan.plan_digest, "tx.synthetic.occupied", "2026-07-14T00:10:07Z");
+                occupied_plan, occupied_plan.plan_digest, "tx.synthetic.occupied", "2026-07-14T00:10:15Z");
         })) {
-        return 8;
+        return 12;
     }
     return 0;
 }

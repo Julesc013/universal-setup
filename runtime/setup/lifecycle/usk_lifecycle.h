@@ -77,6 +77,65 @@ struct InstallResult {
     std::filesystem::path journal_path;
 };
 
+struct RepairPlan {
+    std::string plan_id;
+    std::string plan_digest;
+    std::string created_at;
+    std::string install_id;
+    std::string installed_state_digest;
+    std::string ownership_manifest_digest;
+    LifecycleRoots roots;
+    std::vector<PayloadFile> replacement_files;
+};
+
+struct RepairResult {
+    VerificationReport before;
+    VerificationReport after;
+    std::vector<std::string> repaired_files;
+    std::vector<std::string> retained_unknown_paths;
+    usk::state::InstalledState installed_state;
+};
+
+struct MovePlan {
+    std::string plan_id;
+    std::string plan_digest;
+    std::string created_at;
+    std::string install_id;
+    std::string installed_state_digest;
+    std::string ownership_manifest_digest;
+    std::filesystem::path old_root;
+    std::filesystem::path new_root;
+    std::filesystem::path staging_parent;
+    LifecycleRoots roots;
+    std::vector<PayloadFile> complete_files;
+};
+
+struct MoveResult {
+    VerificationReport verification;
+    usk::state::InstalledState installed_state;
+    std::filesystem::path retained_old_root;
+};
+
+struct UninstallPlan {
+    std::string plan_id;
+    std::string plan_digest;
+    std::string created_at;
+    std::string install_id;
+    std::string installed_state_digest;
+    std::string ownership_manifest_digest;
+    LifecycleRoots roots;
+    VerificationReport verification;
+};
+
+struct UninstallResult {
+    std::vector<std::string> deleted_owned_files;
+    std::vector<std::string> retained_changed_owned_files;
+    std::vector<std::string> retained_unknown_paths;
+    std::vector<std::string> retained_directories;
+    bool target_removed = false;
+    usk::state::InstalledState installed_state;
+};
+
 InstallPlan plan_install(
     std::string plan_id,
     std::string install_id,
@@ -97,6 +156,44 @@ VerificationReport verify_installed(
     const std::string& install_id,
     const std::string& report_id,
     const std::string& verified_at);
+
+RepairPlan plan_repair(
+    const LifecycleRoots& roots,
+    const std::string& install_id,
+    std::string plan_id,
+    std::string created_at,
+    std::vector<PayloadFile> exact_source_files);
+
+RepairResult apply_repair(
+    const RepairPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at);
+
+MovePlan plan_move(
+    const LifecycleRoots& roots,
+    const std::string& install_id,
+    std::string plan_id,
+    std::string created_at,
+    std::filesystem::path new_root);
+
+MoveResult apply_move(
+    const MovePlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at);
+
+UninstallPlan plan_uninstall(
+    const LifecycleRoots& roots,
+    const std::string& install_id,
+    std::string plan_id,
+    std::string created_at);
+
+UninstallResult apply_uninstall(
+    const UninstallPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at);
 
 } // namespace usk::lifecycle
 
