@@ -98,11 +98,13 @@ cmake -S . -B build/native-smoke
 cmake --build build/native-smoke
 ```
 
-The repository now includes bounded read-only `package.verify` and
-`package.audit` commands for local built-package roots. They separate integrity,
-authenticity, compatibility, completeness, and target match. They do not grant
-installation, repair, uninstall, rollback, elevation, registry, package-manager,
-or publication authority.
+The repository now has an authoritative descriptor-driven command graph and
+bounded read-only `package.verify` / `package.audit` commands for local
+built-package roots. The complete M1 command vocabulary is visible to clients,
+but unfinished lifecycle commands are explicitly non-executable. Package
+verification separates integrity, authenticity, compatibility, completeness,
+and target match. Nothing here grants installation, repair, uninstall,
+rollback, elevation, registry, package-manager, or publication authority.
 
 The current repository remains a canonical bootstrap, not a production
 installer implementation.
