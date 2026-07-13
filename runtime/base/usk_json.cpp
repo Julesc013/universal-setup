@@ -74,6 +74,40 @@ bool Value::contains(const std::string& key) const
 
 namespace {
 
+bool valid_utf8(const std::string& value)
+{
+    for (std::size_t index = 0; index < value.size();) {
+        const unsigned char first = static_cast<unsigned char>(value[index++]);
+        if (first <= 0x7fu) continue;
+        std::uint32_t codepoint = 0;
+        std::size_t remaining = 0;
+        if (first >= 0xc2u && first <= 0xdfu) {
+            codepoint = first & 0x1fu;
+            remaining = 1;
+        } else if (first >= 0xe0u && first <= 0xefu) {
+            codepoint = first & 0x0fu;
+            remaining = 2;
+        } else if (first >= 0xf0u && first <= 0xf4u) {
+            codepoint = first & 0x07u;
+            remaining = 3;
+        } else {
+            return false;
+        }
+        if (remaining > value.size() - index) return false;
+        for (std::size_t count = 0; count < remaining; ++count) {
+            const unsigned char continuation = static_cast<unsigned char>(value[index++]);
+            if ((continuation & 0xc0u) != 0x80u) return false;
+            codepoint = (codepoint << 6) | (continuation & 0x3fu);
+        }
+        if ((remaining == 2 && codepoint < 0x800u) ||
+            (remaining == 3 && codepoint < 0x10000u) ||
+            codepoint > 0x10ffffu || (codepoint >= 0xd800u && codepoint <= 0xdfffu)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void append_utf8(std::string& output, std::uint32_t codepoint)
 {
     if (codepoint <= 0x7fu) {
@@ -183,6 +217,7 @@ private:
             const unsigned char ch = static_cast<unsigned char>(text_[position_++]);
             if (ch == '"') {
                 if (result.size() > limits_.max_string_bytes) throw std::runtime_error("JSON string exceeds budget");
+                if (!valid_utf8(result)) throw std::runtime_error("JSON string is not valid UTF-8");
                 return result;
             }
             if (ch < 0x20u) throw std::runtime_error("JSON string contains an unescaped control byte");

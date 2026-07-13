@@ -136,5 +136,10 @@ native-tested, but archive extraction and all public lifecycle apply dispatch
 remain unavailable. This is fixture authority, not live product-install
 authority.
 
+WU7 adds adversarial, concurrency, scale, sanitizer, and bounded-fuzzer proof.
+Unsafe path forms, unsupported Unicode normalization, stale plans, target and
+source substitution, conflicting writers, and tampered recovery authority fail
+closed. See [M1 adversarial proof](docs/testing/m1_adversarial_proof.md).
+
 The current repository remains a canonical bootstrap, not a production
 installer implementation.

@@ -117,6 +117,19 @@ abstract platform.
 - The synthetic native journey exercises install, verify, drift, repair, move,
   blocked uninstall, clean uninstall, and interruption recovery.
 
+## M1-WU7 — Adversarial and Scale Proof
+
+- Added plan-time Windows-reserved-name, case collision, unsupported Unicode,
+  overlong path, timestamp, and current-state monotonicity refusal.
+- Bound recovery to the exact journal root authority in addition to plan and
+  transition-chain identity.
+- Added concurrent target and audit writer proof, post-plan source/foreign
+  drift, target substitution, bounded nested scale, and operational fault
+  injection.
+- Hardened canonical JSON against invalid and overlong UTF-8 encodings.
+- Added Linux ASan/UBSan CI and a bounded Clang libFuzzer canonical JSON target.
+- Kept every mutation inside disposable native fixture roots.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local
