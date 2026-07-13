@@ -1,6 +1,9 @@
 #ifndef USK_API_H
 #define USK_API_H
 
+#include <stddef.h>
+
+#include "usk_allocator.h"
 #include "usk_command.h"
 #include "usk_result.h"
 
@@ -13,7 +16,15 @@ typedef struct usk_context usk_context;
 typedef struct usk_config_v1 {
     usk_size struct_size;
     const char* state_root;
+    const usk_allocator_v1* allocator;
 } usk_config_v1;
+
+/*
+ * The original v1 configuration ended after state_root. Context creation
+ * continues to accept that prefix so already-compiled callers remain valid.
+ * New callers may provide the complete structure and an optional allocator.
+ */
+#define USK_CONFIG_V1_BASE_SIZE ((usk_size)offsetof(usk_config_v1, allocator))
 
 USK_API int USK_CALL usk_context_create_v1(
     const usk_config_v1* config,
