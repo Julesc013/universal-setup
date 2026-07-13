@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/recovery_report.v1.schema.json",
+  "title": "Interrupted Transaction Recovery Report",
+  "type": "object",
+  "required": ["schema", "report_id", "report_digest", "journal_id", "journal_digest", "transaction_id", "observed_state", "available_actions", "selected_action", "effects", "status", "recorded_at"],
+  "properties": {
+    "schema": { "const": "usk.recovery_report.v1" },
+    "report_id": { "type": "string", "minLength": 1 },
+    "report_digest": { "$ref": "#/$defs/sha256" },
+    "journal_id": { "type": "string", "minLength": 1 },
+    "journal_digest": { "$ref": "#/$defs/sha256" },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "observed_state": { "$ref": "#/$defs/state" },
+    "available_actions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "selected_action": { "anyOf": [{ "$ref": "#/$defs/action" }, { "type": "null" }] },
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "root_class", "relative_path"],
+        "properties": {
+          "kind": { "enum": ["resume_transition", "delete_staged_path", "restore_owned_file", "retain_path", "write_state", "write_audit"] },
+          "root_class": { "enum": ["owned_target", "staging", "setup_state", "audit"] },
+          "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "status": { "enum": ["inspection_only", "completed", "rolled_back", "operator_action_required", "failed", "recovery_required"] },
+    "recorded_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "action": { "enum": ["resume", "rollback", "accept_new_root", "retain_for_operator", "abandon"] },
+    "state": { "enum": ["created", "validated", "planned", "staging", "staged", "verified", "committing", "committed", "completed", "refused", "failed", "recovery_required", "rolled_back", "abandoned_by_operator"] }
+  },
+  "additionalProperties": false
+}

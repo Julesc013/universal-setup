@@ -1,13 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/setup_manifest.v1.schema.json",
-  "title": "Setup Manifest",
+  "title": "Compatibility Setup Manifest Reference",
+  "description": "Compatibility identity wrapper. New product setup data uses usk.recipe.v1.",
   "type": "object",
-  "required": ["schema_version", "install_id", "product_id"],
+  "required": ["schema", "install_id", "product_id", "product_version", "recipe_ref", "recipe_digest"],
   "properties": {
-    "schema_version": { "type": "integer", "minimum": 1 },
-    "install_id": { "type": "string" },
-    "product_id": { "type": "string" }
+    "schema": { "const": "usk.setup_manifest.v1" },
+    "install_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "product_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "product_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "recipe_ref": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "recipe_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

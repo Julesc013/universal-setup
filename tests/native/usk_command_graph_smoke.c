@@ -238,7 +238,9 @@ int main(void)
     if (run_command(context, "policy.inspect", 1, "\"network_allowed\":false") != 0) {
         return 21;
     }
-    if (run_command(context, "install_local.plan", 1, "\"schema\":\"usk.install_plan.v1\"") != 0) {
+    status = execute_status(context, "install_local.plan", &response);
+    if (status != USK_STATUS_ERROR ||
+        !contains(response.json_payload, "\"code\":\"planned_command_unavailable\"")) {
         return 22;
     }
     memset(&request, 0, sizeof(request));
@@ -250,11 +252,12 @@ int main(void)
     request.dry_run = 1;
     status = usk_command_execute_v1(context, &request, &response);
     if (status != USK_STATUS_ERROR || response.status != USK_STATUS_ERROR ||
-        !contains(response.json_payload, "\"status\":\"not_implemented\"") ||
         !contains(response.json_payload, "\"code\":\"verification_not_implemented\"")) {
         return 23;
     }
-    if (run_command(context, "uninstall.plan", 1, "\"operation\":\"uninstall\"") != 0) {
+    status = execute_status(context, "uninstall.plan", &response);
+    if (status != USK_STATUS_ERROR ||
+        !contains(response.json_payload, "\"code\":\"planned_command_unavailable\"")) {
         return 24;
     }
     if (run_command(context, "audit.log", 1, "\"schema\":\"usk.audit_log.v1\"") != 0) {

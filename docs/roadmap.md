@@ -42,6 +42,18 @@ abstract platform.
   response-lifetime proof, and exact descriptor coverage.
 - Kept dynamic registration and generic operation handlers out of scope.
 
+## M1-WU2 — Setup Contract Spine
+
+- Added strict v1 recipe, source, install/operation plan, installed-state,
+  ownership-manifest, transaction-journal, audit-event, lifecycle-report, and
+  refusal schemas.
+- Bound plans to revalidated source, recipe, target, state, ownership, policy,
+  and provider identities.
+- Made retained unknown/user content and deferred old-root removal explicit.
+- Expanded local-only policy to forbid elevation, installer execution, and
+  credential access.
+- Retired invalid static install/uninstall previews until a real planner lands.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local

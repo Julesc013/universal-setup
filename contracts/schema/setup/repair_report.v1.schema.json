@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/repair_report.v1.schema.json",
+  "title": "Managed Repair Report",
+  "type": "object",
+  "required": ["schema", "report_id", "report_digest", "transaction_id", "plan_id", "install_id", "recipe_digest", "source_digest", "before_verification_ref", "after_verification_ref", "repaired_files", "retained_unknown_paths", "status", "completed_at"],
+  "properties": {
+    "schema": { "const": "usk.repair_report.v1" },
+    "report_id": { "type": "string", "minLength": 1 },
+    "report_digest": { "$ref": "#/$defs/sha256" },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "install_id": { "type": "string", "minLength": 1 },
+    "recipe_digest": { "$ref": "#/$defs/sha256" },
+    "source_digest": { "$ref": "#/$defs/sha256" },
+    "before_verification_ref": { "$ref": "#/$defs/report_ref" },
+    "after_verification_ref": { "$ref": "#/$defs/report_ref" },
+    "repaired_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path", "prior_status", "sha256"],
+        "properties": {
+          "relative_path": { "$ref": "#/$defs/relative_path" },
+          "prior_status": { "enum": ["missing", "modified", "wrong_type"] },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "retained_unknown_paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relative_path" } },
+    "status": { "enum": ["completed", "refused", "failed", "recovery_required"] },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "report_ref": {
+      "type": "object",
+      "required": ["report_id", "report_digest", "status"],
+      "properties": {
+        "report_id": { "type": "string", "minLength": 1 },
+        "report_digest": { "$ref": "#/$defs/sha256" },
+        "status": { "enum": ["pass", "warn", "fail", "refused"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

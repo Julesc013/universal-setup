@@ -21,18 +21,16 @@ state.
 
 `USETUP-CONTRACT-01` freezes the first setup contract spine before mutation:
 
-- install plan
-- installed state
-- verify report
-- audit log
-- transaction
-- rollback
-- ownership
-- refusal
-- policy
+- recipe and stable local source
+- install and managed-operation plans
+- installed state and exact ownership manifest
+- durable transaction journal and chained audit event
+- verification, repair, move, uninstall, and recovery reports
+- explicit refusal
 
-The first policy forbids network access, registry changes, package-manager
-changes, and product-specific installer execution.
+Retained bootstrap policy/ownership/report contracts remain compatibility
+surfaces. The M1 policy forbids network and credential access, registry
+changes, elevation, package-manager changes, and any installer execution.
 
 Public ABI namespaces:
 

@@ -106,5 +106,11 @@ verification separates integrity, authenticity, compatibility, completeness,
 and target match. Nothing here grants installation, repair, uninstall,
 rollback, elevation, registry, package-manager, or publication authority.
 
+The strict M1 contract spine now defines declarative recipes, stable local
+sources, digest-bound plans, installed state, exact ownership, durable journals,
+chained audit events, lifecycle reports, and refusals. The old static install
+and uninstall previews were removed: plan/apply commands remain unavailable
+until the archive inspector and real planner can emit valid bound contracts.
+
 The current repository remains a canonical bootstrap, not a production
 installer implementation.

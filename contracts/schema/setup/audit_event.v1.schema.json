@@ -1,13 +1,49 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/audit_event.v1.schema.json",
-  "title": "Setup Audit Event",
+  "title": "Chained Setup Audit Event",
   "type": "object",
-  "required": ["schema_version", "event_type", "created_at"],
+  "required": [
+    "schema",
+    "event_id",
+    "event_digest",
+    "audit_chain_id",
+    "sequence",
+    "previous_event_digest",
+    "created_at",
+    "operation",
+    "phase",
+    "status",
+    "subject",
+    "details_digest"
+  ],
   "properties": {
-    "schema_version": { "type": "integer", "minimum": 1 },
-    "event_type": { "type": "string" },
-    "created_at": { "type": "string" }
+    "schema": { "const": "usk.audit_event.v1" },
+    "event_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "event_digest": { "$ref": "#/$defs/sha256" },
+    "audit_chain_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "previous_event_digest": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "operation": { "enum": ["inspect", "plan", "install_local", "verify", "repair", "move", "uninstall", "recovery"] },
+    "phase": { "enum": ["request", "validated", "planned", "staging", "verified", "committing", "completed", "refused", "failed", "recovery"] },
+    "status": { "enum": ["pass", "warn", "fail", "refused", "recovery_required"] },
+    "subject": {
+      "type": "object",
+      "required": ["subject_type", "subject_id"],
+      "properties": {
+        "subject_type": { "enum": ["source", "plan", "transaction", "installation", "ownership_manifest", "journal"] },
+        "subject_id": { "type": "string", "minLength": 1, "maxLength": 256 }
+      },
+      "additionalProperties": false
+    },
+    "details_digest": { "$ref": "#/$defs/sha256" },
+    "transaction_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "plan_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "message": { "type": "string", "maxLength": 4096 }
   },
-  "additionalProperties": true
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
 }

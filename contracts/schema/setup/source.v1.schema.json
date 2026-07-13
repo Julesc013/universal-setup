@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/source.v1.schema.json",
+  "title": "Stable Local Archive Source",
+  "type": "object",
+  "required": [
+    "schema",
+    "source_id",
+    "kind",
+    "path",
+    "archive_format",
+    "size_bytes",
+    "sha256",
+    "filesystem_identity",
+    "inspected_at",
+    "stable_read",
+    "budgets"
+  ],
+  "properties": {
+    "schema": { "const": "usk.source.v1" },
+    "source_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "kind": { "const": "local_archive" },
+    "path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "archive_format": { "enum": ["zip", "tar", "tar_gzip"] },
+    "size_bytes": { "type": "integer", "minimum": 0 },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "filesystem_identity": {
+      "type": "object",
+      "required": ["volume_id", "file_id", "size_bytes", "modified_time_ns"],
+      "properties": {
+        "volume_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "file_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "modified_time_ns": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "inspected_at": { "type": "string", "format": "date-time" },
+    "stable_read": { "const": true },
+    "budgets": {
+      "type": "object",
+      "required": ["max_entries", "max_uncompressed_bytes", "max_entry_bytes", "max_depth", "max_ratio", "max_elapsed_ms"],
+      "properties": {
+        "max_entries": { "type": "integer", "minimum": 1 },
+        "max_uncompressed_bytes": { "type": "integer", "minimum": 1 },
+        "max_entry_bytes": { "type": "integer", "minimum": 1 },
+        "max_depth": { "type": "integer", "minimum": 1 },
+        "max_ratio": { "type": "number", "exclusiveMinimum": 0 },
+        "max_elapsed_ms": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
