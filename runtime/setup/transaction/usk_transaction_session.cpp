@@ -2,6 +2,7 @@
 
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
+#include "usk_json.h"
 
 #include <algorithm>
 #include <array>
@@ -443,7 +444,9 @@ bool valid_transition(const std::string& from, const std::string& to)
     if (from == "verified") return to == "committing" || to == "recovery_required" || to == "refused";
     if (from == "committing") return to == "committed" || to == "recovery_required";
     if (from == "committed") return to == "completed" || to == "recovery_required";
-    if (from == "recovery_required") return to == "rolled_back" || to == "abandoned_by_operator";
+    if (from == "recovery_required") {
+        return to == "committing" || to == "rolled_back" || to == "abandoned_by_operator";
+    }
     return false;
 }
 
@@ -464,6 +467,14 @@ std::vector<std::string> journal_actions(const std::string& state)
 namespace usk::transaction {
 
 TransactionSession::TransactionSession(TransactionSpec spec, FaultInjector injector)
+    : TransactionSession(std::move(spec), std::move(injector), false)
+{
+}
+
+TransactionSession::TransactionSession(
+    TransactionSpec spec,
+    FaultInjector injector,
+    bool resume_finalization)
     : spec_(std::move(spec)), injector_(std::move(injector))
 {
     if (!valid_identifier(spec_.transaction_id) ||
@@ -482,6 +493,65 @@ TransactionSession::TransactionSession(TransactionSpec spec, FaultInjector injec
     journal_path_ = spec_.state_root / "transactions" /
         (spec_.transaction_id + ".journal.json");
     created_at_ = iso8601_now();
+
+    if (resume_finalization) {
+        require_safe_directory(spec_.staging_parent);
+        require_safe_directory(spec_.target_root.parent_path());
+        require_safe_directory(spec_.state_root);
+        require_safe_directory(spec_.state_root / "transactions");
+        require_safe_directory(spec_.audit_root);
+        require_disjoint(spec_.target_root, spec_.state_root);
+        require_disjoint(spec_.target_root, spec_.audit_root);
+        require_disjoint(spec_.state_root, spec_.audit_root);
+        const std::string text = read_bounded_text(journal_path_, 4u * 1024u * 1024u);
+        const usk::json::Value document = usk::json::parse(text);
+        if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||
+            document.at("transaction_id").as_string() != spec_.transaction_id ||
+            document.at("plan_id").as_string() != spec_.plan_id ||
+            document.at("plan_digest").as_string() != spec_.plan_digest ||
+            document.at("operation").as_string() != spec_.operation) {
+            throw std::runtime_error("transaction journal does not bind the requested finalization");
+        }
+        created_at_ = document.at("created_at").as_string();
+        std::string prior;
+        for (const usk::json::Value& item : document.at("transitions").as_array()) {
+            const std::uint64_t sequence = item.at("sequence").as_unsigned();
+            std::string from;
+            if (item.at("from").type() != usk::json::Value::Type::null_value) {
+                from = item.at("from").as_string();
+            }
+            const std::string to = item.at("to").as_string();
+            if (sequence != transitions_.size() || from != prior || !valid_transition(from, to) ||
+                item.at("transition_id").as_string() !=
+                    spec_.transaction_id + "." + std::to_string(sequence) ||
+                !item.at("durable_before_external_visibility").as_boolean()) {
+                throw std::runtime_error("transaction journal transition chain is invalid");
+            }
+            transitions_.push_back(Transition{sequence, from, to, item.at("recorded_at").as_string()});
+            prior = to;
+        }
+        std::ostringstream chain;
+        for (const Transition& transition : transitions_) {
+            chain << transition.sequence << '\0' << transition.from << '\0'
+                  << transition.to << '\0' << transition.recorded_at << '\n';
+        }
+        usk::base::Sha256 chain_digest;
+        const std::string chain_text = chain.str();
+        chain_digest.update(
+            reinterpret_cast<const unsigned char*>(chain_text.data()), chain_text.size());
+        if (transitions_.empty() || document.at("current_state").as_string() != prior ||
+            document.at("journal_digest").as_string() != chain_digest.finish() ||
+            (prior != "committing" && prior != "committed" && prior != "recovery_required") ||
+            fs::exists(staging_root_) || !fs::is_directory(spec_.target_root) ||
+            reparse_or_symlink(spec_.target_root)) {
+            throw std::runtime_error("transaction is not a visible-target finalization candidate");
+        }
+        current_state_ = prior;
+        staging_parent_identity_ = directory_identity(spec_.staging_parent);
+        target_parent_identity_ = directory_identity(spec_.target_root.parent_path());
+        journal_directory_identity_ = directory_identity(spec_.state_root / "transactions");
+        return;
+    }
 
     verify_roots_for_plan();
     if (fs::exists(journal_path_)) {
@@ -738,6 +808,15 @@ void TransactionSession::mark_recovery_required()
     persist_transition("recovery_required");
 }
 
+void TransactionSession::resume_committing()
+{
+    if (current_state_ != "recovery_required" || fs::exists(staging_root_) ||
+        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
+        throw std::runtime_error("only visible-target recovery can resume finalization");
+    }
+    persist_transition("committing");
+}
+
 void TransactionSession::commit()
 {
     commit_effect();
@@ -858,6 +937,14 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
         result.available_actions = {"retain_for_operator"};
     }
     return result;
+}
+
+std::unique_ptr<TransactionSession> TransactionSession::resume_finalization(
+    const TransactionSpec& spec,
+    FaultInjector injector)
+{
+    return std::unique_ptr<TransactionSession>(
+        new TransactionSession(spec, std::move(injector), true));
 }
 
 } // namespace usk::transaction

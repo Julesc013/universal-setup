@@ -68,6 +68,9 @@ public:
     OwnershipManifest read_ownership(const std::string& manifest_id) const;
     void write_installed(const InstalledState& state) const;
     InstalledState read_installed(const std::string& install_id) const;
+    InstalledState read_installed_snapshot(
+        const std::string& install_id,
+        const std::string& transaction_id) const;
 
     const std::filesystem::path& root() const noexcept { return root_; }
 

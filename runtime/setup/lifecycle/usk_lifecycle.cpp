@@ -590,6 +590,113 @@ InstallResult apply_install(
     }
 }
 
+InstallResult recover_install_finalization(
+    const InstallPlan& plan,
+    const std::string& transaction_id,
+    const std::string& recovered_at)
+{
+    validate_plan(plan);
+    if (!record_io::valid_identifier(transaction_id) || recovered_at.empty()) {
+        throw std::runtime_error("install recovery identity is invalid");
+    }
+    transaction::TransactionSpec spec{
+        transaction_id, plan.plan_id, plan.plan_digest, "install_local",
+        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root};
+    std::unique_ptr<transaction::TransactionSession> transaction =
+        transaction::TransactionSession::resume_finalization(spec);
+    if (transaction->current_state() == "recovery_required") transaction->resume_committing();
+
+    state::StateRepository repository(plan.roots.state_root);
+    state::OwnershipManifest expected;
+    expected.manifest_id = "ownership." + plan.install_id + "." + transaction_id;
+    expected.install_id = plan.install_id;
+    expected.target_root = plan.target_root.string();
+    expected.created_by_transaction_id = transaction_id;
+    expected.directories = directory_closure(plan.files);
+    for (const PayloadFile& file : plan.files) {
+        expected.files.push_back({file.relative_path, hash_bytes(file.bytes),
+                                  static_cast<std::uint64_t>(file.bytes.size())});
+    }
+    state::OwnershipManifest ownership;
+    const fs::path ownership_path = plan.roots.state_root / "ownership" / (expected.manifest_id + ".json");
+    if (fs::exists(ownership_path)) {
+        ownership = repository.read_ownership(expected.manifest_id);
+        if (ownership.install_id != expected.install_id || ownership.target_root != expected.target_root ||
+            ownership.created_by_transaction_id != expected.created_by_transaction_id ||
+            ownership.files.size() != expected.files.size() || ownership.directories != expected.directories) {
+            throw std::runtime_error("existing recovery ownership record conflicts with the reviewed install");
+        }
+        for (std::size_t index = 0; index < ownership.files.size(); ++index) {
+            if (std::tie(ownership.files[index].relative_path, ownership.files[index].sha256,
+                         ownership.files[index].size_bytes) !=
+                std::tie(expected.files[index].relative_path, expected.files[index].sha256,
+                         expected.files[index].size_bytes)) {
+                throw std::runtime_error("existing recovery ownership closure conflicts with the reviewed install");
+            }
+        }
+    } else {
+        ownership = repository.write_ownership(std::move(expected));
+    }
+
+    state::InstalledState installed;
+    installed.install_id = plan.install_id;
+    installed.product_id = plan.recipe.product_id;
+    installed.product_version = plan.recipe.product_version;
+    installed.recipe_digest = plan.recipe.recipe_digest;
+    installed.source_archive_digest = plan.recipe.source_archive_digest;
+    installed.target_root = plan.target_root.string();
+    installed.component_selection = plan.recipe.components;
+    installed.ownership_manifest_ref = "ownership/" + ownership.manifest_id + ".json";
+    installed.ownership_manifest_digest = ownership.manifest_digest;
+    installed.entrypoints = plan.recipe.entrypoints;
+    installed.setup_abi_major = 1;
+    installed.setup_abi_minor = 0;
+    installed.provider_revision = plan.recipe.provider_revision;
+    installed.transaction_id = transaction_id;
+    installed.created_at = recovered_at;
+    installed.audit_chain_id = "audit." + plan.install_id;
+    installed.lifecycle_status = "installed";
+    installed.last_verification = {
+        "verify." + transaction_id + ".recovery", std::string(64, '0'), "fail", recovered_at};
+    VerificationReport verification = verify_manifest(
+        installed, ownership, installed.last_verification.report_id, recovered_at);
+    if (verification.status != "pass") {
+        transaction->mark_recovery_required();
+        throw std::runtime_error("visible install target does not match the reviewed recovery plan");
+    }
+    installed.last_verification = {
+        verification.report_id, verification.report_digest, verification.status, recovered_at};
+    const fs::path snapshot_path = plan.roots.state_root / "installed" /
+        (plan.install_id + "." + transaction_id + ".json");
+    if (fs::exists(snapshot_path)) {
+        const state::InstalledState existing = repository.read_installed_snapshot(plan.install_id, transaction_id);
+        if (existing.ownership_manifest_digest != installed.ownership_manifest_digest ||
+            existing.target_root != installed.target_root || existing.recipe_digest != installed.recipe_digest ||
+            existing.source_archive_digest != installed.source_archive_digest) {
+            throw std::runtime_error("existing recovery installed-state snapshot conflicts with the reviewed install");
+        }
+        installed = existing;
+    } else {
+        repository.write_installed(installed);
+    }
+
+    audit::AuditRepository audit_repository(plan.roots.audit_root);
+    const auto chain = audit_repository.read_and_validate_chain(installed.audit_chain_id);
+    const bool already_audited = std::any_of(chain.begin(), chain.end(), [&](const audit::AuditEvent& event) {
+        return event.transaction_id == transaction_id && event.operation == "install_local" &&
+            event.phase == "completed";
+    });
+    if (!already_audited) {
+        audit_repository.append(installed.audit_chain_id, audit::AuditInput{
+            recovered_at, "recovery", "completed", "pass", "installation", plan.install_id,
+            verification.report_digest, transaction_id, plan.plan_id,
+            "visible managed install finalization recovered"});
+    }
+    if (transaction->current_state() == "committing") transaction->mark_committed();
+    if (transaction->current_state() == "committed") transaction->mark_completed();
+    return {installed, ownership, verification, transaction->journal_path()};
+}
+
 VerificationReport verify_installed(
     const LifecycleRoots& roots,
     const std::string& install_id,

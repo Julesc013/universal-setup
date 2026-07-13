@@ -151,6 +151,11 @@ InstallResult apply_install(
     const std::string& transaction_id,
     const std::string& applied_at);
 
+InstallResult recover_install_finalization(
+    const InstallPlan& plan,
+    const std::string& transaction_id,
+    const std::string& recovered_at);
+
 VerificationReport verify_installed(
     const LifecycleRoots& roots,
     const std::string& install_id,

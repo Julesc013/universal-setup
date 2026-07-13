@@ -180,16 +180,44 @@ int run()
         .read_and_validate_chain("audit.install.synthetic");
     if (chain.size() != 6 || chain.front().phase != "validated" || chain.back().operation != "uninstall") return 11;
 
+    const fs::path recovery_target = fixture.root / "targets/recovered-portable";
+    const auto recovery_plan = usk::lifecycle::plan_install(
+        "plan.synthetic.recovery", "install.recovered", "2026-07-14T00:10:14Z",
+        recovery_target, fixture.roots, recipe(), payload());
+    usk::audit::AuditRepository recovery_audit(fixture.roots.audit_root);
+    recovery_audit.initialize_chain("audit.install.recovered");
+    recovery_audit.append("audit.install.recovered", usk::audit::AuditInput{
+        "2026-07-14T00:10:15Z", "install_local", "validated", "pass", "plan",
+        recovery_plan.plan_id, recovery_plan.plan_digest, "tx.synthetic.recovery",
+        recovery_plan.plan_id, "reviewed plan revalidated"});
+    usk::transaction::TransactionSession interrupted(usk::transaction::TransactionSpec{
+        "tx.synthetic.recovery", recovery_plan.plan_id, recovery_plan.plan_digest, "install_local",
+        fixture.roots.staging_parent, recovery_target, fixture.roots.state_root, fixture.roots.audit_root});
+    for (const auto& file : recovery_plan.files) interrupted.stage_file(file.relative_path, file.bytes);
+    interrupted.mark_staged();
+    interrupted.mark_verified();
+    interrupted.commit_effect();
+    interrupted.mark_recovery_required();
+    const auto recovered = usk::lifecycle::recover_install_finalization(
+        recovery_plan, "tx.synthetic.recovery", "2026-07-14T00:10:16Z");
+    if (recovered.verification.status != "pass" ||
+        usk::transaction::TransactionSession::inspect_recovery(usk::transaction::TransactionSpec{
+            "tx.synthetic.recovery", recovery_plan.plan_id, recovery_plan.plan_digest, "install_local",
+            fixture.roots.staging_parent, recovery_target, fixture.roots.state_root,
+            fixture.roots.audit_root}).current_state != "completed") {
+        return 12;
+    }
+
     const fs::path occupied = fixture.root / "targets/occupied";
     fs::create_directory(occupied);
     const auto occupied_plan = usk::lifecycle::plan_install(
-        "plan.synthetic.occupied", "install.occupied", "2026-07-14T00:10:14Z",
+        "plan.synthetic.occupied", "install.occupied", "2026-07-14T00:10:17Z",
         occupied, fixture.roots, recipe(), payload());
     if (!refuses([&] {
             (void)usk::lifecycle::apply_install(
-                occupied_plan, occupied_plan.plan_digest, "tx.synthetic.occupied", "2026-07-14T00:10:15Z");
+                occupied_plan, occupied_plan.plan_digest, "tx.synthetic.occupied", "2026-07-14T00:10:18Z");
         })) {
-        return 12;
+        return 13;
     }
     return 0;
 }

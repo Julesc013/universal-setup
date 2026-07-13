@@ -380,4 +380,32 @@ InstalledState StateRepository::read_installed(const std::string& install_id) co
     return result;
 }
 
+InstalledState StateRepository::read_installed_snapshot(
+    const std::string& install_id,
+    const std::string& transaction_id) const
+{
+    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(transaction_id)) {
+        throw std::runtime_error("installed-state snapshot identity is invalid");
+    }
+    const fs::path path = root_ / "installed" / (install_id + "." + transaction_id + ".json");
+    const std::string text = record_io::read_stable_text(path, 4u * 1024u * 1024u);
+    const Value document = json::parse(text);
+    const std::string canonical = json::canonical(document);
+    if (canonical + "\n" != text && canonical + "\r\n" != text) {
+        throw std::runtime_error("installed-state snapshot is not canonical");
+    }
+    InstalledState result = parse_installed(document);
+    if (result.install_id != install_id || result.transaction_id != transaction_id) {
+        throw std::runtime_error("installed-state snapshot lookup identity mismatch");
+    }
+    const std::string ownership_record_id = result.ownership_manifest_ref.substr(
+        10, result.ownership_manifest_ref.size() - 15);
+    const OwnershipManifest ownership = read_ownership(ownership_record_id);
+    if (ownership.manifest_digest != result.ownership_manifest_digest ||
+        ownership.install_id != result.install_id || ownership.target_root != result.target_root) {
+        throw std::runtime_error("installed-state snapshot ownership binding no longer validates");
+    }
+    return result;
+}
+
 } // namespace usk::state
