@@ -1,4 +1,5 @@
 #include "usk/usk_api.h"
+#include "usk_archive_inspect.h"
 #include "usk_package_verify.h"
 
 #include <stdlib.h>
@@ -9,7 +10,8 @@
 typedef enum usk_response_storage_kind {
     USK_RESPONSE_STORAGE_NONE = 0,
     USK_RESPONSE_STORAGE_CONTEXT_ALLOCATOR,
-    USK_RESPONSE_STORAGE_PACKAGE_VERIFY
+    USK_RESPONSE_STORAGE_PACKAGE_VERIFY,
+    USK_RESPONSE_STORAGE_ARCHIVE_INSPECT
 } usk_response_storage_kind;
 
 struct usk_context {
@@ -79,6 +81,10 @@ static usk_static_response usk_handle_package_verify(
     usk_context* context,
     const usk_command_request_v1* request,
     const usk_command_descriptor* descriptor);
+static usk_static_response usk_handle_archive_inspect(
+    usk_context* context,
+    const usk_command_request_v1* request,
+    const usk_command_descriptor* descriptor);
 static usk_static_response usk_handle_static(
     usk_context* context,
     const usk_command_request_v1* request,
@@ -92,7 +98,7 @@ static const usk_command_descriptor USK_COMMANDS[] = {
     USK_DESCRIPTOR("policy.inspect", "usk.command_request.v1", "usk.policy.v1", "[\"none\"]", "read_only", "available", 1, 0, usk_handle_static, USK_STATUS_OK, USK_POLICY_PAYLOAD, 0),
     USK_DESCRIPTOR("package.verify", "usk.package_verify_request.v1", "usk.package_verify_report.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_package_verify, USK_STATUS_OK, 0, 0),
     USK_DESCRIPTOR("package.audit", "usk.package_verify_request.v1", "usk.package_verify_report.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_package_verify, USK_STATUS_OK, 0, 0),
-    USK_DESCRIPTOR("install_local.inspect", "usk.command_request.v1", "usk.source.v1", "[\"source_read\",\"target_read\"]", "read_only", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
+    USK_DESCRIPTOR("install_local.inspect", "usk.archive_inspect_request.v1", "usk.archive_inspection.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_archive_inspect, USK_STATUS_OK, 0, 0),
     USK_DESCRIPTOR("install_local.plan", "usk.command_request.v1", "usk.install_plan.v1", "[\"source_read\",\"target_read\"]", "always_preview", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
     USK_DESCRIPTOR("install_local.apply", "usk.command_request.v1", "usk.installed_state.v1", "[\"owned_target_write\",\"state_write\",\"audit_write\"]", "reviewed_plan_required", "planned", 0, 1, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
     USK_DESCRIPTOR("installed.inspect", "usk.command_request.v1", "usk.installed_state.v1", "[\"state_read\"]", "read_only", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
@@ -149,6 +155,8 @@ static void usk_release_response_storage(usk_context* context)
     }
     if (context->response_storage_kind == USK_RESPONSE_STORAGE_PACKAGE_VERIFY) {
         usk_package_verify_command_free(context->response_storage);
+    } else if (context->response_storage_kind == USK_RESPONSE_STORAGE_ARCHIVE_INSPECT) {
+        usk_archive_inspect_command_free(context->response_storage);
     } else {
         context->allocator.free(context->allocator.user, context->response_storage);
     }
@@ -363,6 +371,29 @@ static usk_static_response usk_handle_package_verify(
     result.error_message = command_status == USK_STATUS_OK
         ? 0
         : "package verification request was refused";
+    return result;
+}
+
+static usk_static_response usk_handle_archive_inspect(
+    usk_context* context,
+    const usk_command_request_v1* request,
+    const usk_command_descriptor* descriptor)
+{
+    usk_static_response result;
+    int command_status = USK_STATUS_ERROR;
+    (void)descriptor;
+    context->response_storage = usk_archive_inspect_command_json(
+        request->json_payload.data,
+        (size_t)request->json_payload.size,
+        &command_status);
+    context->response_storage_kind = context->response_storage == 0
+        ? USK_RESPONSE_STORAGE_NONE
+        : USK_RESPONSE_STORAGE_ARCHIVE_INSPECT;
+    result.status = command_status;
+    result.payload = context->response_storage;
+    result.error_message = command_status == USK_STATUS_OK
+        ? 0
+        : "archive inspection request was refused";
     return result;
 }
 

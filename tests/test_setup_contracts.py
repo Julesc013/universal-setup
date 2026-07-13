@@ -25,6 +25,8 @@ M1_CONTRACT_SPINE = {
 }
 
 RETAINED_CONTRACTS = {
+    "archive_inspect_request": "usk.archive_inspect_request.v1",
+    "archive_inspection": "usk.archive_inspection.v1",
     "package_verify_request": "usk.package_verify_request.v1",
     "package_verify_report": "usk.package_verify_report.v1",
     "repair_plan": "usk.repair_plan.v1",
@@ -79,6 +81,31 @@ class SetupContractTests(unittest.TestCase):
             "post_install_hook",
         ):
             self.assertNotIn(forbidden, serialized)
+
+    def test_archive_inspection_is_local_bounded_and_normalized(self) -> None:
+        request = load_schema("archive_inspect_request")
+        self.assertEqual(request["properties"]["archive_format"]["const"], "zip")
+        self.assertEqual(
+            set(request["properties"]["budgets"]["required"]),
+            {
+                "max_entries",
+                "max_uncompressed_bytes",
+                "max_entry_bytes",
+                "max_depth",
+                "max_ratio",
+                "max_elapsed_ms",
+            },
+        )
+        inspection = load_schema("archive_inspection")
+        self.assertEqual(
+            inspection["properties"]["normalization_policy"]["const"],
+            "ascii_case_insensitive_v1",
+        )
+        self.assertIn("entry_set_digest", inspection["required"])
+        self.assertIs(
+            inspection["properties"]["source"]["properties"]["stable_read"]["const"],
+            True,
+        )
 
     def test_plans_bind_inputs_and_require_immediate_revalidation(self) -> None:
         install = load_schema("install_plan")

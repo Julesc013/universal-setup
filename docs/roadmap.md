@@ -54,6 +54,18 @@ abstract platform.
   credential access.
 - Retired invalid static install/uninstall previews until a real planner lands.
 
+## M1-WU3 — Stable Source and Archive Inspection
+
+- Added stable no-follow source handles with handle/path revalidation and
+  singly linked regular-file policy.
+- Added shared known-answer-tested SHA-256 source identity.
+- Implemented bounded classic ZIP local/central structure inspection.
+- Rejects unsafe paths, case collisions, reserved names, unsupported Unicode,
+  links/devices/reparse attributes, encryption, ZIP64, ambiguous bytes, and
+  count/size/depth/ratio/elapsed budget violations.
+- Emits a deterministic normalized entry-set digest without extraction or
+  writable state initialization.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local
