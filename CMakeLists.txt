@@ -9,6 +9,7 @@ target_include_directories(usk_headers INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/in
 
 add_library(usk_base_static STATIC
   runtime/base/usk_json.cpp
+  runtime/base/usk_record_io.cpp
   runtime/base/usk_sha256.cpp
   runtime/base/usk_stable_file.cpp
 )
@@ -43,6 +44,18 @@ target_include_directories(usk_transaction_static PUBLIC
 )
 target_link_libraries(usk_transaction_static PUBLIC usk_base_static)
 set_target_properties(usk_transaction_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_library(usk_state_static STATIC
+  runtime/setup/audit/usk_audit_repository.cpp
+  runtime/setup/state/usk_state_repository.cpp
+)
+target_compile_features(usk_state_static PUBLIC cxx_std_17)
+target_include_directories(usk_state_static PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/audit"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/state"
+)
+target_link_libraries(usk_state_static PUBLIC usk_base_static)
+set_target_properties(usk_state_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_static STATIC runtime/setup/kernel/usk_api.c)
 target_include_directories(usk_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -82,6 +95,14 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_transaction_session_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_transaction_session_smoke PRIVATE usk_transaction_static)
   add_test(NAME usk_transaction_session_smoke COMMAND usk_transaction_session_smoke)
+
+  add_executable(usk_state_repository_smoke tests/native/usk_state_repository_smoke.cpp)
+  target_compile_features(usk_state_repository_smoke PRIVATE cxx_std_17)
+  target_compile_definitions(usk_state_repository_smoke PRIVATE
+    USK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+  )
+  target_link_libraries(usk_state_repository_smoke PRIVATE usk_state_static)
+  add_test(NAME usk_state_repository_smoke COMMAND usk_state_repository_smoke)
 
   add_executable(usk_command_graph_smoke tests/native/usk_command_graph_smoke.c)
   target_link_libraries(usk_command_graph_smoke PRIVATE usk_static)
