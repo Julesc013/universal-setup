@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/move_report.v1.schema.json",
+  "title": "Managed Cross-Root Move Report",
+  "type": "object",
+  "required": ["schema", "report_id", "report_digest", "transaction_id", "plan_id", "install_id", "old_root", "new_root", "new_verification_ref", "reference_update_status", "old_root_status", "phases", "status", "completed_at"],
+  "properties": {
+    "schema": { "const": "usk.move_report.v1" },
+    "report_id": { "type": "string", "minLength": 1 },
+    "report_digest": { "$ref": "#/$defs/sha256" },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "install_id": { "type": "string", "minLength": 1 },
+    "old_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "new_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "new_verification_ref": {
+      "type": "object",
+      "required": ["report_id", "report_digest", "status"],
+      "properties": {
+        "report_id": { "type": "string", "minLength": 1 },
+        "report_digest": { "$ref": "#/$defs/sha256" },
+        "status": { "enum": ["pass", "warn", "fail"] }
+      },
+      "additionalProperties": false
+    },
+    "reference_update_status": { "enum": ["not_started", "completed", "failed"] },
+    "old_root_status": { "enum": ["active", "retired_retained", "accepted_for_later_removal", "removed"] },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["phase", "status"],
+        "properties": {
+          "phase": { "enum": ["copy_to_staging", "verify_closure", "commit_new", "update_references", "retire_old", "accept_old_removal", "remove_old_owned_state"] },
+          "status": { "enum": ["not_started", "completed", "failed", "deferred"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "status": { "enum": ["new_committed_old_retained", "completed", "refused", "failed", "recovery_required"] },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

@@ -9,8 +9,11 @@
     "mutation_scope",
     "network_allowed",
     "registry_allowed",
+    "elevation_allowed",
     "package_manager_allowed",
     "product_specific_installer_allowed",
+    "installer_execution_allowed",
+    "credential_access_allowed",
     "rules"
   ],
   "properties": {
@@ -22,8 +25,11 @@
     },
     "network_allowed": { "const": false },
     "registry_allowed": { "const": false },
+    "elevation_allowed": { "const": false },
     "package_manager_allowed": { "const": false },
     "product_specific_installer_allowed": { "const": false },
+    "installer_execution_allowed": { "const": false },
+    "credential_access_allowed": { "const": false },
     "rules": {
       "type": "array",
       "items": {

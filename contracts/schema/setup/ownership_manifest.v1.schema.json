@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/ownership_manifest.v1.schema.json",
+  "title": "Exact Managed Ownership Manifest",
+  "type": "object",
+  "required": [
+    "schema",
+    "manifest_id",
+    "manifest_digest",
+    "install_id",
+    "target_root",
+    "created_by_transaction_id",
+    "files",
+    "directories"
+  ],
+  "properties": {
+    "schema": { "const": "usk.ownership_manifest.v1" },
+    "manifest_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "manifest_digest": { "$ref": "#/$defs/sha256" },
+    "install_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "target_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "created_by_transaction_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path", "sha256", "size_bytes"],
+        "properties": {
+          "relative_path": { "$ref": "#/$defs/relative_path" },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "size_bytes": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "directories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path"],
+        "properties": {
+          "relative_path": { "$ref": "#/$defs/relative_path" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 }
+  },
+  "additionalProperties": false
+}

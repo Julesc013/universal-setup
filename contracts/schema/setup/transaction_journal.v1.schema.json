@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/transaction_journal.v1.schema.json",
+  "title": "Durable Setup Transaction Journal",
+  "type": "object",
+  "required": [
+    "schema",
+    "journal_id",
+    "journal_digest",
+    "transaction_id",
+    "plan_id",
+    "plan_digest",
+    "operation",
+    "current_state",
+    "created_at",
+    "updated_at",
+    "roots",
+    "transitions",
+    "recovery"
+  ],
+  "properties": {
+    "schema": { "const": "usk.transaction_journal.v1" },
+    "journal_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "journal_digest": { "$ref": "#/$defs/sha256" },
+    "transaction_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "plan_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "plan_digest": { "$ref": "#/$defs/sha256" },
+    "operation": { "enum": ["install_local", "repair", "move", "uninstall", "recovery"] },
+    "current_state": { "$ref": "#/$defs/state" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "roots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["role", "root", "classification"],
+        "properties": {
+          "role": { "enum": ["source", "target", "old_target", "new_target", "staging", "setup_state", "audit"] },
+          "root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+          "classification": { "enum": ["read_only_source", "managed_install", "operator_selected_owned_target", "setup_owned", "audit_owned"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["sequence", "transition_id", "from", "to", "recorded_at", "durable_before_external_visibility"],
+        "properties": {
+          "sequence": { "type": "integer", "minimum": 0 },
+          "transition_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "from": { "anyOf": [{ "$ref": "#/$defs/state" }, { "type": "null" }] },
+          "to": { "$ref": "#/$defs/state" },
+          "recorded_at": { "type": "string", "format": "date-time" },
+          "durable_before_external_visibility": { "const": true },
+          "details_digest": { "$ref": "#/$defs/sha256" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "required": ["required", "available_actions"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "available_actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["resume", "rollback", "accept_new_root", "retain_for_operator", "abandon"] }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "state": {
+      "enum": [
+        "created",
+        "validated",
+        "planned",
+        "staging",
+        "staged",
+        "verified",
+        "committing",
+        "committed",
+        "completed",
+        "refused",
+        "failed",
+        "recovery_required",
+        "rolled_back",
+        "abandoned_by_operator"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

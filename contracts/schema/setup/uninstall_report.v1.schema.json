@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/uninstall_report.v1.schema.json",
+  "title": "Ownership-Bounded Uninstall Report",
+  "type": "object",
+  "required": ["schema", "report_id", "report_digest", "transaction_id", "plan_id", "install_id", "ownership_manifest_digest", "deleted_owned_files", "retained_changed_owned_files", "retained_unknown_paths", "retained_directories", "source_archive_deleted", "status", "completed_at"],
+  "properties": {
+    "schema": { "const": "usk.uninstall_report.v1" },
+    "report_id": { "type": "string", "minLength": 1 },
+    "report_digest": { "$ref": "#/$defs/sha256" },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "install_id": { "type": "string", "minLength": 1 },
+    "ownership_manifest_digest": { "$ref": "#/$defs/sha256" },
+    "deleted_owned_files": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relative_path" } },
+    "retained_changed_owned_files": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relative_path" } },
+    "retained_unknown_paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relative_path" } },
+    "retained_directories": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relative_path" } },
+    "source_archive_deleted": { "const": false },
+    "status": { "enum": ["completed", "retained_foreign_content", "review_required", "refused", "failed", "recovery_required"] },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 }
+  },
+  "additionalProperties": false
+}

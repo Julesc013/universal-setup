@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/verification_report.v1.schema.json",
+  "title": "Managed Installation Verification Report",
+  "type": "object",
+  "required": [
+    "schema",
+    "report_id",
+    "report_digest",
+    "install_id",
+    "installed_state_digest",
+    "ownership_manifest_digest",
+    "verified_at",
+    "status",
+    "files",
+    "directories",
+    "unknown_paths",
+    "summary"
+  ],
+  "properties": {
+    "schema": { "const": "usk.verification_report.v1" },
+    "report_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "report_digest": { "$ref": "#/$defs/sha256" },
+    "install_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "installed_state_digest": { "$ref": "#/$defs/sha256" },
+    "ownership_manifest_digest": { "$ref": "#/$defs/sha256" },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["pass", "warn", "fail", "refused"] },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path", "status", "expected_sha256"],
+        "properties": {
+          "relative_path": { "$ref": "#/$defs/relative_path" },
+          "status": { "enum": ["present", "missing", "modified", "wrong_type", "unreadable"] },
+          "expected_sha256": { "$ref": "#/$defs/sha256" },
+          "actual_sha256": { "$ref": "#/$defs/sha256" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "directories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path", "status"],
+        "properties": {
+          "relative_path": { "$ref": "#/$defs/relative_path" },
+          "status": { "enum": ["present", "missing", "wrong_type", "unreadable"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unknown_paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/relative_path" }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["owned_files", "missing_files", "modified_files", "unknown_paths"],
+      "properties": {
+        "owned_files": { "type": "integer", "minimum": 0 },
+        "missing_files": { "type": "integer", "minimum": 0 },
+        "modified_files": { "type": "integer", "minimum": 0 },
+        "unknown_paths": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 }
+  },
+  "additionalProperties": false
+}

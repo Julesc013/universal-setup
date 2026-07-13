@@ -1,33 +1,53 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/refusal.v1.schema.json",
-  "title": "Refusal",
+  "title": "Setup Refusal",
   "type": "object",
-  "required": ["schema", "refusal_id", "operation", "code", "reason", "recoverable"],
+  "required": ["schema", "refusal_id", "operation", "code", "reason", "recoverable", "recorded_at"],
   "properties": {
     "schema": { "const": "usk.refusal.v1" },
-    "refusal_id": { "type": "string", "minLength": 1 },
-    "operation": {
-      "type": "string",
-      "enum": ["install_local", "verify", "repair", "uninstall", "adopt", "audit"]
-    },
+    "refusal_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "operation": { "enum": ["inspect", "plan", "install_local", "verify", "repair", "move", "uninstall", "recovery", "audit"] },
     "code": {
-      "type": "string",
       "enum": [
         "ownership_denied",
+        "unsafe_source",
         "unsafe_target",
+        "existing_target",
+        "source_changed",
+        "recipe_changed",
+        "target_changed",
+        "installed_state_changed",
+        "ownership_manifest_changed",
+        "policy_changed",
+        "provider_revision_changed",
+        "plan_expired",
+        "plan_digest_mismatch",
+        "archive_entry_unsafe",
+        "archive_budget_exceeded",
+        "archive_collision",
+        "unknown_files_present",
+        "changed_owned_files_require_review",
+        "ambiguous_replacement",
         "network_forbidden",
         "registry_forbidden",
+        "elevation_forbidden",
         "package_manager_forbidden",
-        "product_policy_denied",
+        "installer_execution_forbidden",
         "unsupported_platform",
-        "invalid_manifest",
-        "missing_artifact"
+        "invalid_recipe",
+        "missing_artifact",
+        "recovery_required"
       ]
     },
-    "reason": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "recoverable": { "type": "boolean" },
-    "policy_ref": { "type": "string" }
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "plan_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "transaction_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "policy_digest": { "$ref": "#/$defs/sha256" },
+    "suggested_next_command": { "type": "string", "minLength": 1, "maxLength": 256 }
   },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
   "additionalProperties": false
 }

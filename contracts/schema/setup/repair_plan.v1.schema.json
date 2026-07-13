@@ -1,13 +1,54 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/repair_plan.v1.schema.json",
-  "title": "Repair Plan",
+  "title": "Ownership-Bounded Repair Plan",
   "type": "object",
-  "required": ["schema_version", "steps", "dry_run"],
+  "required": ["schema", "plan_id", "plan_digest", "operation", "status", "created_at", "install_id", "recipe_digest", "source_digest", "installed_state_digest", "ownership_manifest_digest", "before_verification_digest", "repairs", "retained_unknown_paths", "revalidation"],
   "properties": {
-    "schema_version": { "type": "integer", "minimum": 1 },
-    "steps": { "type": "array", "items": { "type": "string" } },
-    "dry_run": { "type": "boolean" }
+    "schema": { "const": "usk.repair_plan.v1" },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "plan_digest": { "$ref": "#/$defs/sha256" },
+    "operation": { "const": "repair" },
+    "status": { "const": "planned" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "install_id": { "type": "string", "minLength": 1 },
+    "recipe_digest": { "$ref": "#/$defs/sha256" },
+    "source_digest": { "$ref": "#/$defs/sha256" },
+    "installed_state_digest": { "$ref": "#/$defs/sha256" },
+    "ownership_manifest_digest": { "$ref": "#/$defs/sha256" },
+    "before_verification_digest": { "$ref": "#/$defs/sha256" },
+    "repairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path", "reason", "expected_sha256"],
+        "properties": {
+          "relative_path": { "$ref": "#/$defs/relative_path" },
+          "reason": { "enum": ["missing", "modified", "wrong_type"] },
+          "expected_sha256": { "$ref": "#/$defs/sha256" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "retained_unknown_paths": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relative_path" } },
+    "revalidation": {
+      "type": "object",
+      "required": ["immediately_before_apply", "invalidate_on"],
+      "properties": {
+        "immediately_before_apply": { "const": true },
+        "invalidate_on": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": { "enum": ["source", "recipe", "target", "installed_state", "ownership_manifest", "policy", "provider_revision"] }
+        }
+      },
+      "additionalProperties": false
+    }
   },
-  "additionalProperties": true
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 }
+  },
+  "additionalProperties": false
 }
