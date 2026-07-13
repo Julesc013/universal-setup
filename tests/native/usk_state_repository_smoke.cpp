@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -76,7 +77,7 @@ usk::state::InstalledState installed(const fs::path& target, const std::string& 
     result.source_archive_digest = "2222222222222222222222222222222222222222222222222222222222222222";
     result.target_root = target.string();
     result.component_selection = {"core"};
-    result.ownership_manifest_ref = "ownership/install.fixture.json";
+    result.ownership_manifest_ref = "ownership/ownership.install.fixture.json";
     result.ownership_manifest_digest = ownership_digest;
     result.entrypoints = {{"application", "app/bin/tool.exe", "application"}};
     result.setup_abi_major = 1;
@@ -111,7 +112,7 @@ usk::audit::AuditInput audit_input(const std::string& phase, const std::string& 
 
 } // namespace
 
-int main()
+int run()
 {
     Fixture fixture("primary");
     usk::state::StateRepository state_repository(fixture.state);
@@ -130,13 +131,13 @@ int main()
     incomplete_ownership.manifest_id = "ownership.install.invalid";
     incomplete_ownership.directories.clear();
     if (!refuses([&] { (void)state_repository.write_ownership(incomplete_ownership); }) ||
-        fs::exists(fixture.state / "ownership/install.invalid.json")) {
+        fs::exists(fixture.state / "ownership/ownership.install.invalid.json")) {
         return 2;
     }
     const auto stored_ownership = state_repository.write_ownership(ownership(fixture.root / "target"));
     if (stored_ownership.files.front().relative_path != "app/bin/tool.exe" ||
         stored_ownership.manifest_digest.empty() ||
-        state_repository.read_ownership("install.fixture").manifest_digest != stored_ownership.manifest_digest ||
+        state_repository.read_ownership("ownership.install.fixture").manifest_digest != stored_ownership.manifest_digest ||
         !refuses([&] { (void)state_repository.write_ownership(ownership(fixture.root / "target")); })) {
         return 3;
     }
@@ -148,13 +149,21 @@ int main()
         !refuses([&] { state_repository.write_installed(state); })) {
         return 4;
     }
+    auto revised_state = state;
+    revised_state.transaction_id = "tx.fixture.verify";
+    revised_state.created_at = "2026-07-14T00:00:03Z";
+    revised_state.lifecycle_status = "verified";
+    state_repository.write_installed(revised_state);
+    if (state_repository.read_installed("install.fixture").transaction_id != "tx.fixture.verify") {
+        return 5;
+    }
 
     const auto first = audit_repository.append("audit.fixture", audit_input("staging", "pass"));
     const auto second = audit_repository.append("audit.fixture", audit_input("completed", "pass"));
     const auto chain = audit_repository.read_and_validate_chain("audit.fixture");
     if (first.sequence != 0 || second.sequence != 1 || second.previous_event_digest != first.event_digest ||
         chain.size() != 2 || chain.back().event_digest != second.event_digest) {
-        return 5;
+        return 6;
     }
 
     Fixture mirror("mirror");
@@ -164,9 +173,9 @@ int main()
     auto mirror_manifest = ownership(fixture.root / "target");
     const auto mirror_stored = mirror_state.write_ownership(mirror_manifest);
     if (mirror_stored.manifest_digest != stored_ownership.manifest_digest ||
-        read_text(mirror.state / "ownership/install.fixture.json") !=
-            read_text(fixture.state / "ownership/install.fixture.json")) {
-        return 6;
+        read_text(mirror.state / "ownership/ownership.install.fixture.json") !=
+            read_text(fixture.state / "ownership/ownership.install.fixture.json")) {
+        return 7;
     }
 
     {
@@ -174,7 +183,7 @@ int main()
                              std::ios::binary | std::ios::trunc);
         output << "{}";
     }
-    if (!refuses([&] { (void)audit_repository.read_and_validate_chain("audit.fixture"); })) return 7;
+    if (!refuses([&] { (void)audit_repository.read_and_validate_chain("audit.fixture"); })) return 8;
 
     Fixture corpus("corpus");
     usk::state::StateRepository::initialize_layout(corpus.state);
@@ -193,7 +202,17 @@ int main()
             "5087da6c9d0dcdf1d5a8d11dd2a988c6c70bb06e70b2407bdef106e36cc2edb3" ||
         compatible_chain.size() != 1 || compatible_chain.front().event_digest !=
             "b27130773380781c6b5fe091173770aef362440834237af81bf23ff316d56153") {
-        return 8;
+        return 9;
     }
     return 0;
+}
+
+int main()
+{
+    try {
+        return run();
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << '\n';
+        return 250;
+    }
 }

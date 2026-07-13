@@ -94,6 +94,29 @@ abstract platform.
 - Added a checked-in v1 compatibility corpus and cross-platform native tests for
   deterministic bytes, stable reads, tamper refusal, and ownership binding.
 
+## M1-WU6 — Fixture-backed Portable Lifecycle
+
+- Added internal, digest-bound plan/apply types for local portable install,
+  repair, move, uninstall, and visible-target recovery.
+- Install revalidates its reviewed payload and roots, commits through an atomic
+  no-replace rename, verifies the visible target, and only then publishes exact
+  ownership, immutable installed state, and chained audit evidence.
+- Verification distinguishes missing, modified, wrong-type, unreadable, and
+  unknown paths without changing the installation.
+- Repair stages only affected owned files, retains per-file backups until the
+  repaired closure verifies, and preserves unknown content.
+- Move copies and verifies the complete tree at the new destination, refreshes
+  ownership/state after verification, and retains the old root pending later
+  acceptance.
+- Uninstall removes only hash-matching recorded files and empty recorded
+  directories; changed and foreign content produces `uninstall_blocked` and is
+  retained for a later reviewed operation.
+- Recovery can reopen only a visible-target finalization journal, validate its
+  chain and plan identity, finish missing authority records idempotently, and
+  advance the original journal to `completed`.
+- The synthetic native journey exercises install, verify, drift, repair, move,
+  blocked uninstall, clean uninstall, and interruption recovery.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local

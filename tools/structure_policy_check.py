@@ -30,6 +30,7 @@ ALLOWED_SETUP_MODULES = {
     "audit",
     "fetch",
     "kernel",
+    "lifecycle",
     "manifest",
     "ownership",
     "package",

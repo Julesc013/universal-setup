@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -51,10 +52,18 @@ public:
     void stage_file(const std::filesystem::path& relative_path, const std::vector<unsigned char>& bytes);
     void mark_staged();
     void mark_verified();
+    void commit_effect();
+    void mark_committed();
+    void mark_completed();
+    void mark_recovery_required();
+    void resume_committing();
     void commit();
     void rollback();
 
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
+    static std::unique_ptr<TransactionSession> resume_finalization(
+        const TransactionSpec& spec,
+        FaultInjector injector = {});
 
 private:
     struct Transition {
@@ -76,6 +85,7 @@ private:
     void create_staging_root();
     void remove_recorded_staging_closure();
     std::string render_journal() const;
+    TransactionSession(TransactionSpec spec, FaultInjector injector, bool resume_finalization);
 
     TransactionSpec spec_;
     FaultInjector injector_;

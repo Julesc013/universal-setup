@@ -246,6 +246,10 @@ int fault_after_commit_effect(Fixture& fixture)
         !recovery.target_exists || !contains(recovery.available_actions, "resume")) {
         return 160;
     }
+    auto resumed = TransactionSession::resume_finalization(spec);
+    resumed->mark_committed();
+    resumed->mark_completed();
+    if (TransactionSession::inspect_recovery(spec).current_state != "completed") return 161;
     return 0;
 }
 

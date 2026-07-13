@@ -177,7 +177,10 @@ std::vector<AuditEvent> AuditRepository::read_and_validate_chain(const std::stri
     for (std::size_t index = 0; index < paths.size(); ++index) {
         const std::string text = record_io::read_stable_text(paths[index], 1024u * 1024u);
         const Value document = json::parse(text);
-        if (json::canonical(document) + "\n" != text) throw std::runtime_error("audit event is not canonical");
+        const std::string canonical = json::canonical(document);
+        if (canonical + "\n" != text && canonical + "\r\n" != text) {
+            throw std::runtime_error("audit event is not canonical");
+        }
         AuditEvent event = parse_event(document);
         if (event.audit_chain_id != chain_id || event.sequence != index ||
             event.event_id != chain_id + "." + std::to_string(index) ||
