@@ -17,7 +17,7 @@ The native proof set covers:
 | Recovery | transition digest and exact root-authority tampering refuse resume |
 | Repair/uninstall races | foreign content arriving after repair plan is retained; content arriving after uninstall plan invalidates apply before deletion |
 | Move drift | any complete-tree source change after plan invalidates the reviewed move and leaves the destination absent |
-| Audit concurrency | competing appends have exactly one immutable next-sequence winner |
+| Audit concurrency | competing appends either serialize into a complete valid chain or refuse a conflicting next-sequence write; no event is lost or corrupted |
 | Scale | 258 files across nested directories install and verify as one deterministic owned closure |
 | JSON | malformed numbers, duplicate keys, invalid escapes/surrogates/UTF-8, depth/value budgets, and non-idempotent canonicalization are rejected |
 

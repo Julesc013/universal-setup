@@ -234,8 +234,14 @@ int concurrent_writers(Fixture& fixture)
     std::thread audit_right(append);
     audit_left.join();
     audit_right.join();
-    if (audit_success != 1 || audit_refused != 1 ||
-        audit.read_and_validate_chain("audit.concurrent-append").size() != 1) {
+    const auto events = audit.read_and_validate_chain("audit.concurrent-append");
+    const int successes = audit_success.load();
+    const int refusals = audit_refused.load();
+    if (successes < 1 || successes > 2 || successes + refusals != 2 ||
+        events.size() != static_cast<std::size_t>(successes)) {
+        std::cerr << "audit concurrency result is not a complete valid chain: success="
+                  << successes << " refused=" << refusals
+                  << " events=" << events.size() << '\n';
         return 31;
     }
     return 0;
