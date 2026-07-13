@@ -123,5 +123,11 @@ fault recovery inspection, and ownership-bounded rollback in disposable native
 fixtures. It deliberately remains disconnected from command dispatch, so all
 setup lifecycle apply commands are still unavailable.
 
+WU5 adds deterministic no-clobber installed-state and exact-ownership
+repositories plus immutable digest-chained audit events. Read-only repository
+use does not create state, and a permanent v1 compatibility corpus protects
+existing record readers. These repositories are not yet connected to public
+lifecycle commands.
+
 The current repository remains a canonical bootstrap, not a production
 installer implementation.
