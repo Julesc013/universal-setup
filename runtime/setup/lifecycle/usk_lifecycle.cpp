@@ -59,8 +59,25 @@ bool safe_relative(const std::string& value)
         const std::string segment = value.substr(start, end == std::string::npos ? std::string::npos : end - start);
         if (segment.empty() || segment == "." || segment == ".." ||
             segment.back() == '.' || segment.back() == ' ') return false;
+        const std::string base = lowercase(segment.substr(0, segment.find('.')));
+        static const std::set<std::string> reserved = {
+            "con", "prn", "aux", "nul", "clock$",
+            "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+            "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9"};
+        if (reserved.count(base) != 0) return false;
         for (unsigned char ch : segment) if (ch < 0x20u || ch >= 0x7fu) return false;
         start = end == std::string::npos ? value.size() : end + 1;
+    }
+    return true;
+}
+
+bool valid_timestamp(const std::string& value)
+{
+    if (value.size() != 20 || value[4] != '-' || value[7] != '-' || value[10] != 'T' ||
+        value[13] != ':' || value[16] != ':' || value[19] != 'Z') return false;
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        if (index == 4 || index == 7 || index == 10 || index == 13 || index == 16 || index == 19) continue;
+        if (!std::isdigit(static_cast<unsigned char>(value[index]))) return false;
     }
     return true;
 }
@@ -169,7 +186,7 @@ Value plan_payload(const usk::lifecycle::InstallPlan& plan)
 void validate_plan(const usk::lifecycle::InstallPlan& plan)
 {
     if (!usk::record_io::valid_identifier(plan.plan_id) ||
-        !usk::record_io::valid_identifier(plan.install_id) || plan.created_at.empty() ||
+        !usk::record_io::valid_identifier(plan.install_id) || !valid_timestamp(plan.created_at) ||
         !sha256(plan.plan_digest)) throw std::runtime_error("install plan identity is invalid");
     validate_recipe(plan.recipe);
     std::vector<usk::lifecycle::PayloadFile> files = plan.files;
@@ -517,7 +534,7 @@ InstallResult apply_install(
 {
     validate_plan(plan);
     if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
-        applied_at.empty()) throw std::runtime_error("reviewed install plan or transaction identity is invalid");
+        !valid_timestamp(applied_at)) throw std::runtime_error("reviewed install plan or transaction identity is invalid");
     if (fs::exists(plan.target_root)) throw std::runtime_error("install target now exists; reviewed plan is invalid");
     record_io::require_safe_directory(plan.roots.staging_parent);
     record_io::require_safe_directory(plan.target_root.parent_path());
@@ -596,7 +613,8 @@ InstallResult recover_install_finalization(
     const std::string& recovered_at)
 {
     validate_plan(plan);
-    if (!record_io::valid_identifier(transaction_id) || recovered_at.empty()) {
+    if (!record_io::valid_identifier(transaction_id) || !valid_timestamp(recovered_at) ||
+        recovered_at <= plan.created_at) {
         throw std::runtime_error("install recovery identity is invalid");
     }
     transaction::TransactionSpec spec{
@@ -703,7 +721,8 @@ VerificationReport verify_installed(
     const std::string& report_id,
     const std::string& verified_at)
 {
-    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(report_id) || verified_at.empty()) {
+    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(report_id) ||
+        !valid_timestamp(verified_at)) {
         throw std::runtime_error("verification identity is invalid");
     }
     state::StateRepository repository(roots.state_root);
@@ -721,7 +740,8 @@ RepairPlan plan_repair(
     std::string created_at,
     std::vector<PayloadFile> exact_source_files)
 {
-    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) || created_at.empty()) {
+    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) ||
+        !valid_timestamp(created_at)) {
         throw std::runtime_error("repair plan identity is invalid");
     }
     normalize_files(exact_source_files);
@@ -764,7 +784,8 @@ RepairResult apply_repair(
 {
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(repair_plan_payload(plan)) != plan.plan_digest ||
-        !record_io::valid_identifier(transaction_id) || plan.replacement_files.empty()) {
+        !record_io::valid_identifier(transaction_id) || !valid_timestamp(applied_at) ||
+        plan.replacement_files.empty()) {
         throw std::runtime_error("reviewed repair plan is invalid or changed");
     }
     std::vector<PayloadFile> normalized = plan.replacement_files;
@@ -774,6 +795,9 @@ RepairResult apply_repair(
     if (installed_digest(current.first) != plan.installed_state_digest ||
         current.second.manifest_digest != plan.ownership_manifest_digest) {
         throw std::runtime_error("installed state or ownership changed after repair planning");
+    }
+    if (applied_at <= current.first.created_at) {
+        throw std::runtime_error("repair result timestamp must advance immutable state");
     }
     const VerificationReport before = verify_manifest(
         current.first, current.second, "verify." + transaction_id + ".before", applied_at);
@@ -855,7 +879,8 @@ MovePlan plan_move(
     std::string created_at,
     fs::path new_root)
 {
-    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) || created_at.empty()) {
+    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) ||
+        !valid_timestamp(created_at)) {
         throw std::runtime_error("move plan identity is invalid");
     }
     auto current = load_current(roots, install_id);
@@ -889,7 +914,8 @@ MoveResult apply_move(
 {
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(move_plan_payload(plan)) != plan.plan_digest ||
-        !record_io::valid_identifier(transaction_id) || fs::exists(plan.new_root) ||
+        !record_io::valid_identifier(transaction_id) || !valid_timestamp(applied_at) ||
+        fs::exists(plan.new_root) ||
         plan.staging_parent != plan.new_root.parent_path()) {
         throw std::runtime_error("reviewed move plan is invalid, changed, or clobbering");
     }
@@ -898,6 +924,9 @@ MoveResult apply_move(
         current.second.manifest_digest != plan.ownership_manifest_digest ||
         fs::absolute(current.first.target_root).lexically_normal() != plan.old_root) {
         throw std::runtime_error("installed state or ownership changed after move planning");
+    }
+    if (applied_at <= current.first.created_at) {
+        throw std::runtime_error("move result timestamp must advance immutable state");
     }
     ensure_same_payload(plan.complete_files, read_complete_tree(plan.old_root),
                         "move source closure changed after plan review");
@@ -951,7 +980,8 @@ UninstallPlan plan_uninstall(
     std::string plan_id,
     std::string created_at)
 {
-    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) || created_at.empty()) {
+    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) ||
+        !valid_timestamp(created_at)) {
         throw std::runtime_error("uninstall plan identity is invalid");
     }
     auto current = load_current(roots, install_id);
@@ -976,13 +1006,16 @@ UninstallResult apply_uninstall(
 {
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(uninstall_plan_payload(plan)) != plan.plan_digest ||
-        !record_io::valid_identifier(transaction_id)) {
+        !record_io::valid_identifier(transaction_id) || !valid_timestamp(applied_at)) {
         throw std::runtime_error("reviewed uninstall plan is invalid or changed");
     }
     auto current = load_current(plan.roots, plan.install_id);
     if (installed_digest(current.first) != plan.installed_state_digest ||
         current.second.manifest_digest != plan.ownership_manifest_digest) {
         throw std::runtime_error("installed state or ownership changed after uninstall planning");
+    }
+    if (applied_at <= current.first.created_at) {
+        throw std::runtime_error("uninstall result timestamp must advance immutable state");
     }
     const VerificationReport observed = verify_manifest(
         current.first, current.second, plan.verification.report_id, plan.created_at);

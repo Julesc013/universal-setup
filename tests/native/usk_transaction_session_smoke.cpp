@@ -253,6 +253,56 @@ int fault_after_commit_effect(Fixture& fixture)
     return 0;
 }
 
+int operational_fault_points(Fixture& fixture)
+{
+    {
+        TransactionSpec spec = fixture.spec("fault-staging-create");
+        bool injected = false;
+        try {
+            TransactionSession session(spec, [&](const std::string&, const std::string& point) {
+                if (point == "after_staging_create") {
+                    injected = true;
+                    throw std::runtime_error("injected staging-create fault");
+                }
+            });
+        } catch (const std::runtime_error&) {
+        }
+        const auto recovery = TransactionSession::inspect_recovery(spec);
+        if (!injected || recovery.current_state != "staging" || !recovery.staging_exists) return 165;
+    }
+    {
+        TransactionSpec spec = fixture.spec("fault-before-write");
+        bool injected = false;
+        TransactionSession session(spec, [&](const std::string&, const std::string& point) {
+            if (point == "before_stage_file") {
+                injected = true;
+                throw std::runtime_error("injected write-capacity fault");
+            }
+        });
+        if (!throws([&] { session.stage_file("payload.txt", bytes("payload")); }) ||
+            !injected || fs::exists(session.staging_root() / "payload.txt")) {
+            return 166;
+        }
+        session.rollback();
+    }
+    {
+        TransactionSpec spec = fixture.spec("fault-after-rollback");
+        bool injected = false;
+        TransactionSession session(spec, [&](const std::string&, const std::string& point) {
+            if (point == "after_rollback_effect") {
+                injected = true;
+                throw std::runtime_error("injected rollback-finalization fault");
+            }
+        });
+        session.stage_file("payload.txt", bytes("payload"));
+        if (!throws([&] { session.rollback(); }) || !injected || fs::exists(session.staging_root()) ||
+            TransactionSession::inspect_recovery(spec).current_state != "recovery_required") {
+            return 167;
+        }
+    }
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -280,6 +330,7 @@ int main()
     if (commit_supported) {
         if (int result = fault_after_commit_effect(fixture)) return result;
     }
+    if (int result = operational_fault_points(fixture)) return result;
 
     TransactionSpec duplicate = fixture.spec("duplicate-journal");
     TransactionSession original(duplicate);

@@ -34,6 +34,7 @@ int main()
         !refuses([] { (void)usk::json::parse("1.0"); }) ||
         !refuses([] { (void)usk::json::parse("-1"); }) ||
         !refuses([] { (void)usk::json::parse("\"\\ud800\""); }) ||
+        !refuses([] { (void)usk::json::parse(std::string("\"") + "\xc0\xaf" + "\""); }) ||
         !refuses([] { (void)usk::json::parse("{} trailing"); })) {
         return 2;
     }

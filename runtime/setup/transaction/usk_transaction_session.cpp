@@ -15,6 +15,7 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -511,6 +512,19 @@ TransactionSession::TransactionSession(
             document.at("plan_digest").as_string() != spec_.plan_digest ||
             document.at("operation").as_string() != spec_.operation) {
             throw std::runtime_error("transaction journal does not bind the requested finalization");
+        }
+        std::map<std::string, std::string> journal_roots;
+        for (const usk::json::Value& root : document.at("roots").as_array()) {
+            if (!journal_roots.emplace(root.at("role").as_string(), root.at("root").as_string()).second) {
+                throw std::runtime_error("transaction journal contains duplicate root authority");
+            }
+        }
+        if (journal_roots.size() != 4 ||
+            journal_roots["target"] != spec_.target_root.string() ||
+            journal_roots["staging"] != staging_root_.string() ||
+            journal_roots["setup_state"] != spec_.state_root.string() ||
+            journal_roots["audit"] != spec_.audit_root.string()) {
+            throw std::runtime_error("transaction journal root authority does not match recovery inputs");
         }
         created_at_ = document.at("created_at").as_string();
         std::string prior;
