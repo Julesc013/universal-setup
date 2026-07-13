@@ -8,6 +8,7 @@ add_library(usk_headers INTERFACE)
 target_include_directories(usk_headers INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 add_library(usk_base_static STATIC
+  runtime/base/usk_json.cpp
   runtime/base/usk_sha256.cpp
   runtime/base/usk_stable_file.cpp
 )
@@ -61,6 +62,11 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_sha256_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_sha256_smoke PRIVATE usk_base_static)
   add_test(NAME usk_sha256_smoke COMMAND usk_sha256_smoke)
+
+  add_executable(usk_json_smoke tests/native/usk_json_smoke.cpp)
+  target_compile_features(usk_json_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_json_smoke PRIVATE usk_base_static)
+  add_test(NAME usk_json_smoke COMMAND usk_json_smoke)
 
   add_executable(usk_stable_file_smoke tests/native/usk_stable_file_smoke.cpp)
   target_compile_features(usk_stable_file_smoke PRIVATE cxx_std_17)
