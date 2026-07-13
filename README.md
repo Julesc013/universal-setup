@@ -112,5 +112,10 @@ chained audit events, lifecycle reports, and refusals. The old static install
 and uninstall previews were removed: plan/apply commands remain unavailable
 until the archive inspector and real planner can emit valid bound contracts.
 
+`install_local.inspect` now provides the first real M1 source operation. It
+reads one operator-selected classic ZIP through a stable no-follow handle and
+returns a deterministic, budgeted entry set. It does not extract, initialize
+writable state, inspect a target, or grant any apply authority.
+
 The current repository remains a canonical bootstrap, not a production
 installer implementation.

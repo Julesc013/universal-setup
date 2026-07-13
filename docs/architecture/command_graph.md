@@ -51,11 +51,16 @@ introspectable but have `executable: false` and return a structured
 `planned_command_unavailable` result. In particular, no M1 apply command has
 mutation authority yet.
 
+`install_local.inspect` is the first real M1 setup command. It reads one
+operator-supplied classic ZIP through a stable no-follow handle and emits a
+bounded deterministic `usk.archive_inspection.v1` result. It performs no
+extraction or target access.
+
 The old static install and uninstall preview payloads were retired when the M1
 contract spine landed. Both plan commands now remain declared but unavailable
 until the real source inspector and planner can emit schema-valid, digest-bound
-plans. `package.verify` and `package.audit` remain the only commands backed by a real
-local package reader. They distinguish integrity, authenticity, compatibility,
+plans. `package.verify` and `package.audit` remain the built-package readers.
+They distinguish integrity, authenticity, compatibility,
 completeness, and requested target/linkage match. Unsigned integrity is
 reported as a warning, never publisher authenticity. The compatibility
 `verify.report` command remains truthfully unavailable.

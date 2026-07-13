@@ -10,6 +10,11 @@ lowercase SHA-256 hex over the later canonical serialization profile. Runtime
 implementations must not claim one of these schemas unless their payload is
 valid against it.
 
+WU3 adds `archive_inspect_request` and `archive_inspection` as read-only command
+contracts. Their normalization policy is deliberately
+`ascii_case_insensitive_v1`; non-ASCII archive paths are refused until a
+portable Unicode-normalization profile has independent adversarial proof.
+
 Package verification and the older policy, ownership, transaction, rollback,
 verify-report, audit-log, and setup-manifest files are retained compatibility
 contracts. They do not grant lifecycle mutation authority.
