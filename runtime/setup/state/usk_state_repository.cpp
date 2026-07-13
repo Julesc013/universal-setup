@@ -7,6 +7,7 @@
 #include <cctype>
 #include <set>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 
 namespace fs = std::filesystem;
@@ -226,7 +227,11 @@ void validate_installed(const usk::state::InstalledState& state)
             throw std::runtime_error("installed-state entrypoint is invalid");
         }
     }
-    if (state.ownership_manifest_ref != "ownership/" + state.install_id + ".json") {
+    if (state.ownership_manifest_ref.rfind("ownership/", 0) != 0 ||
+        state.ownership_manifest_ref.size() <= 15 ||
+        state.ownership_manifest_ref.substr(state.ownership_manifest_ref.size() - 5) != ".json" ||
+        !usk::record_io::valid_identifier(state.ownership_manifest_ref.substr(
+            10, state.ownership_manifest_ref.size() - 15))) {
         throw std::runtime_error("installed-state ownership reference is not repository-local and exact");
     }
 }
@@ -296,7 +301,7 @@ OwnershipManifest StateRepository::write_ownership(OwnershipManifest manifest) c
     validate_ownership(manifest);
     manifest.manifest_digest = json::sha256_canonical(ownership_payload(manifest));
     record_io::write_new_durable_text(
-        root_ / "ownership" / (manifest.install_id + ".json"),
+        root_ / "ownership" / (manifest.manifest_id + ".json"),
         json::canonical(ownership_document(manifest)) + "\n");
     return manifest;
 }
@@ -307,9 +312,14 @@ OwnershipManifest StateRepository::read_ownership(const std::string& manifest_id
     const std::string text = record_io::read_stable_text(root_ / "ownership" / (manifest_id + ".json"),
                                                          16u * 1024u * 1024u);
     const Value document = json::parse(text);
-    if (json::canonical(document) + "\n" != text) throw std::runtime_error("ownership record is not canonical");
+    const std::string canonical = json::canonical(document);
+    if (canonical + "\n" != text && canonical + "\r\n" != text) {
+        throw std::runtime_error("ownership record is not canonical");
+    }
     OwnershipManifest result = parse_ownership(document);
-    if (result.install_id != manifest_id) throw std::runtime_error("ownership lookup identity mismatch");
+    if (result.manifest_id != manifest_id && result.install_id != manifest_id) {
+        throw std::runtime_error("ownership lookup identity mismatch");
+    }
     return result;
 }
 
@@ -317,28 +327,54 @@ void StateRepository::write_installed(const InstalledState& state) const
 {
     record_io::require_safe_directory(root_ / "installed");
     validate_installed(state);
-    const OwnershipManifest ownership = read_ownership(state.install_id);
+    const std::string ownership_record_id = state.ownership_manifest_ref.substr(
+        10, state.ownership_manifest_ref.size() - 15);
+    const OwnershipManifest ownership = read_ownership(ownership_record_id);
     if (ownership.manifest_digest != state.ownership_manifest_digest ||
         ownership.install_id != state.install_id || ownership.target_root != state.target_root) {
         throw std::runtime_error("installed state does not bind the exact ownership manifest");
     }
     record_io::write_new_durable_text(
-        root_ / "installed" / (state.install_id + ".json"),
+        root_ / "installed" / (state.install_id + "." + state.transaction_id + ".json"),
         json::canonical(installed_document(state)) + "\n");
 }
 
 InstalledState StateRepository::read_installed(const std::string& install_id) const
 {
     if (!record_io::valid_identifier(install_id)) throw std::runtime_error("installed-state lookup id is invalid");
-    const std::string text = record_io::read_stable_text(root_ / "installed" / (install_id + ".json"),
-                                                         4u * 1024u * 1024u);
-    const Value document = json::parse(text);
-    if (json::canonical(document) + "\n" != text) throw std::runtime_error("installed-state record is not canonical");
-    InstalledState result = parse_installed(document);
-    if (result.install_id != install_id) throw std::runtime_error("installed-state lookup identity mismatch");
-    const OwnershipManifest ownership = read_ownership(install_id);
+    const fs::path directory = root_ / "installed";
+    record_io::require_safe_directory(directory);
+    std::vector<InstalledState> candidates;
+    for (const fs::directory_entry& entry : fs::directory_iterator(directory)) {
+        const std::string name = entry.path().filename().string();
+        if (!entry.is_regular_file() || entry.is_symlink() ||
+            name.size() <= 5 || name.substr(name.size() - 5) != ".json") {
+            throw std::runtime_error("installed-state repository contains an unsafe entry");
+        }
+        const std::string text = record_io::read_stable_text(entry.path(), 4u * 1024u * 1024u);
+        const Value document = json::parse(text);
+        const std::string canonical = json::canonical(document);
+        if (canonical + "\n" != text && canonical + "\r\n" != text) {
+            throw std::runtime_error("installed-state record is not canonical");
+        }
+        InstalledState candidate = parse_installed(document);
+        const std::string expected = candidate.install_id + "." + candidate.transaction_id + ".json";
+        const std::string legacy = candidate.install_id + ".json";
+        if (name != expected && name != legacy) {
+            throw std::runtime_error("installed-state filename does not bind its record identity");
+        }
+        if (candidate.install_id == install_id) candidates.push_back(std::move(candidate));
+    }
+    if (candidates.empty()) throw std::runtime_error("installed-state record does not exist");
+    std::sort(candidates.begin(), candidates.end(), [](const InstalledState& left, const InstalledState& right) {
+        return std::tie(left.created_at, left.transaction_id) < std::tie(right.created_at, right.transaction_id);
+    });
+    InstalledState result = std::move(candidates.back());
+    const std::string ownership_record_id = result.ownership_manifest_ref.substr(
+        10, result.ownership_manifest_ref.size() - 15);
+    const OwnershipManifest ownership = read_ownership(ownership_record_id);
     if (ownership.manifest_digest != result.ownership_manifest_digest ||
-        ownership.target_root != result.target_root) {
+        ownership.install_id != result.install_id || ownership.target_root != result.target_root) {
         throw std::runtime_error("installed-state ownership binding no longer validates");
     }
     return result;
