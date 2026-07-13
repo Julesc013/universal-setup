@@ -173,6 +173,11 @@ StableFile::StableFile(const fs::path& path)
 #if defined(O_NOFOLLOW)
     flags |= O_NOFOLLOW;
 #endif
+    struct stat path_info{};
+    if (::lstat(path_.c_str(), &path_info) != 0 || S_ISLNK(path_info.st_mode)) {
+        throw std::runtime_error("local archive path is missing or is a symbolic link");
+    }
+    const StableFileIdentity path_identity = identity_from_stat(path_info);
     const int descriptor = ::open(path_.c_str(), flags);
     if (descriptor < 0) {
         throw std::runtime_error(
@@ -191,6 +196,9 @@ StableFile::StableFile(const fs::path& path)
     }
     try {
         identity_ = identity_from_stat(info);
+        if (!same_identity(path_identity, identity_)) {
+            throw std::runtime_error("local archive path changed while acquiring its stable handle");
+        }
     } catch (...) {
         ::close(descriptor);
         native_handle_ = -1;

@@ -131,6 +131,8 @@ def check_required_paths() -> list[str]:
         ROOT / "contracts" / "schema" / "setup" / "install_plan.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "recipe.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "source.v1.schema.json",
+        ROOT / "contracts" / "schema" / "setup" / "archive_inspect_request.v1.schema.json",
+        ROOT / "contracts" / "schema" / "setup" / "archive_inspection.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "operation_plan.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "installed_state.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "ownership_manifest.v1.schema.json",
