@@ -51,9 +51,10 @@ introspectable but have `executable: false` and return a structured
 `planned_command_unavailable` result. In particular, no M1 apply command has
 mutation authority yet.
 
-`install_local.plan` and `uninstall.plan` retain their bootstrap dry-run plan
-responses until the contract spine and real planner replace them.
-`package.verify` and `package.audit` remain the only commands backed by a real
+The old static install and uninstall preview payloads were retired when the M1
+contract spine landed. Both plan commands now remain declared but unavailable
+until the real source inspector and planner can emit schema-valid, digest-bound
+plans. `package.verify` and `package.audit` remain the only commands backed by a real
 local package reader. They distinguish integrity, authenticity, compatibility,
 completeness, and requested target/linkage match. Unsigned integrity is
 reported as a warning, never publisher authenticity. The compatibility
