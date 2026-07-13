@@ -32,6 +32,16 @@ abstract platform.
 - Installed-state write.
 - Audit log.
 
+## M1-WU1 — Authoritative Command Graph
+
+- Implemented a single descriptor registry for dispatch and introspection.
+- Declared the complete M1 inspect/plan/apply vocabulary without enabling
+  unfinished mutation commands.
+- Preserved the bootstrap command ABI and original `usk_config_v1` prefix.
+- Added deterministic bounded graph projection, allocator failure handling,
+  response-lifetime proof, and exact descriptor coverage.
+- Kept dynamic registration and generic operation handlers out of scope.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local
