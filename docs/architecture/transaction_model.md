@@ -47,6 +47,13 @@ For move, the new root is copied, closure-verified, committed, and reflected in
 references before the old root is retired. The old root remains retained until
 separate acceptance permits removal of recorded owned state.
 
-The current session is same-volume and fixture-only. It is not yet a recovery
-executor, cross-volume mover, installed-state repository, or public apply
-command.
+The session remains fixture-only and is not a public apply command. Install and
+repair commits are same-volume; move selects destination-volume staging before
+its no-replace destination commit.
+
+WU6 now supplies a constrained recovery executor for the post-rename
+finalization window. It may reopen only a journal whose target is visible and
+whose staging root is absent, and only in `committing`, `committed`, or
+`recovery_required`. The existing transition chain and digest, reviewed plan
+identity, operation, and roots are revalidated before missing ownership, state,
+and audit records can be completed. Pre-commit replay is still refused.

@@ -129,5 +129,12 @@ use does not create state, and a permanent v1 compatibility corpus protects
 existing record readers. These repositories are not yet connected to public
 lifecycle commands.
 
+WU6 composes those primitives into a real internal lifecycle over disposable
+synthetic payloads: install, verify, repair, move with old-root retention,
+ownership-safe uninstall, and visible-target recovery. The complete journey is
+native-tested, but archive extraction and all public lifecycle apply dispatch
+remain unavailable. This is fixture authority, not live product-install
+authority.
+
 The current repository remains a canonical bootstrap, not a production
 installer implementation.
