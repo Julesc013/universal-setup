@@ -81,6 +81,19 @@ abstract platform.
 - Exercises every state transition and the rename/journal crash window through
   native fault-injection tests on Windows and Linux.
 
+## M1-WU5 — Installed State, Ownership, and Audit Repositories
+
+- Added strict canonical JSON parsing and deterministic serialization with
+  bounded depth, size, value count, and string size.
+- Added explicit setup-state and audit layout initialization; read-only
+  construction and reads never initialize writable state.
+- Added durable no-clobber ownership and installed-state records with exact
+  manifest digest, install identity, target-root, and parent-closure checks.
+- Added append-only audit chains with immutable sequence files, previous-event
+  digests, complete-chain validation, and concurrent-writer no-clobber.
+- Added a checked-in v1 compatibility corpus and cross-platform native tests for
+  deterministic bytes, stable reads, tamper refusal, and ownership binding.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local
