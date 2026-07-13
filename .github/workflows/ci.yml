@@ -18,3 +18,35 @@ jobs:
       - run: cmake --build build/smoke
       - run: ctest --test-dir build/smoke --output-on-failure
       - run: python tools/strict_check.py
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: >-
+          cmake -S . -B build/sanitizer
+          -DUSK_BUILD_APPS=OFF
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
+      - run: cmake --build build/sanitizer --parallel
+      - run: ctest --test-dir build/sanitizer --output-on-failure
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: >-
+          cmake -S . -B build/fuzz
+          -DUSK_BUILD_APPS=OFF
+          -DUSK_BUILD_TESTS=OFF
+          -DUSK_BUILD_FUZZERS=ON
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+      - run: cmake --build build/fuzz --target usk_json_fuzz --parallel
+      - run: build/fuzz/usk_json_fuzz -runs=1000 -max_len=4096
