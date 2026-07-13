@@ -33,6 +33,16 @@ target_include_directories(usk_archive_static PUBLIC
 target_link_libraries(usk_archive_static PUBLIC usk_base_static)
 set_target_properties(usk_archive_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+add_library(usk_transaction_static STATIC
+  runtime/setup/transaction/usk_transaction_session.cpp
+)
+target_compile_features(usk_transaction_static PUBLIC cxx_std_17)
+target_include_directories(usk_transaction_static PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/transaction"
+)
+target_link_libraries(usk_transaction_static PUBLIC usk_base_static)
+set_target_properties(usk_transaction_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(usk_static STATIC runtime/setup/kernel/usk_api.c)
 target_include_directories(usk_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(usk_static PUBLIC usk_verify_static usk_archive_static)
@@ -61,6 +71,11 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_archive_inspect_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_archive_inspect_smoke PRIVATE usk_static)
   add_test(NAME usk_archive_inspect_smoke COMMAND usk_archive_inspect_smoke)
+
+  add_executable(usk_transaction_session_smoke tests/native/usk_transaction_session_smoke.cpp)
+  target_compile_features(usk_transaction_session_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_transaction_session_smoke PRIVATE usk_transaction_static)
+  add_test(NAME usk_transaction_session_smoke COMMAND usk_transaction_session_smoke)
 
   add_executable(usk_command_graph_smoke tests/native/usk_command_graph_smoke.c)
   target_link_libraries(usk_command_graph_smoke PRIVATE usk_static)
