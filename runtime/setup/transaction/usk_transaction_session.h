@@ -51,6 +51,10 @@ public:
     void stage_file(const std::filesystem::path& relative_path, const std::vector<unsigned char>& bytes);
     void mark_staged();
     void mark_verified();
+    void commit_effect();
+    void mark_committed();
+    void mark_completed();
+    void mark_recovery_required();
     void commit();
     void rollback();
 

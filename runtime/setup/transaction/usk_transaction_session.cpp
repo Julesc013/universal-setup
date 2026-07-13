@@ -686,7 +686,7 @@ void TransactionSession::mark_verified()
     persist_transition("verified");
 }
 
-void TransactionSession::commit()
+void TransactionSession::commit_effect()
 {
     if (current_state_ != "verified") {
         throw std::runtime_error("only a verified transaction can commit");
@@ -711,8 +711,38 @@ void TransactionSession::commit()
         throw;
     }
     if (injector_) injector_(current_state_, "after_commit_effect");
+}
+
+void TransactionSession::mark_committed()
+{
+    if (current_state_ != "committing" || fs::exists(staging_root_) ||
+        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
+        throw std::runtime_error("transaction commit effect is not present and stable");
+    }
     persist_transition("committed");
+}
+
+void TransactionSession::mark_completed()
+{
+    if (current_state_ != "committed") {
+        throw std::runtime_error("only a committed transaction can complete");
+    }
     persist_transition("completed");
+}
+
+void TransactionSession::mark_recovery_required()
+{
+    if (current_state_ != "committing" && current_state_ != "committed") {
+        throw std::runtime_error("transaction state cannot require finalization recovery");
+    }
+    persist_transition("recovery_required");
+}
+
+void TransactionSession::commit()
+{
+    commit_effect();
+    mark_committed();
+    mark_completed();
 }
 
 void TransactionSession::rollback()
