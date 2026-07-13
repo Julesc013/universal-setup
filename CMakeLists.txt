@@ -7,12 +7,18 @@ option(USK_BUILD_TESTS "Build Universal Setup native tests" ON)
 add_library(usk_headers INTERFACE)
 target_include_directories(usk_headers INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
+add_library(usk_base_static STATIC runtime/base/usk_sha256.cpp)
+target_compile_features(usk_base_static PUBLIC cxx_std_17)
+target_include_directories(usk_base_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base")
+set_target_properties(usk_base_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(usk_verify_static STATIC runtime/setup/verify/usk_package_verify.cpp)
 target_compile_features(usk_verify_static PUBLIC cxx_std_17)
 target_include_directories(usk_verify_static PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/verify"
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
+target_link_libraries(usk_verify_static PUBLIC usk_base_static)
 set_target_properties(usk_verify_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_static STATIC runtime/setup/kernel/usk_api.c)
@@ -29,6 +35,11 @@ add_library(usk ALIAS usk_static)
 
 if(USK_BUILD_TESTS)
   enable_testing()
+  add_executable(usk_sha256_smoke tests/native/usk_sha256_smoke.cpp)
+  target_compile_features(usk_sha256_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_sha256_smoke PRIVATE usk_base_static)
+  add_test(NAME usk_sha256_smoke COMMAND usk_sha256_smoke)
+
   add_executable(usk_command_graph_smoke tests/native/usk_command_graph_smoke.c)
   target_link_libraries(usk_command_graph_smoke PRIVATE usk_static)
   add_test(NAME usk_command_graph_smoke COMMAND usk_command_graph_smoke)
