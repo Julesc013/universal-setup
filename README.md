@@ -117,5 +117,11 @@ reads one operator-selected classic ZIP through a stable no-follow handle and
 returns a deterministic, budgeted entry set. It does not extract, initialize
 writable state, inspect a target, or grant any apply authority.
 
+An internal WU4 transaction session now proves exclusive staging, durable
+journaling, stable closure verification, same-volume no-replace commit,
+fault recovery inspection, and ownership-bounded rollback in disposable native
+fixtures. It deliberately remains disconnected from command dispatch, so all
+setup lifecycle apply commands are still unavailable.
+
 The current repository remains a canonical bootstrap, not a production
 installer implementation.

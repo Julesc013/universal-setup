@@ -66,6 +66,21 @@ abstract platform.
 - Emits a deterministic normalized entry-set digest without extraction or
   writable state initialization.
 
+## M1-WU4 — Staging and Transaction Session
+
+- Added an internal digest-bound transaction session for disposable and
+  synthetic proof roots; public apply commands remain unavailable.
+- Persists the complete state sequence through atomically published journals
+  before each related visible effect.
+- Creates exclusive owned staging, writes no-clobber files, verifies stable
+  hashes, and commits with a same-volume no-replace directory rename.
+- Detects target, staging, and journal-directory substitution and fails closed
+  where the platform lacks a proven no-replace primitive.
+- Restricts rollback to recorded files and empty derived directories, retaining
+  unexpected content as recovery-required state.
+- Exercises every state transition and the rename/journal crash window through
+  native fault-injection tests on Windows and Linux.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local
