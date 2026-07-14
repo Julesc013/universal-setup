@@ -33,6 +33,7 @@ RETIRED_ROOTS = {"core", "data", "factorio", "launcher", "packages", "packaging"
 ALLOWED_RUNTIME_ROOTS = {"base", "command", "diagnostics", "setup", "platform"}
 ALLOWED_SETUP_MODULES = {
     "audit",
+    "evidence",
     "fetch",
     "kernel",
     "lifecycle",

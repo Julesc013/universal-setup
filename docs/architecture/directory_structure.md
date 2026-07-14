@@ -53,9 +53,11 @@ runtime/setup/
   ownership/
   policy/
   audit/
+  evidence/
   package/
 ```
 
 Setup is transaction-first: manifests resolve into plans, plans fetch and stage
-payloads, verification gates commit, and rollback/state/audit preserve repair
-truth.
+payloads, verification gates commit, rollback/state/audit preserve repair
+truth, and evidence records bind acceptance observations without granting
+additional setup authority.
