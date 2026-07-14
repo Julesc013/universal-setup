@@ -536,7 +536,8 @@ InstallResult apply_install(
     const InstallPlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at)
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector)
 {
     validate_plan(plan);
     if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
@@ -554,13 +555,18 @@ InstallResult apply_install(
 
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "install_local",
-        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root});
+        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root},
+        [&](const std::string& state, const std::string& point) {
+            if (fault_injector) fault_injector("install_local", "transaction." + state + "." + point);
+        });
     try {
         for (const PayloadFile& file : plan.files) transaction.stage_file(file.relative_path, file.bytes);
         transaction.mark_staged();
         transaction.mark_verified();
         transaction.commit_effect();
+        if (fault_injector) fault_injector("install_local", "after_target_commit");
 
+        if (fault_injector) fault_injector("install_local", "before_ownership_commit");
         state::OwnershipManifest ownership;
         ownership.manifest_id = "ownership." + plan.install_id + "." + transaction_id;
         ownership.install_id = plan.install_id;
@@ -598,7 +604,9 @@ InstallResult apply_install(
         if (verification.status != "pass") throw std::runtime_error("committed install closure failed verification");
         installed.last_verification = {
             verification.report_id, verification.report_digest, verification.status, applied_at};
+        if (fault_injector) fault_injector("install_local", "before_installed_state_commit");
         state_repository.write_installed(installed);
+        if (fault_injector) fault_injector("install_local", "before_audit_completion");
         audit_repository.append(chain_id, audit::AuditInput{
             applied_at, "install_local", "completed", "pass", "installation", plan.install_id,
             verification.report_digest, transaction_id, plan.plan_id, "managed portable install completed"});
@@ -790,7 +798,8 @@ RepairResult apply_repair(
     const RepairPlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at)
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector)
 {
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(repair_plan_payload(plan)) != plan.plan_digest ||
@@ -821,7 +830,10 @@ RepairResult apply_repair(
     const fs::path bundle = install_root.parent_path() / (".usk-repair-" + transaction_id);
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "repair", plan.roots.staging_parent,
-        bundle, plan.roots.state_root, plan.roots.audit_root});
+        bundle, plan.roots.state_root, plan.roots.audit_root},
+        [&](const std::string& state, const std::string& point) {
+            if (fault_injector) fault_injector("repair", "transaction." + state + "." + point);
+        });
     std::vector<fs::path> backups;
     try {
         for (const PayloadFile& file : plan.replacement_files) {
@@ -830,6 +842,7 @@ RepairResult apply_repair(
         transaction.mark_staged();
         transaction.mark_verified();
         transaction.commit_effect();
+        if (fault_injector) fault_injector("repair", "after_staging_commit");
         for (const PayloadFile& file : plan.replacement_files) {
             const fs::path destination = install_root / file.relative_path;
             record_io::require_safe_directory(destination.parent_path());
@@ -850,6 +863,7 @@ RepairResult apply_repair(
             } else {
                 record_io::rename_no_replace(replacement, destination);
             }
+            if (fault_injector) fault_injector("repair", "during_owned_replacement");
         }
         VerificationReport after = verify_manifest(
             current.first, current.second, "verify." + transaction_id + ".after", applied_at);
@@ -863,7 +877,9 @@ RepairResult apply_repair(
         ownership = repository.write_ownership(std::move(ownership));
         state::InstalledState installed = revised_state(
             current.first, ownership, transaction_id, applied_at, "verified", after);
+        if (fault_injector) fault_injector("repair", "before_installed_state_commit");
         repository.write_installed(installed);
+        if (fault_injector) fault_injector("repair", "before_audit_completion");
         audit::AuditRepository(plan.roots.audit_root).append(installed.audit_chain_id, audit::AuditInput{
             applied_at, "repair", "completed", after.status == "pass" ? "pass" : "warn",
             "installation", plan.install_id, after.report_digest, transaction_id, plan.plan_id,
@@ -922,7 +938,8 @@ MoveResult apply_move(
     const MovePlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at)
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector)
 {
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(move_plan_payload(plan)) != plan.plan_digest ||
@@ -944,12 +961,16 @@ MoveResult apply_move(
                         "move source closure changed after plan review");
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "move", plan.staging_parent,
-        plan.new_root, plan.roots.state_root, plan.roots.audit_root});
+        plan.new_root, plan.roots.state_root, plan.roots.audit_root},
+        [&](const std::string& state, const std::string& point) {
+            if (fault_injector) fault_injector("move", "transaction." + state + "." + point);
+        });
     try {
         for (const PayloadFile& file : plan.complete_files) transaction.stage_file(file.relative_path, file.bytes);
         transaction.mark_staged();
         transaction.mark_verified();
         transaction.commit_effect();
+        if (fault_injector) fault_injector("move", "after_destination_commit");
 
         state::StateRepository repository(plan.roots.state_root);
         state::OwnershipManifest ownership = current.second;
@@ -970,7 +991,9 @@ MoveResult apply_move(
         if (verification.status == "fail") throw std::runtime_error("move destination closure failed verification");
         state::InstalledState installed = revised_state(
             current.first, ownership, transaction_id, applied_at, "move_pending_acceptance", verification);
+        if (fault_injector) fault_injector("move", "before_installed_state_commit");
         repository.write_installed(installed);
+        if (fault_injector) fault_injector("move", "before_audit_completion");
         audit::AuditRepository(plan.roots.audit_root).append(installed.audit_chain_id, audit::AuditInput{
             applied_at, "move", "completed", verification.status == "pass" ? "pass" : "warn",
             "installation", plan.install_id, verification.report_digest, transaction_id, plan.plan_id,
@@ -1016,7 +1039,8 @@ UninstallResult apply_uninstall(
     const UninstallPlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at)
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector)
 {
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(uninstall_plan_payload(plan)) != plan.plan_digest ||
@@ -1041,7 +1065,10 @@ UninstallResult apply_uninstall(
     const fs::path marker = install_root.parent_path() / (".usk-uninstall-" + transaction_id);
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "uninstall", plan.roots.staging_parent,
-        marker, plan.roots.state_root, plan.roots.audit_root});
+        marker, plan.roots.state_root, plan.roots.audit_root},
+        [&](const std::string& state, const std::string& point) {
+            if (fault_injector) fault_injector("uninstall", "transaction." + state + "." + point);
+        });
     UninstallResult result;
     result.retained_unknown_paths = plan.verification.unknown_paths;
     try {
@@ -1049,6 +1076,7 @@ UninstallResult apply_uninstall(
         transaction.mark_staged();
         transaction.mark_verified();
         transaction.commit_effect();
+        if (fault_injector) fault_injector("uninstall", "after_marker_commit");
         for (const auto& file : current.second.files) {
             const fs::path path = install_root / file.relative_path;
             if (!fs::exists(path)) continue;
@@ -1066,6 +1094,7 @@ UninstallResult apply_uninstall(
             }
             remove_exact_file(path);
             result.deleted_owned_files.push_back(file.relative_path);
+            if (fault_injector) fault_injector("uninstall", "during_owned_file_removal");
         }
         std::vector<std::string> directories = current.second.directories;
         std::sort(directories.begin(), directories.end(), [](const std::string& left, const std::string& right) {
@@ -1091,7 +1120,9 @@ UninstallResult apply_uninstall(
         installed.lifecycle_status = result.target_removed ? "retired" : "uninstall_blocked";
         installed.last_verification = {final_verification.report_id, final_verification.report_digest,
                                        final_verification.status, applied_at};
+        if (fault_injector) fault_injector("uninstall", "before_installed_state_commit");
         state::StateRepository(plan.roots.state_root).write_installed(installed);
+        if (fault_injector) fault_injector("uninstall", "before_audit_completion");
         audit::AuditRepository(plan.roots.audit_root).append(installed.audit_chain_id, audit::AuditInput{
             applied_at, "uninstall", "completed", result.target_removed ? "pass" : "warn",
             "installation", plan.install_id, final_verification.report_digest, transaction_id, plan.plan_id,

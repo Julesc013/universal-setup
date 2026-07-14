@@ -595,7 +595,6 @@ TransactionSession::TransactionSession(
     persist_transition("planned");
     persist_transition("staging");
     create_staging_root();
-    persist_snapshot();
 }
 
 void TransactionSession::verify_roots_for_plan()
@@ -674,6 +673,7 @@ void TransactionSession::create_staging_root()
         throw std::runtime_error("cannot exclusively create setup-owned staging root");
     }
     staging_identity_ = directory_identity(staging_root_);
+    persist_snapshot();
     if (injector_) injector_(current_state_, "after_staging_create");
 }
 
@@ -1057,7 +1057,8 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     if (result.target_exists && reparse_or_symlink(spec.target_root)) {
         throw std::runtime_error("recovery target root is linked or substituted");
     }
-    if ((result.current_state == "committing" || result.current_state == "committed") &&
+    if ((result.current_state == "committing" || result.current_state == "committed" ||
+         result.current_state == "recovery_required") &&
         result.target_exists && !result.staging_exists) {
         result.available_actions = {"resume"};
     } else if ((result.current_state == "staging" || result.current_state == "staged" ||

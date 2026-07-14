@@ -8,10 +8,15 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace usk::lifecycle {
+
+using LifecycleFaultInjector = std::function<void(
+    const std::string& operation,
+    const std::string& point)>;
 
 struct PayloadFile {
     std::string relative_path;
@@ -156,7 +161,8 @@ InstallResult apply_install(
     const InstallPlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at);
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector = {});
 
 InstallResult recover_install_finalization(
     const InstallPlan& plan,
@@ -182,7 +188,8 @@ RepairResult apply_repair(
     const RepairPlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at);
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector = {});
 
 MovePlan plan_move(
     const LifecycleRoots& roots,
@@ -196,7 +203,8 @@ MoveResult apply_move(
     const MovePlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at);
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector = {});
 
 UninstallPlan plan_uninstall(
     const LifecycleRoots& roots,
@@ -209,7 +217,8 @@ UninstallResult apply_uninstall(
     const UninstallPlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
-    const std::string& applied_at);
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector = {});
 
 } // namespace usk::lifecycle
 
