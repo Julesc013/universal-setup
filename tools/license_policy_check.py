@@ -40,7 +40,7 @@ def covered_files() -> list[Path]:
     for path in ROOT.rglob("*"):
         if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
             continue
-        if path.name == "CMakeLists.txt" or path.suffix.lower() in COVERED_SUFFIXES:
+        if path.name in {".gitattributes", "CMakeLists.txt"} or path.suffix.lower() in COVERED_SUFFIXES:
             files.append(path)
     return sorted(files)
 
@@ -79,6 +79,9 @@ def validate() -> list[str]:
             problems.append(f"{relative} lacks the SPDX copyright header")
         if SPDX_LICENSE not in header:
             problems.append(f"{relative} lacks the SPDX MIT header")
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    if "LICENSE text eol=lf" not in attributes:
+        problems.append(".gitattributes must make the extensionless LICENSE reproducible")
     return problems
 
 
