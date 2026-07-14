@@ -14,6 +14,7 @@
     "input_identity",
     "roots",
     "effects",
+    "target_snapshots",
     "unknown_file_policy",
     "revalidation"
   ],
@@ -68,6 +69,12 @@
         },
         "additionalProperties": false
       }
+    },
+    "target_snapshots": {
+      "type": "object",
+      "required": ["pre_target_digest"],
+      "properties": { "pre_target_digest": { "$ref": "#/$defs/sha256" } },
+      "additionalProperties": false
     },
     "unknown_file_policy": { "const": "retain_and_report" },
     "revalidation": {

@@ -5,6 +5,7 @@
 
 #include "usk_json.h"
 #include "usk_record_io.h"
+#include "usk_stable_file.h"
 
 #include <algorithm>
 #include <cctype>
@@ -228,6 +229,73 @@ void validate_packet_identity(const usk::evidence::EvidencePacket& packet)
 } // namespace
 
 namespace usk::evidence {
+
+TargetSnapshot snapshot_target(
+    const fs::path& target_root,
+    std::uint64_t max_entries,
+    std::uint64_t max_bytes)
+{
+    if (target_root.empty() || max_entries == 0 || max_bytes == 0) {
+        throw std::runtime_error("target snapshot requires an explicit path and positive budgets");
+    }
+    const fs::path absolute = fs::absolute(target_root).lexically_normal();
+    std::error_code error;
+    const fs::file_status root_status = fs::symlink_status(absolute, error);
+    if (error && error != std::errc::no_such_file_or_directory) {
+        throw std::runtime_error("target snapshot cannot inspect the selected root");
+    }
+    TargetSnapshot result;
+    Value::Array entries;
+    if (!fs::exists(root_status)) {
+        result.state = "nonexistent";
+    } else {
+        if (fs::is_symlink(root_status) || !fs::is_directory(root_status)) {
+            throw std::runtime_error("target snapshot root is redirected or not a directory");
+        }
+        record_io::require_safe_directory(absolute);
+        result.state = "directory";
+        for (fs::recursive_directory_iterator iterator(absolute), end; iterator != end; ++iterator) {
+            if (result.file_count + result.directory_count >= max_entries) {
+                throw std::runtime_error("target snapshot entry budget exceeded");
+            }
+            const fs::directory_entry& entry = *iterator;
+            const fs::file_status status = entry.symlink_status(error);
+            if (error || fs::is_symlink(status)) {
+                throw std::runtime_error("target snapshot encountered a redirected entry");
+            }
+            const std::string relative = fs::relative(entry.path(), absolute, error).generic_u8string();
+            if (error || relative.empty() || relative == "." || relative.find("..") == 0) {
+                throw std::runtime_error("target snapshot relative path is invalid");
+            }
+            if (fs::is_directory(status)) {
+                ++result.directory_count;
+                entries.emplace_back(Value::Object{{"relative_path", Value(relative)},
+                    {"type", Value("directory")}});
+            } else if (fs::is_regular_file(status)) {
+                usk::base::StableFile file(entry.path());
+                const auto identity = file.identity();
+                if (identity.size_bytes > max_bytes - result.byte_count) {
+                    throw std::runtime_error("target snapshot byte budget exceeded");
+                }
+                const std::string digest = file.sha256_hex();
+                file.verify_unchanged();
+                result.byte_count += identity.size_bytes;
+                ++result.file_count;
+                entries.emplace_back(Value::Object{{"relative_path", Value(relative)},
+                    {"sha256", Value(digest)}, {"size_bytes", Value(identity.size_bytes)},
+                    {"type", Value("file")}});
+            } else {
+                throw std::runtime_error("target snapshot encountered an unsupported entry type");
+            }
+        }
+        std::sort(entries.begin(), entries.end(), [](const Value& left, const Value& right) {
+            return left.at("relative_path").as_string() < right.at("relative_path").as_string();
+        });
+    }
+    result.snapshot_digest = json::sha256_canonical(Value(Value::Object{
+        {"entries", Value(std::move(entries))}, {"state", Value(result.state)}}));
+    return result;
+}
 
 EvidencePacket build_pending_packet(LiveEvidenceInput input)
 {

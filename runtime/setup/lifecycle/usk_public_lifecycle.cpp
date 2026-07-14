@@ -430,6 +430,7 @@ Value install_plan_document(const InstallPlanBundle& bundle, const fs::path& sou
         {"target", Value(Value::Object{
             {"classification", Value("operator_selected_owned_target")},
             {"must_not_exist", Value(true)}, {"root", Value(bundle.plan.target_root.generic_u8string())},
+            {"pre_snapshot_digest", Value(usk::evidence::snapshot_target(bundle.plan.target_root).snapshot_digest)},
             {"scope", Value("portable")},
             {"volume_id", Value(bundle.target.evidence.filesystem_identity_digest)}})},
         {"totals", Value(Value::Object{
@@ -783,7 +784,11 @@ Value operation_plan_document(
             {"invalidate_on", Value(Value::Array{Value("target"), Value("installed_state"),
                 Value("ownership_manifest"), Value("policy"), Value("provider_revision")})}})},
         {"roots", Value(std::move(root_values))}, {"schema", Value("usk.operation_plan.v1")},
-        {"status", Value("planned")}, {"unknown_file_policy", Value("retain_and_report")}});
+        {"status", Value("planned")},
+        {"target_snapshots", Value(Value::Object{{"pre_target_digest", Value(
+            usk::evidence::snapshot_target(destination.empty() ? fs::path(installed.target_root) : destination)
+                .snapshot_digest)}})},
+        {"unknown_file_policy", Value("retain_and_report")}});
 }
 
 Value move_report_document(
@@ -1074,6 +1079,10 @@ Value live_evidence_capture(const Value& request, const PublicConfig& config)
     input.audit_head_digest = audit.back().event_digest;
     input.pre_target_snapshot_digest = required_string(snapshots, "pre_target_digest");
     input.post_target_snapshot_digest = required_string(snapshots, "post_target_digest");
+    const auto observed_post_snapshot = usk::evidence::snapshot_target(installed.target_root);
+    if (observed_post_snapshot.snapshot_digest != input.post_target_snapshot_digest) {
+        throw PublicError("target_changed", "post-operation target snapshot does not match current filesystem state");
+    }
     input.recovery_status = recovery.current_state == "completed" ? "not_required" :
         (recovery.current_state == "recovery_required" ? "recovery_required" : "unproven");
     input.journal_digest = recovery.journal_digest;

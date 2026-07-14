@@ -87,6 +87,19 @@ struct EvidencePacket {
     std::string canonical_json;
 };
 
+struct TargetSnapshot {
+    std::string state;
+    std::uint64_t file_count = 0;
+    std::uint64_t directory_count = 0;
+    std::uint64_t byte_count = 0;
+    std::string snapshot_digest;
+};
+
+TargetSnapshot snapshot_target(
+    const std::filesystem::path& target_root,
+    std::uint64_t max_entries = 100000,
+    std::uint64_t max_bytes = 64ull * 1024ull * 1024ull * 1024ull);
+
 EvidencePacket build_pending_packet(LiveEvidenceInput input);
 
 EvidencePacket record_operator_verdict(

@@ -3,6 +3,7 @@
 
 #include "usk/usk_api.h"
 #include "usk_json.h"
+#include "usk_live_evidence.h"
 #include "usk_sha256.h"
 
 #include <chrono>
@@ -211,8 +212,9 @@ int main()
             {"plan_id", Value("plan.install.1")}})},
         {"recipe_id", Value("recipe.synthetic.1")}, {"request_id", Value("evidence.capture.1")},
         {"schema", Value("usk.live_target_evidence_capture_request.v1")},
-        {"snapshots", Value(Value::Object{{"post_target_digest", Value(std::string(64, '5'))},
-            {"pre_target_digest", Value(std::string(64, '6'))}})},
+        {"snapshots", Value(Value::Object{{"post_target_digest", Value(
+            usk::evidence::snapshot_target(target).snapshot_digest)},
+            {"pre_target_digest", plan_payload.at("target").at("pre_snapshot_digest")}})},
         {"source_revisions", Value(Value::Array{
             Value(Value::Object{{"repository_id", Value("universal_setup")},
                                 {"revision", Value(std::string(40, 'a'))}}),
@@ -241,6 +243,13 @@ int main()
     response = execute(context, "live_evidence.capture", stale_evidence, 0, status);
     if (status != USK_STATUS_ERROR || response.find("source_changed") == std::string::npos ||
         fs::exists(setup_root / "evidence/packets/evidence.install.public.stale.json")) return 29;
+    Value stale_snapshot = evidence;
+    stale_snapshot.as_object()["packet_id"] = Value("evidence.install.public.snapshot-drift");
+    stale_snapshot.as_object()["snapshots"].as_object()["post_target_digest"] =
+        Value(std::string(64, '0'));
+    response = execute(context, "live_evidence.capture", stale_snapshot, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("target_changed") == std::string::npos ||
+        fs::exists(setup_root / "evidence/packets/evidence.install.public.snapshot-drift.json")) return 30;
 
     const Value inspect(Value::Object{{"install_id", Value("synthetic.install.1")},
         {"request_id", Value("inspect.1")}, {"schema", Value("usk.installed_inspect_request.v1")}});

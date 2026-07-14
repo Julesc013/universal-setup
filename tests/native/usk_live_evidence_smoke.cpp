@@ -96,6 +96,23 @@ int main()
     usk::evidence::EvidenceRepository::initialize_layout(root);
     usk::evidence::EvidenceRepository repository(root);
 
+    const auto missing_snapshot = usk::evidence::snapshot_target(root / "missing-target");
+    if (missing_snapshot.state != "nonexistent" || missing_snapshot.snapshot_digest.size() != 64) return 9;
+    fs::create_directories(root / "snapshot-target/data", error);
+    if (error) return 10;
+    {
+        std::ofstream output(root / "snapshot-target/data/file.txt", std::ios::binary);
+        output << "one\n";
+    }
+    const auto first_snapshot = usk::evidence::snapshot_target(root / "snapshot-target");
+    {
+        std::ofstream output(root / "snapshot-target/data/file.txt", std::ios::binary | std::ios::trunc);
+        output << "two\n";
+    }
+    const auto second_snapshot = usk::evidence::snapshot_target(root / "snapshot-target");
+    if (first_snapshot.file_count != 1 || first_snapshot.directory_count != 1 ||
+        first_snapshot.snapshot_digest == second_snapshot.snapshot_digest) return 11;
+
     const auto pending = usk::evidence::build_pending_packet(input());
     const Value pending_json = usk::json::parse(pending.canonical_json);
     if (pending.packet_digest.size() != 64 ||
