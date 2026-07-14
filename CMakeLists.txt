@@ -173,12 +173,14 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)
   add_test(NAME usk_public_lifecycle_smoke COMMAND usk_public_lifecycle_smoke)
 
-  add_test(NAME usk_live_acceptance_cli_smoke
-    COMMAND "${CMAKE_COMMAND}"
-      -DUSK_ACCEPTANCE_EXE=$<TARGET_FILE:usk_live_acceptance>
-      -DUSK_TEMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}
-      -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/usk_live_acceptance_smoke.cmake"
-  )
+  if(USK_BUILD_APPS)
+    add_test(NAME usk_live_acceptance_cli_smoke
+      COMMAND "${CMAKE_COMMAND}"
+        -DUSK_ACCEPTANCE_EXE=$<TARGET_FILE:usk_live_acceptance>
+        -DUSK_TEMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/usk_live_acceptance_smoke.cmake"
+    )
+  endif()
 
   add_executable(usk_adversarial_lifecycle_smoke tests/native/usk_adversarial_lifecycle_smoke.cpp)
   target_compile_features(usk_adversarial_lifecycle_smoke PRIVATE cxx_std_17)
