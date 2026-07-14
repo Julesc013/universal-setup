@@ -69,6 +69,7 @@ M2_EVIDENCE_CONTRACTS = {
     "live_target_evidence_capture_request": "usk.live_target_evidence_capture_request.v1",
     "live_target_evidence_packet": "usk.live_target_evidence_packet.v1",
     "operator_verdict_record_request": "usk.operator_verdict_record_request.v1",
+    "m2_live_acceptance_summary": "usk.m2_live_acceptance_summary.v1",
 }
 
 

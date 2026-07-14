@@ -121,6 +121,14 @@ bool same_or_below(const fs::path& root, const fs::path& candidate)
     return true;
 }
 
+std::string path_identity_digest(const fs::path& path)
+{
+    const std::string normalized = fs::absolute(path).lexically_normal().generic_u8string();
+    usk::base::Sha256 digest;
+    digest.update(reinterpret_cast<const unsigned char*>(normalized.data()), normalized.size());
+    return digest.finish();
+}
+
 PublicConfig parse_config(
     const char* state_root,
     const char* authorized_acceptance_root,
@@ -423,13 +431,24 @@ Value install_plan_document(const InstallPlanBundle& bundle, const fs::path& sou
         {"source", Value(Value::Object{
             {"filesystem_identity_digest", Value(bundle.source_identity_digest)},
             {"path", Value(fs::absolute(source_path).lexically_normal().generic_u8string())},
+            {"path_identity_digest", Value(path_identity_digest(source_path))},
             {"sha256", Value(bundle.plan.recipe.source_archive_digest)},
             {"size_bytes", Value(bundle.archive_size)},
             {"source_id", Value("source." + bundle.plan.install_id)}})},
         {"status", Value("planned")},
         {"target", Value(Value::Object{
             {"classification", Value("operator_selected_owned_target")},
+            {"filesystem", Value(Value::Object{
+                {"capabilities", Value(Value::Object{
+                    {"local", Value(bundle.target.evidence.local_filesystem)},
+                    {"no_mount_redirection", Value(bundle.target.evidence.mount_redirection_absent)},
+                    {"no_replace_commit", Value(true)},
+                    {"stable_ancestors", Value(bundle.target.evidence.path_components_stable)}})},
+                {"identity_digest", Value(bundle.target.evidence.filesystem_identity_digest)},
+                {"kind", Value(bundle.target.evidence.filesystem_kind)}})},
+            {"identity_digest", Value(bundle.target.evidence.target_identity_digest)},
             {"must_not_exist", Value(true)}, {"root", Value(bundle.plan.target_root.generic_u8string())},
+            {"path_identity_digest", Value(path_identity_digest(bundle.plan.target_root))},
             {"pre_snapshot_digest", Value(usk::evidence::snapshot_target(bundle.plan.target_root).snapshot_digest)},
             {"scope", Value("portable")},
             {"volume_id", Value(bundle.target.evidence.filesystem_identity_digest)}})},

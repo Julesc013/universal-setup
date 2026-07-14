@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/m2_live_acceptance_summary.v1.schema.json",
+  "title": "M2 Live Portable Setup Acceptance Summary",
+  "type": "object",
+  "required": ["schema", "run_id", "run_root", "status", "completed_at", "source_revisions", "archive", "authority", "steps", "evidence_packets"],
+  "properties": {
+    "schema": { "const": "usk.m2_live_acceptance_summary.v1" },
+    "run_id": { "$ref": "#/$defs/id" },
+    "run_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "status": { "const": "automated_findings_complete_pending_operator_verdict" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "source_revisions": {
+      "type": "object", "required": ["universal_setup", "consumer"],
+      "properties": { "universal_setup": { "$ref": "#/$defs/revision" }, "consumer": { "$ref": "#/$defs/revision" } },
+      "additionalProperties": false
+    },
+    "archive": {
+      "type": "object", "required": ["path", "sha256", "contains_executable_code"],
+      "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha256" }, "contains_executable_code": { "const": false } },
+      "additionalProperties": false
+    },
+    "authority": {
+      "type": "object", "required": ["acceptance_root", "operator_verdict", "ordinary_live_apply_promoted", "run_execute_authorized"],
+      "properties": {
+        "acceptance_root": { "type": "string", "minLength": 1 }, "operator_verdict": { "const": "pending" },
+        "ordinary_live_apply_promoted": { "const": false }, "run_execute_authorized": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array", "minItems": 10,
+      "items": {
+        "type": "object", "required": ["name", "status"],
+        "properties": { "name": { "$ref": "#/$defs/id" }, "status": { "$ref": "#/$defs/id" }, "identity": { "$ref": "#/$defs/sha256" } },
+        "additionalProperties": false
+      }
+    },
+    "evidence_packets": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "items": {
+        "type": "object", "required": ["packet_id", "packet_digest"],
+        "properties": { "packet_id": { "$ref": "#/$defs/id" }, "packet_digest": { "$ref": "#/$defs/sha256" } },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$" },
+    "revision": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
