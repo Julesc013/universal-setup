@@ -146,6 +146,10 @@ mutation, elevation, package-manager integration, vendor installer execution,
 product execution, signing, or publication. This is an operator-acceptance
 candidate, not a production installer or a human acceptance verdict.
 
+The retained synthetic live proofs are documented in
+[`m2_live_acceptance.md`](docs/testing/m2_live_acceptance.md) and
+[`m2_interruption_recovery.md`](docs/testing/m2_interruption_recovery.md).
+
 ## License
 
 Universal Setup is licensed under the [MIT License](LICENSE). The canonical
