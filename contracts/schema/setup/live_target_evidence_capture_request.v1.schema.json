@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/live_target_evidence_capture_request.v1.schema.json",
+  "title": "Live Target Evidence Capture Request",
+  "type": "object",
+  "required": ["schema", "request_id", "packet_id", "captured_at", "install_id", "source_revisions", "contract_versions", "archive", "recipe_id", "target", "plan", "transaction", "snapshots", "automated_findings"],
+  "properties": {
+    "schema": { "const": "usk.live_target_evidence_capture_request.v1" },
+    "request_id": { "$ref": "#/$defs/id" },
+    "packet_id": { "$ref": "#/$defs/id" },
+    "captured_at": { "type": "string", "format": "date-time" },
+    "install_id": { "$ref": "#/$defs/id" },
+    "source_revisions": {
+      "type": "array", "minItems": 1, "maxItems": 32,
+      "items": {
+        "type": "object", "required": ["repository_id", "revision"],
+        "properties": { "repository_id": { "$ref": "#/$defs/id" }, "revision": { "$ref": "#/$defs/revision" } },
+        "additionalProperties": false
+      }
+    },
+    "contract_versions": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {
+        "type": "object", "required": ["contract_id", "schema_version"],
+        "properties": { "contract_id": { "$ref": "#/$defs/id" }, "schema_version": { "$ref": "#/$defs/id" } },
+        "additionalProperties": false
+      }
+    },
+    "archive": {
+      "type": "object", "required": ["source_id", "sha256", "size_bytes", "filesystem_identity_digest", "path_identity_digest"],
+      "properties": {
+        "source_id": { "$ref": "#/$defs/id" }, "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "filesystem_identity_digest": { "$ref": "#/$defs/sha256" }, "path_identity_digest": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "recipe_id": { "$ref": "#/$defs/id" },
+    "target": {
+      "type": "object", "required": ["class", "identity_digest", "path_identity_digest", "persistent_effects", "filesystem"],
+      "properties": {
+        "class": { "enum": ["operator_acceptance", "managed_portable"] },
+        "identity_digest": { "$ref": "#/$defs/sha256" }, "path_identity_digest": { "$ref": "#/$defs/sha256" },
+        "persistent_effects": { "type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
+        "filesystem": {
+          "type": "object", "required": ["identity_digest", "kind", "capabilities"],
+          "properties": {
+            "identity_digest": { "$ref": "#/$defs/sha256" }, "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "capabilities": {
+              "type": "object", "required": ["local", "stable_ancestors", "no_mount_redirection", "no_replace_commit"],
+              "properties": {
+                "local": { "type": "boolean" }, "stable_ancestors": { "type": "boolean" },
+                "no_mount_redirection": { "type": "boolean" }, "no_replace_commit": { "type": "boolean" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "plan": {
+      "type": "object", "required": ["plan_id", "plan_digest", "operation", "expected_file_count", "expected_byte_count"],
+      "properties": {
+        "plan_id": { "$ref": "#/$defs/id" }, "plan_digest": { "$ref": "#/$defs/sha256" },
+        "operation": { "enum": ["install_local", "repair", "move", "uninstall", "recovery"] },
+        "expected_file_count": { "type": "integer", "minimum": 0 }, "expected_byte_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "transaction": {
+      "type": "object", "required": ["transaction_id", "staging_parent", "target_root"],
+      "properties": {
+        "transaction_id": { "$ref": "#/$defs/id" },
+        "staging_parent": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "target_root": { "type": "string", "minLength": 1, "maxLength": 32768 }
+      },
+      "additionalProperties": false
+    },
+    "snapshots": {
+      "type": "object", "required": ["pre_target_digest", "post_target_digest"],
+      "properties": { "pre_target_digest": { "$ref": "#/$defs/sha256" }, "post_target_digest": { "$ref": "#/$defs/sha256" } },
+      "additionalProperties": false
+    },
+    "automated_findings": {
+      "type": "array", "maxItems": 1024,
+      "items": {
+        "type": "object", "required": ["code", "severity", "classification", "details_digest"],
+        "properties": {
+          "code": { "$ref": "#/$defs/id" }, "severity": { "enum": ["info", "warning", "error"] },
+          "classification": { "enum": ["observed", "passed_check", "failed_check", "inconclusive_check"] },
+          "details_digest": { "$ref": "#/$defs/sha256" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$" },
+    "revision": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

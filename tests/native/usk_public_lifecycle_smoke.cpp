@@ -3,6 +3,7 @@
 
 #include "usk/usk_api.h"
 #include "usk_json.h"
+#include "usk_live_evidence.h"
 #include "usk_sha256.h"
 
 #include <chrono>
@@ -186,6 +187,69 @@ int main()
     response = execute(context, "install_local.apply", stale, 0, status);
     if (status != USK_STATUS_OK || !fs::is_regular_file(target / "bin/probe.txt") ||
         !fs::is_regular_file(target / "data/config.ini") || !fs::is_directory(setup_root / "state")) return 8;
+
+    const Value plan_payload = plan_response.at("payload");
+    Value evidence(Value::Object{
+        {"archive", Value(Value::Object{
+            {"filesystem_identity_digest", plan_payload.at("source").at("filesystem_identity_digest")},
+            {"path_identity_digest", Value(std::string(64, '3'))},
+            {"sha256", Value(usk::base::sha256_hex_file(archive))},
+            {"size_bytes", plan_payload.at("source").at("size_bytes")},
+            {"source_id", plan_payload.at("source").at("source_id")}})},
+        {"automated_findings", Value(Value::Array{Value(Value::Object{
+            {"classification", Value("passed_check")}, {"code", Value("install_closure_verified")},
+            {"details_digest", Value(std::string(64, '4'))}, {"severity", Value("info")}})})},
+        {"captured_at", Value("2026-07-14T01:01:30Z")},
+        {"contract_versions", Value(Value::Array{
+            Value(Value::Object{{"contract_id", Value("install_plan")},
+                                {"schema_version", Value("usk.install_plan.v1")}}),
+            Value(Value::Object{{"contract_id", Value("installed_state")},
+                                {"schema_version", Value("usk.installed_state.v1")}})})},
+        {"install_id", Value("synthetic.install.1")}, {"packet_id", Value("evidence.install.public.1")},
+        {"plan", Value(Value::Object{{"expected_byte_count", plan_payload.at("totals").at("uncompressed_bytes")},
+            {"expected_file_count", plan_payload.at("totals").at("file_count")},
+            {"operation", Value("install_local")}, {"plan_digest", Value(plan_digest)},
+            {"plan_id", Value("plan.install.1")}})},
+        {"recipe_id", Value("recipe.synthetic.1")}, {"request_id", Value("evidence.capture.1")},
+        {"schema", Value("usk.live_target_evidence_capture_request.v1")},
+        {"snapshots", Value(Value::Object{{"post_target_digest", Value(
+            usk::evidence::snapshot_target(target).snapshot_digest)},
+            {"pre_target_digest", plan_payload.at("target").at("pre_snapshot_digest")}})},
+        {"source_revisions", Value(Value::Array{
+            Value(Value::Object{{"repository_id", Value("universal_setup")},
+                                {"revision", Value(std::string(40, 'a'))}}),
+            Value(Value::Object{{"repository_id", Value("product_consumer")},
+                                {"revision", Value(std::string(40, 'b'))}})})},
+        {"target", Value(Value::Object{
+            {"class", Value("operator_acceptance")},
+            {"filesystem", Value(Value::Object{
+                {"capabilities", Value(Value::Object{{"local", Value(true)},
+                    {"no_mount_redirection", Value(true)}, {"no_replace_commit", Value(true)},
+                    {"stable_ancestors", Value(true)}})},
+                {"identity_digest", plan_payload.at("target").at("volume_id")},
+                {"kind", Value("local_test_filesystem")}})},
+            {"identity_digest", Value(std::string(64, '7'))},
+            {"path_identity_digest", Value(std::string(64, '8'))},
+            {"persistent_effects", Value(Value::Array{Value("create owned target"),
+                Value("write setup state"), Value("append audit chain")})}})},
+        {"transaction", Value(Value::Object{{"staging_parent", Value((setup_root / "staging").generic_u8string())},
+            {"target_root", Value(target.generic_u8string())}, {"transaction_id", Value("tx.install.1")}})}});
+    response = execute(context, "live_evidence.capture", evidence, 0, status);
+    if (status != USK_STATUS_OK || response.find("\"status\":\"pending\"") == std::string::npos ||
+        !fs::is_regular_file(setup_root / "evidence/packets/evidence.install.public.1.json")) return 28;
+    Value stale_evidence = evidence;
+    stale_evidence.as_object()["packet_id"] = Value("evidence.install.public.stale");
+    stale_evidence.as_object()["archive"].as_object()["sha256"] = Value(std::string(64, '0'));
+    response = execute(context, "live_evidence.capture", stale_evidence, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("source_changed") == std::string::npos ||
+        fs::exists(setup_root / "evidence/packets/evidence.install.public.stale.json")) return 29;
+    Value stale_snapshot = evidence;
+    stale_snapshot.as_object()["packet_id"] = Value("evidence.install.public.snapshot-drift");
+    stale_snapshot.as_object()["snapshots"].as_object()["post_target_digest"] =
+        Value(std::string(64, '0'));
+    response = execute(context, "live_evidence.capture", stale_snapshot, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("target_changed") == std::string::npos ||
+        fs::exists(setup_root / "evidence/packets/evidence.install.public.snapshot-drift.json")) return 30;
 
     const Value inspect(Value::Object{{"install_id", Value("synthetic.install.1")},
         {"request_id", Value("inspect.1")}, {"schema", Value("usk.installed_inspect_request.v1")}});

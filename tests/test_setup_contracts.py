@@ -65,6 +65,12 @@ M2_PUBLIC_REQUEST_CONTRACTS = {
     "recovery_apply_request": "usk.recovery_apply_request.v1",
 }
 
+M2_EVIDENCE_CONTRACTS = {
+    "live_target_evidence_capture_request": "usk.live_target_evidence_capture_request.v1",
+    "live_target_evidence_packet": "usk.live_target_evidence_packet.v1",
+    "operator_verdict_record_request": "usk.operator_verdict_record_request.v1",
+}
+
 
 def load_schema(name: str) -> dict:
     path = SCHEMA_ROOT / f"{name}.v1.schema.json"
@@ -125,6 +131,36 @@ class SetupContractTests(unittest.TestCase):
         serialized = json.dumps(install_plan).lower()
         for forbidden in ("shell_command", "powershell", "network_url", "credential_reference"):
             self.assertNotIn(forbidden, serialized)
+
+    def test_m2_live_target_evidence_is_strict_and_keeps_human_authority_separate(self) -> None:
+        for name, schema_const in M2_EVIDENCE_CONTRACTS.items():
+            schema = load_schema(name)
+            self.assertEqual(schema["properties"]["schema"]["const"], schema_const)
+            self.assertIs(schema["additionalProperties"], False)
+
+        schema = load_schema("live_target_evidence_packet")
+        self.assertTrue(
+            {
+                "source_revisions", "setup_abi", "contract_versions", "archive", "recipe",
+                "target", "filesystem", "plan", "committed_closure", "state", "snapshots",
+                "recovery", "automated_findings", "operator_verdict",
+            }.issubset(schema["required"])
+        )
+        pending, recorded = schema["properties"]["operator_verdict"]["oneOf"]
+        self.assertEqual(pending["properties"]["status"]["const"], "pending")
+        self.assertEqual(pending["properties"]["verdict"]["type"], "null")
+        self.assertEqual(recorded["properties"]["status"]["const"], "recorded")
+        self.assertEqual(set(recorded["properties"]["verdict"]["enum"]), {"Pass", "Fail", "Inconclusive"})
+        serialized = json.dumps(schema).lower()
+        for forbidden in ("run.execute", "network_url", "credential", "registry_write", "elevation"):
+            self.assertNotIn(forbidden, serialized)
+
+        verdict_request = load_schema("operator_verdict_record_request")
+        self.assertEqual(verdict_request["properties"]["confirmation"]["const"], "RECORD VERDICT")
+        self.assertEqual(
+            set(verdict_request["properties"]["verdict"]["enum"]),
+            {"Pass", "Fail", "Inconclusive"},
+        )
 
     def test_m2_target_policy_is_fail_closed_and_product_neutral(self) -> None:
         policy = load_schema("target_policy")["properties"]
@@ -210,6 +246,7 @@ class SetupContractTests(unittest.TestCase):
             {"source", "recipe", "target", "policy", "provider_revision"},
         )
         refusal = install["$defs"]["refusal_policy"]["properties"]
+        self.assertIn("pre_snapshot_digest", install["properties"]["target"]["required"])
         for field in (
             "refuse_network",
             "refuse_registry",
@@ -221,6 +258,8 @@ class SetupContractTests(unittest.TestCase):
             self.assertIs(refusal[field]["const"], True)
 
         operation = load_schema("operation_plan")
+        self.assertIn("target_snapshots", operation["required"])
+        self.assertIn("pre_target_snapshot_digest", load_schema("repair_plan")["required"])
         self.assertEqual(operation["properties"]["unknown_file_policy"]["const"], "retain_and_report")
         self.assertNotIn("adopt", operation["properties"]["operation"]["enum"])
 

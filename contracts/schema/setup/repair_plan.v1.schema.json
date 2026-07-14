@@ -3,7 +3,7 @@
   "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/repair_plan.v1.schema.json",
   "title": "Ownership-Bounded Repair Plan",
   "type": "object",
-  "required": ["schema", "plan_id", "plan_digest", "operation", "status", "created_at", "install_id", "recipe_digest", "source_digest", "installed_state_digest", "ownership_manifest_digest", "before_verification_digest", "repairs", "retained_unknown_paths", "revalidation"],
+  "required": ["schema", "plan_id", "plan_digest", "operation", "status", "created_at", "install_id", "recipe_digest", "source_digest", "installed_state_digest", "ownership_manifest_digest", "before_verification_digest", "pre_target_snapshot_digest", "repairs", "retained_unknown_paths", "revalidation"],
   "properties": {
     "schema": { "const": "usk.repair_plan.v1" },
     "plan_id": { "type": "string", "minLength": 1 },
@@ -17,6 +17,7 @@
     "installed_state_digest": { "$ref": "#/$defs/sha256" },
     "ownership_manifest_digest": { "$ref": "#/$defs/sha256" },
     "before_verification_digest": { "$ref": "#/$defs/sha256" },
+    "pre_target_snapshot_digest": { "$ref": "#/$defs/sha256" },
     "repairs": {
       "type": "array",
       "items": {

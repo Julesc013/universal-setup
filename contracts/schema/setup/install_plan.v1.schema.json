@@ -42,13 +42,14 @@
     },
     "target": {
       "type": "object",
-      "required": ["root", "scope", "must_not_exist", "volume_id", "classification"],
+      "required": ["root", "scope", "must_not_exist", "volume_id", "classification", "pre_snapshot_digest"],
       "properties": {
         "root": { "type": "string", "minLength": 1, "maxLength": 32768 },
         "scope": { "const": "portable" },
         "must_not_exist": { "const": true },
         "volume_id": { "type": "string", "minLength": 1 },
-        "classification": { "const": "operator_selected_owned_target" }
+        "classification": { "const": "operator_selected_owned_target" },
+        "pre_snapshot_digest": { "$ref": "#/$defs/sha256" }
       },
       "additionalProperties": false
     },

@@ -62,11 +62,13 @@ set_target_properties(usk_transaction_static PROPERTIES POSITION_INDEPENDENT_COD
 
 add_library(usk_state_static STATIC
   runtime/setup/audit/usk_audit_repository.cpp
+  runtime/setup/evidence/usk_live_evidence.cpp
   runtime/setup/state/usk_state_repository.cpp
 )
 target_compile_features(usk_state_static PUBLIC cxx_std_17)
 target_include_directories(usk_state_static PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/audit"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/evidence"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/state"
 )
 target_link_libraries(usk_state_static PUBLIC usk_base_static)
@@ -145,6 +147,11 @@ if(USK_BUILD_TESTS)
   )
   target_link_libraries(usk_state_repository_smoke PRIVATE usk_state_static)
   add_test(NAME usk_state_repository_smoke COMMAND usk_state_repository_smoke)
+
+  add_executable(usk_live_evidence_smoke tests/native/usk_live_evidence_smoke.cpp)
+  target_compile_features(usk_live_evidence_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_live_evidence_smoke PRIVATE usk_state_static usk_base_static)
+  add_test(NAME usk_live_evidence_smoke COMMAND usk_live_evidence_smoke)
 
   add_executable(usk_lifecycle_smoke tests/native/usk_lifecycle_smoke.cpp)
   target_compile_features(usk_lifecycle_smoke PRIVATE cxx_std_17)

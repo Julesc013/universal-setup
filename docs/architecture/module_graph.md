@@ -11,6 +11,7 @@ include/usk
   -> runtime/setup/transaction
   -> runtime/setup/state
   -> runtime/setup/audit
+  -> runtime/setup/evidence
 
 runtime/setup/transaction
   -> runtime/setup/rollback
@@ -24,4 +25,4 @@ include/usu
 
 The graph is intentionally product-neutral. Product repositories supply
 manifests and policy; Universal Setup supplies deterministic mutation,
-rollback, installed-state, and audit behavior.
+rollback, installed-state, audit behavior, and immutable acceptance evidence.

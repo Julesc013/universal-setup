@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/operator_verdict_record_request.v1.schema.json",
+  "title": "Operator Verdict Record Request",
+  "type": "object",
+  "required": ["schema", "request_id", "pending_packet_id", "new_packet_id", "recorded_at", "verdict", "recorded_by", "statement_digest", "confirmation"],
+  "properties": {
+    "schema": { "const": "usk.operator_verdict_record_request.v1" },
+    "request_id": { "$ref": "#/$defs/id" },
+    "pending_packet_id": { "$ref": "#/$defs/id" },
+    "new_packet_id": { "$ref": "#/$defs/id" },
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "verdict": { "enum": ["Pass", "Fail", "Inconclusive"] },
+    "recorded_by": { "$ref": "#/$defs/id" },
+    "statement_digest": { "$ref": "#/$defs/sha256" },
+    "confirmation": { "const": "RECORD VERDICT" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
