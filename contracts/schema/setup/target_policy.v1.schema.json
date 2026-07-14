@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/target_policy.v1.schema.json",
+  "title": "Live Portable Target Policy",
+  "type": "object",
+  "required": [
+    "schema",
+    "policy_id",
+    "activation",
+    "authorized_acceptance_root",
+    "operator_verdict",
+    "mutable_target_classes",
+    "conditions",
+    "forbidden_authorities"
+  ],
+  "properties": {
+    "schema": { "const": "usk.target_policy.v1" },
+    "policy_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "activation": {
+      "enum": ["unavailable", "operator_acceptance_candidate", "accepted_live_portable"]
+    },
+    "authorized_acceptance_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "operator_verdict": { "enum": ["pending", "Pass", "Fail", "Inconclusive"] },
+    "mutable_target_classes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["operator_acceptance", "managed_portable"] }
+    },
+    "conditions": {
+      "type": "object",
+      "required": [
+        "explicit_target",
+        "nonexistent_or_empty",
+        "local_filesystem",
+        "stable_path_components",
+        "no_mount_redirection",
+        "excluded_roots_absent",
+        "adequate_space",
+        "source_target_distinct",
+        "persistent_effects_visible",
+        "immediate_apply_revalidation"
+      ],
+      "properties": {
+        "explicit_target": { "const": true },
+        "nonexistent_or_empty": { "const": true },
+        "local_filesystem": { "const": true },
+        "stable_path_components": { "const": true },
+        "no_mount_redirection": { "const": true },
+        "excluded_roots_absent": { "const": true },
+        "adequate_space": { "const": true },
+        "source_target_distinct": { "const": true },
+        "persistent_effects_visible": { "const": true },
+        "immediate_apply_revalidation": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "forbidden_authorities": {
+      "type": "object",
+      "required": [
+        "network",
+        "registry",
+        "elevation",
+        "package_manager",
+        "installer_execution",
+        "credential_access",
+        "product_execution"
+      ],
+      "properties": {
+        "network": { "const": false },
+        "registry": { "const": false },
+        "elevation": { "const": false },
+        "package_manager": { "const": false },
+        "installer_execution": { "const": false },
+        "credential_access": { "const": false },
+        "product_execution": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

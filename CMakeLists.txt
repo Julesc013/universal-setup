@@ -39,6 +39,14 @@ target_include_directories(usk_archive_static PUBLIC
 target_link_libraries(usk_archive_static PUBLIC usk_base_static)
 set_target_properties(usk_archive_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+add_library(usk_policy_static STATIC runtime/setup/policy/usk_target_policy.cpp)
+target_compile_features(usk_policy_static PUBLIC cxx_std_17)
+target_include_directories(usk_policy_static PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/policy"
+)
+target_link_libraries(usk_policy_static PUBLIC usk_base_static)
+set_target_properties(usk_policy_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(usk_transaction_static STATIC
   runtime/setup/transaction/usk_transaction_session.cpp
 )
@@ -108,6 +116,11 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_archive_inspect_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_archive_inspect_smoke PRIVATE usk_static)
   add_test(NAME usk_archive_inspect_smoke COMMAND usk_archive_inspect_smoke)
+
+  add_executable(usk_target_policy_smoke tests/native/usk_target_policy_smoke.cpp)
+  target_compile_features(usk_target_policy_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_target_policy_smoke PRIVATE usk_policy_static)
+  add_test(NAME usk_target_policy_smoke COMMAND usk_target_policy_smoke)
 
   add_executable(usk_transaction_session_smoke tests/native/usk_transaction_session_smoke.cpp)
   target_compile_features(usk_transaction_session_smoke PRIVATE cxx_std_17)

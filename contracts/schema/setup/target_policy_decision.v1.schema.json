@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/target_policy_decision.v1.schema.json",
+  "title": "Live Portable Target Policy Decision",
+  "type": "object",
+  "required": [
+    "schema",
+    "policy_id",
+    "activation",
+    "status",
+    "mutation_authorized",
+    "target_class",
+    "target_binding_digest",
+    "code",
+    "detail",
+    "evaluated_at"
+  ],
+  "properties": {
+    "schema": { "const": "usk.target_policy_decision.v1" },
+    "policy_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "activation": {
+      "enum": ["unavailable", "operator_acceptance_candidate", "accepted_live_portable"]
+    },
+    "status": { "enum": ["accepted", "refused"] },
+    "mutation_authorized": { "type": "boolean" },
+    "target_class": {
+      "enum": [
+        "fixture",
+        "disposable_test",
+        "operator_acceptance",
+        "managed_portable",
+        "imported",
+        "foreign_owned",
+        "steam_managed",
+        "per_user",
+        "system_wide"
+      ]
+    },
+    "target_binding_digest": { "$ref": "#/$defs/sha256" },
+    "code": { "type": "string", "maxLength": 256 },
+    "detail": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "evaluated_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "accepted" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "mutation_authorized": { "const": true },
+          "code": { "const": "" }
+        }
+      },
+      "else": {
+        "properties": {
+          "mutation_authorized": { "const": false },
+          "code": { "minLength": 1 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
