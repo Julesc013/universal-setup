@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -137,6 +138,12 @@ void write_text(const fs::path& path, const std::string& text)
     output << text;
 }
 
+std::string read_text(const fs::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
 } // namespace
 
 int main()
@@ -169,6 +176,62 @@ int main()
     usk_context* context = nullptr;
     if (usk_context_create_v1(&config, &context) != USK_STATUS_OK) return 4;
 
+    const fs::path replaced_archive = root / "source-replacement.zip";
+    const fs::path replaced_target = root / "source-replacement-target";
+    write_zip(replaced_archive);
+    const Value replacement_request = plan_request(
+        replaced_archive, replaced_target, usk::base::sha256_hex_file(replaced_archive));
+    response = execute(context, "install_local.plan", replacement_request, 1, status);
+    if (status != USK_STATUS_OK || fs::exists(replaced_target)) return 32;
+    const std::string replacement_digest =
+        usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    {
+        std::ofstream changed(replaced_archive, std::ios::binary | std::ios::app);
+        changed << "changed-after-plan";
+    }
+    Value replacement_apply(Value::Object{
+        {"applied_at", Value("2026-07-14T01:00:10Z")},
+        {"confirmation", Value("APPLY")},
+        {"plan_request", replacement_request},
+        {"reviewed_plan_digest", Value(replacement_digest)},
+        {"reviewed_plan_id", Value("plan.install.1")},
+        {"schema", Value("usk.install_local_apply_request.v1")},
+        {"transaction_id", Value("tx.source-replacement")}});
+    response = execute(context, "install_local.apply", replacement_apply, 0, status);
+    if (status != USK_STATUS_ERROR || fs::exists(replaced_target) ||
+        fs::exists(setup_root)) return 33;
+
+    const fs::path ancestor = root / "reviewed-ancestor";
+    const fs::path ancestor_target = ancestor / "managed-product";
+    fs::create_directory(ancestor);
+    const Value ancestor_request = plan_request(
+        archive, ancestor_target, usk::base::sha256_hex_file(archive));
+    response = execute(context, "install_local.plan", ancestor_request, 1, status);
+    if (status != USK_STATUS_OK || fs::exists(ancestor_target)) return 34;
+    const std::string ancestor_digest =
+        usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    fs::rename(ancestor, root / "reviewed-ancestor-displaced");
+    fs::create_directory(ancestor);
+    write_text(ancestor / "replacement-sentinel.txt", "retain");
+    Value ancestor_apply(Value::Object{
+        {"applied_at", Value("2026-07-14T01:00:20Z")},
+        {"confirmation", Value("APPLY")},
+        {"plan_request", ancestor_request},
+        {"reviewed_plan_digest", Value(ancestor_digest)},
+        {"reviewed_plan_id", Value("plan.install.1")},
+        {"schema", Value("usk.install_local_apply_request.v1")},
+        {"transaction_id", Value("tx.ancestor-replacement")}});
+    response = execute(context, "install_local.apply", ancestor_apply, 0, status);
+    if (status != USK_STATUS_ERROR || fs::exists(ancestor_target) ||
+        read_text(ancestor / "replacement-sentinel.txt") != "retain" ||
+        fs::exists(setup_root)) {
+        std::cerr << "ancestor replacement stage: status=" << status
+                  << " response=" << response
+                  << " target=" << fs::exists(ancestor_target)
+                  << " setup=" << fs::exists(setup_root) << '\n';
+        return 35;
+    }
+
     response = execute(context, "install_local.plan", planned, 1, status);
     if (status != USK_STATUS_OK || fs::exists(setup_root) || fs::exists(target)) return 5;
     const Value plan_response = usk::json::parse(response);
@@ -194,6 +257,13 @@ int main()
     response = execute(context, "install_local.apply", stale, 0, status);
     if (status != USK_STATUS_OK || !fs::is_regular_file(target / "bin/probe.txt") ||
         !fs::is_regular_file(target / "data/config.ini") || !fs::is_directory(setup_root / "state")) return 8;
+
+    response = execute(context, "install_local.apply", stale, 0, status);
+    if (status != USK_STATUS_ERROR ||
+        (response.find("target_not_empty") == std::string::npos &&
+         response.find("stale_plan") == std::string::npos) ||
+        read_text(target / "bin/probe.txt") != "synthetic-version-1\n" ||
+        read_text(target / "data/config.ini") != "enabled=true\n") return 36;
 
     const Value plan_payload = plan_response.at("payload");
     Value evidence(Value::Object{
