@@ -385,6 +385,7 @@ Value repair_plan_payload(const usk::lifecycle::RepairPlan& plan)
         {"audit_root", Value(fs::absolute(plan.roots.audit_root).lexically_normal().generic_string())},
         {"install_id", Value(plan.install_id)}, {"installed_state_digest", Value(plan.installed_state_digest)},
         {"operation", Value("repair")}, {"ownership_manifest_digest", Value(plan.ownership_manifest_digest)},
+        {"policy_digest", Value(plan.policy_digest)}, {"source_digest", Value(plan.source_digest)},
         {"plan_id", Value(plan.plan_id)}, {"replacement_files", payload_files_value(plan.replacement_files)},
         {"staging_parent", Value(fs::absolute(plan.roots.staging_parent).lexically_normal().generic_string())},
         {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())}});
@@ -397,6 +398,7 @@ Value move_plan_payload(const usk::lifecycle::MovePlan& plan)
         {"created_at", Value(plan.created_at)}, {"install_id", Value(plan.install_id)},
         {"installed_state_digest", Value(plan.installed_state_digest)}, {"old_root", Value(plan.old_root.generic_string())},
         {"operation", Value("move")}, {"ownership_manifest_digest", Value(plan.ownership_manifest_digest)},
+        {"policy_digest", Value(plan.policy_digest)},
         {"plan_id", Value(plan.plan_id)}, {"new_root", Value(plan.new_root.generic_string())},
         {"staging_parent", Value(plan.staging_parent.generic_string())},
         {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())}});
@@ -408,6 +410,7 @@ Value uninstall_plan_payload(const usk::lifecycle::UninstallPlan& plan)
         {"audit_root", Value(fs::absolute(plan.roots.audit_root).lexically_normal().generic_string())},
         {"install_id", Value(plan.install_id)}, {"installed_state_digest", Value(plan.installed_state_digest)},
         {"operation", Value("uninstall")}, {"ownership_manifest_digest", Value(plan.ownership_manifest_digest)},
+        {"policy_digest", Value(plan.policy_digest)},
         {"plan_id", Value(plan.plan_id)}, {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())},
         {"staging_parent", Value(fs::absolute(plan.roots.staging_parent).lexically_normal().generic_string())},
         {"verification", verification_binding(plan.verification)}});
@@ -741,7 +744,9 @@ RepairPlan plan_repair(
     const std::string& install_id,
     std::string plan_id,
     std::string created_at,
-    std::vector<PayloadFile> exact_source_files)
+    std::vector<PayloadFile> exact_source_files,
+    std::string source_digest,
+    std::string policy_digest)
 {
     if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) ||
         !valid_timestamp(created_at)) {
@@ -771,6 +776,8 @@ RepairPlan plan_repair(
     plan.install_id = install_id;
     plan.installed_state_digest = installed_digest(current.first);
     plan.ownership_manifest_digest = current.second.manifest_digest;
+    plan.source_digest = source_digest.empty() ? std::string(64, '0') : std::move(source_digest);
+    plan.policy_digest = policy_digest.empty() ? std::string(64, '0') : std::move(policy_digest);
     plan.roots = roots;
     for (const PayloadFile& file : exact_source_files) {
         if (affected.count(file.relative_path) != 0) plan.replacement_files.push_back(file);
@@ -880,7 +887,8 @@ MovePlan plan_move(
     const std::string& install_id,
     std::string plan_id,
     std::string created_at,
-    fs::path new_root)
+    fs::path new_root,
+    std::string policy_digest)
 {
     if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) ||
         !valid_timestamp(created_at)) {
@@ -896,6 +904,7 @@ MovePlan plan_move(
     plan.install_id = install_id;
     plan.installed_state_digest = installed_digest(current.first);
     plan.ownership_manifest_digest = current.second.manifest_digest;
+    plan.policy_digest = policy_digest.empty() ? std::string(64, '0') : std::move(policy_digest);
     plan.old_root = fs::absolute(current.first.target_root).lexically_normal();
     plan.new_root = fs::absolute(std::move(new_root)).lexically_normal();
     plan.staging_parent = plan.new_root.parent_path();
@@ -981,7 +990,8 @@ UninstallPlan plan_uninstall(
     const LifecycleRoots& roots,
     const std::string& install_id,
     std::string plan_id,
-    std::string created_at)
+    std::string created_at,
+    std::string policy_digest)
 {
     if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) ||
         !valid_timestamp(created_at)) {
@@ -994,6 +1004,7 @@ UninstallPlan plan_uninstall(
     plan.install_id = install_id;
     plan.installed_state_digest = installed_digest(current.first);
     plan.ownership_manifest_digest = current.second.manifest_digest;
+    plan.policy_digest = policy_digest.empty() ? std::string(64, '0') : std::move(policy_digest);
     plan.roots = roots;
     plan.verification = verify_manifest(
         current.first, current.second, "verify." + plan.plan_id + ".before", plan.created_at);

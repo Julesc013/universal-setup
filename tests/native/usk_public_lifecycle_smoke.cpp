@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -114,6 +115,26 @@ Value plan_request(const fs::path& archive, const fs::path& target, const std::s
             {"root", Value(target.generic_u8string())}})}});
 }
 
+Value apply_request(
+    const char* schema,
+    const Value& plan,
+    const std::string& plan_id,
+    const std::string& plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at)
+{
+    return Value(Value::Object{{"applied_at", Value(applied_at)}, {"confirmation", Value("APPLY")},
+        {"plan_request", plan}, {"reviewed_plan_digest", Value(plan_digest)},
+        {"reviewed_plan_id", Value(plan_id)}, {"schema", Value(schema)},
+        {"transaction_id", Value(transaction_id)}});
+}
+
+void write_text(const fs::path& path, const std::string& text)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << text;
+}
+
 } // namespace
 
 int main()
@@ -177,7 +198,73 @@ int main()
     response = execute(context, "installed.verify", verify, 1, status);
     if (status != USK_STATUS_OK || response.find("\"status\":\"pass\"") == std::string::npos) return 10;
 
+    write_text(target / "bin/probe.txt", "damaged\n");
+    const Value repair_plan(Value::Object{
+        {"archive", Value(Value::Object{{"expected_sha256", Value(usk::base::sha256_hex_file(archive))},
+            {"format", Value("zip")}, {"path", Value(archive.generic_u8string())},
+            {"strip_prefix", Value("product")}})},
+        {"created_at", Value("2026-07-14T01:03:00Z")}, {"install_id", Value("synthetic.install.1")},
+        {"plan_id", Value("plan.repair.1")}, {"request_id", Value("repair.request.1")},
+        {"schema", Value("usk.repair_plan_request.v1")}});
+    response = execute(context, "repair.plan", repair_plan, 1, status);
+    if (status != USK_STATUS_OK) return 12;
+    const std::string repair_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const Value repair_apply = apply_request("usk.repair_apply_request.v1", repair_plan,
+        "plan.repair.1", repair_digest, "tx.repair.1", "2026-07-14T01:04:00Z");
+    response = execute(context, "repair.apply", repair_apply, 0, status);
+    if (status != USK_STATUS_OK || response.find("\"status\":\"completed\"") == std::string::npos) return 13;
+    {
+        std::ifstream input(target / "bin/probe.txt", std::ios::binary);
+        std::string restored((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        if (restored != "synthetic-version-1\n") return 14;
+    }
+
+    const fs::path moved = root / "moved-product";
+    const Value move_plan(Value::Object{{"created_at", Value("2026-07-14T01:05:00Z")},
+        {"install_id", Value("synthetic.install.1")},
+        {"new_target", Value(Value::Object{{"class", Value("operator_acceptance")},
+            {"root", Value(moved.generic_u8string())}})},
+        {"plan_id", Value("plan.move.1")}, {"request_id", Value("move.request.1")},
+        {"schema", Value("usk.move_plan_request.v1")}});
+    response = execute(context, "move.plan", move_plan, 1, status);
+    if (status != USK_STATUS_OK || fs::exists(moved)) return 15;
+    const std::string move_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const Value move_apply = apply_request("usk.move_apply_request.v1", move_plan,
+        "plan.move.1", move_digest, "tx.move.1", "2026-07-14T01:06:00Z");
+    response = execute(context, "move.apply", move_apply, 0, status);
+    if (status != USK_STATUS_OK || !fs::is_regular_file(moved / "bin/probe.txt") ||
+        !fs::is_directory(target) || response.find("new_committed_old_retained") == std::string::npos) return 16;
+
+    write_text(moved / "operator-note.txt", "foreign content\n");
+    const Value uninstall_review(Value::Object{{"created_at", Value("2026-07-14T01:07:00Z")},
+        {"install_id", Value("synthetic.install.1")}, {"plan_id", Value("plan.uninstall.review")},
+        {"request_id", Value("uninstall.request.review")},
+        {"schema", Value("usk.uninstall_plan_request.v1")}});
+    response = execute(context, "uninstall.plan", uninstall_review, 1, status);
+    if (status != USK_STATUS_OK || response.find("operator-note.txt") == std::string::npos) return 17;
+    const std::string review_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const Value uninstall_refused = apply_request("usk.uninstall_apply_request.v1", uninstall_review,
+        "plan.uninstall.review", review_digest, "tx.uninstall.review", "2026-07-14T01:08:00Z");
+    response = execute(context, "uninstall.apply", uninstall_refused, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("foreign_content_review_required") == std::string::npos ||
+        !fs::is_regular_file(moved / "bin/probe.txt")) return 18;
+
+    fs::remove(moved / "operator-note.txt", error);
+    if (error) return 19;
+    const Value uninstall_clean(Value::Object{{"created_at", Value("2026-07-14T01:09:00Z")},
+        {"install_id", Value("synthetic.install.1")}, {"plan_id", Value("plan.uninstall.clean")},
+        {"request_id", Value("uninstall.request.clean")},
+        {"schema", Value("usk.uninstall_plan_request.v1")}});
+    response = execute(context, "uninstall.plan", uninstall_clean, 1, status);
+    if (status != USK_STATUS_OK) return 20;
+    const std::string clean_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const Value uninstall_apply = apply_request("usk.uninstall_apply_request.v1", uninstall_clean,
+        "plan.uninstall.clean", clean_digest, "tx.uninstall.clean", "2026-07-14T01:10:00Z");
+    response = execute(context, "uninstall.apply", uninstall_apply, 0, status);
+    if (status != USK_STATUS_OK || fs::exists(moved) ||
+        response.find("\"status\":\"completed\"") == std::string::npos) return 21;
+
     usk_context_destroy_v1(context);
     fs::remove_all(root, error);
-    return error ? 11 : 0;
+    return error ? 22 : 0;
 }
