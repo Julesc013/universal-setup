@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/recovery_inspect_request.v1.schema.json",
+  "title": "Public Recovery Inspect Request",
+  "type": "object",
+  "required": ["schema", "request_id", "install_id", "transaction_id", "plan_id", "plan_digest", "operation", "target_root"],
+  "properties": {
+    "schema": { "const": "usk.recovery_inspect_request.v1" },
+    "request_id": { "$ref": "#/$defs/id" },
+    "install_id": { "$ref": "#/$defs/id" },
+    "transaction_id": { "$ref": "#/$defs/id" },
+    "plan_id": { "$ref": "#/$defs/id" },
+    "plan_digest": { "$ref": "#/$defs/sha256" },
+    "operation": { "enum": ["install_local", "repair", "move", "uninstall"] },
+    "target_root": { "type": "string", "minLength": 1, "maxLength": 32768 }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

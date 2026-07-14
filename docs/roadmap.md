@@ -130,6 +130,32 @@ abstract platform.
 - Added Linux ASan/UBSan CI and a bounded Clang libFuzzer canonical JSON target.
 - Kept every mutation inside disposable native fixture roots.
 
+## M2-WU1 — Live Target Policy Contract
+
+- Added the explicit M2 target classes and three-state activation contract.
+- Permits only operator-acceptance candidate or human-accepted managed-portable
+  mutation; every other class fails closed.
+- Added platform-native local-filesystem, link/reparse, path-component,
+  protected-root, source-distinctness, capacity, and target identity inspection.
+- Integrated the policy as a pure decision layer with exhaustive refusal tests.
+
+## M2-WU2 — Public Setup Lifecycle Activation
+
+- Added strict public plan/apply request contracts and ABI-compatible context
+  configuration for setup-state, acceptance-root, and activation authority.
+- Activated install, inspect, verify, repair, move, and uninstall descriptors
+  over the M1 lifecycle; every apply reconstructs and revalidates its exact plan.
+- Added reviewed stored-ZIP materialization with stable identity, source hash,
+  entry-set digest, strip-prefix closure, CRC32, and per-file SHA-256.
+- Bound repair plans to source and policy identity and move/uninstall plans to
+  policy identity in addition to existing state and ownership digests.
+- Added public foreign-content uninstall refusal before any deletion.
+- Published identity-validated recovery inspect/plan while retaining
+  recovery apply as unavailable pending M2-WU5 staged-ownership recovery work.
+- Proved the public synthetic journey: no-write plan, stale refusal, install,
+  verify, damage, repair, move, foreign-content refusal, clean uninstall, and
+  exact completed-journal inspection.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local

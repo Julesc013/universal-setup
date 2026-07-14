@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk/usk_api.h"
+#include "usk_archive_payload.h"
 
 #include <chrono>
 #include <cstdint>
@@ -32,6 +33,18 @@ struct WrittenEntry {
     ZipEntry entry;
     std::uint32_t local_offset = 0;
 };
+
+std::uint32_t crc32(const std::string& data)
+{
+    std::uint32_t crc = 0xffffffffu;
+    for (unsigned char value : data) {
+        crc ^= value;
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;
+}
 
 void append16(std::vector<unsigned char>& output, std::uint16_t value)
 {
@@ -77,7 +90,7 @@ void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
         append16(bytes, spec.method);
         append16(bytes, 0);
         append16(bytes, 0);
-        append32(bytes, 0);
+        append32(bytes, crc32(spec.data));
         append32(bytes, compressed);
         append32(bytes, uncompressed);
         append16(bytes, static_cast<std::uint16_t>(local_name.size()));
@@ -101,7 +114,7 @@ void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
         append16(bytes, spec.method);
         append16(bytes, 0);
         append16(bytes, 0);
-        append32(bytes, 0);
+        append32(bytes, crc32(spec.data));
         append32(bytes, compressed);
         append32(bytes, uncompressed);
         append16(bytes, static_cast<std::uint16_t>(spec.name.size()));
@@ -253,6 +266,37 @@ int main()
         field(valid_response, "sha256").size() != 64) {
         return 3;
     }
+    const usk::archive::StoredArchivePayload payload =
+        usk::archive::inspect_stored_payload(request_json(valid), "app");
+    if (payload.source_sha256 != field(valid_response, "sha256") ||
+        payload.source_identity_digest.size() != 64 ||
+        payload.entry_set_digest != field(valid_response, "entry_set_digest") ||
+        payload.archive_size_bytes != fs::file_size(valid) ||
+        payload.uncompressed_bytes != 12 ||
+        payload.files.size() != 2 ||
+        payload.files[0].relative_path != "bin/tool.exe" ||
+        std::string(payload.files[0].bytes.begin(), payload.files[0].bytes.end()) != "binary" ||
+        payload.files[0].sha256.size() != 64 ||
+        payload.files[1].relative_path != "data/config.ini" ||
+        std::string(payload.files[1].bytes.begin(), payload.files[1].bytes.end()) != "config" ||
+        payload.files[1].sha256.size() != 64) {
+        return 8;
+    }
+
+    const fs::path bad_crc = root / "bad-crc.zip";
+    write_zip(bad_crc, {{"payload.txt", "original"}});
+    {
+        std::fstream stream(bad_crc, std::ios::in | std::ios::out | std::ios::binary);
+        stream.seekp(static_cast<std::streamoff>(30 + std::string("payload.txt").size()));
+        stream.put('X');
+    }
+    bool rejected_bad_crc = false;
+    try {
+        (void)usk::archive::inspect_stored_payload(request_json(bad_crc), "");
+    } catch (const std::exception& exception) {
+        rejected_bad_crc = contains(exception.what(), "CRC");
+    }
+    if (!rejected_bad_crc) return 9;
     std::string missing_budget = request_json(valid);
     const std::string budget_field = "\"max_depth\":32,";
     missing_budget.erase(missing_budget.find(budget_field), budget_field.size());

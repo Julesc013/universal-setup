@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_archive_inspect.h"
+#include "usk_archive_payload.h"
 
 #include "usk/usk_result.h"
 #include "usk_sha256.h"
@@ -31,6 +32,7 @@ constexpr std::size_t max_request_bytes = 64u * 1024u;
 constexpr std::size_t max_name_bytes = 4096u;
 constexpr std::size_t max_central_directory_bytes = 64u * 1024u * 1024u;
 constexpr std::uint64_t classic_zip_max = 0xffffffffull;
+constexpr std::uint64_t max_materialized_payload_bytes = 512ull * 1024ull * 1024ull;
 
 struct Budgets {
     std::uint64_t max_entries = 10000;
@@ -47,7 +49,9 @@ struct Entry {
     std::uint32_t compressed_size = 0;
     std::uint32_t uncompressed_size = 0;
     std::uint16_t compression_method = 0;
+    std::uint32_t crc32 = 0;
     std::uint32_t local_header_offset = 0;
+    std::uint64_t data_offset = 0;
     std::uint64_t data_end = 0;
 };
 
@@ -335,7 +339,7 @@ std::string entry_set_digest(const std::vector<Entry>& entries)
         const std::string line =
             std::string(entry.directory ? "directory\0" : "file\0", entry.directory ? 10 : 5) +
             entry.normalized_path + "\0" + std::to_string(entry.uncompressed_size) + "\0" +
-            std::to_string(entry.compressed_size) + "\0" +
+            std::to_string(entry.compressed_size) + "\0" + std::to_string(entry.crc32) + "\0" +
             std::to_string(entry.compression_method) + "\n";
         hash.update(reinterpret_cast<const unsigned char*>(line.data()), line.size());
     }
@@ -566,7 +570,9 @@ Inspection inspect_zip(const std::string& request)
             compressed,
             uncompressed,
             method,
+            crc32,
             local_offset,
+            data_offset,
             data_end});
         position += record_size;
     }
@@ -653,6 +659,111 @@ std::string refused_json(const std::string& problem)
 }
 
 } // namespace
+
+namespace usk::archive {
+
+namespace {
+
+std::uint32_t payload_crc32(const std::vector<unsigned char>& bytes)
+{
+    std::uint32_t crc = 0xffffffffu;
+    for (unsigned char value : bytes) {
+        crc ^= value;
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;
+}
+
+std::string source_identity_digest(const usk::base::StableFileIdentity& identity)
+{
+    const std::string text = identity.volume_id + "\n" + identity.file_id + "\n" +
+        std::to_string(identity.size_bytes) + "\n" + std::to_string(identity.modified_time_ns);
+    usk::base::Sha256 digest;
+    digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    return digest.finish();
+}
+
+std::string strip_entry_path(
+    const std::string& entry,
+    const std::string& prefix,
+    bool directory)
+{
+    if (prefix.empty()) return entry;
+    if (entry == prefix) {
+        if (!directory) throw std::runtime_error("strip prefix resolves to a file entry");
+        return {};
+    }
+    const std::string required = prefix + "/";
+    if (entry.rfind(required, 0) != 0) {
+        throw std::runtime_error("archive entry is outside the reviewed strip prefix");
+    }
+    return entry.substr(required.size());
+}
+
+} // namespace
+
+StoredArchivePayload inspect_stored_payload(
+    const std::string& archive_inspection_request_json,
+    const std::string& strip_prefix)
+{
+    Inspection inspection = inspect_zip(archive_inspection_request_json);
+    if (inspection.uncompressed_bytes > max_materialized_payload_bytes) {
+        throw std::runtime_error("archive payload exceeds the public lifecycle materialization budget");
+    }
+    std::string normalized_prefix;
+    if (!strip_prefix.empty()) {
+        bool trailing = false;
+        normalized_prefix = normalize_path(strip_prefix, trailing, inspection.budgets);
+        if (trailing) throw std::runtime_error("strip prefix must not have a trailing separator");
+    }
+
+    usk::base::StableFile source(inspection.path);
+    if (source.identity().volume_id != inspection.identity.volume_id ||
+        source.identity().file_id != inspection.identity.file_id ||
+        source.identity().size_bytes != inspection.identity.size_bytes ||
+        source.identity().modified_time_ns != inspection.identity.modified_time_ns) {
+        throw std::runtime_error("source archive identity changed after inspection");
+    }
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(inspection.budgets.max_elapsed_ms);
+    if (hash_source_until(source, deadline) != inspection.source_sha256) {
+        throw std::runtime_error("source archive digest changed after inspection");
+    }
+
+    StoredArchivePayload result;
+    result.source_sha256 = inspection.source_sha256;
+    result.source_identity_digest = source_identity_digest(inspection.identity);
+    result.entry_set_digest = inspection.entry_set_digest;
+    result.archive_size_bytes = inspection.identity.size_bytes;
+    std::set<std::string> paths;
+    for (const Entry& entry : inspection.entries) {
+        const std::string path = strip_entry_path(
+            entry.normalized_path, normalized_prefix, entry.directory);
+        if (entry.directory || path.empty()) continue;
+        if (entry.compression_method != 0 || entry.compressed_size != entry.uncompressed_size) {
+            throw std::runtime_error(
+                "public lifecycle materialization currently requires stored ZIP file entries");
+        }
+        if (!paths.insert(lowercase_ascii(path)).second) {
+            throw std::runtime_error("strip prefix creates a payload path collision");
+        }
+        std::vector<unsigned char> bytes = source.read(entry.data_offset, entry.compressed_size);
+        if (payload_crc32(bytes) != entry.crc32) {
+            throw std::runtime_error("stored ZIP payload CRC does not match reviewed metadata");
+        }
+        usk::base::Sha256 digest;
+        digest.update(bytes.data(), bytes.size());
+        result.files.push_back(PayloadFile{path, std::move(bytes), digest.finish()});
+        result.uncompressed_bytes += entry.uncompressed_size;
+    }
+    if (result.files.empty()) throw std::runtime_error("archive payload has no files after strip prefix");
+    source.verify_unchanged();
+    return result;
+}
+
+} // namespace usk::archive
 
 extern "C" char* usk_archive_inspect_command_json(
     const char* request_json,

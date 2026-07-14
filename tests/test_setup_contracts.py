@@ -33,6 +33,7 @@ RETAINED_CONTRACTS = {
     "package_verify_request": "usk.package_verify_request.v1",
     "package_verify_report": "usk.package_verify_report.v1",
     "repair_plan": "usk.repair_plan.v1",
+    "recovery_plan": "usk.recovery_plan.v1",
     "verify_report": "usk.verify_report.v1",
     "audit_log": "usk.audit_log.v1",
     "transaction": "usk.transaction.v1",
@@ -46,6 +47,22 @@ M2_TARGET_CONTRACTS = {
     "target_policy": "usk.target_policy.v1",
     "target_evidence": "usk.target_evidence.v1",
     "target_policy_decision": "usk.target_policy_decision.v1",
+}
+
+M2_PUBLIC_REQUEST_CONTRACTS = {
+    "install_local_plan_request": "usk.install_local_plan_request.v1",
+    "install_local_apply_request": "usk.install_local_apply_request.v1",
+    "installed_inspect_request": "usk.installed_inspect_request.v1",
+    "installed_verify_request": "usk.installed_verify_request.v1",
+    "repair_plan_request": "usk.repair_plan_request.v1",
+    "repair_apply_request": "usk.repair_apply_request.v1",
+    "move_plan_request": "usk.move_plan_request.v1",
+    "move_apply_request": "usk.move_apply_request.v1",
+    "uninstall_plan_request": "usk.uninstall_plan_request.v1",
+    "uninstall_apply_request": "usk.uninstall_apply_request.v1",
+    "recovery_inspect_request": "usk.recovery_inspect_request.v1",
+    "recovery_plan_request": "usk.recovery_plan_request.v1",
+    "recovery_apply_request": "usk.recovery_apply_request.v1",
 }
 
 
@@ -82,6 +99,32 @@ class SetupContractTests(unittest.TestCase):
                 self.assertIn("schema", schema["required"])
                 self.assertEqual(schema["properties"]["schema"]["const"], schema_const)
                 self.assertIs(schema["additionalProperties"], False)
+
+    def test_m2_public_request_contracts_are_explicit_strict_and_versioned(self) -> None:
+        for name, schema_const in M2_PUBLIC_REQUEST_CONTRACTS.items():
+            with self.subTest(name=name):
+                schema = load_schema(name)
+                self.assertEqual(schema["properties"]["schema"]["const"], schema_const)
+                self.assertIn("schema", schema["required"])
+                self.assertIs(schema["additionalProperties"], False)
+
+        for operation in ("install_local", "repair", "move", "uninstall", "recovery"):
+            plan = load_schema(f"{operation}_plan_request")
+            apply = load_schema(f"{operation}_apply_request")
+            self.assertNotEqual(
+                plan["properties"]["schema"]["const"],
+                apply["properties"]["schema"]["const"],
+            )
+            self.assertIn("reviewed_plan_id", apply["required"])
+            self.assertIn("reviewed_plan_digest", apply["required"])
+            self.assertEqual(apply["properties"]["confirmation"]["const"], "APPLY")
+
+        install_plan = load_schema("install_local_plan_request")
+        target_class = install_plan["$defs"]["target"]["properties"]["class"]["enum"]
+        self.assertEqual(set(target_class), {"operator_acceptance", "managed_portable"})
+        serialized = json.dumps(install_plan).lower()
+        for forbidden in ("shell_command", "powershell", "network_url", "credential_reference"):
+            self.assertNotIn(forbidden, serialized)
 
     def test_m2_target_policy_is_fail_closed_and_product_neutral(self) -> None:
         policy = load_schema("target_policy")["properties"]

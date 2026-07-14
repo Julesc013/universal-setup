@@ -39,7 +39,10 @@ target_include_directories(usk_archive_static PUBLIC
 target_link_libraries(usk_archive_static PUBLIC usk_base_static)
 set_target_properties(usk_archive_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(usk_policy_static STATIC runtime/setup/policy/usk_target_policy.cpp)
+add_library(usk_policy_static STATIC
+  runtime/setup/policy/usk_target_inspect.cpp
+  runtime/setup/policy/usk_target_policy.cpp
+)
 target_compile_features(usk_policy_static PUBLIC cxx_std_17)
 target_include_directories(usk_policy_static PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/policy"
@@ -71,13 +74,16 @@ set_target_properties(usk_state_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_lifecycle_static STATIC
   runtime/setup/lifecycle/usk_lifecycle.cpp
+  runtime/setup/lifecycle/usk_public_lifecycle.cpp
 )
 target_compile_features(usk_lifecycle_static PUBLIC cxx_std_17)
 target_include_directories(usk_lifecycle_static PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/lifecycle"
 )
 target_link_libraries(usk_lifecycle_static PUBLIC
+  usk_archive_static
   usk_base_static
+  usk_policy_static
   usk_state_static
   usk_transaction_static
 )
@@ -85,12 +91,12 @@ set_target_properties(usk_lifecycle_static PROPERTIES POSITION_INDEPENDENT_CODE 
 
 add_library(usk_static STATIC runtime/setup/kernel/usk_api.c)
 target_include_directories(usk_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(usk_static PUBLIC usk_verify_static usk_archive_static)
+target_link_libraries(usk_static PUBLIC usk_verify_static usk_archive_static usk_lifecycle_static)
 
 add_library(usk_shared SHARED runtime/setup/kernel/usk_api.c)
 target_include_directories(usk_shared PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_definitions(usk_shared PRIVATE USK_BUILD_SHARED)
-target_link_libraries(usk_shared PRIVATE usk_verify_static usk_archive_static)
+target_link_libraries(usk_shared PRIVATE usk_verify_static usk_archive_static usk_lifecycle_static)
 set_target_properties(usk_shared PROPERTIES OUTPUT_NAME usk WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 add_library(usk ALIAS usk_static)
@@ -122,6 +128,11 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_target_policy_smoke PRIVATE usk_policy_static)
   add_test(NAME usk_target_policy_smoke COMMAND usk_target_policy_smoke)
 
+  add_executable(usk_target_inspect_smoke tests/native/usk_target_inspect_smoke.cpp)
+  target_compile_features(usk_target_inspect_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_target_inspect_smoke PRIVATE usk_policy_static)
+  add_test(NAME usk_target_inspect_smoke COMMAND usk_target_inspect_smoke)
+
   add_executable(usk_transaction_session_smoke tests/native/usk_transaction_session_smoke.cpp)
   target_compile_features(usk_transaction_session_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_transaction_session_smoke PRIVATE usk_transaction_static)
@@ -139,6 +150,11 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_lifecycle_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_lifecycle_smoke PRIVATE usk_lifecycle_static)
   add_test(NAME usk_lifecycle_smoke COMMAND usk_lifecycle_smoke)
+
+  add_executable(usk_public_lifecycle_smoke tests/native/usk_public_lifecycle_smoke.cpp)
+  target_compile_features(usk_public_lifecycle_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)
+  add_test(NAME usk_public_lifecycle_smoke COMMAND usk_public_lifecycle_smoke)
 
   add_executable(usk_adversarial_lifecycle_smoke tests/native/usk_adversarial_lifecycle_smoke.cpp)
   target_compile_features(usk_adversarial_lifecycle_smoke PRIVATE cxx_std_17)

@@ -13,6 +13,12 @@ and the crash window after rename but before the committed journal record.
 Rollback removes only recorded staged files and empty derived directories;
 unexpected content is retained and leaves the transaction recovery-required.
 
-This library is not connected to public command dispatch. It does not grant
-install, repair, move, uninstall, or recovery apply authority. Cross-volume
-copy/verify/commit and durable recovery execution remain later work.
+M2-WU2 connects this library to public install, repair, move, and uninstall
+handlers only after target-policy acceptance and immediate reviewed-plan
+revalidation. Recovery inspection also validates the exact transaction, plan,
+operation, four root authorities, transition chain, and journal digest.
+
+Restart-safe staged rollback is not yet public because the journal does not yet
+persist enough per-file staging ownership to delete post-crash content safely.
+`recovery.apply` therefore remains unavailable until M2-WU5. Cross-volume
+copy/verify/commit also remains later work.

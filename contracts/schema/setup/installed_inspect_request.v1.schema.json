@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/installed_inspect_request.v1.schema.json",
+  "title": "Installed State Inspect Request",
+  "type": "object",
+  "required": ["schema", "request_id", "install_id"],
+  "properties": {
+    "schema": { "const": "usk.installed_inspect_request.v1" },
+    "request_id": { "$ref": "#/$defs/id" },
+    "install_id": { "$ref": "#/$defs/id" }
+  },
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 256 } },
+  "additionalProperties": false
+}

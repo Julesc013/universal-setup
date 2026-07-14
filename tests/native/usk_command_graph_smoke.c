@@ -225,9 +225,8 @@ int main(void)
         }
     }
     status = execute_status(context, "repair.apply", &response);
-    if (status != USK_STATUS_ERROR ||
-        !contains(response.json_payload, "\"code\":\"planned_command_unavailable\"") ||
-        !contains(response.json_payload, "no mutation authority")) {
+    if (status != USK_STATUS_INVALID_ARGUMENT ||
+        !contains(response.json_payload, "\"code\":\"invalid_argument\"")) {
         return 18;
     }
 
@@ -243,7 +242,7 @@ int main(void)
     }
     status = execute_status(context, "install_local.plan", &response);
     if (status != USK_STATUS_ERROR ||
-        !contains(response.json_payload, "\"code\":\"planned_command_unavailable\"")) {
+        !contains(response.json_payload, "\"code\":\"live_target_acceptance_required\"")) {
         return 22;
     }
     memset(&request, 0, sizeof(request));
@@ -260,7 +259,7 @@ int main(void)
     }
     status = execute_status(context, "uninstall.plan", &response);
     if (status != USK_STATUS_ERROR ||
-        !contains(response.json_payload, "\"code\":\"planned_command_unavailable\"")) {
+        !contains(response.json_payload, "\"code\":\"live_target_acceptance_required\"")) {
         return 24;
     }
     if (run_command(context, "audit.log", 1, "\"schema\":\"usk.audit_log.v1\"") != 0) {

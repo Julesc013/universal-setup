@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/repair_apply_request.v1.schema.json",
+  "title": "Public Repair Apply Request",
+  "type": "object",
+  "required": ["schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest", "transaction_id", "applied_at", "confirmation"],
+  "properties": {
+    "schema": { "const": "usk.repair_apply_request.v1" },
+    "plan_request": { "$ref": "repair_plan_request.v1.schema.json" },
+    "reviewed_plan_id": { "$ref": "#/$defs/id" },
+    "reviewed_plan_digest": { "$ref": "#/$defs/sha256" },
+    "transaction_id": { "$ref": "#/$defs/id" },
+    "applied_at": { "type": "string", "format": "date-time" },
+    "confirmation": { "const": "APPLY" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

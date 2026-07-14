@@ -87,6 +87,8 @@ struct RepairPlan {
     std::string install_id;
     std::string installed_state_digest;
     std::string ownership_manifest_digest;
+    std::string source_digest;
+    std::string policy_digest;
     LifecycleRoots roots;
     std::vector<PayloadFile> replacement_files;
 };
@@ -106,6 +108,7 @@ struct MovePlan {
     std::string install_id;
     std::string installed_state_digest;
     std::string ownership_manifest_digest;
+    std::string policy_digest;
     std::filesystem::path old_root;
     std::filesystem::path new_root;
     std::filesystem::path staging_parent;
@@ -126,6 +129,7 @@ struct UninstallPlan {
     std::string install_id;
     std::string installed_state_digest;
     std::string ownership_manifest_digest;
+    std::string policy_digest;
     LifecycleRoots roots;
     VerificationReport verification;
 };
@@ -170,7 +174,9 @@ RepairPlan plan_repair(
     const std::string& install_id,
     std::string plan_id,
     std::string created_at,
-    std::vector<PayloadFile> exact_source_files);
+    std::vector<PayloadFile> exact_source_files,
+    std::string source_digest = {},
+    std::string policy_digest = {});
 
 RepairResult apply_repair(
     const RepairPlan& plan,
@@ -183,7 +189,8 @@ MovePlan plan_move(
     const std::string& install_id,
     std::string plan_id,
     std::string created_at,
-    std::filesystem::path new_root);
+    std::filesystem::path new_root,
+    std::string policy_digest = {});
 
 MoveResult apply_move(
     const MovePlan& plan,
@@ -195,7 +202,8 @@ UninstallPlan plan_uninstall(
     const LifecycleRoots& roots,
     const std::string& install_id,
     std::string plan_id,
-    std::string created_at);
+    std::string created_at,
+    std::string policy_digest = {});
 
 UninstallResult apply_uninstall(
     const UninstallPlan& plan,

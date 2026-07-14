@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/recovery_plan_request.v1.schema.json",
+  "title": "Public Recovery Plan Request",
+  "type": "object",
+  "required": ["schema", "inspection", "recovery_plan_id", "created_at"],
+  "properties": {
+    "schema": { "const": "usk.recovery_plan_request.v1" },
+    "inspection": { "$ref": "recovery_inspect_request.v1.schema.json" },
+    "recovery_plan_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

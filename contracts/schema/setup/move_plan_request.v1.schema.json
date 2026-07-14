@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/move_plan_request.v1.schema.json",
+  "title": "Public Move Plan Request",
+  "type": "object",
+  "required": ["schema", "request_id", "plan_id", "install_id", "created_at", "new_target"],
+  "properties": {
+    "schema": { "const": "usk.move_plan_request.v1" },
+    "request_id": { "$ref": "#/$defs/id" },
+    "plan_id": { "$ref": "#/$defs/id" },
+    "install_id": { "$ref": "#/$defs/id" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "new_target": {
+      "type": "object",
+      "required": ["root", "class"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "class": { "enum": ["operator_acceptance", "managed_portable"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 256 } },
+  "additionalProperties": false
+}

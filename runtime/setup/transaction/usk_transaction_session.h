@@ -35,6 +35,8 @@ using FaultInjector = std::function<void(const std::string& state, const std::st
 
 struct RecoveryInspection {
     std::string current_state;
+    std::string journal_digest;
+    std::string recorded_at;
     bool staging_exists = false;
     bool target_exists = false;
     std::vector<std::string> available_actions;

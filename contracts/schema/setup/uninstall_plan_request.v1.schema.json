@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/uninstall_plan_request.v1.schema.json",
+  "title": "Public Uninstall Plan Request",
+  "type": "object",
+  "required": ["schema", "request_id", "plan_id", "install_id", "created_at"],
+  "properties": {
+    "schema": { "const": "usk.uninstall_plan_request.v1" },
+    "request_id": { "$ref": "#/$defs/id" },
+    "plan_id": { "$ref": "#/$defs/id" },
+    "install_id": { "$ref": "#/$defs/id" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 256 } },
+  "additionalProperties": false
+}
