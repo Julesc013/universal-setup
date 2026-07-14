@@ -169,6 +169,17 @@ abstract platform.
 - Kept packets sanitized and product-neutral. Evidence records setup behavior
   but does not grant target mutation, product execution, or release authority.
 
+## M2-WU4 — Live Synthetic Install Acceptance
+
+- Added the bounded `usk_live_acceptance` CLI. It accepts the dedicated Windows
+  acceptance root, or a strictly contained platform-temporary test root.
+- The runner builds a harmless non-executable synthetic archive and exercises
+  install, verify, deliberate owned-file damage, repair, same-volume move,
+  foreign-file retention/refusal, exact external removal, and clean uninstall.
+- Four immutable evidence packets and a strict acceptance summary retain a
+  pending human verdict. The runner cannot promote ordinary live apply,
+  execute a product, or record a human verdict.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local

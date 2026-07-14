@@ -103,6 +103,16 @@ set_target_properties(usk_shared PROPERTIES OUTPUT_NAME usk WINDOWS_EXPORT_ALL_S
 
 add_library(usk ALIAS usk_static)
 
+if(USK_BUILD_APPS)
+  add_executable(usk_live_acceptance apps/cli/usk_live_acceptance.cpp)
+  target_compile_features(usk_live_acceptance PRIVATE cxx_std_17)
+  target_include_directories(usk_live_acceptance PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/evidence"
+  )
+  target_link_libraries(usk_live_acceptance PRIVATE usk_static usk_base_static usk_state_static)
+endif()
+
 if(USK_BUILD_TESTS)
   enable_testing()
   add_executable(usk_sha256_smoke tests/native/usk_sha256_smoke.cpp)
@@ -162,6 +172,13 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_public_lifecycle_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)
   add_test(NAME usk_public_lifecycle_smoke COMMAND usk_public_lifecycle_smoke)
+
+  add_test(NAME usk_live_acceptance_cli_smoke
+    COMMAND "${CMAKE_COMMAND}"
+      -DUSK_ACCEPTANCE_EXE=$<TARGET_FILE:usk_live_acceptance>
+      -DUSK_TEMP_ROOT=${CMAKE_CURRENT_BINARY_DIR}
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/usk_live_acceptance_smoke.cmake"
+  )
 
   add_executable(usk_adversarial_lifecycle_smoke tests/native/usk_adversarial_lifecycle_smoke.cpp)
   target_compile_features(usk_adversarial_lifecycle_smoke PRIVATE cxx_std_17)
