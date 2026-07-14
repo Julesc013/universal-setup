@@ -20,6 +20,7 @@ struct StoredArchivePayload {
     std::string source_sha256;
     std::string source_identity_digest;
     std::string entry_set_digest;
+    std::uint64_t archive_size_bytes = 0;
     std::uint64_t uncompressed_bytes = 0;
     std::vector<PayloadFile> files;
 };

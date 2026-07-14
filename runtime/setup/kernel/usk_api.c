@@ -4,6 +4,7 @@
 #include "usk/usk_api.h"
 #include "usk_archive_inspect.h"
 #include "usk_package_verify.h"
+#include "usk_public_lifecycle.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -14,13 +15,17 @@ typedef enum usk_response_storage_kind {
     USK_RESPONSE_STORAGE_NONE = 0,
     USK_RESPONSE_STORAGE_CONTEXT_ALLOCATOR,
     USK_RESPONSE_STORAGE_PACKAGE_VERIFY,
-    USK_RESPONSE_STORAGE_ARCHIVE_INSPECT
+    USK_RESPONSE_STORAGE_ARCHIVE_INSPECT,
+    USK_RESPONSE_STORAGE_PUBLIC_LIFECYCLE
 } usk_response_storage_kind;
 
 struct usk_context {
     usk_allocator_v1 allocator;
     char* response_storage;
     usk_response_storage_kind response_storage_kind;
+    char* state_root;
+    char* authorized_acceptance_root;
+    char* target_policy_activation;
 };
 
 typedef struct usk_static_response {
@@ -88,6 +93,10 @@ static usk_static_response usk_handle_archive_inspect(
     usk_context* context,
     const usk_command_request_v1* request,
     const usk_command_descriptor* descriptor);
+static usk_static_response usk_handle_public_lifecycle(
+    usk_context* context,
+    const usk_command_request_v1* request,
+    const usk_command_descriptor* descriptor);
 static usk_static_response usk_handle_static(
     usk_context* context,
     const usk_command_request_v1* request,
@@ -102,10 +111,10 @@ static const usk_command_descriptor USK_COMMANDS[] = {
     USK_DESCRIPTOR("package.verify", "usk.package_verify_request.v1", "usk.package_verify_report.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_package_verify, USK_STATUS_OK, 0, 0),
     USK_DESCRIPTOR("package.audit", "usk.package_verify_request.v1", "usk.package_verify_report.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_package_verify, USK_STATUS_OK, 0, 0),
     USK_DESCRIPTOR("install_local.inspect", "usk.archive_inspect_request.v1", "usk.archive_inspection.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_archive_inspect, USK_STATUS_OK, 0, 0),
-    USK_DESCRIPTOR("install_local.plan", "usk.command_request.v1", "usk.install_plan.v1", "[\"source_read\",\"target_read\"]", "always_preview", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
-    USK_DESCRIPTOR("install_local.apply", "usk.command_request.v1", "usk.installed_state.v1", "[\"owned_target_write\",\"state_write\",\"audit_write\"]", "reviewed_plan_required", "planned", 0, 1, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
-    USK_DESCRIPTOR("installed.inspect", "usk.command_request.v1", "usk.installed_state.v1", "[\"state_read\"]", "read_only", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
-    USK_DESCRIPTOR("installed.verify", "usk.command_request.v1", "usk.verification_report.v1", "[\"owned_target_read\",\"state_read\"]", "read_only", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
+    USK_DESCRIPTOR("install_local.plan", "usk.install_local_plan_request.v1", "usk.install_plan.v1", "[\"source_read\",\"target_read\"]", "always_preview", "available", 1, 0, usk_handle_public_lifecycle, USK_STATUS_OK, 0, 0),
+    USK_DESCRIPTOR("install_local.apply", "usk.install_local_apply_request.v1", "usk.installed_state.v1", "[\"owned_target_write\",\"state_write\",\"audit_write\"]", "reviewed_plan_required", "available", 0, 1, usk_handle_public_lifecycle, USK_STATUS_OK, 0, 0),
+    USK_DESCRIPTOR("installed.inspect", "usk.installed_inspect_request.v1", "usk.installed_state.v1", "[\"state_read\"]", "read_only", "available", 1, 0, usk_handle_public_lifecycle, USK_STATUS_OK, 0, 0),
+    USK_DESCRIPTOR("installed.verify", "usk.installed_verify_request.v1", "usk.verification_report.v1", "[\"owned_target_read\",\"state_read\"]", "read_only", "available", 1, 0, usk_handle_public_lifecycle, USK_STATUS_OK, 0, 0),
     USK_DESCRIPTOR("repair.plan", "usk.command_request.v1", "usk.repair_plan.v1", "[\"source_read\",\"owned_target_read\",\"state_read\"]", "always_preview", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
     USK_DESCRIPTOR("repair.apply", "usk.command_request.v1", "usk.repair_report.v1", "[\"owned_target_write\",\"state_write\",\"audit_write\"]", "reviewed_plan_required", "planned", 0, 1, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
     USK_DESCRIPTOR("move.plan", "usk.command_request.v1", "usk.move_plan.v1", "[\"owned_target_read\",\"state_read\",\"target_read\"]", "always_preview", "planned", 1, 0, usk_handle_static, USK_STATUS_ERROR, USK_PLANNED_COMMAND_PAYLOAD, "planned command is unavailable"),
@@ -160,6 +169,8 @@ static void usk_release_response_storage(usk_context* context)
         usk_package_verify_command_free(context->response_storage);
     } else if (context->response_storage_kind == USK_RESPONSE_STORAGE_ARCHIVE_INSPECT) {
         usk_archive_inspect_command_free(context->response_storage);
+    } else if (context->response_storage_kind == USK_RESPONSE_STORAGE_PUBLIC_LIFECYCLE) {
+        usk_public_lifecycle_command_free(context->response_storage);
     } else {
         context->allocator.free(context->allocator.user, context->response_storage);
     }
@@ -400,6 +411,38 @@ static usk_static_response usk_handle_archive_inspect(
     return result;
 }
 
+static usk_static_response usk_handle_public_lifecycle(
+    usk_context* context,
+    const usk_command_request_v1* request,
+    const usk_command_descriptor* descriptor)
+{
+    usk_static_response result;
+    int command_status = USK_STATUS_ERROR;
+    if (descriptor->mutating && request->dry_run != 0) {
+        result.status = USK_STATUS_INVALID_ARGUMENT;
+        result.payload = USK_INVALID_PAYLOAD;
+        result.error_message = "mutating lifecycle commands require an apply request";
+        return result;
+    }
+    context->response_storage = usk_public_lifecycle_command_json(
+        descriptor->command_name,
+        request->json_payload.data,
+        (size_t)request->json_payload.size,
+        context->state_root,
+        context->authorized_acceptance_root,
+        context->target_policy_activation,
+        &command_status);
+    context->response_storage_kind = context->response_storage == 0
+        ? USK_RESPONSE_STORAGE_NONE
+        : USK_RESPONSE_STORAGE_PUBLIC_LIFECYCLE;
+    result.status = command_status;
+    result.payload = context->response_storage;
+    result.error_message = command_status == USK_STATUS_OK
+        ? 0
+        : "public lifecycle request was refused";
+    return result;
+}
+
 static usk_static_response usk_handle_static(
     usk_context* context,
     const usk_command_request_v1* request,
@@ -430,10 +473,12 @@ int usk_context_create_v1(const usk_config_v1* config, usk_context** out_context
     if (config != 0) {
         if (config->struct_size < USK_CONFIG_V1_BASE_SIZE ||
             (config->struct_size > USK_CONFIG_V1_BASE_SIZE &&
+             config->struct_size < USK_CONFIG_V1_M1_SIZE) ||
+            (config->struct_size > USK_CONFIG_V1_M1_SIZE &&
              config->struct_size < (usk_size)sizeof(*config))) {
             return USK_STATUS_INVALID_ARGUMENT;
         }
-        if (config->struct_size >= (usk_size)sizeof(*config) && config->allocator != 0) {
+        if (config->struct_size >= USK_CONFIG_V1_M1_SIZE && config->allocator != 0) {
             if (config->allocator->struct_size < (usk_size)sizeof(*config->allocator) ||
                 config->allocator->alloc == 0 || config->allocator->free == 0) {
                 return USK_STATUS_INVALID_ARGUMENT;
@@ -448,6 +493,34 @@ int usk_context_create_v1(const usk_config_v1* config, usk_context** out_context
     }
     memset(context, 0, sizeof(*context));
     context->allocator = allocator;
+    if (config != 0 && config->state_root != 0) {
+        size_t length = strlen(config->state_root);
+        if (length > 32768u ||
+            (context->state_root = (char*)allocator.alloc(allocator.user, (usk_size)length + 1)) == 0) {
+            allocator.free(allocator.user, context);
+            return USK_STATUS_ERROR;
+        }
+        memcpy(context->state_root, config->state_root, length + 1);
+    }
+    if (config != 0 && config->struct_size >= (usk_size)sizeof(*config)) {
+        const char* values[2] = {config->authorized_acceptance_root, config->target_policy_activation};
+        char** outputs[2] = {&context->authorized_acceptance_root, &context->target_policy_activation};
+        int index;
+        for (index = 0; index < 2; ++index) {
+            if (values[index] != 0) {
+                size_t length = strlen(values[index]);
+                if (length > 32768u ||
+                    (*outputs[index] = (char*)allocator.alloc(allocator.user, (usk_size)length + 1)) == 0) {
+                    if (context->target_policy_activation != 0) allocator.free(allocator.user, context->target_policy_activation);
+                    if (context->authorized_acceptance_root != 0) allocator.free(allocator.user, context->authorized_acceptance_root);
+                    if (context->state_root != 0) allocator.free(allocator.user, context->state_root);
+                    allocator.free(allocator.user, context);
+                    return USK_STATUS_ERROR;
+                }
+                memcpy(*outputs[index], values[index], length + 1);
+            }
+        }
+    }
     *out_context = context;
     return USK_STATUS_OK;
 }
@@ -499,5 +572,8 @@ void usk_context_destroy_v1(usk_context* context)
     }
     allocator = context->allocator;
     usk_release_response_storage(context);
+    if (context->target_policy_activation != 0) allocator.free(allocator.user, context->target_policy_activation);
+    if (context->authorized_acceptance_root != 0) allocator.free(allocator.user, context->authorized_acceptance_root);
+    if (context->state_root != 0) allocator.free(allocator.user, context->state_root);
     allocator.free(allocator.user, context);
 }

@@ -271,6 +271,7 @@ int main()
     if (payload.source_sha256 != field(valid_response, "sha256") ||
         payload.source_identity_digest.size() != 64 ||
         payload.entry_set_digest != field(valid_response, "entry_set_digest") ||
+        payload.archive_size_bytes != fs::file_size(valid) ||
         payload.uncompressed_bytes != 12 ||
         payload.files.size() != 2 ||
         payload.files[0].relative_path != "bin/tool.exe" ||

@@ -243,7 +243,7 @@ int main(void)
     }
     status = execute_status(context, "install_local.plan", &response);
     if (status != USK_STATUS_ERROR ||
-        !contains(response.json_payload, "\"code\":\"planned_command_unavailable\"")) {
+        !contains(response.json_payload, "\"code\":\"live_target_acceptance_required\"")) {
         return 22;
     }
     memset(&request, 0, sizeof(request));

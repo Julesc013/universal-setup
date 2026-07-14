@@ -20,6 +20,8 @@ typedef struct usk_config_v1 {
     usk_size struct_size;
     const char* state_root;
     const usk_allocator_v1* allocator;
+    const char* authorized_acceptance_root;
+    const char* target_policy_activation;
 } usk_config_v1;
 
 /*
@@ -28,6 +30,7 @@ typedef struct usk_config_v1 {
  * New callers may provide the complete structure and an optional allocator.
  */
 #define USK_CONFIG_V1_BASE_SIZE ((usk_size)offsetof(usk_config_v1, allocator))
+#define USK_CONFIG_V1_M1_SIZE ((usk_size)offsetof(usk_config_v1, authorized_acceptance_root))
 
 USK_API int USK_CALL usk_context_create_v1(
     const usk_config_v1* config,

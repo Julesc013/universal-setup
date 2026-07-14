@@ -736,6 +736,7 @@ StoredArchivePayload inspect_stored_payload(
     result.source_sha256 = inspection.source_sha256;
     result.source_identity_digest = source_identity_digest(inspection.identity);
     result.entry_set_digest = inspection.entry_set_digest;
+    result.archive_size_bytes = inspection.identity.size_bytes;
     std::set<std::string> paths;
     for (const Entry& entry : inspection.entries) {
         const std::string path = strip_entry_path(
