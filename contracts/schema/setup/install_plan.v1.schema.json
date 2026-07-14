@@ -30,26 +30,49 @@
     "input_identity": { "$ref": "#/$defs/input_identity" },
     "source": {
       "type": "object",
-      "required": ["source_id", "path", "sha256", "size_bytes", "filesystem_identity_digest"],
+      "required": ["source_id", "path", "sha256", "size_bytes", "filesystem_identity_digest", "path_identity_digest"],
       "properties": {
         "source_id": { "type": "string", "minLength": 1 },
         "path": { "type": "string", "minLength": 1 },
         "sha256": { "$ref": "#/$defs/sha256" },
         "size_bytes": { "type": "integer", "minimum": 0 },
-        "filesystem_identity_digest": { "$ref": "#/$defs/sha256" }
+        "filesystem_identity_digest": { "$ref": "#/$defs/sha256" },
+        "path_identity_digest": { "$ref": "#/$defs/sha256" }
       },
       "additionalProperties": false
     },
     "target": {
       "type": "object",
-      "required": ["root", "scope", "must_not_exist", "volume_id", "classification", "pre_snapshot_digest"],
+      "required": ["root", "scope", "must_not_exist", "volume_id", "classification", "pre_snapshot_digest", "identity_digest", "path_identity_digest", "filesystem"],
       "properties": {
         "root": { "type": "string", "minLength": 1, "maxLength": 32768 },
         "scope": { "const": "portable" },
         "must_not_exist": { "const": true },
         "volume_id": { "type": "string", "minLength": 1 },
         "classification": { "const": "operator_selected_owned_target" },
-        "pre_snapshot_digest": { "$ref": "#/$defs/sha256" }
+        "pre_snapshot_digest": { "$ref": "#/$defs/sha256" },
+        "identity_digest": { "$ref": "#/$defs/sha256" },
+        "path_identity_digest": { "$ref": "#/$defs/sha256" },
+        "filesystem": {
+          "type": "object",
+          "required": ["identity_digest", "kind", "capabilities"],
+          "properties": {
+            "identity_digest": { "$ref": "#/$defs/sha256" },
+            "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "capabilities": {
+              "type": "object",
+              "required": ["local", "stable_ancestors", "no_mount_redirection", "no_replace_commit"],
+              "properties": {
+                "local": { "const": true },
+                "stable_ancestors": { "const": true },
+                "no_mount_redirection": { "const": true },
+                "no_replace_commit": { "const": true }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

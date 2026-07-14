@@ -174,6 +174,12 @@ int main()
     const std::string plan_digest = plan_response.at("payload").at("plan_digest").as_string();
     if (plan_digest.size() != 64 ||
         plan_response.at("payload").at("totals").at("file_count").as_unsigned() != 2) return 6;
+    const Value& planned_source = plan_response.at("payload").at("source");
+    const Value& planned_target = plan_response.at("payload").at("target");
+    if (planned_source.at("path_identity_digest").as_string().size() != 64 ||
+        planned_target.at("identity_digest").as_string().size() != 64 ||
+        planned_target.at("path_identity_digest").as_string().size() != 64 ||
+        !planned_target.at("filesystem").at("capabilities").at("local").as_boolean()) return 31;
 
     Value stale(Value::Object{{"applied_at", Value("2026-07-14T01:01:00Z")},
         {"confirmation", Value("APPLY")}, {"plan_request", planned},
@@ -192,7 +198,7 @@ int main()
     Value evidence(Value::Object{
         {"archive", Value(Value::Object{
             {"filesystem_identity_digest", plan_payload.at("source").at("filesystem_identity_digest")},
-            {"path_identity_digest", Value(std::string(64, '3'))},
+            {"path_identity_digest", planned_source.at("path_identity_digest")},
             {"sha256", Value(usk::base::sha256_hex_file(archive))},
             {"size_bytes", plan_payload.at("source").at("size_bytes")},
             {"source_id", plan_payload.at("source").at("source_id")}})},
@@ -226,10 +232,10 @@ int main()
                 {"capabilities", Value(Value::Object{{"local", Value(true)},
                     {"no_mount_redirection", Value(true)}, {"no_replace_commit", Value(true)},
                     {"stable_ancestors", Value(true)}})},
-                {"identity_digest", plan_payload.at("target").at("volume_id")},
-                {"kind", Value("local_test_filesystem")}})},
-            {"identity_digest", Value(std::string(64, '7'))},
-            {"path_identity_digest", Value(std::string(64, '8'))},
+                {"identity_digest", planned_target.at("filesystem").at("identity_digest")},
+                {"kind", planned_target.at("filesystem").at("kind")}})},
+            {"identity_digest", planned_target.at("identity_digest")},
+            {"path_identity_digest", planned_target.at("path_identity_digest")},
             {"persistent_effects", Value(Value::Array{Value("create owned target"),
                 Value("write setup state"), Value("append audit chain")})}})},
         {"transaction", Value(Value::Object{{"staging_parent", Value((setup_root / "staging").generic_u8string())},
