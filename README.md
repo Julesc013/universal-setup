@@ -135,14 +135,20 @@ unknown files require operator review.
 
 `recovery.inspect` and `recovery.plan` are public and read-only. They validate
 the journal's transaction, plan, operation, root authorities, transition chain,
-and digest. `recovery.apply` remains explicitly unavailable until M2-WU5 adds
-restart-safe staged-file ownership reconstruction; this boundary prevents an
-inspection result from being overstated as safe recovery mutation.
+digest, and restart-safe staged ownership. `recovery.apply` can consume the
+exact reviewed plan to roll back only an unchanged, setup-owned staged closure.
+Changed or foreign staging content is retained in full. Visible-target
+finalization remains recovery-required when the request lacks the exact
+original operation context; inspection alone is never promoted to mutation.
 
 No M2-WU2 command performs networking, credential access, registry or shortcut
 mutation, elevation, package-manager integration, vendor installer execution,
 product execution, signing, or publication. This is an operator-acceptance
 candidate, not a production installer or a human acceptance verdict.
+
+The retained synthetic live proofs are documented in
+[`m2_live_acceptance.md`](docs/testing/m2_live_acceptance.md) and
+[`m2_interruption_recovery.md`](docs/testing/m2_interruption_recovery.md).
 
 ## License
 

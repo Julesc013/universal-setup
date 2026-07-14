@@ -18,7 +18,11 @@ handlers only after target-policy acceptance and immediate reviewed-plan
 revalidation. Recovery inspection also validates the exact transaction, plan,
 operation, four root authorities, transition chain, and journal digest.
 
-Restart-safe staged rollback is not yet public because the journal does not yet
-persist enough per-file staging ownership to delete post-crash content safely.
-`recovery.apply` therefore remains unavailable until M2-WU5. Cross-volume
+M2-WU5 adds restart-safe staged rollback. The journal persists the staging-root
+identity and exact path, size, and digest closure after each durable staged
+write. Recovery reopens that closure only when it is still exact, preflights the
+whole tree before deletion, and retains every byte when foreign or changed
+content is present. Public `recovery.apply` consumes the exact reviewed recovery
+plan and can apply this bounded rollback. Visible-target finalization still
+refuses without the exact original operation context. Cross-volume
 copy/verify/commit also remains later work.

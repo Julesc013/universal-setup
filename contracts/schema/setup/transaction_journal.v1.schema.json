@@ -61,6 +61,28 @@
         "additionalProperties": false
       }
     },
+    "recovery_metadata": {
+      "type": "object",
+      "required": ["staging_identity", "staged_files"],
+      "properties": {
+        "staging_identity": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "null" }] },
+        "staged_files": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "required": ["relative_path", "sha256", "size_bytes"],
+            "properties": {
+              "relative_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "size_bytes": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "recovery": {
       "type": "object",
       "required": ["required", "available_actions"],

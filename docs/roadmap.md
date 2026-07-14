@@ -156,6 +156,16 @@ abstract platform.
   verify, damage, repair, move, foreign-content refusal, clean uninstall, and
   exact completed-journal inspection.
 
+## M2-WU5 — Restart-Safe Staged Recovery
+
+- Persisted staging identity and the exact owned file closure durably during
+  staging so a later process can distinguish owned bytes from foreign content.
+- Made recovery inspection offer rollback only after a full stable-closure
+  preflight; removed the overstated pre-commit resume action.
+- Activated digest-bound public recovery apply for exact staged rollback while
+  retaining visible-target finalization until original operation context is
+  available.
+
 ## M2-WU3 — Live Target Evidence Packet
 
 - Added strict capture, packet, and operator-verdict contracts with an explicit

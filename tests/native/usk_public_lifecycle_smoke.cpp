@@ -5,6 +5,7 @@
 #include "usk_json.h"
 #include "usk_live_evidence.h"
 #include "usk_sha256.h"
+#include "usk_transaction_session.h"
 
 #include <chrono>
 #include <cstdint>
@@ -362,6 +363,39 @@ int main()
     response = execute(context, "recovery.plan", recovery_plan, 1, status);
     if (status != USK_STATUS_OK || response.find("\"schema\":\"usk.recovery_plan.v1\"") == std::string::npos ||
         usk::json::parse(response).at("payload").at("plan_digest").as_string().size() != 64) return 25;
+
+    const std::string rollback_digest(64, '7');
+    const usk::transaction::TransactionSpec rollback_spec{
+        "tx.recovery.rollback", "plan.recovery.rollback", rollback_digest, "install_local",
+        setup_root / "staging", root / "interrupted-target", setup_root / "state", setup_root / "audit"};
+    {
+        usk::transaction::TransactionSession interrupted(rollback_spec);
+        interrupted.stage_file("payload.txt", {'r', 'o', 'l', 'l', 'b', 'a', 'c', 'k'});
+        interrupted.mark_staged();
+    }
+    const Value rollback_inspect(Value::Object{
+        {"install_id", Value("synthetic.interrupted.1")}, {"operation", Value("install_local")},
+        {"plan_digest", Value(rollback_digest)}, {"plan_id", Value("plan.recovery.rollback")},
+        {"request_id", Value("recovery.inspect.rollback")},
+        {"schema", Value("usk.recovery_inspect_request.v1")},
+        {"target_root", Value((root / "interrupted-target").generic_u8string())},
+        {"transaction_id", Value("tx.recovery.rollback")}});
+    const Value rollback_plan(Value::Object{{"created_at", Value("2026-07-14T01:12:00Z")},
+        {"inspection", rollback_inspect}, {"recovery_plan_id", Value("recovery.plan.rollback")},
+        {"schema", Value("usk.recovery_plan_request.v1")}});
+    response = execute(context, "recovery.plan", rollback_plan, 1, status);
+    if (status != USK_STATUS_OK || response.find("\"available_actions\":[\"rollback\"]") == std::string::npos) return 32;
+    const std::string reviewed_recovery_digest =
+        usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const Value rollback_apply(Value::Object{
+        {"applied_at", Value("2026-07-14T01:13:00Z")}, {"confirmation", Value("APPLY")},
+        {"plan_request", rollback_plan}, {"reviewed_plan_digest", Value(reviewed_recovery_digest)},
+        {"reviewed_plan_id", Value("recovery.plan.rollback")}, {"schema", Value("usk.recovery_apply_request.v1")},
+        {"selected_action", Value("rollback")}});
+    response = execute(context, "recovery.apply", rollback_apply, 0, status);
+    if (status != USK_STATUS_OK || response.find("\"status\":\"rolled_back\"") == std::string::npos ||
+        fs::exists(setup_root / "staging/.usk-stage-tx.recovery.rollback") ||
+        fs::exists(root / "interrupted-target")) return 33;
 
     usk_context_destroy_v1(context);
     fs::remove_all(root, error);

@@ -69,6 +69,9 @@ public:
     static std::unique_ptr<TransactionSession> resume_finalization(
         const TransactionSpec& spec,
         FaultInjector injector = {});
+    static std::unique_ptr<TransactionSession> resume_rollback(
+        const TransactionSpec& spec,
+        FaultInjector injector = {});
 
 private:
     struct Transition {
@@ -88,9 +91,12 @@ private:
     void verify_roots_for_plan();
     void verify_staging_identity() const;
     void create_staging_root();
+    void persist_snapshot();
+    void verify_recorded_staging_closure() const;
     void remove_recorded_staging_closure();
     std::string render_journal() const;
-    TransactionSession(TransactionSpec spec, FaultInjector injector, bool resume_finalization);
+    enum class ResumeMode { none, finalization, rollback };
+    TransactionSession(TransactionSpec spec, FaultInjector injector, ResumeMode resume_mode);
 
     TransactionSpec spec_;
     FaultInjector injector_;

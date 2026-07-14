@@ -168,6 +168,11 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_lifecycle_smoke PRIVATE usk_lifecycle_static)
   add_test(NAME usk_lifecycle_smoke COMMAND usk_lifecycle_smoke)
 
+  add_executable(usk_interruption_recovery_smoke tests/native/usk_interruption_recovery_smoke.cpp)
+  target_compile_features(usk_interruption_recovery_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_interruption_recovery_smoke PRIVATE usk_lifecycle_static)
+  add_test(NAME usk_interruption_recovery_smoke COMMAND usk_interruption_recovery_smoke)
+
   add_executable(usk_public_lifecycle_smoke tests/native/usk_public_lifecycle_smoke.cpp)
   target_compile_features(usk_public_lifecycle_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)

@@ -68,7 +68,8 @@ Every packet retains `operator_verdict.status = pending`.
 ## Retained authority boundary
 
 - ordinary `managed_portable` apply remains unavailable;
-- `recovery.apply` remains unavailable pending M2-WU5;
+- `recovery.apply` now permits only digest-bound rollback of an exact
+  setup-owned staged closure; the WU4 retained run required no recovery;
 - no existing installation or Steam path was touched;
 - no network, credential, registry, shortcut, elevation, package-manager,
   installer, product executable, signing, or publication behavior occurred;
