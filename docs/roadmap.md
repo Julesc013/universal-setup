@@ -156,6 +156,19 @@ abstract platform.
   verify, damage, repair, move, foreign-content refusal, clean uninstall, and
   exact completed-journal inspection.
 
+## M2-WU3 — Live Target Evidence Packet
+
+- Added strict capture, packet, and operator-verdict contracts with an explicit
+  pending human state and separate `Pass`, `Fail`, or `Inconclusive` recording.
+- Added deterministic canonical packets, exact revision bindings, no-clobber
+  storage, stable reads, predecessor-linked verdict records, and tamper refusal.
+- Added `live_evidence.capture`, which re-reads installed state, ownership,
+  audit, and the exact transaction journal before emitting setup evidence.
+- Added bounded no-follow target snapshots and bound pre-state identities into
+  every mutating plan; capture independently recomputes and verifies post-state.
+- Kept packets sanitized and product-neutral. Evidence records setup behavior
+  but does not grant target mutation, product execution, or release authority.
+
 ## USETUP-PACKAGE-VERIFY-AUDIT-01
 
 - Implemented read-only `package.verify` and `package.audit` over bounded local
