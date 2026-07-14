@@ -5,6 +5,11 @@ strict-validation suite on `ubuntu-24.04`, `macos-15-intel`, and
 `windows-2022`. Linux sanitizer and bounded libFuzzer jobs remain separate and
 continue to exercise the same native core.
 
+macOS runner fixtures bind `TMPDIR` to the real `/private/var/...` directory.
+The default `/var/...` spelling crosses the `/var` symlink and is intentionally
+refused by the same no-link root policy under test; CI normalization changes
+only the disposable fixture path and does not weaken production inspection.
+
 The machine-readable corpus is
 `tests/fixtures/setup/m2-adversarial-coverage.v1.json`. The strict checker
 requires every Setup-owned case to name an existing test and exact source

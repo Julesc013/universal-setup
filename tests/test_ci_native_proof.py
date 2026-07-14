@@ -29,6 +29,8 @@ class NativeCiProofTests(unittest.TestCase):
         self.assertNotIn("actions/setup-python@v5", workflow)
         for runner in ("ubuntu-24.04", "macos-15-intel", "windows-2022"):
             self.assertIn(runner, workflow)
+        self.assertIn("Bind macOS fixtures to the real no-link temporary root", workflow)
+        self.assertIn("os.path.realpath(tempfile.gettempdir())", workflow)
 
 
 if __name__ == "__main__":
