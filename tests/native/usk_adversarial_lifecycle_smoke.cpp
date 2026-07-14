@@ -308,7 +308,7 @@ int cross_device_move(Fixture& fixture)
                 move, move.plan_digest, "tx.cross-device.move",
                 "2026-07-14T01:04:13Z");
             if (moved.installed_state.lifecycle_status != "move_pending_acceptance" ||
-                moved.retired_root != old_root ||
+                moved.retained_old_root != old_root ||
                 !fs::is_regular_file(new_root / "app/bin/program.exe") ||
                 !fs::is_regular_file(old_root / "app/bin/program.exe")) {
                 fs::remove_all(cross_root, cleanup_error);
