@@ -33,6 +33,7 @@ Canonical setup commands:
 - `recovery.inspect`
 - `recovery.plan`
 - `live_evidence.capture`
+- `live_evidence.verdict.record`
 - `recovery.apply`
 - `audit.list`
 - `audit.inspect`

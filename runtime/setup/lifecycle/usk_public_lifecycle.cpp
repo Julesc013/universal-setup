@@ -1095,6 +1095,27 @@ Value live_evidence_capture(const Value& request, const PublicConfig& config)
     return usk::json::parse(packet.canonical_json);
 }
 
+Value operator_verdict_record(const Value& request, const PublicConfig& config)
+{
+    exact_members(request, {"schema", "request_id", "pending_packet_id", "new_packet_id",
+                            "recorded_at", "verdict", "recorded_by", "statement_digest",
+                            "confirmation"});
+    if (required_string(request, "schema") != "usk.operator_verdict_record_request.v1" ||
+        required_string(request, "confirmation") != "RECORD VERDICT") {
+        throw PublicError("invalid_argument", "operator verdict schema or explicit confirmation is invalid");
+    }
+    (void)required_string(request, "request_id");
+    initialize_setup_root(config);
+    usk::evidence::EvidenceRepository repository(config.setup_root / "evidence");
+    const auto pending = repository.read_and_validate(required_string(request, "pending_packet_id"));
+    const auto recorded = usk::evidence::record_operator_verdict(
+        pending, required_string(request, "new_packet_id"), required_string(request, "recorded_at"),
+        required_string(request, "verdict"), required_string(request, "recorded_by"),
+        required_string(request, "statement_digest"));
+    repository.write_new(recorded);
+    return usk::json::parse(recorded.canonical_json);
+}
+
 void ensure_directory(const fs::path& parent, const std::string& name)
 {
     const fs::path child = parent / name;
@@ -1136,6 +1157,9 @@ Value execute_command(const std::string& command, const Value& request, const Pu
 {
     if (command == "live_evidence.capture") {
         return response_ok(live_evidence_capture(request, config));
+    }
+    if (command == "live_evidence.verdict.record") {
+        return response_ok(operator_verdict_record(request, config));
     }
     if (command == "install_local.plan") {
         const InstallPlanBundle bundle = build_install_plan(request, config);

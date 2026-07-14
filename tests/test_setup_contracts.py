@@ -68,6 +68,7 @@ M2_PUBLIC_REQUEST_CONTRACTS = {
 M2_EVIDENCE_CONTRACTS = {
     "live_target_evidence_capture_request": "usk.live_target_evidence_capture_request.v1",
     "live_target_evidence_packet": "usk.live_target_evidence_packet.v1",
+    "operator_verdict_record_request": "usk.operator_verdict_record_request.v1",
 }
 
 
@@ -153,6 +154,13 @@ class SetupContractTests(unittest.TestCase):
         serialized = json.dumps(schema).lower()
         for forbidden in ("run.execute", "network_url", "credential", "registry_write", "elevation"):
             self.assertNotIn(forbidden, serialized)
+
+        verdict_request = load_schema("operator_verdict_record_request")
+        self.assertEqual(verdict_request["properties"]["confirmation"]["const"], "RECORD VERDICT")
+        self.assertEqual(
+            set(verdict_request["properties"]["verdict"]["enum"]),
+            {"Pass", "Fail", "Inconclusive"},
+        )
 
     def test_m2_target_policy_is_fail_closed_and_product_neutral(self) -> None:
         policy = load_schema("target_policy")["properties"]
