@@ -425,18 +425,6 @@ std::string read_bounded_text(const fs::path& path, std::size_t limit)
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
-std::string json_string(const std::string& text, const std::string& key)
-{
-    const std::string marker = "\"" + key + "\":";
-    std::size_t position = text.find(marker);
-    if (position == std::string::npos) return {};
-    position += marker.size();
-    while (position < text.size() && std::isspace(static_cast<unsigned char>(text[position]))) ++position;
-    if (position >= text.size() || text[position] != '"') return {};
-    const std::size_t end = text.find('"', position + 1);
-    return end == std::string::npos ? std::string() : text.substr(position + 1, end - position - 1);
-}
-
 bool valid_transition(const std::string& from, const std::string& to)
 {
     if (from.empty()) return to == "created";
@@ -921,14 +909,61 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     spec.staging_parent = absolute_normal(spec.staging_parent);
     spec.target_root = absolute_normal(spec.target_root);
     spec.state_root = absolute_normal(spec.state_root);
+    spec.audit_root = absolute_normal(spec.audit_root);
     const fs::path staging = spec.staging_parent / (".usk-stage-" + spec.transaction_id);
     const fs::path journal = spec.state_root / "transactions" /
         (spec.transaction_id + ".journal.json");
     const std::string text = read_bounded_text(journal, 4u * 1024u * 1024u);
+    const usk::json::Value document = usk::json::parse(text);
+    if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||
+        document.at("transaction_id").as_string() != spec.transaction_id ||
+        document.at("plan_id").as_string() != spec.plan_id ||
+        document.at("plan_digest").as_string() != spec.plan_digest ||
+        document.at("operation").as_string() != spec.operation) {
+        throw std::runtime_error("transaction journal does not bind the requested recovery inspection");
+    }
+    std::map<std::string, std::string> journal_roots;
+    for (const usk::json::Value& root : document.at("roots").as_array()) {
+        if (!journal_roots.emplace(root.at("role").as_string(), root.at("root").as_string()).second) {
+            throw std::runtime_error("transaction journal contains duplicate root authority");
+        }
+    }
+    if (journal_roots.size() != 4 ||
+        journal_roots["target"] != spec.target_root.string() ||
+        journal_roots["staging"] != staging.string() ||
+        journal_roots["setup_state"] != spec.state_root.string() ||
+        journal_roots["audit"] != spec.audit_root.string()) {
+        throw std::runtime_error("transaction journal root authority does not match recovery inspection");
+    }
+    std::string prior;
+    std::ostringstream chain;
+    std::uint64_t sequence = 0;
+    for (const usk::json::Value& item : document.at("transitions").as_array()) {
+        std::string from;
+        if (item.at("from").type() != usk::json::Value::Type::null_value) {
+            from = item.at("from").as_string();
+        }
+        const std::string to = item.at("to").as_string();
+        if (item.at("sequence").as_unsigned() != sequence || from != prior ||
+            !valid_transition(from, to) ||
+            item.at("transition_id").as_string() != spec.transaction_id + "." + std::to_string(sequence) ||
+            !item.at("durable_before_external_visibility").as_boolean()) {
+            throw std::runtime_error("transaction journal transition chain is invalid");
+        }
+        chain << sequence << '\0' << from << '\0' << to << '\0'
+              << item.at("recorded_at").as_string() << '\n';
+        prior = to;
+        ++sequence;
+    }
+    usk::base::Sha256 chain_digest;
+    const std::string chain_text = chain.str();
+    chain_digest.update(reinterpret_cast<const unsigned char*>(chain_text.data()), chain_text.size());
     RecoveryInspection result;
-    result.current_state = json_string(text, "current_state");
-    if (result.current_state.empty()) {
-        throw std::runtime_error("transaction journal current state is missing");
+    result.current_state = document.at("current_state").as_string();
+    result.journal_digest = document.at("journal_digest").as_string();
+    result.recorded_at = document.at("updated_at").as_string();
+    if (sequence == 0 || result.current_state != prior || result.journal_digest != chain_digest.finish()) {
+        throw std::runtime_error("transaction journal digest or current state is invalid");
     }
     result.staging_exists = fs::exists(staging);
     result.target_exists = fs::exists(spec.target_root);

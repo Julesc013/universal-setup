@@ -264,7 +264,28 @@ int main()
     if (status != USK_STATUS_OK || fs::exists(moved) ||
         response.find("\"status\":\"completed\"") == std::string::npos) return 21;
 
+    Value recovery_inspect(Value::Object{
+        {"install_id", Value("synthetic.install.1")}, {"operation", Value("uninstall")},
+        {"plan_digest", Value(clean_digest)}, {"plan_id", Value("plan.uninstall.clean")},
+        {"request_id", Value("recovery.inspect.clean")},
+        {"schema", Value("usk.recovery_inspect_request.v1")},
+        {"target_root", Value((root / ".usk-uninstall-tx.uninstall.clean").generic_u8string())},
+        {"transaction_id", Value("tx.uninstall.clean")}});
+    Value wrong_recovery = recovery_inspect;
+    wrong_recovery.as_object()["plan_digest"] = Value(std::string(64, '0'));
+    response = execute(context, "recovery.inspect", wrong_recovery, 1, status);
+    if (status != USK_STATUS_ERROR || response.find("lifecycle_refused") == std::string::npos) return 23;
+    response = execute(context, "recovery.inspect", recovery_inspect, 1, status);
+    if (status != USK_STATUS_OK || response.find("\"observed_state\":\"completed\"") == std::string::npos ||
+        response.find("\"status\":\"inspection_only\"") == std::string::npos) return 24;
+    const Value recovery_plan(Value::Object{{"created_at", Value("2026-07-14T01:11:00Z")},
+        {"inspection", recovery_inspect}, {"recovery_plan_id", Value("recovery.plan.clean")},
+        {"schema", Value("usk.recovery_plan_request.v1")}});
+    response = execute(context, "recovery.plan", recovery_plan, 1, status);
+    if (status != USK_STATUS_OK || response.find("\"schema\":\"usk.recovery_plan.v1\"") == std::string::npos ||
+        usk::json::parse(response).at("payload").at("plan_digest").as_string().size() != 64) return 25;
+
     usk_context_destroy_v1(context);
     fs::remove_all(root, error);
-    return error ? 22 : 0;
+    return error ? 26 : 0;
 }

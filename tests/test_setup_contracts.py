@@ -33,6 +33,7 @@ RETAINED_CONTRACTS = {
     "package_verify_request": "usk.package_verify_request.v1",
     "package_verify_report": "usk.package_verify_report.v1",
     "repair_plan": "usk.repair_plan.v1",
+    "recovery_plan": "usk.recovery_plan.v1",
     "verify_report": "usk.verify_report.v1",
     "audit_log": "usk.audit_log.v1",
     "transaction": "usk.transaction.v1",

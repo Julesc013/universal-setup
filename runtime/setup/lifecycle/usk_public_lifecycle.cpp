@@ -11,6 +11,7 @@
 #include "usk_sha256.h"
 #include "usk_state_repository.h"
 #include "usk_target_inspect.h"
+#include "usk_transaction_session.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -72,6 +73,13 @@ struct MovePlanBundle {
 struct UninstallPlanBundle {
     usk::lifecycle::UninstallPlan plan;
     usk::state::InstalledState installed;
+};
+
+struct RecoveryBundle {
+    std::string install_id;
+    std::string request_id;
+    usk::transaction::TransactionSpec spec;
+    usk::transaction::RecoveryInspection inspection;
 };
 
 void exact_members(const Value& value, std::initializer_list<const char*> names)
@@ -834,6 +842,97 @@ Value uninstall_report_document(
         {"status", Value(status)}, {"transaction_id", Value(transaction_id)}}));
 }
 
+RecoveryBundle build_recovery_inspection(const Value& request, const PublicConfig& config)
+{
+    exact_members(request, {"schema", "request_id", "install_id", "transaction_id", "plan_id",
+                            "plan_digest", "operation", "target_root"});
+    if (required_string(request, "schema") != "usk.recovery_inspect_request.v1") {
+        throw PublicError("invalid_argument", "recovery inspection request schema is incompatible");
+    }
+    const std::string operation = required_string(request, "operation");
+    if (operation != "install_local" && operation != "repair" &&
+        operation != "move" && operation != "uninstall") {
+        throw PublicError("invalid_argument", "recovery operation is invalid");
+    }
+    const fs::path target(required_string(request, "target_root"));
+    if (!target.is_absolute()) throw PublicError("invalid_argument", "recovery target root must be absolute");
+    require_setup_probe(config, config.setup_root / ".usk-owned-root.v1.json");
+    const auto roots = lifecycle_roots(config);
+    RecoveryBundle result;
+    result.install_id = required_string(request, "install_id");
+    result.request_id = required_string(request, "request_id");
+    result.spec = {required_string(request, "transaction_id"), required_string(request, "plan_id"),
+        required_string(request, "plan_digest"), operation,
+        operation == "move" ? target.parent_path() : roots.staging_parent,
+        target, roots.state_root, roots.audit_root};
+    result.inspection = usk::transaction::TransactionSession::inspect_recovery(result.spec);
+    return result;
+}
+
+Value recovery_effects(const usk::transaction::RecoveryInspection& inspection)
+{
+    Value::Array effects;
+    for (const std::string& action : inspection.available_actions) {
+        if (action == "resume") {
+            effects.emplace_back(Value::Object{{"kind", Value("resume_transition")},
+                {"relative_path", Value(".")}, {"root_class", Value("setup_state")}});
+        } else if (action == "rollback") {
+            effects.emplace_back(Value::Object{{"kind", Value("delete_staged_path")},
+                {"relative_path", Value(".")}, {"root_class", Value("staging")}});
+        } else {
+            effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
+                {"relative_path", Value(".")}, {"root_class", Value("owned_target")}});
+        }
+    }
+    return Value(std::move(effects));
+}
+
+Value recovery_report_document(const RecoveryBundle& bundle)
+{
+    return bind_report_digest(Value(Value::Object{
+        {"available_actions", string_array(bundle.inspection.available_actions)},
+        {"effects", recovery_effects(bundle.inspection)},
+        {"journal_digest", Value(bundle.inspection.journal_digest)},
+        {"journal_id", Value("journal." + bundle.spec.transaction_id)},
+        {"observed_state", Value(bundle.inspection.current_state)},
+        {"recorded_at", Value(bundle.inspection.recorded_at)},
+        {"report_digest", Value(std::string(64, '0'))},
+        {"report_id", Value("recovery.inspect." + bundle.request_id)},
+        {"schema", Value("usk.recovery_report.v1")}, {"selected_action", Value()},
+        {"status", Value("inspection_only")}, {"transaction_id", Value(bundle.spec.transaction_id)}}));
+}
+
+Value bind_plan_digest(Value document)
+{
+    Value::Object& object = document.as_object();
+    object.erase("plan_digest");
+    const std::string digest = usk::json::sha256_canonical(document);
+    object.emplace("plan_digest", Value(digest));
+    return document;
+}
+
+Value recovery_plan_document(const Value& request, const PublicConfig& config)
+{
+    exact_members(request, {"schema", "inspection", "recovery_plan_id", "created_at"});
+    if (required_string(request, "schema") != "usk.recovery_plan_request.v1") {
+        throw PublicError("invalid_argument", "recovery plan request schema is incompatible");
+    }
+    const RecoveryBundle bundle = build_recovery_inspection(request.at("inspection"), config);
+    return bind_plan_digest(Value(Value::Object{
+        {"available_actions", string_array(bundle.inspection.available_actions)},
+        {"created_at", Value(required_string(request, "created_at"))},
+        {"effects", recovery_effects(bundle.inspection)}, {"install_id", Value(bundle.install_id)},
+        {"journal_digest", Value(bundle.inspection.journal_digest)},
+        {"observed_state", Value(bundle.inspection.current_state)},
+        {"operation", Value(bundle.spec.operation)}, {"plan_digest", Value(std::string(64, '0'))},
+        {"plan_id", Value(required_string(request, "recovery_plan_id"))},
+        {"revalidation", Value(Value::Object{{"immediately_before_apply", Value(true)},
+            {"invalidate_on", Value(Value::Array{Value("journal"), Value("staging"),
+                Value("target"), Value("policy")})}})},
+        {"schema", Value("usk.recovery_plan.v1")}, {"status", Value("planned")},
+        {"transaction_id", Value(bundle.spec.transaction_id)}}));
+}
+
 void ensure_directory(const fs::path& parent, const std::string& name)
 {
     const fs::path child = parent / name;
@@ -991,6 +1090,12 @@ Value execute_command(const std::string& command, const Value& request, const Pu
         const auto result = usk::lifecycle::apply_uninstall(
             bundle.plan, bundle.plan.plan_digest, transaction_id, applied_at);
         return response_ok(uninstall_report_document(bundle, result, transaction_id, applied_at));
+    }
+    if (command == "recovery.inspect") {
+        return response_ok(recovery_report_document(build_recovery_inspection(request, config)));
+    }
+    if (command == "recovery.plan") {
+        return response_ok(recovery_plan_document(request, config));
     }
     throw PublicError("unsupported_command", "public lifecycle command is not implemented");
 }

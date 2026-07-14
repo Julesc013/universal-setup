@@ -3,10 +3,11 @@
   "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/recovery_inspect_request.v1.schema.json",
   "title": "Public Recovery Inspect Request",
   "type": "object",
-  "required": ["schema", "request_id", "transaction_id", "plan_id", "plan_digest", "operation", "target_root"],
+  "required": ["schema", "request_id", "install_id", "transaction_id", "plan_id", "plan_digest", "operation", "target_root"],
   "properties": {
     "schema": { "const": "usk.recovery_inspect_request.v1" },
     "request_id": { "$ref": "#/$defs/id" },
+    "install_id": { "$ref": "#/$defs/id" },
     "transaction_id": { "$ref": "#/$defs/id" },
     "plan_id": { "$ref": "#/$defs/id" },
     "plan_digest": { "$ref": "#/$defs/sha256" },
