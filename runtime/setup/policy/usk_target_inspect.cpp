@@ -7,8 +7,10 @@
 #include "usk_stable_file.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <stdexcept>
 
@@ -32,6 +34,50 @@ std::string hash_text(const std::string& text)
     usk::base::Sha256 digest;
     digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
     return digest.finish();
+}
+
+std::string hex_id(std::uint64_t value)
+{
+    std::ostringstream out;
+    out << std::hex << std::setfill('0') << std::setw(16) << value;
+    return out.str();
+}
+
+std::string safe_directory_identity(const fs::path& path)
+{
+#if defined(_WIN32)
+    HANDLE handle = CreateFileW(
+        path.c_str(),
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("cannot open target ancestor identity");
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(handle, &info)) {
+        CloseHandle(handle);
+        throw std::runtime_error("cannot inspect target ancestor identity");
+    }
+    CloseHandle(handle);
+    if ((info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) !=
+        FILE_ATTRIBUTE_DIRECTORY) {
+        throw std::runtime_error("target ancestor identity is unsafe");
+    }
+    const std::uint64_t file_id =
+        (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+    return hex_id(info.dwVolumeSerialNumber) + ":" + hex_id(file_id);
+#else
+    struct stat info {};
+    if (::lstat(path.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || S_ISLNK(info.st_mode)) {
+        throw std::runtime_error("cannot inspect safe target ancestor identity");
+    }
+    return hex_id(static_cast<std::uint64_t>(info.st_dev)) + ":" +
+        hex_id(static_cast<std::uint64_t>(info.st_ino));
+#endif
 }
 
 std::string normalized_path(const fs::path& value)
@@ -301,6 +347,7 @@ TargetEvidence inspect_live_target(const TargetInspectionRequest& request)
         identity << normalized_path(request.target_root) << '\n'
                  << target_state_name(evidence.target_state) << '\n'
                  << normalized_path(ancestor) << '\n'
+                 << safe_directory_identity(ancestor) << '\n'
                  << evidence.filesystem_identity_digest << '\n'
                  << source_identity.volume_id << '\n' << source_identity.file_id << '\n'
                  << source_identity.size_bytes << '\n' << source_identity.modified_time_ns;

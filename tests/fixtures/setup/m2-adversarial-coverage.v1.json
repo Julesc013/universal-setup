@@ -1,0 +1,103 @@
+{
+  "schema": "usk.m2_adversarial_coverage.v1",
+  "authority": {
+    "automation_can_record_operator_verdict": false,
+    "execution_authority": false,
+    "operator_verdict": "pending",
+    "ordinary_live_apply": "unavailable_pending_operator_acceptance"
+  },
+  "required_platforms": [
+    {"id": "linux", "runner": "ubuntu-24.04"},
+    {"id": "macos", "runner": "macos-15-intel"},
+    {"id": "windows", "runner": "windows-2022"}
+  ],
+  "cases": [
+    {
+      "id": "unicode_and_long_paths",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_adversarial_lifecycle_smoke.cpp", "markers": ["unicode-", "std::string(4097, 'a')"]}]
+    },
+    {
+      "id": "case_collisions",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_archive_inspect_smoke.cpp", "markers": ["case.zip", "case-insensitive-colliding"]}]
+    },
+    {
+      "id": "unicode_normalization_collisions",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_archive_inspect_smoke.cpp", "markers": ["unicode-normalization-collision.zip", "Unicode normalization"]}]
+    },
+    {
+      "id": "links_and_reparse_points",
+      "owner": "universal_setup",
+      "evidence": [
+        {"path": "tests/native/usk_archive_inspect_smoke.cpp", "markers": ["symlink.zip", "reparse.zip"]},
+        {"path": "tests/native/usk_stable_file_smoke.cpp", "markers": ["source-link.zip", "refused_symlink"]}
+      ]
+    },
+    {
+      "id": "source_replacement",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_public_lifecycle_smoke.cpp", "markers": ["source-replacement.zip", "changed-after-plan"]}]
+    },
+    {
+      "id": "target_ancestor_replacement",
+      "owner": "universal_setup",
+      "evidence": [
+        {"path": "tests/native/usk_transaction_session_smoke.cpp", "markers": ["target_ancestor_replacement", "replacement-sentinel.txt"]},
+        {"path": "tests/native/usk_public_lifecycle_smoke.cpp", "markers": ["reviewed-ancestor-displaced", "tx.ancestor-replacement"]}
+      ]
+    },
+    {
+      "id": "concurrent_applies",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_adversarial_lifecycle_smoke.cpp", "markers": ["concurrent_writers", "tx.concurrent.left", "tx.concurrent.right"]}]
+    },
+    {
+      "id": "read_only_sources",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_archive_inspect_smoke.cpp", "markers": ["read_only_response", "fs::permissions"]}]
+    },
+    {
+      "id": "partial_writes",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_transaction_session_smoke.cpp", "markers": ["partial_write_recovery", "simulated partial write interruption", "retain_for_operator"]}]
+    },
+    {
+      "id": "insufficient_space_simulation",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_transaction_session_smoke.cpp", "markers": ["fault-before-write", "injected write-capacity fault"]}]
+    },
+    {
+      "id": "cross_device_move",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_adversarial_lifecycle_smoke.cpp", "markers": ["cross_device_move", "/dev/shm", "move_pending_acceptance"]}]
+    },
+    {
+      "id": "changed_ownership_manifests",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_state_repository_smoke.cpp", "markers": ["exact_ownership", "tampered", "read_ownership"]}]
+    },
+    {
+      "id": "audit_chain_tampering",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_state_repository_smoke.cpp", "markers": ["00000000000000000001.event.json", "read_and_validate_chain"]}]
+    },
+    {
+      "id": "stale_and_replayed_plans",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_public_lifecycle_smoke.cpp", "markers": ["stale_plan", "target_not_empty", "install_local.apply"]}]
+    },
+    {
+      "id": "foreign_files_during_repair_or_uninstall",
+      "owner": "universal_setup",
+      "evidence": [{"path": "tests/native/usk_adversarial_lifecycle_smoke.cpp", "markers": ["arrived-during-repair.txt", "arrived-after-uninstall-plan.txt"]}]
+    },
+    {
+      "id": "frontend_cancellation_and_process_termination",
+      "owner": "factorio_launcher",
+      "status": "consumer_proof_required",
+      "external_evidence": ["tests/test_tui_product.py", "tests/native/facman_client_smoke.cpp"]
+    }
+  ]
+}

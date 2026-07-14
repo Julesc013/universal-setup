@@ -193,6 +193,56 @@ int staging_substitution(Fixture& fixture)
     return 0;
 }
 
+int target_ancestor_replacement(Fixture& fixture)
+{
+    TransactionSpec spec = fixture.spec("ancestor-replacement");
+    TransactionSession session(spec);
+    session.stage_file("payload.txt", bytes("reviewed"));
+    session.mark_staged();
+    session.mark_verified();
+
+    const fs::path displaced = fixture.root / "displaced-targets";
+    fs::rename(fixture.targets, displaced);
+    fs::create_directory(fixture.targets);
+    {
+        std::ofstream sentinel(fixture.targets / "replacement-sentinel.txt", std::ios::binary);
+        sentinel << "retain";
+    }
+    if (!throws([&] { session.commit_effect(); }) || session.current_state() != "refused" ||
+        read_text(fixture.targets / "replacement-sentinel.txt") != "retain" ||
+        fs::exists(spec.target_root)) {
+        return 41;
+    }
+    return 0;
+}
+
+int partial_write_recovery(Fixture& fixture)
+{
+    const TransactionSpec spec = fixture.spec("partial-write");
+    const fs::path expected_staging = spec.staging_parent / ".usk-stage-partial-write";
+    bool injected = false;
+    TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+        if (!injected && state == "staging" && point == "before_stage_file") {
+            injected = true;
+            std::ofstream partial(expected_staging / "payload.txt", std::ios::binary);
+            partial << "partial";
+            partial.close();
+            throw std::runtime_error("simulated partial write interruption");
+        }
+    });
+    if (!throws([&] { session.stage_file("payload.txt", bytes("complete-payload")); }) ||
+        !injected || read_text(expected_staging / "payload.txt") != "partial") {
+        return 42;
+    }
+    const RecoveryInspection recovery = TransactionSession::inspect_recovery(spec);
+    if (recovery.current_state != "staging" ||
+        recovery.available_actions != std::vector<std::string>{"retain_for_operator"} ||
+        !fs::is_regular_file(expected_staging / "payload.txt")) {
+        return 43;
+    }
+    return 0;
+}
+
 int fault_after_transition(Fixture& fixture, const std::string& state, int ordinal)
 {
     const std::string id = "fault-" + std::to_string(ordinal) + "-" + state;
@@ -371,6 +421,8 @@ int main()
     if (int result = rollback(fixture)) return result;
     if (int result = rollback_retains_foreign_content(fixture)) return result;
     if (int result = staging_substitution(fixture)) return result;
+    if (int result = target_ancestor_replacement(fixture)) return result;
+    if (int result = partial_write_recovery(fixture)) return result;
 
     std::vector<std::string> states = {
         "created", "validated", "planned", "staging", "staged",

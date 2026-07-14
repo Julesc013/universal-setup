@@ -17,6 +17,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(__linux__)
+#include <sys/stat.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -268,6 +272,64 @@ int bounded_scale(Fixture& fixture)
     return 0;
 }
 
+int cross_device_move(Fixture& fixture)
+{
+#if defined(__linux__)
+    const fs::path alternate_parent = "/dev/shm";
+    struct stat primary_info {};
+    struct stat alternate_info {};
+    if (!fs::is_directory(alternate_parent) ||
+        ::stat(fixture.root.c_str(), &primary_info) != 0 ||
+        ::stat(alternate_parent.c_str(), &alternate_info) != 0 ||
+        primary_info.st_dev == alternate_info.st_dev) {
+        return 0;
+    }
+
+    const fs::path cross_root = alternate_parent /
+        ("usk-cross-device-" + fixture.root.filename().string());
+    std::error_code cleanup_error;
+    fs::remove_all(cross_root, cleanup_error);
+    fs::create_directory(cross_root);
+    try {
+        const fs::path old_root = fixture.root / "targets/cross-device-source";
+        const auto install = usk::lifecycle::plan_install(
+            "plan.cross-device.install", "install.cross-device",
+            "2026-07-14T01:04:10Z", old_root, fixture.roots,
+            recipe("product.cross-device"), payload());
+        (void)usk::lifecycle::apply_install(
+            install, install.plan_digest, "tx.cross-device.install",
+            "2026-07-14T01:04:11Z");
+        const fs::path new_root = cross_root / "moved";
+        const auto move = usk::lifecycle::plan_move(
+            fixture.roots, "install.cross-device", "plan.cross-device.move",
+            "2026-07-14T01:04:12Z", new_root);
+        try {
+            const auto moved = usk::lifecycle::apply_move(
+                move, move.plan_digest, "tx.cross-device.move",
+                "2026-07-14T01:04:13Z");
+            if (moved.installed_state.lifecycle_status != "move_pending_acceptance" ||
+                moved.retained_old_root != old_root ||
+                !fs::is_regular_file(new_root / "app/bin/program.exe") ||
+                !fs::is_regular_file(old_root / "app/bin/program.exe")) {
+                fs::remove_all(cross_root, cleanup_error);
+                return 45;
+            }
+        } catch (const usk::transaction::NoReplaceCommitUnavailable&) {
+            if (fs::exists(new_root)) {
+                fs::remove_all(cross_root, cleanup_error);
+                return 46;
+            }
+        }
+    } catch (...) {
+        fs::remove_all(cross_root, cleanup_error);
+        throw;
+    }
+    fs::remove_all(cross_root, cleanup_error);
+    if (cleanup_error) return 47;
+#endif
+    return 0;
+}
+
 int journal_root_tamper(Fixture& fixture)
 {
     const fs::path target = fixture.root / "targets/journal-tamper";
@@ -304,6 +366,7 @@ int run()
     if (int result = foreign_content_races(fixture)) return result;
     if (int result = concurrent_writers(fixture)) return result;
     if (int result = bounded_scale(fixture)) return result;
+    if (int result = cross_device_move(fixture)) return result;
     if (int result = journal_root_tamper(fixture)) return result;
     return 0;
 }
