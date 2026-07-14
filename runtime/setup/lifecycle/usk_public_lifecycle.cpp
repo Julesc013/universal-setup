@@ -964,6 +964,52 @@ Value recovery_plan_document(const Value& request, const PublicConfig& config)
         {"transaction_id", Value(bundle.spec.transaction_id)}}));
 }
 
+Value recovery_apply_document(const Value& request, const PublicConfig& config)
+{
+    exact_members(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",
+                            "selected_action", "applied_at", "confirmation"});
+    if (required_string(request, "schema") != "usk.recovery_apply_request.v1" ||
+        required_string(request, "confirmation") != "APPLY") {
+        throw PublicError("invalid_argument", "recovery apply schema or confirmation is invalid");
+    }
+    const Value reviewed = recovery_plan_document(request.at("plan_request"), config);
+    if (required_string(request, "reviewed_plan_id") != reviewed.at("plan_id").as_string() ||
+        required_string(request, "reviewed_plan_digest") != reviewed.at("plan_digest").as_string()) {
+        throw PublicError("stale_plan", "reviewed recovery plan identity does not match immediate revalidation");
+    }
+    const std::string action = required_string(request, "selected_action");
+    if (action != "rollback" && action != "finalize") {
+        throw PublicError("invalid_argument", "recovery action is invalid");
+    }
+    const Value& plan_request = request.at("plan_request");
+    RecoveryBundle bundle = build_recovery_inspection(plan_request.at("inspection"), config);
+    const bool available = std::find(bundle.inspection.available_actions.begin(),
+        bundle.inspection.available_actions.end(), action == "finalize" ? "resume" : action) !=
+        bundle.inspection.available_actions.end();
+    if (!available) {
+        throw PublicError("stale_plan", "selected recovery action is no longer safely available");
+    }
+    if (action == "finalize") {
+        throw PublicError("recovery_finalization_context_required",
+            "visible-target finalization requires the exact original operation context; the target remains recovery_required");
+    }
+
+    const Value effects = recovery_effects(bundle.inspection);
+    auto recovered = usk::transaction::TransactionSession::resume_rollback(bundle.spec);
+    recovered->rollback();
+    const usk::transaction::RecoveryInspection after =
+        usk::transaction::TransactionSession::inspect_recovery(bundle.spec);
+    return bind_report_digest(Value(Value::Object{
+        {"available_actions", string_array(after.available_actions)}, {"effects", effects},
+        {"journal_digest", Value(after.journal_digest)},
+        {"journal_id", Value("journal." + bundle.spec.transaction_id)},
+        {"observed_state", Value(after.current_state)}, {"recorded_at", Value(required_string(request, "applied_at"))},
+        {"report_digest", Value(std::string(64, '0'))},
+        {"report_id", Value("recovery.apply." + bundle.request_id)},
+        {"schema", Value("usk.recovery_report.v1")}, {"selected_action", Value("rollback")},
+        {"status", Value("rolled_back")}, {"transaction_id", Value(bundle.spec.transaction_id)}}));
+}
+
 Value live_evidence_capture(const Value& request, const PublicConfig& config)
 {
     exact_members(request, {"schema", "request_id", "packet_id", "captured_at", "install_id",
@@ -1315,6 +1361,9 @@ Value execute_command(const std::string& command, const Value& request, const Pu
     }
     if (command == "recovery.plan") {
         return response_ok(recovery_plan_document(request, config));
+    }
+    if (command == "recovery.apply") {
+        return response_ok(recovery_apply_document(request, config));
     }
     throw PublicError("unsupported_command", "public lifecycle command is not implemented");
 }
