@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_TOP_LEVEL = {
     ".github",
+    ".gitattributes",
     ".gitignore",
     "CMakeLists.txt",
     "LICENSE",
