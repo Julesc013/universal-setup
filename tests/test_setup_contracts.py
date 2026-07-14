@@ -42,6 +42,12 @@ RETAINED_CONTRACTS = {
     "setup_manifest": "usk.setup_manifest.v1",
 }
 
+M2_TARGET_CONTRACTS = {
+    "target_policy": "usk.target_policy.v1",
+    "target_evidence": "usk.target_evidence.v1",
+    "target_policy_decision": "usk.target_policy_decision.v1",
+}
+
 
 def load_schema(name: str) -> dict:
     path = SCHEMA_ROOT / f"{name}.v1.schema.json"
@@ -66,6 +72,43 @@ class SetupContractTests(unittest.TestCase):
                 schema = load_schema(name)
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
                 self.assertEqual(schema["properties"]["schema"]["const"], schema_const)
+
+    def test_m2_target_contracts_are_versioned_strict_and_complete(self) -> None:
+        for name, schema_const in M2_TARGET_CONTRACTS.items():
+            with self.subTest(name=name):
+                schema = load_schema(name)
+                self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
+                self.assertEqual(schema["type"], "object")
+                self.assertIn("schema", schema["required"])
+                self.assertEqual(schema["properties"]["schema"]["const"], schema_const)
+                self.assertIs(schema["additionalProperties"], False)
+
+    def test_m2_target_policy_is_fail_closed_and_product_neutral(self) -> None:
+        policy = load_schema("target_policy")["properties"]
+        self.assertEqual(
+            set(policy["mutable_target_classes"]["items"]["enum"]),
+            {"operator_acceptance", "managed_portable"},
+        )
+        self.assertEqual(
+            set(policy["activation"]["enum"]),
+            {"unavailable", "operator_acceptance_candidate", "accepted_live_portable"},
+        )
+        for field in policy["conditions"]["required"]:
+            self.assertIs(policy["conditions"]["properties"][field]["const"], True)
+        for field in policy["forbidden_authorities"]["required"]:
+            self.assertIs(policy["forbidden_authorities"]["properties"][field]["const"], False)
+
+        evidence = load_schema("target_evidence")["properties"]
+        self.assertEqual(
+            set(evidence["target_state"]["enum"]),
+            {"nonexistent", "empty", "nonempty", "unproven"},
+        )
+        self.assertIn("identity_digest", evidence["filesystem"]["required"])
+        self.assertIn("persistent_effects_complete", load_schema("target_evidence")["required"])
+
+        decision = load_schema("target_policy_decision")
+        self.assertIn("target_binding_digest", decision["required"])
+        self.assertIn("mutation_authorized", decision["required"])
 
     def test_recipe_is_data_only_local_archive_portable_policy(self) -> None:
         schema = load_schema("recipe")
@@ -231,6 +274,19 @@ class SetupContractTests(unittest.TestCase):
             "package_manager_forbidden",
             "installer_execution_forbidden",
             "recovery_required",
+            "live_target_acceptance_required",
+            "target_class_forbidden",
+            "target_not_explicit",
+            "target_outside_acceptance_root",
+            "target_not_empty",
+            "target_filesystem_not_local",
+            "target_path_redirected",
+            "target_mount_redirected",
+            "target_root_excluded",
+            "target_space_insufficient",
+            "source_target_same_object",
+            "target_effects_incomplete",
+            "target_identity_unproven",
         ):
             self.assertIn(code, refusal_codes)
 

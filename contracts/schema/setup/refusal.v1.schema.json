@@ -37,7 +37,20 @@
         "unsupported_platform",
         "invalid_recipe",
         "missing_artifact",
-        "recovery_required"
+        "recovery_required",
+        "live_target_acceptance_required",
+        "target_class_forbidden",
+        "target_not_explicit",
+        "target_outside_acceptance_root",
+        "target_not_empty",
+        "target_filesystem_not_local",
+        "target_path_redirected",
+        "target_mount_redirected",
+        "target_root_excluded",
+        "target_space_insufficient",
+        "source_target_same_object",
+        "target_effects_incomplete",
+        "target_identity_unproven"
       ]
     },
     "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },

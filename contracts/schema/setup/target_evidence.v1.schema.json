@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/target_evidence.v1.schema.json",
+  "title": "Live Portable Target Evidence",
+  "type": "object",
+  "required": [
+    "schema",
+    "target_class",
+    "target_root",
+    "authorized_acceptance_root",
+    "target_state",
+    "target_identity_digest",
+    "filesystem",
+    "path_safety",
+    "space",
+    "source_target_relation",
+    "persistent_effects",
+    "persistent_effects_complete",
+    "inspected_at"
+  ],
+  "properties": {
+    "schema": { "const": "usk.target_evidence.v1" },
+    "target_class": {
+      "enum": [
+        "fixture",
+        "disposable_test",
+        "operator_acceptance",
+        "managed_portable",
+        "imported",
+        "foreign_owned",
+        "steam_managed",
+        "per_user",
+        "system_wide"
+      ]
+    },
+    "target_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "authorized_acceptance_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "target_state": { "enum": ["nonexistent", "empty", "nonempty", "unproven"] },
+    "target_identity_digest": { "$ref": "#/$defs/sha256" },
+    "filesystem": {
+      "type": "object",
+      "required": ["kind", "identity_digest", "local"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "identity_digest": { "$ref": "#/$defs/sha256" },
+        "local": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "path_safety": {
+      "type": "object",
+      "required": [
+        "stable_components",
+        "mount_redirection_absent",
+        "excluded_roots_absent",
+        "excluded_root_matches"
+      ],
+      "properties": {
+        "stable_components": { "type": "boolean" },
+        "mount_redirection_absent": { "type": "boolean" },
+        "excluded_roots_absent": { "type": "boolean" },
+        "excluded_root_matches": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 32768 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "space": {
+      "type": "object",
+      "required": ["required_bytes", "available_bytes"],
+      "properties": {
+        "required_bytes": { "type": "integer", "minimum": 1 },
+        "available_bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "source_target_relation": { "enum": ["distinct", "same", "unproven"] },
+    "persistent_effects": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 32768 }
+    },
+    "persistent_effects_complete": { "type": "boolean" },
+    "inspected_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
