@@ -5,8 +5,10 @@
 
 #include "usk/usk_result.h"
 #include "usk_archive_payload.h"
+#include "usk_audit_repository.h"
 #include "usk_json.h"
 #include "usk_lifecycle.h"
+#include "usk_live_evidence.h"
 #include "usk_record_io.h"
 #include "usk_sha256.h"
 #include "usk_state_repository.h"
@@ -81,6 +83,8 @@ struct RecoveryBundle {
     usk::transaction::TransactionSpec spec;
     usk::transaction::RecoveryInspection inspection;
 };
+
+void ensure_directory(const fs::path& parent, const std::string& name);
 
 void exact_members(const Value& value, std::initializer_list<const char*> names)
 {
@@ -933,6 +937,162 @@ Value recovery_plan_document(const Value& request, const PublicConfig& config)
         {"transaction_id", Value(bundle.spec.transaction_id)}}));
 }
 
+Value live_evidence_capture(const Value& request, const PublicConfig& config)
+{
+    exact_members(request, {"schema", "request_id", "packet_id", "captured_at", "install_id",
+                            "source_revisions", "contract_versions", "archive", "recipe_id",
+                            "target", "plan", "transaction", "snapshots", "automated_findings"});
+    if (required_string(request, "schema") != "usk.live_target_evidence_capture_request.v1") {
+        throw PublicError("invalid_argument", "live evidence capture request schema is incompatible");
+    }
+    (void)required_string(request, "request_id");
+    const std::string install_id = required_string(request, "install_id");
+    const auto roots = lifecycle_roots(config);
+    usk::state::StateRepository state_repository(roots.state_root);
+    const usk::state::InstalledState installed = state_repository.read_installed(install_id);
+
+    const Value& archive = request.at("archive");
+    exact_members(archive, {"source_id", "sha256", "size_bytes", "filesystem_identity_digest",
+                            "path_identity_digest"});
+    const std::string archive_digest = required_string(archive, "sha256");
+    if (archive_digest != installed.source_archive_digest) {
+        throw PublicError("source_changed", "evidence archive identity does not match installed state");
+    }
+
+    const Value& plan = request.at("plan");
+    exact_members(plan, {"plan_id", "plan_digest", "operation", "expected_file_count",
+                         "expected_byte_count"});
+    const Value& transaction = request.at("transaction");
+    exact_members(transaction, {"transaction_id", "staging_parent", "target_root"});
+    const std::string transaction_id = required_string(transaction, "transaction_id");
+    if (transaction_id != installed.transaction_id) {
+        throw PublicError("state_changed", "evidence capture is not bound to the latest installed-state transaction");
+    }
+    const fs::path staging_parent(required_string(transaction, "staging_parent"));
+    const fs::path transaction_target(required_string(transaction, "target_root"));
+    if (!staging_parent.is_absolute() || !transaction_target.is_absolute() ||
+        !same_or_below(config.acceptance_root, staging_parent) ||
+        !same_or_below(config.acceptance_root, transaction_target)) {
+        throw PublicError("target_outside_acceptance_root", "evidence transaction roots are outside acceptance authority");
+    }
+    const usk::transaction::TransactionSpec spec{
+        transaction_id, required_string(plan, "plan_id"), required_string(plan, "plan_digest"),
+        required_string(plan, "operation"), staging_parent, transaction_target,
+        roots.state_root, roots.audit_root};
+    const auto recovery = usk::transaction::TransactionSession::inspect_recovery(spec);
+
+    const std::string ownership_reference = installed.ownership_manifest_ref;
+    if (ownership_reference.rfind("ownership/", 0) != 0 || ownership_reference.size() <= 15 ||
+        ownership_reference.substr(ownership_reference.size() - 5) != ".json") {
+        throw PublicError("installed_state_invalid", "installed state has an invalid ownership reference");
+    }
+    const std::string ownership_id = ownership_reference.substr(10, ownership_reference.size() - 15);
+    const usk::state::OwnershipManifest ownership = state_repository.read_ownership(ownership_id);
+    if (ownership.manifest_digest != installed.ownership_manifest_digest) {
+        throw PublicError("state_changed", "installed state and ownership no longer agree");
+    }
+    Value::Array closure;
+    std::uint64_t closure_bytes = 0;
+    for (const auto& file : ownership.files) {
+        closure.emplace_back(Value::Object{{"relative_path", Value(file.relative_path)},
+            {"sha256", Value(file.sha256)}, {"size_bytes", Value(file.size_bytes)}});
+        if (file.size_bytes > std::numeric_limits<std::uint64_t>::max() - closure_bytes) {
+            throw PublicError("capacity_exceeded", "owned closure byte count overflowed");
+        }
+        closure_bytes += file.size_bytes;
+    }
+    const std::string closure_digest = usk::json::sha256_canonical(Value(std::move(closure)));
+    const std::string installed_digest = usk::json::sha256_canonical(installed_document(installed));
+    const auto audit = usk::audit::AuditRepository(roots.audit_root).read_and_validate_chain(installed.audit_chain_id);
+    if (audit.empty()) throw PublicError("audit_invalid", "installed state audit chain is empty");
+
+    const Value& target = request.at("target");
+    exact_members(target, {"class", "identity_digest", "path_identity_digest", "persistent_effects",
+                           "filesystem"});
+    const Value& filesystem = target.at("filesystem");
+    exact_members(filesystem, {"identity_digest", "kind", "capabilities"});
+    const Value& capabilities = filesystem.at("capabilities");
+    exact_members(capabilities, {"local", "stable_ancestors", "no_mount_redirection",
+                                 "no_replace_commit"});
+    const Value& snapshots = request.at("snapshots");
+    exact_members(snapshots, {"pre_target_digest", "post_target_digest"});
+
+    usk::evidence::LiveEvidenceInput input;
+    input.packet_id = required_string(request, "packet_id");
+    input.captured_at = required_string(request, "captured_at");
+    for (const Value& revision : request.at("source_revisions").as_array()) {
+        exact_members(revision, {"repository_id", "revision"});
+        input.source_revisions.push_back({required_string(revision, "repository_id"),
+                                          required_string(revision, "revision")});
+    }
+    input.setup_abi_major = installed.setup_abi_major;
+    input.setup_abi_minor = installed.setup_abi_minor;
+    input.provider_revision = installed.provider_revision;
+    for (const Value& contract : request.at("contract_versions").as_array()) {
+        exact_members(contract, {"contract_id", "schema_version"});
+        input.contract_versions.push_back({required_string(contract, "contract_id"),
+                                            required_string(contract, "schema_version")});
+    }
+    input.source_id = required_string(archive, "source_id");
+    input.archive_digest = archive_digest;
+    input.archive_size_bytes = archive.at("size_bytes").as_unsigned();
+    input.source_filesystem_identity_digest = required_string(archive, "filesystem_identity_digest");
+    input.source_path_identity_digest = required_string(archive, "path_identity_digest");
+    input.recipe_id = required_string(request, "recipe_id");
+    input.recipe_digest = installed.recipe_digest;
+    input.product_id = installed.product_id;
+    input.product_version = installed.product_version;
+    input.target_class = required_string(target, "class");
+    input.target_identity_digest = required_string(target, "identity_digest");
+    input.target_path_identity_digest = required_string(target, "path_identity_digest");
+    for (const Value& effect : target.at("persistent_effects").as_array()) {
+        input.persistent_effects.push_back(effect.as_string());
+    }
+    input.filesystem_identity_digest = required_string(filesystem, "identity_digest");
+    input.filesystem_kind = required_string(filesystem, "kind");
+    input.filesystem_local = capabilities.at("local").as_boolean();
+    input.stable_ancestors = capabilities.at("stable_ancestors").as_boolean();
+    input.no_mount_redirection = capabilities.at("no_mount_redirection").as_boolean();
+    input.no_replace_commit = capabilities.at("no_replace_commit").as_boolean();
+    input.plan_id = spec.plan_id;
+    input.plan_digest = spec.plan_digest;
+    input.operation = spec.operation;
+    input.expected_file_count = plan.at("expected_file_count").as_unsigned();
+    input.expected_byte_count = plan.at("expected_byte_count").as_unsigned();
+    const bool removed = installed.lifecycle_status == "retired" && !fs::exists(installed.target_root);
+    input.closure_status = removed ? "removed" :
+        (recovery.current_state == "recovery_required" ? "recovery_required" : "committed");
+    input.committed_file_count = removed ? 0 : static_cast<std::uint64_t>(ownership.files.size());
+    input.committed_byte_count = removed ? 0 : closure_bytes;
+    input.committed_closure_digest = removed ?
+        usk::json::sha256_canonical(Value(Value::Array{})) : closure_digest;
+    input.installed_state_digest = installed_digest;
+    input.ownership_digest = ownership.manifest_digest;
+    input.audit_chain_id = installed.audit_chain_id;
+    input.audit_head_digest = audit.back().event_digest;
+    input.pre_target_snapshot_digest = required_string(snapshots, "pre_target_digest");
+    input.post_target_snapshot_digest = required_string(snapshots, "post_target_digest");
+    input.recovery_status = recovery.current_state == "completed" ? "not_required" :
+        (recovery.current_state == "recovery_required" ? "recovery_required" : "unproven");
+    input.journal_digest = recovery.journal_digest;
+    for (const Value& finding : request.at("automated_findings").as_array()) {
+        exact_members(finding, {"code", "severity", "classification", "details_digest"});
+        input.automated_findings.push_back({required_string(finding, "code"),
+            required_string(finding, "severity"), required_string(finding, "classification"),
+            required_string(finding, "details_digest")});
+    }
+
+    if (input.expected_file_count != ownership.files.size() ||
+        (!removed && input.expected_byte_count != closure_bytes)) {
+        throw PublicError("closure_changed", "reviewed plan totals do not match the setup-owned closure");
+    }
+    const auto packet = usk::evidence::build_pending_packet(std::move(input));
+    ensure_directory(config.setup_root, "evidence");
+    ensure_directory(config.setup_root / "evidence", "packets");
+    usk::evidence::EvidenceRepository(config.setup_root / "evidence").write_new(packet);
+    return usk::json::parse(packet.canonical_json);
+}
+
 void ensure_directory(const fs::path& parent, const std::string& name)
 {
     const fs::path child = parent / name;
@@ -972,6 +1132,9 @@ void initialize_setup_root(const PublicConfig& config)
 
 Value execute_command(const std::string& command, const Value& request, const PublicConfig& config)
 {
+    if (command == "live_evidence.capture") {
+        return response_ok(live_evidence_capture(request, config));
+    }
     if (command == "install_local.plan") {
         const InstallPlanBundle bundle = build_install_plan(request, config);
         return response_ok(install_plan_document(bundle, request.at("archive").at("path").as_string()));

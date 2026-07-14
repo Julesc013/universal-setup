@@ -32,6 +32,7 @@ Canonical setup commands:
 - `uninstall.apply`
 - `recovery.inspect`
 - `recovery.plan`
+- `live_evidence.capture`
 - `recovery.apply`
 - `audit.list`
 - `audit.inspect`

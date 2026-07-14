@@ -66,6 +66,7 @@ M2_PUBLIC_REQUEST_CONTRACTS = {
 }
 
 M2_EVIDENCE_CONTRACTS = {
+    "live_target_evidence_capture_request": "usk.live_target_evidence_capture_request.v1",
     "live_target_evidence_packet": "usk.live_target_evidence_packet.v1",
 }
 
