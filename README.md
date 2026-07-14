@@ -98,51 +98,51 @@ cmake -S . -B build/native-smoke
 cmake --build build/native-smoke
 ```
 
-The repository now has an authoritative descriptor-driven command graph and
-bounded read-only `package.verify` / `package.audit` commands for local
-built-package roots. The complete M1 command vocabulary is visible to clients,
-but unfinished lifecycle commands are explicitly non-executable. Package
-verification separates integrity, authenticity, compatibility, completeness,
-and target match. Nothing here grants installation, repair, uninstall,
-rollback, elevation, registry, package-manager, or publication authority.
+The repository has an authoritative descriptor-driven command graph, bounded
+read-only package verification, and the complete fixture-proven M1 lifecycle.
+Package verification separates integrity, authenticity, compatibility,
+completeness, and target match. See
+[M1 adversarial proof](docs/testing/m1_adversarial_proof.md).
 
-The strict M1 contract spine now defines declarative recipes, stable local
-sources, digest-bound plans, installed state, exact ownership, durable journals,
-chained audit events, lifecycle reports, and refusals. The old static install
-and uninstall previews were removed: plan/apply commands remain unavailable
-until the archive inspector and real planner can emit valid bound contracts.
+M2-WU1 adds a fail-closed live-target policy and platform inspection. M2-WU2
+connects the proven lifecycle to public install, inspect, verify, repair, move,
+and uninstall plan/apply commands for a deliberately narrow local acceptance
+lane. Planning remains read-only. Every apply rebuilds its nested plan request,
+reopens and rehashes source material where applicable, rechecks target and
+setup-state authority, and compares the reviewed plan ID and digest before the
+first write.
 
-`install_local.inspect` now provides the first real M1 source operation. It
-reads one operator-selected classic ZIP through a stable no-follow handle and
-returns a deterministic, budgeted entry set. It does not extract, initialize
-writable state, inspect a target, or grant any apply authority.
+Public lifecycle contexts must use the complete `usk_config_v1` and supply:
 
-An internal WU4 transaction session now proves exclusive staging, durable
-journaling, stable closure verification, same-volume no-replace commit,
-fault recovery inspection, and ownership-bounded rollback in disposable native
-fixtures. It deliberately remains disconnected from command dispatch, so all
-setup lifecycle apply commands are still unavailable.
+- an explicitly absolute setup-owned state root;
+- an explicitly absolute authorized acceptance root;
+- `operator_acceptance_candidate` or, only after a separate human Pass,
+  `accepted_live_portable` target-policy activation.
 
-WU5 adds deterministic no-clobber installed-state and exact-ownership
-repositories plus immutable digest-chained audit events. Read-only repository
-use does not create state, and a permanent v1 compatibility corpus protects
-existing record readers. These repositories are not yet connected to public
-lifecycle commands.
+An unconfigured or legacy-prefix context remains valid for ABI compatibility
+but public lifecycle requests fail closed with
+`live_target_acceptance_required`. The candidate activation permits mutation
+only for `operator_acceptance` targets below the configured acceptance root.
+It does not authorize ordinary managed-portable targets.
 
-WU6 composes those primitives into a real internal lifecycle over disposable
-synthetic payloads: install, verify, repair, move with old-root retention,
-ownership-safe uninstall, and visible-target recovery. The complete journey is
-native-tested, but archive extraction and all public lifecycle apply dispatch
-remain unavailable. This is fixture authority, not live product-install
-authority.
+The public acceptance implementation currently materializes only stored ZIP
+entries after the full classic-ZIP inspection succeeds. It refuses existing
+install or move targets, stale plans, changed source identity, unsafe target
+components, insufficient capacity, and state roots without the exact ownership
+marker. Repair touches only changed recorded files. Move verifies the new root
+and retains the old root. Uninstall refuses all mutation while changed owned or
+unknown files require operator review.
 
-WU7 adds adversarial, concurrency, scale, sanitizer, and bounded-fuzzer proof.
-Unsafe path forms, unsupported Unicode normalization, stale plans, target and
-source substitution, conflicting writers, and tampered recovery authority fail
-closed. See [M1 adversarial proof](docs/testing/m1_adversarial_proof.md).
+`recovery.inspect` and `recovery.plan` are public and read-only. They validate
+the journal's transaction, plan, operation, root authorities, transition chain,
+and digest. `recovery.apply` remains explicitly unavailable until M2-WU5 adds
+restart-safe staged-file ownership reconstruction; this boundary prevents an
+inspection result from being overstated as safe recovery mutation.
 
-The current repository remains a canonical bootstrap, not a production
-installer implementation.
+No M2-WU2 command performs networking, credential access, registry or shortcut
+mutation, elevation, package-manager integration, vendor installer execution,
+product execution, signing, or publication. This is an operator-acceptance
+candidate, not a production installer or a human acceptance verdict.
 
 ## License
 

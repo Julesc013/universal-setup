@@ -27,7 +27,8 @@ typedef struct usk_config_v1 {
 /*
  * The original v1 configuration ended after state_root. Context creation
  * continues to accept that prefix so already-compiled callers remain valid.
- * New callers may provide the complete structure and an optional allocator.
+ * The M1 layout ended before authorized_acceptance_root. New callers may
+ * provide the complete structure to configure the fail-closed M2 lifecycle.
  */
 #define USK_CONFIG_V1_BASE_SIZE ((usk_size)offsetof(usk_config_v1, allocator))
 #define USK_CONFIG_V1_M1_SIZE ((usk_size)offsetof(usk_config_v1, authorized_acceptance_root))
