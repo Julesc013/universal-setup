@@ -17,15 +17,18 @@ class NativeCiProofTests(unittest.TestCase):
         required = [
             "actions/checkout@v6",
             "actions/setup-python@v6",
+            "python tools/adversarial_coverage_check.py",
             "cmake -S . -B build/smoke",
             "cmake --build build/smoke",
-            "ctest --test-dir build/smoke --output-on-failure",
+            "ctest --test-dir build/smoke -C Release --output-on-failure",
             "python tools/strict_check.py",
         ]
         positions = [workflow.index(command) for command in required]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("actions/checkout@v4", workflow)
         self.assertNotIn("actions/setup-python@v5", workflow)
+        for runner in ("ubuntu-24.04", "macos-15-intel", "windows-2022"):
+            self.assertIn(runner, workflow)
 
 
 if __name__ == "__main__":

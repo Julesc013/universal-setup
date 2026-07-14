@@ -144,6 +144,20 @@ int run()
         !refuses([&] { (void)state_repository.write_ownership(ownership(fixture.root / "target")); })) {
         return 3;
     }
+    const fs::path ownership_path =
+        fixture.state / "ownership/ownership.install.fixture.json";
+    const std::string exact_ownership = read_text(ownership_path);
+    {
+        std::ofstream tampered(ownership_path, std::ios::binary | std::ios::trunc);
+        tampered << "{}";
+    }
+    if (!refuses([&] { (void)state_repository.read_ownership("ownership.install.fixture"); })) {
+        return 10;
+    }
+    {
+        std::ofstream restored(ownership_path, std::ios::binary | std::ios::trunc);
+        restored << exact_ownership;
+    }
 
     const auto state = installed(fixture.root / "target", stored_ownership.manifest_digest);
     state_repository.write_installed(state);
