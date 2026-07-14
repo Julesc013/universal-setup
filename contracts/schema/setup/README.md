@@ -18,3 +18,10 @@ portable Unicode-normalization profile has independent adversarial proof.
 Package verification and the older policy, ownership, transaction, rollback,
 verify-report, audit-log, and setup-manifest files are retained compatibility
 contracts. They do not grant lifecycle mutation authority.
+
+M2 adds `live_target_evidence_packet` as the immutable acceptance envelope. It
+binds exact repository and contract revisions, source/recipe/target/filesystem
+identities, the reviewed plan, actual committed closure, installed-state,
+ownership, audit, snapshots, recovery, and automated findings. The operator
+verdict is deliberately either pending or a separately supplied human `Pass`,
+`Fail`, or `Inconclusive`; automated findings cannot populate that verdict.
