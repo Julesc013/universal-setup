@@ -143,3 +143,10 @@ closed. See [M1 adversarial proof](docs/testing/m1_adversarial_proof.md).
 
 The current repository remains a canonical bootstrap, not a production
 installer implementation.
+
+## License
+
+Universal Setup is licensed under the [MIT License](LICENSE). The canonical
+machine-readable package identity is `release/license.v1.toml`. That license
+choice does not imply signing, publication, or publisher authenticity; current
+artifacts remain unsigned and unpublished.

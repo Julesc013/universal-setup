@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
 #ifndef USK_ARCHIVE_INSPECT_H
 #define USK_ARCHIVE_INSPECT_H
 

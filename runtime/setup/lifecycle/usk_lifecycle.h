@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
 #ifndef USK_LIFECYCLE_H
 #define USK_LIFECYCLE_H
 

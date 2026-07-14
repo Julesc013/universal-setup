@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
 #ifndef USU_PLATFORM_CAPS_H
 #define USU_PLATFORM_CAPS_H
 
