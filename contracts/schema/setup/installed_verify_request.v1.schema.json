@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/installed_verify_request.v1.schema.json",
+  "title": "Installed State Verify Request",
+  "type": "object",
+  "required": ["schema", "request_id", "install_id", "report_id", "verified_at"],
+  "properties": {
+    "schema": { "const": "usk.installed_verify_request.v1" },
+    "request_id": { "$ref": "#/$defs/id" },
+    "install_id": { "$ref": "#/$defs/id" },
+    "report_id": { "$ref": "#/$defs/id" },
+    "verified_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 256 } },
+  "additionalProperties": false
+}

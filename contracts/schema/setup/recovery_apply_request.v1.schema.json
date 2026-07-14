@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/recovery_apply_request.v1.schema.json",
+  "title": "Public Recovery Apply Request",
+  "type": "object",
+  "required": ["schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest", "selected_action", "applied_at", "confirmation"],
+  "properties": {
+    "schema": { "const": "usk.recovery_apply_request.v1" },
+    "plan_request": { "$ref": "recovery_plan_request.v1.schema.json" },
+    "reviewed_plan_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "reviewed_plan_digest": { "$ref": "#/$defs/sha256" },
+    "selected_action": { "enum": ["finalize", "rollback"] },
+    "applied_at": { "type": "string", "format": "date-time" },
+    "confirmation": { "const": "APPLY" }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}
