@@ -85,6 +85,7 @@ struct RecoveryBundle {
 };
 
 void ensure_directory(const fs::path& parent, const std::string& name);
+void initialize_setup_root(const PublicConfig& config);
 
 void exact_members(const Value& value, std::initializer_list<const char*> names)
 {
@@ -946,6 +947,7 @@ Value live_evidence_capture(const Value& request, const PublicConfig& config)
         throw PublicError("invalid_argument", "live evidence capture request schema is incompatible");
     }
     (void)required_string(request, "request_id");
+    initialize_setup_root(config);
     const std::string install_id = required_string(request, "install_id");
     const auto roots = lifecycle_roots(config);
     usk::state::StateRepository state_repository(roots.state_root);
