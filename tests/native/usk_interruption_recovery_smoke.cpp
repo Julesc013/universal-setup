@@ -3,10 +3,12 @@
 
 #include "usk_audit_repository.h"
 #include "usk_lifecycle.h"
+#include "usk_sha256.h"
 #include "usk_state_repository.h"
 #include "usk_transaction_session.h"
 
 #include <chrono>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -18,15 +20,22 @@ namespace fs = std::filesystem;
 
 namespace {
 
+fs::path retained_run_root;
+std::string retained_run_id;
+
 struct Fixture {
     fs::path root;
     usk::lifecycle::LifecycleRoots roots;
 
     explicit Fixture(const std::string& name)
     {
-        const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-        root = fs::temp_directory_path() /
-            ("usk-interruption-" + name + "-" + std::to_string(nonce));
+        if (!retained_run_root.empty()) {
+            root = retained_run_root / name;
+        } else {
+            const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+            root = fs::temp_directory_path() /
+                ("usk-interruption-" + name + "-" + std::to_string(nonce));
+        }
         roots = {root / "staging", root / "state", root / "audit"};
         fs::create_directories(roots.staging_parent);
         fs::create_directories(roots.state_root);
@@ -39,6 +48,7 @@ struct Fixture {
 
     ~Fixture()
     {
+        if (!retained_run_root.empty()) return;
         std::error_code ignored;
         fs::remove_all(root, ignored);
     }
@@ -234,9 +244,45 @@ int operation_recovery_required()
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc != 1) {
+        if (argc != 5 || std::string(argv[1]) != "--acceptance-root" ||
+            std::string(argv[3]) != "--run-id") return 100;
+        const fs::path acceptance_root = fs::absolute(argv[2]).lexically_normal();
+        retained_run_id = argv[4];
+        if (retained_run_id.empty() || retained_run_id.size() > 96 ||
+            retained_run_id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._") !=
+                std::string::npos) return 101;
+#if defined(_WIN32)
+        std::string comparable = acceptance_root.generic_string();
+        for (char& ch : comparable) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (comparable != "d:/facman-live-acceptance/m2") return 102;
+#endif
+        if (!fs::is_directory(acceptance_root) || fs::is_symlink(fs::symlink_status(acceptance_root))) return 103;
+        retained_run_root = acceptance_root / retained_run_id;
+        std::error_code error;
+        if (!fs::create_directory(retained_run_root, error) || error) return 104;
+    }
     if (const int result = precommit_matrix()) return result;
     if (const int result = install_finalization_matrix()) return result;
-    return operation_recovery_required();
+    if (const int result = operation_recovery_required()) return result;
+    if (!retained_run_root.empty()) {
+        const fs::path summary = retained_run_root / "interruption-summary.json";
+        const std::string document =
+            "{\"automation_created_verdict\":false,\"case_count\":11,"
+            "\"completed\":3,\"operator_verdict\":\"pending\",\"recovery_required\":3,"
+            "\"rolled_back\":4,\"run_id\":\"" + retained_run_id +
+            "\",\"schema\":\"usk.interruption_acceptance_summary.v1\",\"unchanged\":1}";
+        std::ofstream output(summary, std::ios::binary | std::ios::trunc);
+        output << document;
+        output.close();
+        if (!output) return 105;
+        const std::string digest = usk::base::sha256_hex_file(summary);
+        std::ofstream digest_output(retained_run_root / "interruption-summary.sha256",
+            std::ios::binary | std::ios::trunc);
+        digest_output << digest << "  interruption-summary.json\n";
+        if (!digest_output) return 106;
+    }
+    return 0;
 }
