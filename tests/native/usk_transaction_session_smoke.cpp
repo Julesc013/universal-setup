@@ -174,7 +174,7 @@ int rollback_retains_foreign_content(Fixture& fixture)
     }
     if (!throws([&] { session.rollback(); }) ||
         session.current_state() != "recovery_required" ||
-        fs::exists(session.staging_root() / "owned.txt") ||
+        read_text(session.staging_root() / "owned.txt") != "owned" ||
         read_text(session.staging_root() / "foreign.txt") != "foreign") {
         return 35;
     }
@@ -219,7 +219,7 @@ int fault_after_transition(Fixture& fixture, const std::string& state, int ordin
     if (recovery.target_exists != should_have_target) return 90 + ordinal;
     if (state == "committed" && !contains(recovery.available_actions, "resume")) return 110 + ordinal;
     if ((state == "staged" || state == "verified" || state == "committing") &&
-        (!contains(recovery.available_actions, "resume") ||
+        (contains(recovery.available_actions, "resume") ||
          !contains(recovery.available_actions, "rollback"))) {
         return 130 + ordinal;
     }
@@ -306,6 +306,60 @@ int operational_fault_points(Fixture& fixture)
     return 0;
 }
 
+int durable_recovery_rollback(Fixture& fixture)
+{
+    const TransactionSpec spec = fixture.spec("durable-rollback");
+    bool injected = false;
+    try {
+        TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+            if (!injected && state == "staged" && point == "after_journal") {
+                injected = true;
+                throw std::runtime_error("simulated process interruption");
+            }
+        });
+        session.stage_file("nested/payload.txt", bytes("durable-owned-payload"));
+        session.mark_staged();
+    } catch (const std::runtime_error&) {
+    }
+    const RecoveryInspection inspection = TransactionSession::inspect_recovery(spec);
+    if (!injected || inspection.current_state != "staged" ||
+        inspection.available_actions != std::vector<std::string>{"rollback"}) {
+        return 168;
+    }
+    auto recovered = TransactionSession::resume_rollback(spec);
+    recovered->rollback();
+    const RecoveryInspection final = TransactionSession::inspect_recovery(spec);
+    if (final.current_state != "rolled_back" || fs::exists(recovered->staging_root()) ||
+        fs::exists(spec.target_root)) {
+        return 169;
+    }
+    return 0;
+}
+
+int durable_recovery_retains_foreign_content(Fixture& fixture)
+{
+    const TransactionSpec spec = fixture.spec("durable-foreign");
+    fs::path staging;
+    {
+        TransactionSession session(spec);
+        session.stage_file("owned.txt", bytes("owned"));
+        session.mark_staged();
+        staging = session.staging_root();
+    }
+    {
+        std::ofstream output(staging / "foreign.txt", std::ios::binary);
+        output << "foreign";
+    }
+    const RecoveryInspection inspection = TransactionSession::inspect_recovery(spec);
+    if (inspection.available_actions != std::vector<std::string>{"retain_for_operator"} ||
+        !throws([&] { (void)TransactionSession::resume_rollback(spec); }) ||
+        read_text(staging / "owned.txt") != "owned" ||
+        read_text(staging / "foreign.txt") != "foreign") {
+        return 171;
+    }
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -334,6 +388,8 @@ int main()
         if (int result = fault_after_commit_effect(fixture)) return result;
     }
     if (int result = operational_fault_points(fixture)) return result;
+    if (int result = durable_recovery_rollback(fixture)) return result;
+    if (int result = durable_recovery_retains_foreign_content(fixture)) return result;
 
     TransactionSpec duplicate = fixture.spec("duplicate-journal");
     TransactionSession original(duplicate);

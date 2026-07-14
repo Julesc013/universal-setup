@@ -445,7 +445,7 @@ bool valid_transition(const std::string& from, const std::string& to)
 std::vector<std::string> journal_actions(const std::string& state)
 {
     if (state == "staging" || state == "staged" || state == "verified" || state == "committing") {
-        return {"resume", "rollback"};
+        return {"rollback"};
     }
     if (state == "committed") return {"resume"};
     if (state == "recovery_required" || state == "failed") {
@@ -459,14 +459,14 @@ std::vector<std::string> journal_actions(const std::string& state)
 namespace usk::transaction {
 
 TransactionSession::TransactionSession(TransactionSpec spec, FaultInjector injector)
-    : TransactionSession(std::move(spec), std::move(injector), false)
+    : TransactionSession(std::move(spec), std::move(injector), ResumeMode::none)
 {
 }
 
 TransactionSession::TransactionSession(
     TransactionSpec spec,
     FaultInjector injector,
-    bool resume_finalization)
+    ResumeMode resume_mode)
     : spec_(std::move(spec)), injector_(std::move(injector))
 {
     if (!valid_identifier(spec_.transaction_id) ||
@@ -486,7 +486,7 @@ TransactionSession::TransactionSession(
         (spec_.transaction_id + ".journal.json");
     created_at_ = iso8601_now();
 
-    if (resume_finalization) {
+    if (resume_mode != ResumeMode::none) {
         require_safe_directory(spec_.staging_parent);
         require_safe_directory(spec_.target_root.parent_path());
         require_safe_directory(spec_.state_root);
@@ -545,16 +545,44 @@ TransactionSession::TransactionSession(
         chain_digest.update(
             reinterpret_cast<const unsigned char*>(chain_text.data()), chain_text.size());
         if (transitions_.empty() || document.at("current_state").as_string() != prior ||
-            document.at("journal_digest").as_string() != chain_digest.finish() ||
-            (prior != "committing" && prior != "committed" && prior != "recovery_required") ||
-            fs::exists(staging_root_) || !fs::is_directory(spec_.target_root) ||
-            reparse_or_symlink(spec_.target_root)) {
-            throw std::runtime_error("transaction is not a visible-target finalization candidate");
+            document.at("journal_digest").as_string() != chain_digest.finish()) {
+            throw std::runtime_error("transaction journal digest or current state is invalid");
         }
         current_state_ = prior;
         staging_parent_identity_ = directory_identity(spec_.staging_parent);
         target_parent_identity_ = directory_identity(spec_.target_root.parent_path());
         journal_directory_identity_ = directory_identity(spec_.state_root / "transactions");
+        if (document.as_object().count("recovery_metadata") != 0) {
+            const usk::json::Value& metadata = document.at("recovery_metadata");
+            const usk::json::Value& identity = metadata.at("staging_identity");
+            if (identity.type() != usk::json::Value::Type::null_value) {
+                staging_identity_ = identity.as_string();
+            }
+            for (const usk::json::Value& file : metadata.at("staged_files").as_array()) {
+                const fs::path relative(file.at("relative_path").as_string());
+                const std::string sha256 = file.at("sha256").as_string();
+                const std::uint64_t size_bytes = file.at("size_bytes").as_unsigned();
+                if (!safe_relative_path(relative) || !valid_sha256(sha256)) {
+                    throw std::runtime_error("transaction recovery metadata is invalid");
+                }
+                staged_files_.push_back(StagedFile{relative, sha256, size_bytes});
+            }
+        }
+        if (resume_mode == ResumeMode::finalization) {
+            if ((prior != "committing" && prior != "committed" && prior != "recovery_required") ||
+                fs::exists(staging_root_) || !fs::is_directory(spec_.target_root) ||
+                reparse_or_symlink(spec_.target_root)) {
+                throw std::runtime_error("transaction is not a visible-target finalization candidate");
+            }
+        } else {
+            if ((prior != "staging" && prior != "staged" && prior != "verified" &&
+                 prior != "committing" && prior != "recovery_required") ||
+                !fs::is_directory(staging_root_) || reparse_or_symlink(staging_root_) ||
+                fs::exists(spec_.target_root) || staging_identity_.empty()) {
+                throw std::runtime_error("transaction is not a staged rollback candidate");
+            }
+            verify_recorded_staging_closure();
+        }
         return;
     }
 
@@ -567,6 +595,7 @@ TransactionSession::TransactionSession(
     persist_transition("planned");
     persist_transition("staging");
     create_staging_root();
+    persist_snapshot();
 }
 
 void TransactionSession::verify_roots_for_plan()
@@ -624,6 +653,16 @@ void TransactionSession::persist_transition(const std::string& next_state)
     if (injector_) injector_(next_state, "after_journal");
 }
 
+void TransactionSession::persist_snapshot()
+{
+    if (transitions_.empty() ||
+        directory_identity(journal_path_.parent_path()) != journal_directory_identity_) {
+        throw std::runtime_error("transaction journal directory identity changed");
+    }
+    atomic_write_journal(
+        journal_path_, render_journal(), transitions_.back().sequence + 1u, false);
+}
+
 void TransactionSession::create_staging_root()
 {
     if (directory_identity(spec_.staging_parent) != staging_parent_identity_ ||
@@ -648,7 +687,7 @@ void TransactionSession::verify_staging_identity() const
 
 void TransactionSession::remove_recorded_staging_closure()
 {
-    verify_staging_identity();
+    verify_recorded_staging_closure();
     std::vector<fs::path> directories;
     for (const StagedFile& recorded : staged_files_) {
         const fs::path file = staging_root_ / recorded.relative_path;
@@ -687,6 +726,40 @@ void TransactionSession::remove_recorded_staging_closure()
     std::error_code error;
     if (!fs::remove(staging_root_, error) || error) {
         throw std::runtime_error("rollback retains a staging root containing foreign content");
+    }
+}
+
+void TransactionSession::verify_recorded_staging_closure() const
+{
+    verify_staging_identity();
+    std::set<std::string> expected_files;
+    std::set<std::string> expected_directories;
+    for (const StagedFile& recorded : staged_files_) {
+        const fs::path file = staging_root_ / recorded.relative_path;
+        usk::base::StableFile actual(file);
+        if (actual.identity().size_bytes != recorded.size_bytes ||
+            actual.sha256_hex() != recorded.sha256) {
+            throw std::runtime_error("rollback refuses changed setup-owned staging content");
+        }
+        actual.verify_unchanged();
+        expected_files.insert(comparable_path(file));
+        for (fs::path parent = file.parent_path(); parent != staging_root_;
+             parent = parent.parent_path()) {
+            expected_directories.insert(comparable_path(parent));
+        }
+    }
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator(staging_root_)) {
+        if (entry.is_symlink()) {
+            throw std::runtime_error("rollback retains linked staging content");
+        }
+        const std::string comparable = comparable_path(entry.path());
+        if (entry.is_directory()) {
+            if (expected_directories.count(comparable) == 0) {
+                throw std::runtime_error("rollback retains a foreign staging directory");
+            }
+        } else if (!entry.is_regular_file() || expected_files.count(comparable) == 0) {
+            throw std::runtime_error("rollback retains foreign staging content");
+        }
     }
 }
 
@@ -732,6 +805,7 @@ void TransactionSession::stage_file(
         relative_path,
         sha256_bytes(bytes),
         static_cast<std::uint64_t>(bytes.size())});
+    persist_snapshot();
     if (injector_) injector_(current_state_, "after_stage_file");
 }
 
@@ -890,7 +964,17 @@ std::string TransactionSession::render_journal() const
         out << "\"recorded_at\":" << quote(transition.recorded_at) << ',';
         out << "\"durable_before_external_visibility\":true}";
     }
-    out << "],\"recovery\":{";
+    out << "],\"recovery_metadata\":{\"staging_identity\":"
+        << (staging_identity_.empty() ? "null" : quote(staging_identity_)) << ',';
+    out << "\"staged_files\":[";
+    for (std::size_t index = 0; index < staged_files_.size(); ++index) {
+        const StagedFile& file = staged_files_[index];
+        if (index != 0) out << ',';
+        out << "{\"relative_path\":" << quote(file.relative_path.generic_string()) << ',';
+        out << "\"sha256\":" << quote(file.sha256) << ',';
+        out << "\"size_bytes\":" << file.size_bytes << '}';
+    }
+    out << "]},\"recovery\":{";
     out << "\"required\":" <<
         ((current_state_ == "recovery_required" || current_state_ == "failed") ? "true" : "false") << ',';
     out << "\"available_actions\":[";
@@ -977,9 +1061,16 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
         result.target_exists && !result.staging_exists) {
         result.available_actions = {"resume"};
     } else if ((result.current_state == "staging" || result.current_state == "staged" ||
-                result.current_state == "verified" || result.current_state == "committing") &&
+                result.current_state == "verified" || result.current_state == "committing" ||
+                result.current_state == "recovery_required") &&
                result.staging_exists && !result.target_exists) {
-        result.available_actions = {"resume", "rollback"};
+        try {
+            auto rollback = TransactionSession::resume_rollback(spec);
+            (void)rollback;
+            result.available_actions = {"rollback"};
+        } catch (...) {
+            result.available_actions = {"retain_for_operator"};
+        }
     } else if ((result.current_state == "created" || result.current_state == "validated" ||
                 result.current_state == "planned" || result.current_state == "staging") &&
                !result.staging_exists && !result.target_exists) {
@@ -996,7 +1087,15 @@ std::unique_ptr<TransactionSession> TransactionSession::resume_finalization(
     FaultInjector injector)
 {
     return std::unique_ptr<TransactionSession>(
-        new TransactionSession(spec, std::move(injector), true));
+        new TransactionSession(spec, std::move(injector), ResumeMode::finalization));
+}
+
+std::unique_ptr<TransactionSession> TransactionSession::resume_rollback(
+    const TransactionSpec& spec,
+    FaultInjector injector)
+{
+    return std::unique_ptr<TransactionSession>(
+        new TransactionSession(spec, std::move(injector), ResumeMode::rollback));
 }
 
 } // namespace usk::transaction
