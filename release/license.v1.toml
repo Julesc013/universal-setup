@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal_setup.license.v1"
+project_id = "universal_setup"
+project_name = "Universal Setup"
+spdx_license_expression = "MIT"
+package_license_expression = "MIT"
+license_file = "LICENSE"
+copyright = "Copyright (c) 2026 Jules C"
+publication_status = "unpublished"
+publisher_authenticity = "not_proven_unsigned"
+
+third_party_runtime_dependencies = []
