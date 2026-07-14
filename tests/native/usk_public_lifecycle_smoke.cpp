@@ -209,10 +209,18 @@ int main()
     response = execute(context, "repair.plan", repair_plan, 1, status);
     if (status != USK_STATUS_OK) return 12;
     const std::string repair_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const fs::path capacity_noise = root / "unrelated-capacity-noise.bin";
+    {
+        std::ofstream output(capacity_noise, std::ios::binary | std::ios::trunc);
+        const std::vector<char> noise(4u * 1024u * 1024u, 'n');
+        output.write(noise.data(), static_cast<std::streamsize>(noise.size()));
+    }
     const Value repair_apply = apply_request("usk.repair_apply_request.v1", repair_plan,
         "plan.repair.1", repair_digest, "tx.repair.1", "2026-07-14T01:04:00Z");
     response = execute(context, "repair.apply", repair_apply, 0, status);
     if (status != USK_STATUS_OK || response.find("\"status\":\"completed\"") == std::string::npos) return 13;
+    fs::remove(capacity_noise, error);
+    if (error) return 27;
     {
         std::ifstream input(target / "bin/probe.txt", std::ios::binary);
         std::string restored((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());

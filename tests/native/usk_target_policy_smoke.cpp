@@ -101,7 +101,7 @@ int run()
     changed = evidence;
     changed.available_bytes += 1;
     const auto rebound = evaluate_live_target(Activation::operator_acceptance_candidate, changed);
-    if (!rebound.accepted || rebound.target_binding_digest == accepted.target_binding_digest) return 31;
+    if (!rebound.accepted || rebound.target_binding_digest != accepted.target_binding_digest) return 31;
     return 0;
 }
 
