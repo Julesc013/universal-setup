@@ -246,6 +246,7 @@ class SetupContractTests(unittest.TestCase):
             {"source", "recipe", "target", "policy", "provider_revision"},
         )
         refusal = install["$defs"]["refusal_policy"]["properties"]
+        self.assertIn("pre_snapshot_digest", install["properties"]["target"]["required"])
         for field in (
             "refuse_network",
             "refuse_registry",
@@ -257,6 +258,8 @@ class SetupContractTests(unittest.TestCase):
             self.assertIs(refusal[field]["const"], True)
 
         operation = load_schema("operation_plan")
+        self.assertIn("target_snapshots", operation["required"])
+        self.assertIn("pre_target_snapshot_digest", load_schema("repair_plan")["required"])
         self.assertEqual(operation["properties"]["unknown_file_policy"]["const"], "retain_and_report")
         self.assertNotIn("adopt", operation["properties"]["operation"]["enum"])
 

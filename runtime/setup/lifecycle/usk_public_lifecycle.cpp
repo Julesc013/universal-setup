@@ -615,6 +615,8 @@ Value repair_plan_document(const RepairPlanBundle& bundle)
         {"installed_state_digest", Value(bundle.plan.installed_state_digest)},
         {"operation", Value("repair")}, {"ownership_manifest_digest", Value(bundle.plan.ownership_manifest_digest)},
         {"plan_digest", Value(bundle.plan.plan_digest)}, {"plan_id", Value(bundle.plan.plan_id)},
+        {"pre_target_snapshot_digest", Value(
+            usk::evidence::snapshot_target(bundle.installed.target_root).snapshot_digest)},
         {"recipe_digest", Value(bundle.installed.recipe_digest)}, {"repairs", Value(std::move(repairs))},
         {"retained_unknown_paths", string_array(bundle.before.unknown_paths)},
         {"revalidation", Value(Value::Object{{"immediately_before_apply", Value(true)},
