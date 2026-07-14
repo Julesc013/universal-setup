@@ -57,7 +57,9 @@ std::string binding_digest(
     append_field(payload, "filesystem_identity_digest", evidence.filesystem_identity_digest);
     append_field(payload, "filesystem_kind", evidence.filesystem_kind);
     append_field(payload, "required_bytes", std::to_string(evidence.required_bytes));
-    append_field(payload, "available_bytes", std::to_string(evidence.available_bytes));
+    append_field(payload, "capacity_satisfied",
+        evidence.required_bytes != 0 && evidence.available_bytes >= evidence.required_bytes
+            ? "true" : "false");
     append_field(payload, "explicitly_supplied", evidence.explicitly_supplied ? "true" : "false");
     append_field(payload, "local_filesystem", evidence.local_filesystem ? "true" : "false");
     append_field(payload, "path_components_stable", evidence.path_components_stable ? "true" : "false");
