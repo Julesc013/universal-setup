@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
 #include "usk_record_io.h"
 
 #include "usk_stable_file.h"

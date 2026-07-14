@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
 from __future__ import annotations
 
 import sys
@@ -8,13 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools import language_runtime_policy_check, structure_policy_check
+from tools import language_runtime_policy_check, license_policy_check, structure_policy_check
 
 
 def main() -> int:
     checks: list[tuple[str, Callable[[], int]]] = [
         ("structure", structure_policy_check.main),
         ("language-runtime-policy", language_runtime_policy_check.main),
+        ("license-policy", license_policy_check.main),
     ]
     failed: list[str] = []
     for name, check in checks:

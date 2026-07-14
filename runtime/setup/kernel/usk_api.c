@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
 #include "usk/usk_api.h"
 #include "usk_archive_inspect.h"
 #include "usk_package_verify.h"
