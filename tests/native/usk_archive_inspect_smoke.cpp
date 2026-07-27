@@ -58,6 +58,12 @@ void append32(std::vector<unsigned char>& output, std::uint32_t value)
     append16(output, static_cast<std::uint16_t>((value >> 16) & 0xffffu));
 }
 
+void append64(std::vector<unsigned char>& output, std::uint64_t value)
+{
+    append32(output, static_cast<std::uint32_t>(value & 0xffffffffu));
+    append32(output, static_cast<std::uint32_t>(value >> 32));
+}
+
 void append_text(std::vector<unsigned char>& output, const std::string& value)
 {
     output.insert(output.end(), value.begin(), value.end());
@@ -136,6 +142,99 @@ void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
     append16(bytes, static_cast<std::uint16_t>(entries.size()));
     append32(bytes, central_size);
     append32(bytes, central_offset);
+    append16(bytes, 0);
+
+    std::ofstream output(path, std::ios::binary);
+    output.write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
+}
+
+void write_zip64(const fs::path& path, const std::vector<ZipEntry>& specs)
+{
+    std::vector<unsigned char> bytes;
+    std::vector<WrittenEntry> entries;
+    for (const ZipEntry& spec : specs) {
+        WrittenEntry written;
+        written.entry = spec;
+        written.local_offset = static_cast<std::uint32_t>(bytes.size());
+        entries.push_back(written);
+        const std::string& local_name =
+            spec.local_name.empty() ? spec.name : spec.local_name;
+        const std::uint32_t compressed = spec.compressed_size.value_or(
+            static_cast<std::uint32_t>(spec.data.size()));
+        const std::uint32_t uncompressed = spec.uncompressed_size.value_or(
+            static_cast<std::uint32_t>(spec.data.size()));
+        append32(bytes, 0x04034b50u);
+        append16(bytes, 45);
+        append16(bytes, spec.flags);
+        append16(bytes, spec.method);
+        append16(bytes, 0);
+        append16(bytes, 0);
+        append32(bytes, crc32(spec.data));
+        append32(bytes, compressed);
+        append32(bytes, uncompressed);
+        append16(bytes, static_cast<std::uint16_t>(local_name.size()));
+        append16(bytes, static_cast<std::uint16_t>(spec.local_extra.size()));
+        append_text(bytes, local_name);
+        append_bytes(bytes, spec.local_extra);
+        append_text(bytes, spec.data);
+    }
+
+    const std::uint64_t central_offset = bytes.size();
+    for (const WrittenEntry& written : entries) {
+        const ZipEntry& spec = written.entry;
+        const std::uint32_t compressed = spec.compressed_size.value_or(
+            static_cast<std::uint32_t>(spec.data.size()));
+        const std::uint32_t uncompressed = spec.uncompressed_size.value_or(
+            static_cast<std::uint32_t>(spec.data.size()));
+        std::vector<unsigned char> central_extra = spec.central_extra;
+        append16(central_extra, 0x0001u);
+        append16(central_extra, 8u);
+        append64(central_extra, written.local_offset);
+        append32(bytes, 0x02014b50u);
+        append16(bytes, static_cast<std::uint16_t>((3u << 8) | 45u));
+        append16(bytes, 45);
+        append16(bytes, spec.flags);
+        append16(bytes, spec.method);
+        append16(bytes, 0);
+        append16(bytes, 0);
+        append32(bytes, crc32(spec.data));
+        append32(bytes, compressed);
+        append32(bytes, uncompressed);
+        append16(bytes, static_cast<std::uint16_t>(spec.name.size()));
+        append16(bytes, static_cast<std::uint16_t>(central_extra.size()));
+        append16(bytes, 0);
+        append16(bytes, 0);
+        append16(bytes, 0);
+        append32(bytes, spec.external_attributes);
+        append32(bytes, 0xffffffffu);
+        append_text(bytes, spec.name);
+        append_bytes(bytes, central_extra);
+    }
+    const std::uint64_t central_size = bytes.size() - central_offset;
+    const std::uint64_t zip64_offset = bytes.size();
+    append32(bytes, 0x06064b50u);
+    append64(bytes, 44u);
+    append16(bytes, 45);
+    append16(bytes, 45);
+    append32(bytes, 0);
+    append32(bytes, 0);
+    append64(bytes, entries.size());
+    append64(bytes, entries.size());
+    append64(bytes, central_size);
+    append64(bytes, central_offset);
+    append32(bytes, 0x07064b50u);
+    append32(bytes, 0);
+    append64(bytes, zip64_offset);
+    append32(bytes, 1);
+    append32(bytes, 0x06054b50u);
+    append16(bytes, 0);
+    append16(bytes, 0);
+    append16(bytes, 0xffffu);
+    append16(bytes, 0xffffu);
+    append32(bytes, 0xffffffffu);
+    append32(bytes, 0xffffffffu);
     append16(bytes, 0);
 
     std::ofstream output(path, std::ios::binary);
@@ -283,6 +382,47 @@ int main()
         return 8;
     }
 
+    const fs::path valid_zip64 = root / "valid-zip64.zip";
+    write_zip64(valid_zip64, {
+        {"app/", "", (0040755u << 16) | 0x10u},
+        {"app/bin/tool.exe", "binary"},
+        {"app/data/config.ini", "config"}
+    });
+    const std::string zip64_response =
+        execute(context, valid_zip64, status);
+    if (status != USK_STATUS_OK ||
+        !contains(zip64_response, "\"file_count\":2") ||
+        !contains(zip64_response, "\"directory_count\":1") ||
+        field(zip64_response, "entry_set_digest") !=
+            field(valid_response, "entry_set_digest")) {
+        return 10;
+    }
+    const usk::archive::StoredArchivePayload zip64_payload =
+        usk::archive::inspect_stored_payload(
+            request_json(valid_zip64), "app");
+    if (zip64_payload.entry_set_digest !=
+            field(valid_response, "entry_set_digest") ||
+        zip64_payload.files.size() != 2 ||
+        zip64_payload.uncompressed_bytes != 12) {
+        return 11;
+    }
+    const fs::path missing_zip64_locator =
+        root / "missing-zip64-locator.zip";
+    fs::copy_file(valid_zip64, missing_zip64_locator);
+    {
+        std::fstream stream(
+            missing_zip64_locator,
+            std::ios::in | std::ios::out | std::ios::binary);
+        stream.seekp(-42, std::ios::end);
+        stream.put('\0');
+    }
+    if (!refused(
+            context,
+            missing_zip64_locator,
+            "ZIP64 locator")) {
+        return 12;
+    }
+
     const fs::path bad_crc = root / "bad-crc.zip";
     write_zip(bad_crc, {{"payload.txt", "original"}});
     {
@@ -309,8 +449,32 @@ int main()
     wrong_format.replace(wrong_format.find("\"zip\""), 5, "\"tar\"");
     const std::string wrong_format_response = execute_raw(context, wrong_format, status);
     if (status != USK_STATUS_ERROR ||
-        !contains(wrong_format_response, "classic ZIP")) {
+        !contains(wrong_format_response, "declared ZIP")) {
         return 7;
+    }
+    std::string maximum_elapsed_budget = request_json(valid);
+    maximum_elapsed_budget.replace(
+        maximum_elapsed_budget.find("\"max_elapsed_ms\":30000"),
+        std::string("\"max_elapsed_ms\":30000").size(),
+        "\"max_elapsed_ms\":600000");
+    const std::string maximum_elapsed_response =
+        execute_raw(context, maximum_elapsed_budget, status);
+    if (status != USK_STATUS_OK ||
+        !contains(maximum_elapsed_response, "\"max_elapsed_ms\":600000")) {
+        return 13;
+    }
+    std::string excessive_elapsed_budget = request_json(valid);
+    excessive_elapsed_budget.replace(
+        excessive_elapsed_budget.find("\"max_elapsed_ms\":30000"),
+        std::string("\"max_elapsed_ms\":30000").size(),
+        "\"max_elapsed_ms\":600001");
+    const std::string excessive_elapsed_response =
+        execute_raw(context, excessive_elapsed_budget, status);
+    if (status != USK_STATUS_ERROR ||
+        !contains(
+            excessive_elapsed_response,
+            "numeric request field exceeds its hard limit: max_elapsed_ms")) {
+        return 14;
     }
     error.clear();
     fs::permissions(
@@ -377,7 +541,7 @@ int main()
         {"depth.zip", {{"a/b/c/d", "x"}}, "depth", 100, 3},
         {"local-name.zip", {{"central", "x", (0100644u << 16), 0, 0, {}, {}, "differx"}}, "names disagree"},
         {"unclaimed.zip", {{"zero", "x", (0100644u << 16), 0, 0, 0u, 0u}}, "ambiguous bytes"},
-        {"zip64-entry.zip", {{"zip64", "x", (0100644u << 16), 0, 0, 0xffffffffu, 0xffffffffu}}, "ZIP64 entry"}
+        {"zip64-entry.zip", {{"zip64", "x", (0100644u << 16), 0, 0, 0xffffffffu, 0xffffffffu}}, "ZIP64 extra"}
     };
 
     for (std::size_t index = 0; index < cases.size(); ++index) {

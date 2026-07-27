@@ -3,16 +3,20 @@
 Local archive and future package-manager/bundle handoff helpers live here. This
 module does not define product-specific installer behavior.
 
-M1-WU3 implements read-only classic ZIP inspection for
+M1-WU3 implements read-only classic and ZIP64 inspection for
 `install_local.inspect`. It opens a stable source handle, hashes the exact
 archive, validates central and local header agreement, normalizes an ASCII-only
 portable path subset, applies count/size/depth/ratio/elapsed budgets, and emits
-a deterministic planned entry-set digest.
+a deterministic planned entry-set digest. Callers select a positive elapsed
+budget up to the provider's finite ten-minute ceiling; the provider continues
+to fail closed when that budget expires.
 
-The WU3 ZIP profile deliberately refuses ZIP64, multi-disk, streamed,
-encrypted, patched, AES, alternate-Unicode-path, non-ASCII-path, preamble,
-unclaimed-byte, link/device/reparse-like, and unsupported-compression input.
-Later WorkUnits may widen formats or Unicode support only with equivalent
-normalization and collision proof.
+The ZIP profile accepts only single-disk ZIP64 end records and exact ZIP64
+extra fields required by sentinel metadata. It rejects missing, duplicate,
+unnecessary, truncated, or inconsistent ZIP64 metadata, plus multi-disk,
+streamed, encrypted, patched, AES, alternate-Unicode-path, non-ASCII-path,
+preamble, unclaimed-byte, link/device/reparse-like, and
+unsupported-compression input. Later WorkUnits may widen formats or Unicode
+support only with equivalent normalization and collision proof.
 
 Inspection never extracts an entry, creates setup state, or touches a target.

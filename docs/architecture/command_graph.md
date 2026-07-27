@@ -66,9 +66,10 @@ confirmation, immediate input revalidation, and an authorized target class.
 `operator_acceptance_candidate` cannot mutate `managed_portable` targets.
 
 `install_local.inspect` is the first real M1 setup command. It reads one
-operator-supplied classic ZIP through a stable no-follow handle and emits a
-bounded deterministic `usk.archive_inspection.v1` result. It performs no
-extraction or target access.
+operator-supplied classic or single-disk ZIP64 archive through a stable
+no-follow handle and emits a bounded deterministic
+`usk.archive_inspection.v1` result. It performs no extraction or target
+access.
 
 The old static install and uninstall preview payloads were retired when the M1
 contract spine landed. M2-WU2 now produces schema-shaped digest-bound lifecycle
