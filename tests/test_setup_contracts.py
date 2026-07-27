@@ -222,6 +222,18 @@ class SetupContractTests(unittest.TestCase):
                 "max_elapsed_ms",
             },
         )
+        self.assertEqual(
+            request["properties"]["budgets"]["properties"]["max_elapsed_ms"][
+                "maximum"
+            ],
+            600000,
+        )
+        self.assertEqual(
+            load_schema("install_local_plan_request")["$defs"]["budgets"][
+                "properties"
+            ]["max_elapsed_ms"]["maximum"],
+            600000,
+        )
         inspection = load_schema("archive_inspection")
         self.assertEqual(
             inspection["properties"]["normalization_policy"]["const"],

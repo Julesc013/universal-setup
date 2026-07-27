@@ -26,7 +26,7 @@
         "max_entry_bytes": { "type": "integer", "minimum": 1, "maximum": 274877906944 },
         "max_depth": { "type": "integer", "minimum": 1, "maximum": 256 },
         "max_ratio": { "type": "integer", "minimum": 1, "maximum": 100000 },
-        "max_elapsed_ms": { "type": "integer", "minimum": 1, "maximum": 120000 }
+        "max_elapsed_ms": { "type": "integer", "minimum": 1, "maximum": 600000 }
       },
       "additionalProperties": false
     },

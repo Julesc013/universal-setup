@@ -32,7 +32,9 @@ constexpr std::size_t max_request_bytes = 64u * 1024u;
 constexpr std::size_t max_name_bytes = 4096u;
 constexpr std::size_t max_central_directory_bytes = 64u * 1024u * 1024u;
 constexpr std::uint64_t classic_zip_max = 0xffffffffull;
+constexpr std::uint64_t max_archive_bytes = 1ull << 40;
 constexpr std::uint64_t max_materialized_payload_bytes = 512ull * 1024ull * 1024ull;
+constexpr std::uint64_t max_inspection_elapsed_ms = 10ull * 60ull * 1000ull;
 
 struct Budgets {
     std::uint64_t max_entries = 10000;
@@ -46,11 +48,11 @@ struct Budgets {
 struct Entry {
     std::string normalized_path;
     bool directory = false;
-    std::uint32_t compressed_size = 0;
-    std::uint32_t uncompressed_size = 0;
+    std::uint64_t compressed_size = 0;
+    std::uint64_t uncompressed_size = 0;
     std::uint16_t compression_method = 0;
     std::uint32_t crc32 = 0;
-    std::uint32_t local_header_offset = 0;
+    std::uint64_t local_header_offset = 0;
     std::uint64_t data_offset = 0;
     std::uint64_t data_end = 0;
 };
@@ -184,6 +186,15 @@ std::uint32_t little32(const std::vector<unsigned char>& data, std::size_t offse
         (static_cast<std::uint32_t>(data[offset + 3]) << 24);
 }
 
+std::uint64_t little64(const std::vector<unsigned char>& data, std::size_t offset)
+{
+    if (offset > data.size() || data.size() - offset < 8) {
+        throw std::runtime_error("ZIP structure is truncated");
+    }
+    return static_cast<std::uint64_t>(little32(data, offset)) |
+        (static_cast<std::uint64_t>(little32(data, offset + 4)) << 32);
+}
+
 std::string lowercase_ascii(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
@@ -263,16 +274,29 @@ std::string normalize_path(
     return normalized.str();
 }
 
-void validate_extra_fields(
+struct Zip64Extra {
+    bool present = false;
+    std::uint64_t uncompressed_size = 0;
+    std::uint64_t compressed_size = 0;
+    std::uint64_t local_header_offset = 0;
+    std::uint32_t disk_start = 0;
+};
+
+Zip64Extra parse_extra_fields(
     const std::vector<unsigned char>& data,
     std::size_t offset,
-    std::size_t size)
+    std::size_t size,
+    bool needs_uncompressed_size,
+    bool needs_compressed_size,
+    bool needs_local_header_offset,
+    bool needs_disk_start)
 {
     if (offset > data.size() || size > data.size() - offset) {
         throw std::runtime_error("ZIP extra field range is truncated");
     }
     const std::size_t end = offset + size;
     std::set<std::uint16_t> identifiers;
+    Zip64Extra zip64;
     while (offset < end) {
         if (end - offset < 4) {
             throw std::runtime_error("ZIP extra field header is truncated");
@@ -283,11 +307,64 @@ void validate_extra_fields(
         if (field_size > end - offset || !identifiers.insert(identifier).second) {
             throw std::runtime_error("ZIP extra fields are truncated or duplicated");
         }
-        if (identifier == 0x0001u || identifier == 0x7075u || identifier == 0x9901u) {
-            throw std::runtime_error("ZIP64, alternate Unicode paths, and AES metadata are unsupported");
+        const std::size_t field_end = offset + field_size;
+        if (identifier == 0x0001u) {
+            if (!needs_uncompressed_size && !needs_compressed_size &&
+                !needs_local_header_offset && !needs_disk_start) {
+                throw std::runtime_error(
+                    "ZIP64 extra field is present when no sentinel requires it");
+            }
+            zip64.present = true;
+            if (needs_uncompressed_size) {
+                if (field_end - offset < 8) {
+                    throw std::runtime_error(
+                        "ZIP64 extra field is missing uncompressed size");
+                }
+                zip64.uncompressed_size = little64(data, offset);
+                offset += 8;
+            }
+            if (needs_compressed_size) {
+                if (field_end - offset < 8) {
+                    throw std::runtime_error(
+                        "ZIP64 extra field is missing compressed size");
+                }
+                zip64.compressed_size = little64(data, offset);
+                offset += 8;
+            }
+            if (needs_local_header_offset) {
+                if (field_end - offset < 8) {
+                    throw std::runtime_error(
+                        "ZIP64 extra field is missing local-header offset");
+                }
+                zip64.local_header_offset = little64(data, offset);
+                offset += 8;
+            }
+            if (needs_disk_start) {
+                if (field_end - offset < 4) {
+                    throw std::runtime_error(
+                        "ZIP64 extra field is missing disk number");
+                }
+                zip64.disk_start = little32(data, offset);
+                offset += 4;
+            }
+            if (offset != field_end) {
+                throw std::runtime_error(
+                    "ZIP64 extra field contains ambiguous trailing values");
+            }
+        } else if (identifier == 0x7075u || identifier == 0x9901u) {
+            throw std::runtime_error(
+                "alternate Unicode paths and AES metadata are unsupported");
+        } else {
+            offset = field_end;
         }
-        offset += field_size;
     }
+    if ((needs_uncompressed_size || needs_compressed_size ||
+         needs_local_header_offset || needs_disk_start) &&
+        !zip64.present) {
+        throw std::runtime_error(
+            "ZIP64 sentinel has no ZIP64 extra field");
+    }
+    return zip64;
 }
 
 void add_checked(std::uint64_t& total, std::uint64_t value, std::uint64_t maximum, const char* name)
@@ -378,7 +455,7 @@ Inspection inspect_zip(const std::string& request)
         throw std::runtime_error("unsupported or missing archive inspection request schema");
     }
     if (json_string(request, "archive_format") != "zip") {
-        throw std::runtime_error("WU3 supports only explicitly declared classic ZIP archives");
+        throw std::runtime_error("WU3 supports only explicitly declared ZIP archives");
     }
     const std::string archive_path = json_string(request, "archive_path");
     if (archive_path.empty()) {
@@ -394,13 +471,14 @@ Inspection inspect_zip(const std::string& request)
     budgets.max_depth = json_unsigned(request, "max_depth", 256);
     budgets.max_ratio = json_unsigned(request, "max_ratio", 100000);
     budgets.max_elapsed_ms = json_unsigned(
-        request, "max_elapsed_ms", 120000);
+        request, "max_elapsed_ms", max_inspection_elapsed_ms);
 
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(budgets.max_elapsed_ms);
     usk::base::StableFile source(archive_path);
-    if (source.identity().size_bytes < 22 || source.identity().size_bytes > classic_zip_max) {
-        throw std::runtime_error("source is not a bounded classic ZIP archive");
+    if (source.identity().size_bytes < 22 ||
+        source.identity().size_bytes > max_archive_bytes) {
+        throw std::runtime_error("source is not a bounded ZIP archive");
     }
 
     Inspection inspection;
@@ -427,31 +505,94 @@ Inspection inspect_zip(const std::string& request)
         }
     }
     if (eocd == std::string::npos) {
-        throw std::runtime_error("classic ZIP end-of-central-directory record is missing or ambiguous");
+        throw std::runtime_error(
+            "ZIP end-of-central-directory record is missing or ambiguous");
     }
     if (little16(tail, eocd + 4) != 0 || little16(tail, eocd + 6) != 0) {
         throw std::runtime_error("multi-disk ZIP archives are unsupported");
     }
-    const std::uint16_t entries_on_disk = little16(tail, eocd + 8);
-    const std::uint16_t entry_count = little16(tail, eocd + 10);
-    const std::uint32_t central_size = little32(tail, eocd + 12);
-    const std::uint32_t central_offset = little32(tail, eocd + 16);
-    if (entries_on_disk == 0xffffu || entry_count == 0xffffu ||
-        central_size == 0xffffffffu || central_offset == 0xffffffffu) {
-        throw std::runtime_error("ZIP64 archives are unsupported in WU3");
+    const std::uint16_t classic_entries_on_disk = little16(tail, eocd + 8);
+    const std::uint16_t classic_entry_count = little16(tail, eocd + 10);
+    const std::uint32_t classic_central_size = little32(tail, eocd + 12);
+    const std::uint32_t classic_central_offset = little32(tail, eocd + 16);
+    std::uint64_t entries_on_disk = classic_entries_on_disk;
+    std::uint64_t entry_count = classic_entry_count;
+    std::uint64_t central_size = classic_central_size;
+    std::uint64_t central_offset = classic_central_offset;
+    const std::uint64_t eocd_offset = tail_offset + eocd;
+    bool has_zip64_locator = false;
+    std::vector<unsigned char> locator;
+    if (eocd_offset >= 20) {
+        locator = source.read(eocd_offset - 20, 20);
+        has_zip64_locator = little32(locator, 0) == 0x07064b50u;
+    }
+    const bool needs_zip64 =
+        classic_entries_on_disk == 0xffffu ||
+        classic_entry_count == 0xffffu ||
+        classic_central_size == 0xffffffffu ||
+        classic_central_offset == 0xffffffffu;
+    std::uint64_t central_end = eocd_offset;
+    if (needs_zip64 || has_zip64_locator) {
+        if (!has_zip64_locator) {
+            throw std::runtime_error("ZIP64 locator is missing");
+        }
+        if (little32(locator, 4) != 0 || little32(locator, 16) != 1) {
+            throw std::runtime_error(
+                "ZIP64 locator declares a multi-disk archive");
+        }
+        const std::uint64_t zip64_offset = little64(locator, 8);
+        if (zip64_offset > eocd_offset - 20 ||
+            eocd_offset - 20 - zip64_offset < 56) {
+            throw std::runtime_error("ZIP64 end record offset is invalid");
+        }
+        const auto zip64 = source.read(zip64_offset, 56);
+        const std::uint64_t zip64_record_size = little64(zip64, 4);
+        if (little32(zip64, 0) != 0x06064b50u ||
+            zip64_record_size != 44 ||
+            zip64_offset + 12 + zip64_record_size != eocd_offset - 20) {
+            throw std::runtime_error(
+                "ZIP64 end-of-central-directory record is malformed");
+        }
+        if (little32(zip64, 16) != 0 || little32(zip64, 20) != 0) {
+            throw std::runtime_error(
+                "ZIP64 end record declares a multi-disk archive");
+        }
+        entries_on_disk = little64(zip64, 24);
+        entry_count = little64(zip64, 32);
+        central_size = little64(zip64, 40);
+        central_offset = little64(zip64, 48);
+        if (entries_on_disk != entry_count) {
+            throw std::runtime_error(
+                "ZIP64 central-directory entry counts disagree");
+        }
+        if ((classic_entries_on_disk != 0xffffu &&
+             classic_entries_on_disk != entries_on_disk) ||
+            (classic_entry_count != 0xffffu &&
+             classic_entry_count != entry_count) ||
+            (classic_central_size != 0xffffffffu &&
+             classic_central_size != central_size) ||
+            (classic_central_offset != 0xffffffffu &&
+             classic_central_offset != central_offset)) {
+            throw std::runtime_error(
+                "classic and ZIP64 end records disagree");
+        }
+        central_end = zip64_offset;
     }
     if (entry_count == 0 || entry_count > budgets.max_entries ||
         central_size > max_central_directory_bytes ||
-        static_cast<std::uint64_t>(central_offset) + central_size != tail_offset + eocd ||
+        central_offset > central_end ||
+        central_size > central_end - central_offset ||
+        central_offset + central_size != central_end ||
         entries_on_disk != entry_count) {
         throw std::runtime_error("ZIP central-directory count, size, or bounds are invalid");
     }
-    const auto central = source.read(central_offset, central_size);
+    const auto central = source.read(
+        central_offset, static_cast<std::size_t>(central_size));
     std::size_t position = 0;
     std::map<std::string, bool> normalized_paths;
-    inspection.entries.reserve(entry_count);
+    inspection.entries.reserve(static_cast<std::size_t>(entry_count));
 
-    for (std::uint32_t index = 0; index < entry_count; ++index) {
+    for (std::uint64_t index = 0; index < entry_count; ++index) {
         if (std::chrono::steady_clock::now() > deadline) {
             throw std::runtime_error("archive inspection exceeded the elapsed-time budget");
         }
@@ -462,23 +603,19 @@ Inspection inspect_zip(const std::string& request)
         const std::uint16_t flags = little16(central, position + 8);
         const std::uint16_t method = little16(central, position + 10);
         const std::uint32_t crc32 = little32(central, position + 16);
-        const std::uint32_t compressed = little32(central, position + 20);
-        const std::uint32_t uncompressed = little32(central, position + 24);
+        const std::uint32_t compressed32 = little32(central, position + 20);
+        const std::uint32_t uncompressed32 = little32(central, position + 24);
         const std::uint16_t name_size = little16(central, position + 28);
         const std::uint16_t extra_size = little16(central, position + 30);
         const std::uint16_t comment_size = little16(central, position + 32);
-        const std::uint16_t disk_start = little16(central, position + 34);
+        const std::uint16_t disk_start16 = little16(central, position + 34);
         const std::uint32_t external_attributes = little32(central, position + 38);
-        const std::uint32_t local_offset = little32(central, position + 42);
+        const std::uint32_t local_offset32 = little32(central, position + 42);
         const std::size_t record_size = 46u + name_size + extra_size + comment_size;
         if (record_size > central.size() - position || name_size == 0) {
             throw std::runtime_error("ZIP central-directory variable fields are truncated");
         }
-        if (compressed == 0xffffffffu || uncompressed == 0xffffffffu ||
-            local_offset == 0xffffffffu) {
-            throw std::runtime_error("ZIP64 entry metadata is unsupported in WU3");
-        }
-        if (disk_start != 0 || (flags & (0x0001u | 0x0008u | 0x0020u | 0x0040u | 0x2000u)) != 0) {
+        if ((flags & (0x0001u | 0x0008u | 0x0020u | 0x0040u | 0x2000u)) != 0) {
             throw std::runtime_error("encrypted, streamed, patched, masked, or multi-disk ZIP entries are unsupported");
         }
         if (method != 0 && method != 8) {
@@ -487,7 +624,34 @@ Inspection inspect_zip(const std::string& request)
         const std::string raw_name(
             reinterpret_cast<const char*>(central.data() + position + 46),
             name_size);
-        validate_extra_fields(central, position + 46 + name_size, extra_size);
+        const bool needs_uncompressed = uncompressed32 == 0xffffffffu;
+        const bool needs_compressed = compressed32 == 0xffffffffu;
+        const bool needs_local_offset = local_offset32 == 0xffffffffu;
+        const bool needs_disk_start = disk_start16 == 0xffffu;
+        const Zip64Extra central_zip64 = parse_extra_fields(
+            central,
+            position + 46 + name_size,
+            extra_size,
+            needs_uncompressed,
+            needs_compressed,
+            needs_local_offset,
+            needs_disk_start);
+        const std::uint64_t compressed = needs_compressed
+            ? central_zip64.compressed_size
+            : compressed32;
+        const std::uint64_t uncompressed = needs_uncompressed
+            ? central_zip64.uncompressed_size
+            : uncompressed32;
+        const std::uint64_t local_offset = needs_local_offset
+            ? central_zip64.local_header_offset
+            : local_offset32;
+        const std::uint32_t disk_start = needs_disk_start
+            ? central_zip64.disk_start
+            : disk_start16;
+        if (disk_start != 0) {
+            throw std::runtime_error(
+                "ZIP entry declares a nonzero or multi-disk start");
+        }
 
         const std::uint16_t unix_mode = static_cast<std::uint16_t>(external_attributes >> 16);
         const std::uint16_t unix_type = unix_mode & 0170000u;
@@ -508,7 +672,8 @@ Inspection inspect_zip(const std::string& request)
             throw std::runtime_error("ZIP directory and file metadata disagree");
         }
         if (!directory) {
-            if (uncompressed > budgets.max_entry_bytes) {
+            if (uncompressed > budgets.max_entry_bytes ||
+                compressed > max_archive_bytes) {
                 throw std::runtime_error("ZIP entry exceeds the per-entry size budget");
             }
             if (uncompressed != 0 && compressed == 0) {
@@ -527,7 +692,7 @@ Inspection inspect_zip(const std::string& request)
             add_checked(
                 inspection.compressed_bytes,
                 compressed,
-                classic_zip_max,
+                max_archive_bytes,
                 "total compressed size");
             ++inspection.file_count;
         } else {
@@ -536,33 +701,64 @@ Inspection inspect_zip(const std::string& request)
         validate_path_collision(normalized_paths, normalized, directory);
 
         if (local_offset >= central_offset ||
-            static_cast<std::uint64_t>(local_offset) + 30u > central_offset) {
+            central_offset - local_offset < 30u) {
             throw std::runtime_error("ZIP local header offset overlaps the central directory");
         }
         const auto local_header = source.read(local_offset, 30);
+        const std::uint32_t local_compressed32 =
+            little32(local_header, 18);
+        const std::uint32_t local_uncompressed32 =
+            little32(local_header, 22);
         if (little32(local_header, 0) != 0x04034b50u ||
             little16(local_header, 6) != flags ||
             little16(local_header, 8) != method ||
             little32(local_header, 14) != crc32 ||
-            little32(local_header, 18) != compressed ||
-            little32(local_header, 22) != uncompressed ||
             little16(local_header, 26) != name_size) {
             throw std::runtime_error("ZIP local and central headers disagree");
         }
         const std::uint16_t local_extra_size = little16(local_header, 28);
-        const std::uint64_t data_offset =
-            static_cast<std::uint64_t>(local_offset) + 30u + name_size + local_extra_size;
-        const std::uint64_t data_end = data_offset + compressed;
-        if (data_offset > central_offset || data_end > central_offset) {
+        const std::uint64_t variable_size =
+            static_cast<std::uint64_t>(name_size) + local_extra_size;
+        if (variable_size > central_offset - local_offset - 30u) {
             throw std::runtime_error("ZIP local header variable fields overlap the central directory");
         }
         const auto local_variables = source.read(
-            static_cast<std::uint64_t>(local_offset) + 30u,
+            local_offset + 30u,
             static_cast<std::size_t>(name_size) + local_extra_size);
         if (std::memcmp(local_variables.data(), raw_name.data(), name_size) != 0) {
             throw std::runtime_error("ZIP local and central entry names disagree");
         }
-        validate_extra_fields(local_variables, name_size, local_extra_size);
+        const bool local_needs_uncompressed =
+            local_uncompressed32 == 0xffffffffu;
+        const bool local_needs_compressed =
+            local_compressed32 == 0xffffffffu;
+        const Zip64Extra local_zip64 = parse_extra_fields(
+            local_variables,
+            name_size,
+            local_extra_size,
+            local_needs_uncompressed,
+            local_needs_compressed,
+            false,
+            false);
+        const std::uint64_t local_compressed = local_needs_compressed
+            ? local_zip64.compressed_size
+            : local_compressed32;
+        const std::uint64_t local_uncompressed = local_needs_uncompressed
+            ? local_zip64.uncompressed_size
+            : local_uncompressed32;
+        if (local_compressed != compressed ||
+            local_uncompressed != uncompressed) {
+            throw std::runtime_error(
+                "ZIP local and central sizes disagree");
+        }
+        const std::uint64_t data_offset =
+            local_offset + 30u + variable_size;
+        if (data_offset > central_offset ||
+            compressed > central_offset - data_offset) {
+            throw std::runtime_error(
+                "ZIP entry payload overlaps the central directory");
+        }
+        const std::uint64_t data_end = data_offset + compressed;
 
         inspection.entries.push_back(Entry{
             normalized,
