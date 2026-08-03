@@ -3,6 +3,7 @@
 
 #include "usk/usk_api.h"
 #include "usk_archive_payload.h"
+#include "usk_utf8_path.h"
 
 #include <chrono>
 #include <cstdint>
@@ -255,20 +256,30 @@ std::string json_escape(const std::string& value)
     return result;
 }
 
-std::string request_json(
-    const fs::path& archive,
+std::string request_json_from_utf8_path(
+    const std::string& archive_path,
     int max_entries = 100,
     int max_depth = 32,
     int max_ratio = 100)
 {
     return "{\"schema\":\"usk.archive_inspect_request.v1\","
-        "\"archive_path\":\"" + json_escape(archive.string()) + "\","
+        "\"archive_path\":\"" + json_escape(archive_path) + "\","
         "\"archive_format\":\"zip\",\"budgets\":{"
         "\"max_entries\":" + std::to_string(max_entries) + ","
         "\"max_uncompressed_bytes\":1048576,\"max_entry_bytes\":524288,"
         "\"max_depth\":" + std::to_string(max_depth) + ","
         "\"max_ratio\":" + std::to_string(max_ratio) + ","
         "\"max_elapsed_ms\":30000}}";
+}
+
+std::string request_json(
+    const fs::path& archive,
+    int max_entries = 100,
+    int max_depth = 32,
+    int max_ratio = 100)
+{
+    return request_json_from_utf8_path(
+        archive.u8string(), max_entries, max_depth, max_ratio);
 }
 
 std::string reordered_request_json(const fs::path& archive)
@@ -278,7 +289,7 @@ std::string reordered_request_json(const fs::path& archive)
         "\"max_entry_bytes\":524288,\"max_uncompressed_bytes\":1048576,"
         "\"max_entries\":100},\n"
         "  \"archive_format\": \"zip\",\n"
-        "  \"archive_path\": \"" + json_escape(archive.string()) + "\",\n"
+        "  \"archive_path\": \"" + json_escape(archive.u8string()) + "\",\n"
         "  \"schema\": \"usk.archive_inspect_request.v1\"\n}";
 }
 
@@ -404,6 +415,59 @@ int main()
         field(valid_response, "sha256").size() != 64) {
         return 3;
     }
+    const std::string preferred_separator(1, fs::path::preferred_separator);
+    const std::string valid_parent = valid.parent_path().u8string();
+    const std::string valid_name = valid.filename().u8string();
+    struct SourcePathRefusalCase {
+        std::string path;
+        const char* reason;
+    };
+    const std::vector<SourcePathRefusalCase> source_path_refusals = {
+        {valid_name, "absolute local filesystem path"},
+        {valid_parent + preferred_separator + "." + preferred_separator + valid_name,
+         "lexically normalized"},
+        {valid_parent + preferred_separator + "unused" + preferred_separator + ".." +
+             preferred_separator + valid_name,
+         "lexically normalized"},
+        {valid_parent + preferred_separator + preferred_separator + valid_name,
+         "lexically normalized"},
+        {"C:valid.zip", "absolute local filesystem path"},
+        {"\\\\server\\share\\archive.zip", "UNC or device namespace"},
+        {"//server/share/archive.zip", "UNC or device namespace"}
+    };
+    for (std::size_t index = 0; index < source_path_refusals.size(); ++index) {
+        const SourcePathRefusalCase& refusal = source_path_refusals[index];
+        if (!request_refused(
+                context,
+                request_json_from_utf8_path(refusal.path),
+                refusal.reason)) {
+            return static_cast<int>(110 + index);
+        }
+    }
+
+    const fs::path utf8_path = root / fs::u8path("valid-\xc3\xa9.zip");
+    write_zip(utf8_path, {{"payload.txt", "utf8"}});
+    const std::string utf8_response = execute(context, utf8_path, status);
+    if (status != USK_STATUS_OK ||
+        !contains(
+            utf8_response,
+            "\"path\":\"" + json_escape(utf8_path.u8string()) + "\"") ||
+        field(utf8_response, "sha256").size() != 64) {
+        return 19;
+    }
+    const std::string utf8_path_identity = utf8_path.u8string();
+    const fs::path rebuilt_utf8_path =
+        usk::base::require_normalized_absolute_local_path_utf8(
+            utf8_path_identity, "archive_path");
+    if (usk::base::path_to_utf8(rebuilt_utf8_path) != utf8_path_identity) {
+        return 20;
+    }
+#if defined(_WIN32)
+    if (rebuilt_utf8_path.native() != utf8_path.native() ||
+        rebuilt_utf8_path.native().find(L'\u00e9') == std::wstring::npos) {
+        return 118;
+    }
+#endif
     const std::string reordered_request_response = execute_raw(
         context, reordered_request_json(valid), status);
     if (status != USK_STATUS_OK ||
@@ -604,7 +668,7 @@ int main()
         std::string request;
         const char* reason;
     };
-    const std::string encoded_valid_path = json_escape(valid.string());
+    const std::string encoded_valid_path = json_escape(valid.u8string());
     const std::string budgets_array =
         "{\"schema\":\"usk.archive_inspect_request.v1\","
         "\"archive_path\":\"" + encoded_valid_path + "\","

@@ -8,6 +8,7 @@
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <chrono>
@@ -55,7 +56,7 @@ struct Budgets {
 };
 
 struct ArchiveRequest {
-    std::string archive_path;
+    fs::path archive_path;
     Budgets budgets;
 };
 
@@ -192,17 +193,16 @@ ArchiveRequest parse_archive_request(const std::string& text)
     }
 
     ArchiveRequest result;
-    result.archive_path = require_string(request, "archive_path");
-    if (result.archive_path.empty()) {
+    const std::string archive_path = require_string(request, "archive_path");
+    if (archive_path.empty()) {
         throw std::runtime_error("archive_path is required");
     }
-    if (result.archive_path.find('\0') != std::string::npos) {
+    if (archive_path.find('\0') != std::string::npos) {
         throw std::runtime_error("archive_path contains an embedded NUL");
     }
-    if (result.archive_path.size() > max_request_string_bytes) {
+    if (archive_path.size() > max_request_string_bytes) {
         throw std::runtime_error("archive_path exceeds its hard length limit");
     }
-
     const usk::json::Value& budgets = request.at("budgets");
     require_exact_members(
         budgets,
@@ -221,6 +221,8 @@ ArchiveRequest parse_archive_request(const std::string& text)
         budgets, "max_ratio", max_request_ratio);
     result.budgets.max_elapsed_ms = require_bounded_unsigned(
         budgets, "max_elapsed_ms", max_inspection_elapsed_ms);
+    result.archive_path = usk::base::require_normalized_absolute_local_path_utf8(
+        archive_path, "archive_path");
     return result;
 }
 
@@ -850,7 +852,8 @@ std::string inspection_json(const Inspection& inspection)
     out << "\"source\":{";
     out << "\"schema\":\"usk.source.v1\",";
     out << "\"source_id\":" << quote("source." + inspection.source_sha256.substr(0, 24)) << ',';
-    out << "\"kind\":\"local_archive\",\"path\":" << quote(inspection.path.string()) << ',';
+    out << "\"kind\":\"local_archive\",\"path\":"
+        << quote(usk::base::path_to_utf8(inspection.path)) << ',';
     out << "\"archive_format\":\"zip\",\"size_bytes\":" << inspection.identity.size_bytes << ',';
     out << "\"sha256\":" << quote(inspection.source_sha256) << ',';
     out << "\"filesystem_identity\":{";

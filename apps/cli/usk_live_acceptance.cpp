@@ -6,6 +6,7 @@
 #include "usk_live_evidence.h"
 #include "usk_record_io.h"
 #include "usk_sha256.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <chrono>
@@ -54,6 +55,11 @@ std::string lower(std::string value)
 std::string normalized(const fs::path& path)
 {
     return fs::absolute(path).lexically_normal().generic_u8string();
+}
+
+std::string archive_path_utf8(const fs::path& path)
+{
+    return usk::base::path_to_utf8(fs::absolute(path).lexically_normal());
 }
 
 bool same_or_below(const fs::path& root, const fs::path& candidate)
@@ -347,7 +353,7 @@ int run(const Options& options)
                 {"max_entry_bytes", Value(std::uint64_t{1048576})}, {"max_ratio", Value(std::uint64_t{100})},
                 {"max_uncompressed_bytes", Value(std::uint64_t{10485760})}})},
             {"expected_sha256", Value(archive_digest)}, {"format", Value("zip")},
-            {"path", Value(normalized(archive))}, {"strip_prefix", Value("product")},
+            {"path", Value(archive_path_utf8(archive))}, {"strip_prefix", Value("product")},
         });
         const Value install_request(Value::Object{
             {"archive", archive_binding}, {"created_at", Value(timestamp())}, {"install_id", Value(install_id)},
@@ -404,7 +410,7 @@ int run(const Options& options)
 
         const Value repair_request(Value::Object{{"archive", Value(Value::Object{
                 {"expected_sha256", Value(archive_digest)}, {"format", Value("zip")},
-                {"path", Value(normalized(archive))}, {"strip_prefix", Value("product")}})},
+                {"path", Value(archive_path_utf8(archive))}, {"strip_prefix", Value("product")}})},
             {"created_at", Value(timestamp())}, {"install_id", Value(install_id)},
             {"plan_id", Value("plan.repair." + options.run_id)}, {"request_id", Value("request.repair." + options.run_id)},
             {"schema", Value("usk.repair_plan_request.v1")}});
@@ -503,7 +509,7 @@ int run(const Options& options)
             {"packet_digest", uninstall_packet.at("packet_digest")}});
 
         const Value summary(Value::Object{
-            {"archive", Value(Value::Object{{"path", Value(normalized(archive))},
+            {"archive", Value(Value::Object{{"path", Value(archive_path_utf8(archive))},
                 {"sha256", Value(archive_digest)}, {"contains_executable_code", Value(false)}})},
             {"authority", Value(Value::Object{{"acceptance_root", Value(normalized(options.root))},
                 {"ordinary_live_apply_promoted", Value(false)}, {"operator_verdict", Value("pending")},

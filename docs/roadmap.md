@@ -73,8 +73,13 @@ abstract platform.
   parser instead of searching raw request text for field names and values.
 - Enforced exact closed root and budget objects, strict field types and schema
   constants, and the declared path and numeric limits before source access.
+- Bound archive source paths to absolute, lexically normalized local paths with
+  strict UTF-8/native conversion and exact UTF-8 identity round-trip; UNC and
+  device namespaces are refused.
 - Added native adversarial proof for duplicate, unknown, missing, misplaced,
-  malformed, invalid-UTF-8, trailing, wrong-type, and out-of-range input.
+  malformed, invalid-UTF-8, trailing, wrong-type, out-of-range, relative,
+  dot-segment, redundant-separator, drive-relative, and UNC input, plus a
+  non-ASCII filesystem-path round-trip.
 
 ## M1-WU4 — Staging and Transaction Session
 
