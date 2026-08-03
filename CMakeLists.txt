@@ -16,6 +16,7 @@ add_library(usk_base_static STATIC
   runtime/base/usk_record_io.cpp
   runtime/base/usk_sha256.cpp
   runtime/base/usk_stable_file.cpp
+  runtime/base/usk_utf8_path.cpp
 )
 target_compile_features(usk_base_static PUBLIC cxx_std_17)
 target_include_directories(usk_base_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base")

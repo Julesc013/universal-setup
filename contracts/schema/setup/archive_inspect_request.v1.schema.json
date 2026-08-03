@@ -6,7 +6,19 @@
   "required": ["schema", "archive_path", "archive_format", "budgets"],
   "properties": {
     "schema": { "const": "usk.archive_inspect_request.v1" },
-    "archive_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "archive_path": {
+      "type": "string",
+      "description": "Absolute, lexically normalized local filesystem path in strict UTF-8. UNC and device namespaces are forbidden, and the UTF-8 identity must round-trip exactly through the host-native filesystem representation.",
+      "minLength": 1,
+      "maxLength": 32768,
+      "x-usk-max-utf8-bytes": 32768,
+      "x-usk-path-encoding": "utf-8",
+      "x-usk-path-kind": "absolute-local",
+      "x-usk-path-lexical-form": "normalized",
+      "x-usk-unc-policy": "forbidden",
+      "x-usk-device-namespace-policy": "forbidden",
+      "x-usk-native-roundtrip": "exact"
+    },
     "archive_format": { "const": "zip" },
     "budgets": {
       "type": "object",

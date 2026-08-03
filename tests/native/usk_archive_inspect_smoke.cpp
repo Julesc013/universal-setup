@@ -3,13 +3,16 @@
 
 #include "usk/usk_api.h"
 #include "usk_archive_payload.h"
+#include "usk_utf8_path.h"
 
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -253,20 +256,54 @@ std::string json_escape(const std::string& value)
     return result;
 }
 
-std::string request_json(
-    const fs::path& archive,
+std::string request_json_from_utf8_path(
+    const std::string& archive_path,
     int max_entries = 100,
     int max_depth = 32,
     int max_ratio = 100)
 {
     return "{\"schema\":\"usk.archive_inspect_request.v1\","
-        "\"archive_path\":\"" + json_escape(archive.string()) + "\","
+        "\"archive_path\":\"" + json_escape(archive_path) + "\","
         "\"archive_format\":\"zip\",\"budgets\":{"
         "\"max_entries\":" + std::to_string(max_entries) + ","
         "\"max_uncompressed_bytes\":1048576,\"max_entry_bytes\":524288,"
         "\"max_depth\":" + std::to_string(max_depth) + ","
         "\"max_ratio\":" + std::to_string(max_ratio) + ","
         "\"max_elapsed_ms\":30000}}";
+}
+
+std::string request_json(
+    const fs::path& archive,
+    int max_entries = 100,
+    int max_depth = 32,
+    int max_ratio = 100)
+{
+    return request_json_from_utf8_path(
+        archive.u8string(), max_entries, max_depth, max_ratio);
+}
+
+std::string reordered_request_json(const fs::path& archive)
+{
+    return "{\n  \"budgets\": {"
+        "\"max_elapsed_ms\":30000,\"max_ratio\":100,\"max_depth\":32,"
+        "\"max_entry_bytes\":524288,\"max_uncompressed_bytes\":1048576,"
+        "\"max_entries\":100},\n"
+        "  \"archive_format\": \"zip\",\n"
+        "  \"archive_path\": \"" + json_escape(archive.u8string()) + "\",\n"
+        "  \"schema\": \"usk.archive_inspect_request.v1\"\n}";
+}
+
+std::string replace_once(
+    std::string value,
+    const std::string& from,
+    const std::string& to)
+{
+    const std::size_t position = value.find(from);
+    if (position == std::string::npos) {
+        throw std::runtime_error("test request mutation target is missing: " + from);
+    }
+    value.replace(position, from.size(), to);
+    return value;
 }
 
 std::string execute_raw(
@@ -333,6 +370,19 @@ bool refused(
         contains(response, reason);
 }
 
+bool request_refused(
+    usk_context* context,
+    const std::string& request,
+    const std::string& reason)
+{
+    int status = 0;
+    const std::string response = execute_raw(context, request, status);
+    return status == USK_STATUS_ERROR &&
+        contains(response, "\"status\":\"refused\"") &&
+        contains(response, "\"code\":\"archive_inspection_refused\"") &&
+        contains(response, reason);
+}
+
 } // namespace
 
 int main()
@@ -364,6 +414,66 @@ int main()
         field(valid_response, "entry_set_digest").size() != 64 ||
         field(valid_response, "sha256").size() != 64) {
         return 3;
+    }
+    const std::string preferred_separator(1, fs::path::preferred_separator);
+    const std::string valid_parent = valid.parent_path().u8string();
+    const std::string valid_name = valid.filename().u8string();
+    struct SourcePathRefusalCase {
+        std::string path;
+        const char* reason;
+    };
+    const std::vector<SourcePathRefusalCase> source_path_refusals = {
+        {valid_name, "absolute local filesystem path"},
+        {valid_parent + preferred_separator + "." + preferred_separator + valid_name,
+         "lexically normalized"},
+        {valid_parent + preferred_separator + "unused" + preferred_separator + ".." +
+             preferred_separator + valid_name,
+         "lexically normalized"},
+        {valid_parent + preferred_separator + preferred_separator + valid_name,
+         "lexically normalized"},
+        {"C:valid.zip", "absolute local filesystem path"},
+        {"\\\\server\\share\\archive.zip", "UNC or device namespace"},
+        {"//server/share/archive.zip", "UNC or device namespace"}
+    };
+    for (std::size_t index = 0; index < source_path_refusals.size(); ++index) {
+        const SourcePathRefusalCase& refusal = source_path_refusals[index];
+        if (!request_refused(
+                context,
+                request_json_from_utf8_path(refusal.path),
+                refusal.reason)) {
+            return static_cast<int>(110 + index);
+        }
+    }
+
+    const fs::path utf8_path = root / fs::u8path("valid-\xc3\xa9.zip");
+    write_zip(utf8_path, {{"payload.txt", "utf8"}});
+    const std::string utf8_response = execute(context, utf8_path, status);
+    if (status != USK_STATUS_OK ||
+        !contains(
+            utf8_response,
+            "\"path\":\"" + json_escape(utf8_path.u8string()) + "\"") ||
+        field(utf8_response, "sha256").size() != 64) {
+        return 19;
+    }
+    const std::string utf8_path_identity = utf8_path.u8string();
+    const fs::path rebuilt_utf8_path =
+        usk::base::require_normalized_absolute_local_path_utf8(
+            utf8_path_identity, "archive_path");
+    if (usk::base::path_to_utf8(rebuilt_utf8_path) != utf8_path_identity) {
+        return 20;
+    }
+#if defined(_WIN32)
+    if (rebuilt_utf8_path.native() != utf8_path.native() ||
+        rebuilt_utf8_path.native().find(L'\u00e9') == std::wstring::npos) {
+        return 118;
+    }
+#endif
+    const std::string reordered_request_response = execute_raw(
+        context, reordered_request_json(valid), status);
+    if (status != USK_STATUS_OK ||
+        field(reordered_request_response, "entry_set_digest") !=
+            field(valid_response, "entry_set_digest")) {
+        return 15;
     }
     const usk::archive::StoredArchivePayload payload =
         usk::archive::inspect_stored_payload(request_json(valid), "app");
@@ -437,22 +547,23 @@ int main()
         rejected_bad_crc = contains(exception.what(), "CRC");
     }
     if (!rejected_bad_crc) return 9;
-    std::string missing_budget = request_json(valid);
+    const std::string valid_request = request_json(valid);
+    std::string missing_budget = valid_request;
     const std::string budget_field = "\"max_depth\":32,";
     missing_budget.erase(missing_budget.find(budget_field), budget_field.size());
     const std::string missing_budget_response = execute_raw(context, missing_budget, status);
     if (status != USK_STATUS_ERROR ||
-        !contains(missing_budget_response, "required numeric request field is missing: max_depth")) {
+        !contains(missing_budget_response, "missing required member: max_depth")) {
         return 6;
     }
-    std::string wrong_format = request_json(valid);
+    std::string wrong_format = valid_request;
     wrong_format.replace(wrong_format.find("\"zip\""), 5, "\"tar\"");
     const std::string wrong_format_response = execute_raw(context, wrong_format, status);
     if (status != USK_STATUS_ERROR ||
         !contains(wrong_format_response, "declared ZIP")) {
         return 7;
     }
-    std::string maximum_elapsed_budget = request_json(valid);
+    std::string maximum_elapsed_budget = valid_request;
     maximum_elapsed_budget.replace(
         maximum_elapsed_budget.find("\"max_elapsed_ms\":30000"),
         std::string("\"max_elapsed_ms\":30000").size(),
@@ -463,7 +574,7 @@ int main()
         !contains(maximum_elapsed_response, "\"max_elapsed_ms\":600000")) {
         return 13;
     }
-    std::string excessive_elapsed_budget = request_json(valid);
+    std::string excessive_elapsed_budget = valid_request;
     excessive_elapsed_budget.replace(
         excessive_elapsed_budget.find("\"max_elapsed_ms\":30000"),
         std::string("\"max_elapsed_ms\":30000").size(),
@@ -475,6 +586,251 @@ int main()
             excessive_elapsed_response,
             "numeric request field exceeds its hard limit: max_elapsed_ms")) {
         return 14;
+    }
+
+    constexpr std::size_t request_byte_limit = 64u * 1024u;
+    if (valid_request.size() >= request_byte_limit) return 16;
+    std::string maximum_sized_request = valid_request;
+    maximum_sized_request.append(
+        request_byte_limit - maximum_sized_request.size(), ' ');
+    const std::string maximum_sized_response =
+        execute_raw(context, maximum_sized_request, status);
+    if (status != USK_STATUS_OK ||
+        field(maximum_sized_response, "entry_set_digest") !=
+            field(valid_response, "entry_set_digest")) {
+        return 16;
+    }
+    std::string excessive_sized_request = maximum_sized_request;
+    excessive_sized_request.push_back(' ');
+    if (!request_refused(
+            context,
+            excessive_sized_request,
+            "bounded archive inspection request is required")) {
+        return 17;
+    }
+
+    std::string maximum_budget_request = valid_request;
+    for (const auto& replacement :
+         std::vector<std::pair<std::string, std::string>>{
+             {"\"max_entries\":100", "\"max_entries\":100000"},
+             {"\"max_uncompressed_bytes\":1048576",
+              "\"max_uncompressed_bytes\":1099511627776"},
+             {"\"max_entry_bytes\":524288", "\"max_entry_bytes\":274877906944"},
+             {"\"max_depth\":32", "\"max_depth\":256"},
+             {"\"max_ratio\":100", "\"max_ratio\":100000"},
+             {"\"max_elapsed_ms\":30000", "\"max_elapsed_ms\":600000"}}) {
+        maximum_budget_request = replace_once(
+            std::move(maximum_budget_request), replacement.first, replacement.second);
+    }
+    const std::string maximum_budget_response =
+        execute_raw(context, maximum_budget_request, status);
+    if (status != USK_STATUS_OK ||
+        field(maximum_budget_response, "entry_set_digest") !=
+            field(valid_response, "entry_set_digest")) {
+        return 18;
+    }
+
+    struct NumericBoundaryCase {
+        const char* field;
+        const char* current_value;
+        const char* excessive_value;
+    };
+    const std::vector<NumericBoundaryCase> numeric_boundaries = {
+        {"max_entries", "100", "100001"},
+        {"max_uncompressed_bytes", "1048576", "1099511627777"},
+        {"max_entry_bytes", "524288", "274877906945"},
+        {"max_depth", "32", "257"},
+        {"max_ratio", "100", "100001"},
+        {"max_elapsed_ms", "30000", "600001"}
+    };
+    for (std::size_t index = 0; index < numeric_boundaries.size(); ++index) {
+        const NumericBoundaryCase& boundary = numeric_boundaries[index];
+        const std::string marker = std::string("\"") + boundary.field + "\":" +
+            boundary.current_value;
+        const std::string excessive = std::string("\"") + boundary.field + "\":" +
+            boundary.excessive_value;
+        if (!request_refused(
+                context,
+                replace_once(valid_request, marker, excessive),
+                std::string("exceeds its hard limit: ") + boundary.field)) {
+            return static_cast<int>(90 + index);
+        }
+        const std::string zero = std::string("\"") + boundary.field + "\":0";
+        if (!request_refused(
+                context,
+                replace_once(valid_request, marker, zero),
+                std::string("outside its allowed range: ") + boundary.field)) {
+            return static_cast<int>(100 + index);
+        }
+    }
+
+    struct RequestRefusalCase {
+        std::string request;
+        const char* reason;
+    };
+    const std::string encoded_valid_path = json_escape(valid.u8string());
+    const std::string budgets_array =
+        "{\"schema\":\"usk.archive_inspect_request.v1\","
+        "\"archive_path\":\"" + encoded_valid_path + "\","
+        "\"archive_format\":\"zip\",\"budgets\":[]}";
+    const std::string invalid_utf8_path =
+        std::string("invalid-") + "\xc0\xaf" + ".zip";
+    const std::vector<RequestRefusalCase> request_refusals = {
+        {
+            replace_once(
+                valid_request,
+                "\"schema\":\"usk.archive_inspect_request.v1\"",
+                "\"schema\":\"usk.archive_inspect_request.v1\","
+                "\"schema\":\"usk.archive_inspect_request.v1\""),
+            "duplicate key"
+        },
+        {
+            replace_once(
+                valid_request,
+                "\"max_depth\":32",
+                "\"max_depth\":32,\"max_depth\":32"),
+            "duplicate key"
+        },
+        {
+            replace_once(
+                valid_request,
+                "\"budgets\":{",
+                "\"unexpected\":true,\"budgets\":{"),
+            "unexpected member: unexpected"
+        },
+        {
+            replace_once(
+                valid_request,
+                "\"max_entries\":100",
+                "\"max_entries\":100,\"unexpected\":1"),
+            "unexpected member: unexpected"
+        },
+        {
+            replace_once(valid_request, "\"archive_format\":\"zip\",", ""),
+            "missing required member: archive_format"
+        },
+        {
+            replace_once(
+                missing_budget,
+                "\"budgets\":{",
+                "\"max_depth\":32,\"budgets\":{"),
+            "unexpected member: max_depth"
+        },
+        {
+            replace_once(missing_budget, encoded_valid_path, "max_depth"),
+            "missing required member: max_depth"
+        },
+        {"[]", "must be a JSON object"},
+        {budgets_array, "budgets must be a JSON object"},
+        {
+            replace_once(
+                valid_request,
+                "\"schema\":\"usk.archive_inspect_request.v1\"",
+                "\"schema\":1"),
+            "field must be a string: schema"
+        },
+        {
+            replace_once(valid_request, "\"archive_format\":\"zip\"", "\"archive_format\":true"),
+            "field must be a string: archive_format"
+        },
+        {
+            replace_once(
+                valid_request,
+                "\"schema\":\"usk.archive_inspect_request.v1\"",
+                "\"schema\":\"usk.archive_inspect_request.v2\""),
+            "unsupported archive inspection request schema"
+        },
+        {
+            replace_once(
+                valid_request,
+                "\"archive_path\":\"" + encoded_valid_path + "\"",
+                "\"archive_path\":true"),
+            "field must be a string: archive_path"
+        },
+        {
+            replace_once(valid_request, encoded_valid_path, ""),
+            "archive_path is required"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":\"32\""),
+            "must be an unsigned integer: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":true"),
+            "must be an unsigned integer: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":null"),
+            "must be an unsigned integer: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":{}"),
+            "must be an unsigned integer: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":{\"nested\":1}"),
+            "depth budget"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":1.5"),
+            "floating point numbers are forbidden"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":-1"),
+            "unsupported value token"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":1e2"),
+            "floating point numbers are forbidden"
+        },
+        {
+            replace_once(
+                valid_request,
+                "\"max_depth\":32",
+                "\"max_depth\":18446744073709551616"),
+            "overflows uint64"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":032"),
+            "leading zero"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":0"),
+            "outside its allowed range: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":257"),
+            "exceeds its hard limit: max_depth"
+        },
+        {valid_request + " trailing", "trailing content"},
+        {
+            replace_once(valid_request, encoded_valid_path, invalid_utf8_path),
+            "not valid UTF-8"
+        },
+        {
+            replace_once(
+                valid_request,
+                encoded_valid_path,
+                "prefix\\u0000suffix.zip"),
+            "archive_path contains an embedded NUL"
+        },
+        {
+            replace_once(valid_request, encoded_valid_path, std::string(32769u, 'a')),
+            "string exceeds budget"
+        },
+        {
+            replace_once(
+                valid_request,
+                "\",\"archive_format\"",
+                "\"archive_format\""),
+            "punctuation is invalid"
+        }
+    };
+    for (std::size_t index = 0; index < request_refusals.size(); ++index) {
+        const RequestRefusalCase& refusal = request_refusals[index];
+        if (!request_refused(context, refusal.request, refusal.reason)) {
+            return static_cast<int>(60 + index);
+        }
     }
     error.clear();
     fs::permissions(
@@ -515,11 +871,13 @@ int main()
         {"traversal.zip", {{"../escape", "x"}}, "traversal"},
         {"absolute.zip", {{"/absolute", "x"}}, "absolute"},
         {"drive.zip", {{"C:/escape", "x"}}, "drive-qualified"},
+        {"unc.zip", {{"\\\\server\\share", "x"}}, "absolute"},
         {"ads.zip", {{"safe:stream", "x"}}, "alternate-data-stream"},
         {"segments.zip", {{"a//b", "x"}}, "empty or ambiguous"},
         {"dot.zip", {{"a/./b", "x"}}, "dot segments"},
         {"trailing.zip", {{"a/name. ", "x"}}, "reserved or ambiguous"},
         {"reserved.zip", {{"folder/CON.txt", "x"}}, "reserved or ambiguous"},
+        {"clock-device.zip", {{"folder/CLOCK$.txt", "x"}}, "reserved or ambiguous"},
         {"case.zip", {{"Data/File.txt", "x"}, {"data/file.TXT", "y"}}, "case-insensitive-colliding"},
         {"file-parent.zip", {{"a", "x"}, {"a/b", "y"}}, "declared as a file"},
         {"file-after-child.zip", {{"a/b", "y"}, {"a", "x"}}, "directory subtree"},

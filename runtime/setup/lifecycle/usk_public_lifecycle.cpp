@@ -14,6 +14,7 @@
 #include "usk_state_repository.h"
 #include "usk_target_inspect.h"
 #include "usk_transaction_session.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -54,6 +55,7 @@ struct PublicConfig {
 struct InstallPlanBundle {
     usk::lifecycle::InstallPlan plan;
     usk::policy::InspectedTarget target;
+    fs::path source_path;
     std::string source_identity_digest;
     std::string entry_set_digest;
     std::uint64_t archive_size = 0;
@@ -107,6 +109,18 @@ std::string required_string(const Value& value, const std::string& name)
     const std::string result = value.at(name).as_string();
     if (result.empty()) throw PublicError("invalid_argument", "request string is empty: " + name);
     return result;
+}
+
+fs::path required_archive_path(const Value& archive)
+{
+    try {
+        return usk::base::require_normalized_absolute_local_path_utf8(
+            required_string(archive, "path"), "archive.path");
+    } catch (const PublicError&) {
+        throw;
+    } catch (const std::exception& error) {
+        throw PublicError("invalid_argument", error.what());
+    }
 }
 
 bool same_or_below(const fs::path& root, const fs::path& candidate)
@@ -302,10 +316,7 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     const std::string install_id = required_string(request, "install_id");
     const Value& archive = request.at("archive");
     const Value inspection_request = archive_inspection_request(archive);
-    const fs::path source_path(required_string(archive, "path"));
-    if (!source_path.is_absolute()) {
-        throw PublicError("invalid_argument", "source archive path must be explicitly absolute");
-    }
+    const fs::path source_path = required_archive_path(archive);
     require_setup_probe(config, source_path);
     usk::archive::StoredArchivePayload payload = usk::archive::inspect_stored_payload(
         usk::json::canonical(inspection_request), archive.at("strip_prefix").as_string());
@@ -362,6 +373,7 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
         files.push_back({std::move(file.relative_path), std::move(file.bytes)});
     }
     InstallPlanBundle result;
+    result.source_path = source_path;
     result.source_identity_digest = payload.source_identity_digest;
     result.entry_set_digest = payload.entry_set_digest;
     result.archive_size = payload.archive_size_bytes;
@@ -373,7 +385,7 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     return result;
 }
 
-Value install_plan_document(const InstallPlanBundle& bundle, const fs::path& source_path)
+Value install_plan_document(const InstallPlanBundle& bundle)
 {
     Value::Array entries;
     const std::vector<std::string> directories = directory_closure(bundle.plan.files);
@@ -430,8 +442,8 @@ Value install_plan_document(const InstallPlanBundle& bundle, const fs::path& sou
         {"schema", Value("usk.install_plan.v1")},
         {"source", Value(Value::Object{
             {"filesystem_identity_digest", Value(bundle.source_identity_digest)},
-            {"path", Value(fs::absolute(source_path).lexically_normal().generic_u8string())},
-            {"path_identity_digest", Value(path_identity_digest(source_path))},
+            {"path", Value(usk::base::path_to_utf8(bundle.source_path))},
+            {"path_identity_digest", Value(path_identity_digest(bundle.source_path))},
             {"sha256", Value(bundle.plan.recipe.source_archive_digest)},
             {"size_bytes", Value(bundle.archive_size)},
             {"source_id", Value("source." + bundle.plan.install_id)}})},
@@ -591,8 +603,7 @@ RepairPlanBundle build_repair_plan(const Value& request, const PublicConfig& con
     const std::string install_id = required_string(request, "install_id");
     const auto installed = current_install(config, install_id);
     const Value& archive = request.at("archive");
-    const fs::path source_path(required_string(archive, "path"));
-    if (!source_path.is_absolute()) throw PublicError("invalid_argument", "repair source path must be absolute");
+    const fs::path source_path = required_archive_path(archive);
     auto payload = usk::archive::inspect_stored_payload(
         usk::json::canonical(fixed_archive_inspection_request(archive)),
         archive.at("strip_prefix").as_string());
@@ -1239,7 +1250,7 @@ Value execute_command(const std::string& command, const Value& request, const Pu
     }
     if (command == "install_local.plan") {
         const InstallPlanBundle bundle = build_install_plan(request, config);
-        return response_ok(install_plan_document(bundle, request.at("archive").at("path").as_string()));
+        return response_ok(install_plan_document(bundle));
     }
     if (command == "install_local.apply") {
         exact_members(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",

@@ -104,7 +104,7 @@ Value plan_request(const fs::path& archive, const fs::path& target, const std::s
                 {"max_entry_bytes", Value(std::uint64_t{1048576})}, {"max_ratio", Value(std::uint64_t{100})},
                 {"max_uncompressed_bytes", Value(std::uint64_t{10485760})}})},
             {"expected_sha256", Value(source_hash)}, {"format", Value("zip")},
-            {"path", Value(archive.generic_u8string())}, {"strip_prefix", Value("product")}})},
+            {"path", Value(archive.u8string())}, {"strip_prefix", Value("product")}})},
         {"created_at", Value("2026-07-14T01:00:00Z")}, {"install_id", Value("synthetic.install.1")},
         {"recipe", Value(Value::Object{
             {"components", Value(Value::Array{Value("base")})},
@@ -150,7 +150,7 @@ int main()
 {
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const fs::path root = fs::temp_directory_path() / ("usk-public-lifecycle-" + std::to_string(nonce));
-    const fs::path archive = root / "synthetic.zip";
+    const fs::path archive = root / fs::u8path("synthetic-\xc3\xa9.zip");
     const fs::path setup_root = root / "setup-owned";
     const fs::path target = root / "managed-product";
     std::error_code error;
@@ -240,7 +240,8 @@ int main()
         plan_response.at("payload").at("totals").at("file_count").as_unsigned() != 2) return 6;
     const Value& planned_source = plan_response.at("payload").at("source");
     const Value& planned_target = plan_response.at("payload").at("target");
-    if (planned_source.at("path_identity_digest").as_string().size() != 64 ||
+    if (planned_source.at("path").as_string() != archive.u8string() ||
+        planned_source.at("path_identity_digest").as_string().size() != 64 ||
         planned_target.at("identity_digest").as_string().size() != 64 ||
         planned_target.at("path_identity_digest").as_string().size() != 64 ||
         !planned_target.at("filesystem").at("capabilities").at("local").as_boolean()) return 31;
@@ -342,7 +343,7 @@ int main()
     write_text(target / "bin/probe.txt", "damaged\n");
     const Value repair_plan(Value::Object{
         {"archive", Value(Value::Object{{"expected_sha256", Value(usk::base::sha256_hex_file(archive))},
-            {"format", Value("zip")}, {"path", Value(archive.generic_u8string())},
+            {"format", Value("zip")}, {"path", Value(archive.u8string())},
             {"strip_prefix", Value("product")}})},
         {"created_at", Value("2026-07-14T01:03:00Z")}, {"install_id", Value("synthetic.install.1")},
         {"plan_id", Value("plan.repair.1")}, {"request_id", Value("repair.request.1")},

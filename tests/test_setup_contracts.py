@@ -211,6 +211,19 @@ class SetupContractTests(unittest.TestCase):
     def test_archive_inspection_is_local_bounded_and_normalized(self) -> None:
         request = load_schema("archive_inspect_request")
         self.assertEqual(request["properties"]["archive_format"]["const"], "zip")
+        archive_path = request["properties"]["archive_path"]
+        self.assertEqual(
+            archive_path["x-usk-max-utf8-bytes"],
+            32768,
+        )
+        self.assertEqual(archive_path["x-usk-path-encoding"], "utf-8")
+        self.assertEqual(archive_path["x-usk-path-kind"], "absolute-local")
+        self.assertEqual(archive_path["x-usk-path-lexical-form"], "normalized")
+        self.assertEqual(archive_path["x-usk-unc-policy"], "forbidden")
+        self.assertEqual(
+            archive_path["x-usk-device-namespace-policy"], "forbidden"
+        )
+        self.assertEqual(archive_path["x-usk-native-roundtrip"], "exact")
         self.assertEqual(
             set(request["properties"]["budgets"]["required"]),
             {
