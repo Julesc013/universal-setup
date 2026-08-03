@@ -67,6 +67,15 @@ abstract platform.
 - Emits a deterministic normalized entry-set digest without extraction or
   writable state initialization.
 
+## USK-ARCHIVE-REQUEST-CODEC-HARDENING-01
+
+- Routed archive-inspection requests through the shared bounded strict JSON
+  parser instead of searching raw request text for field names and values.
+- Enforced exact closed root and budget objects, strict field types and schema
+  constants, and the declared path and numeric limits before source access.
+- Added native adversarial proof for duplicate, unknown, missing, misplaced,
+  malformed, invalid-UTF-8, trailing, wrong-type, and out-of-range input.
+
 ## M1-WU4 — Staging and Transaction Session
 
 - Added an internal digest-bound transaction session for disposable and

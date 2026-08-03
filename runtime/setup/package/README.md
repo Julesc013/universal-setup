@@ -11,6 +11,11 @@ a deterministic planned entry-set digest. Callers select a positive elapsed
 budget up to the provider's finite ten-minute ceiling; the provider continues
 to fail closed when that budget expires.
 
+The request codec uses the shared bounded strict JSON parser and requires exact
+closed root and `budgets` objects. Duplicate, missing, unexpected, misplaced,
+wrongly typed, out-of-range, invalid-UTF-8, and trailing request content is
+refused before the archive source is opened.
+
 The ZIP profile accepts only single-disk ZIP64 end records and exact ZIP64
 extra fields required by sentinel metadata. It rejects missing, duplicate,
 unnecessary, truncated, or inconsistent ZIP64 metadata, plus multi-disk,
