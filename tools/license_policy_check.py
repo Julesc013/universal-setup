@@ -38,7 +38,8 @@ IGNORED_PARTS = {".git", ".pytest_cache", "__pycache__", "build", "dist", "out"}
 def covered_files() -> list[Path]:
     files: list[Path] = []
     for path in ROOT.rglob("*"):
-        if not path.is_file() or any(part in IGNORED_PARTS for part in path.parts):
+        relative = path.relative_to(ROOT)
+        if not path.is_file() or any(part in IGNORED_PARTS for part in relative.parts):
             continue
         if path.name in {".gitattributes", "CMakeLists.txt"} or path.suffix.lower() in COVERED_SUFFIXES:
             files.append(path)
