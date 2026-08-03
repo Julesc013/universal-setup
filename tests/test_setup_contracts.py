@@ -212,6 +212,10 @@ class SetupContractTests(unittest.TestCase):
         request = load_schema("archive_inspect_request")
         self.assertEqual(request["properties"]["archive_format"]["const"], "zip")
         self.assertEqual(
+            request["properties"]["archive_path"]["x-usk-max-utf8-bytes"],
+            32768,
+        )
+        self.assertEqual(
             set(request["properties"]["budgets"]["required"]),
             {
                 "max_entries",

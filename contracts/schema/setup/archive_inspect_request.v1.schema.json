@@ -6,7 +6,12 @@
   "required": ["schema", "archive_path", "archive_format", "budgets"],
   "properties": {
     "schema": { "const": "usk.archive_inspect_request.v1" },
-    "archive_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "archive_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32768,
+      "x-usk-max-utf8-bytes": 32768
+    },
     "archive_format": { "const": "zip" },
     "budgets": {
       "type": "object",
