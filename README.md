@@ -89,6 +89,18 @@ frontends over setup command contracts, but setup mutation, ownership,
 transaction, rollback, state, and audit logic stay in this repo's runtime and
 contracts.
 
+## Branch and release train
+
+Universal Setup uses protected `main` and `dev` branches. `main` is stable
+canonical provider source; `dev` is the continuously integrated next train and
+must always contain `main`. Bounded `task/*` work starts from an exact `dev`
+revision, targets `dev`, passes consumer canaries, and reaches `main` through a
+reviewed promotion. Stable consumers retain exact pins reachable from `main`;
+canary SHAs never rewrite their tracked locks.
+
+See the [repository branch model](docs/governance/branch_model.md) and its
+[machine-readable policy](release/index/branch_policy.v1.toml).
+
 ## Bootstrap Validation
 
 ```powershell

@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal.repository_branch_policy.v1"
+repository = "universal-setup"
+reviewed_on = "2026-08-04"
+
+[branches]
+canonical = "main"
+integration = "dev"
+task_prefix = "task/"
+hotfix_prefix = "hotfix/"
+release_tags_from = "main"
+
+[invariants]
+main_must_be_ancestor_of_dev = true
+task_must_start_from_exact_dev = true
+normal_task_pull_request_target = "dev"
+normal_main_pull_request_source = "dev"
+direct_protected_push = false
+force_push = false
+protected_branch_deletion = false
+maximum_completed_unpromoted_work_units = 1
+consumer_pins_may_reference_dev = false
+
+[synchronization]
+after_dev_promotion = "fast_forward_dev_to_canonical_main_closeout"
+after_main_hotfix = "open_main_to_dev_pull_request"
+unrelated_divergence = "fail_for_human_review"
+force_reset_dev = false
+
+[dependency_tracks]
+stable = "exact_provider_sha_reachable_from_provider_main"
+canary = "exact_provider_dev_sha_input_without_tracked_lock_change"
+adoption = "separate_exact_pin_pull_request_after_provider_main_promotion"
+atomic_cross_repository_merge = false
+
+[automation_authority]
+task_branch_write = true
+pull_request_write = true
+protected_branch_write = false
+self_approval = false
+self_merge = false
+signing = false
+publication = false
+product_credentials = false
