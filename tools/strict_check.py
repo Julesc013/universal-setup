@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from tools import (
     adversarial_coverage_check,
+    branch_policy_check,
     language_runtime_policy_check,
     license_policy_check,
     structure_policy_check,
@@ -22,6 +23,7 @@ from tools import (
 def main() -> int:
     checks: list[tuple[str, Callable[[], int]]] = [
         ("structure", structure_policy_check.main),
+        ("branch-policy", branch_policy_check.main),
         ("language-runtime-policy", language_runtime_policy_check.main),
         ("license-policy", license_policy_check.main),
         ("m2-adversarial-coverage", adversarial_coverage_check.main),

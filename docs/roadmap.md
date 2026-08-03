@@ -3,6 +3,10 @@
 Universal Setup should be proven by Dominium before it grows into a broad
 abstract platform.
 
+Every new WorkUnit starts from an exact current `dev`, integrates through
+`task/* -> dev`, passes exact-SHA consumer canaries, and is promoted separately
+to canonical `main`. Consumer adoption remains a later exact-pin pull request.
+
 ## USETUP-CANON-01
 
 - Keep the sibling root grammar enforced.
