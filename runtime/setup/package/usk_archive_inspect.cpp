@@ -5,6 +5,7 @@
 #include "usk_archive_payload.h"
 
 #include "usk/usk_result.h"
+#include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 
@@ -16,6 +17,7 @@
 #include <cstring>
 #include <ctime>
 #include <iomanip>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <set>
@@ -29,12 +31,19 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr std::size_t max_request_bytes = 64u * 1024u;
+constexpr std::size_t max_request_string_bytes = 32768u;
+constexpr std::size_t max_request_values = 32u;
 constexpr std::size_t max_name_bytes = 4096u;
 constexpr std::size_t max_central_directory_bytes = 64u * 1024u * 1024u;
 constexpr std::uint64_t classic_zip_max = 0xffffffffull;
 constexpr std::uint64_t max_archive_bytes = 1ull << 40;
 constexpr std::uint64_t max_materialized_payload_bytes = 512ull * 1024ull * 1024ull;
 constexpr std::uint64_t max_inspection_elapsed_ms = 10ull * 60ull * 1000ull;
+constexpr std::uint64_t max_request_entries = 100000u;
+constexpr std::uint64_t max_request_uncompressed_bytes = 1ull << 40;
+constexpr std::uint64_t max_request_entry_bytes = 1ull << 38;
+constexpr std::uint64_t max_request_depth = 256u;
+constexpr std::uint64_t max_request_ratio = 100000u;
 
 struct Budgets {
     std::uint64_t max_entries = 10000;
@@ -43,6 +52,11 @@ struct Budgets {
     std::uint64_t max_depth = 64;
     std::uint64_t max_ratio = 1000;
     std::uint64_t max_elapsed_ms = 30000;
+};
+
+struct ArchiveRequest {
+    std::string archive_path;
+    Budgets budgets;
 };
 
 struct Entry {
@@ -98,72 +112,113 @@ std::string quote(const std::string& value)
     return "\"" + json_escape(value) + "\"";
 }
 
-std::string json_string(const std::string& text, const std::string& key)
+void require_exact_members(
+    const usk::json::Value& value,
+    std::initializer_list<const char*> names,
+    const std::string& object_name)
 {
-    const std::string marker = "\"" + key + "\"";
-    std::size_t position = text.find(marker);
-    if (position == std::string::npos) return {};
-    position = text.find(':', position + marker.size());
-    if (position == std::string::npos) return {};
-    position = text.find('"', position + 1);
-    if (position == std::string::npos) return {};
-    std::string value;
-    for (++position; position < text.size(); ++position) {
-        const char ch = text[position];
-        if (ch == '"') return value;
-        if (ch != '\\') {
-            value.push_back(ch);
-            continue;
-        }
-        if (++position >= text.size()) return {};
-        switch (text[position]) {
-        case '"': value.push_back('"'); break;
-        case '\\': value.push_back('\\'); break;
-        case '/': value.push_back('/'); break;
-        case 'n': value.push_back('\n'); break;
-        case 'r': value.push_back('\r'); break;
-        case 't': value.push_back('\t'); break;
-        default: return {};
+    if (value.type() != usk::json::Value::Type::object) {
+        throw std::runtime_error(object_name + " must be a JSON object");
+    }
+    std::set<std::string> expected;
+    for (const char* name : names) expected.emplace(name);
+    for (const auto& member : value.as_object()) {
+        if (expected.count(member.first) == 0) {
+            throw std::runtime_error(
+                object_name + " has an unexpected member: " + member.first);
         }
     }
-    return {};
+    for (const std::string& name : expected) {
+        if (!value.contains(name)) {
+            throw std::runtime_error(
+                object_name + " is missing required member: " + name);
+        }
+    }
 }
 
-std::uint64_t json_unsigned(
-    const std::string& text,
+std::string require_string(
+    const usk::json::Value& object,
+    const std::string& key)
+{
+    const usk::json::Value& value = object.at(key);
+    if (value.type() != usk::json::Value::Type::string) {
+        throw std::runtime_error(
+            "archive inspection request field must be a string: " + key);
+    }
+    return value.as_string();
+}
+
+std::uint64_t require_bounded_unsigned(
+    const usk::json::Value& object,
     const std::string& key,
     std::uint64_t maximum)
 {
-    const std::string marker = "\"" + key + "\"";
-    std::size_t position = text.find(marker);
-    if (position == std::string::npos) {
-        throw std::runtime_error("required numeric request field is missing: " + key);
+    const usk::json::Value& value = object.at(key);
+    if (value.type() != usk::json::Value::Type::unsigned_integer) {
+        throw std::runtime_error(
+            "numeric request field must be an unsigned integer: " + key);
     }
-    position = text.find(':', position + marker.size());
-    if (position == std::string::npos) {
-        throw std::runtime_error("malformed numeric request field: " + key);
+    const std::uint64_t result = value.as_unsigned();
+    if (result > maximum) {
+        throw std::runtime_error(
+            "numeric request field exceeds its hard limit: " + key);
     }
-    ++position;
-    while (position < text.size() &&
-           std::isspace(static_cast<unsigned char>(text[position]))) {
-        ++position;
+    if (result == 0) {
+        throw std::runtime_error(
+            "numeric request field is outside its allowed range: " + key);
     }
-    if (position >= text.size() || !std::isdigit(static_cast<unsigned char>(text[position]))) {
-        throw std::runtime_error("numeric request field must be an unsigned integer: " + key);
+    return result;
+}
+
+ArchiveRequest parse_archive_request(const std::string& text)
+{
+    usk::json::ParseLimits limits;
+    limits.max_bytes = max_request_bytes;
+    limits.max_depth = 2;
+    limits.max_values = max_request_values;
+    limits.max_string_bytes = max_request_string_bytes;
+    const usk::json::Value request = usk::json::parse(text, limits);
+    require_exact_members(
+        request,
+        {"schema", "archive_path", "archive_format", "budgets"},
+        "archive inspection request");
+
+    if (require_string(request, "schema") != "usk.archive_inspect_request.v1") {
+        throw std::runtime_error("unsupported archive inspection request schema");
     }
-    std::uint64_t value = 0;
-    while (position < text.size() && std::isdigit(static_cast<unsigned char>(text[position]))) {
-        const unsigned int digit = static_cast<unsigned int>(text[position] - '0');
-        if (value > (maximum - digit) / 10u) {
-            throw std::runtime_error("numeric request field exceeds its hard limit: " + key);
-        }
-        value = value * 10u + digit;
-        ++position;
+    if (require_string(request, "archive_format") != "zip") {
+        throw std::runtime_error(
+            "WU3 supports only explicitly declared ZIP archives");
     }
-    if (value == 0 || value > maximum) {
-        throw std::runtime_error("numeric request field is outside its allowed range: " + key);
+
+    ArchiveRequest result;
+    result.archive_path = require_string(request, "archive_path");
+    if (result.archive_path.empty()) {
+        throw std::runtime_error("archive_path is required");
     }
-    return value;
+    if (result.archive_path.size() > max_request_string_bytes) {
+        throw std::runtime_error("archive_path exceeds its hard length limit");
+    }
+
+    const usk::json::Value& budgets = request.at("budgets");
+    require_exact_members(
+        budgets,
+        {"max_entries", "max_uncompressed_bytes", "max_entry_bytes",
+         "max_depth", "max_ratio", "max_elapsed_ms"},
+        "archive inspection request budgets");
+    result.budgets.max_entries = require_bounded_unsigned(
+        budgets, "max_entries", max_request_entries);
+    result.budgets.max_uncompressed_bytes = require_bounded_unsigned(
+        budgets, "max_uncompressed_bytes", max_request_uncompressed_bytes);
+    result.budgets.max_entry_bytes = require_bounded_unsigned(
+        budgets, "max_entry_bytes", max_request_entry_bytes);
+    result.budgets.max_depth = require_bounded_unsigned(
+        budgets, "max_depth", max_request_depth);
+    result.budgets.max_ratio = require_bounded_unsigned(
+        budgets, "max_ratio", max_request_ratio);
+    result.budgets.max_elapsed_ms = require_bounded_unsigned(
+        budgets, "max_elapsed_ms", max_inspection_elapsed_ms);
+    return result;
 }
 
 std::uint16_t little16(const std::vector<unsigned char>& data, std::size_t offset)
@@ -451,31 +506,12 @@ void validate_path_collision(
 
 Inspection inspect_zip(const std::string& request)
 {
-    if (json_string(request, "schema") != "usk.archive_inspect_request.v1") {
-        throw std::runtime_error("unsupported or missing archive inspection request schema");
-    }
-    if (json_string(request, "archive_format") != "zip") {
-        throw std::runtime_error("WU3 supports only explicitly declared ZIP archives");
-    }
-    const std::string archive_path = json_string(request, "archive_path");
-    if (archive_path.empty()) {
-        throw std::runtime_error("archive_path is required");
-    }
-
-    Budgets budgets;
-    budgets.max_entries = json_unsigned(request, "max_entries", 100000);
-    budgets.max_uncompressed_bytes = json_unsigned(
-        request, "max_uncompressed_bytes", 1ull << 40);
-    budgets.max_entry_bytes = json_unsigned(
-        request, "max_entry_bytes", 1ull << 38);
-    budgets.max_depth = json_unsigned(request, "max_depth", 256);
-    budgets.max_ratio = json_unsigned(request, "max_ratio", 100000);
-    budgets.max_elapsed_ms = json_unsigned(
-        request, "max_elapsed_ms", max_inspection_elapsed_ms);
+    const ArchiveRequest parsed = parse_archive_request(request);
+    const Budgets& budgets = parsed.budgets;
 
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(budgets.max_elapsed_ms);
-    usk::base::StableFile source(archive_path);
+    usk::base::StableFile source(parsed.archive_path);
     if (source.identity().size_bytes < 22 ||
         source.identity().size_bytes > max_archive_bytes) {
         throw std::runtime_error("source is not a bounded ZIP archive");
