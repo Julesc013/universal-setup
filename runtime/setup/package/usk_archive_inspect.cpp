@@ -196,6 +196,9 @@ ArchiveRequest parse_archive_request(const std::string& text)
     if (result.archive_path.empty()) {
         throw std::runtime_error("archive_path is required");
     }
+    if (result.archive_path.find('\0') != std::string::npos) {
+        throw std::runtime_error("archive_path contains an embedded NUL");
+    }
     if (result.archive_path.size() > max_request_string_bytes) {
         throw std::runtime_error("archive_path exceeds its hard length limit");
     }

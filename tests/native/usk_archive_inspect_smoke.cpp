@@ -651,6 +651,13 @@ int main()
             "not valid UTF-8"
         },
         {
+            replace_once(
+                valid_request,
+                encoded_valid_path,
+                "prefix\\u0000suffix.zip"),
+            "archive_path contains an embedded NUL"
+        },
+        {
             replace_once(valid_request, encoded_valid_path, std::string(32769u, 'a')),
             "string exceeds budget"
         },
