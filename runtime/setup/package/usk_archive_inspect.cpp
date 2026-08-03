@@ -265,7 +265,8 @@ bool windows_reserved_name(const std::string& segment)
 {
     const std::size_t dot = segment.find('.');
     const std::string base = lowercase_ascii(segment.substr(0, dot));
-    if (base == "con" || base == "prn" || base == "aux" || base == "nul") {
+    if (base == "con" || base == "prn" || base == "aux" || base == "nul" ||
+        base == "clock$") {
         return true;
     }
     if (base.size() == 4 &&
@@ -638,7 +639,6 @@ Inspection inspect_zip(const std::string& request)
         if (little32(central, position) != 0x02014b50u || central.size() - position < 46) {
             throw std::runtime_error("ZIP central-directory entry is truncated or malformed");
         }
-        const std::uint16_t version_made = little16(central, position + 4);
         const std::uint16_t flags = little16(central, position + 8);
         const std::uint16_t method = little16(central, position + 10);
         const std::uint32_t crc32 = little32(central, position + 16);

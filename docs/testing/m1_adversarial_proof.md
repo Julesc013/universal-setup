@@ -9,7 +9,7 @@ The native proof set covers:
 
 | Area | Proved behavior |
 | --- | --- |
-| Archive request and structure | duplicate, missing, unexpected, misplaced, wrongly typed, out-of-range, malformed, invalid-UTF-8, and trailing request content is refused; traversal, absolute/drive/ADS paths, empty/dot segments, reserved names, case collisions, file/tree collisions, links/devices/reparse attributes, encryption, streaming, unsupported methods, alternate Unicode, compression ratio, entry/count/depth budgets, ambiguous bytes, and malformed or ambiguous ZIP64 are refused |
+| Archive request and structure | duplicate, missing, unexpected, misplaced, wrongly typed, out-of-range, malformed, invalid-UTF-8, and trailing request content is refused; traversal, absolute/drive/UNC/ADS paths, empty/dot segments, reserved device names including `CLOCK$`, case collisions, file/tree collisions, links/devices/reparse attributes, encryption, streaming, unsupported methods, alternate Unicode, compression ratio, request/entry/count/depth budgets, ambiguous bytes, and malformed or ambiguous ZIP64 are refused |
 | Stable source | no-follow singly-linked handles, changed-source detection, bounded reads, and read-only archive inspection |
 | Plan law | reserved, case-colliding, non-normalized Unicode, overlong, and invalid-time inputs are refused before state mutation |
 | Target law | target appearance after plan retains the existing sentinel; atomic no-replace commit has exactly one winner under concurrent applies |

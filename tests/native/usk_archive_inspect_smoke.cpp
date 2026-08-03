@@ -11,6 +11,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -523,6 +524,82 @@ int main()
         return 14;
     }
 
+    constexpr std::size_t request_byte_limit = 64u * 1024u;
+    if (valid_request.size() >= request_byte_limit) return 16;
+    std::string maximum_sized_request = valid_request;
+    maximum_sized_request.append(
+        request_byte_limit - maximum_sized_request.size(), ' ');
+    const std::string maximum_sized_response =
+        execute_raw(context, maximum_sized_request, status);
+    if (status != USK_STATUS_OK ||
+        field(maximum_sized_response, "entry_set_digest") !=
+            field(valid_response, "entry_set_digest")) {
+        return 16;
+    }
+    std::string excessive_sized_request = maximum_sized_request;
+    excessive_sized_request.push_back(' ');
+    if (!request_refused(
+            context,
+            excessive_sized_request,
+            "bounded archive inspection request is required")) {
+        return 17;
+    }
+
+    std::string maximum_budget_request = valid_request;
+    for (const auto& replacement :
+         std::vector<std::pair<std::string, std::string>>{
+             {"\"max_entries\":100", "\"max_entries\":100000"},
+             {"\"max_uncompressed_bytes\":1048576",
+              "\"max_uncompressed_bytes\":1099511627776"},
+             {"\"max_entry_bytes\":524288", "\"max_entry_bytes\":274877906944"},
+             {"\"max_depth\":32", "\"max_depth\":256"},
+             {"\"max_ratio\":100", "\"max_ratio\":100000"},
+             {"\"max_elapsed_ms\":30000", "\"max_elapsed_ms\":600000"}}) {
+        maximum_budget_request = replace_once(
+            std::move(maximum_budget_request), replacement.first, replacement.second);
+    }
+    const std::string maximum_budget_response =
+        execute_raw(context, maximum_budget_request, status);
+    if (status != USK_STATUS_OK ||
+        field(maximum_budget_response, "entry_set_digest") !=
+            field(valid_response, "entry_set_digest")) {
+        return 18;
+    }
+
+    struct NumericBoundaryCase {
+        const char* field;
+        const char* current_value;
+        const char* excessive_value;
+    };
+    const std::vector<NumericBoundaryCase> numeric_boundaries = {
+        {"max_entries", "100", "100001"},
+        {"max_uncompressed_bytes", "1048576", "1099511627777"},
+        {"max_entry_bytes", "524288", "274877906945"},
+        {"max_depth", "32", "257"},
+        {"max_ratio", "100", "100001"},
+        {"max_elapsed_ms", "30000", "600001"}
+    };
+    for (std::size_t index = 0; index < numeric_boundaries.size(); ++index) {
+        const NumericBoundaryCase& boundary = numeric_boundaries[index];
+        const std::string marker = std::string("\"") + boundary.field + "\":" +
+            boundary.current_value;
+        const std::string excessive = std::string("\"") + boundary.field + "\":" +
+            boundary.excessive_value;
+        if (!request_refused(
+                context,
+                replace_once(valid_request, marker, excessive),
+                std::string("exceeds its hard limit: ") + boundary.field)) {
+            return static_cast<int>(90 + index);
+        }
+        const std::string zero = std::string("\"") + boundary.field + "\":0";
+        if (!request_refused(
+                context,
+                replace_once(valid_request, marker, zero),
+                std::string("outside its allowed range: ") + boundary.field)) {
+            return static_cast<int>(100 + index);
+        }
+    }
+
     struct RequestRefusalCase {
         std::string request;
         const char* reason;
@@ -589,6 +666,10 @@ int main()
             "field must be a string: schema"
         },
         {
+            replace_once(valid_request, "\"archive_format\":\"zip\"", "\"archive_format\":true"),
+            "field must be a string: archive_format"
+        },
+        {
             replace_once(
                 valid_request,
                 "\"schema\":\"usk.archive_inspect_request.v1\"",
@@ -613,6 +694,18 @@ int main()
         {
             replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":true"),
             "must be an unsigned integer: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":null"),
+            "must be an unsigned integer: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":{}"),
+            "must be an unsigned integer: max_depth"
+        },
+        {
+            replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":{\"nested\":1}"),
+            "depth budget"
         },
         {
             replace_once(valid_request, "\"max_depth\":32", "\"max_depth\":1.5"),
@@ -714,11 +807,13 @@ int main()
         {"traversal.zip", {{"../escape", "x"}}, "traversal"},
         {"absolute.zip", {{"/absolute", "x"}}, "absolute"},
         {"drive.zip", {{"C:/escape", "x"}}, "drive-qualified"},
+        {"unc.zip", {{"\\\\server\\share", "x"}}, "absolute"},
         {"ads.zip", {{"safe:stream", "x"}}, "alternate-data-stream"},
         {"segments.zip", {{"a//b", "x"}}, "empty or ambiguous"},
         {"dot.zip", {{"a/./b", "x"}}, "dot segments"},
         {"trailing.zip", {{"a/name. ", "x"}}, "reserved or ambiguous"},
         {"reserved.zip", {{"folder/CON.txt", "x"}}, "reserved or ambiguous"},
+        {"clock-device.zip", {{"folder/CLOCK$.txt", "x"}}, "reserved or ambiguous"},
         {"case.zip", {{"Data/File.txt", "x"}, {"data/file.TXT", "y"}}, "case-insensitive-colliding"},
         {"file-parent.zip", {{"a", "x"}, {"a/b", "y"}}, "declared as a file"},
         {"file-after-child.zip", {{"a/b", "y"}, {"a", "x"}}, "directory subtree"},
