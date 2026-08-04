@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/state/installed_state_compatibility.v1.schema.json",
+  "title": "Universal Setup Installed-State Compatibility",
+  "type": "object",
+  "required": ["schema", "state_schema", "minimum_reader", "maximum_tested_reader"],
+  "properties": {
+    "schema": { "const": "usk.installed_state_compatibility.v1" },
+    "state_schema": { "const": "usk.installed_state.v1" },
+    "minimum_reader": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "maximum_tested_reader": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "migration_required_from": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+    }
+  },
+  "additionalProperties": false
+}

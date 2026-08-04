@@ -1,0 +1,45 @@
+{
+  "schema": "usk.product_package.v1",
+  "product_id": "org.example.fixture",
+  "product_version": "1.0.0",
+  "publisher_ref": "publisher.example",
+  "source": {
+    "schema": "usk.source_manifest.v1",
+    "source_id": "fixture.local.1",
+    "kind": "local_package",
+    "package_ref": "fixture-package-1.0.0.zip",
+    "size_bytes": 2048,
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "authenticity_refs": ["evidence/signature.json"],
+    "provenance_refs": ["evidence/provenance.json"]
+  },
+  "components": [
+    {
+      "schema": "usk.component_manifest.v1",
+      "component_id": "core",
+      "platform": "neutral",
+      "architecture": "neutral",
+      "entries": [
+        {
+          "path": "bin/fixture",
+          "kind": "file",
+          "size_bytes": 1024,
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "path": "share/message.txt",
+          "kind": "file",
+          "size_bytes": 16,
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ]
+    }
+  ],
+  "immutable_paths": ["bin/fixture", "share/message.txt"],
+  "mutable_paths": ["data"],
+  "preserved_paths": ["data"],
+  "license_refs": ["evidence/license.spdx.json"],
+  "sbom_refs": ["evidence/sbom.spdx.json"],
+  "provenance_refs": ["evidence/provenance.json"],
+  "authenticity_refs": ["evidence/signature.json"]
+}

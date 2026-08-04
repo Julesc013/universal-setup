@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/package/product_package.v1.schema.json",
+  "title": "Universal Setup Product Package",
+  "type": "object",
+  "required": [
+    "schema",
+    "product_id",
+    "product_version",
+    "publisher_ref",
+    "source",
+    "components",
+    "immutable_paths",
+    "mutable_paths",
+    "preserved_paths",
+    "license_refs",
+    "sbom_refs",
+    "provenance_refs",
+    "authenticity_refs"
+  ],
+  "properties": {
+    "schema": { "const": "usk.product_package.v1" },
+    "product_id": { "$ref": "#/$defs/identifier" },
+    "product_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "publisher_ref": { "$ref": "#/$defs/reference" },
+    "source": { "$ref": "source_manifest.v1.schema.json" },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "component_manifest.v1.schema.json" }
+    },
+    "immutable_paths": { "$ref": "#/$defs/paths" },
+    "mutable_paths": { "$ref": "#/$defs/paths" },
+    "preserved_paths": { "$ref": "#/$defs/paths" },
+    "license_refs": { "$ref": "#/$defs/references" },
+    "sbom_refs": { "$ref": "#/$defs/references" },
+    "provenance_refs": { "$ref": "#/$defs/references" },
+    "authenticity_refs": { "$ref": "#/$defs/references" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "references": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/reference" }
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/relative_path" }
+    }
+  },
+  "additionalProperties": false
+}

@@ -116,6 +116,11 @@ Package verification separates integrity, authenticity, compatibility,
 completeness, and target match. See
 [M1 adversarial proof](docs/testing/m1_adversarial_proof.md).
 
+The additive [product-package and recipe contracts](docs/architecture/product_package_contracts.md)
+bind local package identity, component closure, topology, preservation,
+migration, lifecycle, and installed-state compatibility without adding network
+acquisition or live-mutation authority.
+
 M2-WU1 adds a fail-closed live-target policy and platform inspection. M2-WU2
 connects the proven lifecycle to public install, inspect, verify, repair, move,
 and uninstall plan/apply commands for a deliberately narrow local acceptance

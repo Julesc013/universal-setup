@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/package/source_manifest.v1.schema.json",
+  "title": "Universal Setup Local Source Manifest",
+  "type": "object",
+  "required": ["schema", "source_id", "kind", "package_ref", "size_bytes", "sha256"],
+  "properties": {
+    "schema": { "const": "usk.source_manifest.v1" },
+    "source_id": { "$ref": "#/$defs/identifier" },
+    "kind": { "const": "local_package" },
+    "package_ref": { "$ref": "#/$defs/local_package_ref" },
+    "size_bytes": { "type": "integer", "minimum": 1 },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "authenticity_refs": { "$ref": "#/$defs/references" },
+    "provenance_refs": { "$ref": "#/$defs/references" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "local_package_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "references": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/reference" }
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
