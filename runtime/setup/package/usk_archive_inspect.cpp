@@ -36,7 +36,6 @@ constexpr std::size_t max_request_string_bytes = 32768u;
 constexpr std::size_t max_request_values = 32u;
 constexpr std::size_t max_name_bytes = 4096u;
 constexpr std::size_t max_central_directory_bytes = 64u * 1024u * 1024u;
-constexpr std::uint64_t classic_zip_max = 0xffffffffull;
 constexpr std::uint64_t max_archive_bytes = 1ull << 40;
 constexpr std::uint64_t max_materialized_payload_bytes = 512ull * 1024ull * 1024ull;
 constexpr std::uint64_t max_inspection_elapsed_ms = 10ull * 60ull * 1000ull;

@@ -305,6 +305,10 @@ if(USK_BUILD_TESTS)
 
   add_executable(usk_archive_inspect_smoke tests/native/usk_archive_inspect_smoke.cpp)
   target_compile_features(usk_archive_inspect_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_archive_inspect_smoke PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
+  )
   target_link_libraries(usk_archive_inspect_smoke PRIVATE usk_static)
   add_test(NAME usk_archive_inspect_smoke COMMAND usk_archive_inspect_smoke)
 
@@ -348,6 +352,7 @@ if(USK_BUILD_TESTS)
 
   add_executable(usk_public_lifecycle_smoke tests/native/usk_public_lifecycle_smoke.cpp)
   target_compile_features(usk_public_lifecycle_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_public_lifecycle_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)
   add_test(NAME usk_public_lifecycle_smoke COMMAND usk_public_lifecycle_smoke)
 
