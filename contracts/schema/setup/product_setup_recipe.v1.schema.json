@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/product_setup_recipe.v1.schema.json",
+  "title": "Universal Setup Product Setup Recipe",
+  "type": "object",
+  "required": [
+    "schema",
+    "recipe_id",
+    "recipe_version",
+    "product_id",
+    "product_version",
+    "package_digest",
+    "component_ids",
+    "target_topology",
+    "migrations",
+    "lifecycle_operations",
+    "rollback_disposition",
+    "recovery_disposition",
+    "installed_state_compatibility"
+  ],
+  "properties": {
+    "schema": { "const": "usk.setup_recipe.v1" },
+    "recipe_id": { "$ref": "#/$defs/identifier" },
+    "recipe_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "product_id": { "$ref": "#/$defs/identifier" },
+    "product_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "package_digest": { "$ref": "#/$defs/sha256" },
+    "component_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "target_topology": {
+      "type": "object",
+      "required": ["scope", "payload_root", "mutable_root", "preserved_root"],
+      "properties": {
+        "scope": { "enum": ["portable", "per_user", "machine"] },
+        "payload_root": { "$ref": "#/$defs/topology_path" },
+        "mutable_root": { "$ref": "#/$defs/topology_path" },
+        "preserved_root": { "$ref": "#/$defs/topology_path" }
+      },
+      "additionalProperties": false
+    },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["migration_id", "from_version", "to_version", "required"],
+        "properties": {
+          "migration_id": { "$ref": "#/$defs/identifier" },
+          "from_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "to_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "required": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "lifecycle_operations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["install", "verify", "repair", "update", "uninstall"] }
+    },
+    "rollback_disposition": { "enum": ["required", "supported", "refused"] },
+    "recovery_disposition": { "enum": ["required", "supported", "refused"] },
+    "installed_state_compatibility": {
+      "$ref": "../state/installed_state_compatibility.v1.schema.json"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "topology_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^\\{[A-Z_]+\\}(/[^/\\\\]+)*$"
+    }
+  },
+  "additionalProperties": false
+}

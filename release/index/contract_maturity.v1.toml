@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal.contract_maturity.v1"
+provider = "universal-setup"
+reviewed_on = "2026-08-04"
+
+[[contract]]
+id = "product_package.v1"
+maturity = "fixture-qualified"
+evidence = ["tests/fixtures/product-package/neutral-product.v1.json", "tests/test_product_package_contracts.py"]
+
+[[contract]]
+id = "component_manifest.v1"
+maturity = "fixture-qualified"
+evidence = ["tests/fixtures/product-package/neutral-product.v1.json", "tests/test_product_package_contracts.py"]
+
+[[contract]]
+id = "source_manifest.v1"
+maturity = "fixture-qualified"
+evidence = ["tests/fixtures/product-package/neutral-product.v1.json", "tests/test_product_package_contracts.py"]
+
+[[contract]]
+id = "setup_recipe.v1"
+maturity = "fixture-qualified"
+evidence = ["tests/fixtures/product-package/neutral-recipe.v1.json", "tests/test_product_package_contracts.py"]
+
+[[contract]]
+id = "installed_state_compatibility.v1"
+maturity = "fixture-qualified"
+evidence = ["tests/fixtures/product-package/neutral-recipe.v1.json", "tests/test_product_package_contracts.py"]

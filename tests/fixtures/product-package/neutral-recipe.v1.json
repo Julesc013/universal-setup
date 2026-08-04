@@ -1,0 +1,33 @@
+{
+  "schema": "usk.setup_recipe.v1",
+  "recipe_id": "org.example.fixture.recipe",
+  "recipe_version": "1",
+  "product_id": "org.example.fixture",
+  "product_version": "1.0.0",
+  "package_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+  "component_ids": ["core"],
+  "target_topology": {
+    "scope": "portable",
+    "payload_root": "{INSTALL_ROOT}",
+    "mutable_root": "{INSTALL_ROOT}/data",
+    "preserved_root": "{INSTALL_ROOT}/data"
+  },
+  "migrations": [
+    {
+      "migration_id": "fixture.1.0.0-to-1.1.0",
+      "from_version": "1.0.0",
+      "to_version": "1.1.0",
+      "required": false
+    }
+  ],
+  "lifecycle_operations": ["install", "verify", "repair", "update", "uninstall"],
+  "rollback_disposition": "required",
+  "recovery_disposition": "required",
+  "installed_state_compatibility": {
+    "schema": "usk.installed_state_compatibility.v1",
+    "state_schema": "usk.installed_state.v1",
+    "minimum_reader": "1.0",
+    "maximum_tested_reader": "1.0",
+    "migration_required_from": []
+  }
+}
