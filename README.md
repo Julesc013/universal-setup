@@ -121,11 +121,12 @@ UniversalSetup::CoreStatic
 UniversalSetup::CoreShared
 ```
 
-The installed closure contains public headers, static/shared libraries, public
-schemas, the USK ABI manifest, licence records, and the
+The installed closure contains the implemented public `usk` headers,
+static/shared libraries, public schemas, the USK ABI manifest, licence records, and the
 [SDK guide](cmake/README-SDK.md). Private C++ implementation headers and
-aspirational archive, lifecycle, client, daemon, or mutation targets are not
-exported. Embedded consumers do not build USK apps or tests unless they opt in.
+unimplemented `usu` declarations are not installed; aspirational archive,
+lifecycle, client, daemon, or mutation targets are not exported. Embedded
+consumers do not build USK apps or tests unless they opt in.
 
 The package version is `1.0.0`, the existing C ABI remains `1.0`, and the
 product-package and setup-recipe contracts remain `fixture-qualified`. SDK

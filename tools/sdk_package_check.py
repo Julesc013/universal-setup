@@ -107,6 +107,7 @@ def check() -> list[str]:
         "configure_package_config_file",
         "write_basic_package_version_file",
         "install(EXPORT UniversalSetupTargets",
+        "install(DIRECTORY include/usk DESTINATION",
         "$<BUILD_INTERFACE:",
         "$<INSTALL_INTERFACE:",
         "PROJECT_IS_TOP_LEVEL",
@@ -119,6 +120,14 @@ def check() -> list[str]:
             problems.append(f"aspirational SDK target must not be exported: {target}")
     if "install(DIRECTORY runtime/" in cmake:
         problems.append("private runtime implementation must not be installed")
+    if "include/usu" in cmake:
+        problems.append("unimplemented USU declarations must not be installed")
+
+    cpp_smoke = (ROOT / "tests" / "sdk" / "consumer" / "cpp_headers.cpp").read_text(
+        encoding="utf-8"
+    )
+    if '"usu/' in cpp_smoke:
+        problems.append("SDK header consumer must not claim the unimplemented USU surface")
 
     if not ABI_MANIFEST.is_file():
         problems.append("public USK ABI manifest is missing")

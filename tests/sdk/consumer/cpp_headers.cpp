@@ -13,10 +13,8 @@
 #include "usk/usk_transaction.h"
 #include "usk/usk_types.h"
 #include "usk/usk_verify.h"
-#include "usu/usu_api.h"
 
 int main()
 {
-    return USK_API_VERSION_MAJOR == 1 && USK_API_VERSION_MINOR == 0 &&
-        USU_API_VERSION_MAJOR == 1 && USU_API_VERSION_MINOR == 0 ? 0 : 1;
+    return USK_API_VERSION_MAJOR == 1 && USK_API_VERSION_MINOR == 0 ? 0 : 1;
 }

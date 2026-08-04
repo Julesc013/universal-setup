@@ -232,7 +232,7 @@ install(
     "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/UniversalSetupConfigVersion.cmake"
   DESTINATION "${USK_INSTALL_CMAKEDIR}"
 )
-install(DIRECTORY include/usk include/usu DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(DIRECTORY include/usk DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 install(
   DIRECTORY contracts/schema/
   DESTINATION "${USK_INSTALL_CONTRACTS_DIR}"
