@@ -138,6 +138,17 @@ def check() -> list[str]:
             problems.append("USK ABI manifest must retain version 1.0")
         if abi.get("exported_functions") != EXPECTED_EXPORTS:
             problems.append("USK ABI export snapshot changed")
+        layout_guards = abi.get("layout_guards")
+        if not isinstance(layout_guards, dict):
+            problems.append("USK ABI layout guards are missing")
+        else:
+            expected_layout_guards = {
+                "usk_config_v1_base_bytes": 16,
+                "usk_config_v1_m1_strictly_greater_than_base": True,
+                "legacy_win32_x86_tail_padding_is_not_allocator_authority": True,
+            }
+            if layout_guards != expected_layout_guards:
+                problems.append("USK ABI legacy-prefix layout guards changed")
 
     maturity = (ROOT / "release" / "index" / "contract_maturity.v1.toml").read_text(
         encoding="utf-8"

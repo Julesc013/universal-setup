@@ -480,7 +480,8 @@ int usk_context_create_v1(const usk_config_v1* config, usk_context** out_context
              config->struct_size < (usk_size)sizeof(*config))) {
             return USK_STATUS_INVALID_ARGUMENT;
         }
-        if (config->struct_size >= USK_CONFIG_V1_M1_SIZE && config->allocator != 0) {
+        if (config->struct_size >= USK_CONFIG_V1_M1_SIZE &&
+            config->struct_size > USK_CONFIG_V1_BASE_SIZE && config->allocator != 0) {
             if (config->allocator->struct_size < (usk_size)sizeof(*config->allocator) ||
                 config->allocator->alloc == 0 || config->allocator->free == 0) {
                 return USK_STATUS_INVALID_ARGUMENT;

@@ -11,11 +11,14 @@
 USK_ABI_ASSERT(usk_size_is_64_bits, sizeof(usk_size) == 8u);
 USK_ABI_ASSERT(usk_bool_matches_int, sizeof(usk_bool) == sizeof(int));
 USK_ABI_ASSERT(
-    usk_config_base_size_matches_allocator,
-    USK_CONFIG_V1_BASE_SIZE == (usk_size)offsetof(usk_config_v1, allocator));
+    usk_config_base_retains_legacy_size,
+    USK_CONFIG_V1_BASE_SIZE == (usk_size)16u);
 USK_ABI_ASSERT(
-    usk_config_m1_size_matches_acceptance_root,
-    USK_CONFIG_V1_M1_SIZE ==
+    usk_config_m1_is_unambiguous,
+    USK_CONFIG_V1_M1_SIZE > USK_CONFIG_V1_BASE_SIZE);
+USK_ABI_ASSERT(
+    usk_config_m1_contains_allocator,
+    USK_CONFIG_V1_M1_SIZE >=
         (usk_size)offsetof(usk_config_v1, authorized_acceptance_root));
 USK_ABI_ASSERT(
     usk_request_command_follows_size,

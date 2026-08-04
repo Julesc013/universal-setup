@@ -36,6 +36,16 @@ std::string hex_id(std::uint64_t value)
     return out.str();
 }
 
+fs::path require_absolute_path(const fs::path& path)
+{
+    std::error_code error;
+    fs::path absolute = fs::absolute(path, error).lexically_normal();
+    if (error || absolute.empty()) {
+        throw std::runtime_error("local archive path cannot be resolved");
+    }
+    return absolute;
+}
+
 #if defined(_WIN32)
 
 HANDLE as_handle(std::intptr_t value)
@@ -143,13 +153,8 @@ bool same_identity(
 
 namespace usk::base {
 
-StableFile::StableFile(const fs::path& path)
+StableFile::StableFile(const fs::path& path) : path_(require_absolute_path(path))
 {
-    std::error_code error;
-    path_ = fs::absolute(path, error).lexically_normal();
-    if (error || path_.empty()) {
-        throw std::runtime_error("local archive path cannot be resolved");
-    }
 #if defined(_WIN32)
     HANDLE handle = CreateFileW(
         path_.c_str(),

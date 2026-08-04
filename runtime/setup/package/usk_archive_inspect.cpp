@@ -227,7 +227,7 @@ ArchiveRequest parse_archive_request(const std::string& text)
 
 std::uint16_t little16(const std::vector<unsigned char>& data, std::size_t offset)
 {
-    if (offset > data.size() || data.size() - offset < 2) {
+    if (offset >= data.size() || data.size() - offset < 2) {
         throw std::runtime_error("ZIP structure is truncated");
     }
     return static_cast<std::uint16_t>(data[offset]) |
@@ -236,7 +236,7 @@ std::uint16_t little16(const std::vector<unsigned char>& data, std::size_t offse
 
 std::uint32_t little32(const std::vector<unsigned char>& data, std::size_t offset)
 {
-    if (offset > data.size() || data.size() - offset < 4) {
+    if (offset >= data.size() || data.size() - offset < 4) {
         throw std::runtime_error("ZIP structure is truncated");
     }
     return static_cast<std::uint32_t>(data[offset]) |
@@ -247,7 +247,7 @@ std::uint32_t little32(const std::vector<unsigned char>& data, std::size_t offse
 
 std::uint64_t little64(const std::vector<unsigned char>& data, std::size_t offset)
 {
-    if (offset > data.size() || data.size() - offset < 8) {
+    if (offset >= data.size() || data.size() - offset < 8) {
         throw std::runtime_error("ZIP structure is truncated");
     }
     return static_cast<std::uint64_t>(little32(data, offset)) |

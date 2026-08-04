@@ -25,13 +25,18 @@ typedef struct usk_config_v1 {
 } usk_config_v1;
 
 /*
- * The original v1 configuration ended after state_root. Context creation
- * continues to accept that prefix so already-compiled callers remain valid.
- * The M1 layout ended before authorized_acceptance_root. New callers may
+ * The original v1 configuration ended after state_root and occupied 16 bytes
+ * on supported Win32 x86 and x64 ABIs. Context creation continues to accept
+ * that exact prefix so already-compiled callers remain valid. On Win32 x86,
+ * the allocator field overlaps the legacy structure's tail padding, so the M1
+ * size advances to the next unambiguous supported prefix. New callers may
  * provide the complete structure to configure the fail-closed M2 lifecycle.
  */
-#define USK_CONFIG_V1_BASE_SIZE ((usk_size)offsetof(usk_config_v1, allocator))
-#define USK_CONFIG_V1_M1_SIZE ((usk_size)offsetof(usk_config_v1, authorized_acceptance_root))
+#define USK_CONFIG_V1_BASE_SIZE ((usk_size)16u)
+#define USK_CONFIG_V1_M1_SIZE \
+    ((usk_size)offsetof(usk_config_v1, authorized_acceptance_root) > USK_CONFIG_V1_BASE_SIZE \
+        ? (usk_size)offsetof(usk_config_v1, authorized_acceptance_root) \
+        : (usk_size)sizeof(usk_config_v1))
 
 USK_API int USK_CALL usk_context_create_v1(
     const usk_config_v1* config,
