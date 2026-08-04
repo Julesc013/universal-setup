@@ -986,7 +986,12 @@ StoredArchivePayload inspect_stored_payload(
         if (!paths.insert(lowercase_ascii(path)).second) {
             throw std::runtime_error("strip prefix creates a payload path collision");
         }
-        std::vector<unsigned char> bytes = source.read(entry.data_offset, entry.compressed_size);
+        if (entry.compressed_size >
+            static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+            throw std::runtime_error("stored ZIP payload exceeds the addressable read size");
+        }
+        std::vector<unsigned char> bytes = source.read(
+            entry.data_offset, static_cast<std::size_t>(entry.compressed_size));
         if (payload_crc32(bytes) != entry.crc32) {
             throw std::runtime_error("stored ZIP payload CRC does not match reviewed metadata");
         }
