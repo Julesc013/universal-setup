@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
+.gitattributes text eol=lf
 *.c text eol=lf
 *.cmake text eol=lf
 *.cpp text eol=lf
