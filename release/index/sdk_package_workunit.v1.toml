@@ -3,7 +3,7 @@
 
 schema = "universal_setup.sdk_package_workunit.v1"
 workunit = "USK-CMAKE-SDK-PACKAGE-01"
-status = "active_implementation"
+status = "task_complete"
 base_ref = "refs/heads/dev"
 base_revision = "7f8f2baa14e78b0329db8eef8ac872818c4cf30d"
 task_branch = "task/cmake-sdk-package-01"
