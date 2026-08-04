@@ -16,6 +16,7 @@ from tools import (
     branch_policy_check,
     language_runtime_policy_check,
     license_policy_check,
+    product_package_contract_check,
     structure_policy_check,
 )
 
@@ -26,6 +27,7 @@ def main() -> int:
         ("branch-policy", branch_policy_check.main),
         ("language-runtime-policy", language_runtime_policy_check.main),
         ("license-policy", license_policy_check.main),
+        ("product-package-contract", product_package_contract_check.main),
         ("m2-adversarial-coverage", adversarial_coverage_check.main),
     ]
     failed: list[str] = []
