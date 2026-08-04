@@ -86,6 +86,7 @@ usk_require_json_field("${_usk_recipe_schema}" "usk.setup_recipe.v1" properties 
 usk_require_json_field("${USK_PACKAGE_FIXTURE}" "usk.product_package.v1" schema)
 usk_require_json_field("${USK_PACKAGE_FIXTURE}" "org.example.fixture" product_id)
 usk_require_json_field("${USK_PACKAGE_FIXTURE}" "usk.source_manifest.v1" source schema)
+usk_require_json_field("${USK_PACKAGE_FIXTURE}" "fixture.local.1" source source_id)
 usk_require_json_field("${USK_PACKAGE_FIXTURE}" "local_package" source kind)
 usk_read_json_field(_usk_package_ref "${USK_PACKAGE_FIXTURE}" source package_ref)
 if(_usk_package_ref MATCHES "^[A-Za-z][A-Za-z0-9+.-]*:" OR
@@ -93,6 +94,16 @@ if(_usk_package_ref MATCHES "^[A-Za-z][A-Za-z0-9+.-]*:" OR
    _usk_package_ref MATCHES "(^|/)\\.\\.(/|$)" OR
    _usk_package_ref MATCHES "\\\\")
   message(FATAL_ERROR "neutral source reference must remain local, relative, and normalized")
+endif()
+usk_read_json_field(_usk_source_size "${USK_PACKAGE_FIXTURE}" source size_bytes)
+if(NOT _usk_source_size MATCHES "^[1-9][0-9]*$")
+  message(FATAL_ERROR "neutral local source size must be a positive integer")
+endif()
+usk_read_json_field(_usk_source_sha256 "${USK_PACKAGE_FIXTURE}" source sha256)
+string(LENGTH "${_usk_source_sha256}" _usk_source_sha256_length)
+if(NOT _usk_source_sha256_length EQUAL 64 OR
+   NOT _usk_source_sha256 MATCHES "^[0-9a-fA-F]+$")
+  message(FATAL_ERROR "neutral local source SHA-256 must contain exactly 64 hex digits")
 endif()
 usk_require_json_field("${USK_PACKAGE_FIXTURE}" "usk.component_manifest.v1" components 0 schema)
 usk_require_json_field("${USK_PACKAGE_FIXTURE}" "data" mutable_paths 0)

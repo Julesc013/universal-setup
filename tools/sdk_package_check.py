@@ -123,11 +123,24 @@ def check() -> list[str]:
     if "include/usu" in cmake:
         problems.append("unimplemented USU declarations must not be installed")
 
+    consumer_cmake = (
+        ROOT / "tests" / "sdk" / "consumer" / "CMakeLists.txt"
+    ).read_text(encoding="utf-8")
+    for field in ("source_id", "size_bytes", "sha256"):
+        if field not in consumer_cmake:
+            problems.append(f"SDK consumer does not bind local-source {field}")
+
     cpp_smoke = (ROOT / "tests" / "sdk" / "consumer" / "cpp_headers.cpp").read_text(
         encoding="utf-8"
     )
     if '"usu/' in cpp_smoke:
         problems.append("SDK header consumer must not claim the unimplemented USU surface")
+
+    conformance = (ROOT / "tools" / "cmake_sdk_conformance.py").read_text(
+        encoding="utf-8"
+    )
+    if "prove_stale_path_rejection" not in conformance:
+        problems.append("SDK conformance must inject and reject stale absolute metadata")
 
     if not ABI_MANIFEST.is_file():
         problems.append("public USK ABI manifest is missing")

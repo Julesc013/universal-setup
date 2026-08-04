@@ -195,6 +195,26 @@ def scan_relocation_metadata(prefix: Path, forbidden_paths: list[Path]) -> None:
                 raise ConformanceError(f"stale absolute path {value!r} found in {path}")
 
 
+def prove_stale_path_rejection(prefix: Path, forbidden_path: Path) -> None:
+    marker = prefix / "share" / "universal-setup" / "stale-path-negative.cmake"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(
+        f'set(USK_STALE_PREFIX "{forbidden_path.resolve()}")\n', encoding="utf-8"
+    )
+    expected = str(forbidden_path.resolve()).replace("\\", "/").lower()
+    rejected = False
+    try:
+        scan_relocation_metadata(prefix, [forbidden_path])
+    except ConformanceError as error:
+        if expected not in str(error):
+            raise
+        rejected = True
+    finally:
+        marker.unlink()
+    if not rejected:
+        raise ConformanceError("stale absolute path negative control unexpectedly succeeded")
+
+
 def dynamic_runtime_files(prefix: Path) -> list[Path]:
     candidates: list[Path] = []
     for directory in (prefix / "bin", prefix / "lib", prefix / "lib64"):
@@ -241,6 +261,8 @@ def prove_install_mode(
     configure_consumer(relocated_build, "INSTALLED", linkage, config, platform, prefix_b)
     build(relocated_build, config)
     relocated = execute_consumer(relocated_build, config, prefix_b)
+    scan_relocation_metadata(prefix_b, [ROOT, provider_build, prefix_a])
+    prove_stale_path_rejection(prefix_b, prefix_a)
     scan_relocation_metadata(prefix_b, [ROOT, provider_build, prefix_a])
 
     if linkage == "SHARED":
