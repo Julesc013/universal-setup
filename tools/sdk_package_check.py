@@ -129,6 +129,8 @@ def check() -> list[str]:
     for field in ("source_id", "size_bytes", "sha256"):
         if field not in consumer_cmake:
             problems.append(f"SDK consumer does not bind local-source {field}")
+    if 'MATCHES "^[0-9a-f]+$"' not in consumer_cmake:
+        problems.append("SDK consumer must enforce lowercase SHA-256 contract syntax")
 
     cpp_smoke = (ROOT / "tests" / "sdk" / "consumer" / "cpp_headers.cpp").read_text(
         encoding="utf-8"
@@ -141,6 +143,8 @@ def check() -> list[str]:
     )
     if "prove_stale_path_rejection" not in conformance:
         problems.append("SDK conformance must inject and reject stale absolute metadata")
+    if "negative-uppercase-source-sha" not in conformance:
+        problems.append("SDK conformance must reject uppercase local-source SHA-256")
 
     if not ABI_MANIFEST.is_file():
         problems.append("public USK ABI manifest is missing")

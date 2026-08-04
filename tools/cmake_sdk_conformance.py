@@ -366,6 +366,21 @@ def negative_controls(work: Path, prefix: Path, config: str, platform: str | Non
         expect_failure=True,
     )
 
+    uppercase_hash = work / "uppercase-source-sha.v1.json"
+    fixture = json.loads(PACKAGE_FIXTURE.read_text(encoding="utf-8"))
+    fixture["source"]["sha256"] = "A" * 64
+    uppercase_hash.write_text(json.dumps(fixture, sort_keys=True), encoding="utf-8")
+    configure_consumer(
+        work / "negative-uppercase-source-sha",
+        "INSTALLED",
+        "STATIC",
+        config,
+        platform,
+        prefix,
+        {"USK_PACKAGE_FIXTURE": str(uppercase_hash)},
+        expect_failure=True,
+    )
+
 
 def combined_install(work: Path, config: str, platform: str | None) -> None:
     provider_build = work / "provider-combined"
