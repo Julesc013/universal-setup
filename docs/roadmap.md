@@ -218,6 +218,30 @@ to canonical `main`. Consumer adoption remains a later exact-pin pull request.
 - Reports unsigned integrity without claiming publisher authenticity.
 - Does not perform setup mutation or integrate a product frontend yet.
 
+## USK-CMAKE-SDK-PACKAGE-01 — Active task implementation
+
+- Package the existing USK C ABI as exact CMake package version `1.0.0`, kept
+  distinct from C ABI `1.0` and fixture-qualified contract maturity.
+- Export only `UniversalSetup::Headers`, `UniversalSetup::CoreStatic`, and
+  `UniversalSetup::CoreShared`; retain all private lifecycle, archive, state,
+  transaction, policy, and recovery C++ headers inside the provider.
+- Install public headers, schemas, the ABI manifest, licence records, and SDK
+  guidance without source/build/install-prefix leakage.
+- Prove neutral C and C++ consumers through workspace, installed static/shared,
+  and relocated static/shared modes, including embedded defaults and bounded
+  negative controls.
+- Add no setup behavior, acquisition, consumer adoption, FacMan repin, live
+  mutation authority, product execution, signing, or publication.
+
+## Later provider distribution candidates
+
+- Add binary runtime archives, non-CMake native discovery, debug-symbol
+  packages, and explicit Windows CRT, Linux RPATH, macOS install-name, and DLL
+  discovery policies only through later bounded WorkUnits.
+- Add C#/.NET Framework interop packaging, Objective-C/Swift examples, API
+  reference generation, SDK signing, release indexes, provenance, revocation,
+  and compatibility/deprecation policy only after real consumer evidence.
+
 ## DOMINIUM-PROOF-01
 
 - Use Dominium setup requirements to prove rollback, repair, ownership,

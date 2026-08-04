@@ -31,6 +31,10 @@ class NativeCiProofTests(unittest.TestCase):
             self.assertIn(runner, workflow)
         self.assertIn("Bind macOS fixtures to the real no-link temporary root", workflow)
         self.assertIn("os.path.realpath(tempfile.gettempdir())", workflow)
+        self.assertIn("native-windows-win32", workflow)
+        self.assertIn("cmake -S . -B build/win32 -A Win32", workflow)
+        self.assertIn("cppcheck --project=build/smoke/compile_commands.json", workflow)
+        self.assertIn("--parallel 4", workflow)
 
 
 if __name__ == "__main__":
