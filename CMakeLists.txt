@@ -1,15 +1,42 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
-cmake_minimum_required(VERSION 3.16)
-project(universal_setup C CXX)
+cmake_minimum_required(VERSION 3.21)
+project(universal_setup VERSION 1.0.0 LANGUAGES C CXX)
 
-option(USK_BUILD_APPS "Build Universal Setup app frontends" ON)
-option(USK_BUILD_TESTS "Build Universal Setup native tests" ON)
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
+
+option(USK_BUILD_APPS "Build Universal Setup app frontends" "${PROJECT_IS_TOP_LEVEL}")
+option(USK_BUILD_TESTS "Build Universal Setup native tests" "${PROJECT_IS_TOP_LEVEL}")
 option(USK_BUILD_FUZZERS "Build bounded libFuzzer targets" OFF)
+option(USK_BUILD_STATIC "Build the Universal Setup static library" ON)
+option(USK_BUILD_SHARED "Build the Universal Setup shared library" ON)
+
+if(NOT USK_BUILD_STATIC AND NOT USK_BUILD_SHARED)
+  message(FATAL_ERROR "At least one of USK_BUILD_STATIC or USK_BUILD_SHARED must be enabled")
+endif()
+if((USK_BUILD_APPS OR USK_BUILD_TESTS) AND NOT USK_BUILD_STATIC)
+  message(FATAL_ERROR "USK_BUILD_APPS and USK_BUILD_TESTS require the static library")
+endif()
+
+function(usk_enable_strict_warnings target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+endfunction()
 
 add_library(usk_headers INTERFACE)
-target_include_directories(usk_headers INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(usk_headers PROPERTIES EXPORT_NAME Headers)
+target_include_directories(
+  usk_headers
+  INTERFACE
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
+add_library(UniversalSetup::Headers ALIAS usk_headers)
 
 add_library(usk_base_static STATIC
   runtime/base/usk_json.cpp
@@ -92,17 +119,137 @@ target_link_libraries(usk_lifecycle_static PUBLIC
 )
 set_target_properties(usk_lifecycle_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(usk_static STATIC runtime/setup/kernel/usk_api.c)
-target_include_directories(usk_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(usk_static PUBLIC usk_verify_static usk_archive_static usk_lifecycle_static)
+if(NOT USK_BUILD_APPS AND NOT USK_BUILD_TESTS AND NOT USK_BUILD_FUZZERS)
+  foreach(USK_INTERNAL_TARGET IN ITEMS
+      usk_base_static
+      usk_verify_static
+      usk_archive_static
+      usk_policy_static
+      usk_transaction_static
+      usk_state_static
+      usk_lifecycle_static)
+    set_target_properties(${USK_INTERNAL_TARGET} PROPERTIES EXCLUDE_FROM_ALL ON)
+  endforeach()
+endif()
 
-add_library(usk_shared SHARED runtime/setup/kernel/usk_api.c)
-target_include_directories(usk_shared PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_definitions(usk_shared PRIVATE USK_BUILD_SHARED)
-target_link_libraries(usk_shared PRIVATE usk_verify_static usk_archive_static usk_lifecycle_static)
-set_target_properties(usk_shared PROPERTIES OUTPUT_NAME usk WINDOWS_EXPORT_ALL_SYMBOLS ON)
+set(USK_CORE_SOURCES
+  runtime/base/usk_json.cpp
+  runtime/base/usk_record_io.cpp
+  runtime/base/usk_sha256.cpp
+  runtime/base/usk_stable_file.cpp
+  runtime/base/usk_utf8_path.cpp
+  runtime/setup/audit/usk_audit_repository.cpp
+  runtime/setup/evidence/usk_live_evidence.cpp
+  runtime/setup/kernel/usk_api.c
+  runtime/setup/lifecycle/usk_lifecycle.cpp
+  runtime/setup/lifecycle/usk_public_lifecycle.cpp
+  runtime/setup/package/usk_archive_inspect.cpp
+  runtime/setup/policy/usk_target_inspect.cpp
+  runtime/setup/policy/usk_target_policy.cpp
+  runtime/setup/state/usk_state_repository.cpp
+  runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/verify/usk_package_verify.cpp
+)
+set(USK_PRIVATE_INCLUDE_DIRS
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/audit"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/evidence"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/lifecycle"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/policy"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/state"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/transaction"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/verify"
+)
 
-add_library(usk ALIAS usk_static)
+set(USK_INSTALL_TARGETS usk_headers)
+
+if(USK_BUILD_STATIC)
+  add_library(usk_static STATIC ${USK_CORE_SOURCES})
+  set_target_properties(usk_static PROPERTIES
+    EXPORT_NAME CoreStatic
+    POSITION_INDEPENDENT_CODE ON
+  )
+  target_compile_features(usk_static PRIVATE cxx_std_17)
+  target_include_directories(usk_static PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
+  target_link_libraries(usk_static PUBLIC usk_headers)
+  usk_enable_strict_warnings(usk_static)
+  add_library(UniversalSetup::CoreStatic ALIAS usk_static)
+  add_library(usk ALIAS usk_static)
+  list(APPEND USK_INSTALL_TARGETS usk_static)
+endif()
+
+if(USK_BUILD_SHARED)
+  add_library(usk_shared SHARED ${USK_CORE_SOURCES})
+  set_target_properties(usk_shared PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    EXPORT_NAME CoreShared
+    OUTPUT_NAME usk
+    VISIBILITY_INLINES_HIDDEN YES
+  )
+  target_compile_features(usk_shared PRIVATE cxx_std_17)
+  target_include_directories(usk_shared PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
+  target_link_libraries(usk_shared PUBLIC usk_headers)
+  target_compile_definitions(usk_shared PRIVATE USK_BUILD_SHARED INTERFACE USK_USE_SHARED)
+  usk_enable_strict_warnings(usk_shared)
+  add_library(UniversalSetup::CoreShared ALIAS usk_shared)
+  list(APPEND USK_INSTALL_TARGETS usk_shared)
+endif()
+
+set(USK_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/UniversalSetup")
+set(USK_INSTALL_CONTRACTS_DIR "${CMAKE_INSTALL_DATADIR}/universal-setup/contracts/schema")
+set(USK_INSTALL_ABI_MANIFEST "${CMAKE_INSTALL_DATADIR}/universal-setup/contracts/abi/usk_c_abi.v1.toml")
+
+configure_package_config_file(
+  cmake/UniversalSetupConfig.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/UniversalSetupConfig.cmake"
+  INSTALL_DESTINATION "${USK_INSTALL_CMAKEDIR}"
+  PATH_VARS USK_INSTALL_CONTRACTS_DIR USK_INSTALL_ABI_MANIFEST
+)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/UniversalSetupConfigVersion.cmake"
+  VERSION "${PROJECT_VERSION}"
+  COMPATIBILITY ExactVersion
+)
+
+install(
+  TARGETS ${USK_INSTALL_TARGETS}
+  EXPORT UniversalSetupTargets
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+install(EXPORT UniversalSetupTargets
+  FILE UniversalSetupTargets.cmake
+  NAMESPACE UniversalSetup::
+  DESTINATION "${USK_INSTALL_CMAKEDIR}"
+)
+install(
+  FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/UniversalSetupConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/UniversalSetupConfigVersion.cmake"
+  DESTINATION "${USK_INSTALL_CMAKEDIR}"
+)
+install(DIRECTORY include/usk DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(
+  DIRECTORY contracts/schema/
+  DESTINATION "${USK_INSTALL_CONTRACTS_DIR}"
+  FILES_MATCHING PATTERN "*.json"
+)
+install(
+  FILES contracts/abi/usk_c_abi.v1.toml
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/universal-setup/contracts/abi"
+)
+install(
+  FILES LICENSE release/license.v1.toml
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/universal-setup"
+)
+install(
+  FILES cmake/README-SDK.md
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/universal-setup"
+)
 
 if(USK_BUILD_APPS)
   add_executable(usk_live_acceptance apps/cli/usk_live_acceptance.cpp)
@@ -116,6 +263,31 @@ endif()
 
 if(USK_BUILD_TESTS)
   enable_testing()
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+  add_executable(usk_abi_layout_smoke tests/native/usk_abi_layout_smoke.c)
+  target_link_libraries(usk_abi_layout_smoke PRIVATE usk_headers)
+  usk_enable_strict_warnings(usk_abi_layout_smoke)
+  add_test(NAME usk_abi_layout_smoke COMMAND usk_abi_layout_smoke)
+
+  foreach(USK_SDK_PHASE IN ITEMS workspace static shared combined)
+    set(USK_SDK_CONFORMANCE_COMMAND
+      "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake_sdk_conformance.py"
+      --work-dir "${CMAKE_CURRENT_BINARY_DIR}/sdk-conformance/${USK_SDK_PHASE}"
+      --config "$<CONFIG>"
+      --phase "${USK_SDK_PHASE}"
+    )
+    if(CMAKE_GENERATOR_PLATFORM)
+      list(APPEND USK_SDK_CONFORMANCE_COMMAND --platform "${CMAKE_GENERATOR_PLATFORM}")
+    endif()
+    add_test(
+      NAME "usk_cmake_sdk_${USK_SDK_PHASE}"
+      COMMAND ${USK_SDK_CONFORMANCE_COMMAND}
+    )
+    set_tests_properties("usk_cmake_sdk_${USK_SDK_PHASE}" PROPERTIES TIMEOUT 900)
+  endforeach()
+
   add_executable(usk_sha256_smoke tests/native/usk_sha256_smoke.cpp)
   target_compile_features(usk_sha256_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_sha256_smoke PRIVATE usk_base_static)
@@ -133,6 +305,10 @@ if(USK_BUILD_TESTS)
 
   add_executable(usk_archive_inspect_smoke tests/native/usk_archive_inspect_smoke.cpp)
   target_compile_features(usk_archive_inspect_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_archive_inspect_smoke PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
+  )
   target_link_libraries(usk_archive_inspect_smoke PRIVATE usk_static)
   add_test(NAME usk_archive_inspect_smoke COMMAND usk_archive_inspect_smoke)
 
@@ -176,6 +352,7 @@ if(USK_BUILD_TESTS)
 
   add_executable(usk_public_lifecycle_smoke tests/native/usk_public_lifecycle_smoke.cpp)
   target_compile_features(usk_public_lifecycle_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_public_lifecycle_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)
   add_test(NAME usk_public_lifecycle_smoke COMMAND usk_public_lifecycle_smoke)
 

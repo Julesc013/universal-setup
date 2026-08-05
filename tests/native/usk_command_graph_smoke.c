@@ -303,9 +303,10 @@ int main(void)
 
     usk_context_destroy_v1(context);
 
-    memset(&legacy_config, 0, sizeof(legacy_config));
-    legacy_config.struct_size = sizeof(legacy_config);
-    if (legacy_config.struct_size != USK_CONFIG_V1_BASE_SIZE ||
+    memset(&legacy_config, 0xa5, sizeof(legacy_config));
+    legacy_config.struct_size = USK_CONFIG_V1_BASE_SIZE;
+    legacy_config.state_root = 0;
+    if ((usk_size)sizeof(legacy_config) != USK_CONFIG_V1_BASE_SIZE ||
         usk_context_create_v1((const usk_config_v1*)&legacy_config, &context) != USK_STATUS_OK ||
         context == 0) {
         return 35;

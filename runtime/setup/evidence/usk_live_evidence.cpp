@@ -264,7 +264,8 @@ TargetSnapshot snapshot_target(
                 throw std::runtime_error("target snapshot encountered a redirected entry");
             }
             const std::string relative = fs::relative(entry.path(), absolute, error).generic_u8string();
-            if (error || relative.empty() || relative == "." || relative.find("..") == 0) {
+            if (error || relative.empty() || relative == "." ||
+                relative.compare(0u, 2u, "..") == 0) {
                 throw std::runtime_error("target snapshot relative path is invalid");
             }
             if (fs::is_directory(status)) {

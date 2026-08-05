@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal_setup.sdk_package_workunit.v1"
+workunit = "USK-CMAKE-SDK-PACKAGE-01"
+status = "task_complete"
+base_ref = "refs/heads/dev"
+base_revision = "7f8f2baa14e78b0329db8eef8ac872818c4cf30d"
+task_branch = "task/cmake-sdk-package-01"
+package_version = "1.0.0"
+c_abi_major = 1
+c_abi_minor = 0
+contract_maturity = "fixture-qualified"
+exported_targets = [
+  "UniversalSetup::Headers",
+  "UniversalSetup::CoreStatic",
+  "UniversalSetup::CoreShared",
+]
+required_modes = [
+  "source_workspace",
+  "installed_static",
+  "installed_shared",
+  "relocated_installed_static",
+  "relocated_installed_shared",
+]
+
+[scope]
+new_setup_behavior = false
+network_acquisition = false
+credentials = false
+live_mutation_authority = false
+consumer_repin = false
+consumer_adoption = false
+facman_pin_change = false
+product_execution = false
+signing = false
+publication = false
+contract_maturity_advanced = false
+
+[consumer_observation]
+facman_stable_usk_pin = "3048128963dc718a7c38c1cfcdda9e813a23b0db"
+pin_changed = false
+
+[installed_closure]
+public_headers = true
+static_library = true
+shared_library = true
+cmake_config = true
+cmake_version = true
+cmake_targets = true
+public_schemas = true
+abi_manifest = true
+license_and_notice = true
+sdk_guide = true
+private_cpp_headers = false
+test_fixtures = false

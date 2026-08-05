@@ -99,7 +99,7 @@ void append_utf8(std::string& output, std::uint32_t codepoint)
 
 class Parser {
 public:
-    Parser(const std::string& text, ParseLimits limits) : text_(text), limits_(limits)
+    Parser(const std::string& text, const ParseLimits& limits) : text_(text), limits_(limits)
     {
         if (text_.size() > limits_.max_bytes) throw std::runtime_error("JSON input exceeds byte budget");
     }

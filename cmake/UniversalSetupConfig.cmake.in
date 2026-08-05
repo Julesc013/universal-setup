@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+@PACKAGE_INIT@
+
+set(UniversalSetup_VERSION "@PROJECT_VERSION@")
+set_and_check(
+  UniversalSetup_CONTRACTS_DIR
+  "@PACKAGE_USK_INSTALL_CONTRACTS_DIR@"
+)
+set_and_check(
+  UniversalSetup_ABI_MANIFEST
+  "@PACKAGE_USK_INSTALL_ABI_MANIFEST@"
+)
+
+foreach(_usk_required_contract IN ITEMS
+    package/component_manifest.v1.schema.json
+    package/product_package.v1.schema.json
+    package/source_manifest.v1.schema.json
+    setup/product_setup_recipe.v1.schema.json
+    state/installed_state_compatibility.v1.schema.json)
+  if(NOT EXISTS "${UniversalSetup_CONTRACTS_DIR}/${_usk_required_contract}")
+    message(FATAL_ERROR
+      "UniversalSetup SDK contract closure is incomplete: ${_usk_required_contract}")
+  endif()
+endforeach()
+unset(_usk_required_contract)
+
+include("${CMAKE_CURRENT_LIST_DIR}/UniversalSetupTargets.cmake")
+check_required_components(UniversalSetup)
