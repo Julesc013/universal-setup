@@ -110,6 +110,29 @@ cmake -S . -B build/native-smoke
 cmake --build build/native-smoke
 ```
 
+## CMake SDK candidate
+
+`USK-CMAKE-SDK-PACKAGE-01` packages the existing implemented USK C ABI as an
+exact-version, relocatable CMake SDK. It exports only:
+
+```text
+UniversalSetup::Headers
+UniversalSetup::CoreStatic
+UniversalSetup::CoreShared
+```
+
+The installed closure contains the implemented public `usk` headers,
+static/shared libraries, public schemas, the USK ABI manifest, licence records, and the
+[SDK guide](cmake/README-SDK.md). Private C++ implementation headers and
+unimplemented `usu` declarations are not installed; aspirational archive,
+lifecycle, client, daemon, or mutation targets are not exported. Embedded
+consumers do not build USK apps or tests unless they opt in.
+
+The package version is `1.0.0`, the existing C ABI remains `1.0`, and the
+product-package and setup-recipe contracts remain `fixture-qualified`. SDK
+distribution does not authorize package acquisition, live mutation, consumer
+adoption, signing, or publication.
+
 The repository has an authoritative descriptor-driven command graph, bounded
 read-only package verification, and the complete fixture-proven M1 lifecycle.
 Package verification separates integrity, authenticity, compatibility,

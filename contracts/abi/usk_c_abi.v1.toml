@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal_setup.c_abi.v1"
+provider = "universal-setup"
+abi_major = 1
+abi_minor = 0
+calling_convention = "USK_CALL"
+response_lifetime = "borrowed_until_next_command_or_context_destroy"
+
+public_headers = [
+  "usk/usk_allocator.h",
+  "usk/usk_api.h",
+  "usk/usk_audit.h",
+  "usk/usk_command.h",
+  "usk/usk_context.h",
+  "usk/usk_error.h",
+  "usk/usk_install.h",
+  "usk/usk_manifest.h",
+  "usk/usk_result.h",
+  "usk/usk_transaction.h",
+  "usk/usk_types.h",
+  "usk/usk_verify.h",
+]
+
+exported_functions = [
+  "usk_abi_version_v1",
+  "usk_command_execute_v1",
+  "usk_context_create_v1",
+  "usk_context_destroy_v1",
+]
+
+[layout_prefixes]
+usk_config_v1_base = "USK_CONFIG_V1_BASE_SIZE"
+usk_config_v1_m1 = "USK_CONFIG_V1_M1_SIZE"
+usk_config_v1_current = "sizeof(usk_config_v1)"
+usk_command_request_v1 = "sizeof(usk_command_request_v1)"
+usk_command_response_v1 = "sizeof(usk_command_response_v1)"
+
+[layout_guards]
+usk_config_v1_base_bytes = 16
+usk_config_v1_m1_strictly_greater_than_base = true
+legacy_win32_x86_tail_padding_is_not_allocator_authority = true
+
+[authority]
+network_acquisition = false
+credentials = false
+live_mutation_opened_by_sdk = false
+consumer_adoption = false
+signing = false
+publication = false

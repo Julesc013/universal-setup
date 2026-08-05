@@ -58,6 +58,7 @@ ALLOWED_RELEASE_INDEX = {
     "contract_maturity.v1.toml",
     "incubator_intake.v1.toml",
     "provider_capabilities.v1.toml",
+    "sdk_package_workunit.v1.toml",
 }
 ALLOWED_PACKAGING_ROOTS = {"bsd", "linux", "macos", "portable", "windows"}
 ALLOWED_APPS = {"cli", "daemon", "gui", "tui"}

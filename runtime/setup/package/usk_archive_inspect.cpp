@@ -36,7 +36,6 @@ constexpr std::size_t max_request_string_bytes = 32768u;
 constexpr std::size_t max_request_values = 32u;
 constexpr std::size_t max_name_bytes = 4096u;
 constexpr std::size_t max_central_directory_bytes = 64u * 1024u * 1024u;
-constexpr std::uint64_t classic_zip_max = 0xffffffffull;
 constexpr std::uint64_t max_archive_bytes = 1ull << 40;
 constexpr std::uint64_t max_materialized_payload_bytes = 512ull * 1024ull * 1024ull;
 constexpr std::uint64_t max_inspection_elapsed_ms = 10ull * 60ull * 1000ull;
@@ -228,7 +227,7 @@ ArchiveRequest parse_archive_request(const std::string& text)
 
 std::uint16_t little16(const std::vector<unsigned char>& data, std::size_t offset)
 {
-    if (offset > data.size() || data.size() - offset < 2) {
+    if (offset >= data.size() || data.size() - offset < 2) {
         throw std::runtime_error("ZIP structure is truncated");
     }
     return static_cast<std::uint16_t>(data[offset]) |
@@ -237,7 +236,7 @@ std::uint16_t little16(const std::vector<unsigned char>& data, std::size_t offse
 
 std::uint32_t little32(const std::vector<unsigned char>& data, std::size_t offset)
 {
-    if (offset > data.size() || data.size() - offset < 4) {
+    if (offset >= data.size() || data.size() - offset < 4) {
         throw std::runtime_error("ZIP structure is truncated");
     }
     return static_cast<std::uint32_t>(data[offset]) |
@@ -248,7 +247,7 @@ std::uint32_t little32(const std::vector<unsigned char>& data, std::size_t offse
 
 std::uint64_t little64(const std::vector<unsigned char>& data, std::size_t offset)
 {
-    if (offset > data.size() || data.size() - offset < 8) {
+    if (offset >= data.size() || data.size() - offset < 8) {
         throw std::runtime_error("ZIP structure is truncated");
     }
     return static_cast<std::uint64_t>(little32(data, offset)) |
@@ -987,7 +986,12 @@ StoredArchivePayload inspect_stored_payload(
         if (!paths.insert(lowercase_ascii(path)).second) {
             throw std::runtime_error("strip prefix creates a payload path collision");
         }
-        std::vector<unsigned char> bytes = source.read(entry.data_offset, entry.compressed_size);
+        if (entry.compressed_size >
+            static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+            throw std::runtime_error("stored ZIP payload exceeds the addressable read size");
+        }
+        std::vector<unsigned char> bytes = source.read(
+            entry.data_offset, static_cast<std::size_t>(entry.compressed_size));
         if (payload_crc32(bytes) != entry.crc32) {
             throw std::runtime_error("stored ZIP payload CRC does not match reviewed metadata");
         }

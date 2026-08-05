@@ -37,13 +37,6 @@ std::string hash_bytes(const std::vector<unsigned char>& bytes)
     return digest.finish();
 }
 
-std::string hash_text(const std::string& text)
-{
-    usk::base::Sha256 digest;
-    digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
-    return digest.finish();
-}
-
 std::string lowercase(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
