@@ -12,6 +12,10 @@ set_and_check(
   UniversalSetup_ABI_MANIFEST
   "@PACKAGE_USK_INSTALL_ABI_MANIFEST@"
 )
+set_and_check(
+  UniversalSetup_PROVIDER_PACKAGE_MANIFEST
+  "@PACKAGE_USK_INSTALL_PROVIDER_MANIFEST@"
+)
 
 foreach(_usk_required_contract IN ITEMS
     package/component_manifest.v1.schema.json

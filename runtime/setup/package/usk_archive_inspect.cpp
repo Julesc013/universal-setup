@@ -943,7 +943,8 @@ std::string strip_entry_path(
 
 StoredArchivePayload inspect_stored_payload(
     const std::string& archive_inspection_request_json,
-    const std::string& strip_prefix)
+    const std::string& strip_prefix,
+    PayloadMemoryObservation* memory_observation)
 {
     Inspection inspection = inspect_zip(archive_inspection_request_json);
     if (inspection.uncompressed_bytes > max_materialized_payload_bytes) {
@@ -974,6 +975,9 @@ StoredArchivePayload inspect_stored_payload(
     result.source_identity_digest = source_identity_digest(inspection.identity);
     result.entry_set_digest = inspection.entry_set_digest;
     result.archive_size_bytes = inspection.identity.size_bytes;
+    std::uint64_t retained_payload_capacity = 0;
+    std::uint64_t peak_payload_capacity = 0;
+    std::uint64_t largest_entry_bytes = 0;
     std::set<std::string> paths;
     for (const Entry& entry : inspection.entries) {
         const std::string path = strip_entry_path(
@@ -992,15 +996,47 @@ StoredArchivePayload inspect_stored_payload(
         }
         std::vector<unsigned char> bytes = source.read(
             entry.data_offset, static_cast<std::size_t>(entry.compressed_size));
+        const std::uint64_t entry_capacity = bytes.capacity();
+        if (entry_capacity > max_materialized_payload_bytes ||
+            retained_payload_capacity >
+            max_materialized_payload_bytes - entry_capacity) {
+            throw std::runtime_error(
+                "archive payload vector capacity exceeds the materialization budget");
+        }
+        peak_payload_capacity = std::max(
+            peak_payload_capacity, retained_payload_capacity + entry_capacity);
+        largest_entry_bytes = std::max(largest_entry_bytes, entry.uncompressed_size);
         if (payload_crc32(bytes) != entry.crc32) {
             throw std::runtime_error("stored ZIP payload CRC does not match reviewed metadata");
         }
         usk::base::Sha256 digest;
         digest.update(bytes.data(), bytes.size());
         result.files.push_back(PayloadFile{path, std::move(bytes), digest.finish()});
+        const std::uint64_t retained_entry_capacity =
+            result.files.back().bytes.capacity();
+        if (retained_entry_capacity > max_materialized_payload_bytes ||
+            retained_payload_capacity >
+                max_materialized_payload_bytes - retained_entry_capacity) {
+            throw std::runtime_error(
+                "retained archive payload exceeds the materialization budget");
+        }
+        retained_payload_capacity += retained_entry_capacity;
+        peak_payload_capacity = std::max(
+            peak_payload_capacity, retained_payload_capacity);
         result.uncompressed_bytes += entry.uncompressed_size;
     }
     if (result.files.empty()) throw std::runtime_error("archive payload has no files after strip prefix");
+    if (memory_observation != nullptr) {
+        memory_observation->materialization_ceiling_bytes =
+            max_materialized_payload_bytes;
+        memory_observation->final_payload_size_bytes = result.uncompressed_bytes;
+        memory_observation->final_payload_capacity_bytes =
+            retained_payload_capacity;
+        memory_observation->peak_payload_capacity_bytes = peak_payload_capacity;
+        memory_observation->largest_entry_bytes = largest_entry_bytes;
+        memory_observation->file_count = result.files.size();
+        memory_observation->complete_payload_retained = true;
+    }
     source.verify_unchanged();
     return result;
 }

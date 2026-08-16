@@ -122,7 +122,8 @@ UniversalSetup::CoreShared
 ```
 
 The installed closure contains the implemented public `usk` headers,
-static/shared libraries, public schemas, the USK ABI manifest, licence records, and the
+static/shared libraries, public schemas, the USK ABI manifest, licence records,
+the generated `share/universal-setup/provider-package-manifest.v1.json`, and the
 [SDK guide](cmake/README-SDK.md). Private C++ implementation headers and
 unimplemented `usu` declarations are not installed; aspirational archive,
 lifecycle, client, daemon, or mutation targets are not exported. Embedded
@@ -132,6 +133,12 @@ The package version is `1.0.0`, the existing C ABI remains `1.0`, and the
 product-package and setup-recipe contracts remain `fixture-qualified`. SDK
 distribution does not authorize package acquisition, live mutation, consumer
 adoption, signing, or publication.
+
+The provider-package manifest is generated only after installation from the
+exact installed bytes. It binds the source commit/tree/ref, CMake package and C
+ABI versions, v1 installed-state and transaction-journal formats, public
+headers, schemas, targets, licences, toolchain/profile, and every installed
+artifact digest. It is identity evidence, not release or mutation authority.
 
 The repository has an authoritative descriptor-driven command graph, bounded
 read-only package verification, and the complete fixture-proven M1 lifecycle.
