@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.example/schemas/usk.provider_package_manifest.v1.schema.json",
+  "title": "Universal Setup installed provider package manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "provider",
+    "source",
+    "package",
+    "inventories",
+    "licence",
+    "qualification"
+  ],
+  "properties": {
+    "schema": { "const": "usk.provider_package_manifest.v1" },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "package_version",
+        "c_abi",
+        "state_formats",
+        "maturity",
+        "authority_exclusions"
+      ],
+      "properties": {
+        "id": { "const": "universal-setup" },
+        "package_version": { "const": "1.0.0" },
+        "c_abi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["major", "minor", "manifest_path", "manifest_sha256"],
+          "properties": {
+            "major": { "const": 1 },
+            "minor": { "const": 0 },
+            "manifest_path": {
+              "const": "share/universal-setup/contracts/abi/usk_c_abi.v1.toml"
+            },
+            "manifest_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "state_formats": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["installed_state", "transaction_journal"],
+          "properties": {
+            "installed_state": { "$ref": "#/$defs/v1Format" },
+            "transaction_journal": { "$ref": "#/$defs/v1Format" }
+          }
+        },
+        "maturity": { "const": "fixture-qualified" },
+        "authority_exclusions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "ref"],
+      "properties": {
+        "repository": { "const": "Julesc013/universal-setup" },
+        "commit": { "$ref": "#/$defs/sha1" },
+        "tree": { "$ref": "#/$defs/sha1" },
+        "ref": { "type": "string", "pattern": "^refs/" }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "architecture",
+        "linkage",
+        "configuration",
+        "toolchain",
+        "installed_targets"
+      ],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "linkage": { "enum": ["static", "shared", "combined"] },
+        "configuration": { "type": "string", "minLength": 1 },
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version", "compiler"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "compiler": { "type": "string", "minLength": 1 }
+          }
+        },
+        "installed_targets": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "UniversalSetup::Headers",
+              "UniversalSetup::CoreStatic",
+              "UniversalSetup::CoreShared"
+            ]
+          },
+          "minItems": 2,
+          "uniqueItems": true
+        }
+      }
+    },
+    "inventories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "artifacts",
+        "artifacts_sha256",
+        "public_headers",
+        "public_headers_sha256",
+        "contracts",
+        "contracts_sha256"
+      ],
+      "properties": {
+        "algorithm": { "const": "sha256-canonical-json-v1" },
+        "artifacts": { "$ref": "#/$defs/inventory" },
+        "artifacts_sha256": { "$ref": "#/$defs/sha256" },
+        "public_headers": { "$ref": "#/$defs/inventory" },
+        "public_headers_sha256": { "$ref": "#/$defs/sha256" },
+        "contracts": { "$ref": "#/$defs/inventory" },
+        "contracts_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "licence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expression", "files", "files_sha256"],
+      "properties": {
+        "expression": { "const": "MIT" },
+        "files": { "$ref": "#/$defs/inventory" },
+        "files_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tck_revision", "requirements"],
+      "properties": {
+        "tck_revision": { "$ref": "#/$defs/sha1" },
+        "requirements": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha1": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "v1Format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read_versions", "write_version"],
+      "properties": {
+        "read_versions": {
+          "type": "array",
+          "prefixItems": [{ "const": 1 }],
+          "items": false,
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "write_version": { "const": 1 }
+      }
+    },
+    "inventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "inventory": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/inventoryEntry" },
+      "minItems": 1
+    }
+  }
+}

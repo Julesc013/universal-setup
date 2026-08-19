@@ -25,9 +25,20 @@ struct StoredArchivePayload {
     std::vector<PayloadFile> files;
 };
 
+struct PayloadMemoryObservation {
+    std::uint64_t materialization_ceiling_bytes = 0;
+    std::uint64_t final_payload_size_bytes = 0;
+    std::uint64_t final_payload_capacity_bytes = 0;
+    std::uint64_t peak_payload_capacity_bytes = 0;
+    std::uint64_t largest_entry_bytes = 0;
+    std::uint64_t file_count = 0;
+    bool complete_payload_retained = false;
+};
+
 StoredArchivePayload inspect_stored_payload(
     const std::string& archive_inspection_request_json,
-    const std::string& strip_prefix);
+    const std::string& strip_prefix,
+    PayloadMemoryObservation* memory_observation = nullptr);
 
 } // namespace usk::archive
 

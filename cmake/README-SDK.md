@@ -24,3 +24,12 @@ the package is 1.0.0, the C ABI is 1.0, and the product-package and setup-recipe
 contracts remain fixture-qualified. Installing this SDK grants no acquisition,
 network, credential, live-mutation, consumer-adoption, signing, publication, or
 product authority.
+
+Every install generates
+`share/universal-setup/provider-package-manifest.v1.json` after all package
+files are present. It binds the exact source commit/tree/ref, package and C ABI
+identity, v1 installed-state and transaction-journal formats, public headers,
+contracts, CMake targets, toolchain/profile, licences, and SHA-256 for every
+installed artifact. A source archive without Git metadata must supply the
+exact source identity and explicitly opt into the archive-source path at
+configure time.

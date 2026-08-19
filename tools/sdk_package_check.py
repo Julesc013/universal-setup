@@ -107,6 +107,8 @@ def check() -> list[str]:
         "configure_package_config_file",
         "write_basic_package_version_file",
         "install(EXPORT UniversalSetupTargets",
+        "GenerateProviderPackageManifest.cmake",
+        "USK_INSTALL_PROVIDER_MANIFEST",
         "install(DIRECTORY include/usk DESTINATION",
         "$<BUILD_INTERFACE:",
         "$<INSTALL_INTERFACE:",

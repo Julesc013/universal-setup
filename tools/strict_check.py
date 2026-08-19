@@ -17,6 +17,7 @@ from tools import (
     language_runtime_policy_check,
     license_policy_check,
     product_package_contract_check,
+    provider_package_manifest,
     sdk_package_check,
     structure_policy_check,
 )
@@ -29,6 +30,7 @@ def main() -> int:
         ("language-runtime-policy", language_runtime_policy_check.main),
         ("license-policy", license_policy_check.main),
         ("product-package-contract", product_package_contract_check.main),
+        ("provider-package-manifest", provider_package_manifest.main_for_check),
         ("sdk-package", sdk_package_check.main),
         ("m2-adversarial-coverage", adversarial_coverage_check.main),
     ]
