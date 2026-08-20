@@ -6,6 +6,8 @@ project(universal_setup VERSION 1.0.0 LANGUAGES C CXX)
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
+find_package(Git QUIET)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 option(USK_BUILD_APPS "Build Universal Setup app frontends" "${PROJECT_IS_TOP_LEVEL}")
 option(USK_BUILD_TESTS "Build Universal Setup native tests" "${PROJECT_IS_TOP_LEVEL}")
@@ -200,12 +202,80 @@ endif()
 set(USK_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/UniversalSetup")
 set(USK_INSTALL_CONTRACTS_DIR "${CMAKE_INSTALL_DATADIR}/universal-setup/contracts/schema")
 set(USK_INSTALL_ABI_MANIFEST "${CMAKE_INSTALL_DATADIR}/universal-setup/contracts/abi/usk_c_abi.v1.toml")
+set(USK_INSTALL_PROVIDER_MANIFEST "${CMAKE_INSTALL_DATADIR}/universal-setup/provider-package-manifest.v1.json")
+set(USK_SOURCE_REPOSITORY "Julesc013/universal-setup" CACHE STRING "Provider source repository identity")
+set(USK_SOURCE_COMMIT "" CACHE STRING "Exact 40-hex source commit for package identity")
+set(USK_SOURCE_TREE "" CACHE STRING "Exact 40-hex source tree for package identity")
+set(USK_SOURCE_REF "" CACHE STRING "Source ref recorded in the provider package manifest")
+option(
+  USK_ALLOW_UNVERIFIABLE_ARCHIVE_SOURCE
+  "Allow explicitly supplied source identity when the source tree has no Git metadata"
+  OFF
+)
+
+if(Git_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  if(NOT USK_SOURCE_COMMIT)
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}" rev-parse HEAD
+      OUTPUT_VARIABLE USK_SOURCE_COMMIT
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+  endif()
+  if(NOT USK_SOURCE_TREE)
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}" rev-parse "HEAD^{tree}"
+      OUTPUT_VARIABLE USK_SOURCE_TREE
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+  endif()
+  if(NOT USK_SOURCE_REF)
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_CURRENT_SOURCE_DIR}" symbolic-ref --quiet HEAD
+      OUTPUT_VARIABLE USK_SOURCE_REF
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE USK_SOURCE_REF_RESULT
+    )
+    if(NOT USK_SOURCE_REF_RESULT EQUAL 0)
+      set(USK_SOURCE_REF "refs/detached/${USK_SOURCE_COMMIT}")
+    endif()
+  endif()
+endif()
+
+string(LENGTH "${USK_SOURCE_COMMIT}" USK_SOURCE_COMMIT_LENGTH)
+if(NOT USK_SOURCE_COMMIT_LENGTH EQUAL 40 OR NOT USK_SOURCE_COMMIT MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "USK_SOURCE_COMMIT must be an exact 40-hex source commit")
+endif()
+string(LENGTH "${USK_SOURCE_TREE}" USK_SOURCE_TREE_LENGTH)
+if(NOT USK_SOURCE_TREE_LENGTH EQUAL 40 OR NOT USK_SOURCE_TREE MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "USK_SOURCE_TREE must be an exact 40-hex source tree")
+endif()
+if(NOT USK_SOURCE_REF MATCHES "^refs/")
+  message(FATAL_ERROR "USK_SOURCE_REF must be a complete refs/... identity")
+endif()
+
+if(USK_BUILD_STATIC AND USK_BUILD_SHARED)
+  set(USK_PROVIDER_LINKAGE "combined")
+elseif(USK_BUILD_STATIC)
+  set(USK_PROVIDER_LINKAGE "static")
+else()
+  set(USK_PROVIDER_LINKAGE "shared")
+endif()
+if(CMAKE_GENERATOR_PLATFORM)
+  set(USK_PROVIDER_ARCHITECTURE "${CMAKE_GENERATOR_PLATFORM}")
+else()
+  set(USK_PROVIDER_ARCHITECTURE "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
 
 configure_package_config_file(
   cmake/UniversalSetupConfig.cmake.in
   "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/UniversalSetupConfig.cmake"
   INSTALL_DESTINATION "${USK_INSTALL_CMAKEDIR}"
-  PATH_VARS USK_INSTALL_CONTRACTS_DIR USK_INSTALL_ABI_MANIFEST
+  PATH_VARS
+    USK_INSTALL_CONTRACTS_DIR
+    USK_INSTALL_ABI_MANIFEST
+    USK_INSTALL_PROVIDER_MANIFEST
 )
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/UniversalSetupConfigVersion.cmake"
@@ -250,6 +320,12 @@ install(
   FILES cmake/README-SDK.md
   DESTINATION "${CMAKE_INSTALL_DATADIR}/universal-setup"
 )
+configure_file(
+  cmake/GenerateProviderPackageManifest.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/GenerateProviderPackageManifest.cmake"
+  @ONLY
+)
+install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/cmake-package/GenerateProviderPackageManifest.cmake")
 
 if(USK_BUILD_APPS)
   add_executable(usk_live_acceptance apps/cli/usk_live_acceptance.cpp)
@@ -263,7 +339,6 @@ endif()
 
 if(USK_BUILD_TESTS)
   enable_testing()
-  find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
   add_executable(usk_abi_layout_smoke tests/native/usk_abi_layout_smoke.c)
   target_link_libraries(usk_abi_layout_smoke PRIVATE usk_headers)
@@ -285,7 +360,12 @@ if(USK_BUILD_TESTS)
       NAME "usk_cmake_sdk_${USK_SDK_PHASE}"
       COMMAND ${USK_SDK_CONFORMANCE_COMMAND}
     )
-    set_tests_properties("usk_cmake_sdk_${USK_SDK_PHASE}" PROPERTIES TIMEOUT 900)
+    set_tests_properties(
+      "usk_cmake_sdk_${USK_SDK_PHASE}"
+      PROPERTIES
+        ENVIRONMENT "CMAKE_GENERATOR=${CMAKE_GENERATOR}"
+        TIMEOUT 900
+    )
   endforeach()
 
   add_executable(usk_sha256_smoke tests/native/usk_sha256_smoke.cpp)

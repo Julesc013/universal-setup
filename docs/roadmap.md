@@ -237,6 +237,21 @@ to canonical `main`. Consumer adoption remains a later exact-pin pull request.
   Windows x64/Win32, Linux, and macOS. Protected `dev` integration and later
   `main` promotion remain separate owner-reviewed actions.
 
+## USK-PROVIDER-PACKAGE-TRUTH-01 — Conditional continuation
+
+- Generate `usk.provider_package_manifest.v1` from installed package bytes for
+  exact package `1.0.0`, C ABI `1.0`, and v1 installed-state and transaction
+  journal formats.
+- Bind source commit/tree/ref, the complete static/shared installed closure,
+  public headers and contracts, CMake targets, licences, toolchain/profile, and
+  qualification revision without granting publication or live authority.
+- Characterize the current stored-ZIP lifecycle as complete-payload ownership
+  under the unchanged 512 MiB materialization ceiling before designing a
+  private bounded reader-to-sink successor.
+- Preserve public C ABI 1.0, all target/path/ownership/transaction refusals,
+  and the existing package ceiling. Do not add full Deflate, installed
+  generations, network acquisition, public USU SPI, or an alpha release.
+
 ## Later provider distribution candidates
 
 - Add binary runtime archives, non-CMake native discovery, debug-symbol

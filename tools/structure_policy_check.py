@@ -58,6 +58,7 @@ ALLOWED_RELEASE_INDEX = {
     "contract_maturity.v1.toml",
     "incubator_intake.v1.toml",
     "provider_capabilities.v1.toml",
+    "provider_package_truth_workunit.v1.toml",
     "sdk_package_workunit.v1.toml",
 }
 ALLOWED_PACKAGING_ROOTS = {"bsd", "linux", "macos", "portable", "windows"}
@@ -148,6 +149,7 @@ def check_required_paths() -> list[str]:
         ROOT / "contracts" / "schema" / "package" / "component_manifest.v1.schema.json",
         ROOT / "contracts" / "schema" / "package" / "product_package.v1.schema.json",
         ROOT / "contracts" / "schema" / "package" / "source_manifest.v1.schema.json",
+        ROOT / "contracts" / "schema" / "package" / "provider_package_manifest.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "install_plan.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "recipe.v1.schema.json",
         ROOT / "contracts" / "schema" / "setup" / "product_setup_recipe.v1.schema.json",

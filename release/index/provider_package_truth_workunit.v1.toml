@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal_setup.provider_package_truth_workunit.v1"
+workunit = "USK-PROVIDER-PACKAGE-TRUTH-01"
+status = "active_implementation"
+base_ref = "refs/heads/dev"
+base_revision = "6dc48673d54fb27ac4e8949da6f43275d36c9622"
+task_branch = "task/usk-provider-package-manifest-01"
+package_version = "1.0.0"
+c_abi_major = 1
+c_abi_minor = 0
+installed_state_read_versions = [1]
+installed_state_write_version = 1
+transaction_journal_read_versions = [1]
+transaction_journal_write_version = 1
+materialized_payload_ceiling_bytes = 536870912
+
+[scope]
+provider_manifest = true
+memory_characterization = true
+private_streaming_slice = false
+public_abi_change = false
+network_acquisition = false
+live_foreign_mutation = false
+consumer_adoption = false
+signing = false
+publication = false
+release = false

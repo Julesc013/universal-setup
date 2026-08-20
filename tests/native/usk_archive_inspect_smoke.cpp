@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -260,13 +261,17 @@ std::string request_json_from_utf8_path(
     const std::string& archive_path,
     int max_entries = 100,
     int max_depth = 32,
-    int max_ratio = 100)
+    int max_ratio = 100,
+    std::uint64_t max_uncompressed_bytes = 1048576,
+    std::uint64_t max_entry_bytes = 524288)
 {
     return "{\"schema\":\"usk.archive_inspect_request.v1\","
         "\"archive_path\":\"" + json_escape(archive_path) + "\","
         "\"archive_format\":\"zip\",\"budgets\":{"
         "\"max_entries\":" + std::to_string(max_entries) + ","
-        "\"max_uncompressed_bytes\":1048576,\"max_entry_bytes\":524288,"
+        "\"max_uncompressed_bytes\":" +
+        std::to_string(max_uncompressed_bytes) +
+        ",\"max_entry_bytes\":" + std::to_string(max_entry_bytes) + ","
         "\"max_depth\":" + std::to_string(max_depth) + ","
         "\"max_ratio\":" + std::to_string(max_ratio) + ","
         "\"max_elapsed_ms\":30000}}";
@@ -276,10 +281,17 @@ std::string request_json(
     const fs::path& archive,
     int max_entries = 100,
     int max_depth = 32,
-    int max_ratio = 100)
+    int max_ratio = 100,
+    std::uint64_t max_uncompressed_bytes = 1048576,
+    std::uint64_t max_entry_bytes = 524288)
 {
     return request_json_from_utf8_path(
-        archive.u8string(), max_entries, max_depth, max_ratio);
+        archive.u8string(),
+        max_entries,
+        max_depth,
+        max_ratio,
+        max_uncompressed_bytes,
+        max_entry_bytes);
 }
 
 std::string reordered_request_json(const fs::path& archive)
@@ -491,6 +503,62 @@ int main()
         payload.files[1].sha256.size() != 64) {
         return 8;
     }
+
+    const fs::path small_memory_zip = root / "memory-small.zip";
+    write_zip(small_memory_zip, {
+        {"payload/a.bin", std::string(64u * 1024u, 'a')},
+        {"payload/b.bin", std::string(64u * 1024u, 'b')}
+    });
+    usk::archive::PayloadMemoryObservation small_memory;
+    const auto small_payload = usk::archive::inspect_stored_payload(
+        request_json(small_memory_zip), "payload", &small_memory);
+
+    const fs::path large_memory_zip = root / "memory-large.zip";
+    write_zip(large_memory_zip, {
+        {"payload/a.bin", std::string(4u * 1024u * 1024u, 'a')},
+        {"payload/b.bin", std::string(2u * 1024u * 1024u, 'b')}
+    });
+    usk::archive::PayloadMemoryObservation large_memory;
+    const auto large_payload = usk::archive::inspect_stored_payload(
+        request_json(
+            large_memory_zip,
+            100,
+            32,
+            100,
+            8u * 1024u * 1024u,
+            4u * 1024u * 1024u),
+        "payload",
+        &large_memory);
+    if (!small_memory.complete_payload_retained ||
+        !large_memory.complete_payload_retained ||
+        small_memory.file_count != 2 || large_memory.file_count != 2 ||
+        small_memory.final_payload_size_bytes != small_payload.uncompressed_bytes ||
+        large_memory.final_payload_size_bytes != large_payload.uncompressed_bytes ||
+        small_memory.final_payload_capacity_bytes < small_payload.uncompressed_bytes ||
+        large_memory.final_payload_capacity_bytes < large_payload.uncompressed_bytes ||
+        small_memory.peak_payload_capacity_bytes <
+            small_memory.final_payload_capacity_bytes ||
+        large_memory.peak_payload_capacity_bytes <
+            large_memory.final_payload_capacity_bytes ||
+        large_memory.peak_payload_capacity_bytes <=
+            small_memory.peak_payload_capacity_bytes ||
+        large_memory.peak_payload_capacity_bytes >
+            large_memory.materialization_ceiling_bytes ||
+        large_memory.materialization_ceiling_bytes != 512ull * 1024ull * 1024ull ||
+        large_memory.largest_entry_bytes != 4ull * 1024ull * 1024ull) {
+        return 121;
+    }
+    std::cout
+        << "payload-memory-characterization: {\"schema\":\"usk.payload_memory_characterization.v1\""
+        << ",\"materialization_ceiling_bytes\":"
+        << large_memory.materialization_ceiling_bytes
+        << ",\"small_logical_bytes\":" << small_memory.final_payload_size_bytes
+        << ",\"small_peak_capacity_bytes\":"
+        << small_memory.peak_payload_capacity_bytes
+        << ",\"large_logical_bytes\":" << large_memory.final_payload_size_bytes
+        << ",\"large_peak_capacity_bytes\":"
+        << large_memory.peak_payload_capacity_bytes
+        << ",\"complete_payload_retained\":true}\n";
 
     const fs::path valid_zip64 = root / "valid-zip64.zip";
     write_zip64(valid_zip64, {
