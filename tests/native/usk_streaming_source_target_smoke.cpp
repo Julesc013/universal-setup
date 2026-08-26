@@ -30,7 +30,7 @@ struct Fixture {
     explicit Fixture(const std::string& name)
     {
         const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-        root = fs::current_path() / "build" / "streaming-smoke-runtime" /
+        root = fs::temp_directory_path() /
             ("usk-streaming-" + name + "-" + std::to_string(nonce));
         source = root / "source";
         staging = root / "staging";
