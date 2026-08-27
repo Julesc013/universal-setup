@@ -48,6 +48,7 @@ struct StreamingPayloadFile {
     std::uint32_t crc32 = 0;
     std::uint64_t size_bytes = 0;
     PayloadReader reader;
+    std::string compression_method;
 };
 
 struct StreamingStoredArchivePayload {
@@ -63,6 +64,8 @@ struct StreamingStoredArchivePayload {
 struct StreamingPayloadMemoryObservation {
     std::uint64_t logical_payload_bytes = 0;
     std::uint64_t peak_payload_buffer_bytes = 0;
+    std::uint64_t peak_compressed_input_buffer_bytes = 0;
+    std::uint64_t peak_total_stream_buffer_bytes = 0;
     std::uint64_t file_count = 0;
     bool complete_payload_retained = false;
 };
@@ -73,6 +76,12 @@ StoredArchivePayload inspect_stored_payload(
     PayloadMemoryObservation* memory_observation = nullptr);
 
 StreamingStoredArchivePayload inspect_streaming_stored_payload(
+    const std::string& archive_inspection_request_json,
+    const std::string& strip_prefix,
+    std::size_t payload_buffer_bytes = 64u * 1024u,
+    StreamingPayloadMemoryObservation* memory_observation = nullptr);
+
+StreamingStoredArchivePayload inspect_streaming_payload(
     const std::string& archive_inspection_request_json,
     const std::string& strip_prefix,
     std::size_t payload_buffer_bytes = 64u * 1024u,

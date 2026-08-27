@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -35,6 +36,8 @@ struct ZipEntry {
     std::string local_name;
     std::vector<unsigned char> local_extra;
     std::vector<unsigned char> central_extra;
+    std::optional<std::string> uncompressed_data;
+    std::optional<std::uint32_t> crc32_value;
 };
 
 struct WrittenEntry {
@@ -52,6 +55,63 @@ std::uint32_t crc32(const std::string& data)
         }
     }
     return ~crc;
+}
+
+const std::string& logical_data(const ZipEntry& entry)
+{
+    return entry.uncompressed_data.has_value()
+        ? *entry.uncompressed_data
+        : entry.data;
+}
+
+std::string bytes_from_hex(const std::string& value)
+{
+    if (value.size() % 2u != 0u) {
+        throw std::runtime_error("hex fixture length is invalid");
+    }
+    std::string result;
+    result.reserve(value.size() / 2u);
+    for (std::size_t index = 0; index < value.size(); index += 2u) {
+        result.push_back(static_cast<char>(std::stoul(value.substr(index, 2u), nullptr, 16)));
+    }
+    return result;
+}
+
+ZipEntry deflate_entry(
+    std::string name,
+    const std::string& compressed_hex,
+    std::string plain)
+{
+    ZipEntry result;
+    result.name = std::move(name);
+    result.data = bytes_from_hex(compressed_hex);
+    result.method = 8;
+    result.uncompressed_data = std::move(plain);
+    return result;
+}
+
+std::string read_streaming_file(const usk::archive::StreamingPayloadFile& file)
+{
+    std::string result;
+    result.resize(static_cast<std::size_t>(file.size_bytes));
+    std::uint64_t offset = 0;
+    while (offset < file.size_bytes) {
+        const std::size_t capacity = static_cast<std::size_t>(
+            std::min<std::uint64_t>(37u, file.size_bytes - offset));
+        const std::size_t count = file.reader(
+            offset,
+            reinterpret_cast<unsigned char*>(result.data()) + offset,
+            capacity);
+        if (count == 0u || count > capacity) {
+            throw std::runtime_error("streaming fixture reader returned an invalid count");
+        }
+        offset += count;
+    }
+    unsigned char probe = 0;
+    if (file.reader(offset, &probe, 1u) != 0u) {
+        throw std::runtime_error("streaming fixture exceeded its reviewed size");
+    }
+    return result;
 }
 
 void append16(std::vector<unsigned char>& output, std::uint16_t value)
@@ -195,6 +255,98 @@ void write_repeated_stored_zip(
     if (!output) throw std::runtime_error("could not write large ZIP fixture");
 }
 
+void write_repeated_deflate_zip(
+    const fs::path& path,
+    const std::string& name,
+    unsigned char value,
+    std::uint32_t size)
+{
+    constexpr std::uint32_t max_block = 65535u;
+    const std::uint32_t block_count =
+        size == 0u ? 1u : (size + max_block - 1u) / max_block;
+    const std::uint32_t compressed_size = size + block_count * 5u;
+    std::fstream output(
+        path,
+        std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);
+    if (!output) throw std::runtime_error("could not create large Deflate ZIP fixture");
+
+    write32(output, 0x04034b50u);
+    write16(output, 20);
+    write16(output, 0);
+    write16(output, 8);
+    write16(output, 0);
+    write16(output, 0);
+    const std::streampos local_crc_offset = output.tellp();
+    write32(output, 0);
+    write32(output, compressed_size);
+    write32(output, size);
+    write16(output, static_cast<std::uint16_t>(name.size()));
+    write16(output, 0);
+    output.write(name.data(), static_cast<std::streamsize>(name.size()));
+
+    constexpr std::size_t fixture_buffer_bytes = 1024u * 1024u;
+    const std::array<std::uint32_t, 256>& table = crc32_table();
+    std::vector<unsigned char> buffer(fixture_buffer_bytes, value);
+    std::uint32_t crc = 0xffffffffu;
+    std::uint64_t remaining = size;
+    for (std::uint32_t block = 0; block < block_count; ++block) {
+        const std::uint16_t count = static_cast<std::uint16_t>(
+            std::min<std::uint64_t>(remaining, max_block));
+        output.put(static_cast<char>(block + 1u == block_count ? 0x01 : 0x00));
+        write16(output, count);
+        write16(output, static_cast<std::uint16_t>(~count));
+        std::uint32_t block_remaining = count;
+        while (block_remaining != 0u) {
+            const std::size_t chunk = std::min<std::size_t>(
+                block_remaining, buffer.size());
+            output.write(
+                reinterpret_cast<const char*>(buffer.data()),
+                static_cast<std::streamsize>(chunk));
+            for (std::size_t index = 0; index < chunk; ++index) {
+                crc = (crc >> 8) ^ table[(crc ^ buffer[index]) & 0xffu];
+            }
+            block_remaining -= static_cast<std::uint32_t>(chunk);
+            remaining -= chunk;
+        }
+    }
+    crc = ~crc;
+    const std::streampos central_offset = output.tellp();
+    output.seekp(local_crc_offset);
+    write32(output, crc);
+    output.seekp(central_offset);
+    write32(output, 0x02014b50u);
+    write16(output, static_cast<std::uint16_t>((3u << 8) | 20u));
+    write16(output, 20);
+    write16(output, 0);
+    write16(output, 8);
+    write16(output, 0);
+    write16(output, 0);
+    write32(output, crc);
+    write32(output, compressed_size);
+    write32(output, size);
+    write16(output, static_cast<std::uint16_t>(name.size()));
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    write32(output, 0100644u << 16);
+    write32(output, 0);
+    output.write(name.data(), static_cast<std::streamsize>(name.size()));
+    const std::uint32_t central_size = static_cast<std::uint32_t>(
+        output.tellp() - central_offset);
+    write32(output, 0x06054b50u);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 1);
+    write16(output, 1);
+    write32(output, central_size);
+    write32(output, static_cast<std::uint32_t>(central_offset));
+    write16(output, 0);
+    if (!output || remaining != 0u) {
+        throw std::runtime_error("could not write large Deflate ZIP fixture");
+    }
+}
+
 void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
 {
     std::vector<unsigned char> bytes;
@@ -208,14 +360,14 @@ void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
         const std::uint32_t compressed = spec.compressed_size.value_or(
             static_cast<std::uint32_t>(spec.data.size()));
         const std::uint32_t uncompressed = spec.uncompressed_size.value_or(
-            static_cast<std::uint32_t>(spec.data.size()));
+            static_cast<std::uint32_t>(logical_data(spec).size()));
         append32(bytes, 0x04034b50u);
         append16(bytes, 20);
         append16(bytes, spec.flags);
         append16(bytes, spec.method);
         append16(bytes, 0);
         append16(bytes, 0);
-        append32(bytes, crc32(spec.data));
+        append32(bytes, spec.crc32_value.value_or(crc32(logical_data(spec))));
         append32(bytes, compressed);
         append32(bytes, uncompressed);
         append16(bytes, static_cast<std::uint16_t>(local_name.size()));
@@ -231,7 +383,7 @@ void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
         const std::uint32_t compressed = spec.compressed_size.value_or(
             static_cast<std::uint32_t>(spec.data.size()));
         const std::uint32_t uncompressed = spec.uncompressed_size.value_or(
-            static_cast<std::uint32_t>(spec.data.size()));
+            static_cast<std::uint32_t>(logical_data(spec).size()));
         append32(bytes, 0x02014b50u);
         append16(bytes, static_cast<std::uint16_t>((3u << 8) | 20u));
         append16(bytes, 20);
@@ -239,7 +391,7 @@ void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
         append16(bytes, spec.method);
         append16(bytes, 0);
         append16(bytes, 0);
-        append32(bytes, crc32(spec.data));
+        append32(bytes, spec.crc32_value.value_or(crc32(logical_data(spec))));
         append32(bytes, compressed);
         append32(bytes, uncompressed);
         append16(bytes, static_cast<std::uint16_t>(spec.name.size()));
@@ -283,14 +435,14 @@ void write_zip64(const fs::path& path, const std::vector<ZipEntry>& specs)
         const std::uint32_t compressed = spec.compressed_size.value_or(
             static_cast<std::uint32_t>(spec.data.size()));
         const std::uint32_t uncompressed = spec.uncompressed_size.value_or(
-            static_cast<std::uint32_t>(spec.data.size()));
+            static_cast<std::uint32_t>(logical_data(spec).size()));
         append32(bytes, 0x04034b50u);
         append16(bytes, 45);
         append16(bytes, spec.flags);
         append16(bytes, spec.method);
         append16(bytes, 0);
         append16(bytes, 0);
-        append32(bytes, crc32(spec.data));
+        append32(bytes, spec.crc32_value.value_or(crc32(logical_data(spec))));
         append32(bytes, compressed);
         append32(bytes, uncompressed);
         append16(bytes, static_cast<std::uint16_t>(local_name.size()));
@@ -306,7 +458,7 @@ void write_zip64(const fs::path& path, const std::vector<ZipEntry>& specs)
         const std::uint32_t compressed = spec.compressed_size.value_or(
             static_cast<std::uint32_t>(spec.data.size()));
         const std::uint32_t uncompressed = spec.uncompressed_size.value_or(
-            static_cast<std::uint32_t>(spec.data.size()));
+            static_cast<std::uint32_t>(logical_data(spec).size()));
         std::vector<unsigned char> central_extra = spec.central_extra;
         append16(central_extra, 0x0001u);
         append16(central_extra, 8u);
@@ -318,7 +470,7 @@ void write_zip64(const fs::path& path, const std::vector<ZipEntry>& specs)
         append16(bytes, spec.method);
         append16(bytes, 0);
         append16(bytes, 0);
-        append32(bytes, crc32(spec.data));
+        append32(bytes, spec.crc32_value.value_or(crc32(logical_data(spec))));
         append32(bytes, compressed);
         append32(bytes, uncompressed);
         append16(bytes, static_cast<std::uint16_t>(spec.name.size()));
@@ -749,6 +901,183 @@ int main()
         << ",\"complete_payload_retained\":false}\n";
     }
 
+    {
+    const std::string fixed_plain = std::string("hello deflate world\n") +
+        std::string("hello deflate world\n") +
+        std::string("hello deflate world\n") +
+        std::string("hello deflate world\n");
+    std::string fixed_plain_32;
+    for (int index = 0; index < 8; ++index) fixed_plain_32 += fixed_plain;
+    std::string dynamic_plain;
+    for (int index = 0; index < 256; ++index) {
+        dynamic_plain += "alpha beta gamma delta ";
+    }
+    std::string multiple_blocks;
+    for (int index = 0; index < 50; ++index) multiple_blocks += "block-one-";
+    for (int index = 0; index < 50; ++index) multiple_blocks += "block-two-";
+    const std::string raw_stored_plain = "raw stored deflate block";
+
+    const ZipEntry fixed = deflate_entry(
+        "payload/fixed.txt",
+        "cb48cdc9c95748494dcb492c495528cf2fca49e1ca18151b15cba18f1800",
+        fixed_plain_32);
+    const ZipEntry dynamic = deflate_entry(
+        "payload/dynamic.txt",
+        "edc8c109c0201405b055fe6a4f143d28f4d0fd69d710720bc97e56aa8d3735734eaa8ffd3b5a6badb5d65a6badb5d65a6badf5cdfd01",
+        dynamic_plain);
+    const ZipEntry multiple = deflate_entry(
+        "payload/multiple.txt",
+        "4acac94fced6cdcf4bd54d1a65e98e0c16000000ffff83f8b2a43c7f94553e525800",
+        multiple_blocks);
+    const ZipEntry raw_stored = deflate_entry(
+        "payload/raw-stored.txt",
+        "011800e7ff7261772073746f726564206465666c61746520626c6f636b",
+        raw_stored_plain);
+    const ZipEntry empty = deflate_entry("payload/empty.txt", "0300", "");
+    const fs::path deflate_zip = root / "deflate-mixed.zip";
+    write_zip(deflate_zip, {
+        {"payload/", "", (0040755u << 16) | 0x10u},
+        {"payload/stored.txt", "stored"},
+        fixed,
+        dynamic,
+        multiple,
+        raw_stored,
+        empty,
+    });
+    usk::archive::StreamingPayloadMemoryObservation deflate_memory;
+    const auto deflate_payload = usk::archive::inspect_streaming_payload(
+        request_json(deflate_zip, 100, 32, 200),
+        "payload",
+        64u * 1024u,
+        &deflate_memory);
+    if (deflate_payload.files.size() != 6u ||
+        deflate_memory.complete_payload_retained ||
+        deflate_memory.peak_payload_buffer_bytes != 64u * 1024u ||
+        deflate_memory.peak_compressed_input_buffer_bytes != 64u * 1024u ||
+        deflate_memory.peak_total_stream_buffer_bytes != 128u * 1024u) {
+        return 138;
+    }
+    const std::map<std::string, std::pair<std::string, std::string>> expected = {
+        {"stored.txt", {"stored", "stored"}},
+        {"fixed.txt", {"deflate", fixed_plain_32}},
+        {"dynamic.txt", {"deflate", dynamic_plain}},
+        {"multiple.txt", {"deflate", multiple_blocks}},
+        {"raw-stored.txt", {"deflate", raw_stored_plain}},
+        {"empty.txt", {"deflate", ""}},
+    };
+    for (const auto& file : deflate_payload.files) {
+        const auto found = expected.find(file.relative_path);
+        if (found == expected.end() ||
+            file.compression_method != found->second.first ||
+            read_streaming_file(file) != found->second.second) {
+            return 139;
+        }
+    }
+    bool stored_only_refused = false;
+    try {
+        (void)usk::archive::inspect_streaming_stored_payload(
+            request_json(deflate_zip, 100, 32, 200), "payload");
+    } catch (const std::exception& exception) {
+        stored_only_refused = contains(exception.what(), "requires stored");
+    }
+    if (!stored_only_refused) return 140;
+
+    const fs::path exact_ratio_zip = root / "deflate-exact-ratio.zip";
+    write_zip(exact_ratio_zip, {fixed});
+    (void)usk::archive::inspect_streaming_payload(
+        request_json(exact_ratio_zip, 100, 32, 22), "payload");
+    bool ratio_over_refused = false;
+    try {
+        (void)usk::archive::inspect_streaming_payload(
+            request_json(exact_ratio_zip, 100, 32, 21), "payload");
+    } catch (const std::exception& exception) {
+        ratio_over_refused = contains(exception.what(), "compression-ratio");
+    }
+    if (!ratio_over_refused) return 149;
+
+    const fs::path deflate_zip64 = root / "deflate-zip64.zip";
+    write_zip64(deflate_zip64, {fixed, empty});
+    const auto zip64_deflate_payload = usk::archive::inspect_streaming_payload(
+        request_json(deflate_zip64, 100, 32, 200), "payload");
+    if (zip64_deflate_payload.files.size() != 2u) return 141;
+    for (const auto& file : zip64_deflate_payload.files) {
+        const std::string expected_value =
+            file.relative_path == "fixed.txt" ? fixed_plain_32 : "";
+        if ((file.relative_path != "fixed.txt" &&
+             file.relative_path != "empty.txt") ||
+            read_streaming_file(file) != expected_value) {
+            return 141;
+        }
+    }
+
+    std::vector<ZipEntry> malformed;
+    ZipEntry truncated = fixed;
+    truncated.name = "payload/truncated.txt";
+    truncated.data.pop_back();
+    malformed.push_back(truncated);
+    ZipEntry trailing = fixed;
+    trailing.name = "payload/trailing.txt";
+    trailing.data.push_back('\0');
+    malformed.push_back(trailing);
+    ZipEntry corrupt = dynamic;
+    corrupt.name = "payload/corrupt.txt";
+    corrupt.data[corrupt.data.size() / 2u] ^= 0x20;
+    malformed.push_back(corrupt);
+    ZipEntry forged_short = fixed;
+    forged_short.name = "payload/forged-short.txt";
+    forged_short.uncompressed_size =
+        static_cast<std::uint32_t>(fixed_plain_32.size() - 1u);
+    malformed.push_back(forged_short);
+    ZipEntry forged_long = fixed;
+    forged_long.name = "payload/forged-long.txt";
+    forged_long.uncompressed_size =
+        static_cast<std::uint32_t>(fixed_plain_32.size() + 1u);
+    malformed.push_back(forged_long);
+    ZipEntry wrong_crc = fixed;
+    wrong_crc.name = "payload/wrong-crc.txt";
+    wrong_crc.crc32_value = crc32(fixed_plain_32) ^ 1u;
+    malformed.push_back(wrong_crc);
+    for (std::size_t index = 0; index < malformed.size(); ++index) {
+        const fs::path malformed_zip =
+            root / ("deflate-malformed-" + std::to_string(index) + ".zip");
+        write_zip(malformed_zip, {malformed[index]});
+        bool rejected = false;
+        try {
+            (void)usk::archive::inspect_streaming_payload(
+                request_json(malformed_zip, 100, 32, 200), "payload");
+        } catch (const std::exception&) {
+            rejected = true;
+        }
+        if (!rejected) return static_cast<int>(142 + index);
+    }
+
+    std::size_t mutation_refusals = 0;
+    for (std::size_t byte_index = 0; byte_index < fixed.data.size(); ++byte_index) {
+        for (unsigned bit = 0; bit < 8u; ++bit) {
+            ZipEntry mutated = fixed;
+            mutated.name = "payload/mutated.txt";
+            mutated.data[byte_index] ^= static_cast<char>(1u << bit);
+            const fs::path mutation_zip = root /
+                ("deflate-mutation-" + std::to_string(byte_index) + "-" +
+                 std::to_string(bit) + ".zip");
+            write_zip(mutation_zip, {mutated});
+            try {
+                const auto mutation_payload =
+                    usk::archive::inspect_streaming_payload(
+                        request_json(mutation_zip, 100, 32, 200), "payload");
+                if (mutation_payload.files.size() != 1u ||
+                    read_streaming_file(mutation_payload.files.front()) !=
+                        fixed_plain_32) {
+                    return 150;
+                }
+            } catch (const std::exception&) {
+                ++mutation_refusals;
+            }
+        }
+    }
+    if (mutation_refusals == 0u) return 151;
+    }
+
     const char* large_streaming_proof =
         std::getenv("USK_LARGE_STREAMING_MEMORY_PROOF");
     if (large_streaming_proof != nullptr &&
@@ -826,12 +1155,76 @@ int main()
             error.clear();
             fs::remove(proof_zip, error);
             if (error) return static_cast<int>(134 + index);
+
+            const fs::path deflate_proof_zip = root /
+                ("memory-deflate-streaming-" +
+                 std::to_string(proof_case.size_bytes) + ".zip");
+            write_repeated_deflate_zip(
+                deflate_proof_zip,
+                "payload/blob.bin",
+                proof_case.value,
+                proof_case.size_bytes);
+            {
+            usk::archive::StreamingPayloadMemoryObservation deflate_observation;
+            const auto deflate_proof = usk::archive::inspect_streaming_payload(
+                request_json(
+                    deflate_proof_zip,
+                    100,
+                    32,
+                    100,
+                    proof_case.size_bytes,
+                    proof_case.size_bytes,
+                    600000),
+                "payload",
+                streaming_buffer_bytes,
+                &deflate_observation);
+            if (deflate_proof.files.size() != 1u ||
+                deflate_proof.files.front().compression_method != "deflate" ||
+                deflate_observation.complete_payload_retained ||
+                deflate_observation.peak_payload_buffer_bytes !=
+                    streaming_buffer_bytes ||
+                deflate_observation.peak_compressed_input_buffer_bytes !=
+                    streaming_buffer_bytes ||
+                deflate_observation.peak_total_stream_buffer_bytes !=
+                    2u * streaming_buffer_bytes) {
+                return static_cast<int>(154 + index);
+            }
+            std::vector<unsigned char> streamed(streaming_buffer_bytes);
+            std::uint64_t streamed_offset = 0;
+            while (streamed_offset < proof_case.size_bytes) {
+                const std::size_t capacity = static_cast<std::size_t>(
+                    std::min<std::uint64_t>(
+                        streamed.size(), proof_case.size_bytes - streamed_offset));
+                const std::size_t count = deflate_proof.files.front().reader(
+                    streamed_offset, streamed.data(), capacity);
+                if (count == 0u || count > capacity ||
+                    !std::all_of(
+                        streamed.data(),
+                        streamed.data() + count,
+                        [&](unsigned char byte) {
+                            return byte == proof_case.value;
+                        })) {
+                    return static_cast<int>(158 + index);
+                }
+                streamed_offset += count;
+            }
+            unsigned char deflate_probe = 0;
+            if (deflate_proof.files.front().reader(
+                    streamed_offset, &deflate_probe, 1u) != 0u) {
+                return static_cast<int>(162 + index);
+            }
+            }
+            error.clear();
+            fs::remove(deflate_proof_zip, error);
+            if (error) return static_cast<int>(166 + index);
         }
         std::cout
             << "payload-large-streaming-characterization: {\"schema\":"
                "\"usk.payload_large_streaming_characterization.v1\""
             << ",\"logical_payload_bytes\":[1048576,67108864,536870912]"
             << ",\"peak_payload_buffer_bytes\":" << streaming_buffer_bytes
+            << ",\"peak_deflate_stream_buffers_bytes\":"
+            << 2u * streaming_buffer_bytes
             << ",\"complete_payload_retained\":false}\n";
     }
 

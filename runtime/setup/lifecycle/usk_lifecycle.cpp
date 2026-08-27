@@ -499,7 +499,10 @@ std::vector<usk::lifecycle::PayloadFile> read_complete_tree(const fs::path& root
         total += file.identity().size_bytes;
         auto bytes = file.read(0, static_cast<std::size_t>(file.identity().size_bytes));
         file.verify_unchanged();
-        result.push_back({entry.path().lexically_relative(root).generic_string(), std::move(bytes)});
+        usk::lifecycle::PayloadFile payload;
+        payload.relative_path = entry.path().lexically_relative(root).generic_string();
+        payload.bytes = std::move(bytes);
+        result.push_back(std::move(payload));
     }
     normalize_files(result);
     return result;

@@ -319,7 +319,7 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     const fs::path source_path = required_archive_path(archive);
     require_setup_probe(config, source_path);
     usk::archive::StreamingStoredArchivePayload payload =
-        usk::archive::inspect_streaming_stored_payload(
+        usk::archive::inspect_streaming_payload(
         usk::json::canonical(inspection_request), archive.at("strip_prefix").as_string());
     if (payload.source_sha256 != required_string(archive, "expected_sha256")) {
         throw PublicError("source_drift", "source archive digest differs from the reviewed request");
@@ -608,7 +608,7 @@ RepairPlanBundle build_repair_plan(const Value& request, const PublicConfig& con
     const auto installed = current_install(config, install_id);
     const Value& archive = request.at("archive");
     const fs::path source_path = required_archive_path(archive);
-    auto payload = usk::archive::inspect_streaming_stored_payload(
+    auto payload = usk::archive::inspect_streaming_payload(
         usk::json::canonical(fixed_archive_inspection_request(archive)),
         archive.at("strip_prefix").as_string());
     const std::string expected = required_string(archive, "expected_sha256");

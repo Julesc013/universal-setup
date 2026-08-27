@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -45,27 +46,50 @@ std::uint32_t crc32(const std::string& data)
     return ~crc;
 }
 
-void write_zip(const fs::path& path)
+std::string bytes_from_hex(const std::string& value)
 {
-    struct Entry { std::string name; std::string data; std::uint32_t offset; };
-    std::vector<Entry> entries = {{"product/bin/probe.txt", "synthetic-version-1\n", 0},
-                                  {"product/data/config.ini", "enabled=true\n", 0}};
+    if (value.size() % 2u != 0u) throw std::runtime_error("invalid fixture hex");
+    std::string result;
+    result.reserve(value.size() / 2u);
+    for (std::size_t index = 0; index < value.size(); index += 2u) {
+        result.push_back(static_cast<char>(
+            std::stoul(value.substr(index, 2u), nullptr, 16)));
+    }
+    return result;
+}
+
+void write_zip(const fs::path& path, bool deflated = false)
+{
+    struct Entry {
+        std::string name;
+        std::string data;
+        std::string archive_data;
+        std::uint16_t method;
+        std::uint32_t offset;
+    };
+    std::vector<Entry> entries = {
+        {"product/bin/probe.txt", "synthetic-version-1\n",
+         deflated ? bytes_from_hex("2baecc2bc9482dc94cd62d4b2d2acecccfd335e40200") : "synthetic-version-1\n",
+         static_cast<std::uint16_t>(deflated ? 8 : 0), 0},
+        {"product/data/config.ini", "enabled=true\n",
+         deflated ? bytes_from_hex("4bcd4b4cca494db12d292a4de50200") : "enabled=true\n",
+         static_cast<std::uint16_t>(deflated ? 8 : 0), 0}};
     std::vector<unsigned char> bytes;
     for (Entry& entry : entries) {
         entry.offset = static_cast<std::uint32_t>(bytes.size());
-        append32(bytes, 0x04034b50u); append16(bytes, 20); append16(bytes, 0); append16(bytes, 0);
+        append32(bytes, 0x04034b50u); append16(bytes, 20); append16(bytes, 0); append16(bytes, entry.method);
         append16(bytes, 0); append16(bytes, 0); append32(bytes, crc32(entry.data));
-        append32(bytes, static_cast<std::uint32_t>(entry.data.size()));
+        append32(bytes, static_cast<std::uint32_t>(entry.archive_data.size()));
         append32(bytes, static_cast<std::uint32_t>(entry.data.size()));
         append16(bytes, static_cast<std::uint16_t>(entry.name.size())); append16(bytes, 0);
         bytes.insert(bytes.end(), entry.name.begin(), entry.name.end());
-        bytes.insert(bytes.end(), entry.data.begin(), entry.data.end());
+        bytes.insert(bytes.end(), entry.archive_data.begin(), entry.archive_data.end());
     }
     const std::uint32_t central_offset = static_cast<std::uint32_t>(bytes.size());
     for (const Entry& entry : entries) {
         append32(bytes, 0x02014b50u); append16(bytes, 0x0314u); append16(bytes, 20);
-        append16(bytes, 0); append16(bytes, 0); append16(bytes, 0); append16(bytes, 0);
-        append32(bytes, crc32(entry.data)); append32(bytes, static_cast<std::uint32_t>(entry.data.size()));
+        append16(bytes, 0); append16(bytes, entry.method); append16(bytes, 0); append16(bytes, 0);
+        append32(bytes, crc32(entry.data)); append32(bytes, static_cast<std::uint32_t>(entry.archive_data.size()));
         append32(bytes, static_cast<std::uint32_t>(entry.data.size()));
         append16(bytes, static_cast<std::uint16_t>(entry.name.size())); append16(bytes, 0);
         append16(bytes, 0); append16(bytes, 0); append16(bytes, 0); append32(bytes, (0100644u << 16));
@@ -175,6 +199,80 @@ int main()
     config.target_policy_activation = "operator_acceptance_candidate";
     usk_context* context = nullptr;
     if (usk_context_create_v1(&config, &context) != USK_STATUS_OK) return 4;
+
+    {
+        const fs::path deflate_archive = root / "synthetic-deflate.zip";
+        const fs::path deflate_setup_root = root / "setup-deflate";
+        const fs::path deflate_target = root / "managed-deflate";
+        write_zip(deflate_archive, true);
+        const std::string deflate_setup = deflate_setup_root.string();
+        usk_config_v1 deflate_config{};
+        deflate_config.struct_size = sizeof(deflate_config);
+        deflate_config.state_root = deflate_setup.c_str();
+        deflate_config.authorized_acceptance_root = acceptance.c_str();
+        deflate_config.target_policy_activation = "operator_acceptance_candidate";
+        usk_context* deflate_context = nullptr;
+        if (usk_context_create_v1(&deflate_config, &deflate_context) != USK_STATUS_OK) {
+            return 60;
+        }
+        const Value deflate_plan_request = plan_request(
+            deflate_archive,
+            deflate_target,
+            usk::base::sha256_hex_file(deflate_archive));
+        response = execute(
+            deflate_context, "install_local.plan", deflate_plan_request, 1, status);
+        if (status != USK_STATUS_OK || fs::exists(deflate_target)) return 61;
+        const std::string deflate_plan_digest =
+            usk::json::parse(response).at("payload").at("plan_digest").as_string();
+        const Value deflate_apply = apply_request(
+            "usk.install_local_apply_request.v1",
+            deflate_plan_request,
+            "plan.install.1",
+            deflate_plan_digest,
+            "tx.deflate.install",
+            "2026-07-14T01:00:01Z");
+        response = execute(
+            deflate_context, "install_local.apply", deflate_apply, 0, status);
+        if (status != USK_STATUS_OK ||
+            read_text(deflate_target / "bin/probe.txt") != "synthetic-version-1\n" ||
+            read_text(deflate_target / "data/config.ini") != "enabled=true\n") {
+            return 62;
+        }
+
+        write_text(deflate_target / "bin/probe.txt", "corrupted\n");
+        const Value deflate_repair_plan(Value::Object{
+            {"archive", Value(Value::Object{
+                {"expected_sha256", Value(usk::base::sha256_hex_file(deflate_archive))},
+                {"format", Value("zip")}, {"path", Value(deflate_archive.u8string())},
+                {"strip_prefix", Value("product")}})},
+            {"install_id", Value("synthetic.install.1")},
+            {"created_at", Value("2026-07-14T01:00:02Z")},
+            {"plan_id", Value("plan.deflate.repair")},
+            {"request_id", Value("repair.deflate.request")},
+            {"schema", Value("usk.repair_plan_request.v1")}});
+        response = execute(
+            deflate_context, "repair.plan", deflate_repair_plan, 1, status);
+        if (status != USK_STATUS_OK) {
+            std::cerr << "deflate repair plan: " << response << '\n';
+            return 63;
+        }
+        const std::string deflate_repair_digest =
+            usk::json::parse(response).at("payload").at("plan_digest").as_string();
+        const Value deflate_repair_apply = apply_request(
+            "usk.repair_apply_request.v1",
+            deflate_repair_plan,
+            "plan.deflate.repair",
+            deflate_repair_digest,
+            "tx.deflate.repair",
+            "2026-07-14T01:00:03Z");
+        response = execute(
+            deflate_context, "repair.apply", deflate_repair_apply, 0, status);
+        if (status != USK_STATUS_OK ||
+            read_text(deflate_target / "bin/probe.txt") != "synthetic-version-1\n") {
+            return 64;
+        }
+        usk_context_destroy_v1(deflate_context);
+    }
 
     const fs::path replaced_archive = root / "source-replacement.zip";
     const fs::path replaced_target = root / "source-replacement-target";

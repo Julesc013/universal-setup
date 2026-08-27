@@ -35,11 +35,17 @@ COVERED_SUFFIXES = {".c", ".cmake", ".cpp", ".h", ".py", ".toml", ".yaml", ".yml
 IGNORED_PARTS = {".git", ".pytest_cache", "__pycache__", "build", "dist", "out"}
 
 
+def separately_validated_third_party(relative: Path) -> bool:
+    return relative.parts[:3] == ("external", "zlib", "upstream")
+
+
 def covered_files() -> list[Path]:
     files: list[Path] = []
     for path in ROOT.rglob("*"):
         relative = path.relative_to(ROOT)
-        if not path.is_file() or any(part in IGNORED_PARTS for part in relative.parts):
+        if (not path.is_file() or
+                any(part in IGNORED_PARTS for part in relative.parts) or
+                separately_validated_third_party(relative)):
             continue
         if path.name in {".gitattributes", "CMakeLists.txt"} or path.suffix.lower() in COVERED_SUFFIXES:
             files.append(path)
@@ -64,7 +70,7 @@ def validate() -> list[str]:
             "schema": "universal_setup.license.v1",
             "project_id": "universal_setup",
             "spdx_license_expression": "MIT",
-            "package_license_expression": "MIT",
+            "package_license_expression": "MIT AND Zlib",
             "license_file": "LICENSE",
             "publication_status": "unpublished",
             "publisher_authenticity": "not_proven_unsigned",
@@ -72,6 +78,16 @@ def validate() -> list[str]:
         for key, value in expected.items():
             if contract.get(key) != value:
                 problems.append(f"license contract {key} must be {value!r}")
+        if contract.get("third_party_runtime_dependencies") != ["zlib@1.3.2"]:
+            problems.append("license contract must bind zlib@1.3.2")
+        if contract.get("third_party_dependency") != [{
+            "id": "zlib",
+            "version": "1.3.2",
+            "spdx_license_expression": "Zlib",
+            "license_file": "zlib-LICENSE",
+            "provenance_file": "external/zlib/provenance.v1.toml",
+        }]:
+            problems.append("license contract zlib dependency record drifted")
 
     for path in covered_files():
         header = "\n".join(path.read_text(encoding="utf-8").splitlines()[:8])

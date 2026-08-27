@@ -41,20 +41,22 @@ misrepresented as streaming.
 
 ## Current public lifecycle ownership
 
-`inspect_streaming_stored_payload` performs the same bounded ZIP and path
-inspection, reopens the exact stable archive, revalidates its source digest,
-and incrementally calculates CRC32 and SHA-256 through one configured buffer.
-It returns metadata and offset-bounded readers, not entry byte vectors. Install
-and repair plans bind the metadata; apply feeds each reader into
+`inspect_streaming_payload` performs the same bounded ZIP and path inspection,
+reopens the exact stable archive, revalidates its source digest, and
+incrementally calculates CRC32 and SHA-256. Stored entries use one configured
+output buffer. Deflate entries use one equally bounded private compressed-input
+buffer plus the output buffer and require sequential reviewed offsets. It
+returns metadata and bounded readers, not entry byte vectors. Install and
+repair plans bind the metadata; apply feeds each reader into
 `TransactionSession::stage_file_stream`, which independently verifies size and
 SHA-256 before target visibility.
 
 `StreamingPayloadMemoryObservation` is deliberately limited to logical payload
-bytes, selected file count, configured peak payload-buffer capacity, and
-whether a complete payload is retained. It is not a process RSS claim and does
-not include ZIP central-directory metadata, descriptors, strings, allocator
-headers, transaction buffers outside the measured payload buffer, or executable
-image memory.
+bytes, selected file count, configured output/input/combined stream-buffer
+capacity, and whether a complete payload is retained. It is not a process RSS
+claim and does not include ZIP central-directory metadata, descriptors,
+strings, allocator headers, zlib's bounded internal window/state, transaction
+metadata, or executable image memory.
 
 The native archive proof compares 128 KiB and 6 MiB logical stored payloads and
 requires both to retain a 65,536-byte peak payload buffer with
@@ -65,13 +67,18 @@ failures leave no target visible and transition intact recorded staging to
 
 An opt-in slow proof (`USK_LARGE_STREAMING_MEMORY_PROOF=1`) constructs its ZIP
 fixtures directly on disk through a 1 MiB test buffer rather than materializing
-their entries. It inspects separate 1 MiB, 64 MiB, and 512 MiB stored entries,
-requires every observation to report the same 65,536-byte peak payload buffer
-and `complete_payload_retained=false`, and reads the first and last 4 KiB of
-each returned offset-bounded reader. The normal two-entry proof above remains
-the multiple-entry case. This is a payload-buffer characterization, not a
-whole-process memory or RSS claim.
+their entries. It inspects separate 1 MiB, 64 MiB, and 512 MiB stored and raw
+Deflate-block entries. Stored observations retain the same 65,536-byte output
+buffer; Deflate observations retain 65,536-byte input and output buffers, or
+131,072 configured stream-buffer bytes total. Every case requires
+`complete_payload_retained=false` and streams reviewed boundary content. The
+normal two-entry proof above remains the multiple-entry case. This is a
+stream-buffer characterization, not a whole-process memory or RSS claim.
 
-Stored classic ZIP and single-disk ZIP64 entries use this path. Deflate remains
-outside the lifecycle boundary because no reviewed decompressor dependency is
-present.
+Stored and Deflate classic ZIP and single-disk ZIP64 entries use this path.
+Deflate is raw RFC 1951 (`inflateInit2(..., -MAX_WBITS)`) from an exact,
+unmodified zlib 1.3.2 private subset compiled with `Z_PREFIX`. Every stream must
+terminate at the exact
+declared compressed and uncompressed boundaries; trailing bytes, truncation,
+malformed trees/distances, size drift, CRC drift, and source drift fail before
+target visibility.
