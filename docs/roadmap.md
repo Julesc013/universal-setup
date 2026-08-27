@@ -252,6 +252,22 @@ to canonical `main`. Consumer adoption remains a later exact-pin pull request.
   and the existing package ceiling. Do not add full Deflate, installed
   generations, network acquisition, public USU SPI, or an alpha release.
 
+## USK-STORED-ZIP-STREAMING-01 — Conditional continuation
+
+- Replace the public install and repair lifecycle's complete-payload ownership
+  with reviewed stored-entry descriptors and bounded readers while preserving
+  public C ABI 1.0 and every existing path, target, ownership, and transaction
+  refusal.
+- Bind normalized path, size, CRC32, SHA-256, source identity, source digest,
+  and entry-set digest during planning; re-read the exact stable archive handle
+  into transaction staging through one 64 KiB payload buffer during apply.
+- Support stored classic ZIP and stored single-disk ZIP64 entries. Continue to
+  refuse Deflate because no reviewed decompressor dependency is present.
+- Prove payload-buffer independence across 128 KiB and 6 MiB logical fixtures,
+  end-to-end public install and repair, source-read/integrity/write faults,
+  automatic no-visible-target rollback, and unchanged recovery-required
+  behavior after target visibility.
+
 ## Later provider distribution candidates
 
 - Add binary runtime archives, non-CMake native discovery, debug-symbol

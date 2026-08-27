@@ -11,6 +11,7 @@
 #include "usk_utf8_path.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -21,6 +22,7 @@
 #include <initializer_list>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -913,6 +915,42 @@ std::uint32_t payload_crc32(const std::vector<unsigned char>& bytes)
     return ~crc;
 }
 
+class PayloadIntegrity {
+public:
+    void update(const unsigned char* data, std::size_t size)
+    {
+        sha256_.update(data, size);
+        const auto& table = crc32_table();
+        for (std::size_t index = 0; index < size; ++index) {
+            crc32_ = table[(crc32_ ^ data[index]) & 0xffu] ^ (crc32_ >> 8);
+        }
+    }
+
+    std::string finish_sha256() { return sha256_.finish(); }
+    std::uint32_t finish_crc32() const { return ~crc32_; }
+
+private:
+    static const std::array<std::uint32_t, 256>& crc32_table()
+    {
+        static const std::array<std::uint32_t, 256> table = [] {
+            std::array<std::uint32_t, 256> values {};
+            for (std::size_t index = 0; index < values.size(); ++index) {
+                std::uint32_t value = static_cast<std::uint32_t>(index);
+                for (int bit = 0; bit < 8; ++bit) {
+                    value = (value >> 1) ^
+                        (0xedb88320u & (0u - (value & 1u)));
+                }
+                values[index] = value;
+            }
+            return values;
+        }();
+        return table;
+    }
+
+    usk::base::Sha256 sha256_;
+    std::uint32_t crc32_ = 0xffffffffu;
+};
+
 std::string source_identity_digest(const usk::base::StableFileIdentity& identity)
 {
     const std::string text = identity.volume_id + "\n" + identity.file_id + "\n" +
@@ -1038,6 +1076,124 @@ StoredArchivePayload inspect_stored_payload(
         memory_observation->complete_payload_retained = true;
     }
     source.verify_unchanged();
+    return result;
+}
+
+StreamingStoredArchivePayload inspect_streaming_stored_payload(
+    const std::string& archive_inspection_request_json,
+    const std::string& strip_prefix,
+    std::size_t payload_buffer_bytes,
+    StreamingPayloadMemoryObservation* memory_observation)
+{
+    if (payload_buffer_bytes < 4096u ||
+        payload_buffer_bytes > 4u * 1024u * 1024u) {
+        throw std::runtime_error("stored ZIP streaming buffer budget is invalid");
+    }
+    Inspection inspection = inspect_zip(archive_inspection_request_json);
+    std::string normalized_prefix;
+    if (!strip_prefix.empty()) {
+        bool trailing = false;
+        normalized_prefix = normalize_path(strip_prefix, trailing, inspection.budgets);
+        if (trailing) throw std::runtime_error("strip prefix must not have a trailing separator");
+    }
+
+    auto source = std::make_shared<usk::base::StableFile>(inspection.path);
+    if (source->identity().volume_id != inspection.identity.volume_id ||
+        source->identity().file_id != inspection.identity.file_id ||
+        source->identity().size_bytes != inspection.identity.size_bytes ||
+        source->identity().modified_time_ns != inspection.identity.modified_time_ns) {
+        throw std::runtime_error("source archive identity changed after inspection");
+    }
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(inspection.budgets.max_elapsed_ms);
+    if (hash_source_until(*source, deadline) != inspection.source_sha256) {
+        throw std::runtime_error("source archive digest changed after inspection");
+    }
+
+    StreamingStoredArchivePayload result;
+    result.source_sha256 = inspection.source_sha256;
+    result.source_identity_digest = source_identity_digest(inspection.identity);
+    result.entry_set_digest = inspection.entry_set_digest;
+    result.archive_size_bytes = inspection.identity.size_bytes;
+    result.payload_buffer_bytes = payload_buffer_bytes;
+    std::vector<unsigned char> buffer(payload_buffer_bytes);
+    std::set<std::string> paths;
+    for (const Entry& entry : inspection.entries) {
+        const std::string path = strip_entry_path(
+            entry.normalized_path, normalized_prefix, entry.directory);
+        if (entry.directory || path.empty()) continue;
+        if (entry.compression_method != 0 ||
+            entry.compressed_size != entry.uncompressed_size) {
+            throw std::runtime_error(
+                "public lifecycle streaming currently requires stored ZIP file entries");
+        }
+        if (!paths.insert(lowercase_ascii(path)).second) {
+            throw std::runtime_error("strip prefix creates a payload path collision");
+        }
+
+        PayloadIntegrity integrity;
+        std::uint64_t offset = 0;
+        while (offset < entry.uncompressed_size) {
+            if (std::chrono::steady_clock::now() > deadline) {
+                throw std::runtime_error("stored ZIP streaming inspection exceeded its time budget");
+            }
+            const std::size_t count = static_cast<std::size_t>(
+                std::min<std::uint64_t>(
+                    buffer.size(), entry.uncompressed_size - offset));
+            source->read_into(entry.data_offset + offset, buffer.data(), count);
+            integrity.update(buffer.data(), count);
+            offset += count;
+        }
+        const std::string sha256 = integrity.finish_sha256();
+        if (integrity.finish_crc32() != entry.crc32) {
+            throw std::runtime_error(
+                "stored ZIP streaming payload CRC does not match reviewed metadata");
+        }
+        source->verify_unchanged();
+        const std::uint64_t data_offset = entry.data_offset;
+        const std::uint64_t size_bytes = entry.uncompressed_size;
+        result.files.push_back(StreamingPayloadFile{
+            path,
+            sha256,
+            entry.crc32,
+            size_bytes,
+            [source, data_offset, size_bytes, deadline](
+                std::uint64_t relative_offset,
+                unsigned char* output,
+                std::size_t capacity) -> std::size_t {
+                if (relative_offset > size_bytes) {
+                    throw std::runtime_error(
+                        "stored ZIP streaming reader offset exceeds the reviewed entry");
+                }
+                if (relative_offset == size_bytes) {
+                    source->verify_unchanged();
+                    return 0;
+                }
+                if (output == nullptr || capacity == 0u) {
+                    throw std::runtime_error(
+                        "stored ZIP streaming reader requires an output buffer");
+                }
+                if (std::chrono::steady_clock::now() > deadline) {
+                    throw std::runtime_error(
+                        "stored ZIP streaming apply exceeded its time budget");
+                }
+                const std::size_t count = static_cast<std::size_t>(
+                    std::min<std::uint64_t>(capacity, size_bytes - relative_offset));
+                source->read_into(data_offset + relative_offset, output, count);
+                return count;
+            }});
+        result.uncompressed_bytes += entry.uncompressed_size;
+    }
+    if (result.files.empty()) {
+        throw std::runtime_error("archive payload has no files after strip prefix");
+    }
+    source->verify_unchanged();
+    if (memory_observation != nullptr) {
+        memory_observation->logical_payload_bytes = result.uncompressed_bytes;
+        memory_observation->peak_payload_buffer_bytes = buffer.size();
+        memory_observation->file_count = result.files.size();
+        memory_observation->complete_payload_retained = false;
+    }
     return result;
 }
 

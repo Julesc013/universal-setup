@@ -1,10 +1,11 @@
-# Stored-ZIP payload memory characterization
+# Stored-ZIP payload memory and streaming characterization
 
-`USK-PROVIDER-PACKAGE-TRUTH-01` records the current private lifecycle memory
-model before any streaming implementation is attempted. It does not change the
-public C ABI or the 512 MiB materialization ceiling.
+`USK-PROVIDER-PACKAGE-TRUTH-01` recorded the former lifecycle memory model.
+`USK-STORED-ZIP-STREAMING-01` retains that baseline as a regression
+characterization and replaces the public install and repair path with bounded
+stored-entry readers. Neither WorkUnit changes public C ABI 1.0.
 
-## Current ownership
+## Former complete-payload ownership
 
 `inspect_stored_payload` first reads bounded ZIP metadata, then reads every
 selected stored entry into its own `std::vector<unsigned char>`. Each vector is
@@ -35,8 +36,42 @@ all logical bytes, and requires every peak to remain below the unchanged
 536,870,912-byte ceiling. The executable emits one canonical JSON observation
 line for a durable test receipt.
 
-This characterization prevents the existing whole-payload model from being
-misrepresented as streaming. A later private reader-to-sink slice must prove a
-peak bound independent of logical input size before it can replace this path.
-It must preserve stable-file identity, CRC and SHA-256 verification, normalized
-path and collision refusals, transaction staging, and recovery semantics.
+This retained characterization prevents the legacy helper from being
+misrepresented as streaming.
+
+## Current public lifecycle ownership
+
+`inspect_streaming_stored_payload` performs the same bounded ZIP and path
+inspection, reopens the exact stable archive, revalidates its source digest,
+and incrementally calculates CRC32 and SHA-256 through one configured buffer.
+It returns metadata and offset-bounded readers, not entry byte vectors. Install
+and repair plans bind the metadata; apply feeds each reader into
+`TransactionSession::stage_file_stream`, which independently verifies size and
+SHA-256 before target visibility.
+
+`StreamingPayloadMemoryObservation` is deliberately limited to logical payload
+bytes, selected file count, configured peak payload-buffer capacity, and
+whether a complete payload is retained. It is not a process RSS claim and does
+not include ZIP central-directory metadata, descriptors, strings, allocator
+headers, transaction buffers outside the measured payload buffer, or executable
+image memory.
+
+The native archive proof compares 128 KiB and 6 MiB logical stored payloads and
+requires both to retain a 65,536-byte peak payload buffer with
+`complete_payload_retained=false`. Lifecycle and public-command tests prove
+install and repair staging; fault tests prove source-read, integrity, and write
+failures leave no target visible and transition intact recorded staging to
+`rolled_back`. Failures after target visibility remain recovery-required.
+
+An opt-in slow proof (`USK_LARGE_STREAMING_MEMORY_PROOF=1`) constructs its ZIP
+fixtures directly on disk through a 1 MiB test buffer rather than materializing
+their entries. It inspects separate 1 MiB, 64 MiB, and 512 MiB stored entries,
+requires every observation to report the same 65,536-byte peak payload buffer
+and `complete_payload_retained=false`, and reads the first and last 4 KiB of
+each returned offset-bounded reader. The normal two-entry proof above remains
+the multiple-entry case. This is a payload-buffer characterization, not a
+whole-process memory or RSS claim.
+
+Stored classic ZIP and single-disk ZIP64 entries use this path. Deflate remains
+outside the lifecycle boundary because no reviewed decompressor dependency is
+present.

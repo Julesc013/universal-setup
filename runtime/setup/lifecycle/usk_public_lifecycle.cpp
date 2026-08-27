@@ -318,7 +318,8 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     const Value inspection_request = archive_inspection_request(archive);
     const fs::path source_path = required_archive_path(archive);
     require_setup_probe(config, source_path);
-    usk::archive::StoredArchivePayload payload = usk::archive::inspect_stored_payload(
+    usk::archive::StreamingStoredArchivePayload payload =
+        usk::archive::inspect_streaming_stored_payload(
         usk::json::canonical(inspection_request), archive.at("strip_prefix").as_string());
     if (payload.source_sha256 != required_string(archive, "expected_sha256")) {
         throw PublicError("source_drift", "source archive digest differs from the reviewed request");
@@ -370,7 +371,13 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     }
     std::vector<usk::lifecycle::PayloadFile> files;
     for (auto& file : payload.files) {
-        files.push_back({std::move(file.relative_path), std::move(file.bytes)});
+        files.push_back({
+            std::move(file.relative_path),
+            {},
+            std::move(file.sha256),
+            file.size_bytes,
+            std::move(file.reader),
+            payload.payload_buffer_bytes});
     }
     InstallPlanBundle result;
     result.source_path = source_path;
@@ -401,12 +408,9 @@ Value install_plan_document(const InstallPlanBundle& bundle)
             {"root_class", Value("owned_target")}});
     }
     for (const auto& file : bundle.plan.files) {
-        usk::base::Sha256 digest;
-        digest.update(file.bytes.data(), file.bytes.size());
-        const std::string hash = digest.finish();
         entries.emplace_back(Value::Object{{"entry_type", Value("file")},
-            {"relative_path", Value(file.relative_path)}, {"sha256", Value(hash)},
-            {"size_bytes", Value(static_cast<std::uint64_t>(file.bytes.size()))}});
+            {"relative_path", Value(file.relative_path)}, {"sha256", Value(file.sha256)},
+            {"size_bytes", Value(file.size_bytes)}});
         effects.emplace_back(Value::Object{{"effect_id", Value("effect." + std::to_string(effect_index++))},
             {"kind", Value("write_file")}, {"relative_path", Value(file.relative_path)},
             {"root_class", Value("owned_target")}});
@@ -604,7 +608,7 @@ RepairPlanBundle build_repair_plan(const Value& request, const PublicConfig& con
     const auto installed = current_install(config, install_id);
     const Value& archive = request.at("archive");
     const fs::path source_path = required_archive_path(archive);
-    auto payload = usk::archive::inspect_stored_payload(
+    auto payload = usk::archive::inspect_streaming_stored_payload(
         usk::json::canonical(fixed_archive_inspection_request(archive)),
         archive.at("strip_prefix").as_string());
     const std::string expected = required_string(archive, "expected_sha256");
@@ -612,7 +616,15 @@ RepairPlanBundle build_repair_plan(const Value& request, const PublicConfig& con
         throw PublicError("source_drift", "repair requires the exact archive bound by installed state");
     }
     std::vector<usk::lifecycle::PayloadFile> files;
-    for (auto& file : payload.files) files.push_back({std::move(file.relative_path), std::move(file.bytes)});
+    for (auto& file : payload.files) {
+        files.push_back({
+            std::move(file.relative_path),
+            {},
+            std::move(file.sha256),
+            file.size_bytes,
+            std::move(file.reader),
+            payload.payload_buffer_bytes});
+    }
     const std::string policy = operation_policy_digest(
         config, installed.target_root, source_path, "repair");
     RepairPlanBundle result;
@@ -684,10 +696,8 @@ Value repair_report_document(
             [&](const auto& file) { return file.relative_path == path; });
         const auto replacement = std::find_if(bundle.plan.replacement_files.begin(), bundle.plan.replacement_files.end(),
             [&](const auto& file) { return file.relative_path == path; });
-        usk::base::Sha256 digest;
-        digest.update(replacement->bytes.data(), replacement->bytes.size());
         repaired.emplace_back(Value::Object{{"prior_status", Value(repair_reason(verification->status))},
-            {"relative_path", Value(path)}, {"sha256", Value(digest.finish())}});
+            {"relative_path", Value(path)}, {"sha256", Value(replacement->sha256)}});
     }
     return bind_report_digest(Value(Value::Object{
         {"after_verification_ref", report_ref(result.after)}, {"before_verification_ref", report_ref(result.before)},
@@ -774,10 +784,8 @@ Value operation_plan_document(
     std::uint64_t index = 0;
     if (operation == "move") {
         for (const auto& file : files) {
-            usk::base::Sha256 digest;
-            digest.update(file.bytes.data(), file.bytes.size());
             effects.emplace_back(Value::Object{{"effect_id", Value("effect." + std::to_string(index++))},
-                {"expected_sha256", Value(digest.finish())}, {"kind", Value("copy_owned_file")},
+                {"expected_sha256", Value(file.sha256)}, {"kind", Value("copy_owned_file")},
                 {"ownership_required", Value(true)}, {"relative_path", Value(file.relative_path)},
                 {"root_role", Value("destination")}});
         }

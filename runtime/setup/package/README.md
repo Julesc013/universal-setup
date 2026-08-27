@@ -30,3 +30,11 @@ unsupported-compression input. Later WorkUnits may widen formats or Unicode
 support only with equivalent normalization and collision proof.
 
 Inspection never extracts an entry, creates setup state, or touches a target.
+
+The private stored-payload successor performs a second stable-handle identity
+and source-digest check, incrementally verifies each selected entry through a
+caller-bounded buffer, and returns size/hash/CRC metadata plus bounded readers.
+The public install and repair lifecycle consumes those readers directly through
+transaction streaming. Classic and single-disk ZIP64 stored entries share this
+path. Deflate remains inspectable but is refused for lifecycle streaming because
+the provider has no reviewed decompressor dependency.

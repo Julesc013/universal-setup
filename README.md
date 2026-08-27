@@ -172,13 +172,17 @@ but public lifecycle requests fail closed with
 only for `operator_acceptance` targets below the configured acceptance root.
 It does not authorize ordinary managed-portable targets.
 
-The public acceptance implementation currently materializes only stored ZIP
-entries after the full classic-ZIP inspection succeeds. It refuses existing
-install or move targets, stale plans, changed source identity, unsafe target
-components, insufficient capacity, and state roots without the exact ownership
-marker. Repair touches only changed recorded files. Move verifies the new root
-and retains the old root. Uninstall refuses all mutation while changed owned or
-unknown files require operator review.
+The public acceptance implementation streams stored classic-ZIP and single-disk
+ZIP64 entries after full bounded inspection succeeds. Planning incrementally
+binds each selected entry's size, CRC32, and SHA-256 without retaining the
+complete payload; apply reuses the reviewed stable archive handle and stages
+through one 64 KiB payload buffer. It refuses Deflate until a reviewed
+decompressor dependency exists, as well as existing install or move targets,
+stale plans, changed source identity, unsafe target components, insufficient
+capacity, and state roots without the exact ownership marker. Repair streams
+only changed recorded files. Move verifies the new root and retains the old
+root. Uninstall refuses all mutation while changed owned or unknown files
+require operator review.
 
 `recovery.inspect` and `recovery.plan` are public and read-only. They validate
 the journal's transaction, plan, operation, root authorities, transition chain,

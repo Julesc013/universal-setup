@@ -6,6 +6,7 @@
 
 #include "usk_state_repository.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -18,9 +19,18 @@ using LifecycleFaultInjector = std::function<void(
     const std::string& operation,
     const std::string& point)>;
 
+using PayloadReader = std::function<std::size_t(
+    std::uint64_t offset,
+    unsigned char* output,
+    std::size_t capacity)>;
+
 struct PayloadFile {
     std::string relative_path;
     std::vector<unsigned char> bytes;
+    std::string sha256;
+    std::uint64_t size_bytes = 0;
+    PayloadReader reader;
+    std::size_t stream_buffer_bytes = 64u * 1024u;
 };
 
 struct RecipeBinding {

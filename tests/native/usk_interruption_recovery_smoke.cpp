@@ -88,13 +88,18 @@ bool inject_once_at(const std::string& expected, bool& injected,
 
 int precommit_matrix()
 {
-    struct Case { const char* name; const char* point; bool staging_expected; };
+    struct Case {
+        const char* name;
+        const char* point;
+        bool staging_expected;
+        bool automatic_rollback;
+    };
     const std::vector<Case> cases = {
-        {"after-journal", "transaction.created.after_journal", false},
-        {"during-staging-create", "transaction.staging.after_staging_create", true},
-        {"during-staged-write", "transaction.staging.after_stage_file", true},
-        {"after-staged-verification", "transaction.verified.after_journal", true},
-        {"before-commit", "transaction.committing.after_journal", true}};
+        {"after-journal", "transaction.created.after_journal", false, false},
+        {"during-staging-create", "transaction.staging.after_staging_create", true, false},
+        {"during-staged-write", "transaction.staging.after_stage_file", false, true},
+        {"after-staged-verification", "transaction.verified.after_journal", false, true},
+        {"before-commit", "transaction.committing.after_journal", true, false}};
     for (std::size_t index = 0; index < cases.size(); ++index) {
         Fixture fixture(cases[index].name);
         const auto plan = install_plan(fixture, cases[index].name);
@@ -113,6 +118,13 @@ int precommit_matrix()
         const auto recovery = usk::transaction::TransactionSession::inspect_recovery(spec);
         if (!injected || fs::exists(plan.target_root) ||
             recovery.staging_exists != cases[index].staging_expected) return 10 + static_cast<int>(index);
+        if (cases[index].automatic_rollback) {
+            if (recovery.current_state != "rolled_back" ||
+                !recovery.available_actions.empty()) {
+                return 20 + static_cast<int>(index);
+            }
+            continue;
+        }
         if (cases[index].staging_expected) {
             if (recovery.available_actions != std::vector<std::string>{"rollback"}) {
                 return 20 + static_cast<int>(index);

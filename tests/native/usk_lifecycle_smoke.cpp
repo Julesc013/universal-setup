@@ -3,16 +3,23 @@
 
 #include "usk_audit_repository.h"
 #include "usk_lifecycle.h"
+#include "usk_sha256.h"
+#include "usk_stable_file.h"
 #include "usk_state_repository.h"
 #include "usk_transaction_session.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -72,6 +79,126 @@ std::vector<usk::lifecycle::PayloadFile> payload()
     return {
         {"app/bin/program.exe", {'p', 'r', 'o', 'g', 'r', 'a', 'm'}},
         {"app/readme.txt", {'r', 'e', 'a', 'd', 'm', 'e'}}};
+}
+
+std::vector<usk::lifecycle::PayloadFile> streaming_payload(
+    bool corrupt_first_byte = false,
+    bool fail_after_first_buffer = false)
+{
+    auto bytes = std::make_shared<std::vector<unsigned char>>(
+        3u * 64u * 1024u + 17u);
+    for (std::size_t index = 0; index < bytes->size(); ++index) {
+        (*bytes)[index] = static_cast<unsigned char>(index % 251u);
+    }
+    usk::base::Sha256 digest;
+    digest.update(bytes->data(), bytes->size());
+    const std::string sha256 = digest.finish();
+    return {{
+        "app/bin/program.exe",
+        {},
+        sha256,
+        static_cast<std::uint64_t>(bytes->size()),
+        [bytes, corrupt_first_byte, fail_after_first_buffer](
+            std::uint64_t offset,
+            unsigned char* output,
+            std::size_t capacity) -> std::size_t {
+            if (fail_after_first_buffer && offset >= 64u * 1024u) {
+                throw std::runtime_error("injected streaming source read failure");
+            }
+            if (offset >= bytes->size()) return 0;
+            const std::size_t count = static_cast<std::size_t>(
+                std::min<std::uint64_t>(capacity, bytes->size() - offset));
+            std::memcpy(output, bytes->data() + offset, count);
+            if (corrupt_first_byte && offset == 0u && count != 0u) output[0] ^= 0xffu;
+            return count;
+        },
+        64u * 1024u}};
+}
+
+int streaming_install_and_fault_proof()
+{
+    {
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/streamed";
+        fs::create_directories(target.parent_path());
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.streaming.success", "install.streaming.success",
+            "2026-08-27T00:00:00Z", target, fixture.roots, recipe(),
+            streaming_payload());
+        if (!plan.files.front().bytes.empty() || !plan.files.front().reader ||
+            plan.files.front().size_bytes <= plan.files.front().stream_buffer_bytes) {
+            return 20;
+        }
+        const auto result = usk::lifecycle::apply_install(
+            plan, plan.plan_digest, "tx.streaming.success",
+            "2026-08-27T00:00:01Z");
+        if (result.verification.status != "pass" ||
+            usk::base::sha256_hex_file(target / "app/bin/program.exe") !=
+                plan.files.front().sha256) {
+            return 21;
+        }
+    }
+    {
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/write-fault";
+        fs::create_directories(target.parent_path());
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.streaming.write-fault", "install.streaming.write-fault",
+            "2026-08-27T00:01:00Z", target, fixture.roots, recipe(),
+            streaming_payload());
+        const bool rejected = refuses([&] {
+            (void)usk::lifecycle::apply_install(
+                plan, plan.plan_digest, "tx.streaming.write-fault",
+                "2026-08-27T00:01:01Z",
+                [](const std::string&, const std::string& point) {
+                    if (point == "transaction.staging.before_stream_write") {
+                        throw std::runtime_error("injected streaming write failure");
+                    }
+                });
+        });
+        const auto recovery = usk::transaction::TransactionSession::inspect_recovery(
+            usk::transaction::TransactionSpec{
+                "tx.streaming.write-fault", plan.plan_id, plan.plan_digest,
+                "install_local", fixture.roots.staging_parent, target,
+                fixture.roots.state_root, fixture.roots.audit_root});
+        if (!rejected || fs::exists(target) || recovery.current_state != "rolled_back" ||
+            recovery.staging_exists || recovery.target_exists) {
+            return 22;
+        }
+    }
+    {
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/read-fault";
+        fs::create_directories(target.parent_path());
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.streaming.read-fault", "install.streaming.read-fault",
+            "2026-08-27T00:02:00Z", target, fixture.roots, recipe(),
+            streaming_payload(false, true));
+        if (!refuses([&] {
+                (void)usk::lifecycle::apply_install(
+                    plan, plan.plan_digest, "tx.streaming.read-fault",
+                    "2026-08-27T00:02:01Z");
+            }) || fs::exists(target)) {
+            return 23;
+        }
+    }
+    {
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/integrity-fault";
+        fs::create_directories(target.parent_path());
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.streaming.integrity-fault", "install.streaming.integrity-fault",
+            "2026-08-27T00:03:00Z", target, fixture.roots, recipe(),
+            streaming_payload(true));
+        if (!refuses([&] {
+                (void)usk::lifecycle::apply_install(
+                    plan, plan.plan_digest, "tx.streaming.integrity-fault",
+                    "2026-08-27T00:03:01Z");
+            }) || fs::exists(target)) {
+            return 24;
+        }
+    }
+    return 0;
 }
 
 void write_text(const fs::path& path, const std::string& text)
@@ -230,6 +357,9 @@ int run()
 int main()
 {
     try {
+        if (const int streaming = streaming_install_and_fault_proof()) {
+            return streaming;
+        }
         return run();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

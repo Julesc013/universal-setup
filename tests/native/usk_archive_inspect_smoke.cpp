@@ -3,10 +3,14 @@
 
 #include "usk/usk_api.h"
 #include "usk_archive_payload.h"
+#include "usk_sha256.h"
 #include "usk_utf8_path.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -78,6 +82,117 @@ void append_bytes(
     const std::vector<unsigned char>& value)
 {
     output.insert(output.end(), value.begin(), value.end());
+}
+
+void write16(std::ostream& output, std::uint16_t value)
+{
+    const std::array<unsigned char, 2> bytes = {
+        static_cast<unsigned char>(value & 0xffu),
+        static_cast<unsigned char>((value >> 8) & 0xffu)};
+    output.write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
+}
+
+void write32(std::ostream& output, std::uint32_t value)
+{
+    write16(output, static_cast<std::uint16_t>(value & 0xffffu));
+    write16(output, static_cast<std::uint16_t>((value >> 16) & 0xffffu));
+}
+
+const std::array<std::uint32_t, 256>& crc32_table()
+{
+    static const std::array<std::uint32_t, 256> table = [] {
+        std::array<std::uint32_t, 256> values{};
+        for (std::uint32_t index = 0; index < values.size(); ++index) {
+            std::uint32_t value = index;
+            for (int bit = 0; bit < 8; ++bit) {
+                value = (value >> 1) ^
+                    (0xedb88320u & (0u - (value & 1u)));
+            }
+            values[index] = value;
+        }
+        return values;
+    }();
+    return table;
+}
+
+void write_repeated_stored_zip(
+    const fs::path& path,
+    const std::string& name,
+    unsigned char value,
+    std::uint32_t size)
+{
+    std::fstream output(
+        path,
+        std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);
+    if (!output) throw std::runtime_error("could not create large ZIP fixture");
+
+    write32(output, 0x04034b50u);
+    write16(output, 20);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    const std::streampos local_crc_offset = output.tellp();
+    write32(output, 0);
+    write32(output, size);
+    write32(output, size);
+    write16(output, static_cast<std::uint16_t>(name.size()));
+    write16(output, 0);
+    output.write(name.data(), static_cast<std::streamsize>(name.size()));
+
+    constexpr std::size_t fixture_buffer_bytes = 1024u * 1024u;
+    const std::array<std::uint32_t, 256>& table = crc32_table();
+    std::vector<unsigned char> buffer(fixture_buffer_bytes, value);
+    std::uint32_t crc = 0xffffffffu;
+    std::uint64_t remaining = size;
+    while (remaining != 0u) {
+        const std::size_t count = static_cast<std::size_t>(
+            std::min<std::uint64_t>(remaining, buffer.size()));
+        output.write(
+            reinterpret_cast<const char*>(buffer.data()),
+            static_cast<std::streamsize>(count));
+        for (std::size_t index = 0; index < count; ++index) {
+            crc = (crc >> 8) ^ table[(crc ^ buffer[index]) & 0xffu];
+        }
+        remaining -= count;
+    }
+    crc = ~crc;
+    const std::streampos central_offset = output.tellp();
+
+    output.seekp(local_crc_offset);
+    write32(output, crc);
+    output.seekp(central_offset);
+    write32(output, 0x02014b50u);
+    write16(output, static_cast<std::uint16_t>((3u << 8) | 20u));
+    write16(output, 20);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    write32(output, crc);
+    write32(output, size);
+    write32(output, size);
+    write16(output, static_cast<std::uint16_t>(name.size()));
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 0);
+    write32(output, 0100644u << 16);
+    write32(output, 0);
+    output.write(name.data(), static_cast<std::streamsize>(name.size()));
+    const std::uint32_t central_size = static_cast<std::uint32_t>(
+        output.tellp() - central_offset);
+    write32(output, 0x06054b50u);
+    write16(output, 0);
+    write16(output, 0);
+    write16(output, 1);
+    write16(output, 1);
+    write32(output, central_size);
+    write32(output, static_cast<std::uint32_t>(central_offset));
+    write16(output, 0);
+    if (!output) throw std::runtime_error("could not write large ZIP fixture");
 }
 
 void write_zip(const fs::path& path, const std::vector<ZipEntry>& specs)
@@ -263,7 +378,8 @@ std::string request_json_from_utf8_path(
     int max_depth = 32,
     int max_ratio = 100,
     std::uint64_t max_uncompressed_bytes = 1048576,
-    std::uint64_t max_entry_bytes = 524288)
+    std::uint64_t max_entry_bytes = 524288,
+    std::uint64_t max_elapsed_ms = 30000)
 {
     return "{\"schema\":\"usk.archive_inspect_request.v1\","
         "\"archive_path\":\"" + json_escape(archive_path) + "\","
@@ -274,7 +390,7 @@ std::string request_json_from_utf8_path(
         ",\"max_entry_bytes\":" + std::to_string(max_entry_bytes) + ","
         "\"max_depth\":" + std::to_string(max_depth) + ","
         "\"max_ratio\":" + std::to_string(max_ratio) + ","
-        "\"max_elapsed_ms\":30000}}";
+        "\"max_elapsed_ms\":" + std::to_string(max_elapsed_ms) + "}}";
 }
 
 std::string request_json(
@@ -283,7 +399,8 @@ std::string request_json(
     int max_depth = 32,
     int max_ratio = 100,
     std::uint64_t max_uncompressed_bytes = 1048576,
-    std::uint64_t max_entry_bytes = 524288)
+    std::uint64_t max_entry_bytes = 524288,
+    std::uint64_t max_elapsed_ms = 30000)
 {
     return request_json_from_utf8_path(
         archive.u8string(),
@@ -291,7 +408,8 @@ std::string request_json(
         max_depth,
         max_ratio,
         max_uncompressed_bytes,
-        max_entry_bytes);
+        max_entry_bytes,
+        max_elapsed_ms);
 }
 
 std::string reordered_request_json(const fs::path& archive)
@@ -560,6 +678,163 @@ int main()
         << large_memory.peak_payload_capacity_bytes
         << ",\"complete_payload_retained\":true}\n";
 
+    {
+    constexpr std::size_t streaming_buffer_bytes = 64u * 1024u;
+    usk::archive::StreamingPayloadMemoryObservation small_streaming_memory;
+    const auto small_streaming = usk::archive::inspect_streaming_stored_payload(
+        request_json(small_memory_zip),
+        "payload",
+        streaming_buffer_bytes,
+        &small_streaming_memory);
+    usk::archive::StreamingPayloadMemoryObservation large_streaming_memory;
+    const auto large_streaming = usk::archive::inspect_streaming_stored_payload(
+        request_json(
+            large_memory_zip,
+            100,
+            32,
+            100,
+            8u * 1024u * 1024u,
+            4u * 1024u * 1024u),
+        "payload",
+        streaming_buffer_bytes,
+        &large_streaming_memory);
+    if (small_streaming_memory.complete_payload_retained ||
+        large_streaming_memory.complete_payload_retained ||
+        small_streaming_memory.file_count != 2 ||
+        large_streaming_memory.file_count != 2 ||
+        small_streaming_memory.logical_payload_bytes !=
+            small_streaming.uncompressed_bytes ||
+        large_streaming_memory.logical_payload_bytes !=
+            large_streaming.uncompressed_bytes ||
+        small_streaming_memory.peak_payload_buffer_bytes !=
+            streaming_buffer_bytes ||
+        large_streaming_memory.peak_payload_buffer_bytes !=
+            streaming_buffer_bytes ||
+        small_streaming.files.front().size_bytes != 64u * 1024u ||
+        !small_streaming.files.front().reader) {
+        return 122;
+    }
+    usk::base::Sha256 streamed_digest;
+    std::vector<unsigned char> stream_buffer(4096u);
+    std::uint64_t streamed_offset = 0;
+    while (streamed_offset < small_streaming.files.front().size_bytes) {
+        const std::size_t count = small_streaming.files.front().reader(
+            streamed_offset, stream_buffer.data(), stream_buffer.size());
+        if (count == 0u || count > stream_buffer.size()) return 123;
+        streamed_digest.update(stream_buffer.data(), count);
+        streamed_offset += count;
+    }
+    if (small_streaming.files.front().reader(
+            streamed_offset, stream_buffer.data(), 1u) != 0u ||
+        streamed_digest.finish() != small_streaming.files.front().sha256) {
+        return 124;
+    }
+    bool invalid_streaming_budget_refused = false;
+    try {
+        (void)usk::archive::inspect_streaming_stored_payload(
+            request_json(small_memory_zip), "payload", 4095u);
+    } catch (const std::exception& exception) {
+        invalid_streaming_budget_refused = contains(exception.what(), "buffer budget");
+    }
+    if (!invalid_streaming_budget_refused) return 125;
+    std::cout
+        << "payload-streaming-characterization: {\"schema\":"
+           "\"usk.payload_streaming_characterization.v1\""
+        << ",\"small_logical_bytes\":"
+        << small_streaming_memory.logical_payload_bytes
+        << ",\"large_logical_bytes\":"
+        << large_streaming_memory.logical_payload_bytes
+        << ",\"peak_payload_buffer_bytes\":"
+        << large_streaming_memory.peak_payload_buffer_bytes
+        << ",\"complete_payload_retained\":false}\n";
+    }
+
+    const char* large_streaming_proof =
+        std::getenv("USK_LARGE_STREAMING_MEMORY_PROOF");
+    if (large_streaming_proof != nullptr &&
+        std::string(large_streaming_proof) == "1") {
+        struct LargeStreamingCase {
+            std::uint32_t size_bytes;
+            unsigned char value;
+        };
+        const std::array<LargeStreamingCase, 3> large_streaming_cases = {{
+            {1u * 1024u * 1024u, static_cast<unsigned char>('1')},
+            {64u * 1024u * 1024u, static_cast<unsigned char>('6')},
+            {512u * 1024u * 1024u, static_cast<unsigned char>('5')}
+        }};
+        constexpr std::size_t streaming_buffer_bytes = 64u * 1024u;
+        for (std::size_t index = 0; index < large_streaming_cases.size(); ++index) {
+            const LargeStreamingCase& proof_case = large_streaming_cases[index];
+            const fs::path proof_zip =
+                root / ("memory-streaming-" + std::to_string(proof_case.size_bytes) + ".zip");
+            write_repeated_stored_zip(
+                proof_zip,
+                "payload/blob.bin",
+                proof_case.value,
+                proof_case.size_bytes);
+            {
+                usk::archive::StreamingPayloadMemoryObservation observation;
+                const auto proof_payload =
+                    usk::archive::inspect_streaming_stored_payload(
+                        request_json(
+                            proof_zip,
+                            100,
+                            32,
+                            100,
+                            proof_case.size_bytes,
+                            proof_case.size_bytes,
+                            600000),
+                        "payload",
+                        streaming_buffer_bytes,
+                        &observation);
+                if (observation.complete_payload_retained ||
+                    observation.file_count != 1 ||
+                    observation.logical_payload_bytes != proof_case.size_bytes ||
+                    observation.peak_payload_buffer_bytes != streaming_buffer_bytes ||
+                    proof_payload.uncompressed_bytes != proof_case.size_bytes ||
+                    proof_payload.files.size() != 1 ||
+                    proof_payload.files.front().size_bytes != proof_case.size_bytes ||
+                    !proof_payload.files.front().reader) {
+                    return static_cast<int>(126 + index);
+                }
+                std::vector<unsigned char> boundary_buffer(4096u);
+                const auto matches_value = [&boundary_buffer, &proof_case]() {
+                    return std::all_of(
+                        boundary_buffer.begin(),
+                        boundary_buffer.end(),
+                        [&proof_case](unsigned char byte) {
+                            return byte == proof_case.value;
+                        });
+                };
+                if (proof_payload.files.front().reader(
+                        0,
+                        boundary_buffer.data(),
+                        boundary_buffer.size()) != boundary_buffer.size() ||
+                    !matches_value() ||
+                    proof_payload.files.front().reader(
+                        proof_case.size_bytes - boundary_buffer.size(),
+                        boundary_buffer.data(),
+                        boundary_buffer.size()) != boundary_buffer.size() ||
+                    !matches_value() ||
+                    proof_payload.files.front().reader(
+                        proof_case.size_bytes,
+                        boundary_buffer.data(),
+                        1u) != 0u) {
+                    return static_cast<int>(130 + index);
+                }
+            }
+            error.clear();
+            fs::remove(proof_zip, error);
+            if (error) return static_cast<int>(134 + index);
+        }
+        std::cout
+            << "payload-large-streaming-characterization: {\"schema\":"
+               "\"usk.payload_large_streaming_characterization.v1\""
+            << ",\"logical_payload_bytes\":[1048576,67108864,536870912]"
+            << ",\"peak_payload_buffer_bytes\":" << streaming_buffer_bytes
+            << ",\"complete_payload_retained\":false}\n";
+    }
+
     const fs::path valid_zip64 = root / "valid-zip64.zip";
     write_zip64(valid_zip64, {
         {"app/", "", (0040755u << 16) | 0x10u},
@@ -583,6 +858,17 @@ int main()
         zip64_payload.files.size() != 2 ||
         zip64_payload.uncompressed_bytes != 12) {
         return 11;
+    }
+    {
+        const auto zip64_streaming_payload =
+            usk::archive::inspect_streaming_stored_payload(
+                request_json(valid_zip64), "app");
+        if (zip64_streaming_payload.entry_set_digest !=
+                zip64_payload.entry_set_digest ||
+            zip64_streaming_payload.files.size() != 2 ||
+            zip64_streaming_payload.uncompressed_bytes != 12) {
+            return 11;
+        }
     }
     const fs::path missing_zip64_locator =
         root / "missing-zip64-locator.zip";
