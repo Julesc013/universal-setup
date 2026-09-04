@@ -1003,6 +1003,35 @@ int main()
             return 139;
         }
     }
+    bool late_reader_cancellation = false;
+    const auto late_cancel_payload = usk::archive::inspect_streaming_payload(
+        request_json(deflate_zip, 100, 32, 200),
+        "payload",
+        64u * 1024u,
+        nullptr,
+        [&]() { return late_reader_cancellation; });
+    const auto late_cancel_file = std::find_if(
+        late_cancel_payload.files.begin(),
+        late_cancel_payload.files.end(),
+        [](const usk::archive::StreamingPayloadFile& file) {
+            return file.relative_path == "fixed.txt";
+        });
+    if (late_cancel_file == late_cancel_payload.files.end()) return 172;
+    std::vector<unsigned char> late_cancel_buffer(
+        static_cast<std::size_t>(late_cancel_file->size_bytes));
+    const std::size_t late_cancel_count = late_cancel_file->reader(
+        0u, late_cancel_buffer.data(), late_cancel_buffer.size());
+    if (late_cancel_count != late_cancel_buffer.size()) return 172;
+    late_reader_cancellation = true;
+    bool late_eof_cancellation_refused = false;
+    try {
+        unsigned char probe = 0;
+        (void)late_cancel_file->reader(
+            late_cancel_file->size_bytes, &probe, 1u);
+    } catch (const std::exception& exception) {
+        late_eof_cancellation_refused = contains(exception.what(), "cancelled");
+    }
+    if (!late_eof_cancellation_refused) return 172;
     bool stored_only_refused = false;
     try {
         (void)usk::archive::inspect_streaming_stored_payload(

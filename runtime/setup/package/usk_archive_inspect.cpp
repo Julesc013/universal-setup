@@ -1023,15 +1023,16 @@ public:
             throw std::runtime_error(
                 "ZIP Deflate reader offset exceeds the reviewed entry");
         }
+        check_deadline();
         if (relative_offset == uncompressed_size_) {
             finish_exactly();
+            check_deadline();
             source_->verify_unchanged();
             return 0;
         }
         if (output == nullptr || capacity == 0u) {
             throw std::runtime_error("ZIP Deflate reader requires an output buffer");
         }
-        check_deadline();
         const std::size_t allowed = static_cast<std::size_t>(
             std::min<std::uint64_t>(capacity, uncompressed_size_ - output_offset_));
         stream_.next_out = output;
@@ -1067,7 +1068,10 @@ public:
         if (produced == 0u && output_offset_ != uncompressed_size_) {
             throw std::runtime_error("ZIP Deflate stream ended without output");
         }
-        if (output_offset_ == uncompressed_size_) finish_exactly();
+        if (output_offset_ == uncompressed_size_) {
+            finish_exactly();
+            check_deadline();
+        }
         return produced;
     }
 
