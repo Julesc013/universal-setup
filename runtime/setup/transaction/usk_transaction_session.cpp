@@ -922,16 +922,21 @@ StreamStageResult TransactionSession::stage_file_stream(
         }
         if (injector_) injector_(current_state_, "before_stream_finalize");
 #if defined(_WIN32)
-        if (!FlushFileBuffers(handle) || !CloseHandle(handle)) {
-            handle = INVALID_HANDLE_VALUE;
-            throw std::runtime_error("cannot flush streamed transaction file");
+        const BOOL flushed = FlushFileBuffers(handle);
+        if (!CloseHandle(handle)) {
+            throw std::runtime_error("cannot close streamed transaction file");
         }
         handle = INVALID_HANDLE_VALUE;
-#else
-        if (::fsync(descriptor) != 0 || ::close(descriptor) != 0) {
+        if (!flushed) {
             throw std::runtime_error("cannot flush streamed transaction file");
         }
+#else
+        const int flushed = ::fsync(descriptor);
+        const int closed = ::close(descriptor);
         descriptor = -1;
+        if (flushed != 0 || closed != 0) {
+            throw std::runtime_error("cannot flush streamed transaction file");
+        }
 #endif
         const std::string actual_sha256 = digest.finish();
         if (total != expected_size || actual_sha256 != expected_sha256) {

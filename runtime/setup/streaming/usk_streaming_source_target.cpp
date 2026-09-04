@@ -73,10 +73,18 @@ private:
 
 void validate_budget(const usk::streaming::ResourceBudget& budget)
 {
-    if (budget.payload_buffer_bytes < 4096u ||
-        budget.payload_buffer_bytes > 4u * 1024u * 1024u ||
+    if (budget.payload_buffer_bytes != usk::streaming::kPayloadBufferBytes ||
         budget.maximum_entries == 0u || budget.maximum_entries > 1000000u) {
         throw std::runtime_error("streaming resource budget is invalid");
+    }
+}
+
+void require_not_cancelled(
+    const usk::streaming::CancellationView* cancellation,
+    const char* boundary)
+{
+    if (cancellation != nullptr && cancellation->cancelled()) {
+        throw std::runtime_error(std::string("stream cancelled ") + boundary);
     }
 }
 
@@ -136,7 +144,10 @@ DirectorySource inspect_directory_source(const fs::path& source_root, ResourceBu
     std::set<std::string> folded;
     for (const fs::directory_entry& item : fs::recursive_directory_iterator(result.root)) {
         if (item.is_symlink()) throw std::runtime_error("directory source contains a link");
-        if (item.is_directory()) continue;
+        if (item.is_directory()) {
+            usk::record_io::require_safe_directory(item.path());
+            continue;
+        }
         if (!item.is_regular_file()) {
             throw std::runtime_error("directory source contains a non-file entry");
         }
@@ -199,9 +210,7 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
                 fault(request.fault, "transaction:" + state + ":" + point, {}, 0);
             });
         for (const PayloadEntryDescriptor& entry : request.source.entries) {
-            if (request.cancellation != nullptr && request.cancellation->cancelled()) {
-                throw std::runtime_error("stream cancelled before source read");
-            }
+            require_not_cancelled(request.cancellation, "before source read");
             if (!sha256(entry.sha256) || !sha256(entry.source_identity_digest)) {
                 throw std::runtime_error("streaming entry identity is invalid");
             }
@@ -218,9 +227,7 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
                 entry.sha256,
                 request.budget.payload_buffer_bytes,
                 [&](unsigned char* output, std::size_t capacity) -> std::size_t {
-                    if (request.cancellation != nullptr && request.cancellation->cancelled()) {
-                        throw std::runtime_error("stream cancelled mid-entry");
-                    }
+                    require_not_cancelled(request.cancellation, "mid-entry");
                     if (offset >= entry.size_bytes) return 0;
                     fault(request.fault, "before_source_read", entry.relative_path, offset);
                     const std::size_t count = static_cast<std::size_t>(
@@ -234,6 +241,7 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
                     }
                     return count;
                 });
+            require_not_cancelled(request.cancellation, "after staged-file finalization");
             source.verify_unchanged();
             if (integrity.bytes() != entry.size_bytes ||
                 integrity.finish_sha256() != entry.sha256 ||
@@ -245,9 +253,13 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
             result.bytes_completed += staged.size_bytes;
             ++result.entries_completed;
         }
+        require_not_cancelled(request.cancellation, "before staged verification");
         transaction->mark_staged();
+        require_not_cancelled(request.cancellation, "after staged verification");
         transaction->mark_verified();
+        require_not_cancelled(request.cancellation, "after transaction verification");
         fault(request.fault, "before_commit", {}, result.bytes_completed);
+        require_not_cancelled(request.cancellation, "before target commit");
         transaction->commit();
         fault(request.fault, "after_commit_before_audit", {}, result.bytes_completed);
 
