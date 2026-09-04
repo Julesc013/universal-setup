@@ -45,6 +45,7 @@ ALLOWED_SETUP_MODULES = {
     "resolver",
     "rollback",
     "state",
+    "streaming",
     "transaction",
     "verify",
 }

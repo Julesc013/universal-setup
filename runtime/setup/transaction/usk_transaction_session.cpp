@@ -315,9 +315,9 @@ void write_new_durable_file(const fs::path& path, const unsigned char* data, std
 #endif
 }
 
+#if !defined(_WIN32)
 void fsync_directory(const fs::path& path)
 {
-#if !defined(_WIN32)
     int flags = O_RDONLY;
 #if defined(O_DIRECTORY)
     flags |= O_DIRECTORY;
@@ -331,10 +331,8 @@ void fsync_directory(const fs::path& path)
         throw std::runtime_error("cannot flush transaction journal directory");
     }
     ::close(descriptor);
-#else
-    (void)path;
-#endif
 }
+#endif
 
 void publish_journal(const fs::path& temporary, const fs::path& journal, bool first)
 {
@@ -809,6 +807,161 @@ void TransactionSession::stage_file(
         static_cast<std::uint64_t>(bytes.size())});
     persist_snapshot();
     if (injector_) injector_(current_state_, "after_stage_file");
+}
+
+StreamStageResult TransactionSession::stage_file_stream(
+    const fs::path& relative_path,
+    std::uint64_t expected_size,
+    const std::string& expected_sha256,
+    std::size_t buffer_bytes,
+    const StreamReader& reader)
+{
+    if (current_state_ != "staging" || !safe_relative_path(relative_path) ||
+        !valid_sha256(expected_sha256) || buffer_bytes < 4096u ||
+        buffer_bytes > 4u * 1024u * 1024u || !reader) {
+        throw std::runtime_error("streamed staged file request is invalid");
+    }
+    if (std::any_of(staged_files_.begin(), staged_files_.end(), [&](const StagedFile& file) {
+            std::string existing = file.relative_path.generic_string();
+            std::string candidate = relative_path.generic_string();
+            std::transform(existing.begin(), existing.end(), existing.begin(), [](unsigned char ch) {
+                return static_cast<char>(std::tolower(ch));
+            });
+            std::transform(candidate.begin(), candidate.end(), candidate.begin(), [](unsigned char ch) {
+                return static_cast<char>(std::tolower(ch));
+            });
+            return existing == candidate;
+        })) {
+        throw std::runtime_error("streamed staged file path is duplicated");
+    }
+    verify_staging_identity();
+    fs::path current = staging_root_;
+    std::vector<fs::path> created_directories;
+    auto last = relative_path.end();
+    --last;
+    for (auto iterator = relative_path.begin(); iterator != last; ++iterator) {
+        current /= *iterator;
+        std::error_code error;
+        if (!fs::exists(current)) {
+            if (!fs::create_directory(current, error) || error) {
+                throw std::runtime_error("cannot create owned streaming staging directory");
+            }
+            created_directories.push_back(current);
+        }
+        require_safe_directory(current);
+    }
+    const fs::path destination = staging_root_ / relative_path;
+    std::vector<unsigned char> buffer(buffer_bytes);
+    usk::base::Sha256 digest;
+    std::uint64_t total = 0;
+    bool recorded = false;
+#if defined(_WIN32)
+    HANDLE handle = INVALID_HANDLE_VALUE;
+#else
+    int descriptor = -1;
+#endif
+    try {
+        if (injector_) injector_(current_state_, "before_stage_stream");
+#if defined(_WIN32)
+        handle = CreateFileW(
+            destination.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            throw std::runtime_error("cannot exclusively create streamed transaction file");
+        }
+#else
+        int flags = O_WRONLY | O_CREAT | O_EXCL;
+#if defined(O_CLOEXEC)
+        flags |= O_CLOEXEC;
+#endif
+#if defined(O_NOFOLLOW)
+        flags |= O_NOFOLLOW;
+#endif
+        descriptor = ::open(destination.c_str(), flags, 0600);
+        if (descriptor < 0) {
+            throw std::runtime_error("cannot exclusively create streamed transaction file");
+        }
+#endif
+        while (total < expected_size) {
+            if (injector_) injector_(current_state_, "before_stream_read");
+            const std::size_t capacity = static_cast<std::size_t>(
+                std::min<std::uint64_t>(buffer.size(), expected_size - total));
+            const std::size_t count = reader(buffer.data(), capacity);
+            if (count == 0 || count > capacity) {
+                throw std::runtime_error("streamed source returned a short or oversized read");
+            }
+            if (injector_) injector_(current_state_, "after_stream_read");
+            digest.update(buffer.data(), count);
+            std::size_t written_total = 0;
+            while (written_total < count) {
+                if (injector_) injector_(current_state_, "before_stream_write");
+#if defined(_WIN32)
+                const DWORD request = static_cast<DWORD>(count - written_total);
+                DWORD written = 0;
+                if (!WriteFile(handle, buffer.data() + written_total, request, &written, nullptr) ||
+                    written == 0) {
+                    throw std::runtime_error("cannot write streamed transaction file");
+                }
+                written_total += written;
+#else
+                const ssize_t written = ::write(
+                    descriptor, buffer.data() + written_total, count - written_total);
+                if (written < 0 && errno == EINTR) continue;
+                if (written <= 0) {
+                    throw std::runtime_error("cannot write streamed transaction file");
+                }
+                written_total += static_cast<std::size_t>(written);
+#endif
+                if (injector_) injector_(current_state_, "after_stream_write");
+            }
+            total += count;
+        }
+        unsigned char probe = 0;
+        if (reader(&probe, 1u) != 0) {
+            throw std::runtime_error("streamed source exceeded its reviewed size");
+        }
+        if (injector_) injector_(current_state_, "before_stream_finalize");
+#if defined(_WIN32)
+        const BOOL flushed = FlushFileBuffers(handle);
+        if (!CloseHandle(handle)) {
+            throw std::runtime_error("cannot close streamed transaction file");
+        }
+        handle = INVALID_HANDLE_VALUE;
+        if (!flushed) {
+            throw std::runtime_error("cannot flush streamed transaction file");
+        }
+#else
+        const int flushed = ::fsync(descriptor);
+        const int closed = ::close(descriptor);
+        descriptor = -1;
+        if (flushed != 0 || closed != 0) {
+            throw std::runtime_error("cannot flush streamed transaction file");
+        }
+#endif
+        const std::string actual_sha256 = digest.finish();
+        if (total != expected_size || actual_sha256 != expected_sha256) {
+            throw std::runtime_error("streamed staged file integrity changed");
+        }
+        staged_files_.push_back(StagedFile{relative_path, actual_sha256, total});
+        recorded = true;
+        persist_snapshot();
+        if (injector_) injector_(current_state_, "after_stage_stream");
+        return {actual_sha256, total, static_cast<std::uint64_t>(buffer.capacity())};
+    } catch (...) {
+#if defined(_WIN32)
+        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+#else
+        if (descriptor >= 0) ::close(descriptor);
+#endif
+        if (recorded) staged_files_.pop_back();
+        std::error_code ignored;
+        fs::remove(destination, ignored);
+        for (auto iterator = created_directories.rbegin();
+             iterator != created_directories.rend(); ++iterator) {
+            fs::remove(*iterator, ignored);
+        }
+        throw;
+    }
 }
 
 void TransactionSession::mark_staged()

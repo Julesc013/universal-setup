@@ -32,6 +32,13 @@ struct TransactionSpec {
 };
 
 using FaultInjector = std::function<void(const std::string& state, const std::string& point)>;
+using StreamReader = std::function<std::size_t(unsigned char* output, std::size_t capacity)>;
+
+struct StreamStageResult {
+    std::string sha256;
+    std::uint64_t size_bytes = 0;
+    std::uint64_t peak_buffer_bytes = 0;
+};
 
 struct RecoveryInspection {
     std::string current_state;
@@ -55,6 +62,12 @@ public:
     const std::filesystem::path& journal_path() const noexcept { return journal_path_; }
 
     void stage_file(const std::filesystem::path& relative_path, const std::vector<unsigned char>& bytes);
+    StreamStageResult stage_file_stream(
+        const std::filesystem::path& relative_path,
+        std::uint64_t expected_size,
+        const std::string& expected_sha256,
+        std::size_t buffer_bytes,
+        const StreamReader& reader);
     void mark_staged();
     void mark_verified();
     void commit_effect();

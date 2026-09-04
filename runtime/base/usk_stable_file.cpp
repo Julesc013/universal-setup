@@ -245,6 +245,18 @@ std::vector<unsigned char> StableFile::read(
     return result;
 }
 
+void StableFile::read_into(
+    std::uint64_t offset,
+    unsigned char* output,
+    std::size_t size) const
+{
+    if ((output == nullptr && size != 0) || offset > identity_.size_bytes ||
+        size > identity_.size_bytes - offset) {
+        throw std::runtime_error("local archive read exceeds stable source bounds");
+    }
+    if (size != 0) read_exact(offset, output, size);
+}
+
 void StableFile::read_exact(
     std::uint64_t offset,
     unsigned char* output,
