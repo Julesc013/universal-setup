@@ -147,8 +147,8 @@ def licence_expression(prefix: Path) -> str:
     with record.open("rb") as handle:
         data = tomllib.load(handle)
     expression = data.get("package_license_expression")
-    if expression != "MIT":
-        raise ManifestError("installed package licence expression must be MIT")
+    if expression != "MIT AND Zlib":
+        raise ManifestError("installed package licence expression must be MIT AND Zlib")
     return expression
 
 

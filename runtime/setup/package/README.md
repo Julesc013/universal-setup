@@ -30,3 +30,15 @@ unsupported-compression input. Later WorkUnits may widen formats or Unicode
 support only with equivalent normalization and collision proof.
 
 Inspection never extracts an entry, creates setup state, or touches a target.
+
+The private streaming successor performs a second stable-handle identity and
+source-digest check, incrementally verifies each selected entry, and returns
+method/size/hash/CRC metadata plus bounded readers. Its output budget is exactly
+65,536 bytes; nonexact caller values fail closed. Inspection and readers accept
+an internal cancellation check at every bounded hashing, input, output, entry,
+and finalization boundary. The public install and
+repair lifecycle consumes those readers directly through transaction
+streaming. Classic and single-disk ZIP64 stored and Deflate entries share this
+path. Deflate uses the hash-locked private zlib 1.3.2 inflate subset, compiled
+with zlib's supported `Z_PREFIX` namespace, and exposes no zlib type, header,
+target, symbol collision, or error code through the public SDK.

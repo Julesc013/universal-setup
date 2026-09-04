@@ -20,6 +20,7 @@ from tools import (
     provider_package_manifest,
     sdk_package_check,
     structure_policy_check,
+    zlib_dependency_check,
 )
 
 
@@ -29,6 +30,7 @@ def main() -> int:
         ("branch-policy", branch_policy_check.main),
         ("language-runtime-policy", language_runtime_policy_check.main),
         ("license-policy", license_policy_check.main),
+        ("zlib-dependency", zlib_dependency_check.main),
         ("product-package-contract", product_package_contract_check.main),
         ("provider-package-manifest", provider_package_manifest.main_for_check),
         ("sdk-package", sdk_package_check.main),

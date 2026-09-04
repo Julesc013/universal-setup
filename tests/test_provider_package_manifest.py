@@ -31,7 +31,7 @@ class ProviderPackageManifestTests(unittest.TestCase):
             ),
             "share/licenses/universal-setup/LICENSE": "MIT fixture\n",
             "share/licenses/universal-setup/license.v1.toml": (
-                'package_license_expression = "MIT"\n'
+                'package_license_expression = "MIT AND Zlib"\n'
             ),
             "share/universal-setup/README-SDK.md": "SDK fixture\n",
         }

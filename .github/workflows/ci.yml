@@ -42,7 +42,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes cppcheck
-          cppcheck --project=build/smoke/compile_commands.json --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem
+          cppcheck --project=build/smoke/compile_commands.json --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --suppress=*:${{ github.workspace }}/external/zlib/upstream/* --suppress=throwInEntryPoint:${{ github.workspace }}/tests/native/*
 
   windows-win32:
     name: native-windows-win32

@@ -252,6 +252,38 @@ to canonical `main`. Consumer adoption remains a later exact-pin pull request.
   and the existing package ceiling. Do not add full Deflate, installed
   generations, network acquisition, public USU SPI, or an alpha release.
 
+## USK-STORED-ZIP-STREAMING-01 — Conditional continuation
+
+- Replace the public install and repair lifecycle's complete-payload ownership
+  with reviewed stored-entry descriptors and bounded readers while preserving
+  public C ABI 1.0 and every existing path, target, ownership, and transaction
+  refusal.
+- Bind normalized path, size, CRC32, SHA-256, source identity, source digest,
+  and entry-set digest during planning; re-read the exact stable archive handle
+  into transaction staging through one 64 KiB payload buffer during apply.
+- Support stored classic ZIP and stored single-disk ZIP64 entries. Deflate is
+  sequenced after this stored-only foundation.
+- Prove payload-buffer independence across 128 KiB and 6 MiB logical fixtures,
+  end-to-end public install and repair, source-read/integrity/write faults,
+  automatic no-visible-target rollback, and unchanged recovery-required
+  behavior after target visibility.
+
+## USK-DEFLATE-ZIP64-STREAMING-01 — Implementation complete, review pending
+
+- Admit an exact unmodified private zlib 1.3.2 inflate subset with a closed file
+  inventory, upstream archive/tag/source identities, installed Zlib licence,
+  and `MIT AND Zlib` package truth. Compile it with `Z_PREFIX`; export no zlib
+  API or CMake target and avoid static-consumer symbol collisions.
+- Stream raw ZIP Deflate through one 64 KiB compressed-input buffer and the
+  existing 64 KiB transaction output buffer. Require exact compressed and
+  uncompressed termination, CRC32, SHA-256, stable-source identity, elapsed,
+  entry, total, and ratio ceilings before target visibility.
+- Cover fixed and dynamic Huffman streams, raw stored blocks, multiple blocks,
+  empty entries, mixed stored/Deflate packages, single-disk ZIP64, public
+  install/repair, truncation, trailing bytes, corruption, forged sizes, and
+  CRC mismatch on x64 and Win32. Hosted Linux/macOS and independent review
+  remain integration evidence, not locally invented claims.
+
 ## Later provider distribution candidates
 
 - Add binary runtime archives, non-CMake native discovery, debug-symbol

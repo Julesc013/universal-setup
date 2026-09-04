@@ -1,11 +1,23 @@
 # Private source-to-target streaming
 
-This internal C++17 slice preserves the public C ABI 1.0 and the existing
-whole-payload lifecycle path. It describes a safe local directory source,
-reopens every file through `StableFile`, copies through one fixed 64 KiB buffer,
-checks incremental SHA-256 and CRC32, stages through `TransactionSession`,
-commits with the existing no-replace transaction, and appends a chained audit
-event.
+This internal C++17 slice preserves the public C ABI 1.0. It describes a safe
+local directory source, reopens every file through `StableFile`, copies through
+one fixed 64 KiB buffer, checks incremental SHA-256 and CRC32, stages through
+`TransactionSession`, commits with the existing no-replace transaction, and
+appends a chained audit event.
+
+The public lifecycle now uses the same reader-to-transaction-sink primitive for
+reviewed stored and Deflate ZIP entries. Archive planning retains only
+normalized path, compression method, exact sizes, CRC32, SHA-256, stable-source
+identity, and a bounded reader; install and repair apply stream directly into
+transaction staging. Deflate readers are sequential and lazily allocate one
+64 KiB compressed-input buffer; the transaction supplies one 64 KiB output
+buffer. The old complete-payload materializer remains private only for
+regression characterization and is no longer used by public lifecycle commands.
+The internal apply path also checks cancellation before and after each fixed
+buffer transfer and once more immediately before target visibility; cancellation
+during staging rolls back without exposing a target. These internal additions do
+not add or change a public C ABI symbol.
 
 `peak_payload_buffer_bytes` measures only the fixed streaming payload
 buffer. It is not a total-process RSS claim. A failure before target visibility
