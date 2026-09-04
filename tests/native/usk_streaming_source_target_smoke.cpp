@@ -17,7 +17,7 @@ namespace streaming = usk::streaming;
 
 namespace {
 
-constexpr std::size_t kBufferBytes = 64u * 1024u;
+constexpr std::size_t kBufferBytes = streaming::kPayloadBufferBytes;
 
 struct Fixture {
     fs::path root;
@@ -141,6 +141,14 @@ int bounded_memory_proof()
     for (std::uint64_t size : sizes) {
         if (streaming::measure_generated_payload_buffer(size, budget) != kBufferBytes) return 20;
     }
+    for (const std::size_t invalid : {4096u, 128u * 1024u, 4u * 1024u * 1024u}) {
+        try {
+            (void)streaming::measure_generated_payload_buffer(
+                2u * kBufferBytes, {invalid, 8u});
+            return 21;
+        } catch (const std::runtime_error&) {
+        }
+    }
     return 0;
 }
 
@@ -176,6 +184,25 @@ int cancellation_and_faults()
         const auto result = streaming::stream_directory_to_target(std::move(value));
         if (result.completed || result.disposition != "rolled_back_no_target_visible" ||
             fs::exists(spec.target_root)) return 31;
+    }
+    for (const std::string boundary : {
+             "transaction:staging:before_stream_finalize",
+             "transaction:staged:before_journal",
+             "before_commit"}) {
+        Fixture fixture("late-cancel");
+        write_generated(fixture.source / "payload.bin", 2u * kBufferBytes, 4u);
+        auto source = streaming::inspect_directory_source(fixture.source);
+        const auto spec = fixture.spec("late-cancel");
+        auto value = request(source, spec, "late-cancel");
+        ToggleCancellation cancellation;
+        value.cancellation = &cancellation;
+        value.fault = [&](const std::string& point, const std::string&, std::uint64_t) {
+            if (point == boundary) cancellation.value = true;
+        };
+        const auto result = streaming::stream_directory_to_target(std::move(value));
+        if (result.completed || result.error_code != "stream_cancelled" ||
+            result.disposition != "rolled_back_no_target_visible" ||
+            fs::exists(spec.target_root)) return 35;
     }
     {
         Fixture fixture("journal-fault");

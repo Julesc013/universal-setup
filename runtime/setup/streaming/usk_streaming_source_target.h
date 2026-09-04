@@ -15,8 +15,10 @@
 
 namespace usk::streaming {
 
+inline constexpr std::size_t kPayloadBufferBytes = 64u * 1024u;
+
 struct ResourceBudget {
-    std::size_t payload_buffer_bytes = 64u * 1024u;
+    std::size_t payload_buffer_bytes = kPayloadBufferBytes;
     std::size_t maximum_entries = 100000u;
 };
 
