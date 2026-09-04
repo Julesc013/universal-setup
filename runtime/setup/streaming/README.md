@@ -14,6 +14,10 @@ transaction staging. Deflate readers are sequential and lazily allocate one
 64 KiB compressed-input buffer; the transaction supplies one 64 KiB output
 buffer. The old complete-payload materializer remains private only for
 regression characterization and is no longer used by public lifecycle commands.
+The internal apply path also checks cancellation before and after each fixed
+buffer transfer and once more immediately before target visibility; cancellation
+during staging rolls back without exposing a target. These internal additions do
+not add or change a public C ABI symbol.
 
 `peak_payload_buffer_bytes` measures only the fixed streaming payload
 buffer. It is not a total-process RSS claim. A failure before target visibility

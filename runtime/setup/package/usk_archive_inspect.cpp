@@ -454,11 +454,15 @@ std::string iso8601_now()
 
 std::string hash_source_until(
     const usk::base::StableFile& source,
-    std::chrono::steady_clock::time_point deadline)
+    std::chrono::steady_clock::time_point deadline,
+    const usk::archive::CancellationCheck& cancellation = {})
 {
     usk::base::Sha256 hash;
     std::uint64_t offset = 0;
     while (offset < source.identity().size_bytes) {
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("archive streaming operation was cancelled");
+        }
         if (std::chrono::steady_clock::now() > deadline) {
             throw std::runtime_error("archive inspection exceeded the elapsed-time budget while hashing");
         }
@@ -468,6 +472,12 @@ std::string hash_source_until(
         const auto bytes = source.read(offset, count);
         hash.update(bytes.data(), bytes.size());
         offset += count;
+    }
+    if (cancellation && cancellation()) {
+        throw std::runtime_error("archive streaming operation was cancelled");
+    }
+    if (std::chrono::steady_clock::now() > deadline) {
+        throw std::runtime_error("archive inspection exceeded the elapsed-time budget while hashing");
     }
     return hash.finish();
 }
@@ -512,7 +522,9 @@ void validate_path_collision(
     }
 }
 
-Inspection inspect_zip(const std::string& request)
+Inspection inspect_zip(
+    const std::string& request,
+    const usk::archive::CancellationCheck& cancellation = {})
 {
     const ArchiveRequest parsed = parse_archive_request(request);
     const Budgets& budgets = parsed.budgets;
@@ -529,7 +541,7 @@ Inspection inspect_zip(const std::string& request)
     inspection.path = source.path();
     inspection.identity = source.identity();
     inspection.budgets = budgets;
-    inspection.source_sha256 = hash_source_until(source, deadline);
+    inspection.source_sha256 = hash_source_until(source, deadline, cancellation);
 
     const std::size_t tail_size = static_cast<std::size_t>(std::min<std::uint64_t>(
         source.identity().size_bytes,
@@ -637,6 +649,9 @@ Inspection inspect_zip(const std::string& request)
     inspection.entries.reserve(static_cast<std::size_t>(entry_count));
 
     for (std::uint64_t index = 0; index < entry_count; ++index) {
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("archive streaming operation was cancelled");
+        }
         if (std::chrono::steady_clock::now() > deadline) {
             throw std::runtime_error("archive inspection exceeded the elapsed-time budget");
         }
@@ -658,11 +673,13 @@ Inspection inspect_zip(const std::string& request)
         if (record_size > central.size() - position || name_size == 0) {
             throw std::runtime_error("ZIP central-directory variable fields are truncated");
         }
-        if ((flags & (0x0001u | 0x0008u | 0x0020u | 0x0040u | 0x2000u)) != 0) {
-            throw std::runtime_error("encrypted, streamed, patched, masked, or multi-disk ZIP entries are unsupported");
-        }
         if (method != 0 && method != 8) {
             throw std::runtime_error("ZIP entry uses an unsupported compression method");
+        }
+        const std::uint16_t allowed_flags = method == 8 ? 0x0806u : 0x0800u;
+        if ((flags & static_cast<std::uint16_t>(~allowed_flags)) != 0) {
+            throw std::runtime_error(
+                "ZIP entry uses encrypted, streamed, patched, masked, multi-disk, or unsupported flags");
         }
         const std::string raw_name(
             reinterpret_cast<const char*>(central.data() + position + 46),
@@ -818,6 +835,12 @@ Inspection inspect_zip(const std::string& request)
     if (position != central.size()) {
         throw std::runtime_error("ZIP central directory contains trailing or uncounted records");
     }
+    if (cancellation && cancellation()) {
+        throw std::runtime_error("archive streaming operation was cancelled");
+    }
+    if (std::chrono::steady_clock::now() > deadline) {
+        throw std::runtime_error("archive inspection exceeded the elapsed-time budget");
+    }
     std::vector<Entry> physical_entries = inspection.entries;
     std::sort(physical_entries.begin(), physical_entries.end(), [](const Entry& left, const Entry& right) {
         return left.local_header_offset < right.local_header_offset;
@@ -960,13 +983,15 @@ public:
         std::uint64_t compressed_size,
         std::uint64_t uncompressed_size,
         std::size_t input_buffer_bytes,
-        std::chrono::steady_clock::time_point deadline)
+        std::chrono::steady_clock::time_point deadline,
+        usk::archive::CancellationCheck cancellation)
         : source_(std::move(source)),
           data_offset_(data_offset),
           compressed_size_(compressed_size),
           uncompressed_size_(uncompressed_size),
           input_(input_buffer_bytes),
-          deadline_(deadline)
+          deadline_(deadline),
+          cancellation_(std::move(cancellation))
     {
         stream_.zalloc = Z_NULL;
         stream_.zfree = Z_NULL;
@@ -1049,6 +1074,9 @@ public:
 private:
     void check_deadline() const
     {
+        if (cancellation_ && cancellation_()) {
+            throw std::runtime_error("archive streaming operation was cancelled");
+        }
         if (std::chrono::steady_clock::now() > deadline_) {
             throw std::runtime_error("ZIP Deflate streaming exceeded its time budget");
         }
@@ -1109,6 +1137,7 @@ private:
     std::uint64_t produced_output_ = 0;
     std::vector<unsigned char> input_;
     std::chrono::steady_clock::time_point deadline_;
+    usk::archive::CancellationCheck cancellation_;
     z_stream stream_ {};
     bool initialized_ = false;
     bool finished_ = false;
@@ -1117,17 +1146,25 @@ private:
 PayloadReader stored_payload_reader(
     const std::shared_ptr<usk::base::StableFile>& source,
     const Entry& entry,
-    std::chrono::steady_clock::time_point deadline)
+    std::chrono::steady_clock::time_point deadline,
+    usk::archive::CancellationCheck cancellation)
 {
     const std::uint64_t data_offset = entry.data_offset;
     const std::uint64_t size_bytes = entry.uncompressed_size;
-    return [source, data_offset, size_bytes, deadline](
+    return [source, data_offset, size_bytes, deadline,
+               cancellation = std::move(cancellation)](
         std::uint64_t relative_offset,
         unsigned char* output,
         std::size_t capacity) -> std::size_t {
         if (relative_offset > size_bytes) {
             throw std::runtime_error(
                 "stored ZIP streaming reader offset exceeds the reviewed entry");
+        }
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("archive streaming operation was cancelled");
+        }
+        if (std::chrono::steady_clock::now() > deadline) {
+            throw std::runtime_error("stored ZIP streaming apply exceeded its time budget");
         }
         if (relative_offset == size_bytes) {
             source->verify_unchanged();
@@ -1136,9 +1173,6 @@ PayloadReader stored_payload_reader(
         if (output == nullptr || capacity == 0u) {
             throw std::runtime_error(
                 "stored ZIP streaming reader requires an output buffer");
-        }
-        if (std::chrono::steady_clock::now() > deadline) {
-            throw std::runtime_error("stored ZIP streaming apply exceeded its time budget");
         }
         const std::size_t count = static_cast<std::size_t>(
             std::min<std::uint64_t>(capacity, size_bytes - relative_offset));
@@ -1151,13 +1185,15 @@ PayloadReader deflate_payload_reader(
     const std::shared_ptr<usk::base::StableFile>& source,
     const Entry& entry,
     std::size_t input_buffer_bytes,
-    std::chrono::steady_clock::time_point deadline)
+    std::chrono::steady_clock::time_point deadline,
+    usk::archive::CancellationCheck cancellation)
 {
     const std::uint64_t data_offset = entry.data_offset;
     const std::uint64_t compressed_size = entry.compressed_size;
     const std::uint64_t uncompressed_size = entry.uncompressed_size;
     return [source, data_offset, compressed_size, uncompressed_size,
                input_buffer_bytes, deadline,
+               cancellation = std::move(cancellation),
                state = std::shared_ptr<DeflatePayloadReader>{}](
         std::uint64_t relative_offset,
         unsigned char* output,
@@ -1169,7 +1205,7 @@ PayloadReader deflate_payload_reader(
             }
             state = std::make_shared<DeflatePayloadReader>(
                 source, data_offset, compressed_size, uncompressed_size,
-                input_buffer_bytes, deadline);
+                input_buffer_bytes, deadline, cancellation);
         }
         const std::size_t count = state->read(relative_offset, output, capacity);
         if (relative_offset == uncompressed_size && count == 0u) state.reset();
@@ -1180,7 +1216,9 @@ PayloadReader deflate_payload_reader(
 std::string source_identity_digest(const usk::base::StableFileIdentity& identity)
 {
     const std::string text = identity.volume_id + "\n" + identity.file_id + "\n" +
-        std::to_string(identity.size_bytes) + "\n" + std::to_string(identity.modified_time_ns);
+        std::to_string(identity.size_bytes) + "\n" +
+        std::to_string(identity.modified_time_ns) + "\n" +
+        std::to_string(identity.link_count);
     usk::base::Sha256 digest;
     digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
     return digest.finish();
@@ -1312,13 +1350,14 @@ StreamingStoredArchivePayload inspect_streaming_payload_impl(
     const std::string& strip_prefix,
     std::size_t payload_buffer_bytes,
     StreamingPayloadMemoryObservation* memory_observation,
-    bool allow_deflate)
+    bool allow_deflate,
+    CancellationCheck cancellation)
 {
-    if (payload_buffer_bytes < 4096u ||
-        payload_buffer_bytes > 4u * 1024u * 1024u) {
+    if (payload_buffer_bytes != streaming_payload_buffer_bytes) {
         throw std::runtime_error("ZIP streaming buffer budget is invalid");
     }
-    Inspection inspection = inspect_zip(archive_inspection_request_json);
+    Inspection inspection = inspect_zip(
+        archive_inspection_request_json, cancellation);
     std::string normalized_prefix;
     if (!strip_prefix.empty()) {
         bool trailing = false;
@@ -1335,7 +1374,7 @@ StreamingStoredArchivePayload inspect_streaming_payload_impl(
     }
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(inspection.budgets.max_elapsed_ms);
-    if (hash_source_until(*source, deadline) != inspection.source_sha256) {
+    if (hash_source_until(*source, deadline, cancellation) != inspection.source_sha256) {
         throw std::runtime_error("source archive digest changed after inspection");
     }
 
@@ -1349,6 +1388,12 @@ StreamingStoredArchivePayload inspect_streaming_payload_impl(
     std::set<std::string> paths;
     bool has_deflate = false;
     for (const Entry& entry : inspection.entries) {
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("archive streaming operation was cancelled");
+        }
+        if (std::chrono::steady_clock::now() > deadline) {
+            throw std::runtime_error("ZIP streaming inspection exceeded its time budget");
+        }
         const std::string path = strip_entry_path(
             entry.normalized_path, normalized_prefix, entry.directory);
         if (entry.directory || path.empty()) continue;
@@ -1372,8 +1417,9 @@ StreamingStoredArchivePayload inspect_streaming_payload_impl(
         const bool deflated = entry.compression_method == 8;
         has_deflate = has_deflate || deflated;
         PayloadReader inspection_reader = deflated
-            ? deflate_payload_reader(source, entry, payload_buffer_bytes, deadline)
-            : stored_payload_reader(source, entry, deadline);
+            ? deflate_payload_reader(
+                source, entry, payload_buffer_bytes, deadline, cancellation)
+            : stored_payload_reader(source, entry, deadline, cancellation);
         PayloadIntegrity integrity;
         std::uint64_t offset = 0;
         while (offset < entry.uncompressed_size) {
@@ -1394,6 +1440,12 @@ StreamingStoredArchivePayload inspect_streaming_payload_impl(
         if (inspection_reader(offset, &probe, 1u) != 0u) {
             throw std::runtime_error("ZIP streaming payload exceeds the reviewed size");
         }
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("archive streaming operation was cancelled");
+        }
+        if (std::chrono::steady_clock::now() > deadline) {
+            throw std::runtime_error("ZIP streaming inspection exceeded its time budget");
+        }
         const std::string sha256 = integrity.finish_sha256();
         if (integrity.finish_crc32() != entry.crc32) {
             throw std::runtime_error(
@@ -1406,13 +1458,20 @@ StreamingStoredArchivePayload inspect_streaming_payload_impl(
             entry.crc32,
             entry.uncompressed_size,
             deflated
-                ? deflate_payload_reader(source, entry, payload_buffer_bytes, deadline)
-                : stored_payload_reader(source, entry, deadline),
+                ? deflate_payload_reader(
+                    source, entry, payload_buffer_bytes, deadline, cancellation)
+                : stored_payload_reader(source, entry, deadline, cancellation),
             deflated ? "deflate" : "stored"});
         result.uncompressed_bytes += entry.uncompressed_size;
     }
     if (result.files.empty()) {
         throw std::runtime_error("archive payload has no files after strip prefix");
+    }
+    if (cancellation && cancellation()) {
+        throw std::runtime_error("archive streaming operation was cancelled");
+    }
+    if (std::chrono::steady_clock::now() > deadline) {
+        throw std::runtime_error("ZIP streaming inspection exceeded its time budget");
     }
     source->verify_unchanged();
     if (memory_observation != nullptr) {
@@ -1437,12 +1496,28 @@ StreamingStoredArchivePayload inspect_streaming_stored_payload(
     std::size_t payload_buffer_bytes,
     StreamingPayloadMemoryObservation* memory_observation)
 {
+    return inspect_streaming_stored_payload(
+        archive_inspection_request_json,
+        strip_prefix,
+        payload_buffer_bytes,
+        memory_observation,
+        {});
+}
+
+StreamingStoredArchivePayload inspect_streaming_stored_payload(
+    const std::string& archive_inspection_request_json,
+    const std::string& strip_prefix,
+    std::size_t payload_buffer_bytes,
+    StreamingPayloadMemoryObservation* memory_observation,
+    CancellationCheck cancellation)
+{
     return inspect_streaming_payload_impl(
         archive_inspection_request_json,
         strip_prefix,
         payload_buffer_bytes,
         memory_observation,
-        false);
+        false,
+        std::move(cancellation));
 }
 
 StreamingStoredArchivePayload inspect_streaming_payload(
@@ -1451,12 +1526,28 @@ StreamingStoredArchivePayload inspect_streaming_payload(
     std::size_t payload_buffer_bytes,
     StreamingPayloadMemoryObservation* memory_observation)
 {
+    return inspect_streaming_payload(
+        archive_inspection_request_json,
+        strip_prefix,
+        payload_buffer_bytes,
+        memory_observation,
+        {});
+}
+
+StreamingStoredArchivePayload inspect_streaming_payload(
+    const std::string& archive_inspection_request_json,
+    const std::string& strip_prefix,
+    std::size_t payload_buffer_bytes,
+    StreamingPayloadMemoryObservation* memory_observation,
+    CancellationCheck cancellation)
+{
     return inspect_streaming_payload_impl(
         archive_inspection_request_json,
         strip_prefix,
         payload_buffer_bytes,
         memory_observation,
-        true);
+        true,
+        std::move(cancellation));
 }
 
 } // namespace usk::archive

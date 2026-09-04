@@ -43,7 +43,8 @@ misrepresented as streaming.
 
 `inspect_streaming_payload` performs the same bounded ZIP and path inspection,
 reopens the exact stable archive, revalidates its source digest, and
-incrementally calculates CRC32 and SHA-256. Stored entries use one configured
+incrementally calculates CRC32 and SHA-256. Stored entries use one exact
+65,536-byte
 output buffer. Deflate entries use one equally bounded private compressed-input
 buffer plus the output buffer and require sequential reviewed offsets. It
 returns metadata and bounded readers, not entry byte vectors. Install and
@@ -63,7 +64,9 @@ requires both to retain a 65,536-byte peak payload buffer with
 `complete_payload_retained=false`. Lifecycle and public-command tests prove
 install and repair staging; fault tests prove source-read, integrity, and write
 failures leave no target visible and transition intact recorded staging to
-`rolled_back`. Failures after target visibility remain recovery-required.
+`rolled_back`. A mid-entry cancellation regression proves the same pre-visibility
+rollback, and nonexact stream-buffer sizes are rejected. Failures after target
+visibility remain recovery-required.
 
 An opt-in slow proof (`USK_LARGE_STREAMING_MEMORY_PROOF=1`) constructs its ZIP
 fixtures directly on disk through a 1 MiB test buffer rather than materializing

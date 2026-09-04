@@ -15,9 +15,13 @@
 
 namespace usk::lifecycle {
 
+inline constexpr std::size_t streaming_payload_buffer_bytes = 64u * 1024u;
+
 using LifecycleFaultInjector = std::function<void(
     const std::string& operation,
     const std::string& point)>;
+
+using LifecycleCancellation = std::function<bool()>;
 
 using PayloadReader = std::function<std::size_t(
     std::uint64_t offset,
@@ -30,7 +34,7 @@ struct PayloadFile {
     std::string sha256;
     std::uint64_t size_bytes = 0;
     PayloadReader reader;
-    std::size_t stream_buffer_bytes = 64u * 1024u;
+    std::size_t stream_buffer_bytes = streaming_payload_buffer_bytes;
 };
 
 struct RecipeBinding {
@@ -174,6 +178,14 @@ InstallResult apply_install(
     const std::string& applied_at,
     LifecycleFaultInjector fault_injector = {});
 
+InstallResult apply_install(
+    const InstallPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector,
+    LifecycleCancellation cancellation);
+
 InstallResult recover_install_finalization(
     const InstallPlan& plan,
     const std::string& transaction_id,
@@ -200,6 +212,14 @@ RepairResult apply_repair(
     const std::string& transaction_id,
     const std::string& applied_at,
     LifecycleFaultInjector fault_injector = {});
+
+RepairResult apply_repair(
+    const RepairPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector,
+    LifecycleCancellation cancellation);
 
 MovePlan plan_move(
     const LifecycleRoots& roots,

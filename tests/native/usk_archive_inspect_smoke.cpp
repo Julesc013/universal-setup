@@ -38,6 +38,7 @@ struct ZipEntry {
     std::vector<unsigned char> central_extra;
     std::optional<std::string> uncompressed_data;
     std::optional<std::uint32_t> crc32_value;
+    bool zip64_sizes = false;
 };
 
 struct WrittenEntry {
@@ -443,12 +444,19 @@ void write_zip64(const fs::path& path, const std::vector<ZipEntry>& specs)
         append16(bytes, 0);
         append16(bytes, 0);
         append32(bytes, spec.crc32_value.value_or(crc32(logical_data(spec))));
-        append32(bytes, compressed);
-        append32(bytes, uncompressed);
+        append32(bytes, spec.zip64_sizes ? 0xffffffffu : compressed);
+        append32(bytes, spec.zip64_sizes ? 0xffffffffu : uncompressed);
         append16(bytes, static_cast<std::uint16_t>(local_name.size()));
-        append16(bytes, static_cast<std::uint16_t>(spec.local_extra.size()));
+        std::vector<unsigned char> local_extra = spec.local_extra;
+        if (spec.zip64_sizes) {
+            append16(local_extra, 0x0001u);
+            append16(local_extra, 16u);
+            append64(local_extra, uncompressed);
+            append64(local_extra, compressed);
+        }
+        append16(bytes, static_cast<std::uint16_t>(local_extra.size()));
         append_text(bytes, local_name);
-        append_bytes(bytes, spec.local_extra);
+        append_bytes(bytes, local_extra);
         append_text(bytes, spec.data);
     }
 
@@ -461,7 +469,11 @@ void write_zip64(const fs::path& path, const std::vector<ZipEntry>& specs)
             static_cast<std::uint32_t>(logical_data(spec).size()));
         std::vector<unsigned char> central_extra = spec.central_extra;
         append16(central_extra, 0x0001u);
-        append16(central_extra, 8u);
+        append16(central_extra, spec.zip64_sizes ? 24u : 8u);
+        if (spec.zip64_sizes) {
+            append64(central_extra, uncompressed);
+            append64(central_extra, compressed);
+        }
         append64(central_extra, written.local_offset);
         append32(bytes, 0x02014b50u);
         append16(bytes, static_cast<std::uint16_t>((3u << 8) | 45u));
@@ -471,8 +483,8 @@ void write_zip64(const fs::path& path, const std::vector<ZipEntry>& specs)
         append16(bytes, 0);
         append16(bytes, 0);
         append32(bytes, spec.crc32_value.value_or(crc32(logical_data(spec))));
-        append32(bytes, compressed);
-        append32(bytes, uncompressed);
+        append32(bytes, spec.zip64_sizes ? 0xffffffffu : compressed);
+        append32(bytes, spec.zip64_sizes ? 0xffffffffu : uncompressed);
         append16(bytes, static_cast<std::uint16_t>(spec.name.size()));
         append16(bytes, static_cast<std::uint16_t>(central_extra.size()));
         append16(bytes, 0);
@@ -881,14 +893,32 @@ int main()
         streamed_digest.finish() != small_streaming.files.front().sha256) {
         return 124;
     }
-    bool invalid_streaming_budget_refused = false;
+    for (const std::size_t invalid_budget : {
+             4095u,
+             4u * 1024u * 1024u}) {
+        bool invalid_streaming_budget_refused = false;
+        try {
+            (void)usk::archive::inspect_streaming_stored_payload(
+                request_json(small_memory_zip), "payload", invalid_budget);
+        } catch (const std::exception& exception) {
+            invalid_streaming_budget_refused =
+                contains(exception.what(), "buffer budget");
+        }
+        if (!invalid_streaming_budget_refused) return 125;
+    }
+    std::size_t cancellation_checks = 0;
+    bool streaming_cancellation_refused = false;
     try {
         (void)usk::archive::inspect_streaming_stored_payload(
-            request_json(small_memory_zip), "payload", 4095u);
+            request_json(small_memory_zip),
+            "payload",
+            streaming_buffer_bytes,
+            nullptr,
+            [&]() { return ++cancellation_checks >= 3u; });
     } catch (const std::exception& exception) {
-        invalid_streaming_budget_refused = contains(exception.what(), "buffer budget");
+        streaming_cancellation_refused = contains(exception.what(), "cancelled");
     }
-    if (!invalid_streaming_budget_refused) return 125;
+    if (!streaming_cancellation_refused) return 126;
     std::cout
         << "payload-streaming-characterization: {\"schema\":"
            "\"usk.payload_streaming_characterization.v1\""
@@ -1263,6 +1293,39 @@ int main()
             return 11;
         }
     }
+    {
+    ZipEntry zip64_size_deflate = deflate_entry(
+        "payload.txt", "cb48cdc9c90700", "hello");
+    zip64_size_deflate.zip64_sizes = true;
+    const fs::path zip64_size_sentinels =
+        root / "zip64-size-sentinels-deflate.zip";
+    write_zip64(zip64_size_sentinels, {zip64_size_deflate});
+    const auto zip64_size_payload = usk::archive::inspect_streaming_payload(
+        request_json(zip64_size_sentinels), "");
+    if (zip64_size_payload.files.size() != 1u ||
+        zip64_size_payload.files.front().compression_method != "deflate" ||
+        zip64_size_payload.files.front().size_bytes != 5u ||
+        read_streaming_file(zip64_size_payload.files.front()) != "hello") {
+        return 170;
+    }
+    const fs::path zip64_size_order_mismatch =
+        root / "zip64-size-order-mismatch.zip";
+    fs::copy_file(zip64_size_sentinels, zip64_size_order_mismatch);
+    {
+        std::fstream stream(
+            zip64_size_order_mismatch,
+            std::ios::in | std::ios::out | std::ios::binary);
+        stream.seekp(static_cast<std::streamoff>(
+            30u + zip64_size_deflate.name.size() + 4u));
+        stream.put(static_cast<char>(zip64_size_deflate.data.size()));
+    }
+    if (!refused(
+            context,
+            zip64_size_order_mismatch,
+            "local and central sizes disagree")) {
+        return 171;
+    }
+    }
     const fs::path missing_zip64_locator =
         root / "missing-zip64-locator.zip";
     fs::copy_file(valid_zip64, missing_zip64_locator);
@@ -1633,6 +1696,7 @@ int main()
         {"reparse.zip", {{"reparse", "x", (0100644u << 16) | 0x400u}}, "reparse-like"},
         {"encrypted.zip", {{"secret", "x", (0100644u << 16), 0x0001u}}, "encrypted"},
         {"streamed.zip", {{"streamed", "x", (0100644u << 16), 0x0008u}}, "streamed"},
+        {"unknown-flags.zip", {{"unknown", "x", (0100644u << 16), 0x0010u}}, "unsupported flags"},
         {"method.zip", {{"method", "x", (0100644u << 16), 0, 99}}, "compression method"},
         {"unicode.zip", {{std::string("nonascii-\xc3\xa9"), "x"}}, "Unicode normalization"},
         {"unicode-normalization-collision.zip",

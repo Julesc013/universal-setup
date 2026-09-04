@@ -12,6 +12,10 @@
 
 namespace usk::archive {
 
+inline constexpr std::size_t streaming_payload_buffer_bytes = 64u * 1024u;
+
+using CancellationCheck = std::function<bool()>;
+
 struct PayloadFile {
     std::string relative_path;
     std::vector<unsigned char> bytes;
@@ -78,14 +82,28 @@ StoredArchivePayload inspect_stored_payload(
 StreamingStoredArchivePayload inspect_streaming_stored_payload(
     const std::string& archive_inspection_request_json,
     const std::string& strip_prefix,
-    std::size_t payload_buffer_bytes = 64u * 1024u,
+    std::size_t payload_buffer_bytes = streaming_payload_buffer_bytes,
+    StreamingPayloadMemoryObservation* memory_observation = nullptr);
+
+StreamingStoredArchivePayload inspect_streaming_stored_payload(
+    const std::string& archive_inspection_request_json,
+    const std::string& strip_prefix,
+    std::size_t payload_buffer_bytes,
+    StreamingPayloadMemoryObservation* memory_observation,
+    CancellationCheck cancellation);
+
+StreamingStoredArchivePayload inspect_streaming_payload(
+    const std::string& archive_inspection_request_json,
+    const std::string& strip_prefix,
+    std::size_t payload_buffer_bytes = streaming_payload_buffer_bytes,
     StreamingPayloadMemoryObservation* memory_observation = nullptr);
 
 StreamingStoredArchivePayload inspect_streaming_payload(
     const std::string& archive_inspection_request_json,
     const std::string& strip_prefix,
-    std::size_t payload_buffer_bytes = 64u * 1024u,
-    StreamingPayloadMemoryObservation* memory_observation = nullptr);
+    std::size_t payload_buffer_bytes,
+    StreamingPayloadMemoryObservation* memory_observation,
+    CancellationCheck cancellation);
 
 } // namespace usk::archive
 

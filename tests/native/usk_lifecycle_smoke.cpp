@@ -184,6 +184,48 @@ int streaming_install_and_fault_proof()
     }
     {
         Fixture fixture;
+        const fs::path target = fixture.root / "targets/cancelled";
+        fs::create_directories(target.parent_path());
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.streaming.cancelled", "install.streaming.cancelled",
+            "2026-08-27T00:02:10Z", target, fixture.roots, recipe(),
+            streaming_payload());
+        std::size_t cancellation_checks = 0;
+        if (!refuses([&] {
+                (void)usk::lifecycle::apply_install(
+                    plan, plan.plan_digest, "tx.streaming.cancelled",
+                    "2026-08-27T00:02:11Z", {},
+                    [&]() { return ++cancellation_checks >= 3u; });
+            })) {
+            return 25;
+        }
+        const auto recovery = usk::transaction::TransactionSession::inspect_recovery(
+            usk::transaction::TransactionSpec{
+                "tx.streaming.cancelled", plan.plan_id, plan.plan_digest,
+                "install_local", fixture.roots.staging_parent, target,
+                fixture.roots.state_root, fixture.roots.audit_root});
+        if (fs::exists(target) || recovery.current_state != "rolled_back" ||
+            recovery.staging_exists || recovery.target_exists) {
+            return 26;
+        }
+    }
+    {
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/nonexact-buffer";
+        fs::create_directories(target.parent_path());
+        auto files = streaming_payload();
+        files.front().stream_buffer_bytes = 4u * 1024u * 1024u;
+        if (!refuses([&] {
+                (void)usk::lifecycle::plan_install(
+                    "plan.streaming.nonexact", "install.streaming.nonexact",
+                    "2026-08-27T00:02:20Z", target, fixture.roots, recipe(),
+                    files);
+            }) || fs::exists(target)) {
+            return 27;
+        }
+    }
+    {
+        Fixture fixture;
         const fs::path target = fixture.root / "targets/integrity-fault";
         fs::create_directories(target.parent_path());
         const auto plan = usk::lifecycle::plan_install(

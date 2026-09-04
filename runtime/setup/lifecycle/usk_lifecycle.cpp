@@ -41,8 +41,8 @@ void bind_payload_identity(usk::lifecycle::PayloadFile& file)
 {
     if (file.reader) {
         if (!file.bytes.empty() || !sha256(file.sha256) ||
-            file.stream_buffer_bytes < 4096u ||
-            file.stream_buffer_bytes > 4u * 1024u * 1024u) {
+            file.stream_buffer_bytes !=
+                usk::lifecycle::streaming_payload_buffer_bytes) {
             throw std::runtime_error("streaming lifecycle payload identity is invalid");
         }
         return;
@@ -60,7 +60,8 @@ void bind_payload_identity(usk::lifecycle::PayloadFile& file)
 void stage_payload_file(
     usk::transaction::TransactionSession& transaction,
     const std::filesystem::path& relative_path,
-    const usk::lifecycle::PayloadFile& file)
+    const usk::lifecycle::PayloadFile& file,
+    const usk::lifecycle::LifecycleCancellation& cancellation)
 {
     if (!file.reader) {
         transaction.stage_file(relative_path, file.bytes);
@@ -73,14 +74,23 @@ void stage_payload_file(
         file.sha256,
         file.stream_buffer_bytes,
         [&](unsigned char* output, std::size_t capacity) -> std::size_t {
+            if (cancellation && cancellation()) {
+                throw std::runtime_error("lifecycle streaming operation was cancelled");
+            }
             const std::size_t count = file.reader(offset, output, capacity);
             if (count > capacity ||
                 count > file.size_bytes - std::min(offset, file.size_bytes)) {
                 throw std::runtime_error("lifecycle payload reader exceeded its reviewed size");
             }
             offset += count;
+            if (cancellation && cancellation()) {
+                throw std::runtime_error("lifecycle streaming operation was cancelled");
+            }
             return count;
         });
+    if (cancellation && cancellation()) {
+        throw std::runtime_error("lifecycle streaming operation was cancelled");
+    }
     if (staged.sha256 != file.sha256 || staged.size_bytes != file.size_bytes) {
         throw std::runtime_error("streamed lifecycle payload changed during staging");
     }
@@ -575,6 +585,18 @@ usk::state::InstalledState revised_state(
 
 namespace usk::lifecycle {
 
+InstallResult apply_install(
+    const InstallPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector)
+{
+    return apply_install(
+        plan, reviewed_plan_digest, transaction_id, applied_at,
+        std::move(fault_injector), {});
+}
+
 InstallPlan plan_install(
     std::string plan_id,
     std::string install_id,
@@ -607,7 +629,8 @@ InstallResult apply_install(
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
     const std::string& applied_at,
-    LifecycleFaultInjector fault_injector)
+    LifecycleFaultInjector fault_injector,
+    LifecycleCancellation cancellation)
 {
     validate_plan(plan);
     if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
@@ -631,10 +654,13 @@ InstallResult apply_install(
         });
     try {
         for (const PayloadFile& file : plan.files) {
-            stage_payload_file(transaction, file.relative_path, file);
+            stage_payload_file(transaction, file.relative_path, file, cancellation);
         }
         transaction.mark_staged();
         transaction.mark_verified();
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("lifecycle streaming operation was cancelled");
+        }
         transaction.commit_effect();
         if (fault_injector) fault_injector("install_local", "after_target_commit");
 
@@ -876,6 +902,19 @@ RepairResult apply_repair(
     const std::string& applied_at,
     LifecycleFaultInjector fault_injector)
 {
+    return apply_repair(
+        plan, reviewed_plan_digest, transaction_id, applied_at,
+        std::move(fault_injector), {});
+}
+
+RepairResult apply_repair(
+    const RepairPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector,
+    LifecycleCancellation cancellation)
+{
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(repair_plan_payload(plan)) != plan.plan_digest ||
         !record_io::valid_identifier(transaction_id) || !valid_timestamp(applied_at) ||
@@ -913,10 +952,14 @@ RepairResult apply_repair(
     try {
         for (const PayloadFile& file : plan.replacement_files) {
             stage_payload_file(
-                transaction, fs::path("payload") / file.relative_path, file);
+                transaction, fs::path("payload") / file.relative_path, file,
+                cancellation);
         }
         transaction.mark_staged();
         transaction.mark_verified();
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("lifecycle streaming operation was cancelled");
+        }
         transaction.commit_effect();
         if (fault_injector) fault_injector("repair", "after_staging_commit");
         for (const PayloadFile& file : plan.replacement_files) {
@@ -1045,7 +1088,7 @@ MoveResult apply_move(
         });
     try {
         for (const PayloadFile& file : plan.complete_files) {
-            stage_payload_file(transaction, file.relative_path, file);
+            stage_payload_file(transaction, file.relative_path, file, {});
         }
         transaction.mark_staged();
         transaction.mark_verified();
