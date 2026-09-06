@@ -34,7 +34,7 @@
       "type": "object",
       "required": ["path", "format", "expected_sha256", "strip_prefix", "budgets"],
       "properties": {
-        "path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 32768, "description": "Input syntax budget only. Windows native admission also requires file paths at most 259 UTF-16 code units, directories/ancestors at most 247, and components at most 255; derived staging, journal, audit and state paths must fit." },
         "format": { "const": "zip" },
         "expected_sha256": { "$ref": "#/$defs/sha256" },
         "strip_prefix": { "type": "string", "maxLength": 4096 },
@@ -46,7 +46,7 @@
       "type": "object",
       "required": ["root", "class"],
       "properties": {
-        "root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "root": { "type": "string", "minLength": 1, "maxLength": 32768, "description": "Input syntax budget only. Windows native admission also requires file paths at most 259 UTF-16 code units, directories/ancestors at most 247, and components at most 255; derived staging, journal, audit and state paths must fit." },
         "class": { "enum": ["operator_acceptance", "managed_portable"] }
       },
       "additionalProperties": false

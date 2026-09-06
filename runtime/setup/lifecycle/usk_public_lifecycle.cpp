@@ -1039,6 +1039,15 @@ Value recovery_apply_document(const Value& request, const PublicConfig& config)
         {"status", Value("rolled_back")}, {"transaction_id", Value(bundle.spec.transaction_id)}}));
 }
 
+void require_evidence_path_capacity(const PublicConfig& config, const std::string& packet_id)
+{
+    if (!usk::record_io::valid_identifier(packet_id)) {
+        throw PublicError("invalid_argument", "evidence packet identifier is invalid");
+    }
+    usk::base::require_native_path_capacity(config.setup_root / "evidence" / "packets" / (packet_id + ".json"),
+        usk::base::NativePathKind::file, "evidence packet");
+}
+
 Value live_evidence_capture(const Value& request, const PublicConfig& config)
 {
     exact_members(request, {"schema", "request_id", "packet_id", "captured_at", "install_id",
@@ -1048,6 +1057,7 @@ Value live_evidence_capture(const Value& request, const PublicConfig& config)
         throw PublicError("invalid_argument", "live evidence capture request schema is incompatible");
     }
     (void)required_string(request, "request_id");
+    require_evidence_path_capacity(config, required_string(request, "packet_id"));
     initialize_setup_root(config);
     const std::string install_id = required_string(request, "install_id");
     const auto roots = lifecycle_roots(config);
@@ -1210,6 +1220,8 @@ Value operator_verdict_record(const Value& request, const PublicConfig& config)
         throw PublicError("invalid_argument", "operator verdict schema or explicit confirmation is invalid");
     }
     (void)required_string(request, "request_id");
+    require_evidence_path_capacity(config, required_string(request, "pending_packet_id"));
+    require_evidence_path_capacity(config, required_string(request, "new_packet_id"));
     initialize_setup_root(config);
     usk::evidence::EvidenceRepository repository(config.setup_root / "evidence");
     const auto pending = repository.read_and_validate(required_string(request, "pending_packet_id"));
@@ -1235,6 +1247,13 @@ void ensure_directory(const fs::path& parent, const std::string& name)
 
 void initialize_setup_root(const PublicConfig& config)
 {
+    usk::base::require_native_path_capacity(config.setup_root / ".usk-owned-root.v1.json",
+        usk::base::NativePathKind::file, "setup ownership marker");
+    for (const fs::path& path : {config.setup_root / "state" / "ownership",
+            config.setup_root / "state" / "installed", config.setup_root / "state" / "transactions",
+            config.setup_root / "staging", config.setup_root / "audit" / "chains"}) {
+        usk::base::require_native_path_capacity(path, usk::base::NativePathKind::directory, "setup layout");
+    }
     const std::string marker = setup_root_marker(config);
     std::error_code error;
     if (!fs::exists(config.setup_root, error)) {
@@ -1282,6 +1301,7 @@ Value execute_command(const std::string& command, const Value& request, const Pu
             required_string(request, "reviewed_plan_digest") != bundle.plan.plan_digest) {
             throw PublicError("stale_plan", "reviewed install plan identity does not match immediate revalidation");
         }
+        usk::lifecycle::require_install_path_capacity(bundle.plan, required_string(request, "transaction_id"));
         initialize_setup_root(config);
         const auto result = usk::lifecycle::apply_install(bundle.plan, bundle.plan.plan_digest,
             required_string(request, "transaction_id"), required_string(request, "applied_at"));
@@ -1425,6 +1445,9 @@ extern "C" char* usk_public_lifecycle_command_json(
         response = usk::json::canonical(response_error(
             invalid ? "invalid_argument" : "refused", error.code(), error.what()));
         *out_command_status = invalid ? USK_STATUS_INVALID_ARGUMENT : USK_STATUS_ERROR;
+    } catch (const usk::base::NativePathLimitExceeded& error) {
+        response = usk::json::canonical(response_error("refused", "native_path_limit_exceeded", error.what()));
+        *out_command_status = USK_STATUS_ERROR;
     } catch (const std::exception& error) {
         response = usk::json::canonical(response_error("refused", "lifecycle_refused", error.what()));
         *out_command_status = USK_STATUS_ERROR;

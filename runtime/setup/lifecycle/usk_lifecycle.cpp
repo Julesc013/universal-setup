@@ -9,6 +9,7 @@
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_transaction_session.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <cctype>
@@ -166,6 +167,45 @@ std::vector<std::string> directory_closure(const std::vector<usk::lifecycle::Pay
     return {result.begin(), result.end()};
 }
 
+void require_payload_path_capacity(
+    const fs::path& root,
+    const std::vector<usk::lifecycle::PayloadFile>& files)
+{
+    usk::base::require_native_path_capacity(root, usk::base::NativePathKind::directory, "payload root");
+    for (const auto& file : files) {
+        usk::base::require_native_path_capacity(root / file.relative_path,
+            usk::base::NativePathKind::file, "payload file");
+    }
+}
+
+void require_result_record_capacity(
+    const usk::lifecycle::LifecycleRoots& roots,
+    const std::string& install_id,
+    const std::string& transaction_id,
+    const std::string& audit_chain_id,
+    bool writes_ownership = true)
+{
+    for (const fs::path& path : {roots.staging_parent, roots.state_root / "installed",
+            roots.state_root / "ownership", roots.state_root / "transactions", roots.audit_root / "chains"}) {
+        usk::base::require_native_path_capacity(path, usk::base::NativePathKind::directory, "setup record layout");
+    }
+    usk::audit::require_chain_path_capacity(roots.audit_root, audit_chain_id);
+    if (transaction_id.empty()) return;
+    if (!usk::record_io::valid_identifier(transaction_id)) {
+        throw std::runtime_error("transaction identifier is invalid before path admission");
+    }
+    usk::base::require_native_path_capacity(roots.state_root / "installed" /
+        (install_id + "." + transaction_id + ".json"), usk::base::NativePathKind::file, "installed-state snapshot");
+    if (writes_ownership) {
+        const std::string manifest_id = "ownership." + install_id + "." + transaction_id;
+        if (!usk::record_io::valid_identifier(manifest_id)) {
+            throw std::runtime_error("derived ownership identifier is invalid before filesystem effects");
+        }
+        usk::base::require_native_path_capacity(roots.state_root / "ownership" /
+            (manifest_id + ".json"), usk::base::NativePathKind::file, "ownership record");
+    }
+}
+
 void validate_recipe(const usk::lifecycle::RecipeBinding& recipe)
 {
     if (!usk::record_io::valid_identifier(recipe.product_id) || recipe.product_version.empty() ||
@@ -284,6 +324,7 @@ void validate_plan(const usk::lifecycle::InstallPlan& plan)
     if (usk::json::sha256_canonical(plan_payload(plan)) != plan.plan_digest) {
         throw std::runtime_error("install plan digest does not bind its current inputs");
     }
+    usk::lifecycle::require_install_path_capacity(plan);
 }
 
 std::string installed_digest(const usk::state::InstalledState& state)
@@ -585,6 +626,18 @@ usk::state::InstalledState revised_state(
 
 namespace usk::lifecycle {
 
+void require_install_path_capacity(const InstallPlan& plan, const std::string& transaction_id)
+{
+    require_result_record_capacity(plan.roots, plan.install_id, transaction_id, "audit." + plan.install_id);
+    require_payload_path_capacity(plan.target_root, plan.files);
+    if (!transaction_id.empty()) {
+        transaction::require_path_capacity(transaction::TransactionSpec{
+            transaction_id, plan.plan_id, plan.plan_digest, "install_local", plan.roots.staging_parent,
+            plan.target_root, plan.roots.state_root, plan.roots.audit_root});
+        require_payload_path_capacity(plan.roots.staging_parent / (".usk-stage-" + transaction_id), plan.files);
+    }
+}
+
 InstallResult apply_install(
     const InstallPlan& plan,
     const std::string& reviewed_plan_digest,
@@ -635,6 +688,7 @@ InstallResult apply_install(
     validate_plan(plan);
     if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
         !valid_timestamp(applied_at)) throw std::runtime_error("reviewed install plan or transaction identity is invalid");
+    require_install_path_capacity(plan, transaction_id);
     if (fs::exists(plan.target_root)) throw std::runtime_error("install target now exists; reviewed plan is invalid");
     record_io::require_safe_directory(plan.roots.staging_parent);
     record_io::require_safe_directory(plan.target_root.parent_path());
@@ -731,6 +785,7 @@ InstallResult recover_install_finalization(
         recovered_at <= plan.created_at) {
         throw std::runtime_error("install recovery identity is invalid");
     }
+    require_install_path_capacity(plan, transaction_id);
     transaction::TransactionSpec spec{
         transaction_id, plan.plan_id, plan.plan_digest, "install_local",
         plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root};
@@ -891,6 +946,8 @@ RepairPlan plan_repair(
     for (const PayloadFile& file : exact_source_files) {
         if (affected.count(file.relative_path) != 0) plan.replacement_files.push_back(file);
     }
+    require_result_record_capacity(roots, install_id, {}, current.first.audit_chain_id);
+    require_payload_path_capacity(fs::path(current.first.target_root), plan.replacement_files);
     plan.plan_digest = json::sha256_canonical(repair_plan_payload(plan));
     return plan;
 }
@@ -942,6 +999,12 @@ RepairResult apply_repair(
 
     const fs::path install_root(current.first.target_root);
     const fs::path bundle = install_root.parent_path() / (".usk-repair-" + transaction_id);
+    require_result_record_capacity(plan.roots, plan.install_id, transaction_id, current.first.audit_chain_id);
+    require_payload_path_capacity(install_root, plan.replacement_files);
+    require_payload_path_capacity(bundle / "payload", plan.replacement_files);
+    require_payload_path_capacity(bundle / "backup", plan.replacement_files);
+    require_payload_path_capacity(plan.roots.staging_parent / (".usk-stage-" + transaction_id) / "payload",
+        plan.replacement_files);
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "repair", plan.roots.staging_parent,
         bundle, plan.roots.state_root, plan.roots.audit_root},
@@ -1051,6 +1114,8 @@ MovePlan plan_move(
         throw std::runtime_error("move destination is identical or already exists");
     }
     plan.complete_files = read_complete_tree(plan.old_root);
+    require_payload_path_capacity(plan.new_root, plan.complete_files);
+    require_result_record_capacity(roots, install_id, {}, current.first.audit_chain_id);
     plan.plan_digest = json::sha256_canonical(move_plan_payload(plan));
     return plan;
 }
@@ -1080,6 +1145,9 @@ MoveResult apply_move(
     }
     ensure_same_payload(plan.complete_files, read_complete_tree(plan.old_root),
                         "move source closure changed after plan review");
+    require_result_record_capacity(plan.roots, plan.install_id, transaction_id, current.first.audit_chain_id);
+    require_payload_path_capacity(plan.new_root, plan.complete_files);
+    require_payload_path_capacity(plan.staging_parent / (".usk-stage-" + transaction_id), plan.complete_files);
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "move", plan.staging_parent,
         plan.new_root, plan.roots.state_root, plan.roots.audit_root},
@@ -1154,6 +1222,7 @@ UninstallPlan plan_uninstall(
     plan.roots = roots;
     plan.verification = verify_manifest(
         current.first, current.second, "verify." + plan.plan_id + ".before", plan.created_at);
+    require_result_record_capacity(roots, install_id, {}, current.first.audit_chain_id, false);
     plan.plan_digest = json::sha256_canonical(uninstall_plan_payload(plan));
     return plan;
 }
@@ -1186,6 +1255,11 @@ UninstallResult apply_uninstall(
     }
     const fs::path install_root(current.first.target_root);
     const fs::path marker = install_root.parent_path() / (".usk-uninstall-" + transaction_id);
+    require_result_record_capacity(plan.roots, plan.install_id, transaction_id, current.first.audit_chain_id, false);
+    for (const fs::path& path : {marker / "operation.marker",
+            plan.roots.staging_parent / (".usk-stage-" + transaction_id) / "operation.marker"}) {
+        base::require_native_path_capacity(path, base::NativePathKind::file, "uninstall operation marker");
+    }
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "uninstall", plan.roots.staging_parent,
         marker, plan.roots.state_root, plan.roots.audit_root},

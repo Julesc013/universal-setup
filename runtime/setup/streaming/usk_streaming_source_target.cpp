@@ -7,6 +7,7 @@
 #include "usk_record_io.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <cctype>
@@ -206,6 +207,17 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
         }
         if (entry_set_digest(request.source.entries) != request.source.entry_set_digest) {
             throw std::runtime_error("directory source descriptor set changed");
+        }
+        transaction::require_path_capacity(request.transaction);
+        audit::require_chain_path_capacity(request.transaction.audit_root, request.audit_chain_id);
+        const fs::path staging = request.transaction.staging_parent /
+            (".usk-stage-" + request.transaction.transaction_id);
+        for (const auto& entry : request.source.entries) {
+            const fs::path relative = fs::u8path(entry.relative_path);
+            base::require_native_path_capacity(entry.source_path, base::NativePathKind::file, "stream source");
+            base::require_native_path_capacity(staging / relative, base::NativePathKind::file, "stream staging file");
+            base::require_native_path_capacity(request.transaction.target_root / relative,
+                base::NativePathKind::file, "stream target file");
         }
         transaction = std::make_unique<transaction::TransactionSession>(
             request.transaction,

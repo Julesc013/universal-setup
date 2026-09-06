@@ -31,6 +31,9 @@ struct TransactionSpec {
     std::filesystem::path audit_root;
 };
 
+// Checks all fixed and transaction-derived paths without filesystem effects.
+void require_path_capacity(const TransactionSpec& spec);
+
 using FaultInjector = std::function<void(const std::string& state, const std::string& point)>;
 using StreamReader = std::function<std::size_t(unsigned char* output, std::size_t capacity)>;
 

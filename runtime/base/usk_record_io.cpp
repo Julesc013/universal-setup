@@ -4,6 +4,7 @@
 #include "usk_record_io.h"
 
 #include "usk_stable_file.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <cctype>
@@ -79,6 +80,7 @@ void sync_directory(const fs::path& path)
 
 void require_safe_directory(const fs::path& input)
 {
+    base::require_native_path_capacity(input, base::NativePathKind::directory, "record directory");
     std::error_code error;
     const fs::path path = fs::absolute(input, error).lexically_normal();
     if (error || !fs::is_directory(path) || linked(path)) {
@@ -99,6 +101,7 @@ void create_directory_exclusive(const fs::path& parent, const std::string& name)
     if (!valid_identifier(name)) throw std::runtime_error("record directory identifier is invalid");
     std::error_code error;
     const fs::path target = parent / name;
+    base::require_native_path_capacity(target, base::NativePathKind::directory, "new record directory");
     if (!fs::create_directory(target, error) || error || linked(target)) {
         throw std::runtime_error("cannot exclusively create record directory");
     }
@@ -107,6 +110,7 @@ void create_directory_exclusive(const fs::path& parent, const std::string& name)
 
 void write_new_durable_text(const fs::path& path, const std::string& content)
 {
+    base::require_native_path_capacity(path, base::NativePathKind::file, "durable record");
     require_safe_directory(path.parent_path());
 #if defined(_WIN32)
     HANDLE handle = CreateFileW(
@@ -172,6 +176,8 @@ std::string read_stable_text(const fs::path& path, std::size_t max_bytes)
 
 void rename_no_replace(const fs::path& source, const fs::path& target)
 {
+    base::require_native_path_capacity(source, base::NativePathKind::file, "record move source");
+    base::require_native_path_capacity(target, base::NativePathKind::file, "record move destination");
     require_safe_directory(source.parent_path());
     require_safe_directory(target.parent_path());
 #if defined(_WIN32)
