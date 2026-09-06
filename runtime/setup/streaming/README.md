@@ -60,8 +60,10 @@ old tree; identical bytes never grant reuse or cleanup authority.
 The first fresh journal durably records the original transaction and snapshot,
 source binding, retain-only policy and null rollback authority before staging
 creation. A prior journal that ever entered `committing` is ineligible, even
-when its target is now absent. Its existing finalization/inspection path must
-resolve that ambiguity. Multiple explicit replay attempts have distinct staging
+when its target is now absent. Up to 64 retained ancestor journal snapshots are
+also checked exactly; changed or committing ancestor state cannot be forgotten
+by a replay-of-replay. Its existing finalization/inspection path must resolve
+that ambiguity. Multiple explicit replay attempts have distinct staging
 roots; the existing no-replace commit admits one target and retains a loser.
 This is not generation-lease ownership or stale-owner reconciliation.
 
@@ -75,10 +77,13 @@ The stream subdocument has its own corruption-detection digest. Restart binds
 the full journal bytes, because the older journal digest covers transitions.
 Neither digest is an authentication credential or deletion capability.
 
-The public C ABI and JSON recovery actions are unchanged. Archive streaming
-also records entry observations, with its existing plan digest when the caller
-does not provide a separate source identity. This private replay adapter
-currently accepts directory sources. ZIP replay dispatch, automatic recovery,
+The public C ABI and JSON recovery actions are unchanged. This private adapter
+accepts directory sources. The lifecycle adapter also provides explicit stored
+and Deflate ZIP replay through an optional `install_local.apply.restart_from`
+request; see [its contract](../lifecycle/README.md). Archive source/entry identity
+and versioned original install/root context are persisted before entry effects.
+Legacy callers without a separate source binding retain their plan-digest entry
+observations and cannot acquire ZIP replay authority. Automatic recovery,
 mid-Deflate seek, leases and retained-child cleanup remain separate work.
 `usk_entry_restart_smoke` exercises nine abrupt child-process exits, changed
 source/plan/snapshot refusals, malformed metadata, same-byte replacement with

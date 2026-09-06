@@ -4,6 +4,7 @@
 #ifndef USK_AUDIT_REPOSITORY_H
 #define USK_AUDIT_REPOSITORY_H
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -44,6 +45,8 @@ public:
     void initialize_chain(const std::string& chain_id) const;
     AuditEvent append(const std::string& chain_id, const AuditInput& input) const;
     std::vector<AuditEvent> read_and_validate_chain(const std::string& chain_id) const;
+    std::vector<AuditEvent> read_and_validate_chain_bounded(
+        const std::string& chain_id, std::size_t maximum_events) const;
 
 private:
     std::filesystem::path root_;

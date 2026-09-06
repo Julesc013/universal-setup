@@ -133,6 +133,25 @@ class SetupContractTests(unittest.TestCase):
         for forbidden in ("shell_command", "powershell", "network_url", "credential_reference"):
             self.assertNotIn(forbidden, serialized)
 
+    def test_explicit_zip_replay_keeps_old_apply_shape_and_strict_snapshot_context(self) -> None:
+        apply = load_schema("install_local_apply_request")
+        self.assertNotIn("restart_from", apply["required"])
+        restart = apply["properties"]["restart_from"]
+        self.assertEqual(set(restart["required"]), {
+            "transaction_id", "journal_snapshot_sha256", "audit_chain_digest"})
+        self.assertEqual(set(restart["properties"]), set(restart["required"]))
+        self.assertIs(restart["additionalProperties"], False)
+        for name in ("journal_snapshot_sha256", "audit_chain_digest"):
+            self.assertEqual(restart["properties"][name], {"$ref": "#/$defs/sha256"})
+        for name in ("recovery_report", "recovery_plan"):
+            schema = load_schema(name)
+            self.assertEqual(schema["properties"]["journal_snapshot_sha256"], {"$ref": "#/$defs/sha256"})
+            self.assertIn({"type": "null"}, schema["properties"]["audit_chain_digest"]["anyOf"])
+        stream = load_schema("transaction_journal")["properties"]["recovery_metadata"]["properties"]["stream_journal"]
+        self.assertEqual(stream["properties"]["source_context"]["maxLength"], 16384)
+        self.assertNotIn("source_context", stream["required"])
+        self.assertIs(stream["additionalProperties"], False)
+
     def test_m2_live_target_evidence_is_strict_and_keeps_human_authority_separate(self) -> None:
         for name, schema_const in M2_EVIDENCE_CONTRACTS.items():
             schema = load_schema(name)

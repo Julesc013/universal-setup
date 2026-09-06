@@ -36,3 +36,13 @@ for source binding, scope and process-boundary proof.
 Visible-target finalization still requires the exact original operation
 context. Automatic leases, retained-child cleanup and cross-volume
 copy/verify/commit remain separate work.
+
+The optional stream `source_context` is a bounded canonical versioned document
+whose SHA256 must equal `source_digest`. Lifecycle ZIP replay uses it to bind
+archive, entry-set, original plan/policy and observed native setup/root identities.
+The full expected journal snapshot binds these observations before replay. Older
+journals without this context remain readable, but cannot support the new public
+ZIP replay admission. Readers that reject the added optional metadata retain
+state; no fallback grants rollback authority. These digests detect corruption and
+bind an explicitly reviewed snapshot; they are not authentication credentials or
+proof of a live generation lease.

@@ -1388,6 +1388,12 @@ StreamingStoredArchivePayload inspect_streaming_payload_impl(
     result.entry_set_digest = inspection.entry_set_digest;
     result.archive_size_bytes = inspection.identity.size_bytes;
     result.payload_buffer_bytes = payload_buffer_bytes;
+    result.validate_source = [source, deadline, cancellation] {
+        if ((cancellation && cancellation()) || std::chrono::steady_clock::now() > deadline) {
+            throw std::runtime_error("archive source admission expired or was cancelled");
+        }
+        source->verify_unchanged();
+    };
     std::vector<unsigned char> buffer(payload_buffer_bytes);
     std::set<std::string> paths;
     bool has_deflate = false;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_lifecycle.h"
+#include "usk_install_restart.h"
 
 #include "usk_audit_repository.h"
 #include "usk_json.h"
@@ -62,7 +63,8 @@ void stage_payload_file(
     usk::transaction::TransactionSession& transaction,
     const std::filesystem::path& relative_path,
     const usk::lifecycle::PayloadFile& file,
-    const usk::lifecycle::LifecycleCancellation& cancellation)
+    const usk::lifecycle::LifecycleCancellation& cancellation,
+    const std::string& source_identity_digest = {})
 {
     if (!file.reader) {
         transaction.stage_file(relative_path, file.bytes);
@@ -88,7 +90,7 @@ void stage_payload_file(
                 throw std::runtime_error("lifecycle streaming operation was cancelled");
             }
             return count;
-        });
+        }, source_identity_digest);
     if (cancellation && cancellation()) {
         throw std::runtime_error("lifecycle streaming operation was cancelled");
     }
@@ -214,6 +216,10 @@ void validate_recipe(const usk::lifecycle::RecipeBinding& recipe)
         !sha256(recipe.policy_digest) || recipe.components.empty() || recipe.entrypoints.empty()) {
         throw std::runtime_error("lifecycle recipe binding is invalid");
     }
+    if ((!recipe.source_identity_digest.empty() || !recipe.entry_set_digest.empty()) &&
+        (!sha256(recipe.source_identity_digest) || !sha256(recipe.entry_set_digest))) {
+        throw std::runtime_error("lifecycle archive identity and entry-set binding is incomplete");
+    }
     std::set<std::string> components;
     for (const std::string& component : recipe.components) {
         if (!usk::record_io::valid_identifier(component) || !components.insert(component).second) {
@@ -275,7 +281,7 @@ Value plan_payload(const usk::lifecycle::InstallPlan& plan)
             {"kind", Value(entrypoint.kind)},
             {"relative_path", Value(entrypoint.relative_path)}}));
     }
-    return Value(Value::Object{
+    Value result(Value::Object{
         {"audit_root", Value(fs::absolute(plan.roots.audit_root).lexically_normal().generic_string())},
         {"component_selection", Value(std::move(components))},
         {"created_at", Value(plan.created_at)},
@@ -293,6 +299,12 @@ Value plan_payload(const usk::lifecycle::InstallPlan& plan)
         {"staging_parent", Value(fs::absolute(plan.roots.staging_parent).lexically_normal().generic_string())},
         {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())},
         {"target_root", Value(fs::absolute(plan.target_root).lexically_normal().generic_string())}});
+    if (!plan.recipe.source_identity_digest.empty()) {
+        result.as_object().emplace("source_identity_digest", Value(plan.recipe.source_identity_digest));
+        result.as_object().emplace("entry_set_digest", Value(plan.recipe.entry_set_digest));
+        result.as_object().emplace("restart_policy_context", Value(plan.recipe.restart_policy_context));
+    }
+    return result;
 }
 
 void validate_plan(const usk::lifecycle::InstallPlan& plan)
@@ -657,7 +669,8 @@ InstallPlan plan_install(
     fs::path target_root,
     LifecycleRoots roots,
     RecipeBinding recipe,
-    std::vector<PayloadFile> files)
+    std::vector<PayloadFile> files,
+    std::function<void()> validate_source)
 {
     InstallPlan plan;
     plan.plan_id = std::move(plan_id);
@@ -670,6 +683,7 @@ InstallPlan plan_install(
     plan.roots.audit_root = fs::absolute(plan.roots.audit_root).lexically_normal();
     plan.recipe = std::move(recipe);
     plan.files = std::move(files);
+    plan.validate_source = std::move(validate_source);
     validate_recipe(plan.recipe);
     normalize_files(plan.files);
     plan.plan_digest = json::sha256_canonical(plan_payload(plan));
@@ -677,13 +691,14 @@ InstallPlan plan_install(
     return plan;
 }
 
-InstallResult apply_install(
+static InstallResult apply_install_impl(
     const InstallPlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
     const std::string& applied_at,
     LifecycleFaultInjector fault_injector,
-    LifecycleCancellation cancellation)
+    LifecycleCancellation cancellation,
+    const InstallRestartRequest* restart)
 {
     validate_plan(plan);
     if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
@@ -694,28 +709,46 @@ InstallResult apply_install(
     record_io::require_safe_directory(plan.target_root.parent_path());
     state::StateRepository state_repository(plan.roots.state_root);
     audit::AuditRepository audit_repository(plan.roots.audit_root);
-    const std::string chain_id = "audit." + plan.install_id;
-    audit_repository.initialize_chain(chain_id);
-    audit_repository.append(chain_id, audit::AuditInput{
-        applied_at, "install_local", "validated", "pass", "plan", plan.plan_id,
-        plan.plan_digest, transaction_id, plan.plan_id, "reviewed plan revalidated"});
-
-    transaction::TransactionSession transaction(transaction::TransactionSpec{
-        transaction_id, plan.plan_id, plan.plan_digest, "install_local",
-        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root},
-        [&](const std::string& state, const std::string& point) {
-            if (fault_injector) fault_injector("install_local", "transaction." + state + "." + point);
-        });
-    try {
-        for (const PayloadFile& file : plan.files) {
-            stage_payload_file(transaction, file.relative_path, file, cancellation);
+    const std::string source_digest = install_stream_source_digest(plan);
+    if (plan.validate_source) plan.validate_source();
+    const std::string chain_id = install_audit_chain_id(plan.install_id, transaction_id, restart != nullptr);
+    audit::require_chain_path_capacity(plan.roots.audit_root, chain_id);
+    std::unique_ptr<transaction::TransactionSession> transaction;
+    bool replay_journal_attempted = false;
+    const auto injector = [&](const std::string& state, const std::string& point) {
+        if (restart != nullptr && state == "created" && point == "before_journal") {
+            replay_journal_attempted = true;
         }
-        transaction.mark_staged();
-        transaction.mark_verified();
+        if (fault_injector) fault_injector("install_local", "transaction." + state + "." + point);
+    };
+    try {
+        if (restart != nullptr) {
+            const auto context = inspect_install_replay(plan, *restart, transaction_id);
+            transaction = transaction::TransactionSession::restart_streaming(context.prior_spec,
+                transaction_id, restart->journal_snapshot_sha256, context.source_digest, injector);
+            if (fault_injector) fault_injector("install_local", "before_replay_audit_create");
+            create_install_replay_audit(plan, context, transaction_id, applied_at, fault_injector);
+            if (fault_injector) fault_injector("install_local", "after_replay_audit_create");
+        } else {
+            audit_repository.initialize_chain(chain_id);
+            audit_repository.append(chain_id, audit::AuditInput{
+                applied_at, "install_local", "validated", "pass", "plan", plan.plan_id,
+                plan.plan_digest, transaction_id, plan.plan_id, "reviewed plan revalidated"});
+            transaction = std::make_unique<transaction::TransactionSession>(transaction::TransactionSpec{
+                transaction_id, plan.plan_id, plan.plan_digest, "install_local",
+                plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root}, injector);
+            if (!source_digest.empty()) transaction->bind_stream_source(source_digest, install_stream_source_context(plan));
+        }
+        for (const PayloadFile& file : plan.files) {
+            stage_payload_file(*transaction, file.relative_path, file, cancellation,
+                install_stream_entry_digest(source_digest, file));
+        }
+        transaction->mark_staged();
+        transaction->mark_verified();
         if (cancellation && cancellation()) {
             throw std::runtime_error("lifecycle streaming operation was cancelled");
         }
-        transaction.commit_effect();
+        transaction->commit_effect();
         if (fault_injector) fault_injector("install_local", "after_target_commit");
 
         if (fault_injector) fault_injector("install_local", "before_ownership_commit");
@@ -762,17 +795,40 @@ InstallResult apply_install(
         audit_repository.append(chain_id, audit::AuditInput{
             applied_at, "install_local", "completed", "pass", "installation", plan.install_id,
             verification.report_digest, transaction_id, plan.plan_id, "managed portable install completed"});
-        transaction.mark_committed();
-        transaction.mark_completed();
-        return {installed, ownership, verification, transaction.journal_path()};
+        transaction->mark_committed();
+        transaction->mark_completed();
+        return {installed, ownership, verification, transaction->journal_path()};
     } catch (...) {
-        if (transaction.current_state() == "committing" || transaction.current_state() == "committed") {
-            try { transaction.mark_recovery_required(); } catch (...) {}
-        } else {
-            rollback_before_visibility(transaction);
+        if (transaction) {
+            if (transaction->current_state() == "committing" || transaction->current_state() == "committed") {
+                try { transaction->mark_recovery_required(); } catch (...) {}
+            } else {
+                rollback_before_visibility(*transaction);
+            }
+        }
+        if (restart != nullptr && replay_journal_attempted) {
+            try { throw; }
+            catch (const std::exception& error) {
+                throw RestartEffectsRetained(std::string("replay effects may exist; retain transaction ") +
+                    transaction_id + ": " + error.what());
+            }
+            catch (...) { throw RestartEffectsRetained("replay effects may exist; retain transaction " + transaction_id); }
         }
         throw;
     }
+}
+
+InstallResult apply_install(const InstallPlan& plan, const std::string& reviewed_plan_digest,
+    const std::string& transaction_id, const std::string& applied_at,
+    LifecycleFaultInjector fault_injector, LifecycleCancellation cancellation) {
+    return apply_install_impl(plan, reviewed_plan_digest, transaction_id, applied_at,
+        std::move(fault_injector), std::move(cancellation), nullptr);
+}
+InstallResult restart_install(const InstallPlan& plan, const std::string& reviewed_plan_digest,
+    const std::string& transaction_id, const std::string& applied_at, const InstallRestartRequest& restart,
+    LifecycleFaultInjector fault_injector, LifecycleCancellation cancellation) {
+    return apply_install_impl(plan, reviewed_plan_digest, transaction_id, applied_at,
+        std::move(fault_injector), std::move(cancellation), &restart);
 }
 
 InstallResult recover_install_finalization(
@@ -841,7 +897,8 @@ InstallResult recover_install_finalization(
     installed.provider_revision = plan.recipe.provider_revision;
     installed.transaction_id = transaction_id;
     installed.created_at = recovered_at;
-    installed.audit_chain_id = "audit." + plan.install_id;
+    installed.audit_chain_id = install_audit_chain_id(
+        plan.install_id, transaction_id, transaction->is_stream_restart());
     installed.lifecycle_status = "installed";
     installed.last_verification = {
         "verify." + transaction_id + ".recovery", std::string(64, '0'), "fail", recovered_at};

@@ -45,6 +45,23 @@
         }
       },
       "additionalProperties": false
+    },
+    "journal_snapshot_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "audit_chain_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audit_chain_digest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "$defs": {

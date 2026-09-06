@@ -8,6 +8,7 @@
 #include "usk_audit_repository.h"
 #include "usk_json.h"
 #include "usk_lifecycle.h"
+#include "usk_install_restart.h"
 #include "usk_live_evidence.h"
 #include "usk_record_io.h"
 #include "usk_sha256.h"
@@ -33,6 +34,7 @@ using usk::json::Value;
 namespace {
 
 constexpr std::size_t max_request_bytes = 1024u * 1024u;
+constexpr std::size_t max_recovery_audit_observation_events = 32;
 constexpr std::uint64_t setup_overhead_bytes = 16u * 1024u * 1024u;
 
 class PublicError final : public std::runtime_error {
@@ -84,6 +86,8 @@ struct RecoveryBundle {
     std::string request_id;
     usk::transaction::TransactionSpec spec;
     usk::transaction::RecoveryInspection inspection;
+    std::string audit_chain_id;
+    std::string audit_chain_digest;
 };
 
 void ensure_directory(const fs::path& parent, const std::string& name);
@@ -288,7 +292,7 @@ Value archive_inspection_request(const Value& archive)
 std::string policy_digest(
     const usk::policy::InspectedTarget& target,
     const PublicConfig& config,
-    const fs::path& source)
+    const fs::path& source, std::string* restart_context = nullptr)
 {
     const usk::policy::TargetInspectionRequest setup_request{
         usk::policy::TargetClass::operator_acceptance,
@@ -300,13 +304,19 @@ std::string policy_digest(
          config.setup_root.generic_u8string()}};
     const auto setup = usk::policy::inspect_and_evaluate_live_target(config.activation, setup_request);
     if (!setup.decision.accepted) throw PublicError(setup.decision.code, setup.decision.detail);
-    return usk::json::sha256_canonical(Value(Value::Object{
+    const Value policy(Value::Object{
         {"activation", Value(usk::policy::activation_name(config.activation))},
         {"setup_binding_digest", Value(setup.decision.target_binding_digest)},
-        {"target_binding_digest", Value(target.decision.target_binding_digest)}}));
+        {"target_binding_digest", Value(target.decision.target_binding_digest)}});
+    if (restart_context != nullptr) {
+        *restart_context = usk::json::canonical(Value(Value::Object{
+            {"policy", policy}, {"setup_was_absent", Value(!fs::exists(config.setup_root))}}));
+    }
+    return usk::json::sha256_canonical(policy);
 }
 
-InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& config)
+InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& config,
+    const Value* replay_source_context = nullptr)
 {
     exact_members(request, {"schema", "request_id", "created_at", "install_id", "archive", "target", "recipe"});
     if (required_string(request, "schema") != "usk.install_local_plan_request.v1") {
@@ -359,7 +369,33 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     recipe_binding.product_version = required_string(recipe, "product_version");
     recipe_binding.recipe_digest = required_string(recipe, "recipe_digest");
     recipe_binding.source_archive_digest = payload.source_sha256;
-    recipe_binding.policy_digest = policy_digest(inspected, config, source_path);
+    recipe_binding.source_identity_digest = payload.source_identity_digest;
+    recipe_binding.entry_set_digest = payload.entry_set_digest;
+    recipe_binding.policy_digest = policy_digest(inspected, config, source_path, &recipe_binding.restart_policy_context);
+    if (replay_source_context != nullptr) {
+        const auto& context = *replay_source_context;
+        const auto old = usk::json::parse(context.at("policy_context").as_string());
+        const auto current = usk::json::parse(recipe_binding.restart_policy_context);
+        exact_members(old, {"policy", "setup_was_absent"});
+        exact_members(old.at("policy"), {"activation", "setup_binding_digest", "target_binding_digest"});
+        const auto& prior_policy = old.at("policy");
+        const auto& actual_policy = current.at("policy");
+        if (context.at("archive_sha256").as_string() != payload.source_sha256 ||
+            context.at("archive_identity_digest").as_string() != payload.source_identity_digest ||
+            context.at("entry_set_digest").as_string() != payload.entry_set_digest ||
+            prior_policy.at("activation").as_string() != actual_policy.at("activation").as_string() ||
+            prior_policy.at("target_binding_digest").as_string() != actual_policy.at("target_binding_digest").as_string() ||
+            (!old.at("setup_was_absent").as_boolean() &&
+                prior_policy.at("setup_binding_digest").as_string() != actual_policy.at("setup_binding_digest").as_string()) ||
+            usk::json::sha256_canonical(prior_policy) != context.at("policy_digest").as_string() ||
+            !fs::exists(config.setup_root)) {
+            throw PublicError("stale_plan", "original install policy or source context changed beyond recorded setup creation");
+        }
+        // The caller already checked native identities for setup/state/journal/audit/staging/target-parent
+        // against the original snapshot. Reconcile only that original operation's setup creation.
+        recipe_binding.policy_digest = context.at("policy_digest").as_string();
+        recipe_binding.restart_policy_context = context.at("policy_context").as_string();
+    }
     recipe_binding.provider_revision = required_string(recipe, "provider_revision");
     for (const Value& component : recipe.at("components").as_array()) {
         recipe_binding.components.push_back(component.as_string());
@@ -388,7 +424,7 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     result.target = inspected;
     result.plan = usk::lifecycle::plan_install(plan_id, install_id,
         required_string(request, "created_at"), target_root, lifecycle_roots(config),
-        std::move(recipe_binding), std::move(files));
+        std::move(recipe_binding), std::move(files), std::move(payload.validate_source));
     return result;
 }
 
@@ -916,6 +952,16 @@ RecoveryBundle build_recovery_inspection(const Value& request, const PublicConfi
         operation == "move" ? target.parent_path() : roots.staging_parent,
         target, roots.state_root, roots.audit_root};
     result.inspection = usk::transaction::TransactionSession::inspect_recovery(result.spec);
+    result.audit_chain_id = usk::lifecycle::install_audit_chain_id(result.install_id,
+        result.spec.transaction_id, !result.inspection.restart_origin_transaction_id.empty());
+    try {
+        const auto chain = usk::audit::AuditRepository(roots.audit_root).read_and_validate_chain_bounded(
+            result.audit_chain_id, max_recovery_audit_observation_events);
+        if (!chain.empty()) result.audit_chain_digest = chain.back().event_digest;
+    } catch (const std::exception&) {
+        // Inspection stays available when audit creation is incomplete, invalid or over the observation cap.
+        // No digest means explicit replay cannot claim a reviewed audit context.
+    }
     return result;
 }
 
@@ -953,6 +999,9 @@ Value recovery_report_document(const RecoveryBundle& bundle)
         {"available_actions", string_array(bundle.inspection.available_actions)},
         {"effects", recovery_effects(bundle.inspection)},
         {"journal_digest", Value(bundle.inspection.journal_digest)},
+        {"journal_snapshot_sha256", Value(bundle.inspection.snapshot_sha256)},
+        {"audit_chain_id", Value(bundle.audit_chain_id)},
+        {"audit_chain_digest", bundle.audit_chain_digest.empty() ? Value() : Value(bundle.audit_chain_digest)},
         {"journal_id", Value("journal." + bundle.spec.transaction_id)},
         {"observed_state", Value(bundle.inspection.current_state)},
         {"recorded_at", Value(bundle.inspection.recorded_at)},
@@ -983,6 +1032,9 @@ Value recovery_plan_document(const Value& request, const PublicConfig& config)
         {"created_at", Value(required_string(request, "created_at"))},
         {"effects", recovery_effects(bundle.inspection)}, {"install_id", Value(bundle.install_id)},
         {"journal_digest", Value(bundle.inspection.journal_digest)},
+        {"journal_snapshot_sha256", Value(bundle.inspection.snapshot_sha256)},
+        {"audit_chain_id", Value(bundle.audit_chain_id)},
+        {"audit_chain_digest", bundle.audit_chain_digest.empty() ? Value() : Value(bundle.audit_chain_digest)},
         {"observed_state", Value(bundle.inspection.current_state)},
         {"operation", Value(bundle.spec.operation)}, {"plan_digest", Value(std::string(64, '0'))},
         {"plan_id", Value(required_string(request, "recovery_plan_id"))},
@@ -1031,6 +1083,7 @@ Value recovery_apply_document(const Value& request, const PublicConfig& config)
     return bind_report_digest(Value(Value::Object{
         {"available_actions", string_array(after.available_actions)}, {"effects", effects},
         {"journal_digest", Value(after.journal_digest)},
+        {"journal_snapshot_sha256", Value(after.snapshot_sha256)},
         {"journal_id", Value("journal." + bundle.spec.transaction_id)},
         {"observed_state", Value(after.current_state)}, {"recorded_at", Value(required_string(request, "applied_at"))},
         {"report_digest", Value(std::string(64, '0'))},
@@ -1277,7 +1330,8 @@ void initialize_setup_root(const PublicConfig& config)
     ensure_directory(roots.audit_root, "chains");
 }
 
-Value execute_command(const std::string& command, const Value& request, const PublicConfig& config)
+Value execute_command(const std::string& command, const Value& request, const PublicConfig& config,
+    const usk::lifecycle::LifecycleFaultInjector& fault_injector)
 {
     if (command == "live_evidence.capture") {
         return response_ok(live_evidence_capture(request, config));
@@ -1290,21 +1344,58 @@ Value execute_command(const std::string& command, const Value& request, const Pu
         return response_ok(install_plan_document(bundle));
     }
     if (command == "install_local.apply") {
-        exact_members(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",
-                                "transaction_id", "applied_at", "confirmation"});
+        if (request.contains("restart_from")) {
+            exact_members(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",
+                "transaction_id", "applied_at", "confirmation", "restart_from"});
+            exact_members(request.at("restart_from"),
+                {"transaction_id", "journal_snapshot_sha256", "audit_chain_digest"});
+        } else {
+            exact_members(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",
+                "transaction_id", "applied_at", "confirmation"});
+        }
         if (required_string(request, "schema") != "usk.install_local_apply_request.v1" ||
             required_string(request, "confirmation") != "APPLY") {
             throw PublicError("invalid_argument", "install apply schema or confirmation is invalid");
         }
-        const InstallPlanBundle bundle = build_install_plan(request.at("plan_request"), config);
+        Value replay_context;
+        if (request.contains("restart_from")) {
+            const auto& original = request.at("plan_request");
+            const auto& restart = request.at("restart_from");
+            const auto roots = lifecycle_roots(config);
+            const fs::path target(required_string(original.at("target"), "root"));
+            const usk::transaction::TransactionSpec prior_spec{
+                required_string(restart, "transaction_id"), required_string(request, "reviewed_plan_id"),
+                required_string(request, "reviewed_plan_digest"), "install_local", roots.staging_parent,
+                target, roots.state_root, roots.audit_root};
+            const auto prior = usk::transaction::TransactionSession::inspect_recovery(prior_spec);
+            if (prior.snapshot_sha256 != required_string(restart, "journal_snapshot_sha256")) {
+                throw PublicError("stale_plan", "original journal snapshot changed before replay planning");
+            }
+            replay_context = usk::lifecycle::read_install_stream_context(prior, roots, target);
+        }
+        const InstallPlanBundle bundle = build_install_plan(request.at("plan_request"), config,
+            request.contains("restart_from") ? &replay_context : nullptr);
         if (required_string(request, "reviewed_plan_id") != bundle.plan.plan_id ||
             required_string(request, "reviewed_plan_digest") != bundle.plan.plan_digest) {
             throw PublicError("stale_plan", "reviewed install plan identity does not match immediate revalidation");
         }
         usk::lifecycle::require_install_path_capacity(bundle.plan, required_string(request, "transaction_id"));
-        initialize_setup_root(config);
-        const auto result = usk::lifecycle::apply_install(bundle.plan, bundle.plan.plan_digest,
-            required_string(request, "transaction_id"), required_string(request, "applied_at"));
+        bundle.plan.validate_source();
+        usk::lifecycle::InstallResult result;
+        if (request.contains("restart_from")) {
+            const auto& prior = request.at("restart_from");
+            const usk::lifecycle::InstallRestartRequest restart{
+                required_string(prior, "transaction_id"), required_string(prior, "journal_snapshot_sha256"),
+                required_string(prior, "audit_chain_digest")};
+            // Existing setup state is required; no initializer may mutate before replay admission.
+            result = usk::lifecycle::restart_install(bundle.plan, bundle.plan.plan_digest,
+                required_string(request, "transaction_id"), required_string(request, "applied_at"),
+                restart, fault_injector);
+        } else {
+            initialize_setup_root(config);
+            result = usk::lifecycle::apply_install(bundle.plan, bundle.plan.plan_digest,
+                required_string(request, "transaction_id"), required_string(request, "applied_at"), fault_injector);
+        }
         return response_ok(installed_document(result.installed_state));
     }
     if (command == "installed.inspect") {
@@ -1419,14 +1510,15 @@ Value execute_command(const std::string& command, const Value& request, const Pu
 
 } // namespace
 
-extern "C" char* usk_public_lifecycle_command_json(
+char* usk::lifecycle::public_command_json(
     const char* command_name,
     const char* request_json,
     size_t request_size,
     const char* state_root,
     const char* authorized_acceptance_root,
     const char* target_policy_activation,
-    int* out_command_status)
+    int* out_command_status,
+    const LifecycleFaultInjector& fault_injector)
 {
     if (out_command_status == nullptr) return nullptr;
     std::string response;
@@ -1438,13 +1530,16 @@ extern "C" char* usk_public_lifecycle_command_json(
         const PublicConfig config = parse_config(
             state_root, authorized_acceptance_root, target_policy_activation);
         response = usk::json::canonical(execute_command(
-            command_name, usk::json::parse(std::string(request_json, request_size)), config));
+            command_name, usk::json::parse(std::string(request_json, request_size)), config, fault_injector));
         *out_command_status = USK_STATUS_OK;
     } catch (const PublicError& error) {
         const bool invalid = error.code() == "invalid_argument";
         response = usk::json::canonical(response_error(
             invalid ? "invalid_argument" : "refused", error.code(), error.what()));
         *out_command_status = invalid ? USK_STATUS_INVALID_ARGUMENT : USK_STATUS_ERROR;
+    } catch (const usk::lifecycle::RestartEffectsRetained& error) {
+        response = usk::json::canonical(response_error("refused", "restart_effects_retained", error.what()));
+        *out_command_status = USK_STATUS_ERROR;
     } catch (const usk::base::NativePathLimitExceeded& error) {
         response = usk::json::canonical(response_error("refused", "native_path_limit_exceeded", error.what()));
         *out_command_status = USK_STATUS_ERROR;
@@ -1459,6 +1554,14 @@ extern "C" char* usk_public_lifecycle_command_json(
     }
     std::memcpy(result, response.c_str(), response.size() + 1);
     return result;
+}
+
+extern "C" char* usk_public_lifecycle_command_json(
+    const char* command_name, const char* request_json, size_t request_size, const char* state_root,
+    const char* authorized_acceptance_root, const char* target_policy_activation, int* out_command_status)
+{
+    return usk::lifecycle::public_command_json(command_name, request_json, request_size,
+        state_root, authorized_acceptance_root, target_policy_activation, out_command_status, {});
 }
 
 extern "C" void usk_public_lifecycle_command_free(char* value)

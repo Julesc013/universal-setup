@@ -142,6 +142,7 @@ set_target_properties(usk_state_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_lifecycle_static STATIC
   runtime/setup/lifecycle/usk_lifecycle.cpp
+  runtime/setup/lifecycle/usk_install_restart.cpp
   runtime/setup/lifecycle/usk_public_lifecycle.cpp
 )
 target_compile_features(usk_lifecycle_static PUBLIC cxx_std_17)
@@ -182,6 +183,7 @@ set(USK_CORE_SOURCES
   runtime/setup/evidence/usk_live_evidence.cpp
   runtime/setup/kernel/usk_api.c
   runtime/setup/lifecycle/usk_lifecycle.cpp
+  runtime/setup/lifecycle/usk_install_restart.cpp
   runtime/setup/lifecycle/usk_public_lifecycle.cpp
   runtime/setup/package/usk_archive_inspect.cpp
   runtime/setup/policy/usk_target_inspect.cpp
@@ -468,6 +470,13 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_entry_restart_smoke PRIVATE usk_streaming_static Threads::Threads)
   add_test(NAME usk_entry_restart_smoke COMMAND usk_entry_restart_smoke)
   set_tests_properties(usk_entry_restart_smoke PROPERTIES TIMEOUT 120)
+
+  add_executable(usk_zip_restart_smoke tests/native/usk_zip_restart_smoke.cpp)
+  target_compile_features(usk_zip_restart_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_zip_restart_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
+  target_link_libraries(usk_zip_restart_smoke PRIVATE usk_static Threads::Threads)
+  add_test(NAME usk_zip_restart_smoke COMMAND usk_zip_restart_smoke)
+  set_tests_properties(usk_zip_restart_smoke PROPERTIES TIMEOUT 120)
 
   add_executable(usk_state_repository_smoke tests/native/usk_state_repository_smoke.cpp)
   target_compile_features(usk_state_repository_smoke PRIVATE cxx_std_17)

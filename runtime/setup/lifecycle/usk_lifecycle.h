@@ -46,6 +46,9 @@ struct RecipeBinding {
     std::string provider_revision;
     std::vector<std::string> components;
     std::vector<usk::state::Entrypoint> entrypoints;
+    std::string source_identity_digest;
+    std::string entry_set_digest;
+    std::string restart_policy_context;
 };
 
 struct LifecycleRoots {
@@ -63,6 +66,7 @@ struct InstallPlan {
     LifecycleRoots roots;
     RecipeBinding recipe;
     std::vector<PayloadFile> files;
+    std::function<void()> validate_source;
 };
 
 // Plan-time known paths; supply the exact transaction ID before any apply effects.
@@ -174,7 +178,8 @@ InstallPlan plan_install(
     std::filesystem::path target_root,
     LifecycleRoots roots,
     RecipeBinding recipe,
-    std::vector<PayloadFile> files);
+    std::vector<PayloadFile> files,
+    std::function<void()> validate_source = {});
 
 InstallResult apply_install(
     const InstallPlan& plan,
