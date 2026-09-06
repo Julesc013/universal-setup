@@ -31,6 +31,7 @@ public:
     const std::filesystem::path& path() const noexcept { return path_; }
     const StableFileIdentity& identity() const noexcept { return identity_; }
     std::vector<unsigned char> read(std::uint64_t offset, std::size_t size) const;
+    void read_into(std::uint64_t offset, unsigned char* output, std::size_t size) const;
     std::string sha256_hex() const;
     void verify_unchanged() const;
 

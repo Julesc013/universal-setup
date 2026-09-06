@@ -90,6 +90,20 @@ target_include_directories(usk_transaction_static PUBLIC
 target_link_libraries(usk_transaction_static PUBLIC usk_base_static)
 set_target_properties(usk_transaction_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+add_library(usk_streaming_static STATIC
+  runtime/setup/streaming/usk_streaming_source_target.cpp
+)
+target_compile_features(usk_streaming_static PUBLIC cxx_std_17)
+target_include_directories(usk_streaming_static PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/streaming"
+)
+target_link_libraries(usk_streaming_static PUBLIC
+  usk_base_static
+  usk_state_static
+  usk_transaction_static
+)
+set_target_properties(usk_streaming_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(usk_state_static STATIC
   runtime/setup/audit/usk_audit_repository.cpp
   runtime/setup/evidence/usk_live_evidence.cpp
@@ -129,7 +143,8 @@ if(NOT USK_BUILD_APPS AND NOT USK_BUILD_TESTS AND NOT USK_BUILD_FUZZERS)
       usk_policy_static
       usk_transaction_static
       usk_state_static
-      usk_lifecycle_static)
+      usk_lifecycle_static
+      usk_streaming_static)
     set_target_properties(${USK_INTERNAL_TARGET} PROPERTIES EXCLUDE_FROM_ALL ON)
   endforeach()
 endif()
@@ -149,6 +164,7 @@ set(USK_CORE_SOURCES
   runtime/setup/policy/usk_target_inspect.cpp
   runtime/setup/policy/usk_target_policy.cpp
   runtime/setup/state/usk_state_repository.cpp
+  runtime/setup/streaming/usk_streaming_source_target.cpp
   runtime/setup/transaction/usk_transaction_session.cpp
   runtime/setup/verify/usk_package_verify.cpp
 )
@@ -160,6 +176,7 @@ set(USK_PRIVATE_INCLUDE_DIRS
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/policy"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/state"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/streaming"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/transaction"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/verify"
 )
@@ -406,6 +423,13 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_transaction_session_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_transaction_session_smoke PRIVATE usk_transaction_static)
   add_test(NAME usk_transaction_session_smoke COMMAND usk_transaction_session_smoke)
+
+  add_executable(
+    usk_streaming_source_target_smoke
+    tests/native/usk_streaming_source_target_smoke.cpp)
+  target_compile_features(usk_streaming_source_target_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_streaming_source_target_smoke PRIVATE usk_streaming_static)
+  add_test(NAME usk_streaming_source_target_smoke COMMAND usk_streaming_source_target_smoke)
 
   add_executable(usk_state_repository_smoke tests/native/usk_state_repository_smoke.cpp)
   target_compile_features(usk_state_repository_smoke PRIVATE cxx_std_17)

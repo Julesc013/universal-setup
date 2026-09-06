@@ -64,8 +64,12 @@
     "recovery_metadata": {
       "type": "object",
       "required": ["staging_identity", "staged_files"],
+      "dependentSchemas": {
+        "stream_cleanup_policy": { "properties": { "staging_identity": { "type": "null" } } }
+      },
       "properties": {
         "staging_identity": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "null" }] },
+        "stream_cleanup_policy": { "enum": ["retain_only"] },
         "staged_files": {
           "type": "array",
           "maxItems": 100000,
