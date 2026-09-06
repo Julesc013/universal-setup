@@ -425,6 +425,23 @@ class SetupContractTests(unittest.TestCase):
         self.assertEqual(properties["may_repair"]["type"], "boolean")
         self.assertEqual(properties["may_uninstall"]["type"], "boolean")
 
+    def test_retained_recovery_is_reportable_without_cleanup_authority(self) -> None:
+        for name in ("recovery_plan", "recovery_report"):
+            schema = load_schema(name)
+            properties = schema["properties"]
+            actions = properties["available_actions"]["items"]
+            if "$ref" in actions:
+                self.assertTrue(actions["$ref"].startswith("#/$defs/"))
+                actions = schema["$defs"][actions["$ref"].removeprefix("#/$defs/")]
+            self.assertIn("retain_for_operator", actions["enum"])
+            effect = properties["effects"]["items"]["properties"]
+            self.assertIn("retain_path", effect["kind"]["enum"])
+            self.assertIn("staging", effect["root_class"]["enum"])
+        self.assertEqual(
+            set(load_schema("recovery_apply_request")["properties"]["selected_action"]["enum"]),
+            {"rollback", "finalize"},
+        )
+
     def test_all_setup_schemas_parse_and_stay_product_neutral(self) -> None:
         forbidden = ("factorio", "dominium", "eureka", "modset", "mod_portal")
         for path in SCHEMA_ROOT.glob("*.schema.json"):

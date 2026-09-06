@@ -40,6 +40,23 @@ target_include_directories(
 )
 add_library(UniversalSetup::Headers ALIAS usk_headers)
 
+set(USK_ZLIB_INFLATE_SOURCES
+  external/zlib/upstream/adler32.c
+  external/zlib/upstream/crc32.c
+  external/zlib/upstream/inffast.c
+  external/zlib/upstream/inflate.c
+  external/zlib/upstream/inftrees.c
+  external/zlib/upstream/zutil.c
+)
+add_library(usk_zlib_inflate_objects OBJECT ${USK_ZLIB_INFLATE_SOURCES})
+target_include_directories(usk_zlib_inflate_objects PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/external/zlib/upstream")
+target_compile_definitions(usk_zlib_inflate_objects PRIVATE Z_PREFIX)
+set_target_properties(usk_zlib_inflate_objects PROPERTIES
+  C_VISIBILITY_PRESET hidden
+  POSITION_INDEPENDENT_CODE ON
+)
+
 add_library(usk_base_static STATIC
   runtime/base/usk_json.cpp
   runtime/base/usk_record_io.cpp
@@ -60,12 +77,16 @@ target_include_directories(usk_verify_static PUBLIC
 target_link_libraries(usk_verify_static PUBLIC usk_base_static)
 set_target_properties(usk_verify_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(usk_archive_static STATIC runtime/setup/package/usk_archive_inspect.cpp)
+add_library(usk_archive_static STATIC
+  runtime/setup/package/usk_archive_inspect.cpp
+  $<TARGET_OBJECTS:usk_zlib_inflate_objects>)
 target_compile_features(usk_archive_static PUBLIC cxx_std_17)
 target_include_directories(usk_archive_static PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/external/zlib/upstream"
 )
+target_compile_definitions(usk_archive_static PRIVATE Z_PREFIX)
 target_link_libraries(usk_archive_static PUBLIC usk_base_static)
 set_target_properties(usk_archive_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -150,6 +171,7 @@ if(NOT USK_BUILD_APPS AND NOT USK_BUILD_TESTS AND NOT USK_BUILD_FUZZERS)
 endif()
 
 set(USK_CORE_SOURCES
+  $<TARGET_OBJECTS:usk_zlib_inflate_objects>
   runtime/base/usk_json.cpp
   runtime/base/usk_record_io.cpp
   runtime/base/usk_sha256.cpp
@@ -169,6 +191,7 @@ set(USK_CORE_SOURCES
   runtime/setup/verify/usk_package_verify.cpp
 )
 set(USK_PRIVATE_INCLUDE_DIRS
+  "${CMAKE_CURRENT_SOURCE_DIR}/external/zlib/upstream"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/audit"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/evidence"
@@ -191,6 +214,7 @@ if(USK_BUILD_STATIC)
   )
   target_compile_features(usk_static PRIVATE cxx_std_17)
   target_include_directories(usk_static PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
+  target_compile_definitions(usk_static PRIVATE Z_PREFIX)
   target_link_libraries(usk_static PUBLIC usk_headers)
   usk_enable_strict_warnings(usk_static)
   add_library(UniversalSetup::CoreStatic ALIAS usk_static)
@@ -210,7 +234,7 @@ if(USK_BUILD_SHARED)
   target_compile_features(usk_shared PRIVATE cxx_std_17)
   target_include_directories(usk_shared PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(usk_shared PUBLIC usk_headers)
-  target_compile_definitions(usk_shared PRIVATE USK_BUILD_SHARED INTERFACE USK_USE_SHARED)
+  target_compile_definitions(usk_shared PRIVATE USK_BUILD_SHARED Z_PREFIX INTERFACE USK_USE_SHARED)
   usk_enable_strict_warnings(usk_shared)
   add_library(UniversalSetup::CoreShared ALIAS usk_shared)
   list(APPEND USK_INSTALL_TARGETS usk_shared)
@@ -332,6 +356,11 @@ install(
 install(
   FILES LICENSE release/license.v1.toml
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/universal-setup"
+)
+install(
+  FILES external/zlib/upstream/LICENSE
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/universal-setup"
+  RENAME zlib-LICENSE
 )
 install(
   FILES cmake/README-SDK.md

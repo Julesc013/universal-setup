@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal_setup.deflate_zip64_streaming_workunit.v1"
+workunit = "USK-DEFLATE-ZIP64-STREAMING-01"
+status = "implementation_complete_review_pending"
+base_revision = "9744466a582e65d152d53e56d11a578a43950b65"
+task_branch = "task/usk-stored-zip-streaming-01"
+public_c_abi = "1.0"
+archive_methods = ["stored", "deflate"]
+archive_containers = ["classic_zip", "single_disk_zip64"]
+deflate_wrapper = "raw_rfc1951"
+dependency_symbol_namespace = "Z_PREFIX"
+stream_buffer_bytes = 65536
+peak_configured_stream_buffers_bytes = 131072
+complete_payload_retained = false
+package_license_expression = "MIT AND Zlib"
+support_claim = "unclaimed_pending_protected_integration"
+
+[dependency]
+id = "zlib"
+version = "1.3.2"
+tag_object = "216c70c020aa53f0c40920d155f808b6b59c9acb"
+source_commit = "da607da739fa6047df13e66a2af6b8bec7c2a498"
+archive_sha256 = "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
+provenance = "external/zlib/provenance.v1.toml"
+
+[authority]
+public_abi_expansion = false
+network_acquisition = false
+product_execution = false
+signing = false
+publication = false
+support_activation = false
