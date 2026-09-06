@@ -104,11 +104,20 @@ See the [repository branch model](docs/governance/branch_model.md) and its
 ## Bootstrap Validation
 
 ```powershell
+python tools\workspace_hygiene.py paths
+python tools\workspace_hygiene.py doctor --measure
 python tools\structure_policy_check.py
 python -m unittest discover -s tests -v
-cmake -S . -B build/native-smoke
-cmake --build build/native-smoke
+$layout = python tools\workspace_hygiene.py paths | ConvertFrom-Json
+$build = Join-Path $layout.task_root "native-smoke"
+cmake -S . -B $build
+cmake --build $build
 ```
+
+The primary checkout is a clean `dev` control checkout. Task edits and build
+output belong in marker-owned secondary worktrees and external task roots; do
+not recreate in-checkout build trees or shared `.worktrees` farms. See the
+[workspace hygiene policy](docs/governance/workspace_hygiene.md).
 
 ## CMake SDK candidate
 
