@@ -392,6 +392,7 @@ class SetupContractTests(unittest.TestCase):
             "package_manager_forbidden",
             "installer_execution_forbidden",
             "recovery_required",
+            "native_path_limit_exceeded",
             "live_target_acceptance_required",
             "target_class_forbidden",
             "target_not_explicit",

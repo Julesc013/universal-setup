@@ -6,6 +6,7 @@
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_json.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,7 @@
 #include <fstream>
 #include <iomanip>
 #include <map>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -368,14 +370,19 @@ void publish_journal(const fs::path& temporary, const fs::path& journal, bool fi
 #endif
 }
 
+static fs::path journal_temporary_path(const fs::path& journal, std::uint64_t sequence)
+{
+    return journal.parent_path() /
+        (journal.filename().string() + ".tmp." + std::to_string(sequence));
+}
+
 void atomic_write_journal(
     const fs::path& journal,
     const std::string& content,
     std::uint64_t sequence,
     bool first)
 {
-    const fs::path temporary = journal.parent_path() /
-        (journal.filename().string() + ".tmp." + std::to_string(sequence));
+    const fs::path temporary = journal_temporary_path(journal, sequence);
     write_new_durable_file(
         temporary,
         reinterpret_cast<const unsigned char*>(content.data()),
@@ -470,6 +477,18 @@ bool retain_stream_cleanup(const usk::json::Value& document)
 
 namespace usk::transaction {
 
+void require_path_capacity(const TransactionSpec& spec)
+{
+    const fs::path staging = spec.staging_parent / (".usk-stage-" + spec.transaction_id);
+    const fs::path journal = spec.state_root / "transactions" / (spec.transaction_id + ".journal.json");
+    for (const fs::path& path : {spec.staging_parent, spec.target_root, spec.state_root, spec.audit_root, staging}) {
+        base::require_native_path_capacity(path, base::NativePathKind::directory, "transaction directory");
+    }
+    base::require_native_path_capacity(journal, base::NativePathKind::file, "transaction journal");
+    base::require_native_path_capacity(journal_temporary_path(journal, std::numeric_limits<std::uint64_t>::max()),
+        base::NativePathKind::file, "transaction journal temporary");
+}
+
 TransactionSession::TransactionSession(TransactionSpec spec, FaultInjector injector)
     : TransactionSession(std::move(spec), std::move(injector), ResumeMode::none)
 {
@@ -496,6 +515,7 @@ TransactionSession::TransactionSession(
     staging_root_ = spec_.staging_parent / (".usk-stage-" + spec_.transaction_id);
     journal_path_ = spec_.state_root / "transactions" /
         (spec_.transaction_id + ".journal.json");
+    require_path_capacity(spec_);
     created_at_ = iso8601_now();
 
     if (resume_mode != ResumeMode::none) {
@@ -787,6 +807,8 @@ void TransactionSession::stage_file(
     if (current_state_ != "staging" || !safe_relative_path(relative_path)) {
         throw std::runtime_error("staged file path or transaction state is invalid");
     }
+    base::require_native_path_capacity(staging_root_ / relative_path, base::NativePathKind::file, "staged file");
+    base::require_native_path_capacity(spec_.target_root / relative_path, base::NativePathKind::file, "committed file");
     if (std::any_of(staged_files_.begin(), staged_files_.end(), [&](const StagedFile& file) {
             std::string existing = file.relative_path.generic_string();
             std::string candidate = relative_path.generic_string();
@@ -838,6 +860,8 @@ StreamStageResult TransactionSession::stage_file_stream(
         buffer_bytes > 4u * 1024u * 1024u || !reader) {
         throw std::runtime_error("streamed staged file request is invalid");
     }
+    base::require_native_path_capacity(staging_root_ / relative_path, base::NativePathKind::file, "streamed staged file");
+    base::require_native_path_capacity(spec_.target_root / relative_path, base::NativePathKind::file, "streamed committed file");
     if (std::any_of(staged_files_.begin(), staged_files_.end(), [&](const StagedFile& file) {
             std::string existing = file.relative_path.generic_string();
             std::string candidate = relative_path.generic_string();
@@ -1175,6 +1199,7 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     const fs::path staging = spec.staging_parent / (".usk-stage-" + spec.transaction_id);
     const fs::path journal = spec.state_root / "transactions" /
         (spec.transaction_id + ".journal.json");
+    base::require_native_path_capacity(journal, base::NativePathKind::file, "recovery inspection journal");
     const std::string text = read_bounded_text(journal, 4u * 1024u * 1024u);
     const usk::json::Value document = usk::json::parse(text);
     if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||

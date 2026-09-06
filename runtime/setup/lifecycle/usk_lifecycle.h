@@ -65,6 +65,11 @@ struct InstallPlan {
     std::vector<PayloadFile> files;
 };
 
+// Plan-time known paths; supply the exact transaction ID before any apply effects.
+void require_install_path_capacity(
+    const InstallPlan& plan,
+    const std::string& transaction_id = {});
+
 struct FileVerification {
     std::string relative_path;
     std::string status;

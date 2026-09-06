@@ -4,6 +4,7 @@
 #include "usk_stable_file.h"
 
 #include "usk_sha256.h"
+#include "usk_utf8_path.h"
 
 #include <array>
 #include <cerrno>
@@ -155,6 +156,7 @@ namespace usk::base {
 
 StableFile::StableFile(const fs::path& path) : path_(require_absolute_path(path))
 {
+    require_native_path_capacity(path_, NativePathKind::file, "stable source");
 #if defined(_WIN32)
     HANDLE handle = CreateFileW(
         path_.c_str(),

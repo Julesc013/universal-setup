@@ -13,6 +13,7 @@
         "ownership_denied",
         "unsafe_source",
         "unsafe_target",
+        "native_path_limit_exceeded",
         "existing_target",
         "source_changed",
         "recipe_changed",
