@@ -56,6 +56,7 @@ json::Value render_stream_journal(const StreamJournal& journal) {
     Value result(Value::Object{{"version", Value(std::uint64_t{1})},
         {"source_digest", nullable(journal.source_digest)}, {"restart_origin", origin},
         {"entries", Value(std::move(entries))}});
+    if (!journal.source_context.empty()) result.as_object().emplace("source_context", Value(journal.source_context));
     const auto hash = json::sha256_canonical(result);
     result.as_object().emplace("digest", Value(hash));
     return result;
@@ -72,7 +73,11 @@ StreamJournal read_stream_journal(const Value& document,
         throw std::runtime_error("stream journal cannot grant rollback authority");
     }
     const auto& value = metadata.at("stream_journal");
-    exact_keys(value, {"version", "source_digest", "restart_origin", "entries", "digest"});
+    if (value.contains("source_context")) {
+        exact_keys(value, {"version", "source_digest", "source_context", "restart_origin", "entries", "digest"});
+    } else {
+        exact_keys(value, {"version", "source_digest", "restart_origin", "entries", "digest"});
+    }
     auto body = value;
     const auto hash = body.at("digest").as_string(); body.as_object().erase("digest");
     if (value.at("version").as_unsigned() != 1 || !digest(hash) ||
@@ -80,6 +85,17 @@ StreamJournal read_stream_journal(const Value& document,
     result.source_digest = optional_string(value.at("source_digest"));
     if (value.at("source_digest").type() != Value::Type::null_value && !digest(result.source_digest))
         throw std::runtime_error("stream source digest is invalid");
+    if (value.contains("source_context")) {
+        result.source_context = value.at("source_context").as_string();
+        if (result.source_context.empty() || result.source_context.size() > 16384u) {
+            throw std::runtime_error("stream source context exceeds its bound");
+        }
+        const auto context = json::parse(result.source_context);
+        if (json::canonical(context) != result.source_context ||
+            json::sha256_canonical(context) != result.source_digest) {
+            throw std::runtime_error("stream source context is not bound by its source digest");
+        }
+    }
     const auto& origin = value.at("restart_origin");
     if (origin.type() != Value::Type::null_value) {
         exact_keys(origin, {"transaction_id", "snapshot_sha256"});

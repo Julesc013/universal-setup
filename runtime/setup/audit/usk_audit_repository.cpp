@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -171,6 +172,13 @@ void AuditRepository::initialize_chain(const std::string& chain_id) const
 
 std::vector<AuditEvent> AuditRepository::read_and_validate_chain(const std::string& chain_id) const
 {
+    return read_and_validate_chain_bounded(chain_id, std::numeric_limits<std::size_t>::max());
+}
+
+std::vector<AuditEvent> AuditRepository::read_and_validate_chain_bounded(
+    const std::string& chain_id, std::size_t maximum_events) const
+{
+    if (maximum_events == 0) throw std::runtime_error("audit event read bound must be positive");
     if (!record_io::valid_identifier(chain_id)) throw std::runtime_error("audit chain id is invalid");
     const fs::path chain_root = root_ / "chains" / chain_id;
     record_io::require_safe_directory(chain_root);
@@ -182,6 +190,7 @@ std::vector<AuditEvent> AuditRepository::read_and_validate_chain(const std::stri
             !std::all_of(name.begin(), name.begin() + 20, [](unsigned char ch) { return std::isdigit(ch); })) {
             throw std::runtime_error("audit chain contains an unrecognized or unsafe entry");
         }
+        if (paths.size() >= maximum_events) throw std::runtime_error("audit chain exceeds the admitted event bound");
         paths.push_back(entry.path());
     }
     std::sort(paths.begin(), paths.end());

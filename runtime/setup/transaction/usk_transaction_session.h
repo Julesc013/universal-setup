@@ -35,6 +35,8 @@ struct TransactionSpec {
 
 // Checks all fixed and transaction-derived paths without filesystem effects.
 void require_path_capacity(const TransactionSpec& spec);
+// Native identity observation only; never deletion or lease authority.
+std::string observe_directory_identity(const std::filesystem::path& path);
 
 using FaultInjector = std::function<void(const std::string& state, const std::string& point)>;
 using StreamReader = std::function<std::size_t(unsigned char* output, std::size_t capacity)>;
@@ -50,8 +52,13 @@ struct RecoveryInspection {
     std::string journal_digest;
     std::string recorded_at;
     std::string snapshot_sha256;
+    std::string stream_source_digest;
+    std::string stream_source_context;
+    std::string restart_origin_transaction_id;
+    std::string restart_origin_snapshot_sha256;
     bool staging_exists = false;
     bool target_exists = false;
+    bool commit_started = false;
     std::vector<std::string> available_actions;
 };
 
@@ -63,6 +70,7 @@ public:
     TransactionSession& operator=(const TransactionSession&) = delete;
 
     const std::string& current_state() const noexcept { return current_state_; }
+    bool is_stream_restart() const noexcept { return !stream_journal_.origin_transaction_id.empty(); }
     const std::filesystem::path& staging_root() const noexcept { return staging_root_; }
     const std::filesystem::path& target_root() const noexcept { return spec_.target_root; }
     const std::filesystem::path& journal_path() const noexcept { return journal_path_; }
@@ -75,7 +83,7 @@ public:
         std::size_t buffer_bytes,
         const StreamReader& reader,
         const std::string& source_identity_digest = {});
-    void bind_stream_source(const std::string& source_digest);
+    void bind_stream_source(const std::string& source_digest, const std::string& source_context = {});
     void mark_staged();
     void mark_verified();
     void commit_effect();

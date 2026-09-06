@@ -473,6 +473,8 @@ bool retain_stream_cleanup(const usk::json::Value& document)
 
 namespace usk::transaction {
 
+std::string observe_directory_identity(const fs::path& path) { return directory_identity(absolute_normal(path)); }
+
 void require_path_capacity(const TransactionSpec& spec)
 {
     const fs::path staging = spec.staging_parent / (".usk-stage-" + spec.transaction_id);
@@ -1029,7 +1031,7 @@ StreamStageResult TransactionSession::stage_file_stream(
     }
 }
 
-void TransactionSession::bind_stream_source(const std::string& source_digest)
+void TransactionSession::bind_stream_source(const std::string& source_digest, const std::string& source_context)
 {
     if (current_state_ != "staging" || !valid_sha256(source_digest) ||
         !stream_journal_.entries.empty() ||
@@ -1038,7 +1040,13 @@ void TransactionSession::bind_stream_source(const std::string& source_digest)
     }
     retain_stream_cleanup_ = true;
     stream_journal_.present = true;
+    if (!source_context.empty() && (source_context.size() > 16384u ||
+        json::canonical(json::parse(source_context)) != source_context ||
+        json::sha256_canonical(json::parse(source_context)) != source_digest)) {
+        throw std::runtime_error("stream source context does not match its source digest");
+    }
     stream_journal_.source_digest = source_digest;
+    stream_journal_.source_context = source_context;
     persist_snapshot();
 }
 
@@ -1301,6 +1309,11 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     const std::string chain_text = chain.str();
     chain_digest.update(reinterpret_cast<const unsigned char*>(chain_text.data()), chain_text.size());
     RecoveryInspection result;
+    result.commit_started = std::any_of(document.at("transitions").as_array().begin(),
+        document.at("transitions").as_array().end(), [](const json::Value& transition) {
+            const auto& state = transition.at("to").as_string();
+            return state == "committing" || state == "committed" || state == "completed";
+        });
     result.current_state = document.at("current_state").as_string();
     result.journal_digest = document.at("journal_digest").as_string();
     result.recorded_at = document.at("updated_at").as_string();
@@ -1308,7 +1321,11 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
         throw std::runtime_error("transaction journal digest or current state is invalid");
     }
     const bool retained_stream = retain_stream_cleanup(document);
-    (void)read_stream_journal(document, safe_relative_path);
+    const auto stream = read_stream_journal(document, safe_relative_path);
+    result.stream_source_digest = stream.source_digest;
+    result.stream_source_context = stream.source_context;
+    result.restart_origin_transaction_id = stream.origin_transaction_id;
+    result.restart_origin_snapshot_sha256 = stream.origin_snapshot_sha256;
     usk::base::Sha256 snapshot_digest;
     snapshot_digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
     result.snapshot_sha256 = snapshot_digest.finish();
@@ -1386,16 +1403,30 @@ std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
          inspection.current_state != "verified" && inspection.current_state != "recovery_required")) {
         throw std::runtime_error("transaction is not an explicit stream replay candidate");
     }
-    for (const auto& transition : document.at("transitions").as_array()) {
-        const auto& state = transition.at("to").as_string();
-        if (state == "committing" || state == "committed" || state == "completed") {
-            throw std::runtime_error("stream restart refuses ambiguous prior commit; inspect finalization");
+    auto ancestor_spec = prior_spec;
+    auto ancestor = inspection;
+    std::set<std::string> visited{new_transaction_id};
+    for (std::size_t depth = 0;; ++depth) {
+        if (depth >= 64u || !visited.insert(ancestor_spec.transaction_id).second) {
+            throw std::runtime_error("stream restart lineage is cyclic or exceeds 64 journals");
+        }
+        if (ancestor.commit_started || ancestor.stream_source_digest != source_digest ||
+            !ancestor.staging_exists || ancestor.target_exists) {
+            throw std::runtime_error("stream restart refuses changed or uncertain ancestor state");
+        }
+        if (ancestor.restart_origin_transaction_id.empty()) break;
+        const auto expected = ancestor.restart_origin_snapshot_sha256;
+        ancestor_spec.transaction_id = ancestor.restart_origin_transaction_id;
+        ancestor = inspect_recovery(ancestor_spec);
+        if (ancestor.snapshot_sha256 != expected) {
+            throw std::runtime_error("stream restart ancestor journal snapshot changed");
         }
     }
     prior_file.verify_unchanged();
     StreamJournal lineage;
     lineage.present = true;
     lineage.source_digest = source_digest;
+    lineage.source_context = prior_stream.source_context;
     lineage.origin_transaction_id = prior_spec.transaction_id;
     lineage.origin_snapshot_sha256 = expected_snapshot_sha256;
     // Constructor publishes this lineage with retain-only/null rollback authority

@@ -32,7 +32,24 @@
       }
     },
     "status": { "enum": ["inspection_only", "completed", "rolled_back", "operator_action_required", "failed", "recovery_required"] },
-    "recorded_at": { "type": "string", "format": "date-time" }
+    "recorded_at": { "type": "string", "format": "date-time" },
+    "journal_snapshot_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "audit_chain_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audit_chain_digest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
   },
   "$defs": {
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },

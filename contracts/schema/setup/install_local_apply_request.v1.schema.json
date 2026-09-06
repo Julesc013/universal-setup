@@ -11,7 +11,27 @@
     "reviewed_plan_digest": { "$ref": "#/$defs/sha256" },
     "transaction_id": { "$ref": "#/$defs/id" },
     "applied_at": { "type": "string", "format": "date-time" },
-    "confirmation": { "const": "APPLY" }
+    "confirmation": { "const": "APPLY" },
+    "restart_from": {
+      "type": "object",
+      "required": [
+        "transaction_id",
+        "journal_snapshot_sha256",
+        "audit_chain_digest"
+      ],
+      "properties": {
+        "transaction_id": {
+          "$ref": "#/$defs/id"
+        },
+        "journal_snapshot_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "audit_chain_digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    }
   },
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 256 },

@@ -63,6 +63,7 @@ struct StreamingStoredArchivePayload {
     std::uint64_t uncompressed_bytes = 0;
     std::size_t payload_buffer_bytes = 0;
     std::vector<StreamingPayloadFile> files;
+    std::function<void()> validate_source;
 };
 
 struct StreamingPayloadMemoryObservation {

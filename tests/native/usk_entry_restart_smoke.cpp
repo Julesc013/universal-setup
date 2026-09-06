@@ -330,13 +330,33 @@ int concurrent_replays() {
     if (!refused || read(loser->staging_root() / "child/payload.bin") != "payload") return 182;
     return 0;
 }
+int ancestor_commit_uncertainty() {
+    Fixture fixture;
+    const std::string source_digest(64, 'b');
+    tx::TransactionSession original(fixture.spec());
+    original.bind_stream_source(source_digest); stage(original, "payload");
+    original.mark_staged(); original.mark_verified();
+    const auto snapshot_before = tx::TransactionSession::inspect_recovery(fixture.spec());
+    auto intermediate = tx::TransactionSession::restart_streaming(fixture.spec(), "middle",
+        snapshot_before.snapshot_sha256, source_digest);
+    original.commit_effect();
+    fs::rename(fixture.spec().target_root, fixture.root / "original-target");
+    auto middle_spec = fixture.spec(); middle_spec.transaction_id = "middle";
+    const auto middle = tx::TransactionSession::inspect_recovery(middle_spec);
+    const auto before = snapshot(fixture.root); bool refused = false;
+    try { (void)tx::TransactionSession::restart_streaming(middle_spec, "last", middle.snapshot_sha256, source_digest); }
+    catch (const std::runtime_error&) { refused = true; }
+    return refused && snapshot(fixture.root) == before ? 0 : 210;
+}
+
 }
 int main(int argc, char** argv) {
     try {
         if (argc == 4 && std::string(argv[1]) == "child") return child(fs::u8path(argv[2]), argv[3]);
+        if (argc > 1 && std::string(argv[1]) == "ancestor") return ancestor_commit_uncertainty();
         if (argc > 1 && std::string(argv[1]) == "construction") return construction_disposition();
         if (argc > 1) return substituted_completion();
-        for (const auto check : {pending_entry, substituted_completion, input_refusals, construction_disposition, malformed_metadata, concurrent_replays}) {
+        for (const auto check : {pending_entry, substituted_completion, input_refusals, construction_disposition, malformed_metadata, concurrent_replays, ancestor_commit_uncertainty}) {
             if (const auto result = check()) { std::cerr << "entry restart regression failed: " << result << '\n'; return result; }
         }
         if (const auto result = process_boundaries(fs::absolute(fs::u8path(argv[0])))) {
