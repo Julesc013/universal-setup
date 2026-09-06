@@ -28,6 +28,42 @@ std::runtime_error path_error(
 
 namespace usk::base {
 
+void require_native_path_capacity(
+    const fs::path& input,
+    NativePathKind kind,
+    const std::string& purpose)
+{
+#if defined(_WIN32)
+    // Measure the spelling used by native calls; do not shorten it by removing dot components.
+    const fs::path root = input.root_path().empty() ? fs::current_path() : fs::absolute(input.root_path());
+    const fs::path path = root / input.relative_path();
+    const auto& native = path.native();
+    const std::size_t limit = kind == NativePathKind::directory ? 247u : 259u;
+    if (native.size() > limit) {
+        throw NativePathLimitExceeded(purpose + " exceeds the supported Windows " +
+            std::to_string(limit) + " UTF-16-code-unit path limit");
+    }
+    for (const fs::path& component : path.relative_path()) {
+        if (component.native().size() > 255u) {
+            throw NativePathLimitExceeded(purpose + " exceeds the supported Windows component limit");
+        }
+    }
+    for (fs::path parent = path.parent_path(); !parent.empty();) {
+        if (parent.native().size() > 247u) {
+            throw NativePathLimitExceeded(purpose + " crosses a directory beyond the supported "
+                "247 UTF-16-code-unit Windows path limit");
+        }
+        const fs::path next = parent.parent_path();
+        if (next == parent) break;
+        parent = next;
+    }
+#else
+    (void)input;
+    (void)kind;
+    (void)purpose;
+#endif
+}
+
 bool valid_utf8(const std::string& value) noexcept
 {
     for (std::size_t index = 0; index < value.size();) {

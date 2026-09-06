@@ -5,6 +5,7 @@
 
 #include "usk_json.h"
 #include "usk_record_io.h"
+#include "usk_utf8_path.h"
 
 #include <algorithm>
 #include <cctype>
@@ -141,6 +142,14 @@ usk::audit::AuditEvent parse_event(const Value& value)
 
 namespace usk::audit {
 
+void require_chain_path_capacity(const fs::path& audit_root, const std::string& chain_id)
+{
+    if (!record_io::valid_identifier(chain_id)) throw std::runtime_error("audit chain id is invalid");
+    const fs::path chain = audit_root / "chains" / chain_id;
+    base::require_native_path_capacity(chain, base::NativePathKind::directory, "audit chain");
+    base::require_native_path_capacity(chain / filename(0), base::NativePathKind::file, "audit event");
+}
+
 AuditRepository::AuditRepository(fs::path audit_root)
     : root_(fs::absolute(std::move(audit_root)).lexically_normal())
 {
@@ -155,6 +164,7 @@ void AuditRepository::initialize_layout(const fs::path& audit_root)
 
 void AuditRepository::initialize_chain(const std::string& chain_id) const
 {
+    require_chain_path_capacity(root_, chain_id);
     record_io::require_safe_directory(root_ / "chains");
     record_io::create_directory_exclusive(root_ / "chains", chain_id);
 }

@@ -8,6 +8,7 @@
 #include "usk_transaction_session.h"
 
 #include <chrono>
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -250,6 +251,182 @@ int retained_stream_recovery_proof(usk_context* context, const fs::path& root, c
     return 0;
 }
 
+
+#if defined(_WIN32)
+int audit_path_capacity_refusal(const fs::path& root, const fs::path& archive)
+{
+    const std::string install_id = "synthetic.install.1";
+    const fs::path event_relative = fs::path("audit") / "chains" /
+        ("audit." + install_id) / "00000000000000000000.event.json";
+    const std::size_t setup_length = 262u - event_relative.native().size() - 1u;
+    const fs::path prefix = root / "path-capacity";
+    const std::size_t reserved = prefix.native().size() + 1u + 1u + std::string("setup-owned").size();
+    if (setup_length <= reserved) return 200;
+    const fs::path parent = prefix / std::string(setup_length - reserved, 'p');
+    const fs::path setup_root = parent / "setup-owned";
+    if ((setup_root / event_relative).native().size() != 262u) return 200;
+    fs::create_directories(parent);
+    const fs::path foreign = parent / "foreign.txt";
+    write_text(foreign, "retain foreign evidence");
+    const fs::path target = root / "path-capacity-target";
+    const std::string setup = setup_root.string();
+    const std::string acceptance = root.string();
+    usk_config_v1 config{};
+    config.struct_size = sizeof(config);
+    config.state_root = setup.c_str();
+    config.authorized_acceptance_root = acceptance.c_str();
+    config.target_policy_activation = "operator_acceptance_candidate";
+    usk_context* context = nullptr;
+    if (usk_context_create_v1(&config, &context) != USK_STATUS_OK) return 200;
+    int status = USK_STATUS_OK;
+    const std::string response = execute(context, "install_local.plan",
+        plan_request(archive, target, usk::base::sha256_hex_file(archive)), 1, status);
+    usk_context_destroy_v1(context);
+    if (status != USK_STATUS_ERROR ||
+        response.find("native_path_limit_exceeded") == std::string::npos) {
+        std::cerr << "262-character audit path was not refused during planning: " << response << '\n';
+        return 201;
+    }
+    if (fs::exists(setup_root) || fs::exists(target) ||
+        read_text(foreign) != "retain foreign evidence" ||
+        std::distance(fs::directory_iterator(parent), fs::directory_iterator{}) != 1) return 202;
+    return 0;
+}
+
+int transaction_path_capacity_refusal(const fs::path& root, const fs::path& archive)
+{
+    const std::size_t setup_length = std::max<std::size_t>(150u, root.native().size() + 2u);
+    const fs::path setup_root = root / std::string(setup_length - root.native().size() - 1u, 'a');
+    const fs::path target = root / "capacity-transaction-target";
+    const fs::path foreign = root / "capacity-foreign.txt";
+    write_text(foreign, "foreign bytes must survive");
+    const auto before = std::distance(fs::directory_iterator(root), fs::directory_iterator{});
+    const std::string setup = setup_root.string();
+    const std::string acceptance = root.string();
+    usk_config_v1 config{};
+    config.struct_size = sizeof(config);
+    config.state_root = setup.c_str();
+    config.authorized_acceptance_root = acceptance.c_str();
+    config.target_policy_activation = "operator_acceptance_candidate";
+    usk_context* context = nullptr;
+    if (usk_context_create_v1(&config, &context) != USK_STATUS_OK) return 203;
+    Value planned = plan_request(archive, target, usk::base::sha256_hex_file(archive));
+    planned.as_object()["install_id"] = Value("i");
+    int status = USK_STATUS_ERROR;
+    std::string response = execute(context, "install_local.plan", planned, 1, status);
+    if (status != USK_STATUS_OK) {
+        std::cerr << "ordinary path plan: " << response << '\n';
+        usk_context_destroy_v1(context);
+        return 204;
+    }
+    const Value payload = usk::json::parse(response).at("payload");
+    response = execute(context, "install_local.apply", apply_request(
+        "usk.install_local_apply_request.v1", planned, payload.at("plan_id").as_string(),
+        payload.at("plan_digest").as_string(), std::string(90u, 't'), "2026-07-14T01:00:01Z"), 0, status);
+    usk_context_destroy_v1(context);
+    if (status != USK_STATUS_ERROR || response.find("native_path_limit_exceeded") == std::string::npos) {
+        std::cerr << "long transaction path was not refused before effects: " << response << '\n';
+        return 205;
+    }
+    if (fs::exists(setup_root) || fs::exists(target) ||
+        read_text(foreign) != "foreign bytes must survive" ||
+        std::distance(fs::directory_iterator(root), fs::directory_iterator{}) != before) return 206;
+    return 0;
+}
+
+int admitted_audit_path_proof(const fs::path& root, const fs::path& archive)
+{
+    const std::string install_id(30u, 'i');
+    const fs::path event_relative = fs::path("audit") / "chains" /
+        ("audit." + install_id) / "00000000000000000000.event.json";
+    const std::size_t setup_length = 259u - event_relative.native().size() - 1u;
+    if (setup_length <= root.native().size() + 1u) return 207;
+    const fs::path setup_root = root / std::string(setup_length - root.native().size() - 1u, 'q');
+    const fs::path target = root / "capacity-admitted-target";
+    const std::string setup = setup_root.string();
+    const std::string acceptance = root.string();
+    usk_config_v1 config{};
+    config.struct_size = sizeof(config);
+    config.state_root = setup.c_str();
+    config.authorized_acceptance_root = acceptance.c_str();
+    config.target_policy_activation = "operator_acceptance_candidate";
+    usk_context* context = nullptr;
+    if (usk_context_create_v1(&config, &context) != USK_STATUS_OK) return 208;
+    Value planned = plan_request(archive, target, usk::base::sha256_hex_file(archive));
+    planned.as_object()["install_id"] = Value(install_id);
+    int status = USK_STATUS_ERROR;
+    std::string response = execute(context, "install_local.plan", planned, 1, status);
+    if (status != USK_STATUS_OK) {
+        std::cerr << "admitted audit boundary plan: " << response << '\n';
+        usk_context_destroy_v1(context);
+        return 209;
+    }
+    const Value payload = usk::json::parse(response).at("payload");
+    response = execute(context, "install_local.apply", apply_request(
+        "usk.install_local_apply_request.v1", planned, payload.at("plan_id").as_string(),
+        payload.at("plan_digest").as_string(), "t", "2026-07-14T01:00:01Z"), 0, status);
+    if (status != USK_STATUS_OK || !fs::exists(setup_root / event_relative) ||
+        (setup_root / event_relative).native().size() != 259u ||
+        read_text(target / "bin/probe.txt") != "synthetic-version-1\n") {
+        std::cerr << "admitted audit boundary apply: " << response << '\n';
+        usk_context_destroy_v1(context);
+        return 210;
+    }
+    // The install fits, but a later selected transaction ID does not. Each
+    // refusal must preserve the complete existing state/audit/target closure.
+    const auto refuses_without_effects = [&](const char* operation, const char* schema,
+        const Value& request, const std::string& plan_id) {
+        const std::string before = usk::evidence::snapshot_target(root).snapshot_digest;
+        int result = USK_STATUS_ERROR;
+        const std::string plan_command = std::string(operation) + ".plan";
+        std::string reply = execute(context, plan_command.c_str(), request, 1, result);
+        if (result != USK_STATUS_OK) {
+            std::cerr << "capacity operation plan " << operation << ": " << reply << '\n';
+            return false;
+        }
+        const std::string digest = usk::json::parse(reply).at("payload").at("plan_digest").as_string();
+        const std::string apply_command = std::string(operation) + ".apply";
+        reply = execute(context, apply_command.c_str(), apply_request(schema, request, plan_id,
+            digest, std::string(60u, 't'), "2026-07-14T01:04:00Z"), 0, result);
+        if (result != USK_STATUS_ERROR || reply.find("native_path_limit_exceeded") == std::string::npos ||
+            usk::evidence::snapshot_target(root).snapshot_digest != before) {
+            std::cerr << "capacity operation refusal " << operation << ": " << reply << '\n';
+            return false;
+        }
+        return true;
+    };
+    write_text(target / "bin/probe.txt", "damaged\n");
+    const Value repair(Value::Object{
+        {"archive", Value(Value::Object{{"expected_sha256", Value(usk::base::sha256_hex_file(archive))},
+            {"format", Value("zip")}, {"path", Value(archive.u8string())},
+            {"strip_prefix", Value("product")}})},
+        {"created_at", Value("2026-07-14T01:03:00Z")}, {"install_id", Value(install_id)},
+        {"plan_id", Value("capacity.repair")}, {"request_id", Value("capacity.repair.request")},
+        {"schema", Value("usk.repair_plan_request.v1")}});
+    if (!refuses_without_effects("repair", "usk.repair_apply_request.v1", repair, "capacity.repair")) {
+        usk_context_destroy_v1(context);
+        return 211;
+    }
+    write_text(target / "bin/probe.txt", "synthetic-version-1\n");
+    const Value move(Value::Object{{"created_at", Value("2026-07-14T01:03:00Z")},
+        {"install_id", Value(install_id)}, {"new_target", Value(Value::Object{
+            {"class", Value("operator_acceptance")}, {"root", Value((root / "capacity-moved").generic_u8string())}})},
+        {"plan_id", Value("capacity.move")}, {"request_id", Value("capacity.move.request")},
+        {"schema", Value("usk.move_plan_request.v1")}});
+    if (!refuses_without_effects("move", "usk.move_apply_request.v1", move, "capacity.move")) {
+        usk_context_destroy_v1(context);
+        return 212;
+    }
+    const Value uninstall(Value::Object{{"created_at", Value("2026-07-14T01:03:00Z")},
+        {"install_id", Value(install_id)}, {"plan_id", Value("capacity.uninstall")},
+        {"request_id", Value("capacity.uninstall.request")}, {"schema", Value("usk.uninstall_plan_request.v1")}});
+    const bool uninstall_refused = refuses_without_effects(
+        "uninstall", "usk.uninstall_apply_request.v1", uninstall, "capacity.uninstall");
+    usk_context_destroy_v1(context);
+    return uninstall_refused ? 0 : 213;
+}
+#endif
+
 } // namespace
 
 int main()
@@ -281,6 +458,12 @@ int main()
     config.target_policy_activation = "operator_acceptance_candidate";
     usk_context* context = nullptr;
     if (usk_context_create_v1(&config, &context) != USK_STATUS_OK) return 4;
+
+#if defined(_WIN32)
+    if (const int capacity = audit_path_capacity_refusal(root, archive)) return capacity;
+    if (const int capacity = transaction_path_capacity_refusal(root, archive)) return capacity;
+    if (const int capacity = admitted_audit_path_proof(root, archive)) return capacity;
+#endif
 
     {
         const fs::path deflate_archive = root / "synthetic-deflate.zip";

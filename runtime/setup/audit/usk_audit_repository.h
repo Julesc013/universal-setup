@@ -11,6 +11,10 @@
 
 namespace usk::audit {
 
+void require_chain_path_capacity(
+    const std::filesystem::path& audit_root,
+    const std::string& chain_id);
+
 struct AuditInput {
     std::string created_at;
     std::string operation;
