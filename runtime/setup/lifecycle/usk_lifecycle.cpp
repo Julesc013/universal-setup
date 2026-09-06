@@ -37,6 +37,81 @@ std::string hash_bytes(const std::vector<unsigned char>& bytes)
     return digest.finish();
 }
 
+void bind_payload_identity(usk::lifecycle::PayloadFile& file)
+{
+    if (file.reader) {
+        if (!file.bytes.empty() || !sha256(file.sha256) ||
+            file.stream_buffer_bytes !=
+                usk::lifecycle::streaming_payload_buffer_bytes) {
+            throw std::runtime_error("streaming lifecycle payload identity is invalid");
+        }
+        return;
+    }
+    const std::string actual_sha256 = hash_bytes(file.bytes);
+    const std::uint64_t actual_size = static_cast<std::uint64_t>(file.bytes.size());
+    if ((!file.sha256.empty() && file.sha256 != actual_sha256) ||
+        (file.size_bytes != 0u && file.size_bytes != actual_size)) {
+        throw std::runtime_error("materialized lifecycle payload identity is invalid");
+    }
+    file.sha256 = actual_sha256;
+    file.size_bytes = actual_size;
+}
+
+void stage_payload_file(
+    usk::transaction::TransactionSession& transaction,
+    const std::filesystem::path& relative_path,
+    const usk::lifecycle::PayloadFile& file,
+    const usk::lifecycle::LifecycleCancellation& cancellation)
+{
+    if (!file.reader) {
+        transaction.stage_file(relative_path, file.bytes);
+        return;
+    }
+    std::uint64_t offset = 0;
+    const auto staged = transaction.stage_file_stream(
+        relative_path,
+        file.size_bytes,
+        file.sha256,
+        file.stream_buffer_bytes,
+        [&](unsigned char* output, std::size_t capacity) -> std::size_t {
+            if (cancellation && cancellation()) {
+                throw std::runtime_error("lifecycle streaming operation was cancelled");
+            }
+            const std::size_t count = file.reader(offset, output, capacity);
+            if (count > capacity ||
+                count > file.size_bytes - std::min(offset, file.size_bytes)) {
+                throw std::runtime_error("lifecycle payload reader exceeded its reviewed size");
+            }
+            offset += count;
+            if (cancellation && cancellation()) {
+                throw std::runtime_error("lifecycle streaming operation was cancelled");
+            }
+            return count;
+        });
+    if (cancellation && cancellation()) {
+        throw std::runtime_error("lifecycle streaming operation was cancelled");
+    }
+    if (staged.sha256 != file.sha256 || staged.size_bytes != file.size_bytes) {
+        throw std::runtime_error("streamed lifecycle payload changed during staging");
+    }
+}
+
+void rollback_before_visibility(
+    usk::transaction::TransactionSession& transaction) noexcept
+{
+    if (transaction.current_state() != "staging" &&
+        transaction.current_state() != "staged" &&
+        transaction.current_state() != "verified") {
+        return;
+    }
+    try {
+        transaction.rollback();
+    } catch (...) {
+        // The transaction records recovery_required before any rollback effect.
+        // Preserve the original operation error while retaining durable recovery evidence.
+    }
+}
+
 std::string lowercase(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
@@ -119,6 +194,7 @@ void validate_recipe(const usk::lifecycle::RecipeBinding& recipe)
 void normalize_files(std::vector<usk::lifecycle::PayloadFile>& files)
 {
     if (files.empty()) throw std::runtime_error("lifecycle payload is empty");
+    for (auto& file : files) bind_payload_identity(file);
     std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
         return left.relative_path < right.relative_path;
     });
@@ -147,8 +223,8 @@ Value plan_payload(const usk::lifecycle::InstallPlan& plan)
     for (const auto& file : plan.files) {
         files.push_back(Value(Value::Object{
             {"relative_path", Value(file.relative_path)},
-            {"sha256", Value(hash_bytes(file.bytes))},
-            {"size_bytes", Value(static_cast<std::uint64_t>(file.bytes.size()))}}));
+            {"sha256", Value(file.sha256)},
+            {"size_bytes", Value(file.size_bytes)}}));
     }
     Value::Array components;
     for (const std::string& component : plan.recipe.components) components.push_back(Value(component));
@@ -189,7 +265,12 @@ void validate_plan(const usk::lifecycle::InstallPlan& plan)
     normalize_files(files);
     if (files.size() != plan.files.size()) throw std::runtime_error("install plan payload changed");
     for (std::size_t index = 0; index < files.size(); ++index) {
-        if (files[index].relative_path != plan.files[index].relative_path || files[index].bytes != plan.files[index].bytes) {
+        if (files[index].relative_path != plan.files[index].relative_path ||
+            files[index].bytes != plan.files[index].bytes ||
+            files[index].sha256 != plan.files[index].sha256 ||
+            files[index].size_bytes != plan.files[index].size_bytes ||
+            static_cast<bool>(files[index].reader) !=
+                static_cast<bool>(plan.files[index].reader)) {
             throw std::runtime_error("install plan payload is not deterministic");
         }
     }
@@ -352,8 +433,8 @@ Value payload_files_value(const std::vector<usk::lifecycle::PayloadFile>& files)
     Value::Array result;
     for (const auto& file : files) {
         result.push_back(Value(Value::Object{{"relative_path", Value(file.relative_path)},
-            {"sha256", Value(hash_bytes(file.bytes))},
-            {"size_bytes", Value(static_cast<std::uint64_t>(file.bytes.size()))}}));
+            {"sha256", Value(file.sha256)},
+            {"size_bytes", Value(file.size_bytes)}}));
     }
     return Value(std::move(result));
 }
@@ -428,7 +509,10 @@ std::vector<usk::lifecycle::PayloadFile> read_complete_tree(const fs::path& root
         total += file.identity().size_bytes;
         auto bytes = file.read(0, static_cast<std::size_t>(file.identity().size_bytes));
         file.verify_unchanged();
-        result.push_back({entry.path().lexically_relative(root).generic_string(), std::move(bytes)});
+        usk::lifecycle::PayloadFile payload;
+        payload.relative_path = entry.path().lexically_relative(root).generic_string();
+        payload.bytes = std::move(bytes);
+        result.push_back(std::move(payload));
     }
     normalize_files(result);
     return result;
@@ -442,7 +526,10 @@ void ensure_same_payload(
     if (expected.size() != actual.size()) throw std::runtime_error(message);
     for (std::size_t index = 0; index < expected.size(); ++index) {
         if (expected[index].relative_path != actual[index].relative_path ||
-            expected[index].bytes != actual[index].bytes) throw std::runtime_error(message);
+            expected[index].sha256 != actual[index].sha256 ||
+            expected[index].size_bytes != actual[index].size_bytes) {
+            throw std::runtime_error(message);
+        }
     }
 }
 
@@ -498,6 +585,18 @@ usk::state::InstalledState revised_state(
 
 namespace usk::lifecycle {
 
+InstallResult apply_install(
+    const InstallPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector)
+{
+    return apply_install(
+        plan, reviewed_plan_digest, transaction_id, applied_at,
+        std::move(fault_injector), {});
+}
+
 InstallPlan plan_install(
     std::string plan_id,
     std::string install_id,
@@ -530,7 +629,8 @@ InstallResult apply_install(
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
     const std::string& applied_at,
-    LifecycleFaultInjector fault_injector)
+    LifecycleFaultInjector fault_injector,
+    LifecycleCancellation cancellation)
 {
     validate_plan(plan);
     if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
@@ -553,9 +653,14 @@ InstallResult apply_install(
             if (fault_injector) fault_injector("install_local", "transaction." + state + "." + point);
         });
     try {
-        for (const PayloadFile& file : plan.files) transaction.stage_file(file.relative_path, file.bytes);
+        for (const PayloadFile& file : plan.files) {
+            stage_payload_file(transaction, file.relative_path, file, cancellation);
+        }
         transaction.mark_staged();
         transaction.mark_verified();
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("lifecycle streaming operation was cancelled");
+        }
         transaction.commit_effect();
         if (fault_injector) fault_injector("install_local", "after_target_commit");
 
@@ -567,8 +672,8 @@ InstallResult apply_install(
         ownership.created_by_transaction_id = transaction_id;
         ownership.directories = directory_closure(plan.files);
         for (const PayloadFile& file : plan.files) {
-            ownership.files.push_back({file.relative_path, hash_bytes(file.bytes),
-                                       static_cast<std::uint64_t>(file.bytes.size())});
+            ownership.files.push_back(
+                {file.relative_path, file.sha256, file.size_bytes});
         }
         ownership = state_repository.write_ownership(std::move(ownership));
 
@@ -609,6 +714,8 @@ InstallResult apply_install(
     } catch (...) {
         if (transaction.current_state() == "committing" || transaction.current_state() == "committed") {
             try { transaction.mark_recovery_required(); } catch (...) {}
+        } else {
+            rollback_before_visibility(transaction);
         }
         throw;
     }
@@ -639,8 +746,8 @@ InstallResult recover_install_finalization(
     expected.created_by_transaction_id = transaction_id;
     expected.directories = directory_closure(plan.files);
     for (const PayloadFile& file : plan.files) {
-        expected.files.push_back({file.relative_path, hash_bytes(file.bytes),
-                                  static_cast<std::uint64_t>(file.bytes.size())});
+        expected.files.push_back(
+            {file.relative_path, file.sha256, file.size_bytes});
     }
     state::OwnershipManifest ownership;
     const fs::path ownership_path = plan.roots.state_root / "ownership" / (expected.manifest_id + ".json");
@@ -762,7 +869,8 @@ RepairPlan plan_repair(
     std::set<std::string> affected;
     for (const FileVerification& file : before.files) {
         const auto source = sources.find(file.relative_path);
-        if (source == sources.end() || hash_bytes(source->second->bytes) != file.expected_sha256) {
+        if (source == sources.end() ||
+            source->second->sha256 != file.expected_sha256) {
             throw std::runtime_error("repair source does not reproduce the exact owned closure");
         }
         if (file.status != "present") affected.insert(file.relative_path);
@@ -793,6 +901,19 @@ RepairResult apply_repair(
     const std::string& transaction_id,
     const std::string& applied_at,
     LifecycleFaultInjector fault_injector)
+{
+    return apply_repair(
+        plan, reviewed_plan_digest, transaction_id, applied_at,
+        std::move(fault_injector), {});
+}
+
+RepairResult apply_repair(
+    const RepairPlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector,
+    LifecycleCancellation cancellation)
 {
     if (reviewed_plan_digest != plan.plan_digest ||
         json::sha256_canonical(repair_plan_payload(plan)) != plan.plan_digest ||
@@ -830,10 +951,15 @@ RepairResult apply_repair(
     std::vector<fs::path> backups;
     try {
         for (const PayloadFile& file : plan.replacement_files) {
-            transaction.stage_file(fs::path("payload") / file.relative_path, file.bytes);
+            stage_payload_file(
+                transaction, fs::path("payload") / file.relative_path, file,
+                cancellation);
         }
         transaction.mark_staged();
         transaction.mark_verified();
+        if (cancellation && cancellation()) {
+            throw std::runtime_error("lifecycle streaming operation was cancelled");
+        }
         transaction.commit_effect();
         if (fault_injector) fault_injector("repair", "after_staging_commit");
         for (const PayloadFile& file : plan.replacement_files) {
@@ -886,6 +1012,8 @@ RepairResult apply_repair(
     } catch (...) {
         if (transaction.current_state() == "committing" || transaction.current_state() == "committed") {
             try { transaction.mark_recovery_required(); } catch (...) {}
+        } else {
+            rollback_before_visibility(transaction);
         }
         throw;
     }
@@ -959,7 +1087,9 @@ MoveResult apply_move(
             if (fault_injector) fault_injector("move", "transaction." + state + "." + point);
         });
     try {
-        for (const PayloadFile& file : plan.complete_files) transaction.stage_file(file.relative_path, file.bytes);
+        for (const PayloadFile& file : plan.complete_files) {
+            stage_payload_file(transaction, file.relative_path, file, {});
+        }
         transaction.mark_staged();
         transaction.mark_verified();
         transaction.commit_effect();

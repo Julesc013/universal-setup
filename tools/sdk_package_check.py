@@ -114,6 +114,8 @@ def check() -> list[str]:
         "$<INSTALL_INTERFACE:",
         "PROJECT_IS_TOP_LEVEL",
         "USK_USE_SHARED",
+        "external/zlib/upstream/LICENSE",
+        "RENAME zlib-LICENSE",
     ):
         if token not in cmake:
             problems.append(f"CMake SDK package is missing {token}")
@@ -124,6 +126,11 @@ def check() -> list[str]:
         problems.append("private runtime implementation must not be installed")
     if "include/usu" in cmake:
         problems.append("unimplemented USU declarations must not be installed")
+    if (
+        "install(DIRECTORY external/zlib" in cmake
+        or "UniversalSetup::Zlib" in cmake
+    ):
+        problems.append("private zlib headers or target must not be exported")
 
     consumer_cmake = (
         ROOT / "tests" / "sdk" / "consumer" / "CMakeLists.txt"

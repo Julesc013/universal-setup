@@ -181,18 +181,26 @@ but public lifecycle requests fail closed with
 only for `operator_acceptance` targets below the configured acceptance root.
 It does not authorize ordinary managed-portable targets.
 
-The public acceptance implementation currently materializes only stored ZIP
-entries after the full classic-ZIP inspection succeeds. It refuses existing
-install or move targets, stale plans, changed source identity, unsafe target
-components, insufficient capacity, and state roots without the exact ownership
-marker. Repair touches only changed recorded files. Move verifies the new root
-and retains the old root. Uninstall refuses all mutation while changed owned or
+The public acceptance implementation streams stored and Deflate classic-ZIP
+and single-disk ZIP64 entries after full bounded inspection succeeds. Planning
+incrementally binds each selected entry's compression method, exact compressed
+and uncompressed boundaries, CRC32, and SHA-256 without retaining the complete
+payload. Apply reuses the reviewed stable archive handle and stages through a
+64 KiB output buffer; Deflate adds one private 64 KiB compressed-input buffer.
+It refuses existing install or move targets, stale plans, changed source
+identity, unsafe target components, malformed or boundary-inexact Deflate,
+insufficient capacity, and state roots without the exact ownership marker.
+Repair streams only changed recorded files. Move verifies the new root and
+retains the old root. Uninstall refuses all mutation while changed owned or
 unknown files require operator review.
 
 `recovery.inspect` and `recovery.plan` are public and read-only. They validate
 the journal's transaction, plan, operation, root authorities, transition chain,
-digest, and restart-safe staged ownership. `recovery.apply` can consume the
-exact reviewed plan to roll back only an unchanged, setup-owned staged closure.
+digest, and current recovery disposition. `recovery.apply` can consume an
+exact reviewed plan to roll back an eligible non-streaming staged closure.
+Streamed staging retains its durable retain-only policy even when path, size
+and hash still match; automatic cleanup and entry restart leases remain
+unavailable. Reports identify retained staging and visible targets separately.
 Changed or foreign staging content is retained in full. Visible-target
 finalization remains recovery-required when the request lacks the exact
 original operation context; inspection alone is never promoted to mutation.
@@ -208,7 +216,10 @@ The retained synthetic live proofs are documented in
 
 ## License
 
-Universal Setup is licensed under the [MIT License](LICENSE). The canonical
-machine-readable package identity is `release/license.v1.toml`. That license
-choice does not imply signing, publication, or publisher authenticity; current
-artifacts remain unsigned and unpublished.
+Universal Setup's repository-owned code is licensed under the
+[MIT License](LICENSE). Packages that contain the private zlib inflate subset
+use the `MIT AND Zlib` expression recorded in `release/license.v1.toml` and
+install both licence texts. The exact unmodified upstream subset is bound by
+`external/zlib/provenance.v1.toml`. These licence records do not imply signing,
+publication, or publisher authenticity; current artifacts remain unsigned and
+unpublished.
