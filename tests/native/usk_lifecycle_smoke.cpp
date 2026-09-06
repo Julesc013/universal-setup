@@ -115,6 +115,19 @@ std::vector<usk::lifecycle::PayloadFile> streaming_payload(
         64u * 1024u}};
 }
 
+bool requires_retained_stream_recovery(
+    const usk::lifecycle::InstallPlan& plan, const std::string& transaction_id)
+{
+    const usk::transaction::TransactionSpec spec{
+        transaction_id, plan.plan_id, plan.plan_digest, "install_local",
+        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root};
+    const auto recovery = usk::transaction::TransactionSession::inspect_recovery(spec);
+    return recovery.current_state == "recovery_required" && recovery.staging_exists &&
+        !recovery.target_exists &&
+        recovery.available_actions == std::vector<std::string>{"retain_for_operator"} &&
+        refuses([&] { (void)usk::transaction::TransactionSession::resume_rollback(spec); });
+}
+
 int streaming_install_and_fault_proof()
 {
     {
@@ -161,8 +174,9 @@ int streaming_install_and_fault_proof()
                 "tx.streaming.write-fault", plan.plan_id, plan.plan_digest,
                 "install_local", fixture.roots.staging_parent, target,
                 fixture.roots.state_root, fixture.roots.audit_root});
-        if (!rejected || fs::exists(target) || recovery.current_state != "rolled_back" ||
-            recovery.staging_exists || recovery.target_exists) {
+        if (!rejected || fs::exists(target) || recovery.current_state != "recovery_required" ||
+            !recovery.staging_exists || recovery.target_exists ||
+            recovery.available_actions != std::vector<std::string>{"retain_for_operator"}) {
             return 22;
         }
     }
@@ -178,7 +192,8 @@ int streaming_install_and_fault_proof()
                 (void)usk::lifecycle::apply_install(
                     plan, plan.plan_digest, "tx.streaming.read-fault",
                     "2026-08-27T00:02:01Z");
-            }) || fs::exists(target)) {
+            }) || fs::exists(target) ||
+            !requires_retained_stream_recovery(plan, "tx.streaming.read-fault")) {
             return 23;
         }
     }
@@ -204,8 +219,9 @@ int streaming_install_and_fault_proof()
                 "tx.streaming.cancelled", plan.plan_id, plan.plan_digest,
                 "install_local", fixture.roots.staging_parent, target,
                 fixture.roots.state_root, fixture.roots.audit_root});
-        if (fs::exists(target) || recovery.current_state != "rolled_back" ||
-            recovery.staging_exists || recovery.target_exists) {
+        if (fs::exists(target) || recovery.current_state != "recovery_required" ||
+            !recovery.staging_exists || recovery.target_exists ||
+            recovery.available_actions != std::vector<std::string>{"retain_for_operator"}) {
             return 26;
         }
     }
@@ -236,7 +252,8 @@ int streaming_install_and_fault_proof()
                 (void)usk::lifecycle::apply_install(
                     plan, plan.plan_digest, "tx.streaming.integrity-fault",
                     "2026-08-27T00:03:01Z");
-            }) || fs::exists(target)) {
+            }) || fs::exists(target) ||
+            !requires_retained_stream_recovery(plan, "tx.streaming.integrity-fault")) {
             return 24;
         }
     }

@@ -196,8 +196,11 @@ unknown files require operator review.
 
 `recovery.inspect` and `recovery.plan` are public and read-only. They validate
 the journal's transaction, plan, operation, root authorities, transition chain,
-digest, and restart-safe staged ownership. `recovery.apply` can consume the
-exact reviewed plan to roll back only an unchanged, setup-owned staged closure.
+digest, and current recovery disposition. `recovery.apply` can consume an
+exact reviewed plan to roll back an eligible non-streaming staged closure.
+Streamed staging retains its durable retain-only policy even when path, size
+and hash still match; automatic cleanup and entry restart leases remain
+unavailable. Reports identify retained staging and visible targets separately.
 Changed or foreign staging content is retained in full. Visible-target
 finalization remains recovery-required when the request lacks the exact
 original operation context; inspection alone is never promoted to mutation.

@@ -488,8 +488,8 @@ std::string entry_set_digest(const std::vector<Entry>& entries)
     for (const Entry& entry : entries) {
         const std::string line =
             std::string(entry.directory ? "directory\0" : "file\0", entry.directory ? 10 : 5) +
-            entry.normalized_path + "\0" + std::to_string(entry.uncompressed_size) + "\0" +
-            std::to_string(entry.compressed_size) + "\0" + std::to_string(entry.crc32) + "\0" +
+            entry.normalized_path + '\0' + std::to_string(entry.uncompressed_size) + '\0' +
+            std::to_string(entry.compressed_size) + '\0' + std::to_string(entry.crc32) + '\0' +
             std::to_string(entry.compression_method) + "\n";
         hash.update(reinterpret_cast<const unsigned char*>(line.data()), line.size());
     }

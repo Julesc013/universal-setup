@@ -197,6 +197,9 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
     std::unique_ptr<transaction::TransactionSession> transaction;
     try {
         validate_budget(request.budget);
+        if (request.source.entries.size() > request.budget.maximum_entries) {
+            throw std::runtime_error("directory source exceeds the apply entry budget");
+        }
         if (!sha256(request.source.entry_set_digest) || request.source.entries.empty() ||
             request.audit_chain_id.empty() || request.recorded_at.empty()) {
             throw std::runtime_error("streaming request identity is invalid");

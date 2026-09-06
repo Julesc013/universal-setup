@@ -340,6 +340,16 @@ class SetupContractTests(unittest.TestCase):
             True,
         )
 
+    def test_stream_retention_cannot_grant_journal_rollback_authority(self) -> None:
+        metadata = load_schema("transaction_journal")["properties"]["recovery_metadata"]
+        self.assertFalse(metadata["additionalProperties"])
+        self.assertEqual(metadata["properties"]["stream_cleanup_policy"], {"enum": ["retain_only"]})
+        self.assertNotIn("stream_cleanup_policy", metadata["required"])
+        self.assertEqual(
+            metadata["dependentSchemas"]["stream_cleanup_policy"]["properties"]["staging_identity"],
+            {"type": "null"},
+        )
+
     def test_audit_and_lifecycle_reports_preserve_foreign_content(self) -> None:
         audit = load_schema("audit_event")
         self.assertIn("previous_event_digest", audit["required"])
@@ -414,6 +424,23 @@ class SetupContractTests(unittest.TestCase):
         self.assertEqual(properties["may_verify"]["type"], "boolean")
         self.assertEqual(properties["may_repair"]["type"], "boolean")
         self.assertEqual(properties["may_uninstall"]["type"], "boolean")
+
+    def test_retained_recovery_is_reportable_without_cleanup_authority(self) -> None:
+        for name in ("recovery_plan", "recovery_report"):
+            schema = load_schema(name)
+            properties = schema["properties"]
+            actions = properties["available_actions"]["items"]
+            if "$ref" in actions:
+                self.assertTrue(actions["$ref"].startswith("#/$defs/"))
+                actions = schema["$defs"][actions["$ref"].removeprefix("#/$defs/")]
+            self.assertIn("retain_for_operator", actions["enum"])
+            effect = properties["effects"]["items"]["properties"]
+            self.assertIn("retain_path", effect["kind"]["enum"])
+            self.assertIn("staging", effect["root_class"]["enum"])
+        self.assertEqual(
+            set(load_schema("recovery_apply_request")["properties"]["selected_action"]["enum"]),
+            {"rollback", "finalize"},
+        )
 
     def test_all_setup_schemas_parse_and_stay_product_neutral(self) -> None:
         forbidden = ("factorio", "dominium", "eureka", "modset", "mod_portal")

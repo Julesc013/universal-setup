@@ -930,8 +930,18 @@ Value recovery_effects(const usk::transaction::RecoveryInspection& inspection)
             effects.emplace_back(Value::Object{{"kind", Value("delete_staged_path")},
                 {"relative_path", Value(".")}, {"root_class", Value("staging")}});
         } else {
-            effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
-                {"relative_path", Value(".")}, {"root_class", Value("owned_target")}});
+            if (inspection.staging_exists) {
+                effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
+                    {"relative_path", Value(".")}, {"root_class", Value("staging")}});
+            }
+            if (inspection.target_exists) {
+                effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
+                    {"relative_path", Value(".")}, {"root_class", Value("owned_target")}});
+            }
+            if (!inspection.staging_exists && !inspection.target_exists) {
+                effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
+                    {"relative_path", Value(".")}, {"root_class", Value("setup_state")}});
+            }
         }
     }
     return Value(std::move(effects));

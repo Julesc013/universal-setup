@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -166,6 +167,87 @@ std::string read_text(const fs::path& path)
 {
     std::ifstream input(path, std::ios::binary);
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+bool retained_roots_match(const Value& payload, const std::set<std::string>& expected)
+{
+    const auto& actions = payload.at("available_actions").as_array();
+    if (actions.size() != 1u || actions.front().as_string() != "retain_for_operator") return false;
+    std::set<std::string> actual;
+    for (const auto& effect : payload.at("effects").as_array()) {
+        if (effect.at("kind").as_string() != "retain_path" ||
+            effect.at("relative_path").as_string() != "." ||
+            !actual.insert(effect.at("root_class").as_string()).second) return false;
+    }
+    return actual == expected;
+}
+
+int retained_stream_recovery_proof(usk_context* context, const fs::path& root, const fs::path& setup_root)
+{
+    const std::string plan_digest(64, '8');
+    const usk::transaction::TransactionSpec spec{
+        "tx.recovery.retained", "plan.recovery.retained", plan_digest, "install_local",
+        setup_root / "staging", root / "retained-target", setup_root / "state", setup_root / "audit"};
+    const std::string content = "identical retained payload";
+    usk::base::Sha256 digest;
+    digest.update(reinterpret_cast<const unsigned char*>(content.data()), content.size());
+    fs::path staging;
+    fs::path journal;
+    {
+        usk::transaction::TransactionSession interrupted(spec);
+        staging = interrupted.staging_root();
+        journal = interrupted.journal_path();
+        bool supplied = false;
+        interrupted.stage_file_stream("payload.txt", content.size(), digest.finish(), 64u * 1024u,
+            [&](unsigned char* output, std::size_t capacity) -> std::size_t {
+                if (supplied) return 0;
+                if (capacity < content.size()) throw std::runtime_error("test buffer is too small");
+                for (std::size_t index = 0; index < content.size(); ++index) output[index] = content[index];
+                supplied = true;
+                return content.size();
+            });
+        interrupted.mark_staged();
+    }
+    // A different object with identical bytes must never inherit deletion authority.
+    const fs::path original = root / "original-retained-stream.txt";
+    fs::rename(staging / "payload.txt", original);
+    write_text(staging / "payload.txt", content);
+    const std::string original_journal = read_text(journal);
+    const Value inspection(Value::Object{
+        {"install_id", Value("synthetic.interrupted.retained")}, {"operation", Value("install_local")},
+        {"plan_digest", Value(plan_digest)}, {"plan_id", Value(spec.plan_id)},
+        {"request_id", Value("recovery.inspect.retained")},
+        {"schema", Value("usk.recovery_inspect_request.v1")},
+        {"target_root", Value(spec.target_root.generic_u8string())},
+        {"transaction_id", Value(spec.transaction_id)}});
+    int status = USK_STATUS_ERROR;
+    std::string response = execute(context, "recovery.inspect", inspection, 1, status);
+    if (status != USK_STATUS_OK ||
+        !retained_roots_match(usk::json::parse(response).at("payload"), {"staging"})) return 180;
+    const Value plan(Value::Object{{"created_at", Value("2026-09-07T00:00:00Z")},
+        {"inspection", inspection}, {"recovery_plan_id", Value("recovery.plan.retained")},
+        {"schema", Value("usk.recovery_plan_request.v1")}});
+    response = execute(context, "recovery.plan", plan, 1, status);
+    if (status != USK_STATUS_OK ||
+        !retained_roots_match(usk::json::parse(response).at("payload"), {"staging"})) return 181;
+    const std::string reviewed = usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const Value apply(Value::Object{
+        {"applied_at", Value("2026-09-07T00:00:01Z")}, {"confirmation", Value("APPLY")},
+        {"plan_request", plan}, {"reviewed_plan_digest", Value(reviewed)},
+        {"reviewed_plan_id", Value("recovery.plan.retained")},
+        {"schema", Value("usk.recovery_apply_request.v1")}, {"selected_action", Value("rollback")}});
+    response = execute(context, "recovery.apply", apply, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("stale_plan") == std::string::npos ||
+        read_text(staging / "payload.txt") != content || read_text(original) != content ||
+        read_text(journal) != original_journal || fs::exists(spec.target_root)) return 182;
+    fs::create_directory(spec.target_root);
+    write_text(spec.target_root / "foreign.txt", "foreign target");
+    response = execute(context, "recovery.inspect", inspection, 1, status);
+    if (status != USK_STATUS_OK || !retained_roots_match(
+            usk::json::parse(response).at("payload"), {"staging", "owned_target"}) ||
+        read_text(spec.target_root / "foreign.txt") != "foreign target" ||
+        read_text(staging / "payload.txt") != content || read_text(journal) != original_journal) return 183;
+    return 0;
 }
 
 } // namespace
@@ -566,6 +648,7 @@ int main()
         fs::exists(setup_root / "staging/.usk-stage-tx.recovery.rollback") ||
         fs::exists(root / "interrupted-target")) return 33;
 
+    if (const int retained = retained_stream_recovery_proof(context, root, setup_root)) return retained;
     usk_context_destroy_v1(context);
     fs::remove_all(root, error);
     return error ? 26 : 0;

@@ -63,10 +63,13 @@ The native archive proof compares 128 KiB and 6 MiB logical stored payloads and
 requires both to retain a 65,536-byte peak payload buffer with
 `complete_payload_retained=false`. Lifecycle and public-command tests prove
 install and repair staging; fault tests prove source-read, integrity, and write
-failures leave no target visible and transition intact recorded staging to
-`rolled_back`. A mid-entry cancellation regression proves the same pre-visibility
-rollback, and nonexact stream-buffer sizes are rejected. Failures after target
-visibility remain recovery-required.
+failures leave no target visible and retain staging with `retain_for_operator`
+recovery. Mid-entry cancellation preserves the same durable retain-only rule;
+matching path, size and hash do not grant cleanup authority after a restart.
+Nonexact stream-buffer sizes are rejected. Public recovery reports identify
+retained staging and any visible target separately. Failures after target
+visibility remain recovery-required. Object-bound cleanup, generation/lease
+ownership and interrupted-entry resume remain separate work.
 
 An opt-in slow proof (`USK_LARGE_STREAMING_MEMORY_PROOF=1`) constructs its ZIP
 fixtures directly on disk through a 1 MiB test buffer rather than materializing

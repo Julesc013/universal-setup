@@ -709,6 +709,24 @@ int main()
         field(valid_response, "sha256").size() != 64) {
         return 3;
     }
+    // Both payloads have a valid equal CRC32, but different names and lengths.
+    // Real separators must distinguish x11/1/1/CRC from x/11/11/CRC.
+    const std::string short_payload = "A";
+    const std::string long_payload = bytes_from_hex("000000000000000006bd80");
+    if (long_payload.size() != 11u || crc32(short_payload) != crc32(long_payload)) return 188;
+    const fs::path short_identity_zip = root / "entry-identity-short.zip";
+    const fs::path long_identity_zip = root / "entry-identity-long.zip";
+    write_zip(short_identity_zip, {{"x11", short_payload}});
+    write_zip(long_identity_zip, {{"x", long_payload}});
+    const std::string short_identity = execute(context, short_identity_zip, status);
+    if (status != USK_STATUS_OK) return 189;
+    const std::string long_identity = execute(context, long_identity_zip, status);
+    if (status != USK_STATUS_OK) return 189;
+    (void)usk::archive::inspect_streaming_payload(request_json(short_identity_zip), "");
+    (void)usk::archive::inspect_streaming_payload(request_json(long_identity_zip), "");
+    if (field(short_identity, "entry_set_digest") == field(long_identity, "entry_set_digest") ||
+        field(short_identity, "sha256") == field(long_identity, "sha256")) return 190;
+
     const std::string preferred_separator(1, fs::path::preferred_separator);
     const std::string valid_parent = valid.parent_path().u8string();
     const std::string valid_name = valid.filename().u8string();
