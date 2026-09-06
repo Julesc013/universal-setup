@@ -196,6 +196,7 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
     StreamResult result;
     result.entry_set_digest = request.source.entry_set_digest;
     std::unique_ptr<transaction::TransactionSession> transaction;
+    bool transaction_journal_attempted = false;
     try {
         validate_budget(request.budget);
         if (request.source.entries.size() > request.budget.maximum_entries) {
@@ -219,11 +220,31 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
             base::require_native_path_capacity(request.transaction.target_root / relative,
                 base::NativePathKind::file, "stream target file");
         }
-        transaction = std::make_unique<transaction::TransactionSession>(
-            request.transaction,
+        const transaction::FaultInjector transaction_fault =
             [&](const std::string& state, const std::string& point) {
+                // Construction can publish a journal before returning a session.
+                // Record the boundary before forwarding a fault that may unwind it.
+                if (state == "created" && point == "before_journal") transaction_journal_attempted = true;
                 fault(request.fault, "transaction:" + state + ":" + point, {}, 0);
-            });
+            };
+        if (!request.restart_transaction_id.empty() || !request.restart_snapshot_sha256.empty()) {
+            // Validate every original source before a fresh replay journal/staging effect.
+            for (const auto& entry : request.source.entries) {
+                base::StableFile source(entry.source_path);
+                if (identity_digest(source.identity()) != entry.source_identity_digest ||
+                    source.identity().size_bytes != entry.size_bytes) {
+                    throw std::runtime_error("stable source identity changed before replay");
+                }
+                source.verify_unchanged();
+            }
+            auto prior = request.transaction;
+            prior.transaction_id = request.restart_transaction_id;
+            transaction = transaction::TransactionSession::restart_streaming(
+                prior, request.transaction.transaction_id, request.restart_snapshot_sha256,
+                request.source.entry_set_digest, transaction_fault);
+        } else {
+            transaction = std::make_unique<transaction::TransactionSession>(request.transaction, transaction_fault);
+        }
         for (const PayloadEntryDescriptor& entry : request.source.entries) {
             require_not_cancelled(request.cancellation, "before source read");
             if (!sha256(entry.sha256) || !sha256(entry.source_identity_digest)) {
@@ -234,6 +255,7 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
                 source.identity().size_bytes != entry.size_bytes) {
                 throw std::runtime_error("stable source identity changed before streaming");
             }
+            if (result.entries_completed == 0) transaction->bind_stream_source(request.source.entry_set_digest);
             Integrity integrity;
             std::uint64_t offset = 0;
             const transaction::StreamStageResult staged = transaction->stage_file_stream(
@@ -255,7 +277,7 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
                         request.progress->advanced(entry.relative_path, offset, result.bytes_completed + offset);
                     }
                     return count;
-                });
+                }, entry.source_identity_digest);
             require_not_cancelled(request.cancellation, "after staged-file finalization");
             source.verify_unchanged();
             if (integrity.bytes() != entry.size_bytes ||
@@ -317,6 +339,9 @@ StreamResult stream_directory_to_target(StreamRequest request) noexcept
                 result.disposition = "recovery_required_no_target_visible";
                 result.detail += "; rollback: " + std::string(rollback_error.what());
             }
+        } else if (transaction_journal_attempted) {
+            result.disposition = "recovery_required_no_target_visible";
+            result.detail += "; construction reached journal publication; inspect retained transaction paths";
         } else {
             result.disposition = "refused_before_transaction";
         }

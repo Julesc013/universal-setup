@@ -69,7 +69,11 @@ matching path, size and hash do not grant cleanup authority after a restart.
 Nonexact stream-buffer sizes are rejected. Public recovery reports identify
 retained staging and any visible target separately. Failures after target
 visibility remain recovery-required. Object-bound cleanup, generation/lease
-ownership and interrupted-entry resume remain separate work.
+ownership and automatic interrupted-entry recovery remain separate work.
+Explicit private directory-source replay starts every entry at byte zero in a
+fresh transaction, binds the exact prior journal snapshot, and retains all old
+staging. Entry observations and their bounded journal add metadata, not a new
+payload-sized buffer; no total-process RSS claim follows from the buffer proof.
 
 An opt-in slow proof (`USK_LARGE_STREAMING_MEMORY_PROOF=1`) constructs its ZIP
 fixtures directly on disk through a 1 MiB test buffer rather than materializing

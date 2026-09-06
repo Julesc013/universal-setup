@@ -4,6 +4,8 @@
 #ifndef USK_TRANSACTION_SESSION_H
 #define USK_TRANSACTION_SESSION_H
 
+#include "usk_stream_entry_journal.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -47,6 +49,7 @@ struct RecoveryInspection {
     std::string current_state;
     std::string journal_digest;
     std::string recorded_at;
+    std::string snapshot_sha256;
     bool staging_exists = false;
     bool target_exists = false;
     std::vector<std::string> available_actions;
@@ -70,7 +73,9 @@ public:
         std::uint64_t expected_size,
         const std::string& expected_sha256,
         std::size_t buffer_bytes,
-        const StreamReader& reader);
+        const StreamReader& reader,
+        const std::string& source_identity_digest = {});
+    void bind_stream_source(const std::string& source_digest);
     void mark_staged();
     void mark_verified();
     void commit_effect();
@@ -81,6 +86,13 @@ public:
     void commit();
     void rollback();
 
+    // Explicit replay into fresh staging. Never reuses or cleans prior staging.
+    static std::unique_ptr<TransactionSession> restart_streaming(
+        const TransactionSpec& prior_spec,
+        const std::string& new_transaction_id,
+        const std::string& expected_snapshot_sha256,
+        const std::string& source_digest,
+        FaultInjector injector = {});
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
     static std::unique_ptr<TransactionSession> resume_finalization(
         const TransactionSpec& spec,
@@ -112,7 +124,8 @@ private:
     void remove_recorded_staging_closure();
     std::string render_journal() const;
     enum class ResumeMode { none, finalization, rollback };
-    TransactionSession(TransactionSpec spec, FaultInjector injector, ResumeMode resume_mode);
+    TransactionSession(TransactionSpec spec, FaultInjector injector, ResumeMode resume_mode,
+        StreamJournal stream_journal = {});
 
     TransactionSpec spec_;
     FaultInjector injector_;
@@ -122,6 +135,7 @@ private:
     std::string current_state_;
     std::string staging_identity_;
     bool retain_stream_cleanup_ = false;
+    StreamJournal stream_journal_;
     std::string staging_parent_identity_;
     std::string target_parent_identity_;
     std::string journal_directory_identity_;

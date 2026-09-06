@@ -103,6 +103,7 @@ set_target_properties(usk_policy_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_transaction_static STATIC
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_stream_entry_journal.cpp
 )
 target_compile_features(usk_transaction_static PUBLIC cxx_std_17)
 target_include_directories(usk_transaction_static PUBLIC
@@ -188,6 +189,7 @@ set(USK_CORE_SOURCES
   runtime/setup/state/usk_state_repository.cpp
   runtime/setup/streaming/usk_streaming_source_target.cpp
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_stream_entry_journal.cpp
   runtime/setup/verify/usk_package_verify.cpp
 )
 set(USK_PRIVATE_INCLUDE_DIRS
@@ -459,6 +461,13 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_streaming_source_target_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_streaming_source_target_smoke PRIVATE usk_streaming_static)
   add_test(NAME usk_streaming_source_target_smoke COMMAND usk_streaming_source_target_smoke)
+
+  add_executable(usk_entry_restart_smoke tests/native/usk_entry_restart_smoke.cpp)
+  target_compile_features(usk_entry_restart_smoke PRIVATE cxx_std_17)
+  find_package(Threads REQUIRED)
+  target_link_libraries(usk_entry_restart_smoke PRIVATE usk_streaming_static Threads::Threads)
+  add_test(NAME usk_entry_restart_smoke COMMAND usk_entry_restart_smoke)
+  set_tests_properties(usk_entry_restart_smoke PROPERTIES TIMEOUT 120)
 
   add_executable(usk_state_repository_smoke tests/native/usk_state_repository_smoke.cpp)
   target_compile_features(usk_state_repository_smoke PRIVATE cxx_std_17)
