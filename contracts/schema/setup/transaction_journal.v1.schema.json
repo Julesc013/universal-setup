@@ -65,11 +65,164 @@
       "type": "object",
       "required": ["staging_identity", "staged_files"],
       "dependentSchemas": {
-        "stream_cleanup_policy": { "properties": { "staging_identity": { "type": "null" } } }
+        "stream_cleanup_policy": { "properties": { "staging_identity": { "type": "null" } } },
+        "stream_journal": {
+          "required": ["stream_cleanup_policy"],
+          "properties": { "staging_identity": { "type": "null" } }
+        }
       },
       "properties": {
         "staging_identity": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "null" }] },
         "stream_cleanup_policy": { "enum": ["retain_only"] },
+        "stream_journal": {
+          "type": "object",
+          "description": "Explicit replay observations; old staging remains retain-only. The digest covers this object without digest. Completion identity is an observation, never deletion authority.",
+          "required": [
+            "version",
+            "source_digest",
+            "restart_origin",
+            "entries",
+            "digest"
+          ],
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "source_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/sha256"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "restart_origin": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "transaction_id",
+                    "snapshot_sha256"
+                  ],
+                  "properties": {
+                    "transaction_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "snapshot_sha256": {
+                      "$ref": "#/$defs/sha256"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "entries": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": {
+                "type": "object",
+                "required": [
+                  "relative_path",
+                  "sha256",
+                  "expected_size",
+                  "source_identity_digest",
+                  "phase",
+                  "output_identity"
+                ],
+                "properties": {
+                  "relative_path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  "expected_size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "source_identity_digest": {
+                    "$ref": "#/$defs/sha256"
+                  },
+                  "phase": {
+                    "enum": [
+                      "intent",
+                      "writing",
+                      "complete"
+                    ]
+                  },
+                  "output_identity": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{16}:[a-f0-9]{16}$"
+                      }
+                    ]
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "phase": {
+                          "const": "intent"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "output_identity": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "output_identity": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "additionalProperties": false
+              }
+            },
+            "digest": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "restart_origin": {
+                    "type": "object"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "source_digest": {
+                    "$ref": "#/$defs/sha256"
+                  }
+                }
+              }
+            }
+          ]
+        },
         "staged_files": {
           "type": "array",
           "maxItems": 100000,

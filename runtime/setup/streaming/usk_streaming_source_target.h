@@ -64,6 +64,9 @@ struct StreamRequest {
     std::string audit_chain_id;
     std::string recorded_at;
     ResourceBudget budget;
+    // Optional explicit replay; transaction.transaction_id names the fresh attempt.
+    std::string restart_transaction_id;
+    std::string restart_snapshot_sha256;
     CancellationView* cancellation = nullptr;
     ProgressSink* progress = nullptr;
     FaultInjector fault;

@@ -4,6 +4,7 @@
 #include "usk_transaction_session.h"
 
 #include "usk_sha256.h"
+#include "usk_record_io.h"
 #include "usk_stable_file.h"
 #include "usk_json.h"
 #include "usk_utf8_path.h"
@@ -424,12 +425,7 @@ void rename_directory_no_replace(const fs::path& source, const fs::path& target)
 
 std::string read_bounded_text(const fs::path& path, std::size_t limit)
 {
-    if (reparse_or_symlink(path) || !fs::is_regular_file(path) || fs::file_size(path) > limit) {
-        throw std::runtime_error("transaction journal is missing, linked, or over budget");
-    }
-    std::ifstream input(path, std::ios::binary);
-    if (!input) throw std::runtime_error("transaction journal cannot be read");
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    return usk::record_io::read_stable_text(path, limit);
 }
 
 bool valid_transition(const std::string& from, const std::string& to)
@@ -497,8 +493,10 @@ TransactionSession::TransactionSession(TransactionSpec spec, FaultInjector injec
 TransactionSession::TransactionSession(
     TransactionSpec spec,
     FaultInjector injector,
-    ResumeMode resume_mode)
-    : spec_(std::move(spec)), injector_(std::move(injector))
+    ResumeMode resume_mode,
+    StreamJournal stream_journal)
+    : spec_(std::move(spec)), injector_(std::move(injector)),
+      retain_stream_cleanup_(stream_journal.present), stream_journal_(std::move(stream_journal))
 {
     if (!valid_identifier(spec_.transaction_id) ||
         !valid_identifier(spec_.plan_id) ||
@@ -528,7 +526,7 @@ TransactionSession::TransactionSession(
         require_disjoint(spec_.target_root, spec_.audit_root);
         require_disjoint(spec_.state_root, spec_.audit_root);
         const std::string text = read_bounded_text(journal_path_, 4u * 1024u * 1024u);
-        const usk::json::Value document = usk::json::parse(text);
+        const usk::json::Value document = usk::json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
         if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||
             document.at("transaction_id").as_string() != spec_.transaction_id ||
             document.at("plan_id").as_string() != spec_.plan_id ||
@@ -582,6 +580,7 @@ TransactionSession::TransactionSession(
         }
         current_state_ = prior;
         retain_stream_cleanup_ = retain_stream_cleanup(document);
+        stream_journal_ = read_stream_journal(document, safe_relative_path);
         staging_parent_identity_ = directory_identity(spec_.staging_parent);
         target_parent_identity_ = directory_identity(spec_.target_root.parent_path());
         journal_directory_identity_ = directory_identity(spec_.state_root / "transactions");
@@ -853,11 +852,13 @@ StreamStageResult TransactionSession::stage_file_stream(
     std::uint64_t expected_size,
     const std::string& expected_sha256,
     std::size_t buffer_bytes,
-    const StreamReader& reader)
+    const StreamReader& reader,
+    const std::string& source_identity_digest)
 {
     if (current_state_ != "staging" || !safe_relative_path(relative_path) ||
         !valid_sha256(expected_sha256) || buffer_bytes < 4096u ||
-        buffer_bytes > 4u * 1024u * 1024u || !reader) {
+        buffer_bytes > 4u * 1024u * 1024u || !reader ||
+        (!source_identity_digest.empty() && !valid_sha256(source_identity_digest))) {
         throw std::runtime_error("streamed staged file request is invalid");
     }
     base::require_native_path_capacity(staging_root_ / relative_path, base::NativePathKind::file, "streamed staged file");
@@ -880,7 +881,16 @@ StreamStageResult TransactionSession::stage_file_stream(
     // it for the whole transaction: path/hash checks cannot grant deletion
     // authority after interruption or replacement by an identical-byte file.
     retain_stream_cleanup_ = true;
+    stream_journal_.present = true;
+    if (stream_journal_.entries.size() >= 100000 ||
+        (!stream_journal_.entries.empty() && stream_journal_.entries.back().phase != "complete")) {
+        throw std::runtime_error("stream journal has an incomplete entry or exceeds its entry bound");
+    }
+    stream_journal_.entries.push_back(StreamEntryObservation{
+        relative_path.generic_string(), expected_sha256, expected_size,
+        source_identity_digest.empty() ? spec_.plan_digest : source_identity_digest, "intent", {}});
     persist_snapshot();
+    if (injector_) injector_(current_state_, "after_stream_intent");
     fs::path current = staging_root_;
     auto last = relative_path.end();
     --last;
@@ -925,6 +935,15 @@ StreamStageResult TransactionSession::stage_file_stream(
             throw std::runtime_error("cannot exclusively create streamed transaction file");
         }
 #endif
+        auto& observation = stream_journal_.entries.back();
+#if defined(_WIN32)
+        observation.output_identity = stream_output_identity(reinterpret_cast<std::intptr_t>(handle));
+#else
+        observation.output_identity = stream_output_identity(descriptor);
+#endif
+        observation.phase = "writing";
+        persist_snapshot();
+        if (injector_) injector_(current_state_, "after_stream_open");
         while (total < expected_size) {
             if (injector_) injector_(current_state_, "before_stream_read");
             const std::size_t capacity = static_cast<std::size_t>(
@@ -966,6 +985,9 @@ StreamStageResult TransactionSession::stage_file_stream(
         if (injector_) injector_(current_state_, "before_stream_finalize");
 #if defined(_WIN32)
         const BOOL flushed = FlushFileBuffers(handle);
+        if (stream_output_identity(reinterpret_cast<std::intptr_t>(handle)) != observation.output_identity) {
+            throw std::runtime_error("stream output handle identity changed");
+        }
         if (!CloseHandle(handle)) {
             throw std::runtime_error("cannot close streamed transaction file");
         }
@@ -975,6 +997,9 @@ StreamStageResult TransactionSession::stage_file_stream(
         }
 #else
         const int flushed = ::fsync(descriptor);
+        if (stream_output_identity(descriptor) != observation.output_identity) {
+            throw std::runtime_error("stream output descriptor identity changed");
+        }
         const int closed = ::close(descriptor);
         descriptor = -1;
         if (flushed != 0 || closed != 0) {
@@ -985,6 +1010,7 @@ StreamStageResult TransactionSession::stage_file_stream(
         if (total != expected_size || actual_sha256 != expected_sha256) {
             throw std::runtime_error("streamed staged file integrity changed");
         }
+        observation.phase = "complete";
         staged_files_.push_back(StagedFile{relative_path, actual_sha256, total});
         persist_snapshot();
         if (injector_) injector_(current_state_, "after_stage_stream");
@@ -1003,9 +1029,24 @@ StreamStageResult TransactionSession::stage_file_stream(
     }
 }
 
+void TransactionSession::bind_stream_source(const std::string& source_digest)
+{
+    if (current_state_ != "staging" || !valid_sha256(source_digest) ||
+        !stream_journal_.entries.empty() ||
+        (!stream_journal_.source_digest.empty() && stream_journal_.source_digest != source_digest)) {
+        throw std::runtime_error("stream source binding changed or is too late");
+    }
+    retain_stream_cleanup_ = true;
+    stream_journal_.present = true;
+    stream_journal_.source_digest = source_digest;
+    persist_snapshot();
+}
+
 void TransactionSession::mark_staged()
 {
-    if (current_state_ != "staging" || staged_files_.empty()) {
+    if (current_state_ != "staging" || staged_files_.empty() ||
+        std::any_of(stream_journal_.entries.begin(), stream_journal_.entries.end(),
+            [](const auto& entry) { return entry.phase != "complete"; })) {
         throw std::runtime_error("transaction cannot become staged without staged files");
     }
     verify_staging_identity();
@@ -1020,6 +1061,13 @@ void TransactionSession::mark_verified()
     verify_staging_identity();
     for (const StagedFile& expected : staged_files_) {
         usk::base::StableFile actual(staging_root_ / expected.relative_path);
+        const auto observation = std::find_if(stream_journal_.entries.begin(), stream_journal_.entries.end(),
+            [&](const auto& entry) { return entry.relative_path == expected.relative_path.generic_string(); });
+        if (observation != stream_journal_.entries.end() &&
+            (observation->phase != "complete" || observation->output_identity !=
+                actual.identity().volume_id + ":" + actual.identity().file_id)) {
+            throw std::runtime_error("stream output object identity changed before verification");
+        }
         if (actual.identity().size_bytes != expected.size_bytes ||
             actual.sha256_hex() != expected.sha256) {
             throw std::runtime_error("staged file closure changed before verification");
@@ -1165,6 +1213,9 @@ std::string TransactionSession::render_journal() const
         // Older rollback readers also refuse the deliberately absent identity.
         out << "\"stream_cleanup_policy\":\"retain_only\",";
     }
+    if (stream_journal_.present) {
+        out << "\"stream_journal\":" << json::canonical(render_stream_journal(stream_journal_)) << ',';
+    }
     out << "\"staged_files\":[";
     for (std::size_t index = 0; index < staged_files_.size(); ++index) {
         const StagedFile& file = staged_files_[index];
@@ -1186,7 +1237,11 @@ std::string TransactionSession::render_journal() const
         out << quote(actions[index]);
     }
     out << "]}}";
-    return out.str();
+    const auto text = out.str();
+    if (text.size() > 4u * 1024u * 1024u) {
+        throw std::runtime_error("transaction journal exceeds its bounded recovery reader");
+    }
+    return text;
 }
 
 RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& input)
@@ -1201,7 +1256,7 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
         (spec.transaction_id + ".journal.json");
     base::require_native_path_capacity(journal, base::NativePathKind::file, "recovery inspection journal");
     const std::string text = read_bounded_text(journal, 4u * 1024u * 1024u);
-    const usk::json::Value document = usk::json::parse(text);
+    const usk::json::Value document = usk::json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
     if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||
         document.at("transaction_id").as_string() != spec.transaction_id ||
         document.at("plan_id").as_string() != spec.plan_id ||
@@ -1253,6 +1308,10 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
         throw std::runtime_error("transaction journal digest or current state is invalid");
     }
     const bool retained_stream = retain_stream_cleanup(document);
+    (void)read_stream_journal(document, safe_relative_path);
+    usk::base::Sha256 snapshot_digest;
+    snapshot_digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    result.snapshot_sha256 = snapshot_digest.finish();
     result.staging_exists = fs::exists(staging);
     result.target_exists = fs::exists(spec.target_root);
     if (result.staging_exists && reparse_or_symlink(staging)) {
@@ -1288,6 +1347,61 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
         result.available_actions = {"retain_for_operator"};
     }
     return result;
+}
+
+std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
+    const TransactionSpec& prior_spec,
+    const std::string& new_transaction_id,
+    const std::string& expected_snapshot_sha256,
+    const std::string& source_digest,
+    FaultInjector injector)
+{
+    if (!valid_identifier(prior_spec.transaction_id) || !valid_identifier(new_transaction_id) ||
+        new_transaction_id == prior_spec.transaction_id ||
+        !valid_sha256(expected_snapshot_sha256) || !valid_sha256(source_digest)) {
+        throw std::runtime_error("stream restart identity is invalid");
+    }
+    TransactionSpec next = prior_spec;
+    next.transaction_id = new_transaction_id;
+    require_path_capacity(next);
+    const fs::path prior_path = absolute_normal(prior_spec.state_root) / "transactions" /
+        (prior_spec.transaction_id + ".journal.json");
+    base::StableFile prior_file(prior_path);
+    if (prior_file.identity().size_bytes > 4u * 1024u * 1024u) {
+        throw std::runtime_error("stream restart journal exceeds its bounded reader");
+    }
+    const auto bytes = prior_file.read(0, static_cast<std::size_t>(prior_file.identity().size_bytes));
+    const std::string text(bytes.begin(), bytes.end());
+    usk::base::Sha256 snapshot;
+    snapshot.update(bytes.data(), bytes.size());
+    if (snapshot.finish() != expected_snapshot_sha256) {
+        throw std::runtime_error("stream restart journal snapshot changed");
+    }
+    const auto document = json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    const auto inspection = inspect_recovery(prior_spec);
+    const auto prior_stream = read_stream_journal(document, safe_relative_path);
+    if (inspection.snapshot_sha256 != expected_snapshot_sha256 || !prior_stream.present ||
+        prior_stream.source_digest != source_digest || !inspection.staging_exists || inspection.target_exists ||
+        (inspection.current_state != "staging" && inspection.current_state != "staged" &&
+         inspection.current_state != "verified" && inspection.current_state != "recovery_required")) {
+        throw std::runtime_error("transaction is not an explicit stream replay candidate");
+    }
+    for (const auto& transition : document.at("transitions").as_array()) {
+        const auto& state = transition.at("to").as_string();
+        if (state == "committing" || state == "committed" || state == "completed") {
+            throw std::runtime_error("stream restart refuses ambiguous prior commit; inspect finalization");
+        }
+    }
+    prior_file.verify_unchanged();
+    StreamJournal lineage;
+    lineage.present = true;
+    lineage.source_digest = source_digest;
+    lineage.origin_transaction_id = prior_spec.transaction_id;
+    lineage.origin_snapshot_sha256 = expected_snapshot_sha256;
+    // Constructor publishes this lineage with retain-only/null rollback authority
+    // in its first journal, before any new staging directory or payload effect.
+    return std::unique_ptr<TransactionSession>(new TransactionSession(
+        next, std::move(injector), ResumeMode::none, std::move(lineage)));
 }
 
 std::unique_ptr<TransactionSession> TransactionSession::resume_finalization(
