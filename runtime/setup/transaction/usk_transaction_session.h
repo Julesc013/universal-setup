@@ -118,6 +118,7 @@ private:
     std::string created_at_;
     std::string current_state_;
     std::string staging_identity_;
+    bool retain_stream_cleanup_ = false;
     std::string staging_parent_identity_;
     std::string target_parent_identity_;
     std::string journal_directory_identity_;

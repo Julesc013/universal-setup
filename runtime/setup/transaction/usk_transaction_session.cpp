@@ -454,6 +454,18 @@ std::vector<std::string> journal_actions(const std::string& state)
     return {};
 }
 
+bool retain_stream_cleanup(const usk::json::Value& document)
+{
+    if (document.as_object().count("recovery_metadata") == 0) return false;
+    const auto& metadata = document.at("recovery_metadata");
+    if (metadata.as_object().count("stream_cleanup_policy") == 0) return false;
+    if (metadata.at("stream_cleanup_policy").as_string() != "retain_only" ||
+        metadata.at("staging_identity").type() != usk::json::Value::Type::null_value) {
+        throw std::runtime_error("stream cleanup policy or rollback authority is invalid");
+    }
+    return true;
+}
+
 } // namespace
 
 namespace usk::transaction {
@@ -549,6 +561,7 @@ TransactionSession::TransactionSession(
             throw std::runtime_error("transaction journal digest or current state is invalid");
         }
         current_state_ = prior;
+        retain_stream_cleanup_ = retain_stream_cleanup(document);
         staging_parent_identity_ = directory_identity(spec_.staging_parent);
         target_parent_identity_ = directory_identity(spec_.target_root.parent_path());
         journal_directory_identity_ = directory_identity(spec_.state_root / "transactions");
@@ -578,7 +591,8 @@ TransactionSession::TransactionSession(
             if ((prior != "staging" && prior != "staged" && prior != "verified" &&
                  prior != "committing" && prior != "recovery_required") ||
                 !fs::is_directory(staging_root_) || reparse_or_symlink(staging_root_) ||
-                fs::exists(spec_.target_root) || staging_identity_.empty()) {
+                fs::exists(spec_.target_root) || staging_identity_.empty() ||
+                retain_stream_cleanup_) {
                 throw std::runtime_error("transaction is not a staged rollback candidate");
             }
             verify_recorded_staging_closure();
@@ -687,6 +701,9 @@ void TransactionSession::verify_staging_identity() const
 
 void TransactionSession::remove_recorded_staging_closure()
 {
+    if (retain_stream_cleanup_) {
+        throw std::runtime_error("streamed staging is retained; automatic rollback has no deletion authority");
+    }
     verify_recorded_staging_closure();
     std::vector<fs::path> directories;
     for (const StagedFile& recorded : staged_files_) {
@@ -835,8 +852,12 @@ StreamStageResult TransactionSession::stage_file_stream(
         throw std::runtime_error("streamed staged file path is duplicated");
     }
     verify_staging_identity();
+    // Persist the refusal before creating any streamed file or directory. Keep
+    // it for the whole transaction: path/hash checks cannot grant deletion
+    // authority after interruption or replacement by an identical-byte file.
+    retain_stream_cleanup_ = true;
+    persist_snapshot();
     fs::path current = staging_root_;
-    std::vector<fs::path> created_directories;
     auto last = relative_path.end();
     --last;
     for (auto iterator = relative_path.begin(); iterator != last; ++iterator) {
@@ -846,7 +867,6 @@ StreamStageResult TransactionSession::stage_file_stream(
             if (!fs::create_directory(current, error) || error) {
                 throw std::runtime_error("cannot create owned streaming staging directory");
             }
-            created_directories.push_back(current);
         }
         require_safe_directory(current);
     }
@@ -854,7 +874,6 @@ StreamStageResult TransactionSession::stage_file_stream(
     std::vector<unsigned char> buffer(buffer_bytes);
     usk::base::Sha256 digest;
     std::uint64_t total = 0;
-    bool recorded = false;
 #if defined(_WIN32)
     HANDLE handle = INVALID_HANDLE_VALUE;
 #else
@@ -943,7 +962,6 @@ StreamStageResult TransactionSession::stage_file_stream(
             throw std::runtime_error("streamed staged file integrity changed");
         }
         staged_files_.push_back(StagedFile{relative_path, actual_sha256, total});
-        recorded = true;
         persist_snapshot();
         if (injector_) injector_(current_state_, "after_stage_stream");
         return {actual_sha256, total, static_cast<std::uint64_t>(buffer.capacity())};
@@ -953,13 +971,10 @@ StreamStageResult TransactionSession::stage_file_stream(
 #else
         if (descriptor >= 0) ::close(descriptor);
 #endif
-        if (recorded) staged_files_.pop_back();
-        std::error_code ignored;
-        fs::remove(destination, ignored);
-        for (auto iterator = created_directories.rbegin();
-             iterator != created_directories.rend(); ++iterator) {
-            fs::remove(*iterator, ignored);
-        }
+        // Do not delete by pathname, undo durable ownership metadata, or regain
+        // generic rollback authority. The pre-effect latch survives even when
+        // this final recovery transition cannot be written.
+        try { persist_transition("recovery_required"); } catch (...) {}
         throw;
     }
 }
@@ -1120,7 +1135,12 @@ std::string TransactionSession::render_journal() const
         out << "\"durable_before_external_visibility\":true}";
     }
     out << "],\"recovery_metadata\":{\"staging_identity\":"
-        << (staging_identity_.empty() ? "null" : quote(staging_identity_)) << ',';
+        << ((staging_identity_.empty() || retain_stream_cleanup_)
+                ? "null" : quote(staging_identity_)) << ',';
+    if (retain_stream_cleanup_) {
+        // Older rollback readers also refuse the deliberately absent identity.
+        out << "\"stream_cleanup_policy\":\"retain_only\",";
+    }
     out << "\"staged_files\":[";
     for (std::size_t index = 0; index < staged_files_.size(); ++index) {
         const StagedFile& file = staged_files_[index];
@@ -1133,7 +1153,10 @@ std::string TransactionSession::render_journal() const
     out << "\"required\":" <<
         ((current_state_ == "recovery_required" || current_state_ == "failed") ? "true" : "false") << ',';
     out << "\"available_actions\":[";
-    const auto actions = journal_actions(current_state_);
+    const auto actions = retain_stream_cleanup_ && current_state_ != "completed" &&
+            current_state_ != "committed"
+        ? std::vector<std::string>{"retain_for_operator"}
+        : journal_actions(current_state_);
     for (std::size_t index = 0; index < actions.size(); ++index) {
         if (index != 0) out << ',';
         out << quote(actions[index]);
@@ -1204,6 +1227,7 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     if (sequence == 0 || result.current_state != prior || result.journal_digest != chain_digest.finish()) {
         throw std::runtime_error("transaction journal digest or current state is invalid");
     }
+    const bool retained_stream = retain_stream_cleanup(document);
     result.staging_exists = fs::exists(staging);
     result.target_exists = fs::exists(spec.target_root);
     if (result.staging_exists && reparse_or_symlink(staging)) {
@@ -1221,6 +1245,9 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
                 result.current_state == "recovery_required") &&
                result.staging_exists && !result.target_exists) {
         try {
+            if (retained_stream) {
+                throw std::runtime_error("streamed staging must be retained");
+            }
             auto rollback = TransactionSession::resume_rollback(spec);
             (void)rollback;
             result.available_actions = {"rollback"};
