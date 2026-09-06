@@ -18,11 +18,21 @@ handlers only after target-policy acceptance and immediate reviewed-plan
 revalidation. Recovery inspection also validates the exact transaction, plan,
 operation, four root authorities, transition chain, and journal digest.
 
-M2-WU5 adds restart-safe staged rollback. The journal persists the staging-root
-identity and exact path, size, and digest closure after each durable staged
-write. Recovery reopens that closure only when it is still exact, preflights the
-whole tree before deletion, and retains every byte when foreign or changed
-content is present. Public `recovery.apply` consumes the exact reviewed recovery
-plan and can apply this bounded rollback. Visible-target finalization still
-refuses without the exact original operation context. Cross-volume
-copy/verify/commit also remains later work.
+M2-WU5 added legacy non-streaming staged rollback using persisted directory
+identity and path/size/hash closure. Its pathname cleanup does not establish
+atomic object ownership across substitution races. Streamed transactions
+therefore retain a durable refusal latch and withhold serialized rollback
+identity; live and reopened rollback cannot regain deletion authority.
+
+The entry-journal slice records intent/writing/complete observations and checks
+completion identity captured on the original output handle. Explicit private
+source replay uses a new transaction ID and exact prior journal snapshot,
+leaving every old staging object retained. Its lineage and retain-only policy
+are durable in the first new journal before staging creation. Prior committing
+history always refuses replay, including target disappearance after a commit
+window. See the [streaming contract](../streaming/README.md#explicit-entry-replay)
+for source binding, scope and process-boundary proof.
+
+Visible-target finalization still requires the exact original operation
+context. Automatic leases, retained-child cleanup and cross-volume
+copy/verify/commit remain separate work.

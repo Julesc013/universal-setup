@@ -350,6 +350,30 @@ class SetupContractTests(unittest.TestCase):
             {"type": "null"},
         )
 
+    def test_stream_journal_preserves_retention_and_explicit_lineage(self) -> None:
+        metadata = load_schema("transaction_journal")["properties"]["recovery_metadata"]
+        self.assertEqual(metadata["dependentSchemas"]["stream_journal"]["required"], ["stream_cleanup_policy"])
+        journal = metadata["properties"]["stream_journal"]
+        self.assertFalse(journal["additionalProperties"])
+        self.assertEqual(journal["properties"]["version"], {"const": 1})
+        self.assertEqual(set(journal["required"]), {
+            "version", "source_digest", "restart_origin", "entries", "digest",
+        })
+        origin = journal["properties"]["restart_origin"]["anyOf"][1]
+        self.assertFalse(origin["additionalProperties"])
+        self.assertEqual(origin["required"], ["transaction_id", "snapshot_sha256"])
+
+    def test_stream_entry_phases_require_creation_handle_observation(self) -> None:
+        journal = load_schema("transaction_journal")["properties"]["recovery_metadata"]["properties"]["stream_journal"]
+        entry = journal["properties"]["entries"]["items"]
+        self.assertFalse(entry["additionalProperties"])
+        self.assertEqual(entry["properties"]["phase"]["enum"], ["intent", "writing", "complete"])
+        self.assertEqual(entry["properties"]["output_identity"]["anyOf"][1]["pattern"], "^[a-f0-9]{16}:[a-f0-9]{16}$")
+        phase = entry["allOf"][0]
+        self.assertEqual(phase["then"]["properties"]["output_identity"], {"type": "null"})
+        self.assertEqual(phase["else"]["properties"]["output_identity"], {"type": "string"})
+        self.assertNotIn("delete", str(entry))
+
     def test_audit_and_lifecycle_reports_preserve_foreign_content(self) -> None:
         audit = load_schema("audit_event")
         self.assertIn("previous_event_digest", audit["required"])

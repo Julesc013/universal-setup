@@ -400,6 +400,7 @@ int ownership_cleanup_faults()
         auto& metadata = document.as_object().at("recovery_metadata").as_object();
         if (metadata.at("staging_identity").type() != usk::json::Value::Type::null_value) return 53;
         metadata.erase("stream_cleanup_policy");
+        metadata.erase("stream_journal");
         write_text(journal, usk::json::canonical(document));
         // Simulate a reader that ignores the optional field: absent identity
         // must independently prevent automatic rollback of identical bytes.
