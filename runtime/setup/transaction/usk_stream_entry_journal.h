@@ -21,6 +21,7 @@ struct StreamEntryObservation {
 };
 struct StreamJournal {
     std::string source_digest;
+    std::string source_context;
     std::string origin_transaction_id;
     std::string origin_snapshot_sha256;
     std::vector<StreamEntryObservation> entries;

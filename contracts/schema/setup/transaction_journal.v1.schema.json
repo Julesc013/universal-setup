@@ -201,6 +201,12 @@
             },
             "digest": {
               "$ref": "#/$defs/sha256"
+            },
+            "source_context": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "description": "Canonical versioned source context whose SHA256 equals source_digest; an observation, never cleanup authority."
             }
           },
           "additionalProperties": false,
