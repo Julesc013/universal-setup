@@ -308,6 +308,59 @@ void prepare_public(Fixture& fixture, bool deflate) {
     write(fixture.root / "planned.json", usk::json::canonical(result.document.at("payload")));
     if (fs::exists(fixture.root / "u")) throw std::runtime_error("plan initialized setup state");
 }
+int commit_authority_refusals() {
+    using Requirement = usk::transaction::CommitAuthorityRequirement;
+    for (bool deflate : {false, true}) {
+        Fixture fixture(false); prepare_public(fixture, deflate);
+        const auto original = usk::json::parse(read(fixture.root / "request.json"));
+        const auto legacy = usk::json::parse(read(fixture.root / "planned.json"));
+        auto strict = original; strict.as_object().emplace("required_commit_authority", Value("staged_child_bound_v1"));
+        const auto before = snapshot(fixture.root);
+        const auto planned = command(fixture.root, "install_local.plan", strict);
+        if (planned.status != USK_STATUS_OK || snapshot(fixture.root) != before) return 150;
+        const auto& payload = planned.document.at("payload");
+        if (payload.at("required_commit_authority").as_string() != "staged_child_bound_v1" ||
+            payload.at("commit_authority_available").as_boolean() || legacy.contains("required_commit_authority") ||
+            payload.at("plan_digest").as_string() == legacy.at("plan_digest").as_string()) return 151;
+        auto apply = apply_request("usk.install_local_apply_request.v1", strict,
+            payload.at("plan_id").as_string(), payload.at("plan_digest").as_string(), "strict", "2026-09-07T00:00:01Z");
+        const auto refused = command(fixture.root, "install_local.apply", apply);
+        if (refused.status == USK_STATUS_OK ||
+            refused.document.at("error").at("code").as_string() != "commit_authority_unavailable" ||
+            snapshot(fixture.root) != before || fs::exists(fixture.root / "u")) return 152;
+        apply.as_object()["plan_request"] = original;
+        const auto downgrade = command(fixture.root, "install_local.apply", apply);
+        if (downgrade.status == USK_STATUS_OK ||
+            downgrade.document.at("error").at("code").as_string() != "stale_plan" || snapshot(fixture.root) != before) return 153;
+        for (const Value& invalid : {Value("legacy_observed"), Value("unknown"), Value(true), Value()}) {
+            auto malformed = original; malformed.as_object()["required_commit_authority"] = invalid;
+            if (command(fixture.root, "install_local.plan", malformed).status == USK_STATUS_OK ||
+                snapshot(fixture.root) != before) return 154;
+        }
+        // Omitted requirement still installs the exact reviewed ZIP payload.
+        const auto success = command(fixture.root, "install_local.apply", reviewed_apply(fixture.root, "legacy"));
+        if (success.status != USK_STATUS_OK || read(fixture.root / "target/bin/probe.txt") != probe_content()) return 155;
+
+        Fixture native; const auto old = plan(native, deflate);
+        const auto bound = usk::lifecycle::plan_install(old.plan_id, old.install_id, old.created_at, old.target_root,
+            old.roots, old.recipe, old.files, old.validate_source, Requirement::staged_child_bound_v1);
+        if (bound.plan_digest == old.plan_digest ||
+            usk::json::parse(usk::lifecycle::install_stream_source_context(bound)).at("required_commit_authority").as_string() !=
+                "staged_child_bound_v1" || usk::lifecycle::install_stream_source_digest(bound) ==
+                usk::lifecycle::install_stream_source_digest(old)) return 156;
+        const auto native_before = snapshot(native.root); bool typed = false;
+        try { (void)usk::lifecycle::apply_install(bound, bound.plan_digest, "strict", "2026-09-07T00:00:01Z"); }
+        catch (const usk::transaction::CommitAuthorityUnavailable&) { typed = true; }
+        if (!typed || snapshot(native.root) != native_before) return 157;
+        auto tampered = bound; tampered.required_commit_authority = Requirement::legacy_observed;
+        bool invalid = false;
+        try { (void)usk::lifecycle::apply_install(tampered, bound.plan_digest, "tampered", "2026-09-07T00:00:01Z"); }
+        catch (const std::exception&) { invalid = true; }
+        if (!invalid || snapshot(native.root) != native_before) return 158;
+    }
+    std::cout << "public/native commit requirement: stored/Deflate plan binding, early typed refusal, downgrade refusal, legacy success PASS\n";
+    return 0;
+}
 int public_audit_observation_bound() {
     Fixture fixture(false); prepare_public(fixture, false);
     const auto stopped = command(fixture.root, "install_local.apply", reviewed_apply(fixture.root, "old"),
@@ -663,8 +716,10 @@ int ancestor_commit_uncertainty() {
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "ancestor") return ancestor_commit_uncertainty();
+        if (argc == 2 && std::string(argv[1]) == "commit-authority") return commit_authority_refusals();
         if (argc == 2 && std::string(argv[1]) == "audit-bound") return public_audit_observation_bound();
         if (argc == 4 && std::string(argv[1]) == "child") return child(fs::u8path(argv[2]), argv[3]);
+        if (const int result = commit_authority_refusals()) return result;
         if (const int result = pending_source_binding()) return result;
         if (const int result = public_audit_observation_bound()) return result;
         const auto executable = fs::absolute(fs::u8path(argv[0]));

@@ -93,13 +93,14 @@ int precommit_matrix()
         const char* point;
         bool staging_expected;
         bool automatic_rollback;
+        bool commit_prepared = false;
     };
     const std::vector<Case> cases = {
         {"after-journal", "transaction.created.after_journal", false, false},
         {"during-staging-create", "transaction.staging.after_staging_create", true, false},
         {"during-staged-write", "transaction.staging.after_stage_file", false, true},
         {"after-staged-verification", "transaction.verified.after_journal", false, true},
-        {"before-commit", "transaction.committing.after_journal", true, false}};
+        {"before-commit", "transaction.committing.after_journal", true, false, true}};
     for (std::size_t index = 0; index < cases.size(); ++index) {
         Fixture fixture(cases[index].name);
         const auto plan = install_plan(fixture, cases[index].name);
@@ -122,6 +123,19 @@ int precommit_matrix()
             if (recovery.current_state != "rolled_back" ||
                 !recovery.available_actions.empty()) {
                 return 20 + static_cast<int>(index);
+            }
+            continue;
+        }
+        if (cases[index].commit_prepared) {
+            const auto staged_file = spec.staging_parent / (".usk-stage-" + transaction_id) / "bin/probe.txt";
+            const auto before = usk::base::sha256_hex_file(staged_file);
+            bool refused = false;
+            try { (void)usk::transaction::TransactionSession::resume_rollback(spec); }
+            catch (const std::exception&) { refused = true; }
+            if (!refused || recovery.available_actions != std::vector<std::string>{"retain_for_operator"} ||
+                usk::base::sha256_hex_file(staged_file) != before ||
+                usk::transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != recovery.snapshot_sha256) {
+                return 45 + static_cast<int>(index);
             }
             continue;
         }
@@ -284,7 +298,7 @@ int main(int argc, char** argv)
         const std::string document =
             "{\"automation_created_verdict\":false,\"case_count\":11,"
             "\"completed\":3,\"operator_verdict\":\"pending\",\"recovery_required\":3,"
-            "\"rolled_back\":4,\"run_id\":\"" + retained_run_id +
+            "\"retained\":1,\"rolled_back\":3,\"run_id\":\"" + retained_run_id +
             "\",\"schema\":\"usk.interruption_acceptance_summary.v1\",\"unchanged\":1}";
         std::ofstream output(summary, std::ios::binary | std::ios::trunc);
         output << document;

@@ -299,6 +299,10 @@ Value plan_payload(const usk::lifecycle::InstallPlan& plan)
         {"staging_parent", Value(fs::absolute(plan.roots.staging_parent).lexically_normal().generic_string())},
         {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())},
         {"target_root", Value(fs::absolute(plan.target_root).lexically_normal().generic_string())}});
+    (void)usk::transaction::commit_authority_name(plan.required_commit_authority);
+    if (plan.required_commit_authority == usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+        result.as_object().emplace("required_commit_authority", Value("staged_child_bound_v1"));
+    }
     if (!plan.recipe.source_identity_digest.empty()) {
         result.as_object().emplace("source_identity_digest", Value(plan.recipe.source_identity_digest));
         result.as_object().emplace("entry_set_digest", Value(plan.recipe.entry_set_digest));
@@ -670,7 +674,8 @@ InstallPlan plan_install(
     LifecycleRoots roots,
     RecipeBinding recipe,
     std::vector<PayloadFile> files,
-    std::function<void()> validate_source)
+    std::function<void()> validate_source,
+    transaction::CommitAuthorityRequirement required_commit_authority)
 {
     InstallPlan plan;
     plan.plan_id = std::move(plan_id);
@@ -684,6 +689,7 @@ InstallPlan plan_install(
     plan.recipe = std::move(recipe);
     plan.files = std::move(files);
     plan.validate_source = std::move(validate_source);
+    plan.required_commit_authority = required_commit_authority;
     validate_recipe(plan.recipe);
     normalize_files(plan.files);
     plan.plan_digest = json::sha256_canonical(plan_payload(plan));
@@ -703,6 +709,7 @@ static InstallResult apply_install_impl(
     validate_plan(plan);
     if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
         !valid_timestamp(applied_at)) throw std::runtime_error("reviewed install plan or transaction identity is invalid");
+    transaction::require_commit_authority(plan.required_commit_authority);
     require_install_path_capacity(plan, transaction_id);
     if (fs::exists(plan.target_root)) throw std::runtime_error("install target now exists; reviewed plan is invalid");
     record_io::require_safe_directory(plan.roots.staging_parent);
@@ -736,7 +743,8 @@ static InstallResult apply_install_impl(
                 plan.plan_digest, transaction_id, plan.plan_id, "reviewed plan revalidated"});
             transaction = std::make_unique<transaction::TransactionSession>(transaction::TransactionSpec{
                 transaction_id, plan.plan_id, plan.plan_digest, "install_local",
-                plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root}, injector);
+                plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root,
+                plan.required_commit_authority}, injector);
             if (!source_digest.empty()) transaction->bind_stream_source(source_digest, install_stream_source_context(plan));
         }
         for (const PayloadFile& file : plan.files) {

@@ -11,7 +11,8 @@
     "install_id": { "$ref": "#/$defs/id" },
     "archive": { "$ref": "#/$defs/archive" },
     "target": { "$ref": "#/$defs/target" },
-    "recipe": { "$ref": "#/$defs/recipe" }
+    "recipe": { "$ref": "#/$defs/recipe" },
+    "required_commit_authority": { "const": "staged_child_bound_v1", "description": "Optional stronger publication requirement. Current hosts report unavailable; apply refuses before setup effects. Omission preserves legacy observed commit behavior." }
   },
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 256 },

@@ -60,6 +60,7 @@ ALLOWED_RELEASE_INDEX = {
     "contract_maturity.v1.toml",
     "deflate_zip64_streaming_workunit.v1.toml",
     "entry_restart_workunit.v1.toml",
+    "staged_child_commit_authority_workunit.v1.toml",
     "incubator_intake.v1.toml",
     "provider_capabilities.v1.toml",
     "provider_package_truth_workunit.v1.toml",

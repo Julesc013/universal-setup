@@ -18,8 +18,15 @@
     "transitions",
     "recovery"
   ],
+  "dependentSchemas": {
+    "required_commit_authority": {
+      "required": ["recovery_metadata"],
+      "properties": { "recovery_metadata": { "required": ["commit_cleanup_policy"] } }
+    }
+  },
   "properties": {
     "schema": { "const": "usk.transaction_journal.v1" },
+    "required_commit_authority": { "const": "staged_child_bound_v1" },
     "journal_id": { "type": "string", "minLength": 1, "maxLength": 256 },
     "journal_digest": { "$ref": "#/$defs/sha256" },
     "transaction_id": { "type": "string", "minLength": 1, "maxLength": 256 },
@@ -65,6 +72,7 @@
       "type": "object",
       "required": ["staging_identity", "staged_files"],
       "dependentSchemas": {
+        "commit_cleanup_policy": { "properties": { "staging_identity": { "type": "null" } } },
         "stream_cleanup_policy": { "properties": { "staging_identity": { "type": "null" } } },
         "stream_journal": {
           "required": ["stream_cleanup_policy"],
@@ -74,6 +82,7 @@
       "properties": {
         "staging_identity": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "null" }] },
         "stream_cleanup_policy": { "enum": ["retain_only"] },
+        "commit_cleanup_policy": { "enum": ["retain_only"], "description": "Commit preparation withholds automatic cleanup authority before child observations; this latch never grants ownership or publication authority." },
         "stream_journal": {
           "type": "object",
           "description": "Explicit replay observations; old staging remains retain-only. The digest covers this object without digest. Completion identity is an observation, never deletion authority.",

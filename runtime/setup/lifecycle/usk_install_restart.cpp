@@ -95,8 +95,14 @@ json::Value read_install_stream_context(const transaction::RecoveryInspection& i
     const LifecycleRoots& roots, const std::filesystem::path& target_root) {
     if (inspection.stream_source_context.empty()) throw std::runtime_error("original install source context is unavailable");
     const auto context = json::parse(inspection.stream_source_context);
-    const std::set<std::string> expected{"schema", "archive_sha256", "archive_identity_digest", "entry_set_digest",
+    std::set<std::string> expected{"schema", "archive_sha256", "archive_identity_digest", "entry_set_digest",
         "plan_digest", "policy_digest", "policy_context", "root_identities"};
+    if (context.contains("required_commit_authority")) {
+        expected.insert("required_commit_authority");
+        if (context.at("required_commit_authority").as_string() != "staged_child_bound_v1") {
+            throw std::runtime_error("original install commit requirement is incompatible");
+        }
+    }
     std::set<std::string> actual;
     for (const auto& member : context.as_object()) actual.insert(member.first);
     if (actual != expected || context.at("schema").as_string() != "usk.install_stream_source.v1" ||
@@ -118,14 +124,19 @@ std::string install_stream_source_context(const InstallPlan& plan) {
             [](const PayloadFile& file) { return !file.reader; })) {
         throw std::runtime_error("install stream source binding is incomplete");
     }
-    return json::canonical(Value(Value::Object{
+    Value context(Value::Object{
         {"archive_sha256", Value(plan.recipe.source_archive_digest)},
         {"archive_identity_digest", Value(plan.recipe.source_identity_digest)},
         {"entry_set_digest", Value(plan.recipe.entry_set_digest)},
         {"plan_digest", Value(plan.plan_digest)}, {"policy_digest", Value(plan.recipe.policy_digest)},
         {"policy_context", Value(plan.recipe.restart_policy_context)},
         {"root_identities", install_context_root_identities(plan.roots, plan.target_root)},
-        {"schema", Value("usk.install_stream_source.v1")}}));
+        {"schema", Value("usk.install_stream_source.v1")}});
+    (void)transaction::commit_authority_name(plan.required_commit_authority);
+    if (plan.required_commit_authority == transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+        context.as_object().emplace("required_commit_authority", Value("staged_child_bound_v1"));
+    }
+    return json::canonical(context);
 }
 std::string install_stream_source_digest(const InstallPlan& plan) {
     const auto context = install_stream_source_context(plan);
@@ -152,7 +163,8 @@ InstallReplayContext inspect_install_replay(const InstallPlan& plan,
     }
     InstallReplayContext context;
     context.prior_spec = {request.transaction_id, plan.plan_id, plan.plan_digest, "install_local",
-        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root};
+        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root,
+        plan.required_commit_authority};
     context.source_digest = install_stream_source_digest(plan);
     if (context.source_digest.empty()) throw std::runtime_error("install replay requires an exact archive source binding");
     const auto prior = transaction::TransactionSession::inspect_recovery(context.prior_spec);

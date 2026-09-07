@@ -80,6 +80,25 @@ def load_schema(name: str) -> dict:
 
 
 class SetupContractTests(unittest.TestCase):
+    def test_commit_requirement_is_explicit_optional_and_unavailable(self) -> None:
+        request = load_schema("install_local_plan_request")
+        self.assertEqual(request["properties"]["required_commit_authority"]["const"], "staged_child_bound_v1")
+        self.assertNotIn("required_commit_authority", request["required"])
+        plan = load_schema("install_plan")
+        self.assertEqual(plan["properties"]["commit_authority_available"], {"const": False})
+        self.assertEqual(plan["dependentRequired"]["required_commit_authority"], ["commit_authority_available"])
+        self.assertNotIn("required_commit_authority", load_schema("install_local_apply_request")["properties"])
+
+    def test_commit_retention_withholds_older_rollback_authority(self) -> None:
+        journal = load_schema("transaction_journal")
+        self.assertEqual(journal["properties"]["required_commit_authority"], {"const": "staged_child_bound_v1"})
+        binding = journal["dependentSchemas"]["required_commit_authority"]
+        self.assertEqual(binding["properties"]["recovery_metadata"]["required"], ["commit_cleanup_policy"])
+        metadata = journal["properties"]["recovery_metadata"]
+        self.assertEqual(metadata["properties"]["commit_cleanup_policy"]["enum"], ["retain_only"])
+        self.assertEqual(metadata["dependentSchemas"]["commit_cleanup_policy"]["properties"]["staging_identity"], {"type": "null"})
+        self.assertNotIn("commit_cleanup_policy", metadata["required"])
+
     def test_m1_contract_spine_is_versioned_strict_and_complete(self) -> None:
         for name, schema_const in M1_CONTRACT_SPINE.items():
             with self.subTest(name=name):
