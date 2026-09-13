@@ -30,6 +30,14 @@ journal attempt reports `restart_effects_retained`; a duplicate audit chain is
 never overwritten. Inspection remains available after process death before or
 during new-chain creation, although a missing genesis cannot authorize replay.
 
+A fresh install for a retired identity starts a deterministic audit generation
+derived from the terminal uninstall transaction only after the current state and
+prior audit head prove a clean retirement. Exclusive generation creation prevents
+concurrent contenders from both proceeding. Its precommit chain contains one
+event, so restart inspection remains bounded even when an older generation has a
+long repair, move or verification history. Active, stale, incomplete, or
+incompatible identities are refused before transaction effects.
+
 Any historical committing/committed/completed transition refuses replay, including
 an absent target after a possible commit. Visible-target finalization remains its
 separate exact-context operation. Competing original/replay transactions use the

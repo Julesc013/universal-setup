@@ -5,6 +5,7 @@
 #include "usk_audit_repository.h"
 #include "usk_json.h"
 #include "usk_record_io.h"
+#include "usk_state_repository.h"
 #include <algorithm>
 #include <set>
 
@@ -95,9 +96,11 @@ void validate_replay_lineage(const InstallPlan& plan, transaction::TransactionSp
             throw std::runtime_error("install replay refuses a cycle or uncertain ancestor commit");
         }
         (void)read_install_stream_context(inspection, plan.roots, plan.target_root);
-        const auto chain_id = install_audit_chain_id(plan.install_id, spec.transaction_id,
-            !inspection.restart_origin_transaction_id.empty());
-        const auto chain = audit::AuditRepository(plan.roots.audit_root).read_and_validate_chain_bounded(chain_id, 1u);
+        const bool replay = !inspection.restart_origin_transaction_id.empty();
+        const auto chain_id = resolve_install_audit_chain_id(
+            plan.roots, plan.install_id, spec.transaction_id, replay);
+        const auto chain = audit::AuditRepository(plan.roots.audit_root)
+            .read_and_validate_chain_bounded(chain_id, 1u);
         if (chain.size() != 1u || chain.front().event_digest != expected_audit_head) {
             throw std::runtime_error("install replay ancestor audit snapshot changed");
         }
@@ -119,8 +122,9 @@ void validate_replay_lineage(const InstallPlan& plan, transaction::TransactionSp
         inspection = transaction::TransactionSession::inspect_recovery(spec);
         if (inspection.snapshot_sha256 != expected_snapshot ||
             inspection.stream_source_digest != install_stream_source_digest(plan) ||
-            genesis.at("prior_audit_chain_id").as_string() != install_audit_chain_id(plan.install_id,
-                spec.transaction_id, !inspection.restart_origin_transaction_id.empty())) {
+            genesis.at("prior_audit_chain_id").as_string() != resolve_install_audit_chain_id(
+                plan.roots, plan.install_id, spec.transaction_id,
+                !inspection.restart_origin_transaction_id.empty())) {
             throw std::runtime_error("install replay ancestor journal or audit identity changed");
         }
         expected_audit_head = genesis.at("prior_audit_chain_digest").as_string();
@@ -201,6 +205,32 @@ std::string install_audit_chain_id(const std::string& install_id,
     return "replay." + json::sha256_canonical(Value(Value::Object{
         {"install_id", Value(install_id)}, {"transaction_id", Value(transaction_id)}}));
 }
+std::string next_install_audit_chain_id(
+    const std::string& install_id, const std::string& retired_transaction_id) {
+    if (!record_io::valid_identifier(install_id) ||
+        !record_io::valid_identifier(retired_transaction_id)) {
+        throw std::runtime_error("install audit generation identity is invalid");
+    }
+    return "cycle." + json::sha256_canonical(Value(Value::Object{
+        {"install_id", Value(install_id)},
+        {"retired_transaction_id", Value(retired_transaction_id)}}));
+}
+std::string resolve_install_audit_chain_id(const LifecycleRoots& roots,
+    const std::string& install_id, const std::string& transaction_id, bool replay) {
+    if (replay) return install_audit_chain_id(install_id, transaction_id, true);
+    try {
+        const state::InstalledState current = state::StateRepository(roots.state_root)
+            .read_installed(install_id);
+        if (current.transaction_id == transaction_id) return current.audit_chain_id;
+        if (current.lifecycle_status == "retired") {
+            return next_install_audit_chain_id(install_id, current.transaction_id);
+        }
+        throw std::runtime_error("install audit generation does not match current installed state");
+    } catch (const std::runtime_error& error) {
+        if (std::string(error.what()) != "installed-state record does not exist") throw;
+    }
+    return install_audit_chain_id(install_id, transaction_id, false);
+}
 InstallReplayContext inspect_install_replay(const InstallPlan& plan,
     const InstallRestartRequest& request, const std::string& new_transaction_id) {
     if (!record_io::valid_identifier(request.transaction_id) ||
@@ -220,8 +250,8 @@ InstallReplayContext inspect_install_replay(const InstallPlan& plan,
         throw std::runtime_error("install replay prior snapshot or stream source changed");
     }
     validate_replay_lineage(plan, context.prior_spec, prior, request.audit_chain_digest);
-    const auto old_chain_id = install_audit_chain_id(plan.install_id, request.transaction_id,
-        !prior.restart_origin_transaction_id.empty());
+    const auto old_chain_id = resolve_install_audit_chain_id(plan.roots, plan.install_id,
+        request.transaction_id, !prior.restart_origin_transaction_id.empty());
     context.audit_chain_id = install_audit_chain_id(plan.install_id, new_transaction_id, true);
     audit::require_chain_path_capacity(plan.roots.audit_root, context.audit_chain_id);
     context.genesis = json::canonical(Value(Value::Object{

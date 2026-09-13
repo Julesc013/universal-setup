@@ -718,7 +718,7 @@ static InstallResult apply_install_impl(
     audit::AuditRepository audit_repository(plan.roots.audit_root);
     const std::string source_digest = install_stream_source_digest(plan);
     if (plan.validate_source) plan.validate_source();
-    const std::string chain_id = install_audit_chain_id(plan.install_id, transaction_id, restart != nullptr);
+    std::string chain_id = install_audit_chain_id(plan.install_id, transaction_id, restart != nullptr);
     audit::require_chain_path_capacity(plan.roots.audit_root, chain_id);
     std::unique_ptr<transaction::TransactionSession> transaction;
     bool replay_journal_attempted = false;
@@ -737,10 +737,41 @@ static InstallResult apply_install_impl(
             create_install_replay_audit(plan, context, transaction_id, applied_at, fault_injector);
             if (fault_injector) fault_injector("install_local", "after_replay_audit_create");
         } else {
-            audit_repository.initialize_chain(chain_id);
-            audit_repository.append(chain_id, audit::AuditInput{
+            bool has_current_install = false;
+            state::InstalledState current_install;
+            try {
+                current_install = state_repository.read_installed(plan.install_id);
+                has_current_install = true;
+            } catch (const std::runtime_error& error) {
+                if (std::string(error.what()) != "installed-state record does not exist") throw;
+            }
+            const bool has_initial_audit_chain = fs::exists(plan.roots.audit_root / "chains" / chain_id);
+            if (!has_current_install) {
+                if (has_initial_audit_chain) {
+                    throw std::runtime_error("install identity has an incomplete existing audit generation");
+                }
+                audit_repository.initialize_chain(chain_id);
+            } else {
+                if (!fs::exists(plan.roots.audit_root / "chains" / current_install.audit_chain_id) ||
+                    current_install.lifecycle_status != "retired" ||
+                    applied_at <= current_install.created_at) {
+                    throw std::runtime_error("install identity is not retired for a fresh transaction");
+                }
+                const auto prior_chain = audit_repository.read_and_validate_chain(current_install.audit_chain_id);
+                if (prior_chain.empty() || prior_chain.back().operation != "uninstall" ||
+                    prior_chain.back().phase != "completed" || prior_chain.back().status != "pass" ||
+                    prior_chain.back().transaction_id != current_install.transaction_id ||
+                    prior_chain.back().details_digest != current_install.last_verification.report_digest) {
+                    throw std::runtime_error("retired install audit state is incompatible with a fresh transaction");
+                }
+                chain_id = next_install_audit_chain_id(plan.install_id, current_install.transaction_id);
+                audit::require_chain_path_capacity(plan.roots.audit_root, chain_id);
+                audit_repository.initialize_chain(chain_id);
+            }
+            const audit::AuditInput validated{
                 applied_at, "install_local", "validated", "pass", "plan", plan.plan_id,
-                plan.plan_digest, transaction_id, plan.plan_id, "reviewed plan revalidated"});
+                plan.plan_digest, transaction_id, plan.plan_id, "reviewed plan revalidated"};
+            audit_repository.append(chain_id, validated);
             transaction = std::make_unique<transaction::TransactionSession>(transaction::TransactionSpec{
                 transaction_id, plan.plan_id, plan.plan_digest, "install_local",
                 plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root,
@@ -905,8 +936,8 @@ InstallResult recover_install_finalization(
     installed.provider_revision = plan.recipe.provider_revision;
     installed.transaction_id = transaction_id;
     installed.created_at = recovered_at;
-    installed.audit_chain_id = install_audit_chain_id(
-        plan.install_id, transaction_id, transaction->is_stream_restart());
+    installed.audit_chain_id = resolve_install_audit_chain_id(
+        plan.roots, plan.install_id, transaction_id, transaction->is_stream_restart());
     installed.lifecycle_status = "installed";
     installed.last_verification = {
         "verify." + transaction_id + ".recovery", std::string(64, '0'), "fail", recovered_at};
