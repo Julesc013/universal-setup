@@ -20,8 +20,14 @@
     "revalidation",
     "refusal_policy"
   ],
+  "dependentRequired": {
+    "required_commit_authority": ["commit_authority_available"],
+    "commit_authority_available": ["required_commit_authority"]
+  },
   "properties": {
     "schema": { "const": "usk.install_plan.v1" },
+    "required_commit_authority": { "const": "staged_child_bound_v1" },
+    "commit_authority_available": { "const": false },
     "plan_id": { "type": "string", "minLength": 1, "maxLength": 256 },
     "plan_digest": { "$ref": "#/$defs/sha256" },
     "operation": { "const": "install_local" },

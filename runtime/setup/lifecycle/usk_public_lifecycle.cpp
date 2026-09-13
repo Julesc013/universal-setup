@@ -318,7 +318,16 @@ std::string policy_digest(
 InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& config,
     const Value* replay_source_context = nullptr)
 {
-    exact_members(request, {"schema", "request_id", "created_at", "install_id", "archive", "target", "recipe"});
+    auto requirement = usk::transaction::CommitAuthorityRequirement::legacy_observed;
+    if (request.contains("required_commit_authority")) {
+        exact_members(request, {"schema", "request_id", "created_at", "install_id", "archive", "target", "recipe", "required_commit_authority"});
+        if (required_string(request, "required_commit_authority") != "staged_child_bound_v1") {
+            throw PublicError("invalid_argument", "unknown required commit authority");
+        }
+        requirement = usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1;
+    } else {
+        exact_members(request, {"schema", "request_id", "created_at", "install_id", "archive", "target", "recipe"});
+    }
     if (required_string(request, "schema") != "usk.install_local_plan_request.v1") {
         throw PublicError("invalid_argument", "install plan request schema is incompatible");
     }
@@ -424,7 +433,7 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     result.target = inspected;
     result.plan = usk::lifecycle::plan_install(plan_id, install_id,
         required_string(request, "created_at"), target_root, lifecycle_roots(config),
-        std::move(recipe_binding), std::move(files), std::move(payload.validate_source));
+        std::move(recipe_binding), std::move(files), std::move(payload.validate_source), requirement);
     return result;
 }
 
@@ -458,7 +467,7 @@ Value install_plan_document(const InstallPlanBundle& bundle)
             {"kind", Value(effect.first)}, {"relative_path", Value(effect.second)},
             {"root_class", Value(effect.first == std::string("write_audit") ? "audit" : "setup_state")}});
     }
-    return Value(Value::Object{
+    Value result(Value::Object{
         {"component_selection", string_array(bundle.plan.recipe.components)},
         {"created_at", Value(bundle.plan.created_at)},
         {"effects", Value(std::move(effects))},
@@ -508,6 +517,11 @@ Value install_plan_document(const InstallPlanBundle& bundle)
             {"directory_count", Value(static_cast<std::uint64_t>(directories.size()))},
             {"file_count", Value(static_cast<std::uint64_t>(bundle.plan.files.size()))},
             {"uncompressed_bytes", Value(bundle.uncompressed_bytes)}})}});
+    if (bundle.plan.required_commit_authority == usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+        result.as_object().emplace("required_commit_authority", Value("staged_child_bound_v1"));
+        result.as_object().emplace("commit_authority_available", Value(false));
+    }
+    return result;
 }
 
 Value installed_document(const usk::state::InstalledState& state)
@@ -1379,6 +1393,7 @@ Value execute_command(const std::string& command, const Value& request, const Pu
             required_string(request, "reviewed_plan_digest") != bundle.plan.plan_digest) {
             throw PublicError("stale_plan", "reviewed install plan identity does not match immediate revalidation");
         }
+        usk::transaction::require_commit_authority(bundle.plan.required_commit_authority);
         usk::lifecycle::require_install_path_capacity(bundle.plan, required_string(request, "transaction_id"));
         bundle.plan.validate_source();
         usk::lifecycle::InstallResult result;
@@ -1537,6 +1552,9 @@ char* usk::lifecycle::public_command_json(
         response = usk::json::canonical(response_error(
             invalid ? "invalid_argument" : "refused", error.code(), error.what()));
         *out_command_status = invalid ? USK_STATUS_INVALID_ARGUMENT : USK_STATUS_ERROR;
+    } catch (const usk::transaction::CommitAuthorityUnavailable& error) {
+        response = usk::json::canonical(response_error("refused", "commit_authority_unavailable", error.what()));
+        *out_command_status = USK_STATUS_ERROR;
     } catch (const usk::lifecycle::RestartEffectsRetained& error) {
         response = usk::json::canonical(response_error("refused", "restart_effects_retained", error.what()));
         *out_command_status = USK_STATUS_ERROR;

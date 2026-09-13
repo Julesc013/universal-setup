@@ -38,3 +38,7 @@ existing no-replace target commit and retain the loser.
 See [ZIP replay qualification](../../../docs/architecture/zip_entry_replay.md).
 Automatic retry, stale-owner leases, retained-child cleanup and child ownership
 through the verification-to-commit interval remain separate qualification work.
+
+## Staged child commit requirement
+
+Commit preparation rejects already-changed verified file/directory closure and durably retains staging on refusal. Optional `staged_child_bound_v1` has no qualified success publisher; explicit lifecycle apply refuses before effects and directly staged native attempts retain/refuse. See [the authority boundary](../../../docs/architecture/staged_child_commit_authority.md) for the exact observation limits, journal compatibility and outstanding atomic publication work.

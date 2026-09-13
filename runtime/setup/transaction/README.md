@@ -46,3 +46,7 @@ ZIP replay admission. Readers that reject the added optional metadata retain
 state; no fallback grants rollback authority. These digests detect corruption and
 bind an explicitly reviewed snapshot; they are not authentication credentials or
 proof of a live generation lease.
+
+## Staged child commit requirement
+
+Commit preparation rejects already-changed verified file/directory closure and durably retains staging on refusal. Optional `staged_child_bound_v1` has no qualified success publisher; explicit lifecycle apply refuses before effects and directly staged native attempts retain/refuse. See [the authority boundary](../../../docs/architecture/staged_child_commit_authority.md) for the exact observation limits, journal compatibility and outstanding atomic publication work.

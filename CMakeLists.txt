@@ -103,6 +103,7 @@ set_target_properties(usk_policy_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_transaction_static STATIC
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
 )
 target_compile_features(usk_transaction_static PUBLIC cxx_std_17)
@@ -191,6 +192,7 @@ set(USK_CORE_SOURCES
   runtime/setup/state/usk_state_repository.cpp
   runtime/setup/streaming/usk_streaming_source_target.cpp
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
   runtime/setup/verify/usk_package_verify.cpp
 )
@@ -463,6 +465,12 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_streaming_source_target_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_streaming_source_target_smoke PRIVATE usk_streaming_static)
   add_test(NAME usk_streaming_source_target_smoke COMMAND usk_streaming_source_target_smoke)
+
+  add_executable(usk_commit_authority_smoke tests/native/usk_commit_authority_smoke.cpp)
+  target_compile_features(usk_commit_authority_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_commit_authority_smoke PRIVATE usk_transaction_static)
+  add_test(NAME usk_commit_authority_smoke COMMAND usk_commit_authority_smoke)
+  set_tests_properties(usk_commit_authority_smoke PROPERTIES TIMEOUT 30)
 
   add_executable(usk_entry_restart_smoke tests/native/usk_entry_restart_smoke.cpp)
   target_compile_features(usk_entry_restart_smoke PRIVATE cxx_std_17)
