@@ -71,6 +71,22 @@ class ProviderPackageManifestTests(unittest.TestCase):
     def test_repository_package_truth_is_consistent(self) -> None:
         self.assertEqual(provider_manifest.check_repository(), [])
 
+    def test_generated_licence_matches_native_schema(self) -> None:
+        schema_path = (
+            Path(__file__).resolve().parents[1]
+            / "contracts"
+            / "schema"
+            / "package"
+            / "provider_package_manifest.v1.schema.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        expected = (
+            schema["properties"]["licence"]["properties"]["expression"]["const"]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = self.build(self.make_prefix(Path(directory)))
+        self.assertEqual(manifest["licence"]["expression"], expected)
+
     def test_generation_is_byte_identical_and_verifies(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             prefix = self.make_prefix(Path(directory))
