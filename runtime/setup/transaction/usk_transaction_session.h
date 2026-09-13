@@ -56,6 +56,7 @@ struct RecoveryInspection {
     std::string snapshot_sha256;
     std::string stream_source_digest;
     std::string stream_source_context;
+    std::string publication_root_identity;
     std::string restart_origin_transaction_id;
     std::string restart_origin_snapshot_sha256;
     bool staging_exists = false;

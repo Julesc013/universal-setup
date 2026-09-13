@@ -88,6 +88,8 @@ struct RecoveryBundle {
     usk::transaction::RecoveryInspection inspection;
     std::string audit_chain_id;
     std::string audit_chain_digest;
+    Value install_plan_request;
+    Value install_source_context;
 };
 
 void ensure_directory(const fs::path& parent, const std::string& name);
@@ -289,6 +291,22 @@ Value archive_inspection_request(const Value& archive)
         {"schema", Value("usk.archive_inspect_request.v1")}});
 }
 
+Value restart_target_evidence(const usk::policy::TargetEvidence& evidence)
+{
+    return Value(Value::Object{
+        {"capacity_satisfied", Value(evidence.required_bytes != 0u && evidence.available_bytes >= evidence.required_bytes)},
+        {"excluded_roots_absent", Value(evidence.excluded_roots_absent)},
+        {"filesystem_identity_digest", Value(evidence.filesystem_identity_digest)},
+        {"filesystem_kind", Value(evidence.filesystem_kind)},
+        {"local_filesystem", Value(evidence.local_filesystem)},
+        {"mount_redirection_absent", Value(evidence.mount_redirection_absent)},
+        {"path_components_stable", Value(evidence.path_components_stable)},
+        {"source_target_distinct", Value(evidence.source_target_distinct)},
+        {"schema", Value("usk.install_target_recovery_evidence.v1")},
+        {"target_identity_digest", Value(evidence.target_identity_digest)},
+        {"target_state", Value(usk::policy::target_state_name(evidence.target_state))}});
+}
+
 std::string policy_digest(
     const usk::policy::InspectedTarget& target,
     const PublicConfig& config,
@@ -310,7 +328,9 @@ std::string policy_digest(
         {"target_binding_digest", Value(target.decision.target_binding_digest)}});
     if (restart_context != nullptr) {
         *restart_context = usk::json::canonical(Value(Value::Object{
-            {"policy", policy}, {"setup_was_absent", Value(!fs::exists(config.setup_root))}}));
+            {"policy", policy}, {"schema", Value("usk.install_restart_policy_context.v1")},
+            {"setup_initial_state", Value(fs::exists(config.setup_root) ? "owned" : "absent")},
+            {"target_evidence", restart_target_evidence(target.evidence)}}));
     }
     return usk::json::sha256_canonical(policy);
 }
@@ -385,16 +405,38 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
         const auto& context = *replay_source_context;
         const auto old = usk::json::parse(context.at("policy_context").as_string());
         const auto current = usk::json::parse(recipe_binding.restart_policy_context);
-        exact_members(old, {"policy", "setup_was_absent"});
+        const bool old_current = old.contains("schema");
+        const bool current_current = current.contains("schema");
+        if (old_current) {
+            exact_members(old, {"schema", "policy", "setup_initial_state", "target_evidence"});
+        } else {
+            exact_members(old, {"policy", "setup_was_absent"});
+        }
+        if (current_current) {
+            exact_members(current, {"schema", "policy", "setup_initial_state", "target_evidence"});
+        } else {
+            exact_members(current, {"policy", "setup_was_absent"});
+        }
         exact_members(old.at("policy"), {"activation", "setup_binding_digest", "target_binding_digest"});
+        exact_members(current.at("policy"), {"activation", "setup_binding_digest", "target_binding_digest"});
+        const bool old_setup_was_absent = old_current
+            ? required_string(old, "setup_initial_state") == "absent"
+            : old.at("setup_was_absent").as_boolean();
+        const bool current_setup_was_absent = current_current
+            ? required_string(current, "setup_initial_state") == "absent"
+            : current.at("setup_was_absent").as_boolean();
+        const bool setup_state_transition_valid =
+            (old_setup_was_absent && !current_setup_was_absent) ||
+            (!old_setup_was_absent && !current_setup_was_absent);
         const auto& prior_policy = old.at("policy");
         const auto& actual_policy = current.at("policy");
         if (context.at("archive_sha256").as_string() != payload.source_sha256 ||
             context.at("archive_identity_digest").as_string() != payload.source_identity_digest ||
             context.at("entry_set_digest").as_string() != payload.entry_set_digest ||
+            !setup_state_transition_valid ||
             prior_policy.at("activation").as_string() != actual_policy.at("activation").as_string() ||
             prior_policy.at("target_binding_digest").as_string() != actual_policy.at("target_binding_digest").as_string() ||
-            (!old.at("setup_was_absent").as_boolean() &&
+            (!old_setup_was_absent &&
                 prior_policy.at("setup_binding_digest").as_string() != actual_policy.at("setup_binding_digest").as_string()) ||
             usk::json::sha256_canonical(prior_policy) != context.at("policy_digest").as_string() ||
             !fs::exists(config.setup_root)) {
@@ -434,6 +476,157 @@ InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& c
     result.plan = usk::lifecycle::plan_install(plan_id, install_id,
         required_string(request, "created_at"), target_root, lifecycle_roots(config),
         std::move(recipe_binding), std::move(files), std::move(payload.validate_source), requirement);
+    return result;
+}
+
+InstallPlanBundle build_install_finalization_plan(
+    const Value& request, const PublicConfig& config, const Value& source_context)
+{
+    auto requirement = usk::transaction::CommitAuthorityRequirement::legacy_observed;
+    if (request.contains("required_commit_authority")) {
+        exact_members(request, {"schema", "request_id", "created_at", "install_id", "archive", "target", "recipe", "required_commit_authority"});
+        if (required_string(request, "required_commit_authority") != "staged_child_bound_v1") {
+            throw PublicError("invalid_argument", "unknown required commit authority");
+        }
+        requirement = usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1;
+    } else {
+        exact_members(request, {"schema", "request_id", "created_at", "install_id", "archive", "target", "recipe"});
+    }
+    if (required_string(request, "schema") != "usk.install_local_plan_request.v1") {
+        throw PublicError("invalid_argument", "install plan request schema is incompatible");
+    }
+    const Value& archive = request.at("archive");
+    const Value inspection_request = archive_inspection_request(archive);
+    const fs::path source_path = required_archive_path(archive);
+    require_setup_probe(config, source_path);
+    usk::archive::StreamingStoredArchivePayload payload = usk::archive::inspect_streaming_payload(
+        usk::json::canonical(inspection_request), archive.at("strip_prefix").as_string());
+    if (payload.source_sha256 != required_string(archive, "expected_sha256") ||
+        payload.uncompressed_bytes > std::numeric_limits<std::uint64_t>::max() - setup_overhead_bytes) {
+        throw PublicError("stale_plan", "install finalization source no longer matches the reviewed context");
+    }
+    const Value& target = request.at("target");
+    exact_members(target, {"root", "class"});
+    const auto target_class = usk::policy::parse_target_class(required_string(target, "class"));
+    const fs::path target_root(required_string(target, "root"));
+    if (!target_class.has_value() || same_or_below(config.setup_root, target_root) ||
+        same_or_below(target_root, config.setup_root)) {
+        throw PublicError("stale_plan", "install finalization target is incompatible with the reviewed context");
+    }
+    if (source_context.contains("required_commit_authority")) {
+        exact_members(source_context, {"schema", "archive_sha256", "archive_identity_digest", "entry_set_digest",
+            "plan_digest", "policy_digest", "policy_context", "root_identities", "required_commit_authority"});
+        if (required_string(source_context, "required_commit_authority") != "staged_child_bound_v1" ||
+            requirement != usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+            throw PublicError("stale_plan", "install finalization commit authority changed");
+        }
+    } else {
+        exact_members(source_context, {"schema", "archive_sha256", "archive_identity_digest", "entry_set_digest",
+            "plan_digest", "policy_digest", "policy_context", "root_identities"});
+        if (requirement != usk::transaction::CommitAuthorityRequirement::legacy_observed) {
+            throw PublicError("stale_plan", "install finalization commit authority changed");
+        }
+    }
+    const Value policy_context = usk::json::parse(source_context.at("policy_context").as_string());
+    exact_members(policy_context, {"schema", "policy", "setup_initial_state", "target_evidence"});
+    if (required_string(policy_context, "schema") != "usk.install_restart_policy_context.v1") {
+        throw PublicError("recovery_finalization_context_required",
+            "visible install finalization requires target evidence from the original reviewed plan");
+    }
+    const Value& stored_policy = policy_context.at("policy");
+    exact_members(stored_policy, {"activation", "setup_binding_digest", "target_binding_digest"});
+    const Value& stored_evidence = policy_context.at("target_evidence");
+    exact_members(stored_evidence, {"schema", "target_state", "target_identity_digest", "filesystem_identity_digest",
+        "filesystem_kind", "capacity_satisfied", "local_filesystem", "path_components_stable",
+        "mount_redirection_absent", "excluded_roots_absent", "source_target_distinct"});
+    if (required_string(stored_evidence, "schema") != "usk.install_target_recovery_evidence.v1" ||
+        required_string(stored_evidence, "target_state") != "nonexistent" ||
+        required_string(stored_policy, "activation") != usk::policy::activation_name(config.activation) ||
+        source_context.at("archive_sha256").as_string() != payload.source_sha256 ||
+        source_context.at("archive_identity_digest").as_string() != payload.source_identity_digest ||
+        source_context.at("entry_set_digest").as_string() != payload.entry_set_digest ||
+        usk::json::sha256_canonical(stored_policy) != source_context.at("policy_digest").as_string()) {
+        throw PublicError("stale_plan", "install finalization context identity changed");
+    }
+    usk::policy::TargetEvidence evidence;
+    evidence.target_class = *target_class;
+    evidence.target_root = target_root;
+    evidence.authorized_acceptance_root = config.acceptance_root;
+    evidence.target_state = usk::policy::TargetState::nonexistent;
+    evidence.target_identity_digest = required_string(stored_evidence, "target_identity_digest");
+    evidence.filesystem_identity_digest = required_string(stored_evidence, "filesystem_identity_digest");
+    evidence.filesystem_kind = required_string(stored_evidence, "filesystem_kind");
+    if (!stored_evidence.at("capacity_satisfied").as_boolean()) {
+        throw PublicError("stale_plan", "install finalization capacity evidence is not satisfied");
+    }
+    evidence.local_filesystem = stored_evidence.at("local_filesystem").as_boolean();
+    evidence.path_components_stable = stored_evidence.at("path_components_stable").as_boolean();
+    evidence.mount_redirection_absent = stored_evidence.at("mount_redirection_absent").as_boolean();
+    evidence.excluded_roots_absent = stored_evidence.at("excluded_roots_absent").as_boolean();
+    evidence.source_target_distinct = stored_evidence.at("source_target_distinct").as_boolean();
+    evidence.explicitly_supplied = true;
+    evidence.required_bytes = payload.uncompressed_bytes + setup_overhead_bytes;
+    // Finalization writes no payload into the already-published target. Rebuild
+    // the exact accepted predicate instead of imposing a new payload-capacity
+    // requirement after commit.
+    evidence.available_bytes = evidence.required_bytes;
+    evidence.persistent_effects = {"create managed portable target " +
+        fs::absolute(target_root).lexically_normal().generic_u8string(),
+        "write exact installed-state, ownership, journal, and audit records under " +
+            config.setup_root.generic_u8string()};
+    evidence.persistent_effects_complete = true;
+    const auto target_decision = usk::policy::evaluate_live_target(config.activation, evidence);
+    if (!target_decision.accepted ||
+        target_decision.target_binding_digest != required_string(stored_policy, "target_binding_digest")) {
+        throw PublicError("stale_plan", "install finalization target evidence no longer binds the reviewed plan");
+    }
+    const usk::policy::TargetInspectionRequest setup_request{
+        usk::policy::TargetClass::operator_acceptance, config.setup_root / ".usk-binding-probe",
+        config.acceptance_root, source_path, setup_overhead_bytes,
+        {"create setup-owned state, staging, journal, and audit repositories under " +
+            config.setup_root.generic_u8string()}};
+    const auto setup = usk::policy::inspect_and_evaluate_live_target(config.activation, setup_request);
+    if (!setup.decision.accepted || (required_string(policy_context, "setup_initial_state") != "absent" &&
+        required_string(policy_context, "setup_initial_state") != "owned") ||
+        (required_string(policy_context, "setup_initial_state") == "owned" &&
+        setup.decision.target_binding_digest != required_string(stored_policy, "setup_binding_digest"))) {
+        throw PublicError("stale_plan", "install finalization setup authority changed");
+    }
+    const Value& recipe = request.at("recipe");
+    exact_members(recipe, {"product_id", "product_version", "recipe_digest", "provider_revision",
+                           "components", "entrypoints"});
+    usk::lifecycle::RecipeBinding binding;
+    binding.product_id = required_string(recipe, "product_id");
+    binding.product_version = required_string(recipe, "product_version");
+    binding.recipe_digest = required_string(recipe, "recipe_digest");
+    binding.source_archive_digest = payload.source_sha256;
+    binding.source_identity_digest = payload.source_identity_digest;
+    binding.entry_set_digest = payload.entry_set_digest;
+    binding.policy_digest = source_context.at("policy_digest").as_string();
+    binding.restart_policy_context = source_context.at("policy_context").as_string();
+    binding.provider_revision = required_string(recipe, "provider_revision");
+    for (const Value& component : recipe.at("components").as_array()) binding.components.push_back(component.as_string());
+    for (const Value& entrypoint : recipe.at("entrypoints").as_array()) {
+        exact_members(entrypoint, {"entrypoint_id", "relative_path", "kind"});
+        binding.entrypoints.push_back({required_string(entrypoint, "entrypoint_id"),
+            required_string(entrypoint, "relative_path"), required_string(entrypoint, "kind")});
+    }
+    std::vector<usk::lifecycle::PayloadFile> files;
+    for (auto& file : payload.files) files.push_back({std::move(file.relative_path), {}, std::move(file.sha256),
+        file.size_bytes, std::move(file.reader), payload.payload_buffer_bytes});
+    InstallPlanBundle result;
+    result.source_path = source_path;
+    result.source_identity_digest = payload.source_identity_digest;
+    result.entry_set_digest = payload.entry_set_digest;
+    result.archive_size = payload.archive_size_bytes;
+    result.uncompressed_bytes = payload.uncompressed_bytes;
+    result.target = {evidence, target_decision};
+    result.plan = usk::lifecycle::plan_install(required_string(request, "request_id"),
+        required_string(request, "install_id"), required_string(request, "created_at"), target_root,
+        lifecycle_roots(config), std::move(binding), std::move(files), std::move(payload.validate_source), requirement);
+    if (result.plan.plan_digest != source_context.at("plan_digest").as_string()) {
+        throw PublicError("stale_plan", "install finalization plan digest does not match the durable source context");
+    }
     return result;
 }
 
@@ -944,12 +1137,18 @@ Value uninstall_report_document(
 
 RecoveryBundle build_recovery_inspection(const Value& request, const PublicConfig& config)
 {
-    exact_members(request, {"schema", "request_id", "install_id", "transaction_id", "plan_id",
-                            "plan_digest", "operation", "target_root"});
+    const std::string operation = required_string(request, "operation");
+    const bool has_install_plan_request = operation == "install_local" && request.contains("install_plan_request");
+    if (has_install_plan_request) {
+        exact_members(request, {"schema", "request_id", "install_id", "transaction_id", "plan_id",
+                                "plan_digest", "operation", "target_root", "install_plan_request"});
+    } else {
+        exact_members(request, {"schema", "request_id", "install_id", "transaction_id", "plan_id",
+                                "plan_digest", "operation", "target_root"});
+    }
     if (required_string(request, "schema") != "usk.recovery_inspect_request.v1") {
         throw PublicError("invalid_argument", "recovery inspection request schema is incompatible");
     }
-    const std::string operation = required_string(request, "operation");
     if (operation != "install_local" && operation != "repair" &&
         operation != "move" && operation != "uninstall") {
         throw PublicError("invalid_argument", "recovery operation is invalid");
@@ -966,6 +1165,26 @@ RecoveryBundle build_recovery_inspection(const Value& request, const PublicConfi
         operation == "move" ? target.parent_path() : roots.staging_parent,
         target, roots.state_root, roots.audit_root};
     result.inspection = usk::transaction::TransactionSession::inspect_recovery(result.spec);
+    if (has_install_plan_request) {
+        if (result.inspection.stream_source_context.empty()) {
+            throw PublicError("recovery_finalization_context_required",
+                "visible install finalization requires a durable original source context");
+        }
+        const Value source_context = usk::lifecycle::read_install_stream_context(
+            result.inspection, roots, target);
+        const Value policy_context = usk::json::parse(source_context.at("policy_context").as_string());
+        if (policy_context.contains("schema") &&
+            !result.inspection.publication_root_identity.empty()) {
+            const InstallPlanBundle plan = build_install_finalization_plan(
+                request.at("install_plan_request"), config, source_context);
+            if (plan.plan.install_id != result.install_id || plan.plan.plan_id != result.spec.plan_id ||
+                plan.plan.plan_digest != result.spec.plan_digest || plan.plan.target_root != target) {
+                throw PublicError("stale_plan", "install recovery context does not bind the inspected transaction");
+            }
+            result.install_plan_request = request.at("install_plan_request");
+            result.install_source_context = source_context;
+        }
+    }
     result.audit_chain_id = usk::lifecycle::install_audit_chain_id(result.install_id,
         result.spec.transaction_id, !result.inspection.restart_origin_transaction_id.empty());
     try {
@@ -1085,8 +1304,32 @@ Value recovery_apply_document(const Value& request, const PublicConfig& config)
         throw PublicError("stale_plan", "selected recovery action is no longer safely available");
     }
     if (action == "finalize") {
-        throw PublicError("recovery_finalization_context_required",
-            "visible-target finalization requires the exact original operation context; the target remains recovery_required");
+        if (bundle.spec.operation != "install_local" || !bundle.inspection.target_exists ||
+            bundle.install_plan_request.type() != Value::Type::object) {
+            throw PublicError("recovery_finalization_context_required",
+                "public finalization is available only for a bound visible install target");
+        }
+        const InstallPlanBundle install = build_install_finalization_plan(
+            bundle.install_plan_request, config, bundle.install_source_context);
+        if (install.plan.install_id != bundle.install_id || install.plan.plan_id != bundle.spec.plan_id ||
+            install.plan.plan_digest != bundle.spec.plan_digest || install.plan.target_root != bundle.spec.target_root) {
+            throw PublicError("stale_plan", "install finalization context changed before apply");
+        }
+        install.plan.validate_source();
+        usk::lifecycle::recover_install_finalization(install.plan, bundle.spec.transaction_id,
+            required_string(request, "applied_at"));
+        const usk::transaction::RecoveryInspection after =
+            usk::transaction::TransactionSession::inspect_recovery(bundle.spec);
+        return bind_report_digest(Value(Value::Object{
+            {"available_actions", string_array(after.available_actions)}, {"effects", recovery_effects(bundle.inspection)},
+            {"journal_digest", Value(after.journal_digest)},
+            {"journal_snapshot_sha256", Value(after.snapshot_sha256)},
+            {"journal_id", Value("journal." + bundle.spec.transaction_id)},
+            {"observed_state", Value(after.current_state)}, {"recorded_at", Value(required_string(request, "applied_at"))},
+            {"report_digest", Value(std::string(64, '0'))},
+            {"report_id", Value("recovery.apply." + bundle.request_id)},
+            {"schema", Value("usk.recovery_report.v1")}, {"selected_action", Value("finalize")},
+            {"status", Value("completed")}, {"transaction_id", Value(bundle.spec.transaction_id)}}));
     }
 
     const Value effects = recovery_effects(bundle.inspection);

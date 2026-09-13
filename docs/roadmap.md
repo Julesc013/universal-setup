@@ -185,6 +185,26 @@ to canonical `main`. Consumer adoption remains a later exact-pin pull request.
   retaining visible-target finalization until original operation context is
   available.
 
+## USK-PUBLIC-RECOVERY-FINALIZATION-01 — Source and native proof complete
+
+- Added a reviewed public `recovery.apply` finalization path only for an
+  interrupted visible `install_local` publication. It reconstructs the exact
+  original install request and source context, revalidates the plan and source,
+  then completes missing installed-state, ownership, audit, and journal
+  metadata without replaying payload bytes.
+- Version 2 StreamJournal records an observation-only publication-root identity
+  from the closed staging directory; the visible target must retain that native
+  identity before finalization. V1 and legacy journals remain inspectable and
+  restartable through their existing paths but cannot receive public visible
+  finalization.
+- The durable recovery evidence carries `capacity_satisfied` rather than a
+  volatile free-space number, preserving the original publication predicate for
+  metadata-only finalization while setup-state writes retain live authority and
+  capacity checks.
+- This records Windows source/native validation only. It does not represent
+  consumer/provider adoption, package qualification, release approval, or
+  publication.
+
 ## M2-WU3 — Live Target Evidence Packet
 
 - Added strict capture, packet, and operator-verdict contracts with an explicit

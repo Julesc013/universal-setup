@@ -738,6 +738,9 @@ void TransactionSession::create_staging_root()
         throw std::runtime_error("cannot exclusively create setup-owned staging root");
     }
     staging_identity_ = directory_identity(staging_root_);
+    if (stream_journal_.present) {
+        stream_journal_.publication_root_identity = staging_identity_;
+    }
     persist_snapshot();
     if (injector_) injector_(current_state_, "after_staging_create");
 }
@@ -1077,6 +1080,7 @@ void TransactionSession::bind_stream_source(const std::string& source_digest, co
     }
     stream_journal_.source_digest = source_digest;
     stream_journal_.source_context = source_context;
+    stream_journal_.publication_root_identity = staging_identity_;
     persist_snapshot();
 }
 
@@ -1378,6 +1382,7 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     const auto stream = read_stream_journal(document, safe_relative_path);
     result.stream_source_digest = stream.source_digest;
     result.stream_source_context = stream.source_context;
+    result.publication_root_identity = stream.publication_root_identity;
     result.restart_origin_transaction_id = stream.origin_transaction_id;
     result.restart_origin_snapshot_sha256 = stream.origin_snapshot_sha256;
     usk::base::Sha256 snapshot_digest;
@@ -1391,7 +1396,11 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     if (result.target_exists && reparse_or_symlink(spec.target_root)) {
         throw std::runtime_error("recovery target root is linked or substituted");
     }
-    if (spec.required_commit_authority == CommitAuthorityRequirement::staged_child_bound_v1) {
+    const bool publication_identity_changed = result.target_exists && !stream.publication_root_identity.empty() &&
+        directory_identity(spec.target_root) != stream.publication_root_identity;
+    if (publication_identity_changed) {
+        result.available_actions = {"retain_for_operator"};
+    } else if (spec.required_commit_authority == CommitAuthorityRequirement::staged_child_bound_v1) {
         result.available_actions = {"retain_for_operator"};
     } else if ((result.current_state == "committing" || result.current_state == "committed" ||
          result.current_state == "recovery_required") &&
@@ -1496,8 +1505,14 @@ std::unique_ptr<TransactionSession> TransactionSession::resume_finalization(
     const TransactionSpec& spec,
     FaultInjector injector)
 {
-    return std::unique_ptr<TransactionSession>(
+    auto result = std::unique_ptr<TransactionSession>(
         new TransactionSession(spec, std::move(injector), ResumeMode::finalization));
+    if (result->stream_journal_.present &&
+        (result->stream_journal_.publication_root_identity.empty() ||
+         directory_identity(result->spec_.target_root) != result->stream_journal_.publication_root_identity)) {
+        throw std::runtime_error("visible target publication identity changed or is unavailable");
+    }
+    return result;
 }
 
 std::unique_ptr<TransactionSession> TransactionSession::resume_rollback(

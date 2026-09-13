@@ -4,6 +4,7 @@
 #include "usk/usk_api.h"
 #include "usk_json.h"
 #include "usk_live_evidence.h"
+#include "usk_public_lifecycle.h"
 #include "usk_sha256.h"
 #include "usk_transaction_session.h"
 
@@ -121,6 +122,19 @@ std::string execute(usk_context* context, const char* command, const Value& payl
         std::string(response.json_payload.data, response.json_payload.size);
 }
 
+std::string execute_with_fault(
+    const char* command, const Value& payload, const fs::path& state_root,
+    const fs::path& acceptance_root, const usk::lifecycle::LifecycleFaultInjector& fault, int& status)
+{
+    const std::string request = usk::json::canonical(payload);
+    char* response = usk::lifecycle::public_command_json(command, request.data(), request.size(),
+        state_root.string().c_str(), acceptance_root.string().c_str(),
+        "operator_acceptance_candidate", &status, fault);
+    const std::string result = response == nullptr ? std::string{} : std::string(response);
+    usk_public_lifecycle_command_free(response);
+    return result;
+}
+
 Value plan_request(const fs::path& archive, const fs::path& target, const std::string& source_hash)
 {
     return Value(Value::Object{
@@ -181,6 +195,221 @@ bool retained_roots_match(const Value& payload, const std::set<std::string>& exp
             !actual.insert(effect.at("root_class").as_string()).second) return false;
     }
     return actual == expected;
+}
+
+void rebind_stream_journal(Value& journal)
+{
+    auto& stream = journal.as_object()["recovery_metadata"].as_object()["stream_journal"];
+    stream.as_object().erase("digest");
+    stream.as_object()["digest"] = Value(usk::json::sha256_canonical(stream));
+}
+
+void replace_stream_context(Value& journal, const Value& context)
+{
+    auto& stream = journal.as_object()["recovery_metadata"].as_object()["stream_journal"];
+    stream.as_object()["source_context"] = Value(usk::json::canonical(context));
+    stream.as_object()["source_digest"] = Value(usk::json::sha256_canonical(context));
+    rebind_stream_journal(journal);
+}
+
+int public_install_finalization_recovery(
+    usk_context* context, const fs::path& root, const fs::path& setup_root, const fs::path& archive)
+{
+    const fs::path target = root / "finalization-visible-target";
+    Value original = plan_request(archive, target, usk::base::sha256_hex_file(archive));
+    original.as_object()["request_id"] = Value("plan.finalization.1");
+    original.as_object()["install_id"] = Value("synthetic.finalization.1");
+    original.as_object()["created_at"] = Value("2026-07-14T01:14:00Z");
+    int status = USK_STATUS_ERROR;
+    std::string response = execute(context, "install_local.plan", original, 1, status);
+    if (status != USK_STATUS_OK) return 184;
+    const Value public_plan = usk::json::parse(response).at("payload");
+    const Value initial_apply = apply_request("usk.install_local_apply_request.v1", original,
+        public_plan.at("plan_id").as_string(), public_plan.at("plan_digest").as_string(),
+        "tx.finalization.1", "2026-07-14T01:14:01Z");
+    bool interrupted = false;
+    response = execute_with_fault("install_local.apply", initial_apply, setup_root, root,
+        [&](const std::string& operation, const std::string& point) {
+            if (operation == "install_local" && point == "after_target_commit" && !interrupted) {
+                interrupted = true;
+                throw std::runtime_error("injected post-commit interruption");
+            }
+        }, status);
+    if (status != USK_STATUS_ERROR || !interrupted || !fs::is_regular_file(target / "bin/probe.txt")) return 185;
+    Value inspection(Value::Object{
+        {"install_id", Value("synthetic.finalization.1")}, {"install_plan_request", original},
+        {"operation", Value("install_local")}, {"plan_digest", public_plan.at("plan_digest")},
+        {"plan_id", public_plan.at("plan_id")}, {"request_id", Value("recovery.inspect.finalization")},
+        {"schema", Value("usk.recovery_inspect_request.v1")},
+        {"target_root", Value(target.generic_u8string())}, {"transaction_id", Value("tx.finalization.1")}});
+    response = execute(context, "recovery.inspect", inspection, 1, status);
+    if (status != USK_STATUS_OK || response.find("\"available_actions\":[\"resume\"]") == std::string::npos) {
+        std::cerr << "finalization inspection: " << response << '\n';
+        return 186;
+    }
+    const fs::path journal_path = setup_root / "state/transactions/tx.finalization.1.journal.json";
+    const std::string exact_journal = read_text(journal_path);
+    const fs::path installed_snapshot =
+        setup_root / "state/installed/synthetic.finalization.1.tx.finalization.1.json";
+    for (bool setup_was_absent : {false, true}) {
+        Value journal = usk::json::parse(exact_journal);
+        auto& stream = journal.as_object()["recovery_metadata"].as_object()["stream_journal"];
+        Value source_context = usk::json::parse(stream.at("source_context").as_string());
+        const Value current_policy = usk::json::parse(source_context.at("policy_context").as_string());
+        source_context.as_object()["policy_context"] = Value(usk::json::canonical(Value(Value::Object{
+            {"policy", current_policy.at("policy")}, {"setup_was_absent", Value(setup_was_absent)}})));
+        replace_stream_context(journal, source_context);
+        write_text(journal_path, usk::json::canonical(journal) + "\n");
+        response = execute(context, "recovery.inspect", inspection, 1, status);
+        if (status != USK_STATUS_OK) return setup_was_absent ? 194 : 195;
+        const Value legacy_plan(Value::Object{{"created_at", Value("2026-07-14T01:14:02Z")},
+            {"inspection", inspection}, {"recovery_plan_id", Value(setup_was_absent
+                ? "recovery.plan.legacy.absent" : "recovery.plan.legacy.owned")},
+            {"schema", Value("usk.recovery_plan_request.v1")}});
+        response = execute(context, "recovery.plan", legacy_plan, 1, status);
+        if (status != USK_STATUS_OK) return setup_was_absent ? 196 : 197;
+        const Value legacy_apply(Value::Object{{"applied_at", Value("2026-07-14T01:14:03Z")},
+            {"confirmation", Value("APPLY")}, {"plan_request", legacy_plan},
+            {"reviewed_plan_digest", usk::json::parse(response).at("payload").at("plan_digest")},
+            {"reviewed_plan_id", legacy_plan.at("recovery_plan_id")},
+            {"schema", Value("usk.recovery_apply_request.v1")}, {"selected_action", Value("finalize")}});
+        response = execute(context, "recovery.apply", legacy_apply, 0, status);
+        if (status != USK_STATUS_ERROR || response.find("recovery_finalization_context_required") == std::string::npos ||
+            fs::exists(installed_snapshot)) return setup_was_absent ? 198 : 199;
+        write_text(journal_path, exact_journal);
+    }
+    {
+        Value journal = usk::json::parse(exact_journal);
+        auto& stream = journal.as_object()["recovery_metadata"].as_object()["stream_journal"];
+        stream.as_object().erase("source_context");
+        rebind_stream_journal(journal);
+        write_text(journal_path, usk::json::canonical(journal) + "\n");
+        response = execute(context, "recovery.inspect", inspection, 1, status);
+        if (status != USK_STATUS_ERROR ||
+            response.find("recovery_finalization_context_required") == std::string::npos ||
+            fs::exists(installed_snapshot)) return 201;
+        write_text(journal_path, exact_journal);
+    }
+    {
+        Value journal = usk::json::parse(exact_journal);
+        auto& stream = journal.as_object()["recovery_metadata"].as_object()["stream_journal"];
+        stream.as_object()["version"] = Value(std::uint64_t{1});
+        stream.as_object().erase("publication_root_identity");
+        rebind_stream_journal(journal);
+        write_text(journal_path, usk::json::canonical(journal) + "\n");
+        response = execute(context, "recovery.inspect", inspection, 1, status);
+        if (status != USK_STATUS_OK) return 212;
+        const Value v1_plan(Value::Object{{"created_at", Value("2026-07-14T01:14:02Z")},
+            {"inspection", inspection}, {"recovery_plan_id", Value("recovery.plan.v1")},
+            {"schema", Value("usk.recovery_plan_request.v1")}});
+        response = execute(context, "recovery.plan", v1_plan, 1, status);
+        if (status != USK_STATUS_OK) return 213;
+        const Value v1_apply(Value::Object{{"applied_at", Value("2026-07-14T01:14:03Z")},
+            {"confirmation", Value("APPLY")}, {"plan_request", v1_plan},
+            {"reviewed_plan_digest", usk::json::parse(response).at("payload").at("plan_digest")},
+            {"reviewed_plan_id", Value("recovery.plan.v1")},
+            {"schema", Value("usk.recovery_apply_request.v1")}, {"selected_action", Value("finalize")}});
+        response = execute(context, "recovery.apply", v1_apply, 0, status);
+        if (status != USK_STATUS_ERROR || response.find("recovery_finalization_context_required") == std::string::npos ||
+            fs::exists(installed_snapshot)) return 214;
+        write_text(journal_path, exact_journal);
+    }
+    {
+        Value journal = usk::json::parse(exact_journal);
+        auto& stream = journal.as_object()["recovery_metadata"].as_object()["stream_journal"];
+        Value source_context = usk::json::parse(stream.at("source_context").as_string());
+        source_context.as_object()["plan_digest"] = Value(std::string(64, '0'));
+        replace_stream_context(journal, source_context);
+        write_text(journal_path, usk::json::canonical(journal) + "\n");
+        response = execute(context, "recovery.inspect", inspection, 1, status);
+        if (status != USK_STATUS_ERROR || response.find("stale_plan") == std::string::npos ||
+            fs::exists(installed_snapshot)) return 202;
+        write_text(journal_path, exact_journal);
+    }
+    Value changed_target = inspection;
+    changed_target.as_object()["install_plan_request"].as_object()["target"].as_object()["root"] =
+        Value((root / "substituted-finalization-target").generic_u8string());
+    response = execute(context, "recovery.inspect", changed_target, 1, status);
+    if (status != USK_STATUS_ERROR ||
+        (response.find("stale_plan") == std::string::npos &&
+            response.find("target_space_insufficient") == std::string::npos)) return 187;
+    Value wrong_operation = inspection;
+    wrong_operation.as_object().erase("install_plan_request");
+    wrong_operation.as_object()["operation"] = Value("repair");
+    response = execute(context, "recovery.inspect", wrong_operation, 1, status);
+    if (status != USK_STATUS_ERROR) return 188;
+    const Value recovery_plan(Value::Object{{"created_at", Value("2026-07-14T01:14:02Z")},
+        {"inspection", inspection}, {"recovery_plan_id", Value("recovery.plan.finalization")},
+        {"schema", Value("usk.recovery_plan_request.v1")}});
+    response = execute(context, "recovery.plan", recovery_plan, 1, status);
+    if (status != USK_STATUS_OK) return 189;
+    const std::string recovery_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
+    const fs::path held_archive = root / "held-finalization-source.zip";
+    fs::rename(archive, held_archive);
+    fs::copy_file(held_archive, archive);
+    const Value source_changed_apply(Value::Object{
+        {"applied_at", Value("2026-07-14T01:14:03Z")}, {"confirmation", Value("APPLY")},
+        {"plan_request", recovery_plan}, {"reviewed_plan_digest", Value(recovery_digest)},
+        {"reviewed_plan_id", Value("recovery.plan.finalization")},
+        {"schema", Value("usk.recovery_apply_request.v1")}, {"selected_action", Value("finalize")}});
+    response = execute(context, "recovery.apply", source_changed_apply, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("stale_plan") == std::string::npos ||
+        fs::exists(installed_snapshot)) return 209;
+    std::error_code source_restore_error;
+    fs::remove(archive, source_restore_error);
+    if (source_restore_error) return 210;
+    fs::rename(held_archive, archive, source_restore_error);
+    if (source_restore_error) return 211;
+    Value stale_apply(Value::Object{{"applied_at", Value("2026-07-14T01:14:03Z")}, {"confirmation", Value("APPLY")},
+        {"plan_request", recovery_plan}, {"reviewed_plan_digest", Value(std::string(64, '0'))},
+        {"reviewed_plan_id", Value("recovery.plan.finalization")},
+        {"schema", Value("usk.recovery_apply_request.v1")}, {"selected_action", Value("finalize")}});
+    response = execute(context, "recovery.apply", stale_apply, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("stale_plan") == std::string::npos ||
+        !fs::is_regular_file(target / "bin/probe.txt")) return 190;
+    const std::string published_identity = usk::transaction::observe_directory_identity(target);
+    const fs::path held_target = root / "held-finalization-visible-target";
+    fs::rename(target, held_target);
+    fs::copy(held_target, target, fs::copy_options::recursive);
+    if (usk::transaction::observe_directory_identity(target) == published_identity) return 203;
+    response = execute(context, "recovery.inspect", inspection, 1, status);
+    if (status != USK_STATUS_OK ||
+        response.find("\"available_actions\":[\"retain_for_operator\"]") == std::string::npos) return 204;
+    const Value substituted_plan(Value::Object{{"created_at", Value("2026-07-14T01:14:02Z")},
+        {"inspection", inspection}, {"recovery_plan_id", Value("recovery.plan.substituted")},
+        {"schema", Value("usk.recovery_plan_request.v1")}});
+    response = execute(context, "recovery.plan", substituted_plan, 1, status);
+    if (status != USK_STATUS_OK) return 205;
+    const Value substituted_apply(Value::Object{{"applied_at", Value("2026-07-14T01:14:03Z")},
+        {"confirmation", Value("APPLY")}, {"plan_request", substituted_plan},
+        {"reviewed_plan_digest", usk::json::parse(response).at("payload").at("plan_digest")},
+        {"reviewed_plan_id", Value("recovery.plan.substituted")},
+        {"schema", Value("usk.recovery_apply_request.v1")}, {"selected_action", Value("finalize")}});
+    response = execute(context, "recovery.apply", substituted_apply, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("stale_plan") == std::string::npos ||
+        fs::exists(installed_snapshot)) return 206;
+    std::error_code restore_error;
+    fs::remove_all(target, restore_error);
+    if (restore_error) return 207;
+    fs::rename(held_target, target, restore_error);
+    if (restore_error || usk::transaction::observe_directory_identity(target) != published_identity) return 208;
+    stale_apply.as_object()["reviewed_plan_digest"] = Value(recovery_digest);
+    write_text(target / "bin/probe.txt", "substituted-visible-target\n");
+    response = execute(context, "recovery.apply", stale_apply, 0, status);
+    if (status != USK_STATUS_ERROR || read_text(target / "bin/probe.txt") != "substituted-visible-target\n") return 191;
+    write_text(target / "bin/probe.txt", "synthetic-version-1\n");
+    response = execute(context, "recovery.plan", recovery_plan, 1, status);
+    if (status != USK_STATUS_OK) return 192;
+    stale_apply.as_object()["reviewed_plan_digest"] =
+        Value(usk::json::parse(response).at("payload").at("plan_digest").as_string());
+    const auto target_write_time = fs::last_write_time(target / "bin/probe.txt");
+    response = execute(context, "recovery.apply", stale_apply, 0, status);
+    if (status != USK_STATUS_OK || response.find("\"status\":\"completed\"") == std::string::npos ||
+        response.find("\"selected_action\":\"finalize\"") == std::string::npos ||
+        usk::json::parse(response).at("payload").at("report_digest").as_string().size() != 64u ||
+        usk::transaction::observe_directory_identity(target) != published_identity ||
+        fs::last_write_time(target / "bin/probe.txt") != target_write_time) return 193;
+    return 0;
 }
 
 int retained_stream_recovery_proof(usk_context* context, const fs::path& root, const fs::path& setup_root)
@@ -831,6 +1060,9 @@ int main()
         fs::exists(setup_root / "staging/.usk-stage-tx.recovery.rollback") ||
         fs::exists(root / "interrupted-target")) return 33;
 
+    if (const int finalization = public_install_finalization_recovery(context, root, setup_root, archive)) {
+        return finalization;
+    }
     if (const int retained = retained_stream_recovery_proof(context, root, setup_root)) return retained;
     usk_context_destroy_v1(context);
     fs::remove_all(root, error);
