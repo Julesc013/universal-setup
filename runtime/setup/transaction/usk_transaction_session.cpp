@@ -917,6 +917,12 @@ StreamStageResult TransactionSession::stage_file_stream(
     // authority after interruption or replacement by an identical-byte file.
     retain_stream_cleanup_ = true;
     stream_journal_.present = true;
+    // The constructor already created and verified this staging root. Bind its
+    // native identity when direct streaming first establishes the journal so
+    // the later no-replace publication has the same v2 observation as an
+    // explicitly source-bound stream. This remains observation-only; cleanup
+    // authority stays retain-only with a null serialized staging identity.
+    stream_journal_.publication_root_identity = staging_identity_;
     if (stream_journal_.entries.size() >= 100000 ||
         (!stream_journal_.entries.empty() && stream_journal_.entries.back().phase != "complete")) {
         throw std::runtime_error("stream journal has an incomplete entry or exceeds its entry bound");
