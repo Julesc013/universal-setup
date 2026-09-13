@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_audit_repository.h"
+#include "usk_install_restart.h"
 #include "usk_lifecycle.h"
 #include "usk_state_repository.h"
 #include "usk_transaction_session.h"
@@ -250,6 +251,49 @@ int concurrent_writers(Fixture& fixture)
                   << successes << " refused=" << refusals
                   << " events=" << events.size() << '\n';
         return 31;
+    }
+
+    const fs::path reinstall_target = fixture.root / "targets/concurrent-reinstall";
+    const auto initial = usk::lifecycle::plan_install(
+        "plan.concurrent.initial", "install.concurrent.reinstall", "2026-07-14T01:03:03Z",
+        reinstall_target, fixture.roots, recipe("product.concurrent.reinstall"), payload());
+    (void)usk::lifecycle::apply_install(
+        initial, initial.plan_digest, "tx.concurrent.initial", "2026-07-14T01:03:04Z");
+    const auto uninstall = usk::lifecycle::plan_uninstall(
+        fixture.roots, "install.concurrent.reinstall", "plan.concurrent.uninstall",
+        "2026-07-14T01:03:05Z");
+    (void)usk::lifecycle::apply_uninstall(
+        uninstall, uninstall.plan_digest, "tx.concurrent.uninstall", "2026-07-14T01:03:06Z");
+    const auto reinstall_left = usk::lifecycle::plan_install(
+        "plan.concurrent.reinstall.left", "install.concurrent.reinstall", "2026-07-14T01:03:07Z",
+        reinstall_target, fixture.roots, recipe("product.concurrent.reinstall"), payload());
+    const auto reinstall_right = usk::lifecycle::plan_install(
+        "plan.concurrent.reinstall.right", "install.concurrent.reinstall", "2026-07-14T01:03:07Z",
+        reinstall_target, fixture.roots, recipe("product.concurrent.reinstall"), payload());
+    std::atomic<int> reinstall_success{0};
+    std::atomic<int> reinstall_refused{0};
+    auto reinstall = [&](const usk::lifecycle::InstallPlan& plan, const std::string& transaction) {
+        try {
+            (void)usk::lifecycle::apply_install(
+                plan, plan.plan_digest, transaction, "2026-07-14T01:03:08Z");
+            ++reinstall_success;
+        } catch (const std::exception&) {
+            ++reinstall_refused;
+        }
+    };
+    std::thread reinstall_first(reinstall, std::cref(reinstall_left), "tx.concurrent.reinstall.left");
+    std::thread reinstall_second(reinstall, std::cref(reinstall_right), "tx.concurrent.reinstall.right");
+    reinstall_first.join();
+    reinstall_second.join();
+    const auto generation_id = usk::lifecycle::next_install_audit_chain_id(
+        "install.concurrent.reinstall", "tx.concurrent.uninstall");
+    const auto generation = audit.read_and_validate_chain(generation_id);
+    const auto current = usk::state::StateRepository(fixture.roots.state_root)
+        .read_installed("install.concurrent.reinstall");
+    if (reinstall_success != 1 || reinstall_refused != 1 || generation.size() != 2 ||
+        current.audit_chain_id != generation_id || current.lifecycle_status != "installed" ||
+        !fs::is_regular_file(reinstall_target / "app/data.txt")) {
+        return 32;
     }
     return 0;
 }

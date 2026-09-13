@@ -1185,8 +1185,19 @@ RecoveryBundle build_recovery_inspection(const Value& request, const PublicConfi
             result.install_source_context = source_context;
         }
     }
-    result.audit_chain_id = usk::lifecycle::install_audit_chain_id(result.install_id,
-        result.spec.transaction_id, !result.inspection.restart_origin_transaction_id.empty());
+    if (operation == "install_local") {
+        result.audit_chain_id = usk::lifecycle::resolve_install_audit_chain_id(roots, result.install_id,
+            result.spec.transaction_id, !result.inspection.restart_origin_transaction_id.empty());
+    } else {
+        try {
+            result.audit_chain_id = usk::state::StateRepository(roots.state_root)
+                .read_installed(result.install_id).audit_chain_id;
+        } catch (const std::runtime_error& error) {
+            if (std::string(error.what()) != "installed-state record does not exist") throw;
+            result.audit_chain_id = usk::lifecycle::install_audit_chain_id(
+                result.install_id, result.spec.transaction_id, false);
+        }
+    }
     try {
         const auto chain = usk::audit::AuditRepository(roots.audit_root).read_and_validate_chain_bounded(
             result.audit_chain_id, max_recovery_audit_observation_events);

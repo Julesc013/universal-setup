@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_audit_repository.h"
+#include "usk_install_restart.h"
 #include "usk_lifecycle.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
@@ -365,18 +366,84 @@ int run()
         return 10;
     }
 
+    const auto initial_chain_id = usk::lifecycle::install_audit_chain_id(
+        "install.synthetic", "tx.synthetic.install", false);
     const auto chain = usk::audit::AuditRepository(fixture.roots.audit_root)
-        .read_and_validate_chain("audit.install.synthetic");
+        .read_and_validate_chain(initial_chain_id);
     if (chain.size() != 6 || chain.front().phase != "validated" || chain.back().operation != "uninstall") return 11;
+    const auto initial_chain_head = chain.back().event_digest;
+
+    const auto stale_reinstall_plan = usk::lifecycle::plan_install(
+        "plan.synthetic.reinstall.stale", "install.synthetic", "2026-07-14T00:10:12Z",
+        moved_target, fixture.roots, recipe(), payload());
+    if (!refuses([&] {
+            (void)usk::lifecycle::apply_install(stale_reinstall_plan, stale_reinstall_plan.plan_digest,
+                "tx.synthetic.reinstall.stale", "2026-07-14T00:10:13Z");
+        }) || fs::exists(moved_target) ||
+        usk::audit::AuditRepository(fixture.roots.audit_root)
+            .read_and_validate_chain(initial_chain_id).back().event_digest != initial_chain_head) {
+        return 14;
+    }
+
+    const auto reinstall_plan = usk::lifecycle::plan_install(
+        "plan.synthetic.reinstall", "install.synthetic", "2026-07-14T00:10:14Z",
+        moved_target, fixture.roots, recipe(), payload());
+    const auto reinstalled = usk::lifecycle::apply_install(
+        reinstall_plan, reinstall_plan.plan_digest, "tx.synthetic.reinstall", "2026-07-14T00:10:15Z");
+    const auto reinstall_chain_id = usk::lifecycle::next_install_audit_chain_id(
+        "install.synthetic", "tx.synthetic.uninstall.clean");
+    const auto reinstall_chain = usk::audit::AuditRepository(fixture.roots.audit_root)
+        .read_and_validate_chain(reinstall_chain_id);
+    const auto selected_reinstall = usk::state::StateRepository(fixture.roots.state_root)
+        .read_installed("install.synthetic");
+    const auto retained_initial_chain = usk::audit::AuditRepository(fixture.roots.audit_root)
+        .read_and_validate_chain(initial_chain_id);
+    if (reinstalled.verification.status != "pass" || initial_chain_id == reinstall_chain_id ||
+        retained_initial_chain.size() != 6 || retained_initial_chain.back().event_digest != initial_chain_head ||
+        reinstall_chain.size() != 2 || reinstall_chain.front().phase != "validated" ||
+        reinstall_chain.back().phase != "completed" ||
+        selected_reinstall.transaction_id != "tx.synthetic.reinstall" ||
+        selected_reinstall.audit_chain_id != reinstall_chain_id ||
+        !fs::equivalent(fs::path(selected_reinstall.target_root), moved_target)) {
+        std::cerr << "reinstall state mismatch: chain=" << reinstall_chain.size()
+                  << " selected=" << selected_reinstall.transaction_id
+                  << " target=" << selected_reinstall.target_root
+                  << " verification=" << reinstalled.verification.status
+                  << " separate-chain=" << (initial_chain_id != reinstall_chain_id)
+                  << " retained-head=" << (retained_initial_chain.back().event_digest == initial_chain_head)
+                  << " validated=" << reinstall_chain.front().phase
+                  << " completed=" << reinstall_chain.back().phase
+                  << " target-match=" << fs::equivalent(fs::path(selected_reinstall.target_root), moved_target) << '\n';
+        return 15;
+    }
+
+    const fs::path duplicate_target = fixture.root / "targets/duplicate-active";
+    const auto duplicate_plan = usk::lifecycle::plan_install(
+        "plan.synthetic.duplicate", "install.synthetic", "2026-07-14T00:10:16Z",
+        duplicate_target, fixture.roots, recipe(), payload());
+    const auto reinstall_chain_head = reinstall_chain.back().event_digest;
+    if (!refuses([&] {
+            (void)usk::lifecycle::apply_install(duplicate_plan, duplicate_plan.plan_digest,
+                "tx.synthetic.duplicate", "2026-07-14T00:10:17Z");
+        }) || fs::exists(duplicate_target) ||
+        fs::exists(fixture.roots.state_root / "transactions/tx.synthetic.duplicate.journal.json") ||
+        usk::audit::AuditRepository(fixture.roots.audit_root)
+            .read_and_validate_chain(reinstall_chain_id).back().event_digest != reinstall_chain_head ||
+        usk::state::StateRepository(fixture.roots.state_root)
+            .read_installed("install.synthetic").transaction_id != "tx.synthetic.reinstall") {
+        return 16;
+    }
 
     const fs::path recovery_target = fixture.root / "targets/recovered-portable";
     const auto recovery_plan = usk::lifecycle::plan_install(
-        "plan.synthetic.recovery", "install.recovered", "2026-07-14T00:10:14Z",
+        "plan.synthetic.recovery", "install.recovered", "2026-07-14T00:10:18Z",
         recovery_target, fixture.roots, recipe(), payload());
     usk::audit::AuditRepository recovery_audit(fixture.roots.audit_root);
-    recovery_audit.initialize_chain("audit.install.recovered");
-    recovery_audit.append("audit.install.recovered", usk::audit::AuditInput{
-        "2026-07-14T00:10:15Z", "install_local", "validated", "pass", "plan",
+    const auto recovery_chain_id = usk::lifecycle::install_audit_chain_id(
+        "install.recovered", "tx.synthetic.recovery", false);
+    recovery_audit.initialize_chain(recovery_chain_id);
+    recovery_audit.append(recovery_chain_id, usk::audit::AuditInput{
+        "2026-07-14T00:10:19Z", "install_local", "validated", "pass", "plan",
         recovery_plan.plan_id, recovery_plan.plan_digest, "tx.synthetic.recovery",
         recovery_plan.plan_id, "reviewed plan revalidated"});
     usk::transaction::TransactionSession interrupted(usk::transaction::TransactionSpec{
@@ -388,7 +455,7 @@ int run()
     interrupted.commit_effect();
     interrupted.mark_recovery_required();
     const auto recovered = usk::lifecycle::recover_install_finalization(
-        recovery_plan, "tx.synthetic.recovery", "2026-07-14T00:10:16Z");
+        recovery_plan, "tx.synthetic.recovery", "2026-07-14T00:10:20Z");
     if (recovered.verification.status != "pass" ||
         usk::transaction::TransactionSession::inspect_recovery(usk::transaction::TransactionSpec{
             "tx.synthetic.recovery", recovery_plan.plan_id, recovery_plan.plan_digest, "install_local",
@@ -400,11 +467,11 @@ int run()
     const fs::path occupied = fixture.root / "targets/occupied";
     fs::create_directory(occupied);
     const auto occupied_plan = usk::lifecycle::plan_install(
-        "plan.synthetic.occupied", "install.occupied", "2026-07-14T00:10:17Z",
+        "plan.synthetic.occupied", "install.occupied", "2026-07-14T00:10:21Z",
         occupied, fixture.roots, recipe(), payload());
     if (!refuses([&] {
             (void)usk::lifecycle::apply_install(
-                occupied_plan, occupied_plan.plan_digest, "tx.synthetic.occupied", "2026-07-14T00:10:18Z");
+                occupied_plan, occupied_plan.plan_digest, "tx.synthetic.occupied", "2026-07-14T00:10:22Z");
         })) {
         return 13;
     }

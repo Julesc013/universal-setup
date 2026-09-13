@@ -510,7 +510,7 @@ int public_audit_observation_bound() {
         });
     if (stopped.status != USK_STATUS_ERROR) return 140;
     const usk::audit::AuditRepository repository(fixture.roots.audit_root);
-    const std::string chain_id = "audit.i";
+    const std::string chain_id = usk::lifecycle::install_audit_chain_id("i", "old", false);
     const auto original = repository.read_and_validate_chain_bounded(chain_id, 1);
     if (original.size() != 1) return 141;
     const usk::audit::AuditInput input{"2026-09-07T00:00:02Z", "recovery", "recovery", "warn",
@@ -591,7 +591,8 @@ int public_process_boundaries(const fs::path& executable) {
             const auto inspected = inspect(fixture.root, "old");
             if (inspected.status != USK_STATUS_OK) return 30;
             const auto prior_journal = read(fixture.roots.state_root / "transactions/old.journal.json");
-            const auto old_audit = snapshot(fixture.roots.audit_root / "chains/audit.i");
+            const auto old_chain_id = usk::lifecycle::install_audit_chain_id("i", "old", false);
+            const auto old_audit = snapshot(fixture.roots.audit_root / "chains" / old_chain_id);
             const auto staging = fixture.roots.staging_parent / ".usk-stage-old";
             if (i == 3) {
                 fs::rename(staging / "bin/probe.txt", fixture.root / "original.txt");
@@ -606,7 +607,7 @@ int public_process_boundaries(const fs::path& executable) {
                     std::cerr << points[i] << " replay: " << usk::json::canonical(result.document) << '\n'; return 40;
                 }
                 if (read(fixture.root / "target/bin/probe.txt") != probe_content() ||
-                    snapshot(staging) != old_stage || snapshot(fixture.roots.audit_root / "chains/audit.i") != old_audit ||
+                    snapshot(staging) != old_stage || snapshot(fixture.roots.audit_root / "chains" / old_chain_id) != old_audit ||
                     read(fixture.roots.state_root / "transactions/old.journal.json") != prior_journal) return 41;
                 const auto new_chain = usk::lifecycle::install_audit_chain_id("i", "new", true);
                 const auto events = usk::audit::AuditRepository(fixture.roots.audit_root).read_and_validate_chain(new_chain);
@@ -689,13 +690,14 @@ int replay_creation_boundaries(const fs::path& executable) {
             Fixture fixture(false); prepare_public(fixture, deflate);
             if (run_child(executable, fixture.root, "transaction.staging.after_stream_write") != 77) return 90;
             const auto old_stage = snapshot(fixture.roots.staging_parent / ".usk-stage-old");
-            const auto old_chain = snapshot(fixture.roots.audit_root / "chains/audit.i");
+            const auto old_chain_id = usk::lifecycle::install_audit_chain_id("i", "old", false);
+            const auto old_chain = snapshot(fixture.roots.audit_root / "chains" / old_chain_id);
             const auto old_journal = read(fixture.roots.state_root / "transactions/old.journal.json");
             if (run_child(executable, fixture.root, "replay:" + points[index]) != 77) return 91;
             const auto result = inspect(fixture.root, "new");
             if (result.status != USK_STATUS_OK || fs::exists(fixture.root / "target") ||
                 snapshot(fixture.roots.staging_parent / ".usk-stage-old") != old_stage ||
-                snapshot(fixture.roots.audit_root / "chains/audit.i") != old_chain ||
+                snapshot(fixture.roots.audit_root / "chains" / old_chain_id) != old_chain ||
                 read(fixture.roots.state_root / "transactions/old.journal.json") != old_journal) return 92;
             const auto new_journal = usk::json::parse(read(fixture.roots.state_root / "transactions/new.journal.json"));
             const auto& metadata = new_journal.at("recovery_metadata");
@@ -733,8 +735,8 @@ usk::lifecycle::InstallRestartRequest native_restart_request(const Fixture& fixt
     const usk::transaction::TransactionSpec spec{prior, planned.plan_id, planned.plan_digest, "install_local",
         fixture.roots.staging_parent, planned.target_root, fixture.roots.state_root, fixture.roots.audit_root};
     const auto observation = usk::transaction::TransactionSession::inspect_recovery(spec);
-    const auto chain = usk::lifecycle::install_audit_chain_id(planned.install_id, prior,
-        !observation.restart_origin_transaction_id.empty());
+    const auto chain = usk::lifecycle::resolve_install_audit_chain_id(fixture.roots,
+        planned.install_id, prior, !observation.restart_origin_transaction_id.empty());
     return {prior, observation.snapshot_sha256,
         usk::audit::AuditRepository(fixture.roots.audit_root).read_and_validate_chain(chain).back().event_digest};
 }
@@ -765,6 +767,61 @@ int native_replay_finalization() {
             result.installed_state.audit_chain_id != usk::lifecycle::install_audit_chain_id("i", "new", true) ||
             snapshot(fixture.roots.staging_parent / ".usk-stage-old") != retained ||
             read(fixture.root / "target/bin/probe.txt") != probe_content()) return 112;
+    }
+    return 0;
+}
+int retired_reinstall_replay() {
+    for (bool deflate : {false, true}) {
+        Fixture fixture;
+        auto initial = plan(fixture, deflate);
+        const auto installed = usk::lifecycle::apply_install(
+            initial, initial.plan_digest, "cycle-install", "2026-09-07T00:00:01Z");
+        if (installed.verification.status != "pass") return 113;
+        usk::audit::AuditRepository audit(fixture.roots.audit_root);
+        for (std::size_t index = 0; index < 33u; ++index) {
+            audit.append(installed.installed_state.audit_chain_id, usk::audit::AuditInput{
+                "2026-09-07T00:00:01Z", "verify", "completed", "pass", "installation", "i",
+                std::string(64, 'b'), "cycle-install", initial.plan_id, "long-lived generation fixture"});
+        }
+        const auto uninstall_plan = usk::lifecycle::plan_uninstall(
+            fixture.roots, "i", "plan.cycle-uninstall", "2026-09-07T00:00:02Z");
+        const auto uninstalled = usk::lifecycle::apply_uninstall(
+            uninstall_plan, uninstall_plan.plan_digest, "cycle-uninstall", "2026-09-07T00:00:03Z");
+        if (!uninstalled.target_removed || uninstalled.installed_state.lifecycle_status != "retired") return 114;
+        const auto retired_chain = audit.read_and_validate_chain(installed.installed_state.audit_chain_id);
+        if (retired_chain.size() <= 32u || retired_chain.back().operation != "uninstall") return 118;
+
+        auto interrupted_plan = plan(fixture, deflate);
+        bool interrupted = false;
+        try {
+            (void)usk::lifecycle::apply_install(interrupted_plan, interrupted_plan.plan_digest,
+                "cycle-interrupted", "2026-09-07T00:00:04Z",
+                [&](const std::string&, const std::string& point) {
+                    if (point == "transaction.staging.after_stream_write") {
+                        interrupted = true;
+                        throw std::runtime_error("interrupted reinstall");
+                    }
+                });
+        } catch (const std::runtime_error&) {}
+        if (!interrupted) return 115;
+        const auto cycle_chain_id = usk::lifecycle::next_install_audit_chain_id("i", "cycle-uninstall");
+        const auto ordinary_chain = audit.read_and_validate_chain(cycle_chain_id);
+        if (ordinary_chain.size() != 1u || ordinary_chain.back().transaction_id != "cycle-interrupted" ||
+            ordinary_chain.back().phase != "validated") return 116;
+
+        auto fresh = plan(fixture, deflate);
+        const auto restarted = usk::lifecycle::restart_install(
+            fresh, fresh.plan_digest, "cycle-restart", "2026-09-07T00:00:05Z",
+            native_restart_request(fixture, fresh, "cycle-interrupted"));
+        const auto replay_chain_id = usk::lifecycle::install_audit_chain_id("i", "cycle-restart", true);
+        const auto replay_chain = audit.read_and_validate_chain(replay_chain_id);
+        if (replay_chain.size() != 2u) return 117;
+        const auto replay_genesis = usk::json::parse(replay_chain.front().message);
+        if (restarted.verification.status != "pass" ||
+            restarted.installed_state.transaction_id != "cycle-restart" ||
+            restarted.installed_state.audit_chain_id != replay_chain_id ||
+            replay_genesis.at("prior_audit_chain_id").as_string() != cycle_chain_id ||
+            read(fixture.root / "target/bin/probe.txt") != probe_content()) return 117;
     }
     return 0;
 }
@@ -859,6 +916,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string(argv[1]) == "ancestor") return ancestor_commit_uncertainty();
         if (argc == 2 && std::string(argv[1]) == "commit-authority") return commit_authority_refusals();
         if (argc == 2 && std::string(argv[1]) == "audit-bound") return public_audit_observation_bound();
+        if (argc == 2 && std::string(argv[1]) == "retired-reinstall") return retired_reinstall_replay();
         if (argc == 4 && std::string(argv[1]) == "child") return child(fs::u8path(argv[2]), argv[3]);
         if (const int result = commit_authority_refusals()) return result;
         if (const int result = pending_source_binding()) return result;
@@ -870,6 +928,7 @@ int main(int argc, char** argv) {
         if (const int result = replay_creation_boundaries(executable)) return result;
         if (const int result = absent_target_commit_uncertainty(executable)) return result;
         if (const int result = native_replay_finalization()) return result;
+        if (const int result = retired_reinstall_replay()) return result;
         if (const int result = concurrent_original_and_replay()) return result;
         if (const int result = ancestor_commit_uncertainty()) return result;
         std::cout << "ZIP replay: stored/Deflate, 50 process exits, admission/retention, finalization and competing commits PASS\n";
