@@ -57,9 +57,11 @@ M2-WU2 availability is deliberately split:
 - available read-only: package verify/audit, archive inspect, all lifecycle
   plan commands, installed inspect/verify, recovery inspect/plan;
 - available mutation behind exact context policy: install, repair, move,
-  uninstall apply, and exact staged-closure recovery rollback;
+  uninstall apply, exact staged-closure recovery rollback, and reviewed
+  install-local post-commit finalization;
 - planned and non-executable: audit list/inspect/export. Visible-target recovery
-  finalization remains unavailable without the original operation context.
+  finalization is refused unless the original versioned operation/source context
+  and v2 publication identity are present and immediately revalidate.
 
 Public mutation additionally requires an exact reviewed plan, `APPLY`
 confirmation, immediate input revalidation, and an authorized target class.

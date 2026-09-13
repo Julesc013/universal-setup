@@ -171,6 +171,15 @@ class SetupContractTests(unittest.TestCase):
         self.assertNotIn("source_context", stream["required"])
         self.assertIs(stream["additionalProperties"], False)
 
+    def test_recovery_inspection_allows_bound_install_context_only_for_installs(self) -> None:
+        inspection = load_schema("recovery_inspect_request")
+        self.assertEqual(
+            inspection["properties"]["install_plan_request"]["$ref"],
+            "install_local_plan_request.v1.schema.json",
+        )
+        self.assertEqual(inspection["allOf"][0]["if"]["properties"]["operation"]["const"], "install_local")
+        self.assertEqual(inspection["allOf"][0]["else"]["not"]["required"], ["install_plan_request"])
+
     def test_m2_live_target_evidence_is_strict_and_keeps_human_authority_separate(self) -> None:
         for name, schema_const in M2_EVIDENCE_CONTRACTS.items():
             schema = load_schema(name)
@@ -393,13 +402,19 @@ class SetupContractTests(unittest.TestCase):
         self.assertEqual(metadata["dependentSchemas"]["stream_journal"]["required"], ["stream_cleanup_policy"])
         journal = metadata["properties"]["stream_journal"]
         self.assertFalse(journal["additionalProperties"])
-        self.assertEqual(journal["properties"]["version"], {"const": 1})
+        self.assertEqual(journal["properties"]["version"], {"enum": [1, 2]})
         self.assertEqual(set(journal["required"]), {
             "version", "source_digest", "restart_origin", "entries", "digest",
         })
         origin = journal["properties"]["restart_origin"]["anyOf"][1]
         self.assertFalse(origin["additionalProperties"])
         self.assertEqual(origin["required"], ["transaction_id", "snapshot_sha256"])
+        publication = journal["properties"]["publication_root_identity"]
+        self.assertEqual(publication["pattern"], "^[a-f0-9]{16}:[a-f0-9]{16}$")
+        version_binding = journal["allOf"][0]
+        self.assertEqual(version_binding["if"]["properties"]["version"]["const"], 2)
+        self.assertEqual(version_binding["then"]["required"], ["publication_root_identity"])
+        self.assertEqual(version_binding["else"]["not"]["required"], ["publication_root_identity"])
 
     def test_stream_entry_phases_require_creation_handle_observation(self) -> None:
         journal = load_schema("transaction_journal")["properties"]["recovery_metadata"]["properties"]["stream_journal"]

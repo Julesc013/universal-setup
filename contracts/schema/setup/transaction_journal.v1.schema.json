@@ -95,7 +95,7 @@
           ],
           "properties": {
             "version": {
-              "const": 1
+              "enum": [1, 2]
             },
             "source_digest": {
               "anyOf": [
@@ -216,10 +216,20 @@
               "minLength": 1,
               "maxLength": 16384,
               "description": "Canonical versioned source context whose SHA256 equals source_digest; an observation, never cleanup authority."
+            },
+            "publication_root_identity": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{16}:[a-f0-9]{16}$",
+              "description": "Observation-only identity of the owned staging directory published by no-replace commit; never cleanup authority."
             }
           },
           "additionalProperties": false,
           "allOf": [
+            {
+              "if": { "properties": { "version": { "const": 2 } }, "required": ["version"] },
+              "then": { "required": ["publication_root_identity"] },
+              "else": { "not": { "required": ["publication_root_identity"] } }
+            },
             {
               "if": {
                 "properties": {

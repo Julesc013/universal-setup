@@ -16,6 +16,52 @@ bool digest(const std::string& value) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
     });
 }
+void require_restart_policy_context(const Value& context) {
+    const std::set<std::string> legacy{"policy", "setup_was_absent"};
+    const std::set<std::string> current{"schema", "policy", "setup_initial_state", "target_evidence"};
+    std::set<std::string> keys;
+    for (const auto& member : context.as_object()) keys.insert(member.first);
+    if (keys != legacy && keys != current) {
+        throw std::runtime_error("original install policy context schema is invalid");
+    }
+    const auto& policy = context.at("policy");
+    std::set<std::string> policy_keys;
+    for (const auto& member : policy.as_object()) policy_keys.insert(member.first);
+    if (policy_keys != std::set<std::string>{"activation", "setup_binding_digest", "target_binding_digest"} ||
+        !digest(policy.at("setup_binding_digest").as_string()) ||
+        !digest(policy.at("target_binding_digest").as_string())) {
+        throw std::runtime_error("original install policy context binding is invalid");
+    }
+    if (keys == legacy) {
+        (void)context.at("setup_was_absent").as_boolean();
+        return;
+    }
+    if (keys == current) {
+        const auto& evidence = context.at("target_evidence");
+        std::set<std::string> evidence_keys;
+        for (const auto& member : evidence.as_object()) evidence_keys.insert(member.first);
+        if (context.at("schema").as_string() != "usk.install_restart_policy_context.v1" ||
+            (context.at("setup_initial_state").as_string() != "absent" &&
+                context.at("setup_initial_state").as_string() != "owned") ||
+            evidence_keys != std::set<std::string>{"capacity_satisfied", "excluded_roots_absent",
+                "filesystem_identity_digest", "filesystem_kind", "local_filesystem",
+                "mount_redirection_absent", "path_components_stable", "source_target_distinct",
+                "schema", "target_identity_digest", "target_state"} ||
+            evidence.at("schema").as_string() != "usk.install_target_recovery_evidence.v1" ||
+            evidence.at("target_state").as_string() != "nonexistent" ||
+            !digest(evidence.at("target_identity_digest").as_string()) ||
+            !digest(evidence.at("filesystem_identity_digest").as_string()) ||
+            evidence.at("filesystem_kind").as_string().empty() ||
+            !evidence.at("capacity_satisfied").as_boolean() ||
+            !evidence.at("excluded_roots_absent").as_boolean() ||
+            !evidence.at("local_filesystem").as_boolean() ||
+            !evidence.at("mount_redirection_absent").as_boolean() ||
+            !evidence.at("path_components_stable").as_boolean() ||
+            !evidence.at("source_target_distinct").as_boolean()) {
+            throw std::runtime_error("original install target evidence is invalid");
+        }
+    }
+}
 Value validate_genesis(const audit::AuditEvent& event, const InstallPlan& plan,
     const std::string& transaction_id, const transaction::RecoveryInspection& inspection) {
     const Value value = json::parse(event.message);
@@ -114,7 +160,8 @@ json::Value read_install_stream_context(const transaction::RecoveryInspection& i
     for (const auto* key : {"archive_sha256", "archive_identity_digest", "entry_set_digest", "plan_digest", "policy_digest"}) {
         if (!digest(context.at(key).as_string())) throw std::runtime_error("original install source context digest is invalid");
     }
-    (void)context.at("policy_context").as_string();
+    const auto policy_context = json::parse(context.at("policy_context").as_string());
+    require_restart_policy_context(policy_context);
     return context;
 }
 std::string install_stream_source_context(const InstallPlan& plan) {

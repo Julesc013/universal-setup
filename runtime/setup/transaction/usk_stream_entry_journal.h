@@ -22,6 +22,10 @@ struct StreamEntryObservation {
 struct StreamJournal {
     std::string source_digest;
     std::string source_context;
+    // Native identity of the owned staging directory that a successful
+    // no-replace commit publishes as the target. Observation only: this never
+    // grants pathname cleanup authority.
+    std::string publication_root_identity;
     std::string origin_transaction_id;
     std::string origin_snapshot_sha256;
     std::vector<StreamEntryObservation> entries;
