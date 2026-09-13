@@ -138,7 +138,7 @@
       "additionalProperties": false,
       "required": ["expression", "files", "files_sha256"],
       "properties": {
-        "expression": { "const": "MIT" },
+        "expression": { "const": "MIT AND Zlib" },
         "files": { "$ref": "#/$defs/inventory" },
         "files_sha256": { "$ref": "#/$defs/sha256" }
       }
