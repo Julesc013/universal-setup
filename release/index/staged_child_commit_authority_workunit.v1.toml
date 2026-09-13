@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "usk.staged_child_commit_authority_workunit.v1"
+work_item = "USK-STAGED-CHILD-COMMIT-AUTHORITY-01"
+status = "implementation_in_progress_review_pending"
+task_branch = "task/usk-staged-child-commit-authority-01"
+source_base = "cf07ea2a0ad2a57baa351e46dd0664feeda028e3"
+public_c_abi = "1.0"
+optional_required_commit_authority = "staged_child_bound_v1"
+strong_authority_available = false
+legacy_closure_observation_max_entries = 200000
+legacy_closure_observation_max_depth = 128
+strict_public_apply_policy = "typed_refusal_before_effects"
+staged_native_refusal_policy = "durable_retain_only"
+legacy_commit_atomic_child_authority_qualified = false
+strong_commit_success_qualified = false
+generation_leases_qualified = false
+automatic_retained_cleanup_qualified = false
+consumer_pin_adopted = false
+native_regressions = ["usk_commit_authority_smoke", "usk_zip_restart_smoke"]

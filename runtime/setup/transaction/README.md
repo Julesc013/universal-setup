@@ -37,6 +37,25 @@ Visible-target finalization still requires the exact original operation
 context. Automatic leases, retained-child cleanup and cross-volume
 copy/verify/commit remain separate work.
 
+## Stream journal publication observation
+
+StreamJournal v2 records `publication_root_identity` as an observation-only
+native identity of the closed staging directory immediately before the
+same-volume no-replace publication. It does not add pathname deletion
+authority: streamed recovery metadata continues to carry a null
+`staging_identity` and retain-only cleanup policy. After publication, recovery
+requires the visible target directory to have that exact observed identity
+before a public install-local finalization can proceed. This rejects a
+replacement directory even when it contains identical bytes.
+
+Version 1 journals remain parseable for inspection and the established native
+restart paths, but lack this observation and therefore cannot authorize public
+visible-target finalization. A v2 finalization only writes the missing durable
+metadata; it neither reopens payload readers nor copies payload bytes again.
+The bound target evidence records `capacity_satisfied` rather than a volatile
+free-space value. It preserves the reviewed publication predicate while the
+separate setup-state writes still perform their live capacity/authority checks.
+
 The optional stream `source_context` is a bounded canonical versioned document
 whose SHA256 must equal `source_digest`. Lifecycle ZIP replay uses it to bind
 archive, entry-set, original plan/policy and observed native setup/root identities.
@@ -46,3 +65,7 @@ ZIP replay admission. Readers that reject the added optional metadata retain
 state; no fallback grants rollback authority. These digests detect corruption and
 bind an explicitly reviewed snapshot; they are not authentication credentials or
 proof of a live generation lease.
+
+## Staged child commit requirement
+
+Commit preparation rejects already-changed verified file/directory closure and durably retains staging on refusal. Optional `staged_child_bound_v1` has no qualified success publisher; explicit lifecycle apply refuses before effects and directly staged native attempts retain/refuse. See [the authority boundary](../../../docs/architecture/staged_child_commit_authority.md) for the exact observation limits, journal compatibility and outstanding atomic publication work.

@@ -9,6 +9,7 @@
 #include "usk_json.h"
 #include "usk_lifecycle.h"
 #include "usk_sha256.h"
+#include "usk_target_inspect.h"
 #include "usk_transaction_session.h"
 
 #include <algorithm>
@@ -128,6 +129,7 @@ std::string read(const fs::path& path) {
     std::ifstream input(path, std::ios::binary);
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
+void write(const fs::path& path, const std::string& text);
 struct Fixture {
     fs::path root = fs::temp_directory_path() /
         ("usk-zr-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -144,6 +146,20 @@ struct Fixture {
     }
     ~Fixture() { std::error_code ignored; fs::remove_all(root, ignored); }
 };
+
+void initialize_owned_setup(Fixture& fixture)
+{
+    fs::create_directories(fixture.roots.staging_parent);
+    fs::create_directories(fixture.roots.state_root);
+    fs::create_directories(fixture.roots.audit_root);
+    usk::state::StateRepository::initialize_layout(fixture.roots.state_root);
+    fs::create_directory(fixture.roots.state_root / "transactions");
+    usk::audit::AuditRepository::initialize_layout(fixture.roots.audit_root);
+    write(fixture.root / "u/.usk-owned-root.v1.json", usk::json::canonical(Value(Value::Object{
+        {"acceptance_root", Value(fixture.root.generic_u8string())},
+        {"schema", Value("usk.setup_owned_root.v1")}})) + "\n");
+}
+
 usk::lifecycle::InstallPlan plan(Fixture& fixture, bool deflate) {
     const fs::path archive = fixture.root / "source.zip";
     if (!fs::exists(archive)) write_zip(archive, deflate);
@@ -159,11 +175,16 @@ usk::lifecycle::InstallPlan plan(Fixture& fixture, bool deflate) {
         {"max_depth", Value(std::uint64_t{32})},
         {"max_elapsed_ms", Value(std::uint64_t{30000})}})}});
     auto archive_payload = usk::archive::inspect_streaming_payload(usk::json::canonical(request), "product");
+    const Value policy(Value::Object{{"activation", Value("operator_acceptance_candidate")},
+        {"setup_binding_digest", Value(std::string(64, 'b'))},
+        {"target_binding_digest", Value(std::string(64, 'c'))}});
     usk::lifecycle::RecipeBinding recipe{"product", "1", std::string(64, 'a'),
-        archive_payload.source_sha256, std::string(64, 'b'), "provider", {"base"},
+        archive_payload.source_sha256, usk::json::sha256_canonical(policy), "provider", {"base"},
         {{"probe", "bin/probe.txt", "tool"}}};
     recipe.source_identity_digest = archive_payload.source_identity_digest;
     recipe.entry_set_digest = archive_payload.entry_set_digest;
+    recipe.restart_policy_context = usk::json::canonical(Value(Value::Object{
+        {"policy", policy}, {"setup_was_absent", Value(true)}}));
     std::vector<usk::lifecycle::PayloadFile> files;
     for (auto& entry : archive_payload.files) {
         files.push_back({entry.relative_path, {}, entry.sha256, entry.size_bytes,
@@ -171,6 +192,65 @@ usk::lifecycle::InstallPlan plan(Fixture& fixture, bool deflate) {
     }
     return usk::lifecycle::plan_install("plan", "i", "2026-09-07T00:00:00Z",
         fixture.root / "target", fixture.roots, std::move(recipe), std::move(files), std::move(archive_payload.validate_source));
+}
+
+usk::lifecycle::InstallPlan legacy_public_plan(Fixture& fixture, bool deflate, bool setup_was_absent)
+{
+    const fs::path archive = fixture.root / "source.zip";
+    const fs::path target = fixture.root / "target";
+    write_zip(archive, deflate);
+    if (!setup_was_absent) initialize_owned_setup(fixture);
+    const Value inspect_request(Value::Object{
+        {"schema", Value("usk.archive_inspect_request.v1")},
+        {"archive_path", Value(archive.u8string())},
+        {"archive_format", Value("zip")},
+        {"budgets", Value(Value::Object{
+            {"max_entries", Value(std::uint64_t{100})},
+            {"max_uncompressed_bytes", Value(std::uint64_t{10485760})},
+            {"max_entry_bytes", Value(std::uint64_t{1048576})},
+            {"max_ratio", Value(std::uint64_t{10000})},
+            {"max_depth", Value(std::uint64_t{32})},
+            {"max_elapsed_ms", Value(std::uint64_t{30000})}})}});
+    auto payload = usk::archive::inspect_streaming_payload(usk::json::canonical(inspect_request), "product");
+    constexpr std::uint64_t setup_overhead = 16u * 1024u * 1024u;
+    const usk::policy::TargetInspectionRequest target_request{
+        usk::policy::TargetClass::operator_acceptance, target, fixture.root, archive,
+        payload.uncompressed_bytes + setup_overhead,
+        {"create managed portable target " + fs::absolute(target).lexically_normal().generic_u8string(),
+         "write exact installed-state, ownership, journal, and audit records under " +
+             (fixture.root / "u").generic_u8string()}};
+    const auto target_inspection = usk::policy::inspect_and_evaluate_live_target(
+        usk::policy::Activation::operator_acceptance_candidate, target_request);
+    const usk::policy::TargetInspectionRequest setup_request{
+        usk::policy::TargetClass::operator_acceptance, fixture.root / "u/.usk-binding-probe",
+        fixture.root, archive, setup_overhead,
+        {"create setup-owned state, staging, journal, and audit repositories under " +
+             (fixture.root / "u").generic_u8string()}};
+    const auto setup_inspection = usk::policy::inspect_and_evaluate_live_target(
+        usk::policy::Activation::operator_acceptance_candidate, setup_request);
+    if (!target_inspection.decision.accepted || !setup_inspection.decision.accepted) {
+        throw std::runtime_error("legacy public policy fixture was refused");
+    }
+    const Value policy(Value::Object{
+        {"activation", Value("operator_acceptance_candidate")},
+        {"setup_binding_digest", Value(setup_inspection.decision.target_binding_digest)},
+        {"target_binding_digest", Value(target_inspection.decision.target_binding_digest)}});
+    usk::lifecycle::RecipeBinding recipe{"synthetic.product", "1.0.0", std::string(64, 'a'),
+        payload.source_sha256, usk::json::sha256_canonical(policy), "test.provider.1", {"base"},
+        {{"probe", "bin/probe.txt", "tool"}}};
+    recipe.source_identity_digest = payload.source_identity_digest;
+    recipe.entry_set_digest = payload.entry_set_digest;
+    recipe.restart_policy_context = usk::json::canonical(Value(Value::Object{
+        {"policy", policy}, {"setup_was_absent", Value(setup_was_absent)}}));
+    std::vector<usk::lifecycle::PayloadFile> files;
+    for (auto& entry : payload.files) {
+        files.push_back({entry.relative_path, {}, entry.sha256, entry.size_bytes,
+            std::move(entry.reader), payload.payload_buffer_bytes});
+    }
+    auto result = usk::lifecycle::plan_install("plan", "i", "2026-07-14T01:00:00Z", target,
+        fixture.roots, std::move(recipe), std::move(files), std::move(payload.validate_source));
+    if (setup_was_absent) initialize_owned_setup(fixture);
+    return result;
 }
 int pending_source_binding() {
     for (bool deflate : {false, true}) {
@@ -307,6 +387,120 @@ void prepare_public(Fixture& fixture, bool deflate) {
     write(fixture.root / "request.json", usk::json::canonical(request));
     write(fixture.root / "planned.json", usk::json::canonical(result.document.at("payload")));
     if (fs::exists(fixture.root / "u")) throw std::runtime_error("plan initialized setup state");
+}
+
+int legacy_policy_cross_format_replay()
+{
+    for (bool deflate : {false, true}) {
+        for (bool setup_was_absent : {false, true}) {
+            Fixture fixture(false);
+            const auto legacy = legacy_public_plan(fixture, deflate, setup_was_absent);
+            bool interrupted = false;
+            try {
+                (void)usk::lifecycle::apply_install(legacy, legacy.plan_digest, "old",
+                    "2026-09-07T00:00:01Z", [&](const std::string&, const std::string& point) {
+                        if (point == "transaction.staging.after_stream_write") {
+                            interrupted = true;
+                            throw std::runtime_error("legacy public replay interruption");
+                        }
+                    });
+            } catch (const std::runtime_error&) {}
+            if (!interrupted) return 210;
+            const fs::path journal_path = fixture.roots.state_root / "transactions/old.journal.json";
+            auto journal = usk::json::parse(read(journal_path));
+            auto& stream = journal.as_object()["recovery_metadata"].as_object()["stream_journal"];
+            if (stream.at("version").as_unsigned() != 2u ||
+                stream.at("publication_root_identity").as_string().empty()) return 211;
+            if (setup_was_absent) {
+                // Version 1 remains inspectable and restartable; it carries no authority to
+                // finalize a visible target because it predates publication-root identity.
+                stream.as_object()["version"] = Value(std::uint64_t{1});
+                stream.as_object().erase("publication_root_identity");
+                stream.as_object().erase("digest");
+                stream.as_object()["digest"] = Value(usk::json::sha256_canonical(stream));
+                write(journal_path, usk::json::canonical(journal) + "\n");
+            }
+            const auto request = public_plan_request(fixture.root / "source.zip", fixture.root / "target",
+                usk::base::sha256_hex_file(fixture.root / "source.zip"));
+            write(fixture.root / "request.json", usk::json::canonical(request));
+            write(fixture.root / "planned.json", usk::json::canonical(Value(Value::Object{
+                {"plan_digest", Value(legacy.plan_digest)}, {"plan_id", Value(legacy.plan_id)}})));
+            const auto observed = inspect(fixture.root, "old");
+            if (observed.status != USK_STATUS_OK) {
+                std::cerr << "legacy inspection: " << usk::json::canonical(observed.document) << '\n';
+                return 212;
+            }
+            const auto replayed = command(fixture.root, "install_local.apply",
+                replay_request(fixture.root, "old", "new"));
+            if (replayed.status != USK_STATUS_OK ||
+                read(fixture.root / "target/bin/probe.txt") != probe_content()) {
+                std::cerr << "legacy cross-format replay: " << usk::json::canonical(replayed.document) << '\n';
+                return 213;
+            }
+            const auto next_journal = usk::json::parse(
+                read(fixture.roots.state_root / "transactions/new.journal.json"));
+            if (next_journal.at("recovery_metadata").at("stream_journal").at("version").as_unsigned() != 2u) {
+                return 214;
+            }
+        }
+    }
+    return 0;
+}
+int commit_authority_refusals() {
+    using Requirement = usk::transaction::CommitAuthorityRequirement;
+    for (bool deflate : {false, true}) {
+        Fixture fixture(false); prepare_public(fixture, deflate);
+        const auto original = usk::json::parse(read(fixture.root / "request.json"));
+        const auto legacy = usk::json::parse(read(fixture.root / "planned.json"));
+        auto strict = original; strict.as_object().emplace("required_commit_authority", Value("staged_child_bound_v1"));
+        const auto before = snapshot(fixture.root);
+        const auto planned = command(fixture.root, "install_local.plan", strict);
+        if (planned.status != USK_STATUS_OK || snapshot(fixture.root) != before) return 150;
+        const auto& payload = planned.document.at("payload");
+        if (payload.at("required_commit_authority").as_string() != "staged_child_bound_v1" ||
+            payload.at("commit_authority_available").as_boolean() || legacy.contains("required_commit_authority") ||
+            payload.at("plan_digest").as_string() == legacy.at("plan_digest").as_string()) return 151;
+        auto apply = apply_request("usk.install_local_apply_request.v1", strict,
+            payload.at("plan_id").as_string(), payload.at("plan_digest").as_string(), "strict", "2026-09-07T00:00:01Z");
+        const auto refused = command(fixture.root, "install_local.apply", apply);
+        if (refused.status == USK_STATUS_OK ||
+            refused.document.at("error").at("code").as_string() != "commit_authority_unavailable" ||
+            snapshot(fixture.root) != before || fs::exists(fixture.root / "u")) return 152;
+        apply.as_object()["plan_request"] = original;
+        const auto downgrade = command(fixture.root, "install_local.apply", apply);
+        if (downgrade.status == USK_STATUS_OK ||
+            downgrade.document.at("error").at("code").as_string() != "stale_plan" || snapshot(fixture.root) != before) return 153;
+        for (const Value& invalid : {Value("legacy_observed"), Value("unknown"), Value(true), Value()}) {
+            auto malformed = original; malformed.as_object()["required_commit_authority"] = invalid;
+            if (command(fixture.root, "install_local.plan", malformed).status == USK_STATUS_OK ||
+                snapshot(fixture.root) != before) return 154;
+        }
+        // Omitted requirement still installs the exact reviewed ZIP payload.
+        const auto success = command(fixture.root, "install_local.apply", reviewed_apply(fixture.root, "legacy"));
+        if (success.status != USK_STATUS_OK || read(fixture.root / "target/bin/probe.txt") != probe_content()) {
+            std::cerr << "legacy install: " << usk::json::canonical(success.document) << '\n';
+            return 155;
+        }
+
+        Fixture native; const auto old = plan(native, deflate);
+        const auto bound = usk::lifecycle::plan_install(old.plan_id, old.install_id, old.created_at, old.target_root,
+            old.roots, old.recipe, old.files, old.validate_source, Requirement::staged_child_bound_v1);
+        if (bound.plan_digest == old.plan_digest ||
+            usk::json::parse(usk::lifecycle::install_stream_source_context(bound)).at("required_commit_authority").as_string() !=
+                "staged_child_bound_v1" || usk::lifecycle::install_stream_source_digest(bound) ==
+                usk::lifecycle::install_stream_source_digest(old)) return 156;
+        const auto native_before = snapshot(native.root); bool typed = false;
+        try { (void)usk::lifecycle::apply_install(bound, bound.plan_digest, "strict", "2026-09-07T00:00:01Z"); }
+        catch (const usk::transaction::CommitAuthorityUnavailable&) { typed = true; }
+        if (!typed || snapshot(native.root) != native_before) return 157;
+        auto tampered = bound; tampered.required_commit_authority = Requirement::legacy_observed;
+        bool invalid = false;
+        try { (void)usk::lifecycle::apply_install(tampered, bound.plan_digest, "tampered", "2026-09-07T00:00:01Z"); }
+        catch (const std::exception&) { invalid = true; }
+        if (!invalid || snapshot(native.root) != native_before) return 158;
+    }
+    std::cout << "public/native commit requirement: stored/Deflate plan binding, early typed refusal, downgrade refusal, legacy success PASS\n";
+    return 0;
 }
 int public_audit_observation_bound() {
     Fixture fixture(false); prepare_public(fixture, false);
@@ -663,9 +857,12 @@ int ancestor_commit_uncertainty() {
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "ancestor") return ancestor_commit_uncertainty();
+        if (argc == 2 && std::string(argv[1]) == "commit-authority") return commit_authority_refusals();
         if (argc == 2 && std::string(argv[1]) == "audit-bound") return public_audit_observation_bound();
         if (argc == 4 && std::string(argv[1]) == "child") return child(fs::u8path(argv[2]), argv[3]);
+        if (const int result = commit_authority_refusals()) return result;
         if (const int result = pending_source_binding()) return result;
+        if (const int result = legacy_policy_cross_format_replay()) return result;
         if (const int result = public_audit_observation_bound()) return result;
         const auto executable = fs::absolute(fs::u8path(argv[0]));
         if (const int result = public_process_boundaries(executable)) return result;

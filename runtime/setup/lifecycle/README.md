@@ -35,6 +35,34 @@ an absent target after a possible commit. Visible-target finalization remains it
 separate exact-context operation. Competing original/replay transactions use the
 existing no-replace target commit and retain the loser.
 
+## Reviewed post-commit finalization
+
+`recovery.inspect`, `recovery.plan`, and `recovery.apply` can complete the
+post-commit install-local window only after a caller has reviewed the exact
+recovery plan. `recovery.apply` accepts `selected_action: "finalize"` only for
+an `install_local` transaction whose target is visible, whose original install
+request and reviewed source context still rebuild to the durable plan identity,
+and whose source is validated immediately before finalization. Repair, move,
+and uninstall recovery retain their existing refusal behavior; staged rollback
+is unchanged.
+
+Finalization completes the missing ownership, installed-state, audit, and
+journal metadata for the already published target. It does not call ordinary
+install apply, restage payloads, or replay archive readers into the target.
+The original target-capacity decision is represented by a durable
+`capacity_satisfied` predicate so this metadata-only work does not impose a
+new full-payload capacity requirement after publication. Setup-state writes
+remain subject to their normal live authority checks.
+
+Public finalization requires the current versioned source context and the v2
+stream-journal publication observation. Older v1 or legacy journals remain
+readable and retain their established native restart/inspection behavior, but
+do not gain public visible-target finalization authority.
+
 See [ZIP replay qualification](../../../docs/architecture/zip_entry_replay.md).
 Automatic retry, stale-owner leases, retained-child cleanup and child ownership
 through the verification-to-commit interval remain separate qualification work.
+
+## Staged child commit requirement
+
+Commit preparation rejects already-changed verified file/directory closure and durably retains staging on refusal. Optional `staged_child_bound_v1` has no qualified success publisher; explicit lifecycle apply refuses before effects and directly staged native attempts retain/refuse. See [the authority boundary](../../../docs/architecture/staged_child_commit_authority.md) for the exact observation limits, journal compatibility and outstanding atomic publication work.

@@ -442,16 +442,21 @@ int streamed_visible_target_finalization()
             });
         transaction.mark_staged();
         transaction.mark_verified();
+        const auto journal = usk::json::parse(read_text(transaction.journal_path()));
+        const auto& stream = journal.at("recovery_metadata").at("stream_journal");
+        if (stream.at("version").as_unsigned() != 2u ||
+            stream.at("publication_root_identity").as_string().empty()) return 56;
         transaction.commit_effect();
     }
     const auto recovery = usk::transaction::TransactionSession::inspect_recovery(spec);
     if (recovery.available_actions != std::vector<std::string>{"resume"} ||
-        recovery.staging_exists || !recovery.target_exists) return 56;
+        recovery.staging_exists || !recovery.target_exists ||
+        recovery.publication_root_identity.empty()) return 57;
     auto resumed = usk::transaction::TransactionSession::resume_finalization(spec);
     resumed->mark_committed();
     resumed->mark_completed();
     if (usk::base::sha256_hex_file(spec.target_root / "payload.bin") != expected ||
-        usk::transaction::TransactionSession::inspect_recovery(spec).current_state != "completed") return 57;
+        usk::transaction::TransactionSession::inspect_recovery(spec).current_state != "completed") return 58;
     return 0;
 }
 

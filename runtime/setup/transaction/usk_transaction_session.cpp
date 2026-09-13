@@ -457,6 +457,31 @@ std::vector<std::string> journal_actions(const std::string& state)
     return {};
 }
 
+bool retain_commit_cleanup(const usk::json::Value& document)
+{
+    if (!document.contains("recovery_metadata")) return false;
+    const auto& metadata = document.at("recovery_metadata");
+    if (!metadata.contains("commit_cleanup_policy")) return false;
+    if (metadata.at("commit_cleanup_policy").as_string() != "retain_only" ||
+        metadata.at("staging_identity").type() != usk::json::Value::Type::null_value) {
+        throw std::runtime_error("commit cleanup policy or rollback authority is invalid");
+    }
+    return true;
+}
+
+void validate_commit_requirement(const usk::json::Value& document,
+    usk::transaction::CommitAuthorityRequirement requirement)
+{
+    using usk::transaction::CommitAuthorityRequirement;
+    (void)usk::transaction::commit_authority_name(requirement);
+    const bool recorded = document.contains("required_commit_authority");
+    if (recorded != (requirement == CommitAuthorityRequirement::staged_child_bound_v1) ||
+        (recorded && (document.at("required_commit_authority").as_string() != "staged_child_bound_v1" ||
+            !retain_commit_cleanup(document)))) {
+        throw std::runtime_error("journal commit authority requirement mismatch or missing retention");
+    }
+}
+
 bool retain_stream_cleanup(const usk::json::Value& document)
 {
     if (document.as_object().count("recovery_metadata") == 0) return false;
@@ -508,6 +533,8 @@ TransactionSession::TransactionSession(
          spec_.operation != "recovery")) {
         throw std::runtime_error("transaction identity, digest, or operation is invalid");
     }
+    (void)commit_authority_name(spec_.required_commit_authority);
+    retain_commit_cleanup_ = spec_.required_commit_authority == CommitAuthorityRequirement::staged_child_bound_v1;
     spec_.staging_parent = absolute_normal(spec_.staging_parent);
     spec_.target_root = absolute_normal(spec_.target_root);
     spec_.state_root = absolute_normal(spec_.state_root);
@@ -518,6 +545,7 @@ TransactionSession::TransactionSession(
     require_path_capacity(spec_);
     created_at_ = iso8601_now();
 
+    if (resume_mode == ResumeMode::finalization) require_commit_authority(spec_.required_commit_authority);
     if (resume_mode != ResumeMode::none) {
         require_safe_directory(spec_.staging_parent);
         require_safe_directory(spec_.target_root.parent_path());
@@ -536,6 +564,8 @@ TransactionSession::TransactionSession(
             document.at("operation").as_string() != spec_.operation) {
             throw std::runtime_error("transaction journal does not bind the requested finalization");
         }
+        validate_commit_requirement(document, spec_.required_commit_authority);
+        retain_commit_cleanup_ = retain_commit_cleanup(document);
         std::map<std::string, std::string> journal_roots;
         for (const usk::json::Value& root : document.at("roots").as_array()) {
             if (!journal_roots.emplace(root.at("role").as_string(), root.at("root").as_string()).second) {
@@ -613,7 +643,7 @@ TransactionSession::TransactionSession(
                  prior != "committing" && prior != "recovery_required") ||
                 !fs::is_directory(staging_root_) || reparse_or_symlink(staging_root_) ||
                 fs::exists(spec_.target_root) || staging_identity_.empty() ||
-                retain_stream_cleanup_) {
+                retain_stream_cleanup_ || retain_commit_cleanup_) {
                 throw std::runtime_error("transaction is not a staged rollback candidate");
             }
             verify_recorded_staging_closure();
@@ -708,6 +738,9 @@ void TransactionSession::create_staging_root()
         throw std::runtime_error("cannot exclusively create setup-owned staging root");
     }
     staging_identity_ = directory_identity(staging_root_);
+    if (stream_journal_.present) {
+        stream_journal_.publication_root_identity = staging_identity_;
+    }
     persist_snapshot();
     if (injector_) injector_(current_state_, "after_staging_create");
 }
@@ -722,7 +755,7 @@ void TransactionSession::verify_staging_identity() const
 
 void TransactionSession::remove_recorded_staging_closure()
 {
-    if (retain_stream_cleanup_) {
+    if (retain_stream_cleanup_ || retain_commit_cleanup_) {
         throw std::runtime_error("streamed staging is retained; automatic rollback has no deletion authority");
     }
     verify_recorded_staging_closure();
@@ -884,6 +917,12 @@ StreamStageResult TransactionSession::stage_file_stream(
     // authority after interruption or replacement by an identical-byte file.
     retain_stream_cleanup_ = true;
     stream_journal_.present = true;
+    // The constructor already created and verified this staging root. Bind its
+    // native identity when direct streaming first establishes the journal so
+    // the later no-replace publication has the same v2 observation as an
+    // explicitly source-bound stream. This remains observation-only; cleanup
+    // authority stays retain-only with a null serialized staging identity.
+    stream_journal_.publication_root_identity = staging_identity_;
     if (stream_journal_.entries.size() >= 100000 ||
         (!stream_journal_.entries.empty() && stream_journal_.entries.back().phase != "complete")) {
         throw std::runtime_error("stream journal has an incomplete entry or exceeds its entry bound");
@@ -1047,6 +1086,7 @@ void TransactionSession::bind_stream_source(const std::string& source_digest, co
     }
     stream_journal_.source_digest = source_digest;
     stream_journal_.source_context = source_context;
+    stream_journal_.publication_root_identity = staging_identity_;
     persist_snapshot();
 }
 
@@ -1061,27 +1101,26 @@ void TransactionSession::mark_staged()
     persist_transition("staged");
 }
 
+CommitClosureObservation TransactionSession::observe_staged_commit_closure() const
+{
+    verify_staging_identity();
+    std::vector<CommitClosureFile> files;
+    for (const auto& file : staged_files_) {
+        const auto stream = std::find_if(stream_journal_.entries.begin(), stream_journal_.entries.end(),
+            [&](const auto& entry) { return entry.relative_path == file.relative_path.generic_string(); });
+        if (stream != stream_journal_.entries.end() && stream->phase != "complete") {
+            throw std::runtime_error("stream child is incomplete");
+        }
+        files.push_back({file.relative_path, file.sha256, file.size_bytes,
+            stream == stream_journal_.entries.end() ? std::string{} : stream->output_identity});
+    }
+    return observe_commit_closure(staging_root_, files);
+}
+
 void TransactionSession::mark_verified()
 {
-    if (current_state_ != "staged") {
-        throw std::runtime_error("only a staged transaction can be verified");
-    }
-    verify_staging_identity();
-    for (const StagedFile& expected : staged_files_) {
-        usk::base::StableFile actual(staging_root_ / expected.relative_path);
-        const auto observation = std::find_if(stream_journal_.entries.begin(), stream_journal_.entries.end(),
-            [&](const auto& entry) { return entry.relative_path == expected.relative_path.generic_string(); });
-        if (observation != stream_journal_.entries.end() &&
-            (observation->phase != "complete" || observation->output_identity !=
-                actual.identity().volume_id + ":" + actual.identity().file_id)) {
-            throw std::runtime_error("stream output object identity changed before verification");
-        }
-        if (actual.identity().size_bytes != expected.size_bytes ||
-            actual.sha256_hex() != expected.sha256) {
-            throw std::runtime_error("staged file closure changed before verification");
-        }
-        actual.verify_unchanged();
-    }
+    if (current_state_ != "staged") throw std::runtime_error("only a staged transaction can be verified");
+    verified_closure_ = observe_staged_commit_closure();
     persist_transition("verified");
 }
 
@@ -1096,6 +1135,22 @@ void TransactionSession::commit_effect()
         persist_transition("refused");
         throw std::runtime_error("target changed or now exists; reviewed plan is invalid");
     }
+    // Withhold pathname rollback authority before observing any possibly foreign
+    // child. The durable latch survives failure, process death and older readers.
+    retain_commit_cleanup_ = true;
+    persist_snapshot();
+    try {
+        require_commit_authority(spec_.required_commit_authority);
+        if (verified_closure_.empty() || observe_staged_commit_closure() != verified_closure_) {
+            throw std::runtime_error("commit preparation refuses a changed verified closure");
+        }
+    } catch (...) {
+        persist_transition("recovery_required");
+        throw;
+    }
+    // Observations end here. This legacy hook/rename window has no protected
+    // namespace capability and must never be advertised as staged_child_bound_v1.
+    if (injector_) injector_(current_state_, "after_commit_preparation_observation");
     persist_transition("committing");
     verify_staging_identity();
     if (directory_identity(spec_.target_root.parent_path()) != target_parent_identity_ ||
@@ -1114,6 +1169,7 @@ void TransactionSession::commit_effect()
 
 void TransactionSession::mark_committed()
 {
+    require_commit_authority(spec_.required_commit_authority);
     if (current_state_ != "committing" || fs::exists(staging_root_) ||
         !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
         throw std::runtime_error("transaction commit effect is not present and stable");
@@ -1123,6 +1179,7 @@ void TransactionSession::mark_committed()
 
 void TransactionSession::mark_completed()
 {
+    require_commit_authority(spec_.required_commit_authority);
     if (current_state_ != "committed") {
         throw std::runtime_error("only a committed transaction can complete");
     }
@@ -1139,6 +1196,7 @@ void TransactionSession::mark_recovery_required()
 
 void TransactionSession::resume_committing()
 {
+    require_commit_authority(spec_.required_commit_authority);
     if (current_state_ != "recovery_required" || fs::exists(staging_root_) ||
         !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
         throw std::runtime_error("only visible-target recovery can resume finalization");
@@ -1202,6 +1260,9 @@ std::string TransactionSession::render_journal() const
         << ",\"classification\":\"setup_owned\"},";
     out << "{\"role\":\"audit\",\"root\":" << quote(spec_.audit_root.string())
         << ",\"classification\":\"audit_owned\"}],";
+    if (spec_.required_commit_authority == CommitAuthorityRequirement::staged_child_bound_v1) {
+        out << "\"required_commit_authority\":\"staged_child_bound_v1\",";
+    }
     out << "\"transitions\":[";
     for (std::size_t index = 0; index < transitions_.size(); ++index) {
         const Transition& transition = transitions_[index];
@@ -1215,12 +1276,13 @@ std::string TransactionSession::render_journal() const
         out << "\"durable_before_external_visibility\":true}";
     }
     out << "],\"recovery_metadata\":{\"staging_identity\":"
-        << ((staging_identity_.empty() || retain_stream_cleanup_)
+        << ((staging_identity_.empty() || retain_stream_cleanup_ || retain_commit_cleanup_)
                 ? "null" : quote(staging_identity_)) << ',';
     if (retain_stream_cleanup_) {
         // Older rollback readers also refuse the deliberately absent identity.
         out << "\"stream_cleanup_policy\":\"retain_only\",";
     }
+    if (retain_commit_cleanup_) out << "\"commit_cleanup_policy\":\"retain_only\",";
     if (stream_journal_.present) {
         out << "\"stream_journal\":" << json::canonical(render_stream_journal(stream_journal_)) << ',';
     }
@@ -1236,7 +1298,7 @@ std::string TransactionSession::render_journal() const
     out << "\"required\":" <<
         ((current_state_ == "recovery_required" || current_state_ == "failed") ? "true" : "false") << ',';
     out << "\"available_actions\":[";
-    const auto actions = retain_stream_cleanup_ && current_state_ != "completed" &&
+    const auto actions = (retain_stream_cleanup_ || retain_commit_cleanup_) && current_state_ != "completed" &&
             current_state_ != "committed"
         ? std::vector<std::string>{"retain_for_operator"}
         : journal_actions(current_state_);
@@ -1320,10 +1382,13 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     if (sequence == 0 || result.current_state != prior || result.journal_digest != chain_digest.finish()) {
         throw std::runtime_error("transaction journal digest or current state is invalid");
     }
+    validate_commit_requirement(document, spec.required_commit_authority);
     const bool retained_stream = retain_stream_cleanup(document);
+    const bool retained_commit = retain_commit_cleanup(document);
     const auto stream = read_stream_journal(document, safe_relative_path);
     result.stream_source_digest = stream.source_digest;
     result.stream_source_context = stream.source_context;
+    result.publication_root_identity = stream.publication_root_identity;
     result.restart_origin_transaction_id = stream.origin_transaction_id;
     result.restart_origin_snapshot_sha256 = stream.origin_snapshot_sha256;
     usk::base::Sha256 snapshot_digest;
@@ -1337,7 +1402,13 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     if (result.target_exists && reparse_or_symlink(spec.target_root)) {
         throw std::runtime_error("recovery target root is linked or substituted");
     }
-    if ((result.current_state == "committing" || result.current_state == "committed" ||
+    const bool publication_identity_changed = result.target_exists && !stream.publication_root_identity.empty() &&
+        directory_identity(spec.target_root) != stream.publication_root_identity;
+    if (publication_identity_changed) {
+        result.available_actions = {"retain_for_operator"};
+    } else if (spec.required_commit_authority == CommitAuthorityRequirement::staged_child_bound_v1) {
+        result.available_actions = {"retain_for_operator"};
+    } else if ((result.current_state == "committing" || result.current_state == "committed" ||
          result.current_state == "recovery_required") &&
         result.target_exists && !result.staging_exists) {
         result.available_actions = {"resume"};
@@ -1346,7 +1417,7 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
                 result.current_state == "recovery_required") &&
                result.staging_exists && !result.target_exists) {
         try {
-            if (retained_stream) {
+            if (retained_stream || retained_commit) {
                 throw std::runtime_error("streamed staging must be retained");
             }
             auto rollback = TransactionSession::resume_rollback(spec);
@@ -1378,6 +1449,7 @@ std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
         !valid_sha256(expected_snapshot_sha256) || !valid_sha256(source_digest)) {
         throw std::runtime_error("stream restart identity is invalid");
     }
+    require_commit_authority(prior_spec.required_commit_authority);
     TransactionSpec next = prior_spec;
     next.transaction_id = new_transaction_id;
     require_path_capacity(next);
@@ -1439,8 +1511,14 @@ std::unique_ptr<TransactionSession> TransactionSession::resume_finalization(
     const TransactionSpec& spec,
     FaultInjector injector)
 {
-    return std::unique_ptr<TransactionSession>(
+    auto result = std::unique_ptr<TransactionSession>(
         new TransactionSession(spec, std::move(injector), ResumeMode::finalization));
+    if (result->stream_journal_.present &&
+        (result->stream_journal_.publication_root_identity.empty() ||
+         directory_identity(result->spec_.target_root) != result->stream_journal_.publication_root_identity)) {
+        throw std::runtime_error("visible target publication identity changed or is unavailable");
+    }
+    return result;
 }
 
 std::unique_ptr<TransactionSession> TransactionSession::resume_rollback(

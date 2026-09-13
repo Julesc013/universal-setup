@@ -16,6 +16,52 @@ bool digest(const std::string& value) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
     });
 }
+void require_restart_policy_context(const Value& context) {
+    const std::set<std::string> legacy{"policy", "setup_was_absent"};
+    const std::set<std::string> current{"schema", "policy", "setup_initial_state", "target_evidence"};
+    std::set<std::string> keys;
+    for (const auto& member : context.as_object()) keys.insert(member.first);
+    if (keys != legacy && keys != current) {
+        throw std::runtime_error("original install policy context schema is invalid");
+    }
+    const auto& policy = context.at("policy");
+    std::set<std::string> policy_keys;
+    for (const auto& member : policy.as_object()) policy_keys.insert(member.first);
+    if (policy_keys != std::set<std::string>{"activation", "setup_binding_digest", "target_binding_digest"} ||
+        !digest(policy.at("setup_binding_digest").as_string()) ||
+        !digest(policy.at("target_binding_digest").as_string())) {
+        throw std::runtime_error("original install policy context binding is invalid");
+    }
+    if (keys == legacy) {
+        (void)context.at("setup_was_absent").as_boolean();
+        return;
+    }
+    if (keys == current) {
+        const auto& evidence = context.at("target_evidence");
+        std::set<std::string> evidence_keys;
+        for (const auto& member : evidence.as_object()) evidence_keys.insert(member.first);
+        if (context.at("schema").as_string() != "usk.install_restart_policy_context.v1" ||
+            (context.at("setup_initial_state").as_string() != "absent" &&
+                context.at("setup_initial_state").as_string() != "owned") ||
+            evidence_keys != std::set<std::string>{"capacity_satisfied", "excluded_roots_absent",
+                "filesystem_identity_digest", "filesystem_kind", "local_filesystem",
+                "mount_redirection_absent", "path_components_stable", "source_target_distinct",
+                "schema", "target_identity_digest", "target_state"} ||
+            evidence.at("schema").as_string() != "usk.install_target_recovery_evidence.v1" ||
+            evidence.at("target_state").as_string() != "nonexistent" ||
+            !digest(evidence.at("target_identity_digest").as_string()) ||
+            !digest(evidence.at("filesystem_identity_digest").as_string()) ||
+            evidence.at("filesystem_kind").as_string().empty() ||
+            !evidence.at("capacity_satisfied").as_boolean() ||
+            !evidence.at("excluded_roots_absent").as_boolean() ||
+            !evidence.at("local_filesystem").as_boolean() ||
+            !evidence.at("mount_redirection_absent").as_boolean() ||
+            !evidence.at("path_components_stable").as_boolean() ||
+            !evidence.at("source_target_distinct").as_boolean()) {
+            throw std::runtime_error("original install target evidence is invalid");
+        }
+    }
+}
 Value validate_genesis(const audit::AuditEvent& event, const InstallPlan& plan,
     const std::string& transaction_id, const transaction::RecoveryInspection& inspection) {
     const Value value = json::parse(event.message);
@@ -95,8 +141,14 @@ json::Value read_install_stream_context(const transaction::RecoveryInspection& i
     const LifecycleRoots& roots, const std::filesystem::path& target_root) {
     if (inspection.stream_source_context.empty()) throw std::runtime_error("original install source context is unavailable");
     const auto context = json::parse(inspection.stream_source_context);
-    const std::set<std::string> expected{"schema", "archive_sha256", "archive_identity_digest", "entry_set_digest",
+    std::set<std::string> expected{"schema", "archive_sha256", "archive_identity_digest", "entry_set_digest",
         "plan_digest", "policy_digest", "policy_context", "root_identities"};
+    if (context.contains("required_commit_authority")) {
+        expected.insert("required_commit_authority");
+        if (context.at("required_commit_authority").as_string() != "staged_child_bound_v1") {
+            throw std::runtime_error("original install commit requirement is incompatible");
+        }
+    }
     std::set<std::string> actual;
     for (const auto& member : context.as_object()) actual.insert(member.first);
     if (actual != expected || context.at("schema").as_string() != "usk.install_stream_source.v1" ||
@@ -108,7 +160,8 @@ json::Value read_install_stream_context(const transaction::RecoveryInspection& i
     for (const auto* key : {"archive_sha256", "archive_identity_digest", "entry_set_digest", "plan_digest", "policy_digest"}) {
         if (!digest(context.at(key).as_string())) throw std::runtime_error("original install source context digest is invalid");
     }
-    (void)context.at("policy_context").as_string();
+    const auto policy_context = json::parse(context.at("policy_context").as_string());
+    require_restart_policy_context(policy_context);
     return context;
 }
 std::string install_stream_source_context(const InstallPlan& plan) {
@@ -118,14 +171,19 @@ std::string install_stream_source_context(const InstallPlan& plan) {
             [](const PayloadFile& file) { return !file.reader; })) {
         throw std::runtime_error("install stream source binding is incomplete");
     }
-    return json::canonical(Value(Value::Object{
+    Value context(Value::Object{
         {"archive_sha256", Value(plan.recipe.source_archive_digest)},
         {"archive_identity_digest", Value(plan.recipe.source_identity_digest)},
         {"entry_set_digest", Value(plan.recipe.entry_set_digest)},
         {"plan_digest", Value(plan.plan_digest)}, {"policy_digest", Value(plan.recipe.policy_digest)},
         {"policy_context", Value(plan.recipe.restart_policy_context)},
         {"root_identities", install_context_root_identities(plan.roots, plan.target_root)},
-        {"schema", Value("usk.install_stream_source.v1")}}));
+        {"schema", Value("usk.install_stream_source.v1")}});
+    (void)transaction::commit_authority_name(plan.required_commit_authority);
+    if (plan.required_commit_authority == transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+        context.as_object().emplace("required_commit_authority", Value("staged_child_bound_v1"));
+    }
+    return json::canonical(context);
 }
 std::string install_stream_source_digest(const InstallPlan& plan) {
     const auto context = install_stream_source_context(plan);
@@ -152,7 +210,8 @@ InstallReplayContext inspect_install_replay(const InstallPlan& plan,
     }
     InstallReplayContext context;
     context.prior_spec = {request.transaction_id, plan.plan_id, plan.plan_digest, "install_local",
-        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root};
+        plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root,
+        plan.required_commit_authority};
     context.source_digest = install_stream_source_digest(plan);
     if (context.source_digest.empty()) throw std::runtime_error("install replay requires an exact archive source binding");
     const auto prior = transaction::TransactionSession::inspect_recovery(context.prior_spec);

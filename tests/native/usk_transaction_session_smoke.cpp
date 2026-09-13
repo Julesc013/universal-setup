@@ -110,7 +110,9 @@ int happy_path(Fixture& fixture, bool& commit_supported)
             !fs::exists(session.staging_root()) || fs::exists(session.target_root())) {
             return 12;
         }
-        session.rollback();
+        if (!throws([&] { session.rollback(); }) ||
+            TransactionSession::inspect_recovery(spec).available_actions !=
+                std::vector<std::string>{"retain_for_operator"}) return 15;
         return 0;
     }
     commit_supported = true;
@@ -268,10 +270,19 @@ int fault_after_transition(Fixture& fixture, const std::string& state, int ordin
     const bool should_have_target = state == "committed" || state == "completed";
     if (recovery.target_exists != should_have_target) return 90 + ordinal;
     if (state == "committed" && !contains(recovery.available_actions, "resume")) return 110 + ordinal;
-    if ((state == "staged" || state == "verified" || state == "committing") &&
+    if ((state == "staged" || state == "verified") &&
         (contains(recovery.available_actions, "resume") ||
          !contains(recovery.available_actions, "rollback"))) {
         return 130 + ordinal;
+    }
+    if (state == "committing") {
+        const auto journal = read_text(spec.state_root / "transactions" / (id + ".journal.json"));
+        if (recovery.available_actions != std::vector<std::string>{"retain_for_operator"} ||
+            !throws([&] { (void)TransactionSession::resume_rollback(spec); }) ||
+            read_text(spec.state_root / "transactions" / (id + ".journal.json")) != journal ||
+            read_text(spec.staging_parent / (".usk-stage-" + id) / "payload.txt") != "fault-fixture") {
+            return 140 + ordinal;
+        }
     }
     return 0;
 }

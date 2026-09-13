@@ -281,7 +281,7 @@ int malformed_metadata() {
     session.bind_stream_source(std::string(64, 'b'));
     stage(session, "payload");
     const auto original = read(session.journal_path());
-    for (int variation = 0; variation < 5; ++variation) {
+    for (int variation = 0; variation < 8; ++variation) {
         auto document = usk::json::parse(original);
         auto& metadata = document.as_object().at("recovery_metadata").as_object();
         auto& journal = metadata.at("stream_journal");
@@ -290,6 +290,10 @@ int malformed_metadata() {
         if (variation == 2) journal.as_object().at("entries").as_array()[0].as_object()["output_identity"] = usk::json::Value{};
         if (variation == 3) journal.as_object()["source_digest"] = usk::json::Value("");
         if (variation == 4) journal.as_object()["unknown_authority"] = usk::json::Value(true);
+        if (variation == 5) journal.as_object().erase("publication_root_identity");
+        if (variation == 6) journal.as_object()["version"] = usk::json::Value(std::uint64_t{1});
+        if (variation == 7) journal.as_object()["publication_root_identity"] = usk::json::Value(
+            "0000000000000000:000000000000000G");
         // A self-consistent digest must not excuse semantically invalid metadata.
         journal.as_object().erase("digest");
         const auto hash = usk::json::sha256_canonical(journal);

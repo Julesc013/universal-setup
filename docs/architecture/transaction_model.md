@@ -57,3 +57,20 @@ whose staging root is absent, and only in `committing`, `committed`, or
 `recovery_required`. The existing transition chain and digest, reviewed plan
 identity, operation, and roots are revalidated before missing ownership, state,
 and audit records can be completed. Pre-commit replay is still refused.
+
+The public recovery path adds a reviewed `finalize` action for this exact
+install-local window. It rebuilds and binds the original request, source,
+policy, plan, and visible target before completing metadata, and validates the
+source immediately before that completion. It is not an ordinary install
+retry: it does not restage or replay payload bytes. Repair, move, and uninstall
+visible-target continuation remain unavailable.
+
+For streamed install journals, v2 additionally stores an observation-only
+publication-root identity captured from the closed staging directory before the
+no-replace rename. The visible target must match it during inspection and
+finalization. V1 and legacy journals remain inspectable/restartable under their
+existing rules but are refused for public visible-target finalization because
+they do not carry this identity. The recovery policy stores a durable
+capacity-satisfied result rather than volatile free-space bytes, allowing
+post-publication metadata completion without treating it as another payload
+write; setup-state mutation retains its own live checks.

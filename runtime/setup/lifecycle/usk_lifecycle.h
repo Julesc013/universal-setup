@@ -5,6 +5,7 @@
 #define USK_LIFECYCLE_H
 
 #include "usk_state_repository.h"
+#include "usk_commit_authority.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -67,6 +68,7 @@ struct InstallPlan {
     RecipeBinding recipe;
     std::vector<PayloadFile> files;
     std::function<void()> validate_source;
+    transaction::CommitAuthorityRequirement required_commit_authority = transaction::CommitAuthorityRequirement::legacy_observed;
 };
 
 // Plan-time known paths; supply the exact transaction ID before any apply effects.
@@ -179,7 +181,8 @@ InstallPlan plan_install(
     LifecycleRoots roots,
     RecipeBinding recipe,
     std::vector<PayloadFile> files,
-    std::function<void()> validate_source = {});
+    std::function<void()> validate_source = {},
+    transaction::CommitAuthorityRequirement required_commit_authority = transaction::CommitAuthorityRequirement::legacy_observed);
 
 InstallResult apply_install(
     const InstallPlan& plan,

@@ -12,8 +12,16 @@
     "plan_id": { "$ref": "#/$defs/id" },
     "plan_digest": { "$ref": "#/$defs/sha256" },
     "operation": { "enum": ["install_local", "repair", "move", "uninstall"] },
-    "target_root": { "type": "string", "minLength": 1, "maxLength": 32768 }
+    "target_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "install_plan_request": { "$ref": "install_local_plan_request.v1.schema.json" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "install_local" } }, "required": ["operation"] },
+      "then": {},
+      "else": { "not": { "required": ["install_plan_request"] } }
+    }
+  ],
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 256 },
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }

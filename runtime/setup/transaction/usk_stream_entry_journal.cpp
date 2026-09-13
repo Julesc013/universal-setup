@@ -53,10 +53,14 @@ json::Value render_stream_journal(const StreamJournal& journal) {
     if (!journal.origin_transaction_id.empty()) origin = Value(Value::Object{
         {"transaction_id", Value(journal.origin_transaction_id)},
         {"snapshot_sha256", Value(journal.origin_snapshot_sha256)}});
-    Value result(Value::Object{{"version", Value(std::uint64_t{1})},
+    const std::uint64_t version = journal.publication_root_identity.empty() ? 1u : 2u;
+    Value result(Value::Object{{"version", Value(version)},
         {"source_digest", nullable(journal.source_digest)}, {"restart_origin", origin},
         {"entries", Value(std::move(entries))}});
     if (!journal.source_context.empty()) result.as_object().emplace("source_context", Value(journal.source_context));
+    if (version == 2u) {
+        result.as_object().emplace("publication_root_identity", Value(journal.publication_root_identity));
+    }
     const auto hash = json::sha256_canonical(result);
     result.as_object().emplace("digest", Value(hash));
     return result;
@@ -73,15 +77,25 @@ StreamJournal read_stream_journal(const Value& document,
         throw std::runtime_error("stream journal cannot grant rollback authority");
     }
     const auto& value = metadata.at("stream_journal");
-    if (value.contains("source_context")) {
-        exact_keys(value, {"version", "source_digest", "source_context", "restart_origin", "entries", "digest"});
-    } else {
-        exact_keys(value, {"version", "source_digest", "restart_origin", "entries", "digest"});
-    }
+    const std::uint64_t version = value.at("version").as_unsigned();
+    std::set<std::string> expected{"version", "source_digest", "restart_origin", "entries", "digest"};
+    if (value.contains("source_context")) expected.insert("source_context");
+    if (version == 2u) expected.insert("publication_root_identity");
+    exact_keys(value, expected);
     auto body = value;
     const auto hash = body.at("digest").as_string(); body.as_object().erase("digest");
-    if (value.at("version").as_unsigned() != 1 || !digest(hash) ||
+    if ((version != 1u && version != 2u) || !digest(hash) ||
         json::sha256_canonical(body) != hash) throw std::runtime_error("stream journal digest/version is invalid");
+    if (version == 2u) {
+        result.publication_root_identity = value.at("publication_root_identity").as_string();
+        const bool identity_valid = result.publication_root_identity.size() == 33u &&
+            result.publication_root_identity[16] == ':' &&
+            std::count(result.publication_root_identity.begin(), result.publication_root_identity.end(), ':') == 1 &&
+            std::all_of(result.publication_root_identity.begin(), result.publication_root_identity.end(), [](unsigned char c) {
+                return c == ':' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            });
+        if (!identity_valid) throw std::runtime_error("stream publication root identity is invalid");
+    }
     result.source_digest = optional_string(value.at("source_digest"));
     if (value.at("source_digest").type() != Value::Type::null_value && !digest(result.source_digest))
         throw std::runtime_error("stream source digest is invalid");

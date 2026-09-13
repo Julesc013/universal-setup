@@ -5,6 +5,7 @@
 #define USK_TRANSACTION_SESSION_H
 
 #include "usk_stream_entry_journal.h"
+#include "usk_commit_authority.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -31,6 +32,7 @@ struct TransactionSpec {
     std::filesystem::path target_root;
     std::filesystem::path state_root;
     std::filesystem::path audit_root;
+    CommitAuthorityRequirement required_commit_authority = CommitAuthorityRequirement::legacy_observed;
 };
 
 // Checks all fixed and transaction-derived paths without filesystem effects.
@@ -54,6 +56,7 @@ struct RecoveryInspection {
     std::string snapshot_sha256;
     std::string stream_source_digest;
     std::string stream_source_context;
+    std::string publication_root_identity;
     std::string restart_origin_transaction_id;
     std::string restart_origin_snapshot_sha256;
     bool staging_exists = false;
@@ -129,6 +132,7 @@ private:
     void create_staging_root();
     void persist_snapshot();
     void verify_recorded_staging_closure() const;
+    CommitClosureObservation observe_staged_commit_closure() const;
     void remove_recorded_staging_closure();
     std::string render_journal() const;
     enum class ResumeMode { none, finalization, rollback };
@@ -143,6 +147,8 @@ private:
     std::string current_state_;
     std::string staging_identity_;
     bool retain_stream_cleanup_ = false;
+    bool retain_commit_cleanup_ = false;
+    CommitClosureObservation verified_closure_;
     StreamJournal stream_journal_;
     std::string staging_parent_identity_;
     std::string target_parent_identity_;
