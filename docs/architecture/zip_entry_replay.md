@@ -44,8 +44,16 @@ null while preserving journal inspection and all stored bytes. This observation
 cap is separate from replay admission: a null observation cannot authorize replay,
 and replay still requires the exact single precommit event for each ancestor.
 
+A fresh install after a verified retirement starts a deterministic audit
+generation derived from that uninstall transaction. The retired generation is
+validated and retained without appending the new install. Exclusive creation lets
+only one contender enter the new generation, and an interrupted fresh install has
+a short observable chain even when the retired generation contains more than 32
+events.
+
 Replay also validates up to 64 retained ancestor journal snapshots and their exact
-precommit audit heads, reading at most one event per ancestor. Changed ancestor
+precommit audit heads, reading exactly one event from each new or replay install
+generation. Changed ancestor
 state, cycles, excess depth or an uncertain ancestor commit refuse before effects.
 This prevents a replay-of-replay from forgetting a prior owner that progressed
 after the intermediate replay was created.

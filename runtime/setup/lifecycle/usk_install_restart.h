@@ -32,6 +32,10 @@ json::Value read_install_stream_context(const transaction::RecoveryInspection& i
 std::string install_stream_entry_digest(const std::string& source_digest, const PayloadFile& file);
 std::string install_audit_chain_id(const std::string& install_id,
     const std::string& transaction_id, bool replay);
+std::string next_install_audit_chain_id(const std::string& install_id,
+    const std::string& retired_transaction_id);
+std::string resolve_install_audit_chain_id(const LifecycleRoots& roots,
+    const std::string& install_id, const std::string& transaction_id, bool replay);
 InstallReplayContext inspect_install_replay(const InstallPlan& plan,
     const InstallRestartRequest& request, const std::string& new_transaction_id);
 void create_install_replay_audit(const InstallPlan& plan, const InstallReplayContext& context,
