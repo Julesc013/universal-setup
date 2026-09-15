@@ -5,6 +5,7 @@
 #include "usk_json.h"
 #include "usk_live_evidence.h"
 #include "usk_public_lifecycle.h"
+#include "usk_replacement_session.h"
 #include "usk_sha256.h"
 #include "usk_transaction_session.h"
 
@@ -857,6 +858,53 @@ int main()
          response.find("stale_plan") == std::string::npos) ||
         read_text(target / "bin/probe.txt") != "synthetic-version-1\n" ||
         read_text(target / "data/config.ini") != "enabled=true\n") return 36;
+
+    Value update_request = planned;
+    update_request.as_object()["schema"] = Value("usk.update_plan_request.v1");
+    update_request.as_object()["request_id"] = Value("update.request.1");
+    update_request.as_object()["plan_id"] = Value("plan.update.1");
+    update_request.as_object()["created_at"] = Value("2026-07-14T01:02:00Z");
+    update_request.as_object()["transition"] = Value("upgrade");
+    update_request.as_object()["required_commit_authority"] = Value("staged_child_bound_v1");
+    update_request.as_object()["archive"].as_object().erase("budgets");
+    update_request.as_object()["recipe"].as_object()["product_version"] = Value("2.0.0");
+    update_request.as_object()["recipe"].as_object()["provider_revision"] = Value("test.provider.2");
+    update_request.as_object()["recipe"].as_object()["recipe_digest"] = Value(std::string(64, 'b'));
+    const std::string before_update = usk::evidence::snapshot_target(target).snapshot_digest;
+    const std::string replacement_preimage = usk::transaction::replacement_snapshot_digest(target);
+    response = execute(context, "update.plan", update_request, 1, status);
+    if (status != USK_STATUS_OK ||
+        usk::json::parse(response).at("payload").at("commit_authority_available").as_boolean() ||
+        usk::json::parse(response).at("payload").at("old_identity").at("snapshot_digest").as_string() !=
+            replacement_preimage || fs::exists(setup_root / "state/replacement-transactions")) {
+        std::cerr << "update plan: status=" << status << " response=" << response << '\n';
+        return 215;
+    }
+    const Value update_plan = usk::json::parse(response).at("payload");
+    Value changed_update = update_request;
+    changed_update.as_object()["recipe"].as_object()["recipe_digest"] = Value(std::string(64, 'c'));
+    response = execute(context, "update.plan", changed_update, 1, status);
+    if (status != USK_STATUS_OK ||
+        usk::json::parse(response).at("payload").at("plan_digest").as_string() ==
+            update_plan.at("plan_digest").as_string()) return 218;
+    Value update_apply = apply_request("usk.update_apply_request.v1", update_request,
+        "plan.update.1", update_plan.at("plan_digest").as_string(), "tx.update.1",
+        "2026-07-14T01:02:01Z");
+    response = execute(context, "update.apply", update_apply, 0, status);
+    if (status != USK_STATUS_ERROR ||
+        response.find("replacement_commit_authority_unavailable") == std::string::npos ||
+        usk::evidence::snapshot_target(target).snapshot_digest != before_update ||
+        fs::exists(setup_root / "state/replacement-transactions")) return 216;
+    update_apply.as_object()["reviewed_plan_digest"] = Value(std::string(64, '0'));
+    response = execute(context, "update.apply", update_apply, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("stale_plan") == std::string::npos ||
+        usk::evidence::snapshot_target(target).snapshot_digest != before_update) return 217;
+    update_apply.as_object()["reviewed_plan_digest"] = update_plan.at("plan_digest");
+    write_text(target / "arrived-after-update-plan.txt", "retain\n");
+    response = execute(context, "update.apply", update_apply, 0, status);
+    if (status != USK_STATUS_ERROR || response.find("stale_plan") == std::string::npos ||
+        read_text(target / "arrived-after-update-plan.txt") != "retain\n") return 219;
+    fs::remove(target / "arrived-after-update-plan.txt");
 
     const Value plan_payload = plan_response.at("payload");
     Value evidence(Value::Object{

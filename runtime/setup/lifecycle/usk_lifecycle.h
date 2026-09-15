@@ -152,6 +152,32 @@ struct MoveResult {
     std::filesystem::path retained_old_root;
 };
 
+struct UpdatePlan {
+    std::string plan_id;
+    std::string plan_digest;
+    std::string created_at;
+    std::string install_id;
+    std::string transition;
+    std::string installed_state_digest;
+    std::string ownership_manifest_digest;
+    std::string old_root_identity;
+    std::string old_snapshot_digest;
+    std::string new_snapshot_digest;
+    std::filesystem::path target_root;
+    LifecycleRoots roots;
+    RecipeBinding recipe;
+    std::vector<PayloadFile> old_complete_files;
+    std::vector<PayloadFile> new_complete_files;
+    std::function<void()> validate_source;
+    transaction::CommitAuthorityRequirement required_commit_authority =
+        transaction::CommitAuthorityRequirement::staged_child_bound_v1;
+};
+
+struct UpdateResult {
+    std::filesystem::path retained_old_root;
+    usk::state::InstalledState installed_state;
+};
+
 struct UninstallPlan {
     std::string plan_id;
     std::string plan_digest;
@@ -244,6 +270,27 @@ MovePlan plan_move(
 
 MoveResult apply_move(
     const MovePlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector = {});
+
+UpdatePlan plan_update(
+    const LifecycleRoots& roots,
+    const std::string& install_id,
+    std::string plan_id,
+    std::string created_at,
+    std::string transition,
+    std::filesystem::path target_root,
+    RecipeBinding new_recipe,
+    std::vector<PayloadFile> new_complete_files,
+    std::function<void()> validate_source = {});
+
+// This entry point validates the complete reviewed preimage, then requires
+// staged_child_bound_v1 before creating a journal or changing either root.
+// Current hosts therefore refuse with CommitAuthorityUnavailable.
+UpdateResult apply_update(
+    const UpdatePlan& plan,
     const std::string& reviewed_plan_digest,
     const std::string& transaction_id,
     const std::string& applied_at,

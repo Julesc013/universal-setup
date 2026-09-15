@@ -74,3 +74,7 @@ through the verification-to-commit interval remain separate qualification work.
 ## Staged child commit requirement
 
 Commit preparation rejects already-changed verified file/directory closure and durably retains staging on refusal. Optional `staged_child_bound_v1` has no qualified success publisher; explicit lifecycle apply refuses before effects and directly staged native attempts retain/refuse. See [the authority boundary](../../../docs/architecture/staged_child_commit_authority.md) for the exact observation limits, journal compatibility and outstanding atomic publication work.
+
+`update.plan` is a read-only whole-root replacement preview. It binds the exact installed-state and ownership preimage, complete old-root native identity and snapshot, candidate archive and closure, transition, and retained-root policy. `update.apply` requires `staged_child_bound_v1` and is deliberately refused before effects until a host publisher is qualified. The internal replacement journal uses durable append-only phase records before each root rename and retains both old and new roots for recovery inspection.
+
+The native fixture classifier distinguishes no replacement effect, old root retained with no live root, new root active with old root retained, completion, and indeterminate/corrupt layouts. Until operation-specific resume/rollback and a per-install lease are implemented, every incomplete layout exposes only `retain_for_operator`.

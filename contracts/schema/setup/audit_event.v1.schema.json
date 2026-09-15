@@ -25,7 +25,7 @@
     "sequence": { "type": "integer", "minimum": 0 },
     "previous_event_digest": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
     "created_at": { "type": "string", "format": "date-time" },
-    "operation": { "enum": ["inspect", "plan", "install_local", "verify", "repair", "move", "uninstall", "recovery"] },
+    "operation": { "enum": ["inspect", "plan", "install_local", "verify", "repair", "update", "move", "uninstall", "recovery"] },
     "phase": { "enum": ["request", "validated", "planned", "staging", "verified", "committing", "completed", "refused", "failed", "recovery"] },
     "status": { "enum": ["pass", "warn", "fail", "refused", "recovery_required"] },
     "subject": {
