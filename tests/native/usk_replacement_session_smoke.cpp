@@ -31,7 +31,7 @@ struct Fixture {
     fs::path state;
     tx::ReplacementSpec spec;
 
-    Fixture(const fs::path& parent, std::string id,
+    Fixture(const fs::path& parent, const std::string& id,
         tx::CommitAuthorityRequirement authority = tx::CommitAuthorityRequirement::legacy_observed)
         : root(parent / id), live(root / "live"), staged(root / "stage"),
           retained(root / "retained"), state(root / "state")
