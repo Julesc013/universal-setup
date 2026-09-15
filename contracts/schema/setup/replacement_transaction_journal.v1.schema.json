@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/replacement_transaction_journal.v1.schema.json",
+  "title": "Append-only Whole-root Replacement Journal Record",
+  "type": "object",
+  "required": ["schema", "sequence", "phase", "transaction_id", "plan_id", "plan_digest", "target_root", "staged_root", "retained_root", "old_root_identity", "old_snapshot_digest", "new_root_identity", "new_snapshot_digest", "required_commit_authority", "previous_journal_digest", "journal_digest"],
+  "properties": {
+    "schema": { "const": "usk.replacement_transaction_journal.v1" },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "phase": { "enum": ["intent", "old_retire_prepared", "old_retired", "new_activate_prepared", "new_active", "state_published", "completed"] },
+    "transaction_id": { "$ref": "#/$defs/id" }, "plan_id": { "$ref": "#/$defs/id" }, "plan_digest": { "$ref": "#/$defs/sha256" },
+    "target_root": { "$ref": "#/$defs/path" }, "staged_root": { "$ref": "#/$defs/path" }, "retained_root": { "$ref": "#/$defs/path" },
+    "old_root_identity": { "$ref": "#/$defs/native_identity" }, "old_snapshot_digest": { "$ref": "#/$defs/sha256" },
+    "new_root_identity": { "$ref": "#/$defs/native_identity" }, "new_snapshot_digest": { "$ref": "#/$defs/sha256" },
+    "required_commit_authority": { "enum": ["legacy_observed", "staged_child_bound_v1"] },
+    "previous_journal_digest": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+    "journal_digest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 256 }, "path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "native_identity": { "type": "string", "pattern": "^[a-f0-9]{16}:[a-f0-9]{16}$" }
+  },
+  "additionalProperties": false
+}

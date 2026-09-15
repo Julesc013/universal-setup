@@ -7,7 +7,7 @@
   "properties": {
     "schema": { "const": "usk.refusal.v1" },
     "refusal_id": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "operation": { "enum": ["inspect", "plan", "install_local", "verify", "repair", "move", "uninstall", "recovery", "audit"] },
+    "operation": { "enum": ["inspect", "plan", "install_local", "verify", "repair", "update", "move", "uninstall", "recovery", "audit"] },
     "code": {
       "enum": [
         "ownership_denied",
@@ -51,7 +51,10 @@
         "target_space_insufficient",
         "source_target_same_object",
         "target_effects_incomplete",
-        "target_identity_unproven"
+        "target_identity_unproven",
+        "replacement_commit_authority_unavailable",
+        "replacement_recovery_required",
+        "update_lifecycle_refused"
       ]
     },
     "reason": { "type": "string", "minLength": 1, "maxLength": 4096 },

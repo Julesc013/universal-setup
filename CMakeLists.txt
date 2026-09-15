@@ -103,6 +103,7 @@ set_target_properties(usk_policy_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_transaction_static STATIC
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
 )
@@ -192,6 +193,7 @@ set(USK_CORE_SOURCES
   runtime/setup/state/usk_state_repository.cpp
   runtime/setup/streaming/usk_streaming_source_target.cpp
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
   runtime/setup/verify/usk_package_verify.cpp
@@ -458,6 +460,11 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_transaction_session_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_transaction_session_smoke PRIVATE usk_transaction_static)
   add_test(NAME usk_transaction_session_smoke COMMAND usk_transaction_session_smoke)
+
+  add_executable(usk_replacement_session_smoke tests/native/usk_replacement_session_smoke.cpp)
+  target_compile_features(usk_replacement_session_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_replacement_session_smoke PRIVATE usk_transaction_static)
+  add_test(NAME usk_replacement_session_smoke COMMAND usk_replacement_session_smoke)
 
   add_executable(
     usk_streaming_source_target_smoke

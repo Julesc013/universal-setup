@@ -148,6 +148,8 @@ int main(void)
         "installed.verify",
         "repair.plan",
         "repair.apply",
+        "update.plan",
+        "update.apply",
         "move.plan",
         "move.apply",
         "uninstall.plan",

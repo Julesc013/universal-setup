@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/update_report.v1.schema.json",
+  "title": "Whole-root Update Report",
+  "description": "Reserved terminal success contract. No current host can emit this report because staged_child_bound_v1 is unavailable.",
+  "type": "object",
+  "required": ["schema", "report_id", "report_digest", "plan_id", "transaction_id", "install_id", "transition", "status", "old_root_status", "new_root_status", "retained_old_root", "completed_at"],
+  "properties": {
+    "schema": { "const": "usk.update_report.v1" },
+    "report_id": { "$ref": "#/$defs/id" }, "report_digest": { "$ref": "#/$defs/sha256" },
+    "plan_id": { "$ref": "#/$defs/id" }, "transaction_id": { "$ref": "#/$defs/id" }, "install_id": { "$ref": "#/$defs/id" },
+    "transition": { "enum": ["upgrade", "downgrade"] }, "status": { "const": "new_active_old_retained" },
+    "old_root_status": { "const": "retained" }, "new_root_status": { "const": "active_verified" },
+    "retained_old_root": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "completed_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 256 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

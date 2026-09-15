@@ -76,6 +76,16 @@ struct MovePlanBundle {
     usk::policy::InspectedTarget destination;
 };
 
+struct UpdatePlanBundle {
+    usk::lifecycle::UpdatePlan plan;
+    usk::state::InstalledState installed;
+    fs::path source_path;
+    std::string source_identity_digest;
+    std::string entry_set_digest;
+    std::uint64_t archive_size = 0;
+    std::uint64_t uncompressed_bytes = 0;
+};
+
 struct UninstallPlanBundle {
     usk::lifecycle::UninstallPlan plan;
     usk::state::InstalledState installed;
@@ -878,6 +888,140 @@ RepairPlanBundle build_repair_plan(const Value& request, const PublicConfig& con
     result.before = usk::lifecycle::verify_installed(lifecycle_roots(config), install_id,
         "verify." + result.plan.plan_id + ".before", result.plan.created_at);
     return result;
+}
+
+UpdatePlanBundle build_update_plan(const Value& request, const PublicConfig& config)
+{
+    exact_members(request, {"schema", "request_id", "plan_id", "install_id", "created_at",
+        "transition", "archive", "target", "recipe", "required_commit_authority"});
+    if (required_string(request, "schema") != "usk.update_plan_request.v1" ||
+        required_string(request, "required_commit_authority") != "staged_child_bound_v1") {
+        throw PublicError("invalid_argument", "update plan schema or commit authority is incompatible");
+    }
+    const std::string transition = required_string(request, "transition");
+    if (transition != "upgrade" && transition != "downgrade") {
+        throw PublicError("invalid_argument", "update transition must be upgrade or downgrade");
+    }
+    UpdatePlanBundle result;
+    result.installed = current_install(config, required_string(request, "install_id"));
+    if (result.installed.lifecycle_status != "installed" &&
+        result.installed.lifecycle_status != "verified" &&
+        result.installed.lifecycle_status != "repair_required") {
+        throw PublicError("update_lifecycle_refused",
+            "update requires an active installed, verified, or repair-required state");
+    }
+    const Value& target = request.at("target");
+    exact_members(target, {"root", "class"});
+    const fs::path supplied_target = fs::u8path(required_string(target, "root"));
+    if (!supplied_target.is_absolute()) {
+        throw PublicError("target_not_explicit", "update target must be explicitly absolute");
+    }
+    const fs::path target_root = fs::absolute(supplied_target).lexically_normal();
+    const auto target_class = usk::policy::parse_target_class(required_string(target, "class"));
+    if (!target_class.has_value() || *target_class != current_target_class(config, target_root) ||
+        fs::absolute(result.installed.target_root).lexically_normal() != target_root) {
+        throw PublicError("target_changed", "update target does not identify the exact current managed root");
+    }
+    const Value& archive = request.at("archive");
+    result.source_path = required_archive_path(archive);
+    if (same_or_below(target_root, result.source_path)) {
+        throw PublicError("source_target_same_object",
+            "update archive must remain outside the whole root being retained");
+    }
+    auto payload = usk::archive::inspect_streaming_payload(
+        usk::json::canonical(fixed_archive_inspection_request(archive)),
+        archive.at("strip_prefix").as_string());
+    if (payload.source_sha256 != required_string(archive, "expected_sha256")) {
+        throw PublicError("source_drift", "update archive digest differs from the reviewed request");
+    }
+    const Value& recipe = request.at("recipe");
+    exact_members(recipe, {"product_id", "product_version", "recipe_digest", "provider_revision",
+        "components", "entrypoints"});
+    usk::lifecycle::RecipeBinding binding;
+    binding.product_id = required_string(recipe, "product_id");
+    binding.product_version = required_string(recipe, "product_version");
+    binding.recipe_digest = required_string(recipe, "recipe_digest");
+    binding.source_archive_digest = payload.source_sha256;
+    binding.source_identity_digest = payload.source_identity_digest;
+    binding.entry_set_digest = payload.entry_set_digest;
+    binding.provider_revision = required_string(recipe, "provider_revision");
+    for (const auto& component : recipe.at("components").as_array()) {
+        binding.components.push_back(component.as_string());
+    }
+    for (const auto& entrypoint : recipe.at("entrypoints").as_array()) {
+        exact_members(entrypoint, {"entrypoint_id", "relative_path", "kind"});
+        binding.entrypoints.push_back({required_string(entrypoint, "entrypoint_id"),
+            required_string(entrypoint, "relative_path"), required_string(entrypoint, "kind")});
+    }
+    binding.policy_digest = operation_policy_digest(
+        config, result.installed.target_root, result.source_path, "update");
+    std::vector<usk::lifecycle::PayloadFile> files;
+    for (auto& file : payload.files) {
+        files.push_back({std::move(file.relative_path), {}, std::move(file.sha256),
+            file.size_bytes, std::move(file.reader), payload.payload_buffer_bytes});
+    }
+    result.source_identity_digest = payload.source_identity_digest;
+    result.entry_set_digest = payload.entry_set_digest;
+    result.archive_size = payload.archive_size_bytes;
+    result.uncompressed_bytes = payload.uncompressed_bytes;
+    result.plan = usk::lifecycle::plan_update(lifecycle_roots(config), result.installed.install_id,
+        required_string(request, "plan_id"), required_string(request, "created_at"), transition,
+        target_root, std::move(binding), std::move(files), std::move(payload.validate_source));
+    return result;
+}
+
+Value update_plan_document(const UpdatePlanBundle& bundle)
+{
+    Value::Array entries;
+    for (const auto& file : bundle.plan.new_complete_files) {
+        entries.emplace_back(Value::Object{{"entry_type", Value("file")},
+            {"relative_path", Value(file.relative_path)}, {"sha256", Value(file.sha256)},
+            {"size_bytes", Value(file.size_bytes)}});
+    }
+    return Value(Value::Object{
+        {"commit_authority_available", Value(false)},
+        {"created_at", Value(bundle.plan.created_at)},
+        {"effects", Value(Value::Array{
+            Value(Value::Object{{"effect_id", Value("retain-old-root")}, {"kind", Value("retain_root")}}),
+            Value(Value::Object{{"effect_id", Value("activate-new-root")}, {"kind", Value("replace_root")}}),
+            Value(Value::Object{{"effect_id", Value("publish-state")}, {"kind", Value("write_state")}})})},
+        {"install_id", Value(bundle.plan.install_id)},
+        {"new_identity", Value(Value::Object{
+            {"entry_set_digest", Value(bundle.entry_set_digest)},
+            {"product_version", Value(bundle.plan.recipe.product_version)},
+            {"provider_revision", Value(bundle.plan.recipe.provider_revision)},
+            {"recipe_digest", Value(bundle.plan.recipe.recipe_digest)},
+            {"snapshot_digest", Value(bundle.plan.new_snapshot_digest)},
+            {"source_archive_digest", Value(bundle.plan.recipe.source_archive_digest)},
+            {"source_identity_digest", Value(bundle.source_identity_digest)}})},
+        {"old_identity", Value(Value::Object{
+            {"installed_state_digest", Value(bundle.plan.installed_state_digest)},
+            {"ownership_manifest_digest", Value(bundle.plan.ownership_manifest_digest)},
+            {"product_version", Value(bundle.installed.product_version)},
+            {"provider_revision", Value(bundle.installed.provider_revision)},
+            {"recipe_digest", Value(bundle.installed.recipe_digest)},
+            {"root_native_identity", Value(bundle.plan.old_root_identity)},
+            {"snapshot_digest", Value(bundle.plan.old_snapshot_digest)},
+            {"source_archive_digest", Value(bundle.installed.source_archive_digest)}})},
+        {"operation", Value("update")}, {"plan_digest", Value(bundle.plan.plan_digest)},
+        {"plan_id", Value(bundle.plan.plan_id)},
+        {"planned_entries", Value(std::move(entries))},
+        {"retained_root_pattern", Value((bundle.plan.target_root.parent_path() /
+            ".usk-update-retained-{transaction_id}").generic_u8string())},
+        {"required_commit_authority", Value("staged_child_bound_v1")},
+        {"revalidation", Value(Value::Object{{"immediately_before_apply", Value(true)},
+            {"invalidate_on", Value(Value::Array{Value("source"), Value("recipe"), Value("target"),
+                Value("installed_state"), Value("ownership_manifest"), Value("provider_revision")})}})},
+        {"schema", Value("usk.update_plan.v1")},
+        {"source", Value(Value::Object{{"path", Value(bundle.source_path.generic_u8string())},
+            {"sha256", Value(bundle.plan.recipe.source_archive_digest)},
+            {"size_bytes", Value(bundle.archive_size)}})},
+        {"status", Value("planned")}, {"target_root", Value(bundle.plan.target_root.generic_u8string())},
+        {"totals", Value(Value::Object{
+            {"file_count", Value(static_cast<std::uint64_t>(bundle.plan.new_complete_files.size()))},
+            {"uncompressed_bytes", Value(bundle.uncompressed_bytes)}})},
+        {"transition", Value(bundle.plan.transition)},
+        {"unknown_file_policy", Value("retain_whole_old_root")}});
 }
 
 std::string repair_reason(const std::string& status)
@@ -1704,6 +1848,31 @@ Value execute_command(const std::string& command, const Value& request, const Pu
         const auto result = usk::lifecycle::apply_repair(
             bundle.plan, bundle.plan.plan_digest, transaction_id, applied_at);
         return response_ok(repair_report_document(bundle, result, transaction_id, applied_at));
+    }
+    if (command == "update.plan") {
+        return response_ok(update_plan_document(build_update_plan(request, config)));
+    }
+    if (command == "update.apply") {
+        exact_members(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",
+                                "transaction_id", "applied_at", "confirmation"});
+        if (required_string(request, "schema") != "usk.update_apply_request.v1" ||
+            required_string(request, "confirmation") != "APPLY") {
+            throw PublicError("invalid_argument", "update apply schema or confirmation is invalid");
+        }
+        const UpdatePlanBundle bundle = build_update_plan(request.at("plan_request"), config);
+        if (required_string(request, "reviewed_plan_id") != bundle.plan.plan_id ||
+            required_string(request, "reviewed_plan_digest") != bundle.plan.plan_digest) {
+            throw PublicError("stale_plan", "reviewed update plan identity does not match immediate revalidation");
+        }
+        try {
+            const auto result = usk::lifecycle::apply_update(bundle.plan, bundle.plan.plan_digest,
+                required_string(request, "transaction_id"), required_string(request, "applied_at"),
+                fault_injector);
+            (void)result;
+        } catch (const usk::transaction::CommitAuthorityUnavailable& error) {
+            throw PublicError("replacement_commit_authority_unavailable", error.what());
+        }
+        throw PublicError("replacement_recovery_required", "update apply returned without a terminal report");
     }
     if (command == "move.plan") {
         const MovePlanBundle bundle = build_move_plan(request, config);

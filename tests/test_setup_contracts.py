@@ -21,6 +21,9 @@ M1_CONTRACT_SPINE = {
     "audit_event": "usk.audit_event.v1",
     "verification_report": "usk.verification_report.v1",
     "repair_report": "usk.repair_report.v1",
+    "update_plan": "usk.update_plan.v1",
+    "update_report": "usk.update_report.v1",
+    "replacement_transaction_journal": "usk.replacement_transaction_journal.v1",
     "move_report": "usk.move_report.v1",
     "uninstall_report": "usk.uninstall_report.v1",
     "recovery_report": "usk.recovery_report.v1",
@@ -56,6 +59,8 @@ M2_PUBLIC_REQUEST_CONTRACTS = {
     "installed_verify_request": "usk.installed_verify_request.v1",
     "repair_plan_request": "usk.repair_plan_request.v1",
     "repair_apply_request": "usk.repair_apply_request.v1",
+    "update_plan_request": "usk.update_plan_request.v1",
+    "update_apply_request": "usk.update_apply_request.v1",
     "move_plan_request": "usk.move_plan_request.v1",
     "move_apply_request": "usk.move_apply_request.v1",
     "uninstall_plan_request": "usk.uninstall_plan_request.v1",
@@ -483,8 +488,45 @@ class SetupContractTests(unittest.TestCase):
             "source_target_same_object",
             "target_effects_incomplete",
             "target_identity_unproven",
+            "replacement_commit_authority_unavailable",
+            "replacement_recovery_required",
+            "update_lifecycle_refused",
         ):
             self.assertIn(code, refusal_codes)
+
+    def test_whole_root_update_requires_reviewed_replay_and_strict_authority(self) -> None:
+        request = load_schema("update_plan_request")
+        self.assertEqual(request["properties"]["required_commit_authority"],
+                         {"const": "staged_child_bound_v1"})
+        self.assertEqual(request["properties"]["transition"]["enum"], ["upgrade", "downgrade"])
+        apply = load_schema("update_apply_request")
+        self.assertEqual(apply["properties"]["confirmation"], {"const": "APPLY"})
+        self.assertEqual(apply["properties"]["plan_request"]["$ref"],
+                         "update_plan_request.v1.schema.json")
+        self.assertIn("reviewed_plan_digest", apply["required"])
+
+    def test_update_plan_binds_both_roots_and_retains_old_content(self) -> None:
+        plan = load_schema("update_plan")
+        self.assertIs(plan["properties"]["commit_authority_available"]["const"], False)
+        self.assertEqual(plan["properties"]["unknown_file_policy"],
+                         {"const": "retain_whole_old_root"})
+        old_required = set(plan["$defs"]["old_identity"]["required"])
+        self.assertTrue({"installed_state_digest", "ownership_manifest_digest",
+                         "root_native_identity", "snapshot_digest"}.issubset(old_required))
+        new_required = set(plan["$defs"]["new_identity"]["required"])
+        self.assertTrue({"source_identity_digest", "entry_set_digest",
+                         "snapshot_digest"}.issubset(new_required))
+
+    def test_replacement_journal_is_exact_append_only_phase_evidence(self) -> None:
+        journal = load_schema("replacement_transaction_journal")
+        self.assertFalse(journal["additionalProperties"])
+        self.assertEqual(journal["properties"]["required_commit_authority"]["enum"],
+                         ["legacy_observed", "staged_child_bound_v1"])
+        phases = journal["properties"]["phase"]["enum"]
+        self.assertLess(phases.index("old_retire_prepared"), phases.index("old_retired"))
+        self.assertLess(phases.index("new_activate_prepared"), phases.index("new_active"))
+        self.assertIn("previous_journal_digest", journal["required"])
+        self.assertIn("journal_digest", journal["required"])
 
     def test_policy_contract_forbids_setup_side_effect_classes(self) -> None:
         properties = load_schema("policy")["properties"]
