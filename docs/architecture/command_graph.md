@@ -26,6 +26,8 @@ Canonical setup commands:
 - `installed.verify`
 - `repair.plan`
 - `repair.apply`
+- `update.plan`
+- `update.apply`
 - `move.plan`
 - `move.apply`
 - `uninstall.plan`
@@ -59,6 +61,8 @@ M2-WU2 availability is deliberately split:
 - available mutation behind exact context policy: install, repair, move,
   uninstall apply, exact staged-closure recovery rollback, and reviewed
   install-local post-commit finalization;
+- executable retained refusal: update apply revalidates the reviewed whole-root
+  plan, then refuses before effects while `staged_child_bound_v1` is unavailable;
 - planned and non-executable: audit list/inspect/export. Visible-target recovery
   finalization is refused unless the original versioned operation/source context
   and v2 publication identity are present and immediately revalidate.

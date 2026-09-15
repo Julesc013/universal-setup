@@ -17,6 +17,8 @@ The authoritative M1 v1 spine is:
 - `audit_event`: digest-chained operation evidence;
 - `verification_report`: owned-state and unknown-path results;
 - `repair_report`: before/after verification and retained foreign content;
+- `update_plan` / `update_apply_request`: exact old/new whole-root identities and reviewed replay;
+- `update_report`: reserved retained-old-root success after strict authority qualification;
 - `move_report`: new-root verification and deferred old-root removal;
 - `uninstall_report`: deleted owned state and retained changed/unknown state;
 - `recovery_report`: inspected journal, allowed action, effects, and result;
@@ -38,6 +40,7 @@ capability probes. It cannot carry shell, PowerShell, batch, executable hook,
 network URL, credential, registry, or installer behavior.
 
 Unknown and user-created files are observations, not setup property. Repair,
-move, and uninstall contracts therefore record retained unknown paths. The
+move, and uninstall contracts therefore record retained unknown paths. Update
+retains the complete old root, including every unknown path. The
 source archive is never setup-owned and uninstall reports must state
 `source_archive_deleted: false`.

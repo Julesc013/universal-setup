@@ -7,6 +7,7 @@
 #include "usk_audit_repository.h"
 #include "usk_json.h"
 #include "usk_record_io.h"
+#include "usk_replacement_session.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_transaction_session.h"
@@ -533,6 +534,68 @@ Value move_plan_payload(const usk::lifecycle::MovePlan& plan)
         {"plan_id", Value(plan.plan_id)}, {"new_root", Value(plan.new_root.generic_string())},
         {"staging_parent", Value(plan.staging_parent.generic_string())},
         {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())}});
+}
+
+std::string payload_snapshot_digest(const std::vector<usk::lifecycle::PayloadFile>& files)
+{
+    std::set<std::string> directories;
+    Value::Array entries;
+    for (const auto& file : files) {
+        fs::path parent = fs::path(file.relative_path).parent_path();
+        while (!parent.empty()) {
+            directories.insert(parent.generic_string());
+            parent = parent.parent_path();
+        }
+        entries.emplace_back(Value::Object{{"relative_path", Value(file.relative_path)},
+            {"sha256", Value(file.sha256)}, {"size_bytes", Value(file.size_bytes)},
+            {"type", Value("file")}});
+    }
+    for (const auto& directory : directories) {
+        entries.emplace_back(Value::Object{{"relative_path", Value(directory)},
+            {"type", Value("directory")}});
+    }
+    std::sort(entries.begin(), entries.end(), [](const Value& left, const Value& right) {
+        return left.at("relative_path").as_string() < right.at("relative_path").as_string();
+    });
+    return usk::json::sha256_canonical(Value(Value::Object{
+        {"entries", Value(std::move(entries))}, {"schema", Value("usk.replacement_snapshot.v1")}}));
+}
+
+Value update_plan_payload(const usk::lifecycle::UpdatePlan& plan)
+{
+    Value::Array components;
+    for (const auto& component : plan.recipe.components) components.emplace_back(component);
+    Value::Array entrypoints;
+    for (const auto& entrypoint : plan.recipe.entrypoints) {
+        entrypoints.emplace_back(Value::Object{{"entrypoint_id", Value(entrypoint.entrypoint_id)},
+            {"kind", Value(entrypoint.kind)}, {"relative_path", Value(entrypoint.relative_path)}});
+    }
+    return Value(Value::Object{
+        {"components", Value(std::move(components))},
+        {"created_at", Value(plan.created_at)},
+        {"entrypoints", Value(std::move(entrypoints))},
+        {"entry_set_digest", Value(plan.recipe.entry_set_digest)},
+        {"install_id", Value(plan.install_id)},
+        {"installed_state_digest", Value(plan.installed_state_digest)},
+        {"new_files", payload_files_value(plan.new_complete_files)},
+        {"new_product_id", Value(plan.recipe.product_id)},
+        {"new_product_version", Value(plan.recipe.product_version)},
+        {"new_provider_revision", Value(plan.recipe.provider_revision)},
+        {"new_recipe_digest", Value(plan.recipe.recipe_digest)},
+        {"new_snapshot_digest", Value(plan.new_snapshot_digest)},
+        {"new_source_digest", Value(plan.recipe.source_archive_digest)},
+        {"old_files", payload_files_value(plan.old_complete_files)},
+        {"old_root_identity", Value(plan.old_root_identity)},
+        {"old_snapshot_digest", Value(plan.old_snapshot_digest)},
+        {"operation", Value("update")},
+        {"ownership_manifest_digest", Value(plan.ownership_manifest_digest)},
+        {"plan_id", Value(plan.plan_id)},
+        {"policy_digest", Value(plan.recipe.policy_digest)},
+        {"required_commit_authority", Value("staged_child_bound_v1")},
+        {"source_identity_digest", Value(plan.recipe.source_identity_digest)},
+        {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())},
+        {"target_root", Value(plan.target_root.generic_string())},
+        {"transition", Value(plan.transition)}});
 }
 
 Value uninstall_plan_payload(const usk::lifecycle::UninstallPlan& plan)
@@ -1294,6 +1357,99 @@ MoveResult apply_move(
         }
         throw;
     }
+}
+
+UpdatePlan plan_update(
+    const LifecycleRoots& roots,
+    const std::string& install_id,
+    std::string plan_id,
+    std::string created_at,
+    std::string transition,
+    fs::path target_root,
+    RecipeBinding new_recipe,
+    std::vector<PayloadFile> new_complete_files,
+    std::function<void()> validate_source)
+{
+    if (!record_io::valid_identifier(install_id) || !record_io::valid_identifier(plan_id) ||
+        !valid_timestamp(created_at) || (transition != "upgrade" && transition != "downgrade")) {
+        throw std::runtime_error("update plan identity or transition is invalid");
+    }
+    validate_recipe(new_recipe);
+    auto current = load_current(roots, install_id);
+    const fs::path installed_root = fs::absolute(current.first.target_root).lexically_normal();
+    target_root = fs::absolute(std::move(target_root)).lexically_normal();
+    if (target_root != installed_root || current.first.product_id != new_recipe.product_id ||
+        current.first.product_version == new_recipe.product_version) {
+        throw std::runtime_error("update requires the exact managed root, product, and a distinct version");
+    }
+    normalize_files(new_complete_files);
+    if (new_complete_files.empty()) throw std::runtime_error("update replacement closure is empty");
+    std::set<std::string> new_paths;
+    for (const auto& file : new_complete_files) new_paths.insert(file.relative_path);
+    for (const auto& entrypoint : new_recipe.entrypoints) {
+        if (new_paths.count(entrypoint.relative_path) == 0u) {
+            throw std::runtime_error("update entrypoint is absent from the replacement closure");
+        }
+    }
+    UpdatePlan plan;
+    plan.plan_id = std::move(plan_id);
+    plan.created_at = std::move(created_at);
+    plan.install_id = install_id;
+    plan.transition = std::move(transition);
+    plan.installed_state_digest = installed_digest(current.first);
+    plan.ownership_manifest_digest = current.second.manifest_digest;
+    plan.target_root = installed_root;
+    plan.roots = roots;
+    plan.recipe = std::move(new_recipe);
+    plan.old_complete_files = read_complete_tree(installed_root);
+    plan.new_complete_files = std::move(new_complete_files);
+    plan.validate_source = std::move(validate_source);
+    plan.old_root_identity = transaction::observe_directory_identity(installed_root);
+    plan.old_snapshot_digest = transaction::replacement_snapshot_digest(installed_root);
+    plan.new_snapshot_digest = payload_snapshot_digest(plan.new_complete_files);
+    require_payload_path_capacity(plan.target_root, plan.new_complete_files);
+    plan.plan_digest = json::sha256_canonical(update_plan_payload(plan));
+    return plan;
+}
+
+UpdateResult apply_update(
+    const UpdatePlan& plan,
+    const std::string& reviewed_plan_digest,
+    const std::string& transaction_id,
+    const std::string& applied_at,
+    LifecycleFaultInjector fault_injector)
+{
+    (void)fault_injector;
+    if (reviewed_plan_digest != plan.plan_digest ||
+        json::sha256_canonical(update_plan_payload(plan)) != plan.plan_digest ||
+        !record_io::valid_identifier(transaction_id) || !valid_timestamp(applied_at) ||
+        plan.required_commit_authority != transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+        throw std::runtime_error("reviewed update plan or transaction identity is invalid");
+    }
+    auto current = load_current(plan.roots, plan.install_id);
+    if (installed_digest(current.first) != plan.installed_state_digest ||
+        current.second.manifest_digest != plan.ownership_manifest_digest ||
+        fs::absolute(current.first.target_root).lexically_normal() != plan.target_root ||
+        transaction::observe_directory_identity(plan.target_root) != plan.old_root_identity ||
+        transaction::replacement_snapshot_digest(plan.target_root) != plan.old_snapshot_digest) {
+        throw std::runtime_error("installed state or whole-root preimage changed after update planning");
+    }
+    ensure_same_payload(plan.old_complete_files, read_complete_tree(plan.target_root),
+        "whole-root preimage changed after update planning");
+    std::vector<PayloadFile> new_files = plan.new_complete_files;
+    normalize_files(new_files);
+    ensure_same_payload(plan.new_complete_files, new_files,
+        "replacement closure changed after update planning");
+    if (payload_snapshot_digest(new_files) != plan.new_snapshot_digest ||
+        applied_at <= current.first.created_at) {
+        throw std::runtime_error("replacement closure or update timestamp is stale");
+    }
+    if (plan.validate_source) plan.validate_source();
+    // A caller cannot downgrade the reviewed requirement. Current hosts have no
+    // protected staged namespace publisher, so this throws before any journal,
+    // staging, root rename, state, or audit effect.
+    transaction::require_commit_authority(plan.required_commit_authority);
+    throw std::logic_error("staged_child_bound_v1 returned without publication authority");
 }
 
 UninstallPlan plan_uninstall(
