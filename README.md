@@ -3,7 +3,7 @@
 Universal Setup is the product-agnostic setup authority for install, verify,
 repair, uninstall, rollback, installed-state manifests, and setup audit.
 
-It is not a GUI wizard, store, DRM system, background updater, launcher
+It is not/not yet a GUI wizard, store, DRM system, background updater, launcher
 orchestrator, or product-specific installer. Product repositories supply
 identity, payloads, policy, recipes, branding, and user-facing text. Universal
 Setup supplies deterministic setup transaction machinery and thin platform
@@ -11,28 +11,21 @@ adapters.
 
 ## Ownership
 
+Universal Setup must not contain product
+semantics. It knows products, components, payloads, install plans,
+installed-state records, transactions, platform capabilities, and audit.
+
+*For example:*
 ```text
 universal-setup     install / repair / uninstall / rollback authority
 universal-launcher  cross-product orchestration and launch plans
 factorio-launcher   FacMan product binding and app frontends
 ```
 
-Universal Setup must not contain Factorio, Dominium, Eureka, or AIDE product
-semantics. It knows products, components, payloads, install plans,
-installed-state records, transactions, platform capabilities, and audit.
-
 ## Proof Role
 
-```text
-Factorio proves the universal launcher through FacMan.
-Dominium proves the universal setup.
-FacMan ships as the first serious Factorio product binding.
-```
-
-Universal Setup should learn from Dominium's real setup requirements without
-becoming Dominium-specific. FacMan may call Universal Setup for managed
-Factorio installs later, but FacMan is not the proof project for setup
-mutation.
+Universal Setup should learn from projects' real setup requirements without
+becoming product-specific. 
 
 Permanent rule:
 
@@ -44,6 +37,16 @@ Frontends present commands and reports.
 Contracts preserve compatibility.
 Validators prevent regression.
 ```
+
+*For example:*
+```text
+Factorio proves the universal launcher through FacMan.
+Dominium proves the universal setup.
+FacMan ships as the first serious Factorio product binding.
+```
+*FacMan may call Universal Setup for managed
+Factorio installs later, but FacMan is not the proof project for setup
+mutation.*
 
 ## Durable Layout
 
@@ -60,18 +63,6 @@ tests/      proof, fixtures, and golden outputs
 tools/      validators and repo automation
 cmake/      native build policy
 archive/    retained planning/prototype material
-```
-
-Retired roots are forbidden:
-
-```text
-source/
-src/
-data/
-schemas/
-packaging/
-factorio/
-launcher/
 ```
 
 The app grammar is:
