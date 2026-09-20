@@ -1,0 +1,65 @@
+{
+  "format": "usk.draft.machine-plan/0",
+  "plan_id": "fixture-plan-1",
+  "plan_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "bundle": {
+    "id": "hello-bundle",
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "operation": "install",
+  "installation_id": "fixture-install-1",
+  "expected_revision": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "policy_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "target": {
+    "profile": "windows-x64-lab",
+    "root_identity": "fixture-target-identity",
+    "scope": "portable"
+  },
+  "sources": [
+    {
+      "id": "hello-payload",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "providers": [
+    {
+      "id": "fixture-target",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "selected_components": [
+    "core"
+  ],
+  "effects": [
+    {
+      "id": "e1",
+      "kind": "directory.create",
+      "target_root": "payload",
+      "relative_path": "bin",
+      "expected_state": {
+        "presence": "absent"
+      },
+      "desired_state": {
+        "type": "directory"
+      },
+      "capability": "fs.directory.create",
+      "privilege": "user",
+      "critical": true,
+      "depends_on": [],
+      "verification": "directory.identity",
+      "recovery": "compensate",
+      "idempotency_key": "e1-attempt"
+    }
+  ],
+  "required_guarantees": [
+    "restart-recoverable"
+  ],
+  "space": {
+    "payload_bytes": "1234",
+    "staging_bytes": "1234",
+    "rollback_bytes": "0",
+    "journal_budget_bytes": "65536"
+  },
+  "authorization": "required-separately",
+  "extensions": []
+}

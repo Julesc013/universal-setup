@@ -1,0 +1,10 @@
+# Review and merge into an existing admitted workflow; not active in this archive.
+# Preserve current least-privilege and pinned-action policy.
+- name: Check specification integrity
+  run: python spec/tools/specctl.py validate
+- name: Check deterministic indexes
+  run: python spec/tools/specctl.py index --check
+- name: Test specification tooling
+  run: python -B -m unittest discover -s spec/tools/tests -v
+# Optional full schema check needs a separately pinned/approved jsonschema dependency.
+# - run: python spec/tools/specctl.py schema-check

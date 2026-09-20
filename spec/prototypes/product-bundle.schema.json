@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usk:draft:product-bundle:0",
+  "title": "product-bundle (unpromoted design)",
+  "description": "Proposed contract for review. Not part of the current installed USK ABI or schema set.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "usk.draft.product-bundle/0"
+    },
+    "product_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "publisher_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "release_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version_scheme": {
+      "type": "string",
+      "enum": [
+        "semver",
+        "date",
+        "opaque",
+        "external"
+      ]
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "core",
+              "frontend",
+              "runtime",
+              "content",
+              "service",
+              "sdk",
+              "symbols",
+              "docs",
+              "integration"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "default_selected": {
+            "type": "boolean"
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+                },
+                "artifact": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "digest"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "target",
+                "artifact"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "required",
+          "default_selected",
+          "requires",
+          "conflicts",
+          "variants"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "allowed_scopes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "portable",
+          "user",
+          "machine",
+          "native_owner"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "entrypoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Logical relative path. Semantic path validator additionally rejects traversal, native collisions, devices and forbidden encodings."
+          }
+        },
+        "required": [
+          "id",
+          "component",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "preserved_roots": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "runtime_requirements": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+      },
+      "minItems": 0
+    },
+    "extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "schema_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schema_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "critical": {
+            "type": "boolean"
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "schema_digest",
+          "critical",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    }
+  },
+  "required": [
+    "format",
+    "product_id",
+    "publisher_id",
+    "release_version",
+    "version_scheme",
+    "components",
+    "allowed_scopes",
+    "entrypoints",
+    "preserved_roots",
+    "runtime_requirements",
+    "extensions"
+  ],
+  "additionalProperties": false
+}

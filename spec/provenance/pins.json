@@ -1,0 +1,26 @@
+{
+  "schema": "usk.spec.input-pins/1",
+  "observed_at": "2026-09-20T12:00:00Z",
+  "universal_setup": {
+    "repository": "Julesc013/universal-setup",
+    "commit": "0ca648a2c4fa8a37bb78a22639578093aecf6254",
+    "tree": "7f8b11a85ad9a4704fdb891763de00ec467bb314",
+    "scope": "main/root/README/structure policy inspected; no fresh native test run"
+  },
+  "okf": {
+    "repository": "GoogleCloudPlatform/open-knowledge-format",
+    "commit": "ad30107c31c06aec8a7d5636e0d1058118604e6f",
+    "version": "0.2",
+    "path": "SPEC.md"
+  },
+  "aide": {
+    "repository": "Julesc013/aide",
+    "commit": "aec53b1d3675f02e2fdd17cc718fdcff6cd4e9f3",
+    "tree": "54ab832eafa0ed0be3282858fd44f344e560732b",
+    "workunit_schema": ".aide/protocol/aide-workunit.schema.json",
+    "workunit_git_blob": "7635c7a097d1d0ba21021e6bdc19aa52e851fd75",
+    "context_schema": ".aide/protocol/aide-context-pack-v2.schema.json",
+    "context_git_blob": "27a2d860b48f1673dc8c4bedd4856b7cc43038e8",
+    "runtime_admission": "not_established_by_this_package"
+  }
+}

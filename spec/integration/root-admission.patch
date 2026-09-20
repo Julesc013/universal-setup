@@ -1,0 +1,11 @@
+diff --git a/tools/structure_policy_check.py b/tools/structure_policy_check.py
+--- a/tools/structure_policy_check.py
++++ b/tools/structure_policy_check.py
+@@ -25,6 +25,7 @@ ALLOWED_TOP_LEVEL = {
+     "include",
+     "release",
+     "runtime",
++    "spec",
+     "tests",
+     "tools",
+ }

@@ -1,0 +1,23 @@
+{
+  "format": "usk.draft.operation-receipt/0",
+  "operation_id": "fixture-op",
+  "attempt_id": "fixture-attempt",
+  "plan": {
+    "id": "fixture-plan",
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "installation_id": "fixture-install",
+  "phase": "created",
+  "outcome": "not_started",
+  "effects_may_have_occurred": false,
+  "cancel_requested": false,
+  "effect_results": [],
+  "recovery": {
+    "required": false,
+    "disposition": "none",
+    "refs": []
+  },
+  "reboot": "not_required",
+  "evidence_refs": [],
+  "fixture_only": true
+}

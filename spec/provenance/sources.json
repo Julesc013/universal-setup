@@ -1,0 +1,75 @@
+{
+  "schema": "usk.spec.sources/1",
+  "sources": [
+    {
+      "id": "USR-DISKED",
+      "resource": "urn:sha256:9299eec8bc1709009beb0500c99382483b63c8a34fa74adf2e473ceabd5de0b0",
+      "title": "User-supplied DiskEd setup integration review"
+    },
+    {
+      "id": "USR-SYSPANE",
+      "resource": "urn:sha256:0bb15977ef76559f166352751b0043060ff240a844d97d6a7b74a41e95185879",
+      "title": "User-supplied SysPane setup integration review"
+    },
+    {
+      "id": "USR-EUREKA",
+      "resource": "urn:sha256:d466fef4c8c06adb4a64c1069ba098e623bee0bdce1af13baddf4c0b30c7097b",
+      "title": "User-supplied Eureka setup integration review"
+    },
+    {
+      "id": "USR-REVIEW",
+      "resource": "urn:sha256:093e0aac0c7dc6e344967a1433b2517f2f5cfcaf5be4e566cccb6b38f24a0bfa",
+      "title": "User-supplied June provider architecture review; historical"
+    },
+    {
+      "id": "USR-FACMAN",
+      "resource": "urn:sha256:1a9b48f9aa23e01f88739d70a2394438e33c2a48d8e6f0ccc9204cfe40e649a4",
+      "title": "User-supplied September 6 FacMan and native-interface programme; historical"
+    },
+    {
+      "id": "CONVERSATION",
+      "resource": "urn:usk:input:current-conversation-design",
+      "title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"
+    },
+    {
+      "id": "REPO-README",
+      "resource": "https://github.com/Julesc013/universal-setup/blob/0ca648a2c4fa8a37bb78a22639578093aecf6254/README.md",
+      "title": "Universal Setup pinned README"
+    },
+    {
+      "id": "REPO-ROOT",
+      "resource": "https://github.com/Julesc013/universal-setup/blob/0ca648a2c4fa8a37bb78a22639578093aecf6254/tools/structure_policy_check.py",
+      "title": "Universal Setup pinned root/structure validator"
+    },
+    {
+      "id": "AIDE-WORKUNIT",
+      "resource": "https://github.com/Julesc013/aide/blob/aec53b1d3675f02e2fdd17cc718fdcff6cd4e9f3/.aide/protocol/aide-workunit.schema.json",
+      "title": "Pinned AIDE WorkUnit schema"
+    },
+    {
+      "id": "AIDE-CONTEXT",
+      "resource": "https://github.com/Julesc013/aide/blob/aec53b1d3675f02e2fdd17cc718fdcff6cd4e9f3/.aide/protocol/aide-context-pack-v2.schema.json",
+      "title": "Pinned AIDE ContextPack v2 schema"
+    },
+    {
+      "id": "AIDE-README",
+      "resource": "https://github.com/Julesc013/aide/blob/aec53b1d3675f02e2fdd17cc718fdcff6cd4e9f3/README.md",
+      "title": "AIDE README; inspect contracts and source when implementation claims conflict"
+    },
+    {
+      "id": "OKF",
+      "resource": "https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md",
+      "title": "Open Knowledge Format 0.2, exact August 21 revision"
+    },
+    {
+      "id": "CODEX",
+      "resource": "https://developers.openai.com/codex/guides/agents-md",
+      "title": "Official Codex repository instruction guidance, retrieved 2026-09-20"
+    },
+    {
+      "id": "CLAUDE",
+      "resource": "https://code.claude.com/docs/en/memory",
+      "title": "Official Claude Code project instruction guidance, retrieved 2026-09-20"
+    }
+  ]
+}

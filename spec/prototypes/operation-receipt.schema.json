@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usk:draft:operation-receipt:0",
+  "title": "operation-receipt (unpromoted design)",
+  "description": "Proposed contract for review. Not part of the current installed USK ABI or schema set.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "usk.draft.operation-receipt/0"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "installation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "phase": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "refused_before_effects",
+        "completed_verified",
+        "cancelled_before_effects",
+        "cancelled_recovered",
+        "completed_after_cancel_request",
+        "failed_recoverable",
+        "recovery_required",
+        "outcome_unknown"
+      ]
+    },
+    "effects_may_have_occurred": {
+      "type": "boolean"
+    },
+    "cancel_requested": {
+      "type": "boolean"
+    },
+    "effect_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "effect_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "not_started",
+              "applied",
+              "verified",
+              "failed",
+              "unknown",
+              "compensated",
+              "retained"
+            ]
+          },
+          "observation_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          }
+        },
+        "required": [
+          "effect_id",
+          "state",
+          "observation_refs"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "recovery": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "none",
+            "retry",
+            "complete_forward",
+            "restore",
+            "operator"
+          ]
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "required",
+        "disposition",
+        "refs"
+      ],
+      "additionalProperties": false
+    },
+    "reboot": {
+      "type": "string",
+      "enum": [
+        "not_required",
+        "required",
+        "scheduled",
+        "performed",
+        "unknown"
+      ]
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "fixture_only": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "format",
+    "operation_id",
+    "attempt_id",
+    "plan",
+    "installation_id",
+    "phase",
+    "outcome",
+    "effects_may_have_occurred",
+    "cancel_requested",
+    "effect_results",
+    "recovery",
+    "reboot",
+    "evidence_refs",
+    "fixture_only"
+  ],
+  "additionalProperties": false
+}

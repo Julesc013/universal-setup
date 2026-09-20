@@ -1,0 +1,27 @@
+{
+  "format": "usk.draft.provider-descriptor/0",
+  "id": "org.example.memory-target",
+  "version": "0.1.0",
+  "implementation_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "abi": "draft0",
+  "family": "target",
+  "execution": "in_memory",
+  "targets": [
+    "fixture"
+  ],
+  "capabilities": [
+    {
+      "id": "fs.create",
+      "version": "0",
+      "realization": "portable",
+      "implementation": "absent",
+      "qualification": "not_run",
+      "support": "unsupported",
+      "constraints": {},
+      "evidence_refs": []
+    }
+  ],
+  "threading": "external_serialization",
+  "unload": "after_no_references",
+  "trusted": false
+}

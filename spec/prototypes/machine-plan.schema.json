@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usk:draft:machine-plan:0",
+  "title": "machine-plan (unpromoted design)",
+  "description": "Proposed contract for review. Not part of the current installed USK ABI or schema set.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "usk.draft.machine-plan/0"
+    },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "bundle": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "install",
+        "repair",
+        "modify",
+        "update",
+        "downgrade",
+        "move",
+        "uninstall",
+        "rollback",
+        "recover",
+        "purge"
+      ]
+    },
+    "installation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "policy_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "root_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "portable",
+            "user",
+            "machine",
+            "native_owner"
+          ]
+        }
+      },
+      "required": [
+        "profile",
+        "root_identity",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "id",
+          "digest"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "id",
+          "digest"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "selected_components": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "target_root": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "relative_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Logical relative path. Semantic path validator additionally rejects traversal, native collisions, devices and forbidden encodings."
+          },
+          "expected_state": {
+            "type": "object"
+          },
+          "desired_state": {
+            "type": "object"
+          },
+          "capability": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "privilege": {
+            "type": "string",
+            "enum": [
+              "user",
+              "machine",
+              "external_owner"
+            ]
+          },
+          "critical": {
+            "type": "boolean"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          },
+          "verification": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "recovery": {
+            "type": "string",
+            "enum": [
+              "retry",
+              "compensate",
+              "restore_generation",
+              "complete_forward",
+              "retain_for_operator"
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "target_root",
+          "relative_path",
+          "expected_state",
+          "desired_state",
+          "capability",
+          "privilege",
+          "critical",
+          "depends_on",
+          "verification",
+          "recovery",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "required_guarantees": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+      },
+      "minItems": 0
+    },
+    "space": {
+      "type": "object",
+      "properties": {
+        "payload_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "description": "Unsigned decimal string; semantic validation also checks configured numeric ceiling."
+        },
+        "staging_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "description": "Unsigned decimal string; semantic validation also checks configured numeric ceiling."
+        },
+        "rollback_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "description": "Unsigned decimal string; semantic validation also checks configured numeric ceiling."
+        },
+        "journal_budget_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "description": "Unsigned decimal string; semantic validation also checks configured numeric ceiling."
+        }
+      },
+      "required": [
+        "payload_bytes",
+        "staging_bytes",
+        "rollback_bytes",
+        "journal_budget_bytes"
+      ],
+      "additionalProperties": false
+    },
+    "authorization": {
+      "const": "required-separately"
+    },
+    "extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "schema_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schema_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "critical": {
+            "type": "boolean"
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "schema_digest",
+          "critical",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    }
+  },
+  "required": [
+    "format",
+    "plan_id",
+    "plan_digest",
+    "bundle",
+    "operation",
+    "installation_id",
+    "expected_revision",
+    "policy_digest",
+    "target",
+    "sources",
+    "providers",
+    "selected_components",
+    "effects",
+    "required_guarantees",
+    "space",
+    "authorization",
+    "extensions"
+  ],
+  "additionalProperties": false
+}
