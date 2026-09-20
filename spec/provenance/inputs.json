@@ -1,0 +1,65 @@
+{
+  "schema": "usk.spec.input-inventory/1",
+  "files": [
+    {
+      "filename": "Pasted markdown (2)(1).md",
+      "sha256": "0bb15977ef76559f166352751b0043060ff240a844d97d6a7b74a41e95185879",
+      "bytes": 24978,
+      "lines": 325,
+      "coverage": "read",
+      "source_type": "user-supplied review; not execution evidence"
+    },
+    {
+      "filename": "Pasted markdown (2).md",
+      "sha256": "9299eec8bc1709009beb0500c99382483b63c8a34fa74adf2e473ceabd5de0b0",
+      "bytes": 25099,
+      "lines": 322,
+      "coverage": "read",
+      "source_type": "user-supplied review; not execution evidence"
+    },
+    {
+      "filename": "Pasted markdown (3).md",
+      "sha256": "d466fef4c8c06adb4a64c1069ba098e623bee0bdce1af13baddf4c0b30c7097b",
+      "bytes": 16586,
+      "lines": 382,
+      "coverage": "read",
+      "source_type": "user-supplied review; not execution evidence"
+    },
+    {
+      "filename": "Pasted markdown (4).md",
+      "sha256": "093e0aac0c7dc6e344967a1433b2517f2f5cfcaf5be4e566cccb6b38f24a0bfa",
+      "bytes": 37602,
+      "lines": 1424,
+      "coverage": "read",
+      "source_type": "user-supplied review; not execution evidence"
+    },
+    {
+      "filename": "Pasted markdown (5).md",
+      "sha256": "1a9b48f9aa23e01f88739d70a2394438e33c2a48d8e6f0ccc9204cfe40e649a4",
+      "bytes": 56130,
+      "lines": 1618,
+      "coverage": "read",
+      "source_type": "user-supplied review; not execution evidence"
+    },
+    {
+      "filename": "Pasted markdown(1).md",
+      "sha256": "9299eec8bc1709009beb0500c99382483b63c8a34fa74adf2e473ceabd5de0b0",
+      "bytes": 25099,
+      "lines": 322,
+      "coverage": "read",
+      "source_type": "user-supplied review; not execution evidence"
+    },
+    {
+      "filename": "Pasted markdown.md",
+      "sha256": "0bb15977ef76559f166352751b0043060ff240a844d97d6a7b74a41e95185879",
+      "bytes": 24978,
+      "lines": 325,
+      "coverage": "read",
+      "source_type": "user-supplied review; not execution evidence"
+    }
+  ],
+  "unique_contents": 5,
+  "full_chat_export_available": false,
+  "live_native_build_performed": false,
+  "source_material_included_in_primary_zip": false
+}

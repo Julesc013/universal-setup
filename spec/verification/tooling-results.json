@@ -1,0 +1,95 @@
+{
+  "schema": "usk.spec.tooling-validation/1",
+  "created_at": "2026-09-20T12:30:12.771297+00:00",
+  "scope": "This generated specification and tooling only; not Universal Setup runtime qualification.",
+  "environment": {
+    "python": "3.13.5",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "pyyaml": "6.0.3",
+    "jsonschema": "4.26.0"
+  },
+  "checks": [
+    {
+      "id": "SPEC-INTEGRITY",
+      "status": "PASS",
+      "detail": {
+        "concepts": 89,
+        "requirements": 144,
+        "paired_acceptance_designs": 144,
+        "inactive_workunits": 33
+      }
+    },
+    {
+      "id": "SCHEMA-SHAPES",
+      "status": "PASS",
+      "detail": {
+        "status": "PASS",
+        "instances_checked": 98,
+        "scope": "spec/prototype syntax and shape only; no runtime conformance"
+      }
+    },
+    {
+      "id": "TOOLING-SELFTESTS",
+      "status": "PASS",
+      "tests": 66,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "log": "tooling-selftests.log"
+    },
+    {
+      "id": "YAML-INDEPENDENT-PARSER",
+      "status": "PASS",
+      "concepts": 89,
+      "detail": "PyYAML safe_load equals the dependency-free producer parser metadata."
+    },
+    {
+      "id": "ROOT-PATCH-CONTEXT-FIXTURE",
+      "status": "PASS",
+      "detail": "git apply --check passed against an isolated copy of the inspected allowlist context; not applied to the live repository."
+    },
+    {
+      "id": "FOCUSED-CONTEXT",
+      "status": "PASS",
+      "focused_json_bytes": 54325,
+      "full_closure_json_bytes": 146817,
+      "token_savings_measured": false,
+      "detail": "Required pages retained; nonembedded dependencies identified and hash-bound."
+    },
+    {
+      "id": "AIDE-PINNED-FULL-SCHEMA",
+      "status": "NOT_RUN",
+      "detail": "Schemas inspected through GitHub. Export shape/inactive-state tests pass; no local exact AIDE schema checkout/native runtime validation was executed."
+    },
+    {
+      "id": "UPSTREAM-NATIVE-BUILD",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "PRODUCT-ACCEPTANCE",
+      "status": "NOT_RUN",
+      "designed_cases": 144,
+      "executed_cases": 0
+    },
+    {
+      "id": "NATIVE-UI-AND-HUMAN-REVIEW",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "LIVE-ROOT-POLICY-APPLICATION",
+      "status": "NOT_RUN",
+      "detail": "Reviewable patch only; no live repo modification."
+    }
+  ],
+  "repository_changed": false,
+  "protected_refs_changed": false,
+  "grants_activated": false,
+  "known_limits": [
+    "No exhaustive full historical chat export",
+    "No full current repository native test execution",
+    "No independent human design/native UX acceptance",
+    "Eight prototype schemas are unpromoted, not full production contract replacements",
+    "Eight technical/admission decisions remain open",
+    "Python 3.9+ intended source baseline; only Python 3.13.5 executed here"
+  ]
+}

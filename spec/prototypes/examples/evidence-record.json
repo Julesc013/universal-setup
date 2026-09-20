@@ -1,0 +1,15 @@
+{
+  "format": "usk.draft.evidence-record/0",
+  "id": "fixture-evidence",
+  "claim_ids": [],
+  "input_refs": [],
+  "target_profile": "fixture",
+  "test_id": "fixture-only",
+  "executed": false,
+  "result": "NOT_RUN",
+  "artifact_refs": [],
+  "limitations": [
+    "Illustrative data; not an execution receipt."
+  ],
+  "fixture_only": true
+}

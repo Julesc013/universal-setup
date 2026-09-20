@@ -1,0 +1,13 @@
+{
+  "schema": "usk.spec.build-coverage/1",
+  "concepts_authored": 89,
+  "task_definitions": 33,
+  "requirement_count": 144,
+  "acceptance_design_count": 144,
+  "runtime_acceptance_executed": 0,
+  "full_historical_chat_export": false,
+  "independent_runtime_audit": "not_performed",
+  "native_gui_review": "not_performed",
+  "source_validation_scope": "supplied Markdown and selected pinned repository/standard/adapter records",
+  "requirements_assigned_to_workunits": 144
+}

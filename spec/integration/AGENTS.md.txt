@@ -1,0 +1,10 @@
+# Universal Setup repository routing
+
+Read the existing repository governance and workspace hygiene rules first.
+Read `spec/start-here.md`, `spec/governance/authority.md`, and the exact admitted WorkUnit.
+Treat spec requirements as engineering intent only after adoption; they do not grant effects.
+Use `python spec/tools/specctl.py validate`, `status`, `next`, and `context` for bounded retrieval.
+Keep runtime contracts in `contracts/`, live release facts in `release/`, and operational task/evidence truth in the admitted queue.
+Do not overwrite README, change protected refs, sign, publish or act on user state without the relevant real authority.
+Record exact inputs, tests actually run, limitations, failures and next safe action.
+A context pack or schema PASS never establishes native product qualification.

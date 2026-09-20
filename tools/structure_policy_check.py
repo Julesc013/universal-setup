@@ -25,6 +25,7 @@ ALLOWED_TOP_LEVEL = {
     "include",
     "release",
     "runtime",
+    "spec",
     "tests",
     "tools",
 }

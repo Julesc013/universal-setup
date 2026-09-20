@@ -1,0 +1,42 @@
+{
+  "format": "usk.draft.product-bundle/0",
+  "product_id": "org.example.hello",
+  "publisher_id": "org.example",
+  "release_version": "1.2.3",
+  "version_scheme": "semver",
+  "components": [
+    {
+      "id": "core",
+      "kind": "core",
+      "required": true,
+      "default_selected": true,
+      "requires": [],
+      "conflicts": [],
+      "variants": [
+        {
+          "target": "windows-x64-lab",
+          "artifact": {
+            "id": "hello-payload",
+            "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      ]
+    }
+  ],
+  "allowed_scopes": [
+    "portable",
+    "user"
+  ],
+  "entrypoints": [
+    {
+      "id": "main",
+      "component": "core",
+      "path": "hello.exe"
+    }
+  ],
+  "preserved_roots": [
+    "user-data"
+  ],
+  "runtime_requirements": [],
+  "extensions": []
+}

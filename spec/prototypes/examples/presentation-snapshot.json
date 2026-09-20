@@ -1,0 +1,26 @@
+{
+  "format": "usk.draft.presentation-snapshot/0",
+  "snapshot_id": "fixture-view",
+  "revision": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "product": {
+    "id": "org.example.hello",
+    "display_name": "Hello",
+    "version": "1.2.3"
+  },
+  "installation": {
+    "id": "fixture-install",
+    "state": "absent"
+  },
+  "actions": [
+    {
+      "id": "install.plan",
+      "label_key": "action.review-install",
+      "available": true,
+      "reason_codes": [],
+      "requires_authorization": false
+    }
+  ],
+  "problems": [],
+  "operation_ref": null,
+  "appearance_policy": "system_native"
+}

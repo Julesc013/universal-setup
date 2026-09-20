@@ -1,0 +1,94 @@
+{
+  "schema": "usk.spec.programme/1",
+  "status": "proposed",
+  "runtime_authority": false,
+  "milestones": [
+    {
+      "id": "M0",
+      "goal": "Adopt, characterize and validate knowledge/tooling",
+      "tasks": [
+        1,
+        2,
+        3,
+        4,
+        27
+      ]
+    },
+    {
+      "id": "M1",
+      "goal": "Safe bounded local publication/recovery",
+      "tasks": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    {
+      "id": "M2",
+      "goal": "No-code authoring and general host",
+      "tasks": [
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "id": "M3",
+      "goal": "Owned operations, TUI and first native prefab",
+      "tasks": [
+        15,
+        16,
+        17,
+        18
+      ]
+    },
+    {
+      "id": "M4",
+      "goal": "Different real/neutral consumers",
+      "tasks": [
+        21
+      ]
+    },
+    {
+      "id": "M5",
+      "goal": "Enterprise endpoint/native owner integration",
+      "tasks": [
+        19,
+        20,
+        22,
+        23
+      ]
+    },
+    {
+      "id": "M6",
+      "goal": "Secure optional acquisition",
+      "tasks": [
+        24,
+        25
+      ]
+    },
+    {
+      "id": "M7",
+      "goal": "Native profiles, SDKs, release assurance",
+      "tasks": [
+        26,
+        28,
+        29,
+        30,
+        31,
+        32
+      ]
+    },
+    {
+      "id": "POST-V1",
+      "goal": "Servicing and evidence-led expansion",
+      "tasks": [
+        33
+      ]
+    }
+  ]
+}

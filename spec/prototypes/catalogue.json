@@ -1,0 +1,55 @@
+{
+  "schema": "usk.spec.prototype-catalogue/1",
+  "authority": "unpromoted-design",
+  "items": [
+    {
+      "schema": "prototypes/product-bundle.schema.json",
+      "example": "prototypes/examples/product-bundle.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    },
+    {
+      "schema": "prototypes/machine-plan.schema.json",
+      "example": "prototypes/examples/machine-plan.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    },
+    {
+      "schema": "prototypes/operation-receipt.schema.json",
+      "example": "prototypes/examples/operation-receipt.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    },
+    {
+      "schema": "prototypes/provider-descriptor.schema.json",
+      "example": "prototypes/examples/provider-descriptor.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    },
+    {
+      "schema": "prototypes/presentation-snapshot.schema.json",
+      "example": "prototypes/examples/presentation-snapshot.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    },
+    {
+      "schema": "prototypes/deployment-response.schema.json",
+      "example": "prototypes/examples/deployment-response.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    },
+    {
+      "schema": "prototypes/evidence-record.schema.json",
+      "example": "prototypes/examples/evidence-record.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    },
+    {
+      "schema": "prototypes/worker-handoff.schema.json",
+      "example": "prototypes/examples/worker-handoff.json",
+      "status": "unpromoted",
+      "semantic_validator_required": true
+    }
+  ],
+  "zero_digest_meaning": "fixture sentinel only; never acceptable as real artifact identity"
+}

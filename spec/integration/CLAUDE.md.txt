@@ -1,0 +1,5 @@
+# Claude Code routing
+
+@AGENTS.md
+
+Use the same canonical policy/spec/task inputs. This file is an optional adapter, not independent setup law.

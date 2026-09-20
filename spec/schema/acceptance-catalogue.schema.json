@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usk:spec:acceptance:1",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "usk.spec.acceptance-catalogue/1"
+    },
+    "authority": {
+      "const": "test-design-only"
+    },
+    "runtime_results": {
+      "const": "not_run"
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^USK-AT-[A-Z0-9-]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "spec_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "kind": {
+            "const": "product-acceptance-design"
+          },
+          "status": {
+            "const": "not_run"
+          },
+          "fixture": {
+            "type": "string",
+            "minLength": 1
+          },
+          "procedure": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "expected": {
+            "type": "string",
+            "minLength": 1
+          },
+          "negative_control": {
+            "type": "string",
+            "minLength": 1
+          },
+          "oracle": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          },
+          "execution_authority": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result_refs": {
+            "type": "array",
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "spec_id",
+          "requirements",
+          "kind",
+          "status",
+          "fixture",
+          "procedure",
+          "expected",
+          "negative_control",
+          "oracle",
+          "required_evidence",
+          "execution_authority",
+          "result_refs"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "schema",
+    "authority",
+    "runtime_results",
+    "cases"
+  ],
+  "additionalProperties": false
+}

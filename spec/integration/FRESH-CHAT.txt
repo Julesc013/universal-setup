@@ -1,0 +1,12 @@
+Continue Universal Setup using the committed specification rather than old chat state.
+
+Repository: Julesc013/universal-setup
+First obtain the actual repository commit and spec/integrity.json aggregate digest.
+Read spec/start-here.md, spec/governance/authority.md and spec/provenance/reconciliation.md.
+Inspect the current queue and grant policy; do not treat spec task templates as admitted work.
+Use USK-WU-001 for initial adoption, or the exact already admitted task ID supplied by the owner.
+Read that task's full required context; retrieve reference-only dependencies before changing their semantics.
+Report actual source identity, implementation/evidence gaps, allowed scope and proposed next action.
+With write/execute tools and the corresponding grant, follow the task and record real results.
+Without those tools or grants, return a review/unapplied patch and NOT_RUN validation, not an execution claim.
+Do not change protected refs, sign, publish or operate on user state through this prompt.
