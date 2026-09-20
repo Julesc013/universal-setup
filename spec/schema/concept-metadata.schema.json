@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usk:spec:metadata:1",
+  "title": "USK engineering producer metadata; not a generic OKF restriction",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "generated": {
+      "type": "object",
+      "properties": {
+        "by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "by",
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resource": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "title"
+        ],
+        "additionalProperties": true
+      },
+      "minItems": 0
+    },
+    "usk_spec": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "const": "usk-engineering/0.1.0-draft.1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^USK-S-[A-Z0-9-]+$"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "accepted",
+            "superseded",
+            "retired"
+          ]
+        },
+        "authority": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "profile",
+        "id",
+        "revision",
+        "status",
+        "authority",
+        "owner",
+        "layer",
+        "depends_on"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "description",
+    "tags",
+    "generated",
+    "sources",
+    "usk_spec"
+  ],
+  "additionalProperties": true
+}

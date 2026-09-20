@@ -1,0 +1,4039 @@
+{
+  "schema": "usk.spec.acceptance-catalogue/1",
+  "authority": "test-design-only",
+  "runtime_results": "not_run",
+  "cases": [
+    {
+      "id": "USK-AT-AUTH-001",
+      "title": "No implicit activation",
+      "spec_id": "USK-S-AUTH",
+      "requirements": [
+        "USK-R-AUTH-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Fresh extracted archive and repository with all permissions unchanged.",
+      "procedure": [
+        "Run all default spec-tool commands.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only declared output files change; no network, subprocess effects or grants occur.",
+      "negative_control": "Insert a task requesting administrator effects with no grant.",
+      "oracle": "Filesystem diff and command/network spy; task remains proposed.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AUTH-002",
+      "title": "Single machine-contract owner",
+      "spec_id": "USK-S-AUTH",
+      "requirements": [
+        "USK-R-AUTH-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "One prototype schema and an accepted contract.",
+      "procedure": [
+        "Attempt to declare both canonical for the same ID/version.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Validation or review blocks duplicate authority.",
+      "negative_control": "Change one field in only the draft copy.",
+      "oracle": "Contract catalogue and identity/digest comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AUTH-003",
+      "title": "Independent evidence",
+      "spec_id": "USK-S-AUTH",
+      "requirements": [
+        "USK-R-AUTH-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "All designed acceptance cases have no result.",
+      "procedure": [
+        "Generate dashboard and AIDE export.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Cases remain not_run; no release-ready badge is derived.",
+      "negative_control": "Mark a proposed task complete without a receipt.",
+      "oracle": "Status derives from explicit evidence, not document count.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OKF-001",
+      "title": "Stable logical identities",
+      "spec_id": "USK-S-OKF",
+      "requirements": [
+        "USK-R-OKF-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two pages and their requirement references.",
+      "procedure": [
+        "Move one page and rebuild the index.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Its ID resolves to the new path with unchanged semantics.",
+      "negative_control": "Reuse the same ID for an unrelated requirement.",
+      "oracle": "ID uniqueness and alias validation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OKF-002",
+      "title": "Preserve unknown metadata",
+      "spec_id": "USK-S-OKF",
+      "requirements": [
+        "USK-R-OKF-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Concept with an unknown inert metadata object.",
+      "procedure": [
+        "Read and export a context pack.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Unknown metadata is retained or explicitly carried through; no execution.",
+      "negative_control": "Put shell text in an unknown field.",
+      "oracle": "Round-trip content and side-effect spy.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OKF-003",
+      "title": "Correct provenance",
+      "spec_id": "USK-S-OKF",
+      "requirements": [
+        "USK-R-OKF-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Old stored-only claim and newer streaming observation.",
+      "procedure": [
+        "Render the baseline and reconciliation view.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Both remain distinguishable with an explicit supersession explanation.",
+      "negative_control": "Drop date and label old audit current.",
+      "oracle": "Provenance ledger review.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MAINT-001",
+      "title": "Documentation impact",
+      "spec_id": "USK-S-MAINT",
+      "requirements": [
+        "USK-R-MAINT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Change update result vocabulary.",
+      "procedure": [
+        "Run impact analysis and review the PR manifest.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Schema, relevant requirements, recovery docs and UI projection are selected.",
+      "negative_control": "An unclassified path appears.",
+      "oracle": "Fallback is broad review, never zero tests.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MAINT-002",
+      "title": "No fabricated freshness",
+      "spec_id": "USK-S-MAINT",
+      "requirements": [
+        "USK-R-MAINT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Input tree A, documentation closeout tree B.",
+      "procedure": [
+        "Generate a report for A in B.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Report names A as proof input and B only as carrier when known.",
+      "negative_control": "Assert A tests prove arbitrary later runtime changes.",
+      "oracle": "Exact input-hash validation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-VISION-001",
+      "title": "No-fork tiny product",
+      "spec_id": "USK-S-VISION",
+      "requirements": [
+        "USK-R-VISION-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Neutral hello application with no internal project data.",
+      "procedure": [
+        "Author, build, inspect and exercise its lifecycle using documented commands.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No USK implementation edit or consumer-specific fork is needed.",
+      "negative_control": "Omit an optional GUI on a headless profile.",
+      "oracle": "Fresh consumer build and independently observed lifecycle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-VISION-002",
+      "title": "Selective composition",
+      "spec_id": "USK-S-VISION",
+      "requirements": [
+        "USK-R-VISION-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Minimal and desktop consumers.",
+      "procedure": [
+        "Build each declared profile and inspect dependency closure.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only selected targets, runtimes and codecs are present.",
+      "negative_control": "Add a mandatory GUI dependency to core.",
+      "oracle": "Build graph and final binary/import inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-VISION-003",
+      "title": "Profile-specific claims",
+      "spec_id": "USK-S-VISION",
+      "requirements": [
+        "USK-R-VISION-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Operation represented but no qualified executor.",
+      "procedure": [
+        "Inspect capabilities.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Return recognized but unavailable/unqualified with reason.",
+      "negative_control": "Treat enum presence as supported.",
+      "oracle": "Capability-state matrix.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MODULES-001",
+      "title": "Dependency firewall",
+      "spec_id": "USK-S-MODULES",
+      "requirements": [
+        "USK-R-MODULES-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Minimal planner build and include graph.",
+      "procedure": [
+        "Compile without GUI or native mutation provider.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Planning and refusal tests run against captured observations.",
+      "negative_control": "Introduce a toolkit include or filesystem write in planning.",
+      "oracle": "Static dependency check plus effect spy.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MODULES-002",
+      "title": "One effect owner",
+      "spec_id": "USK-S-MODULES",
+      "requirements": [
+        "USK-R-MODULES-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Shortcut requested by branded setup.",
+      "procedure": [
+        "Perform installation through GUI and CLI.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Both produce the same typed effect, journal and verification.",
+      "negative_control": "Frontend writes a registry entry after engine success.",
+      "oracle": "Independent native-state diff compared with effect manifest.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MODULES-003",
+      "title": "No mandatory launcher",
+      "spec_id": "USK-S-MODULES",
+      "requirements": [
+        "USK-R-MODULES-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Isolated machine containing only the setup profile dependencies.",
+      "procedure": [
+        "Install and repair a neutral product.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No ULK/AIDE lookup or service requirement occurs.",
+      "negative_control": "Remove optional lifecycle coordination provider.",
+      "oracle": "Dependency inventory and successful standalone proof.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ADOPT-001",
+      "title": "Preserve refusal regressions",
+      "spec_id": "USK-S-ADOPT",
+      "requirements": [
+        "USK-R-ADOPT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Pinned staged-substitution regression and proposed publisher.",
+      "procedure": [
+        "Run legacy and proposed profiles against the same attack.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Old profile remains refused where necessary; new success requires independently demonstrated stronger assumptions.",
+      "negative_control": "Replace a strong capability requirement with a Boolean waiver.",
+      "oracle": "Diff of safety predicates and external effect oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ADOPT-002",
+      "title": "Separate refactor from semantics",
+      "spec_id": "USK-S-ADOPT",
+      "requirements": [
+        "USK-R-ADOPT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Old and extracted lifecycle service.",
+      "procedure": [
+        "Replay success, refusal, fault and recovery corpus.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Equivalent result/effect/state projections.",
+      "negative_control": "Delete a negative case as obsolete without decision.",
+      "oracle": "Differential test receipt.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ID-001",
+      "title": "Locator is not ownership",
+      "spec_id": "USK-S-ID",
+      "requirements": [
+        "USK-R-ID-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two paths to one object and one reused path.",
+      "procedure": [
+        "Inspect then request repair.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Repair binds exact installation revision or refuses uncertain ownership.",
+      "negative_control": "Rename another app to the expected basename.",
+      "oracle": "Native identity and ownership comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ID-002",
+      "title": "Lossless public numbers",
+      "spec_id": "USK-S-ID",
+      "requirements": [
+        "USK-R-ID-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Counts at 2^53-1, 2^53+1 and the declared maximum.",
+      "procedure": [
+        "Serialize through C, Python and a binary64 client fixture.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Exact values survive; overflow and invalid strings refuse.",
+      "negative_control": "Use 1e999 or a negative byte length.",
+      "oracle": "Canonical decimal reference vectors.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ID-003",
+      "title": "Canonical hash profile",
+      "spec_id": "USK-S-ID",
+      "requirements": [
+        "USK-R-ID-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Records with changed key order, whitespace and array order.",
+      "procedure": [
+        "Canonicalize and hash.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Object reordering is equivalent; semantic array ordering is retained.",
+      "negative_control": "Normalize distinct path strings silently.",
+      "oracle": "Published canonical byte vectors and independent hasher.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CAPS-001",
+      "title": "No support Boolean",
+      "spec_id": "USK-S-CAPS",
+      "requirements": [
+        "USK-R-CAPS-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Implemented update planner with refused publisher.",
+      "procedure": [
+        "Query availability.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "The command is recognized and the missing publication guarantee is explained.",
+      "negative_control": "Mark all registered commands supported.",
+      "oracle": "Capability fixture and UI projection.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CAPS-002",
+      "title": "Deterministic selection",
+      "spec_id": "USK-S-CAPS",
+      "requirements": [
+        "USK-R-CAPS-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two providers implementing the same capability.",
+      "procedure": [
+        "Permute registration order and resolve.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Same selected provider or same ambiguity result.",
+      "negative_control": "Use first-discovered provider.",
+      "oracle": "Permutation test with zero mutation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CAPS-003",
+      "title": "Qualified guarantees",
+      "spec_id": "USK-S-CAPS",
+      "requirements": [
+        "USK-R-CAPS-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Recipe requires protected publication; provider only offers legacy rename.",
+      "procedure": [
+        "Plan and apply.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Both explain the unmet guarantee and preserve existing state.",
+      "negative_control": "Change a presentation label to claim stronger support.",
+      "oracle": "Policy result plus external state oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-POLICY-001",
+      "title": "Narrowing composition",
+      "spec_id": "USK-S-POLICY",
+      "requirements": [
+        "USK-R-POLICY-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Admin forbids machine scope; response file requests it.",
+      "procedure": [
+        "Resolve the deployment.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Refuse machine scope with source of restriction.",
+      "negative_control": "Use a later user config to set allow_all.",
+      "oracle": "Policy lattice/table-driven tests.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-POLICY-002",
+      "title": "Unattended equivalence",
+      "spec_id": "USK-S-POLICY",
+      "requirements": [
+        "USK-R-POLICY-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Equivalent GUI selections and response file.",
+      "procedure": [
+        "Plan and execute each in an admitted disposable profile.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Same normalized effects and outcomes; no prompt in machine mode.",
+      "negative_control": "Require an unprovided destructive choice.",
+      "oracle": "Typed refusal and window/TTY spy.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-POLICY-003",
+      "title": "No plan drift",
+      "spec_id": "USK-S-POLICY",
+      "requirements": [
+        "USK-R-POLICY-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Plan then change source, install revision or policy.",
+      "procedure": [
+        "Apply the old plan.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Refuse stale inputs before new effects.",
+      "negative_control": "Auto-replan inside apply and continue.",
+      "oracle": "Before/after state and returned invalidation reasons.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-BUNDLE-001",
+      "title": "Separate bundle and plan",
+      "spec_id": "USK-S-BUNDLE",
+      "requirements": [
+        "USK-R-BUNDLE-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Same bundle on two permitted destination roots.",
+      "procedure": [
+        "Plan each deployment.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Bundle digest remains identical; plan identities differ.",
+      "negative_control": "Mutate bundle bytes to record a customer path.",
+      "oracle": "Bundle/plan schema and digest comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-BUNDLE-002",
+      "title": "Exact portable payload",
+      "spec_id": "USK-S-BUNDLE",
+      "requirements": [
+        "USK-R-BUNDLE-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Signed/finalized portable payload and installer envelope.",
+      "procedure": [
+        "Extract without executing.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Every payload file matches the authoritative inventory.",
+      "negative_control": "Recompile or patch the executable during wrapping.",
+      "oracle": "Independent package extraction and hash comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-BUNDLE-003",
+      "title": "Bounded component solver",
+      "spec_id": "USK-S-BUNDLE",
+      "requirements": [
+        "USK-R-BUNDLE-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Cyclic, conflicting, very deep and wide graphs.",
+      "procedure": [
+        "Resolve all fixtures under a fixed work budget.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Deterministic success/refusal with useful conflict witness.",
+      "negative_control": "Use input order to select a conflicting component.",
+      "oracle": "Reference graph solver and budget counter.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PLAN-001",
+      "title": "Effect closure",
+      "spec_id": "USK-S-PLAN",
+      "requirements": [
+        "USK-R-PLAN-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Install with shortcut and uninstall registration.",
+      "procedure": [
+        "Compare actual host changes with plan closure.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "All changes are owned, journaled and independently observed.",
+      "negative_control": "Create shortcut after engine completion from UI code.",
+      "oracle": "Filesystem/native-state delta oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PLAN-002",
+      "title": "No arbitrary hook",
+      "spec_id": "USK-S-PLAN",
+      "requirements": [
+        "USK-R-PLAN-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Recipe with postinstall shell and encoded command.",
+      "procedure": [
+        "Validate and plan.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Unknown/unadmitted executable behavior refuses.",
+      "negative_control": "Hide command in a theme or extension object.",
+      "oracle": "Closed effect registry and mutation-free validator.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PLAN-003",
+      "title": "Independent verification",
+      "spec_id": "USK-S-PLAN",
+      "requirements": [
+        "USK-R-PLAN-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Provider falsely returns success without creating its target.",
+      "procedure": [
+        "Run verify after apply.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Operation is failed/inconclusive with recovery disposition.",
+      "negative_control": "Trust return code alone.",
+      "oracle": "External observer fixture.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OWN-001",
+      "title": "Preserve unknown content",
+      "spec_id": "USK-S-OWN",
+      "requirements": [
+        "USK-R-OWN-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Managed root containing an altered owned file and a new user file.",
+      "procedure": [
+        "Plan then uninstall.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Conflict/retention is explicit; user content remains intact.",
+      "negative_control": "Recursive delete root on success cleanup.",
+      "oracle": "Byte-for-byte external preservation oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OWN-002",
+      "title": "Repair is not upgrade",
+      "spec_id": "USK-S-OWN",
+      "requirements": [
+        "USK-R-OWN-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Damaged old release with only a newer package nearby.",
+      "procedure": [
+        "Request repair without version transition.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Refuse missing exact source or offer a separate upgrade plan.",
+      "negative_control": "Auto-download and install newer release.",
+      "oracle": "Installed generation and source identity comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OWN-003",
+      "title": "Native owner delegation",
+      "spec_id": "USK-S-OWN",
+      "requirements": [
+        "USK-R-OWN-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "OS-managed app detected by native receipt.",
+      "procedure": [
+        "Request direct repair/uninstall.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Delegate through an admitted adapter or refuse.",
+      "negative_control": "Delete files while native manager still owns them.",
+      "oracle": "Native receipt plus filesystem effect check.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OWN-004",
+      "title": "Separate purge",
+      "spec_id": "USK-S-OWN",
+      "requirements": [
+        "USK-R-OWN-004"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Product with user database and unresolved product-specific recovery.",
+      "procedure": [
+        "Uninstall then inspect retained data.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Default data/recovery preserved; purge requires another scoped plan.",
+      "negative_control": "Treat colocated recovery directory as binary payload.",
+      "oracle": "Ownership-class and independent byte inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TXN-001",
+      "title": "Truthful uncertain outcomes",
+      "spec_id": "USK-S-TXN",
+      "requirements": [
+        "USK-R-TXN-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Worker publishes then connection drops before response.",
+      "procedure": [
+        "Reconnect and inspect operation ID.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Return observed phase or outcome_unknown with inspection/recovery route.",
+      "negative_control": "Map transport exception to cancelled.",
+      "oracle": "Independent target and journal observation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TXN-002",
+      "title": "Durable effect ordering",
+      "spec_id": "USK-S-TXN",
+      "requirements": [
+        "USK-R-TXN-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Fault injector at every write/flush/rename boundary.",
+      "procedure": [
+        "Terminate after each step and restart.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Recovery identifies permitted actions without guessing completion.",
+      "negative_control": "Delete the intent record before commit.",
+      "oracle": "Reference model plus filesystem/journal oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TXN-003",
+      "title": "No global atomicity claim",
+      "spec_id": "USK-S-TXN",
+      "requirements": [
+        "USK-R-TXN-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Payload committed; native integration fails.",
+      "procedure": [
+        "Inspect terminal result and run permitted recovery.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Report pending/failed integration; repair forward or compensate explicitly.",
+      "negative_control": "Report fully rolled back while payload is visible.",
+      "oracle": "Independent per-resource verification.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PUB-001",
+      "title": "Bind descendants through publish",
+      "spec_id": "USK-S-PUB",
+      "requirements": [
+        "USK-R-PUB-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Attacker races file replacement, hardlinks, symlinks and descendant insertion after verification.",
+      "procedure": [
+        "Exercise the target-specific publish protocol repeatedly.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No substituted payload publishes under original verified identity; unsupported threat profile refuses.",
+      "negative_control": "Replace a staged file between verify and rename.",
+      "oracle": "External attacker harness and visible payload hash/native identity.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PUB-002",
+      "title": "Unmet publisher refuses",
+      "spec_id": "USK-S-PUB",
+      "requirements": [
+        "USK-R-PUB-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Strong recipe on legacy rename-only provider.",
+      "procedure": [
+        "Plan and attempt apply.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Typed refusal, no existing-target change.",
+      "negative_control": "Pass user asserted trusted=true.",
+      "oracle": "Pre/post root identities, files and policy trace.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PUB-003",
+      "title": "Publication evidence",
+      "spec_id": "USK-S-PUB",
+      "requirements": [
+        "USK-R-PUB-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Publish succeeds, installed-state write fails.",
+      "procedure": [
+        "Inspect/recover under original operation context.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Visible target remains identified, result recovery_required, no invented complete state.",
+      "negative_control": "Treat missing state file as proof install never happened.",
+      "oracle": "Independent post-state and immutable journal.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-LEASE-001",
+      "title": "Reject stale worker",
+      "spec_id": "USK-S-LEASE",
+      "requirements": [
+        "USK-R-LEASE-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Worker A paused, B acquires recovered ownership, A resumes.",
+      "procedure": [
+        "Attempt both commits.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "At most one valid generation transition commits.",
+      "negative_control": "Reuse A PID for an unrelated process.",
+      "oracle": "Fencing generation and independent state-machine oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-LEASE-002",
+      "title": "Bound lock contention",
+      "spec_id": "USK-S-LEASE",
+      "requirements": [
+        "USK-R-LEASE-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Another installer holds the install lock.",
+      "procedure": [
+        "Start a second installation then cancel.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No effects; return holder/inspection reference without leaking secrets.",
+      "negative_control": "Spin indefinitely or forcibly delete lock file.",
+      "oracle": "Timing bound and no-effects observation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-LEASE-003",
+      "title": "State after locking",
+      "spec_id": "USK-S-LEASE",
+      "requirements": [
+        "USK-R-LEASE-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Plan A, commit B, acquire A lock.",
+      "procedure": [
+        "Apply A.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Stale revision refusal or explicit replan; never overwrite B silently.",
+      "negative_control": "Trust pre-lock observation.",
+      "oracle": "Exact installed revision and target inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-REC-001",
+      "title": "Read-only recovery inspection",
+      "spec_id": "USK-S-REC",
+      "requirements": [
+        "USK-R-REC-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Incomplete and malformed journals.",
+      "procedure": [
+        "Run recovery inspect twice.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Same observations; no cleanup or append.",
+      "negative_control": "Delete stale staging during inspection.",
+      "oracle": "Filesystem byte/metadata snapshot.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-REC-002",
+      "title": "Idempotent recovery",
+      "spec_id": "USK-S-REC",
+      "requirements": [
+        "USK-R-REC-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Fault after forward-finalization but before response.",
+      "procedure": [
+        "Repeat recovery with same plan/idempotency key.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No duplicate effects or contradictory terminal record.",
+      "negative_control": "Apply a plan to another install root.",
+      "oracle": "Journal lineage and independent inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-REC-003",
+      "title": "Damaged binary recovery",
+      "spec_id": "USK-S-REC",
+      "requirements": [
+        "USK-R-REC-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Delete/corrupt installed main executable.",
+      "procedure": [
+        "Use verified offline package or independent recovery image.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Inspect/repair works without executing corrupt payload.",
+      "negative_control": "Trust arbitrary neighboring binary as repair source.",
+      "oracle": "Source authenticity/integrity and final payload proof.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-GEN-001",
+      "title": "Keep live generations",
+      "spec_id": "USK-S-GEN",
+      "requirements": [
+        "USK-R-GEN-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "A running session uses old generation A while B is active.",
+      "procedure": [
+        "Request GC.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "A remains; B remains; only unreferenced verified-owned candidates qualify.",
+      "negative_control": "Delete A because it is older than retention age.",
+      "oracle": "Reachability graph and process/lease observations.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-GEN-002",
+      "title": "Rollback compatibility",
+      "spec_id": "USK-S-GEN",
+      "requirements": [
+        "USK-R-GEN-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "B migrates data irreversibly, A payload retained.",
+      "procedure": [
+        "Request rollback.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Refuse or present explicit data restoration/loss plan; never claim exact reversal.",
+      "negative_control": "Switch current pointer without compatibility check.",
+      "oracle": "Migration graph and user-data oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-GEN-003",
+      "title": "Immutable cache isolation",
+      "spec_id": "USK-S-GEN",
+      "requirements": [
+        "USK-R-GEN-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two installations reuse cache material.",
+      "procedure": [
+        "Modify one installed file.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Other installation/cache remain unchanged or protected writes refuse.",
+      "negative_control": "Hardlink writable payload into shared cache.",
+      "oracle": "Independent file identities and digests.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OPS-001",
+      "title": "Doctor is nonmutating",
+      "spec_id": "USK-S-OPS",
+      "requirements": [
+        "USK-R-OPS-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Damaged installation with a valid cached package.",
+      "procedure": [
+        "Run doctor in all interface modes.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Same findings, unchanged target; fix requires normal plan/apply path.",
+      "negative_control": "Doctor silently replaces damaged files.",
+      "oracle": "Pre/post state snapshot and action receipt.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OPS-002",
+      "title": "Idempotency conflict",
+      "spec_id": "USK-S-OPS",
+      "requirements": [
+        "USK-R-OPS-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two install requests share key but different source/destination.",
+      "procedure": [
+        "Submit both.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "First maps to one operation; second conflicts.",
+      "negative_control": "Treat key as a request to ignore differences.",
+      "oracle": "Request-digest and operation-log oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-OPS-003",
+      "title": "Safe move",
+      "spec_id": "USK-S-OPS",
+      "requirements": [
+        "USK-R-OPS-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Large installation moving between two volumes.",
+      "procedure": [
+        "Inject faults during copy, commit and cleanup.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "At least one recoverable verified source survives; state explains both roots.",
+      "negative_control": "Delete source before destination verification.",
+      "oracle": "Independent inventories of both volumes.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MIG-001",
+      "title": "Unknown critical format",
+      "spec_id": "USK-S-MIG",
+      "requirements": [
+        "USK-R-MIG-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "State with a future mandatory migration feature.",
+      "procedure": [
+        "Open with older maintenance client.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Typed unsupported-format result; bytes retained.",
+      "negative_control": "Parse known subset then rewrite dropping new fields.",
+      "oracle": "Original/after byte comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MIG-002",
+      "title": "Migration rollback truth",
+      "spec_id": "USK-S-MIG",
+      "requirements": [
+        "USK-R-MIG-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Product DB migration lacking inverse.",
+      "procedure": [
+        "Plan update and later downgrade.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Data compatibility and loss/recovery limits explicit.",
+      "negative_control": "Automatically mark reverse edge available.",
+      "oracle": "Migration graph validator and before/after data fixtures.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-MIG-003",
+      "title": "Migration atomic scope",
+      "spec_id": "USK-S-MIG",
+      "requirements": [
+        "USK-R-MIG-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Old installed state with injected write/flush failure.",
+      "procedure": [
+        "Run migration repeatedly.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Old or valid new state remains recoverable; partial file not admitted.",
+      "negative_control": "Write into old record directly.",
+      "oracle": "Fault injection and independent reader.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-STREAM-001",
+      "title": "Bound complete lifecycle memory",
+      "spec_id": "USK-S-STREAM",
+      "requirements": [
+        "USK-R-STREAM-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Multi-gigabyte payload and metadata-heavy small-file corpus.",
+      "procedure": [
+        "Run each operation at fixed memory limits.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Memory follows configured buffers/index budgets, not total payload bytes.",
+      "negative_control": "Retain old_complete_files byte vectors.",
+      "oracle": "Peak RSS/allocator accounting plus progress and output correctness.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-STREAM-002",
+      "title": "Correct short I/O",
+      "spec_id": "USK-S-STREAM",
+      "requirements": [
+        "USK-R-STREAM-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Adapter returns 1..N bytes and injected early EOF.",
+      "procedure": [
+        "Materialize and verify entries.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Complete data only succeeds; truncation refuses/retains recovery.",
+      "negative_control": "Treat short write as success.",
+      "oracle": "Reference byte stream and fault adapter.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-STREAM-003",
+      "title": "Bound concurrency",
+      "spec_id": "USK-S-STREAM",
+      "requirements": [
+        "USK-R-STREAM-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Many simultaneous entries and cancellation.",
+      "procedure": [
+        "Run under low descriptor and memory ceilings.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Backpressure or typed resource refusal; no leaks/deadlock.",
+      "negative_control": "Launch one worker per archive entry.",
+      "oracle": "Resource accounting and stress oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ARCHIVE-001",
+      "title": "Reject dangerous paths",
+      "spec_id": "USK-S-ARCHIVE",
+      "requirements": [
+        "USK-R-ARCHIVE-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Corpus with ../, drives, UNC, case collisions, reserved names and Unicode equivalence.",
+      "procedure": [
+        "Inspect/plan then attempt admitted extraction.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No write outside staging; deterministic typed refusal.",
+      "negative_control": "Normalize malicious names until they appear valid.",
+      "oracle": "Independent sandbox-root/volume inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ARCHIVE-002",
+      "title": "Exact compressed boundaries",
+      "spec_id": "USK-S-ARCHIVE",
+      "requirements": [
+        "USK-R-ARCHIVE-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Truncated, overlapping and trailing-stream ZIP fixtures.",
+      "procedure": [
+        "Extract through small/short-read buffers.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Valid entries match; malformed boundaries refuse before publish.",
+      "negative_control": "Ignore extra compressed bytes after valid stream.",
+      "oracle": "Independent decoder/test vectors.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ARCHIVE-003",
+      "title": "Metadata fidelity",
+      "spec_id": "USK-S-ARCHIVE",
+      "requirements": [
+        "USK-R-ARCHIVE-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Package needs symlink and ACL on unsupported target.",
+      "procedure": [
+        "Plan install.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Capability/fidelity report blocks incompatible deployment.",
+      "negative_control": "Copy symlink target bytes as a regular file.",
+      "oracle": "Manifest-to-native metadata verification.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CACHE-001",
+      "title": "Acquisition cannot install",
+      "spec_id": "USK-S-CACHE",
+      "requirements": [
+        "USK-R-CACHE-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Connector downloads verified artifact.",
+      "procedure": [
+        "Observe all filesystem effects.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only declared quarantine/cache outputs appear.",
+      "negative_control": "Connector runs downloaded installer automatically.",
+      "oracle": "Filesystem/provider capability oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CACHE-002",
+      "title": "Resume verifies final identity",
+      "spec_id": "USK-S-CACHE",
+      "requirements": [
+        "USK-R-CACHE-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Server changes content after first chunk.",
+      "procedure": [
+        "Resume acquisition.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Mismatch quarantined/refused; no installable cache object.",
+      "negative_control": "Trust saved partial hash without source continuity.",
+      "oracle": "Full independent digest and namespace inspection.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CACHE-003",
+      "title": "Offline self-sufficiency",
+      "spec_id": "USK-S-CACHE",
+      "requirements": [
+        "USK-R-CACHE-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Machine with network disabled and clean cache.",
+      "procedure": [
+        "Install and repair from offline media.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No network dependency; exact material sufficient or precise missing dependency refusal.",
+      "negative_control": "Silently fetch framework at first launch.",
+      "oracle": "Network spy and dependency closure.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-API-001",
+      "title": "Borrowed ownership",
+      "spec_id": "USK-S-API",
+      "requirements": [
+        "USK-R-API-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Read response A, execute B, render A.",
+      "procedure": [
+        "Exercise native and managed binding.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "A remains correct only through owned copy; no dangling pointer.",
+      "negative_control": "Store borrowed response in delayed UI callback.",
+      "oracle": "Allocator poison and ASan-capable test.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-API-002",
+      "title": "Cancellation truth",
+      "spec_id": "USK-S-API",
+      "requirements": [
+        "USK-R-API-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Cancel before dispatch, during staging and after publish.",
+      "procedure": [
+        "Inspect each terminal result.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Correct no-effects/recovered/completed-after-request/recovery state.",
+      "negative_control": "Return cancelled solely because user closed window.",
+      "oracle": "Operation model and independent effects.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-API-003",
+      "title": "ABI evolution",
+      "spec_id": "USK-S-API",
+      "requirements": [
+        "USK-R-API-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Frozen ABI1 caller and new shared library.",
+      "procedure": [
+        "Run static/shared ABI and allocator tests.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Existing records retain layout and behavior or explicit incompatible major refusal.",
+      "negative_control": "Change enum storage or field order silently.",
+      "oracle": "Symbol/layout manifests and executable consumer.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-WIRE-001",
+      "title": "Frame bounds",
+      "spec_id": "USK-S-WIRE",
+      "requirements": [
+        "USK-R-WIRE-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Frames with length wrap, partial bytes and invalid UTF-8.",
+      "procedure": [
+        "Decode under fixed budget.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No handler invoked; typed bounded error or clean disconnect.",
+      "negative_control": "Allocate claimed length before limit check.",
+      "oracle": "Decoder spy and allocation budget.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-WIRE-002",
+      "title": "Reconnect identity",
+      "spec_id": "USK-S-WIRE",
+      "requirements": [
+        "USK-R-WIRE-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Response lost after commit.",
+      "procedure": [
+        "New client reconnects using operation/request reference.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Returns exact result or truthful uncertainty; no second install.",
+      "negative_control": "Resend under new idempotency key by default.",
+      "oracle": "Effect count and journal lineage.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-WIRE-003",
+      "title": "No secret protocol leakage",
+      "spec_id": "USK-S-WIRE",
+      "requirements": [
+        "USK-R-WIRE-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Credential-bearing prerequisite failure.",
+      "procedure": [
+        "Capture stdout/stderr/events and support export.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Secret absent; logical credential reference retained where safe.",
+      "negative_control": "Echo command line token in error.",
+      "oracle": "Canary-secret scanner.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PRESENT-001",
+      "title": "Semantic frontend parity",
+      "spec_id": "USK-S-PRESENT",
+      "requirements": [
+        "USK-R-PRESENT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Same product selections through GUI, TUI and response file.",
+      "procedure": [
+        "Run all paths against identical initial fixtures.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Equivalent semantic results; layout can differ.",
+      "negative_control": "GUI invents default component absent in CLI.",
+      "oracle": "Snapshot/effect/result normalization oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PRESENT-002",
+      "title": "No UI authority",
+      "spec_id": "USK-S-PRESENT",
+      "requirements": [
+        "USK-R-PRESENT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Unsupported update provider.",
+      "procedure": [
+        "Open maintenance view and attempt action.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Unavailable explained; no fallback copying code.",
+      "negative_control": "Enable button based only on command name.",
+      "oracle": "Action descriptor and effect-spy test.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PRESENT-003",
+      "title": "Stale view handling",
+      "spec_id": "USK-S-PRESENT",
+      "requirements": [
+        "USK-R-PRESENT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "GUI snapshot A, CLI commits B.",
+      "procedure": [
+        "Submit GUI action A.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Structured stale-state response and updated view.",
+      "negative_control": "Overwrite B using cached paths.",
+      "oracle": "Revision and target-state oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CLI-001",
+      "title": "Machine mode never prompts",
+      "spec_id": "USK-S-CLI",
+      "requirements": [
+        "USK-R-CLI-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "TTY attached with missing install destination choice.",
+      "procedure": [
+        "Invoke JSON mode.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Structured missing-input refusal and stable exit disposition.",
+      "negative_control": "Fall back to a wizard.",
+      "oracle": "TTY/window spy and stdout schema.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CLI-002",
+      "title": "Linear parity",
+      "spec_id": "USK-S-CLI",
+      "requirements": [
+        "USK-R-CLI-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "TERM=dumb with screen-reader transcript.",
+      "procedure": [
+        "Install/doctor/recover/uninstall fixtures.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Complete understandable transcript and equivalent outcomes.",
+      "negative_control": "Require a mouse or hidden shortcut.",
+      "oracle": "Semantic journey and transcript review.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CLI-003",
+      "title": "Terminal restoration",
+      "spec_id": "USK-S-CLI",
+      "requirements": [
+        "USK-R-CLI-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Fullscreen process interrupted mid-operation.",
+      "procedure": [
+        "Send resize, EOF, interrupt and host termination.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Terminal restored when possible; operation inspectable independently.",
+      "negative_control": "Treat frontend death as completed cancellation.",
+      "oracle": "PTY/ConPTY state and operation journal.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-GUI-001",
+      "title": "Accessible complete flows",
+      "spec_id": "USK-S-GUI",
+      "requirements": [
+        "USK-R-GUI-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Install, conflict and recovery scenarios at large text/high contrast.",
+      "procedure": [
+        "Drive native accessibility and keyboard harnesses plus human review.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Focus, names, roles, progress and errors usable; no color-only meaning.",
+      "negative_control": "Custom paint progress without accessibility value.",
+      "oracle": "Accessibility tree, focus transcript and exact human receipt.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-GUI-002",
+      "title": "Safe theme fallback",
+      "spec_id": "USK-S-GUI",
+      "requirements": [
+        "USK-R-GUI-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Invalid color/theme asset and adversarial URL/executable fields.",
+      "procedure": [
+        "Start normal and Safe Mode setup.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Native readable UI or clear resource refusal; no code execution.",
+      "negative_control": "Theme hides destructive effect disclosure.",
+      "oracle": "Theme validator, accessibility and plan-equality test.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-GUI-003",
+      "title": "Bootstrap independence",
+      "spec_id": "USK-S-GUI",
+      "requirements": [
+        "USK-R-GUI-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Clean machine missing GUI framework.",
+      "procedure": [
+        "Launch the setup package.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Qualified native bootstrap installs admitted prerequisite or offers terminal/refusal route.",
+      "negative_control": "Crash before any explanation.",
+      "oracle": "Clean-host dependency and recovery test.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-THREAT-001",
+      "title": "Explicit adversary scope",
+      "spec_id": "USK-S-THREAT",
+      "requirements": [
+        "USK-R-THREAT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Publisher claim against same-user modification.",
+      "procedure": [
+        "Review provider threat profile and run attacker harness.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Claim limited to evidenced mechanism; stronger unproved threat refused.",
+      "negative_control": "Label process separation a sandbox with no restrictions.",
+      "oracle": "Threat/claim matrix and adversarial result.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-THREAT-002",
+      "title": "Untrusted descriptions",
+      "spec_id": "USK-S-THREAT",
+      "requirements": [
+        "USK-R-THREAT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Metadata includes commands to disable verification.",
+      "procedure": [
+        "Display/parse and use the package in planning.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Text remains data; effects remain from admitted descriptors only.",
+      "negative_control": "Execute suggested fix from an error string.",
+      "oracle": "Dispatch spy and exact effect catalogue.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-THREAT-003",
+      "title": "Security regression retention",
+      "spec_id": "USK-S-THREAT",
+      "requirements": [
+        "USK-R-THREAT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Staged-substitution defect fixed by new publisher.",
+      "procedure": [
+        "Refactor publisher and rerun regression.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Unsafe behavior cannot reappear unnoticed.",
+      "negative_control": "Remove test because current code refuses.",
+      "oracle": "Regression inventory and executed outcome.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-BROKER-001",
+      "title": "Broker minimality",
+      "spec_id": "USK-S-BROKER",
+      "requirements": [
+        "USK-R-BROKER-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Hostile environment and plugin directory.",
+      "procedure": [
+        "Run a legitimate machine-scope plan.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only admitted provider closure loads and exact effects occur.",
+      "negative_control": "Pass an arbitrary executable as an effect parameter.",
+      "oracle": "Module-load/effect inventory and IPC adversarial tests.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-BROKER-002",
+      "title": "Safe post-install launch",
+      "spec_id": "USK-S-BROKER",
+      "requirements": [
+        "USK-R-BROKER-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Setup elevated under an admin account with normal user desktop.",
+      "procedure": [
+        "Select launch-after-install.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Product gets the explicitly intended user context or launch is withheld with explanation.",
+      "negative_control": "Use default child process creation from broker.",
+      "oracle": "Independent token/session observation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-BROKER-003",
+      "title": "Bounded self-maintenance",
+      "spec_id": "USK-S-BROKER",
+      "requirements": [
+        "USK-R-BROKER-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Installed setup executable damaged or mapped in use.",
+      "procedure": [
+        "Run repair/uninstall via independent source.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Recovery remains possible and target/worker ownership is separate.",
+      "negative_control": "Delete own journal and executable mid-operation.",
+      "oracle": "Source identity, process location and retained-state oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TRUST-001",
+      "title": "Separate integrity/authenticity",
+      "spec_id": "USK-S-TRUST",
+      "requirements": [
+        "USK-R-TRUST-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Unsigned artifact plus matching checksum.",
+      "procedure": [
+        "Inspect package and plan.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Integrity valid, authenticity unproven; policy decides eligibility.",
+      "negative_control": "Display trusted publisher because digest matched.",
+      "oracle": "Trust-result schema and frontend snapshot.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TRUST-002",
+      "title": "Revocation enforced",
+      "spec_id": "USK-S-TRUST",
+      "requirements": [
+        "USK-R-TRUST-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Previously valid cached release now revoked.",
+      "procedure": [
+        "Plan repair/update using it.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Refuse or require an explicit permitted emergency policy, with audit.",
+      "negative_control": "Bypass trust during offline recovery.",
+      "oracle": "Pinned trust metadata and plan evidence.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TRUST-003",
+      "title": "Downgrade distinction",
+      "spec_id": "USK-S-TRUST",
+      "requirements": [
+        "USK-R-TRUST-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Older signed allowed version and revoked older version.",
+      "procedure": [
+        "Plan downgrade to each.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Allowed compatible target may proceed; revoked one refuses.",
+      "negative_control": "Set ignore-signatures for all downgrade paths.",
+      "oracle": "Trust and migration matrix.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-HOST-001",
+      "title": "Explicit provider loading",
+      "spec_id": "USK-S-HOST",
+      "requirements": [
+        "USK-R-HOST-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Malicious DLL placed in cwd and PATH.",
+      "procedure": [
+        "Start setup and select built-in provider.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Malicious module never loads.",
+      "negative_control": "Implicit glob of plugin directory.",
+      "oracle": "Loaded-image trace and provider manifest.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-HOST-002",
+      "title": "Provider lifetime",
+      "spec_id": "USK-S-HOST",
+      "requirements": [
+        "USK-R-HOST-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "In-flight operation then unload request.",
+      "procedure": [
+        "Attempt registry mutation.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Busy/refused or deferred safe unload after all references close.",
+      "negative_control": "Free provider after frontend closes.",
+      "oracle": "Handle/refcount lifetime and sanitizer tests.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-HOST-003",
+      "title": "Extension authority ceiling",
+      "spec_id": "USK-S-HOST",
+      "requirements": [
+        "USK-R-HOST-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Critical unknown extension requesting unrestricted write.",
+      "procedure": [
+        "Resolve product definition.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Explicit refusal; optional inert data retained only as data.",
+      "negative_control": "Treat unknown extensions as scripts.",
+      "oracle": "Extension parser and effect-selection oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PLAT-001",
+      "title": "Native object ownership",
+      "spec_id": "USK-S-PLAT",
+      "requirements": [
+        "USK-R-PLAT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Another actor changes a shortcut target after install.",
+      "procedure": [
+        "Uninstall or repair.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Conflict or retention; no blind deletion.",
+      "negative_control": "Match only shortcut display name.",
+      "oracle": "Native observer and effect receipt.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PLAT-002",
+      "title": "Filesystem qualification",
+      "spec_id": "USK-S-PLAT",
+      "requirements": [
+        "USK-R-PLAT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Same lifecycle on local and network/removable targets.",
+      "procedure": [
+        "Inspect capabilities then run admitted tests.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Unqualified guarantees unavailable; supported profile names exact assumptions.",
+      "negative_control": "Label all Windows volumes equivalent to NTFS.",
+      "oracle": "Target-profile evidence matrix.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PLAT-003",
+      "title": "No cross-owner repair",
+      "spec_id": "USK-S-PLAT",
+      "requirements": [
+        "USK-R-PLAT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Native package receipt and drifted payload.",
+      "procedure": [
+        "Run doctor then repair.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Delegate or explain unavailable; no direct payload replacement.",
+      "negative_control": "Rebuild own ownership list from observed files.",
+      "oracle": "Native package database and filesystem oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ENT-001",
+      "title": "Reliable detection",
+      "spec_id": "USK-S-ENT",
+      "requirements": [
+        "USK-R-ENT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Each installation condition in separate fixture.",
+      "procedure": [
+        "Run machine detect under user and system contexts.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Correct stable typed results; no GUI.",
+      "negative_control": "Use executable existence only.",
+      "oracle": "Installed-state/native receipt/file oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ENT-002",
+      "title": "Prerequisite ownership",
+      "spec_id": "USK-S-ENT",
+      "requirements": [
+        "USK-R-ENT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two products consume one shared runtime.",
+      "procedure": [
+        "Uninstall one product.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Runtime remains unless independently authorized and unreferenced.",
+      "negative_control": "Uninstall dependency unconditionally.",
+      "oracle": "Consumer-reference and native-owner inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ENT-003",
+      "title": "No surprise reboot",
+      "spec_id": "USK-S-ENT",
+      "requirements": [
+        "USK-R-ENT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Delegated installer reports restart required.",
+      "procedure": [
+        "Run with reboot prohibited.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Return successful/partial result with restart_required; persist safe resume context if needed.",
+      "negative_control": "Map vendor request to immediate reboot.",
+      "oracle": "Reboot API spy and durable receipt.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ENT-004",
+      "title": "Response-file parity",
+      "spec_id": "USK-S-ENT",
+      "requirements": [
+        "USK-R-ENT-004"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Identical product on GUI and response-file paths.",
+      "procedure": [
+        "Resolve selected/default components.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Same machine plan modulo principal/operation IDs.",
+      "negative_control": "Default differs by frontend.",
+      "oracle": "Normalized plan equivalence.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AUTHOR-001",
+      "title": "Deterministic bundle",
+      "spec_id": "USK-S-AUTHOR",
+      "requirements": [
+        "USK-R-AUTHOR-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Independent ASCII, spaced and Unicode build roots.",
+      "procedure": [
+        "Build and reopen each carrier.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Equal logical/payload identities and required reproducible bytes.",
+      "negative_control": "Embed build root or current time in unsigned payload.",
+      "oracle": "Independent inventories and digest comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AUTHOR-002",
+      "title": "Adapter fidelity",
+      "spec_id": "USK-S-AUTHOR",
+      "requirements": [
+        "USK-R-AUTHOR-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Same graph emitted as two supported carriers.",
+      "procedure": [
+        "Unpack or structurally inspect both.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Same payload closure and declared adapter metadata only.",
+      "negative_control": "Add an undeclared updater.",
+      "oracle": "Resolved-graph versus carrier audit.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AUTHOR-003",
+      "title": "No-code consumer",
+      "spec_id": "USK-S-AUTHOR",
+      "requirements": [
+        "USK-R-AUTHOR-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Neutral tiny app and clean developer machine.",
+      "procedure": [
+        "Follow only documented authoring steps.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Qualified setup bundle produced from definition/assets.",
+      "negative_control": "Require editing internal C++ constants for branding.",
+      "oracle": "External consumer walkthrough.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PREFAB-001",
+      "title": "Delivery properties explicit",
+      "spec_id": "USK-S-PREFAB",
+      "requirements": [
+        "USK-R-PREFAB-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "One-file extractive and native no-extraction profiles.",
+      "procedure": [
+        "Inspect package metadata and run on clean host.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Claims match actual loads/extractions.",
+      "negative_control": "Call an extractive managed runtime zero-extraction.",
+      "oracle": "Filesystem/module-load and clean-host tests.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PREFAB-002",
+      "title": "Customization cannot change law",
+      "spec_id": "USK-S-PREFAB",
+      "requirements": [
+        "USK-R-PREFAB-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two brands over one exact engine/bundle logic.",
+      "procedure": [
+        "Run equivalent scenarios.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Same effects/results, different bounded presentation only.",
+      "negative_control": "Remove destructive warning via flow pack.",
+      "oracle": "Semantic parity and UI disclosure checks.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PREFAB-003",
+      "title": "No incompatible closure",
+      "spec_id": "USK-S-PREFAB",
+      "requirements": [
+        "USK-R-PREFAB-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Legacy inspect profile and modern GUI profile.",
+      "procedure": [
+        "Build/import-audit both.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Legacy artifact contains only qualified runtime imports.",
+      "negative_control": "Link modern GUI into old profile but disable it.",
+      "oracle": "PE/Mach-O/ELF dependency scanner.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-SDK-001",
+      "title": "Installed SDK independent",
+      "spec_id": "USK-S-SDK",
+      "requirements": [
+        "USK-R-SDK-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Clean external C/C++ consumer with installed SDK only.",
+      "procedure": [
+        "Configure/build/run static and shared modes, then relocate prefix.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Consumption succeeds using published interfaces and declared runtime closure.",
+      "negative_control": "Reference a source-checkout absolute path.",
+      "oracle": "Clean environment and installed inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-SDK-002",
+      "title": "Matched object sharing",
+      "spec_id": "USK-S-SDK",
+      "requirements": [
+        "USK-R-SDK-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Debug/release, static/shared and sanitizer variants.",
+      "procedure": [
+        "Build each and audit exported symbols/runtime linkage.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No accidental cross-configuration object reuse.",
+      "negative_control": "Reuse incompatible CRT objects.",
+      "oracle": "Compile-command and binary-manifest diff.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-SDK-003",
+      "title": "Prepared source closure",
+      "spec_id": "USK-S-SDK",
+      "requirements": [
+        "USK-R-SDK-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Fresh clone/source archive with empty caches.",
+      "procedure": [
+        "Build the supported SDK profile.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Declared prerequisites sufficient; missing optional tooling reported accurately.",
+      "negative_control": "Download undeclared generator at configure time.",
+      "oracle": "Offline build and source inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PORT-001",
+      "title": "No build-only support claim",
+      "spec_id": "USK-S-PORT",
+      "requirements": [
+        "USK-R-PORT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Cross-built binary with untested minimum OS.",
+      "procedure": [
+        "Generate support report.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Marked build-proven only until actual target execution.",
+      "negative_control": "Promote from compiler success alone.",
+      "oracle": "Support evidence state machine.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PORT-002",
+      "title": "Explicit platform floors",
+      "spec_id": "USK-S-PORT",
+      "requirements": [
+        "USK-R-PORT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Dependency updated to a newer API.",
+      "procedure": [
+        "Run binary audit for old profile.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Import/runtime change blocks unchanged support claim.",
+      "negative_control": "Only set WINVER/deployment target.",
+      "oracle": "Independent binary scanner and clean target run.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-PORT-003",
+      "title": "Reduced profiles retain semantics",
+      "spec_id": "USK-S-PORT",
+      "requirements": [
+        "USK-R-PORT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Old reader receives modern plan with critical capability.",
+      "procedure": [
+        "Inspect and try local apply.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Safe inspection or format refusal; apply unavailable.",
+      "negative_control": "Execute approximate weaker algorithm silently.",
+      "oracle": "Cross-profile semantic fixtures.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-REL-001",
+      "title": "Exact consumer locks",
+      "spec_id": "USK-S-REL",
+      "requirements": [
+        "USK-R-REL-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two SDK artifacts share version string but differ in digest.",
+      "procedure": [
+        "Verify consumer lock.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only exact admitted artifact accepted.",
+      "negative_control": "Use find_package compatibility alone as release proof.",
+      "oracle": "Generated provider manifest and digest validation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-REL-002",
+      "title": "Immutable publication",
+      "spec_id": "USK-S-REL",
+      "requirements": [
+        "USK-R-REL-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Defective alpha/stable artifact.",
+      "procedure": [
+        "Issue correction.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "New version and explicit withdrawal/supersession record; old identity retained.",
+      "negative_control": "Upload replacement bytes under same asset name/version.",
+      "oracle": "Release ledger and remote asset inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-REL-003",
+      "title": "Separate maturity",
+      "spec_id": "USK-S-REL",
+      "requirements": [
+        "USK-R-REL-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "SDK 1.0.0 with fixture-only capability.",
+      "procedure": [
+        "Build release report.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Capability remains experimental until its profile gates pass.",
+      "negative_control": "Infer stability because major is 1.",
+      "oracle": "Support/maturity record validation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-SUPPLY-001",
+      "title": "Distribution closure",
+      "spec_id": "USK-S-SUPPLY",
+      "requirements": [
+        "USK-R-SUPPLY-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "SDK, setup EXE, symbols, source and notices.",
+      "procedure": [
+        "Build and reopen release package.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Inventory exactly matches contents; missing/extra artifact blocks publication.",
+      "negative_control": "Add updater DLL after signing inventory.",
+      "oracle": "Independent package inventory and hash oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-SUPPLY-002",
+      "title": "Signing isolation",
+      "spec_id": "USK-S-SUPPLY",
+      "requirements": [
+        "USK-R-SUPPLY-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Fork PR modifies workflow/build script.",
+      "procedure": [
+        "Run permitted checks.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "No secret or publication capability available.",
+      "negative_control": "Execute pull-request code in privileged publish context.",
+      "oracle": "Permission/environment audit and canary secret test.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-SUPPLY-003",
+      "title": "Reproducibility scope",
+      "spec_id": "USK-S-SUPPLY",
+      "requirements": [
+        "USK-R-SUPPLY-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Two identical unsigned builds with separate signing timestamps.",
+      "procedure": [
+        "Compare evidence.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Unsigned equality and signed transformation receipts reported separately.",
+      "negative_control": "Claim signed byte identity without comparison.",
+      "oracle": "Artifact-stage digest chain.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TEST-001",
+      "title": "Requirement trace",
+      "spec_id": "USK-S-TEST",
+      "requirements": [
+        "USK-R-TEST-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "New requirement added without acceptance.",
+      "procedure": [
+        "Validate specification.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Missing trace fails clearly.",
+      "negative_control": "Reference a nonexistent test ID.",
+      "oracle": "Traceability validator.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TEST-002",
+      "title": "Evidence exactness",
+      "spec_id": "USK-S-TEST",
+      "requirements": [
+        "USK-R-TEST-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Change publisher source after a passing run.",
+      "procedure": [
+        "Evaluate release eligibility.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Affected evidence stale until rerun; old result preserved.",
+      "negative_control": "Copy old PASS into new source report.",
+      "oracle": "Evidence binding/invalidation checker.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-TEST-003",
+      "title": "Human acceptance distinct",
+      "spec_id": "USK-S-TEST",
+      "requirements": [
+        "USK-R-TEST-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "All UI automation passes but no human receipt.",
+      "procedure": [
+        "Evaluate supported native profile.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Machine-qualified, human acceptance pending where required.",
+      "negative_control": "Agent writes human:approved.",
+      "oracle": "Authenticated receipt/principal validation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-FAULT-001",
+      "title": "Fault every durable boundary",
+      "spec_id": "USK-S-FAULT",
+      "requirements": [
+        "USK-R-FAULT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Generated transition fault matrix.",
+      "procedure": [
+        "Terminate/restart each seed at each boundary.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only permitted recoverable/retained states appear; no silent data loss.",
+      "negative_control": "Test only extraction interruption.",
+      "oracle": "Reference state model and independent target inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-FAULT-002",
+      "title": "Measured resource budgets",
+      "spec_id": "USK-S-FAULT",
+      "requirements": [
+        "USK-R-FAULT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Tiny, huge-payload and metadata-heavy inputs.",
+      "procedure": [
+        "Run benchmark harness with resource monitoring.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Limits enforced or typed resource refusal, measured data retained.",
+      "negative_control": "Raise memory limit after each failure without analysis.",
+      "oracle": "Allocator/RSS/disk/time report.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-FAULT-003",
+      "title": "Power-loss honesty",
+      "spec_id": "USK-S-FAULT",
+      "requirements": [
+        "USK-R-FAULT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Only process-kill evidence exists.",
+      "procedure": [
+        "Evaluate T3-style support claim.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Claim blocked pending real lab evidence.",
+      "negative_control": "Label a simulated exception power-loss-qualified.",
+      "oracle": "Evidence class/profile checker.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-WORK-001",
+      "title": "Bound task authority",
+      "spec_id": "USK-S-WORK",
+      "requirements": [
+        "USK-R-WORK-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Proposed work item with no admitted grant.",
+      "procedure": [
+        "Try to schedule effects or protected integration.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Blocked; read-only planning may continue.",
+      "negative_control": "Set authorizes_implementation=true in generated task.",
+      "oracle": "Queue/grant comparison with explicit refusal.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-WORK-002",
+      "title": "Truthful completion",
+      "spec_id": "USK-S-WORK",
+      "requirements": [
+        "USK-R-WORK-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Task has implementation but no runtime test receipts.",
+      "procedure": [
+        "Evaluate completion.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Remain implemented-unqualified/needs-review.",
+      "negative_control": "Mark all acceptance cases pass from JSON validity.",
+      "oracle": "Result evidence validator.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-WORK-003",
+      "title": "Independent review",
+      "spec_id": "USK-S-WORK",
+      "requirements": [
+        "USK-R-WORK-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Publisher or recovery change.",
+      "procedure": [
+        "Attempt integration with only the implementation author review.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Policy gate requests independent review.",
+      "negative_control": "Rename same actor as reviewer.",
+      "oracle": "Principal/attempt provenance and review record.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AIDE-001",
+      "title": "Export is not admission",
+      "spec_id": "USK-S-AIDE",
+      "requirements": [
+        "USK-R-AIDE-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Task exported from spec tooling.",
+      "procedure": [
+        "Inspect metadata, scope and status.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Planned/NOT_RUN, no live queue or worker start.",
+      "negative_control": "Export directly into active queue with permission flags.",
+      "oracle": "Filesystem diff and object validation.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AIDE-002",
+      "title": "Pinned schema validation",
+      "spec_id": "USK-S-AIDE",
+      "requirements": [
+        "USK-R-AIDE-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Exporter with missing or changed AIDE checkout.",
+      "procedure": [
+        "Request native-schema validation.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Missing/mismatched schemas produce unavailable/refusal, not PASS.",
+      "negative_control": "Validate against arbitrary latest main.",
+      "oracle": "Pinned path/blob/hash check and jsonschema result.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AIDE-003",
+      "title": "AIDE optional build dependency",
+      "spec_id": "USK-S-AIDE",
+      "requirements": [
+        "USK-R-AIDE-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Network disabled and no AIDE installed.",
+      "procedure": [
+        "Run documented deterministic build/test/lifecycle entrypoints.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Declared local prerequisites suffice.",
+      "negative_control": "Invoke model during runtime verification.",
+      "oracle": "Dependency graph and network spy.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CONTEXT-001",
+      "title": "No silent context truncation",
+      "spec_id": "USK-S-CONTEXT",
+      "requirements": [
+        "USK-R-CONTEXT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Safety page plus task exceeds budget by one byte.",
+      "procedure": [
+        "Build context pack.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Clear budget error; no apparently complete truncated output.",
+      "negative_control": "Drop final safety section to fit.",
+      "oracle": "Byte-count and required-ID checks.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CONTEXT-002",
+      "title": "Context binds inputs",
+      "spec_id": "USK-S-CONTEXT",
+      "requirements": [
+        "USK-R-CONTEXT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Edit selected spec after creating pack.",
+      "procedure": [
+        "Validate pack before use.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Mismatch detected and regeneration required.",
+      "negative_control": "Reuse cached pack solely by task title.",
+      "oracle": "Hash comparison.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CONTEXT-003",
+      "title": "Chat-only honesty",
+      "spec_id": "USK-S-CONTEXT",
+      "requirements": [
+        "USK-R-CONTEXT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Worker receives pack without runtime access.",
+      "procedure": [
+        "Request task continuation.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Produces bounded proposal and NOT_RUN results, no invented execution.",
+      "negative_control": "Say tests passed from reading case descriptions.",
+      "oracle": "Handoff evidence fields.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AGENT-001",
+      "title": "Thin instruction adapters",
+      "spec_id": "USK-S-AGENT",
+      "requirements": [
+        "USK-R-AGENT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "AGENTS and CLAUDE adapters.",
+      "procedure": [
+        "Update a canonical requirement and regenerate routes.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Both reference the same current rule without duplicated normative copies.",
+      "negative_control": "Hand-edit conflicting safety text in one adapter.",
+      "oracle": "Instruction export/parity review.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AGENT-002",
+      "title": "Tool capability declaration",
+      "spec_id": "USK-S-AGENT",
+      "requirements": [
+        "USK-R-AGENT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Read-only connector worker.",
+      "procedure": [
+        "Assign runtime change and test task.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Returns proposal/blocker, no alleged push or test execution.",
+      "negative_control": "Invent a local checkout.",
+      "oracle": "Attempt/tool log and handoff.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-AGENT-003",
+      "title": "Do not overwrite instructions",
+      "spec_id": "USK-S-AGENT",
+      "requirements": [
+        "USK-R-AGENT-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Repo with custom AGENTS/CLAUDE files.",
+      "procedure": [
+        "Extract spec archive and run default tools.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Existing files remain byte-identical.",
+      "negative_control": "Auto-copy templates at startup.",
+      "oracle": "Exact filesystem diff.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-IMPACT-001",
+      "title": "Unknown impact broadens",
+      "spec_id": "USK-S-IMPACT",
+      "requirements": [
+        "USK-R-IMPACT-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "New path outside all task globs.",
+      "procedure": [
+        "Run impact selection.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Broad-review classification and explicit unresolved mapping.",
+      "negative_control": "Return no affected tests.",
+      "oracle": "Impact tool negative case.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-IMPACT-002",
+      "title": "Cached evidence provenance",
+      "spec_id": "USK-S-IMPACT",
+      "requirements": [
+        "USK-R-IMPACT-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Unchanged runtime with documentation-only edit.",
+      "procedure": [
+        "Generate qualification summary.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Original run cited with cache-reuse reason, no fabricated timestamp/command.",
+      "negative_control": "Create new PASS receipt claiming fresh execution.",
+      "oracle": "Evidence reference audit.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ROADMAP-001",
+      "title": "Dependency-ordered work",
+      "spec_id": "USK-S-ROADMAP",
+      "requirements": [
+        "USK-R-ROADMAP-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Native prefab task depends on operation service and qualified local lifecycle.",
+      "procedure": [
+        "Select next admissible work.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only dependency-satisfied work recommended; authoring-only mock work may be separate.",
+      "negative_control": "Ignore publisher gate because GUI is finished.",
+      "oracle": "Task DAG and admission records.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ROADMAP-002",
+      "title": "Consumer independence",
+      "spec_id": "USK-S-ROADMAP",
+      "requirements": [
+        "USK-R-ROADMAP-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "DiskEd/SysPane neutralized fixture with damaged setup state.",
+      "procedure": [
+        "Run product portable path and inspect maintenance.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Product remains usable; maintenance truthfully reports blocked/recovery.",
+      "negative_control": "Require mandatory setup daemon on startup.",
+      "oracle": "Dependency and product startup oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CONSUMER-001",
+      "title": "Storage authority separation",
+      "spec_id": "USK-S-CONSUMER",
+      "requirements": [
+        "USK-R-CONSUMER-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Product exposes both app repair and storage operations.",
+      "procedure": [
+        "Attempt storage request through setup adapter/broker.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Reject namespace/capability mismatch.",
+      "negative_control": "Smuggle raw write as postinstall helper.",
+      "oracle": "Capability/effect registry and raw-device spy.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CONSUMER-002",
+      "title": "Eureka eligibility remains product-owned",
+      "spec_id": "USK-S-CONSUMER",
+      "requirements": [
+        "USK-R-CONSUMER-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Artifact with unresolved rights or trust.",
+      "procedure": [
+        "Create handoff.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Inspect/plan only or blocked according to consumer policy; no implicit apply.",
+      "negative_control": "Set found=true as authorization.",
+      "oracle": "Handoff and setup permission checks.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-CONSUMER-003",
+      "title": "One installed-state authority",
+      "spec_id": "USK-S-CONSUMER",
+      "requirements": [
+        "USK-R-CONSUMER-003"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Consumer reports handoff result.",
+      "procedure": [
+        "Inspect stored product references.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "USK identities referenced; no separately editable ownership clone.",
+      "negative_control": "Consumer deletes files using its copied list.",
+      "oracle": "State ownership and effect-path audit.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ULK-001",
+      "title": "One-way mutation boundary",
+      "spec_id": "USK-S-ULK",
+      "requirements": [
+        "USK-R-ULK-001"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "USK result -> ULK reference fixture.",
+      "procedure": [
+        "Refresh references and inspect launch plans.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "Only references/staleness change in ULK.",
+      "negative_control": "ULK deletes old generation directly.",
+      "oracle": "Cross-repository effect and state oracle.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    },
+    {
+      "id": "USK-AT-ULK-002",
+      "title": "Lease-aware setup",
+      "spec_id": "USK-S-ULK",
+      "requirements": [
+        "USK-R-ULK-002"
+      ],
+      "kind": "product-acceptance-design",
+      "status": "not_run",
+      "fixture": "Session on A while B installs and activates.",
+      "procedure": [
+        "Update and request GC.",
+        "Capture the result and compare independently observed effects and retained state with the oracle."
+      ],
+      "expected": "A retained until terminal lease disposition.",
+      "negative_control": "Infer unused from no visible window.",
+      "oracle": "Process/lease and generation inventory.",
+      "required_evidence": [
+        "exact source and dependencies",
+        "target and filesystem profile",
+        "fixture identity",
+        "stdout/stderr or structured result",
+        "independent post-state observation",
+        "classified failures and skips"
+      ],
+      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "result_refs": []
+    }
+  ]
+}

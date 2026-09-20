@@ -1,0 +1,41 @@
+{
+  "schema": "usk.spec.tooling-findings/1",
+  "findings": [
+    {
+      "id": "KIT-F-001",
+      "summary": "First index generation omitted its newly created derived catalogue listing",
+      "status": "fixed",
+      "regression": "test_clean_index_single_pass"
+    },
+    {
+      "id": "KIT-F-002",
+      "summary": "Context verification initially compared only referenced hashes, not embedded body integrity",
+      "status": "fixed",
+      "regression": "test_context_tampered_body"
+    },
+    {
+      "id": "KIT-F-003",
+      "summary": "Explicit output path could target a detected repository checkout",
+      "status": "fixed",
+      "regression": "test_output_inside_repo"
+    },
+    {
+      "id": "KIT-F-004",
+      "summary": "External JSON Schema references could acquire network behavior in a generic validator",
+      "status": "fixed",
+      "regression": "test_external_schema_reference_refused"
+    },
+    {
+      "id": "KIT-F-005",
+      "summary": "Some requirements had cases but no directly assigned proposed WorkUnit",
+      "status": "fixed",
+      "regression": "validator enforces every requirement has planned work"
+    },
+    {
+      "id": "KIT-L-001",
+      "summary": "AIDE export runtime/queue interoperability is not established by shape tests",
+      "status": "open",
+      "disposition": "Require pinned external schema validation and actual adapter admission before execution"
+    }
+  ]
+}

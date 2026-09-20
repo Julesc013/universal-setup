@@ -1,0 +1,7 @@
+Universal Setup specification proposal and helper tooling
+
+This package contains newly authored engineering material and helper code, not a release of Universal Setup or AIDE.
+The supplied helper code is provided under the accompanying MIT license. Referenced external standards and repositories retain their own licences.
+Source reviews are identified by hashes and links; original uploaded documents are not silently republished in this primary archive.
+The OKF engineering extension is a project-local proposal and not an official upstream standard or AIDE admission.
+All runtime acceptance scenarios are designs with no executed result. No human review or permission is implied.

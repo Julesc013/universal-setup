@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:usk:draft:provider-descriptor:0",
+  "title": "provider-descriptor (unpromoted design)",
+  "description": "Proposed contract for review. Not part of the current installed USK ABI or schema set.",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "usk.draft.provider-descriptor/0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "implementation_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "abi": {
+      "type": "string",
+      "minLength": 1
+    },
+    "family": {
+      "type": "string",
+      "enum": [
+        "source",
+        "archive",
+        "target",
+        "state",
+        "native_effect",
+        "trust",
+        "cache",
+        "privilege",
+        "package_manager",
+        "restart",
+        "diagnostics"
+      ]
+    },
+    "execution": {
+      "type": "string",
+      "enum": [
+        "static",
+        "shared",
+        "process",
+        "broker",
+        "remote",
+        "in_memory"
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+      },
+      "minItems": 1
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "realization": {
+            "type": "string",
+            "enum": [
+              "native",
+              "portable",
+              "polyfilled",
+              "delegated",
+              "unavailable"
+            ]
+          },
+          "implementation": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "partial",
+              "implemented"
+            ]
+          },
+          "qualification": {
+            "type": "string",
+            "enum": [
+              "not_run",
+              "build",
+              "fixture",
+              "runtime",
+              "consumer",
+              "release"
+            ]
+          },
+          "support": {
+            "type": "string",
+            "enum": [
+              "unsupported",
+              "experimental",
+              "supported",
+              "retired"
+            ]
+          },
+          "constraints": {
+            "type": "object"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "realization",
+          "implementation",
+          "qualification",
+          "support",
+          "constraints",
+          "evidence_refs"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "threading": {
+      "type": "string",
+      "enum": [
+        "confined",
+        "external_serialization",
+        "thread_safe"
+      ]
+    },
+    "unload": {
+      "type": "string",
+      "enum": [
+        "never",
+        "after_no_references"
+      ]
+    },
+    "trusted": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "format",
+    "id",
+    "version",
+    "implementation_digest",
+    "abi",
+    "family",
+    "execution",
+    "targets",
+    "capabilities",
+    "threading",
+    "unload",
+    "trusted"
+  ],
+  "additionalProperties": false
+}

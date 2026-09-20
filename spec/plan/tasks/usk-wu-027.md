@@ -1,0 +1,45 @@
+---
+type: "WorkUnit Definition"
+title: "Run early downlevel compatibility canary"
+description: "Proposed M0 WorkUnit; no implementation authority is granted."
+tags: ["universal-setup","plan"]
+generated: {"by": "chatgpt/gpt-6-astra-pro","at": "2026-09-20T12:23:08Z"}
+sources: [{"id": "CONVERSATION","resource": "urn:usk:input:current-conversation-design","title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"},{"id": "AIDE-WORKUNIT","resource": "https://github.com/Julesc013/aide/blob/aec53b1d3675f02e2fdd17cc718fdcff6cd4e9f3/.aide/protocol/aide-workunit.schema.json","title": "Pinned AIDE WorkUnit schema"}]
+usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-TASK-027","revision": "1","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "plan","depends_on": ["USK-S-PORT","USK-S-ID","USK-S-SDK"]}
+usk_task: {"id": "USK-WU-027","title": "Run early downlevel compatibility canary","phase": "M0","status": "proposed","depends_on": ["USK-WU-002"],"spec_ids": ["USK-S-PORT","USK-S-ID","USK-S-SDK"],"requirement_ids": ["USK-R-ID-001","USK-R-ID-002","USK-R-ID-003","USK-R-SDK-001","USK-R-SDK-002","USK-R-SDK-003","USK-R-PORT-001","USK-R-PORT-002","USK-R-PORT-003"],"acceptance_ids": ["USK-AT-ID-001","USK-AT-ID-002","USK-AT-ID-003","USK-AT-SDK-001","USK-AT-SDK-002","USK-AT-SDK-003","USK-AT-PORT-001","USK-AT-PORT-002","USK-AT-PORT-003"],"allowed_paths": ["cmake/**","tests/**","release/profiles/**","docs/**"],"read_only_paths": ["README.md","contracts/**","release/**","docs/**","spec/**"],"forbidden_paths": ["README.md",".git/**","external/**"],"forbidden_operations": ["protected-ref-write","force-push","sign","publish","operate-on-user-state","activate-own-authority"],"steps": ["Select one constrained read-only target.","Compile the public/inspect subset and audit imports.","Run on an exact target when available.","Feed portability findings into contracts before stable freeze."],"deliverables": ["Named compatibility feasibility record","Binary floor audit","Explicit unsupported mutation profile"],"risks": ["Do not block safe modern development or fabricate old-host execution."],"checks": [{"argv": ["python","spec/tools/specctl.py","validate"],"status": "NOT_RUN","scope": "specification-integrity-only"},{"argv": ["python","tools/structure_policy_check.py"],"status": "NOT_RUN","scope": "existing-repository-policy"},{"argv": ["python","-m","unittest","discover","-s","tests","-v"],"status": "NOT_RUN","scope": "existing-repository-tests; qualify relevance and dependencies before execution"}],"required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4","authorizes_implementation": false,"base_binding": "bind actual repository commit/tree and current spec manifest at admission","stop_conditions": ["required source/spec inputs changed","required grant unavailable","affected contract decision unresolved","unexplained failure or required skip","possible user-state or protected-ref effect"],"completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient"}
+---
+
+# Run early downlevel compatibility canary
+
+## Goal
+Run early downlevel compatibility canary.
+
+## Preconditions
+bind actual repository commit/tree and current spec manifest at admission. Complete dependencies or record a separate approved scope adjustment. This file is not a live AIDE task.
+
+## Implementation steps
+1. Select one constrained read-only target.
+2. Compile the public/inspect subset and audit imports.
+3. Run on an exact target when available.
+4. Feed portability findings into contracts before stable freeze.
+
+## Deliverables
+- Named compatibility feasibility record
+- Binary floor audit
+- Explicit unsupported mutation profile
+
+## Risks and review
+- Do not block safe modern development or fabricate old-host execution.
+
+## Qualification
+Implement the linked acceptance designs as actual tests. Bind source, dependency, target, fixtures, commands, results and skips. No designed scenario has run merely because it appears here. The first listed check validates this specification only. Use existing repository build/test tooling and an external build root.
+
+## Handoff
+Record exact changes, evidence, unresolved blockers, changed contract IDs, next task and applicable grant expiry. Do not mark operational progress by editing this template.
+
+## Provenance and status
+
+This is authored engineering intent, not an implementation or runtime qualification claim. Source-derived constraints and the proposed extensions above are separated by the package authority policy. Sources: [^CONVERSATION], [^AIDE-WORKUNIT].
+
+[^CONVERSATION]: Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export. [Source registry](../../provenance/sources.json); identity `urn:usk:input:current-conversation-design`.
+[^AIDE-WORKUNIT]: [Pinned AIDE WorkUnit schema](https://github.com/Julesc013/aide/blob/aec53b1d3675f02e2fdd17cc718fdcff6cd4e9f3/.aide/protocol/aide-workunit.schema.json).

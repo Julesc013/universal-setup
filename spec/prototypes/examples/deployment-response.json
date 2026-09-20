@@ -1,0 +1,15 @@
+{
+  "format": "usk.draft.deployment-response/0",
+  "product_id": "org.example.hello",
+  "bundle_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "operation": "install",
+  "scope": "user",
+  "destination": "FIXTURE-DESTINATION-ONLY",
+  "components": [
+    "core"
+  ],
+  "ui": "none",
+  "reboot_policy": "report_only",
+  "credential_refs": [],
+  "policy_refs": []
+}

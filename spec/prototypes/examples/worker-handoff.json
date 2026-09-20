@@ -1,0 +1,14 @@
+{
+  "format": "usk.draft.worker-handoff/0",
+  "task_id": "USK-WU-001",
+  "spec_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "repository_commit": "0ca648a2c4fa8a37bb78a22639578093aecf6254",
+  "changes": [],
+  "checks": [],
+  "blockers": [
+    "No task admitted in this example."
+  ],
+  "next_action": "Review source and scope before admission.",
+  "authority": "no-new-authority",
+  "fixture_only": true
+}

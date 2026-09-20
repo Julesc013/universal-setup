@@ -1,0 +1,77 @@
+{
+  "schema": "usk.spec.decisions/1",
+  "decisions": [
+    {
+      "id": "OD-001",
+      "topic": "Publication mechanism and adversary ceiling",
+      "status": "open",
+      "blocks": [
+        "USK-WU-006"
+      ],
+      "resolution_required": "platform-enforced mechanism and attack evidence"
+    },
+    {
+      "id": "OD-002",
+      "topic": "First supported target/filesystem/frontend",
+      "status": "open",
+      "blocks": [
+        "USK-WU-011",
+        "USK-WU-018"
+      ],
+      "resolution_required": "named runtime, filesystem and lab"
+    },
+    {
+      "id": "OD-003",
+      "topic": "Runtime contract promotion and compatibility",
+      "status": "open",
+      "blocks": [
+        "USK-WU-010",
+        "USK-WU-012"
+      ],
+      "resolution_required": "reviewed schema/ABI migration"
+    },
+    {
+      "id": "OD-004",
+      "topic": "Trust provider and offline expiry",
+      "status": "open",
+      "blocks": [
+        "USK-WU-024"
+      ],
+      "resolution_required": "security decision and test vectors"
+    },
+    {
+      "id": "OD-005",
+      "topic": "AIDE adapter and grants",
+      "status": "open",
+      "blocks": [],
+      "resolution_required": "actual pinned runtime admission; export alone insufficient"
+    },
+    {
+      "id": "OD-006",
+      "topic": "Human reviewer and lab authorization",
+      "status": "open",
+      "blocks": [
+        "USK-WU-032"
+      ],
+      "resolution_required": "real principals and granted exact environments"
+    },
+    {
+      "id": "OD-007",
+      "topic": "Quantitative performance budgets",
+      "status": "open",
+      "blocks": [
+        "USK-WU-031"
+      ],
+      "resolution_required": "measured target/corpus limits"
+    },
+    {
+      "id": "OD-008",
+      "topic": "Release numbering and signing identity",
+      "status": "open",
+      "blocks": [
+        "USK-WU-032"
+      ],
+      "resolution_required": "maintainer channel decision; no preallocated version claim"
+    }
+  ]
+}
