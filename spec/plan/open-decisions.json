@@ -14,6 +14,16 @@
       "id": "OD-002",
       "topic": "First supported target/filesystem/frontend",
       "status": "open",
+      "direction_status": "selected_with_outstanding_obligations",
+      "selected_direction_ref": "release-selection.json#/decisions/OD-002",
+      "selected_direction": "Windows NT x64 first complete native profile; local NTFS; managed-portable-first plus explicitly admitted user-scope integration; WinForms first OEM+ shell over a native kernel, worker and independent recovery path",
+      "outstanding_obligations": [
+        "bind exact endpoint OS image and build",
+        "bind compiler, runtime and binary dependency closure",
+        "bind NTFS configuration and selected operation guarantees",
+        "bind an actual authorized disposable lab identity",
+        "complete qualification before making a support claim"
+      ],
       "blocks": [
         "USK-WU-011",
         "USK-WU-018"
@@ -24,6 +34,15 @@
       "id": "OD-003",
       "topic": "Runtime contract promotion and compatibility",
       "status": "open",
+      "direction_status": "selected_with_outstanding_obligations",
+      "selected_direction_ref": "release-selection.json#/decisions/OD-003",
+      "selected_direction": "preserve existing ABI 1.0 consumers and admitted contract behavior; add capabilities compatibly and explicitly version any interface or persisted format that cannot retain compatibility",
+      "outstanding_obligations": [
+        "review each actual ABI or schema change",
+        "define old/new caller, implementation and persisted-state compatibility",
+        "define migration and recovery behavior",
+        "add executable compatibility tests before promotion"
+      ],
       "blocks": [
         "USK-WU-010",
         "USK-WU-012"
@@ -68,6 +87,15 @@
       "id": "OD-008",
       "topic": "Release numbering and signing identity",
       "status": "open",
+      "direction_status": "selected_with_outstanding_obligations",
+      "selected_direction_ref": "release-selection.json#/decisions/OD-008",
+      "selected_direction": "Universal Setup 1.1 development train targeting 1.1.0 Local Setup Foundation through Alpha, Beta, RC and supported-release gates",
+      "outstanding_obligations": [
+        "select and verify production signing identity",
+        "establish signing-key custody and publisher-trust policy",
+        "obtain publication authorization",
+        "qualify exact candidate bytes before allocating a public prerelease or release"
+      ],
       "blocks": [
         "USK-WU-032"
       ],

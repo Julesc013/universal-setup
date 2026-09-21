@@ -67,8 +67,27 @@ class SpecificationImplementationInventoryTests(unittest.TestCase):
     def test_inventory_binds_current_sealed_spec(self) -> None:
         integrity = json.loads((ROOT / "spec" / "integrity.json").read_text(encoding="utf-8"))
         self.assertEqual(self.inventory["spec_aggregate_sha256"], integrity["aggregate_sha256"])
-        self.assertEqual(self.inventory["release_scope"].split(";", 1)[0], "unresolved")
+        self.assertTrue(self.inventory["release_scope"].startswith("selected: Universal Setup 1.1"))
+        self.assertEqual(self.inventory["release_selection_ref"], "spec/plan/release-selection.json")
         self.assertEqual(self.inventory["counts"]["outside_selected_release"], 0)
+
+    def test_every_requirement_has_an_independent_release_disposition(self) -> None:
+        allowed = {
+            "required_for_selected_release",
+            "optional_for_selected_release",
+            "scheduled_later",
+            "unresolved",
+        }
+        rows = self.inventory["requirements"]
+        self.assertTrue(all(row["release_disposition"] in allowed for row in rows))
+        expected_counts = {
+            disposition: sum(row["release_disposition"] == disposition for row in rows)
+            for disposition in sorted(allowed)
+        }
+        self.assertEqual(self.inventory["release_disposition_counts"], expected_counts)
+        for row in rows:
+            self.assertIn(row["classification"], self.inventory["classification_definitions"])
+            self.assertIn(row["release_disposition"], self.inventory["release_disposition_definitions"])
 
 
 if __name__ == "__main__":

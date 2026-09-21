@@ -5,9 +5,9 @@
   "repository_base_commit": "2075284609647248c8c562bb046c6070ec6c5cdf",
   "repository_base_tree": "22410182479ded6e22d0e9efff9851a0a13fda0e",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "ee6f5b627a75c7f7b53e2682d8baba1b40d706e5387306f268ee0c0d748259a7",
+  "spec_aggregate_sha256": "f398d68f9d6ec5c22bb0d8cd215504f247ae57aeb0f7a0b1e9a33b0e8d782f0d",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
-  "release_scope": "unresolved; OD-002, OD-003 and OD-008 remain open, so no requirement is classified outside a selected release",
+  "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
   "working_tree_note": "Specification operations corrections are present after the bound base; each cited file is independently SHA-256 bound.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
@@ -20,13 +20,13 @@
     {
       "command": "python -m unittest discover -s tests -v",
       "result": "PASS",
-      "tests": 63,
+      "tests": 68,
       "scope": "repository Python/contract/policy tests; no native runtime execution"
     },
     {
       "command": "python -B -m unittest discover -s spec/tools/tests -v",
       "result": "PASS",
-      "tests": 72,
+      "tests": 74,
       "scope": "specification tooling; jsonschema-enabled run had 3 Windows symlink skips"
     },
     {
@@ -86,7 +86,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-002"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ADOPT-002",
@@ -115,7 +117,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-002"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-AGENT-001",
@@ -148,7 +152,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-AGENT-002",
@@ -181,7 +187,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-AGENT-003",
@@ -214,7 +222,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-AIDE-001",
@@ -230,11 +240,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -247,7 +257,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-AIDE-002",
@@ -263,11 +275,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -280,7 +292,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-AIDE-003",
@@ -296,11 +310,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -313,7 +327,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-API-001",
@@ -348,7 +364,9 @@
         "USK-WU-013",
         "USK-WU-015",
         "USK-WU-028"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-API-002",
@@ -383,7 +401,9 @@
         "USK-WU-013",
         "USK-WU-015",
         "USK-WU-028"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-API-003",
@@ -418,7 +438,9 @@
         "USK-WU-013",
         "USK-WU-015",
         "USK-WU-028"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ARCHIVE-001",
@@ -451,7 +473,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-005"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ARCHIVE-002",
@@ -484,7 +508,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-005"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ARCHIVE-003",
@@ -517,7 +543,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-005"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-AUTH-001",
@@ -550,7 +578,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-001"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-AUTH-002",
@@ -583,7 +613,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-001"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-AUTH-003",
@@ -616,7 +648,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-001"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-AUTHOR-001",
@@ -650,7 +684,9 @@
       "planned_workunits": [
         "USK-WU-012",
         "USK-WU-014"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-AUTHOR-002",
@@ -684,7 +720,9 @@
       "planned_workunits": [
         "USK-WU-012",
         "USK-WU-014"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-AUTHOR-003",
@@ -718,7 +756,9 @@
       "planned_workunits": [
         "USK-WU-012",
         "USK-WU-014"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-BROKER-001",
@@ -734,11 +774,11 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "8de31296e063d49844983b5ba7fb59ed4c3b693d6210e23ba4ab9dc764ae7a23"
+          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
         },
         {
           "path": "runtime/platform/README.md",
-          "sha256": "e4586b7d729d2e5ae0009c0e5ac0bd328f867ac2840aa519e65e655d721df042"
+          "sha256": "a88565010cb4da712cfeda1e9c00850835b45cb4080498232ee95b20b2ae6885"
         }
       ],
       "acceptance_ids": [
@@ -747,7 +787,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-020"
-      ]
+      ],
+      "release_disposition": "unresolved",
+      "release_disposition_note": "Disposition depends on an open safety/profile decision and must not be silently omitted or required."
     },
     {
       "requirement_id": "USK-R-BROKER-002",
@@ -763,11 +805,11 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "8de31296e063d49844983b5ba7fb59ed4c3b693d6210e23ba4ab9dc764ae7a23"
+          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
         },
         {
           "path": "runtime/platform/README.md",
-          "sha256": "e4586b7d729d2e5ae0009c0e5ac0bd328f867ac2840aa519e65e655d721df042"
+          "sha256": "a88565010cb4da712cfeda1e9c00850835b45cb4080498232ee95b20b2ae6885"
         }
       ],
       "acceptance_ids": [
@@ -776,7 +818,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-020"
-      ]
+      ],
+      "release_disposition": "unresolved",
+      "release_disposition_note": "Disposition depends on an open safety/profile decision and must not be silently omitted or required."
     },
     {
       "requirement_id": "USK-R-BROKER-003",
@@ -792,11 +836,11 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "8de31296e063d49844983b5ba7fb59ed4c3b693d6210e23ba4ab9dc764ae7a23"
+          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
         },
         {
           "path": "runtime/platform/README.md",
-          "sha256": "e4586b7d729d2e5ae0009c0e5ac0bd328f867ac2840aa519e65e655d721df042"
+          "sha256": "a88565010cb4da712cfeda1e9c00850835b45cb4080498232ee95b20b2ae6885"
         }
       ],
       "acceptance_ids": [
@@ -805,7 +849,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-020"
-      ]
+      ],
+      "release_disposition": "unresolved",
+      "release_disposition_note": "Disposition depends on an open safety/profile decision and must not be silently omitted or required."
     },
     {
       "requirement_id": "USK-R-BUNDLE-001",
@@ -838,7 +884,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-012"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-BUNDLE-002",
@@ -871,7 +919,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-012"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-BUNDLE-003",
@@ -904,7 +954,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-012"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CACHE-001",
@@ -920,7 +972,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/fetch/README.md",
-          "sha256": "21cd6cbf47c6babc4724c1e9f986c6aa31d11cbc816eefa561b6badaeff3ee4f"
+          "sha256": "57f2a965622a8fc728f06f36ca588ef4e59a2bde89ff069ead6b88147aa5bcd4"
         }
       ],
       "acceptance_ids": [
@@ -929,7 +981,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-025"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-CACHE-002",
@@ -945,7 +999,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/fetch/README.md",
-          "sha256": "21cd6cbf47c6babc4724c1e9f986c6aa31d11cbc816eefa561b6badaeff3ee4f"
+          "sha256": "57f2a965622a8fc728f06f36ca588ef4e59a2bde89ff069ead6b88147aa5bcd4"
         }
       ],
       "acceptance_ids": [
@@ -954,7 +1008,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-025"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-CACHE-003",
@@ -970,7 +1026,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/fetch/README.md",
-          "sha256": "21cd6cbf47c6babc4724c1e9f986c6aa31d11cbc816eefa561b6badaeff3ee4f"
+          "sha256": "57f2a965622a8fc728f06f36ca588ef4e59a2bde89ff069ead6b88147aa5bcd4"
         }
       ],
       "acceptance_ids": [
@@ -979,7 +1035,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-025"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-CAPS-001",
@@ -1012,7 +1070,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-004"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CAPS-002",
@@ -1045,7 +1105,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-004"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CAPS-003",
@@ -1078,7 +1140,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-004"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CLI-001",
@@ -1098,7 +1162,7 @@
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -1108,7 +1172,9 @@
       "planned_workunits": [
         "USK-WU-013",
         "USK-WU-017"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CLI-002",
@@ -1128,7 +1194,7 @@
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -1138,7 +1204,9 @@
       "planned_workunits": [
         "USK-WU-013",
         "USK-WU-017"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CLI-003",
@@ -1158,7 +1226,7 @@
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -1168,7 +1236,9 @@
       "planned_workunits": [
         "USK-WU-013",
         "USK-WU-017"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CONSUMER-001",
@@ -1184,11 +1254,11 @@
       "source_observations": [
         {
           "path": "docs/architecture/ecosystem_vision.md",
-          "sha256": "bb8aa975887b6b12046d9dd6b80481c2f2c157529e02616b3a6636d2a16f6d07"
+          "sha256": "e8c152cc6f3a370c59a888b189ab341ac661bfaacdf179d2839fffe078b4ac3c"
         },
         {
           "path": "apps/README.md",
-          "sha256": "08fc4bd0428f29649f33fa27c503db37269fbe7b54ba19555a40d305ed850ae8"
+          "sha256": "0c94b708e22c06ad96b9ca3a110fd70b1a2893e7314fdadcb5505f7f48155196"
         }
       ],
       "acceptance_ids": [
@@ -1197,7 +1267,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CONSUMER-002",
@@ -1213,11 +1285,11 @@
       "source_observations": [
         {
           "path": "docs/architecture/ecosystem_vision.md",
-          "sha256": "bb8aa975887b6b12046d9dd6b80481c2f2c157529e02616b3a6636d2a16f6d07"
+          "sha256": "e8c152cc6f3a370c59a888b189ab341ac661bfaacdf179d2839fffe078b4ac3c"
         },
         {
           "path": "apps/README.md",
-          "sha256": "08fc4bd0428f29649f33fa27c503db37269fbe7b54ba19555a40d305ed850ae8"
+          "sha256": "0c94b708e22c06ad96b9ca3a110fd70b1a2893e7314fdadcb5505f7f48155196"
         }
       ],
       "acceptance_ids": [
@@ -1226,7 +1298,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CONSUMER-003",
@@ -1242,11 +1316,11 @@
       "source_observations": [
         {
           "path": "docs/architecture/ecosystem_vision.md",
-          "sha256": "bb8aa975887b6b12046d9dd6b80481c2f2c157529e02616b3a6636d2a16f6d07"
+          "sha256": "e8c152cc6f3a370c59a888b189ab341ac661bfaacdf179d2839fffe078b4ac3c"
         },
         {
           "path": "apps/README.md",
-          "sha256": "08fc4bd0428f29649f33fa27c503db37269fbe7b54ba19555a40d305ed850ae8"
+          "sha256": "0c94b708e22c06ad96b9ca3a110fd70b1a2893e7314fdadcb5505f7f48155196"
         }
       ],
       "acceptance_ids": [
@@ -1255,7 +1329,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-CONTEXT-001",
@@ -1271,11 +1347,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -1284,7 +1360,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-CONTEXT-002",
@@ -1300,11 +1378,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -1313,7 +1391,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-CONTEXT-003",
@@ -1329,11 +1409,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -1342,7 +1422,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-ENT-001",
@@ -1372,7 +1454,9 @@
       "planned_workunits": [
         "USK-WU-022",
         "USK-WU-023"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-ENT-002",
@@ -1402,7 +1486,9 @@
       "planned_workunits": [
         "USK-WU-022",
         "USK-WU-023"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-ENT-003",
@@ -1432,7 +1518,9 @@
       "planned_workunits": [
         "USK-WU-022",
         "USK-WU-023"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-ENT-004",
@@ -1462,7 +1550,9 @@
       "planned_workunits": [
         "USK-WU-022",
         "USK-WU-023"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-FAULT-001",
@@ -1496,7 +1586,9 @@
       "planned_workunits": [
         "USK-WU-011",
         "USK-WU-030"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-FAULT-002",
@@ -1530,7 +1622,9 @@
       "planned_workunits": [
         "USK-WU-011",
         "USK-WU-030"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-FAULT-003",
@@ -1564,7 +1658,9 @@
       "planned_workunits": [
         "USK-WU-011",
         "USK-WU-030"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-GEN-001",
@@ -1593,7 +1689,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-009"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-GEN-002",
@@ -1622,7 +1720,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-009"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-GEN-003",
@@ -1651,7 +1751,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-009"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-GUI-001",
@@ -1662,12 +1764,12 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/interfaces/native-shells.md",
-        "sha256": "9c6953266303cb0938995e08da8445b81a9c112476f2c92e5bc691e62ff5802e"
+        "sha256": "6eb8be702ee8725c6854aad31231b03d5e924f6a51ae9cd4d40b15ed615f705e"
       },
       "source_observations": [
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         }
       ],
       "acceptance_ids": [
@@ -1678,7 +1780,9 @@
         "USK-WU-018",
         "USK-WU-026",
         "USK-WU-032"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-GUI-002",
@@ -1689,12 +1793,12 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/interfaces/native-shells.md",
-        "sha256": "9c6953266303cb0938995e08da8445b81a9c112476f2c92e5bc691e62ff5802e"
+        "sha256": "6eb8be702ee8725c6854aad31231b03d5e924f6a51ae9cd4d40b15ed615f705e"
       },
       "source_observations": [
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         }
       ],
       "acceptance_ids": [
@@ -1705,7 +1809,9 @@
         "USK-WU-018",
         "USK-WU-026",
         "USK-WU-032"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-GUI-003",
@@ -1716,12 +1822,12 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/interfaces/native-shells.md",
-        "sha256": "9c6953266303cb0938995e08da8445b81a9c112476f2c92e5bc691e62ff5802e"
+        "sha256": "6eb8be702ee8725c6854aad31231b03d5e924f6a51ae9cd4d40b15ed615f705e"
       },
       "source_observations": [
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         }
       ],
       "acceptance_ids": [
@@ -1732,7 +1838,9 @@
         "USK-WU-018",
         "USK-WU-026",
         "USK-WU-032"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-HOST-001",
@@ -1752,7 +1860,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "8de31296e063d49844983b5ba7fb59ed4c3b693d6210e23ba4ab9dc764ae7a23"
+          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
         }
       ],
       "acceptance_ids": [
@@ -1761,7 +1869,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-HOST-002",
@@ -1781,7 +1891,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "8de31296e063d49844983b5ba7fb59ed4c3b693d6210e23ba4ab9dc764ae7a23"
+          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
         }
       ],
       "acceptance_ids": [
@@ -1790,7 +1900,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-HOST-003",
@@ -1810,7 +1922,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "8de31296e063d49844983b5ba7fb59ed4c3b693d6210e23ba4ab9dc764ae7a23"
+          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
         }
       ],
       "acceptance_ids": [
@@ -1819,7 +1931,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ID-001",
@@ -1853,7 +1967,9 @@
       "planned_workunits": [
         "USK-WU-010",
         "USK-WU-027"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ID-002",
@@ -1887,7 +2003,9 @@
       "planned_workunits": [
         "USK-WU-010",
         "USK-WU-027"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ID-003",
@@ -1921,7 +2039,9 @@
       "planned_workunits": [
         "USK-WU-010",
         "USK-WU-027"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-IMPACT-001",
@@ -1937,11 +2057,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -1950,7 +2070,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-IMPACT-002",
@@ -1966,11 +2088,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -1979,7 +2101,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-LEASE-001",
@@ -2008,7 +2132,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-007"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-LEASE-002",
@@ -2037,7 +2163,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-007"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-LEASE-003",
@@ -2066,7 +2194,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-007"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-MAINT-001",
@@ -2082,15 +2212,15 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/log.md",
-          "sha256": "bb20b9f7e63afbcc515443a78d5eadb7f63f2352a46177c861b992b85e57fdff"
+          "sha256": "c3caa6f4bd131cca7bf53dcfd9f1dc59d323e2af27e0571d9df235cc36b9fead"
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "0085bde02d6dcf62d9b9e5c6f4ad959de033eb57103095a072cb22bd6a50c920"
+          "sha256": "60f870c8f28c3fce4ceaecd75599bba9883aac1619d1e9f8aeb97519662f9f8e"
         }
       ],
       "acceptance_ids": [
@@ -2100,7 +2230,9 @@
       "planned_workunits": [
         "USK-WU-002",
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-MAINT-002",
@@ -2116,15 +2248,15 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/log.md",
-          "sha256": "bb20b9f7e63afbcc515443a78d5eadb7f63f2352a46177c861b992b85e57fdff"
+          "sha256": "c3caa6f4bd131cca7bf53dcfd9f1dc59d323e2af27e0571d9df235cc36b9fead"
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "0085bde02d6dcf62d9b9e5c6f4ad959de033eb57103095a072cb22bd6a50c920"
+          "sha256": "60f870c8f28c3fce4ceaecd75599bba9883aac1619d1e9f8aeb97519662f9f8e"
         }
       ],
       "acceptance_ids": [
@@ -2134,7 +2266,9 @@
       "planned_workunits": [
         "USK-WU-002",
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-MIG-001",
@@ -2163,7 +2297,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-008"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-MIG-002",
@@ -2192,7 +2328,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-008"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-MIG-003",
@@ -2221,7 +2359,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-008"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-MODULES-001",
@@ -2245,7 +2385,7 @@
         },
         {
           "path": "apps/README.md",
-          "sha256": "08fc4bd0428f29649f33fa27c503db37269fbe7b54ba19555a40d305ed850ae8"
+          "sha256": "0c94b708e22c06ad96b9ca3a110fd70b1a2893e7314fdadcb5505f7f48155196"
         }
       ],
       "acceptance_ids": [
@@ -2254,7 +2394,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-MODULES-002",
@@ -2278,7 +2420,7 @@
         },
         {
           "path": "apps/README.md",
-          "sha256": "08fc4bd0428f29649f33fa27c503db37269fbe7b54ba19555a40d305ed850ae8"
+          "sha256": "0c94b708e22c06ad96b9ca3a110fd70b1a2893e7314fdadcb5505f7f48155196"
         }
       ],
       "acceptance_ids": [
@@ -2287,7 +2429,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-MODULES-003",
@@ -2311,7 +2455,7 @@
         },
         {
           "path": "apps/README.md",
-          "sha256": "08fc4bd0428f29649f33fa27c503db37269fbe7b54ba19555a40d305ed850ae8"
+          "sha256": "0c94b708e22c06ad96b9ca3a110fd70b1a2893e7314fdadcb5505f7f48155196"
         }
       ],
       "acceptance_ids": [
@@ -2320,7 +2464,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-OKF-001",
@@ -2336,11 +2482,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2353,7 +2499,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-001"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-OKF-002",
@@ -2369,11 +2517,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2386,7 +2534,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-001"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-OKF-003",
@@ -2402,11 +2552,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2419,7 +2569,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-001"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-OPS-001",
@@ -2451,7 +2603,9 @@
         "USK-WU-010",
         "USK-WU-011",
         "USK-WU-016"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-OPS-002",
@@ -2483,7 +2637,9 @@
         "USK-WU-010",
         "USK-WU-011",
         "USK-WU-016"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-OPS-003",
@@ -2515,7 +2671,9 @@
         "USK-WU-010",
         "USK-WU-011",
         "USK-WU-016"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-OWN-001",
@@ -2548,7 +2706,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-019"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-OWN-002",
@@ -2581,7 +2741,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-019"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-OWN-003",
@@ -2614,7 +2776,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-019"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-OWN-004",
@@ -2647,7 +2811,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-019"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PLAN-001",
@@ -2681,7 +2847,9 @@
       "planned_workunits": [
         "USK-WU-010",
         "USK-WU-019"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PLAN-002",
@@ -2715,7 +2883,9 @@
       "planned_workunits": [
         "USK-WU-010",
         "USK-WU-019"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PLAN-003",
@@ -2749,7 +2919,9 @@
       "planned_workunits": [
         "USK-WU-010",
         "USK-WU-019"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PLAT-001",
@@ -2765,15 +2937,15 @@
       "source_observations": [
         {
           "path": "runtime/platform/README.md",
-          "sha256": "e4586b7d729d2e5ae0009c0e5ac0bd328f867ac2840aa519e65e655d721df042"
+          "sha256": "a88565010cb4da712cfeda1e9c00850835b45cb4080498232ee95b20b2ae6885"
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "add2962aaf4c6768a203fc8d7abb1d7fbf25f900764e1f9cbd88d5c114d6b23b"
+          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
         },
         {
           "path": "runtime/platform/posix/README.md",
-          "sha256": "1dd3bf7cfd185c274837578e56df88fb814d19b7e74883b8dc66af034ad4f207"
+          "sha256": "641fadf53f2d046eb7e1fe80caef93199831eb737c790ba07cbbaa4e55c328d1"
         }
       ],
       "acceptance_ids": [
@@ -2784,7 +2956,9 @@
         "USK-WU-006",
         "USK-WU-019",
         "USK-WU-023"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PLAT-002",
@@ -2800,15 +2974,15 @@
       "source_observations": [
         {
           "path": "runtime/platform/README.md",
-          "sha256": "e4586b7d729d2e5ae0009c0e5ac0bd328f867ac2840aa519e65e655d721df042"
+          "sha256": "a88565010cb4da712cfeda1e9c00850835b45cb4080498232ee95b20b2ae6885"
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "add2962aaf4c6768a203fc8d7abb1d7fbf25f900764e1f9cbd88d5c114d6b23b"
+          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
         },
         {
           "path": "runtime/platform/posix/README.md",
-          "sha256": "1dd3bf7cfd185c274837578e56df88fb814d19b7e74883b8dc66af034ad4f207"
+          "sha256": "641fadf53f2d046eb7e1fe80caef93199831eb737c790ba07cbbaa4e55c328d1"
         }
       ],
       "acceptance_ids": [
@@ -2819,7 +2993,9 @@
         "USK-WU-006",
         "USK-WU-019",
         "USK-WU-023"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PLAT-003",
@@ -2835,15 +3011,15 @@
       "source_observations": [
         {
           "path": "runtime/platform/README.md",
-          "sha256": "e4586b7d729d2e5ae0009c0e5ac0bd328f867ac2840aa519e65e655d721df042"
+          "sha256": "a88565010cb4da712cfeda1e9c00850835b45cb4080498232ee95b20b2ae6885"
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "add2962aaf4c6768a203fc8d7abb1d7fbf25f900764e1f9cbd88d5c114d6b23b"
+          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
         },
         {
           "path": "runtime/platform/posix/README.md",
-          "sha256": "1dd3bf7cfd185c274837578e56df88fb814d19b7e74883b8dc66af034ad4f207"
+          "sha256": "641fadf53f2d046eb7e1fe80caef93199831eb737c790ba07cbbaa4e55c328d1"
         }
       ],
       "acceptance_ids": [
@@ -2854,7 +3030,9 @@
         "USK-WU-006",
         "USK-WU-019",
         "USK-WU-023"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-POLICY-001",
@@ -2888,7 +3066,9 @@
       "planned_workunits": [
         "USK-WU-007",
         "USK-WU-022"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-POLICY-002",
@@ -2922,7 +3102,9 @@
       "planned_workunits": [
         "USK-WU-007",
         "USK-WU-022"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-POLICY-003",
@@ -2956,7 +3138,9 @@
       "planned_workunits": [
         "USK-WU-007",
         "USK-WU-022"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PORT-001",
@@ -2967,7 +3151,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/build/portability.md",
-        "sha256": "3ff4ca8638fb4d31e74f3b312d31f505f77b8f6ec90be9d697dc4c5676f5d31d"
+        "sha256": "dd0ae6008cd5ed7a2227b026e9c1260fcf5812d41b46a20902511b7000a5627a"
       },
       "source_observations": [
         {
@@ -2990,7 +3174,9 @@
       "planned_workunits": [
         "USK-WU-026",
         "USK-WU-027"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PORT-002",
@@ -3001,7 +3187,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/build/portability.md",
-        "sha256": "3ff4ca8638fb4d31e74f3b312d31f505f77b8f6ec90be9d697dc4c5676f5d31d"
+        "sha256": "dd0ae6008cd5ed7a2227b026e9c1260fcf5812d41b46a20902511b7000a5627a"
       },
       "source_observations": [
         {
@@ -3024,7 +3210,9 @@
       "planned_workunits": [
         "USK-WU-026",
         "USK-WU-027"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PORT-003",
@@ -3035,7 +3223,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/build/portability.md",
-        "sha256": "3ff4ca8638fb4d31e74f3b312d31f505f77b8f6ec90be9d697dc4c5676f5d31d"
+        "sha256": "dd0ae6008cd5ed7a2227b026e9c1260fcf5812d41b46a20902511b7000a5627a"
       },
       "source_observations": [
         {
@@ -3058,7 +3246,9 @@
       "planned_workunits": [
         "USK-WU-026",
         "USK-WU-027"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-PREFAB-001",
@@ -3074,11 +3264,11 @@
       "source_observations": [
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "release/packaging/README.md",
-          "sha256": "78e0ccb8998346cb58ea036ce38f97a72abf1cffa22cf304a9a4b7b073e93d7c"
+          "sha256": "aae3c2ad56182f4f451cef77a657580a4a22c415299eb0508127a662176d4f54"
         }
       ],
       "acceptance_ids": [
@@ -3089,7 +3279,9 @@
         "USK-WU-014",
         "USK-WU-018",
         "USK-WU-031"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PREFAB-002",
@@ -3105,11 +3297,11 @@
       "source_observations": [
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "release/packaging/README.md",
-          "sha256": "78e0ccb8998346cb58ea036ce38f97a72abf1cffa22cf304a9a4b7b073e93d7c"
+          "sha256": "aae3c2ad56182f4f451cef77a657580a4a22c415299eb0508127a662176d4f54"
         }
       ],
       "acceptance_ids": [
@@ -3120,7 +3312,9 @@
         "USK-WU-014",
         "USK-WU-018",
         "USK-WU-031"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PREFAB-003",
@@ -3136,11 +3330,11 @@
       "source_observations": [
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "release/packaging/README.md",
-          "sha256": "78e0ccb8998346cb58ea036ce38f97a72abf1cffa22cf304a9a4b7b073e93d7c"
+          "sha256": "aae3c2ad56182f4f451cef77a657580a4a22c415299eb0508127a662176d4f54"
         }
       ],
       "acceptance_ids": [
@@ -3151,7 +3345,9 @@
         "USK-WU-014",
         "USK-WU-018",
         "USK-WU-031"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PRESENT-001",
@@ -3167,15 +3363,15 @@
       "source_observations": [
         {
           "path": "runtime/command/README.md",
-          "sha256": "ec7e3a483824907231e69c065e5906e6e7d6dbcca77b7fef8e575164fc636f66"
+          "sha256": "3101b5db213a3081574eda424e5b737554263285cee0025cf6cbe3c562ecb36e"
         },
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -3185,7 +3381,9 @@
       "planned_workunits": [
         "USK-WU-016",
         "USK-WU-017"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PRESENT-002",
@@ -3201,15 +3399,15 @@
       "source_observations": [
         {
           "path": "runtime/command/README.md",
-          "sha256": "ec7e3a483824907231e69c065e5906e6e7d6dbcca77b7fef8e575164fc636f66"
+          "sha256": "3101b5db213a3081574eda424e5b737554263285cee0025cf6cbe3c562ecb36e"
         },
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -3219,7 +3417,9 @@
       "planned_workunits": [
         "USK-WU-016",
         "USK-WU-017"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PRESENT-003",
@@ -3235,15 +3435,15 @@
       "source_observations": [
         {
           "path": "runtime/command/README.md",
-          "sha256": "ec7e3a483824907231e69c065e5906e6e7d6dbcca77b7fef8e575164fc636f66"
+          "sha256": "3101b5db213a3081574eda424e5b737554263285cee0025cf6cbe3c562ecb36e"
         },
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -3253,7 +3453,9 @@
       "planned_workunits": [
         "USK-WU-016",
         "USK-WU-017"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PUB-001",
@@ -3287,7 +3489,9 @@
       "planned_workunits": [
         "USK-WU-004",
         "USK-WU-006"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PUB-002",
@@ -3321,7 +3525,9 @@
       "planned_workunits": [
         "USK-WU-004",
         "USK-WU-006"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-PUB-003",
@@ -3355,7 +3561,9 @@
       "planned_workunits": [
         "USK-WU-004",
         "USK-WU-006"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-REC-001",
@@ -3388,7 +3596,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-008"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-REC-002",
@@ -3421,7 +3631,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-008"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-REC-003",
@@ -3454,7 +3666,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-008"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-REL-001",
@@ -3465,7 +3679,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/release/train.md",
-        "sha256": "54dedcf3c2401d4acfa6543b00da71f8b8d60142df22fd9a2222747556fd1490"
+        "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2"
       },
       "source_observations": [
         {
@@ -3490,7 +3704,9 @@
         "USK-WU-031",
         "USK-WU-032",
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-REL-002",
@@ -3501,7 +3717,7 @@
       "note": "This targeted inventory did not establish a sufficient source-to-test mapping; no implementation claim is made.",
       "spec_source": {
         "path": "spec/release/train.md",
-        "sha256": "54dedcf3c2401d4acfa6543b00da71f8b8d60142df22fd9a2222747556fd1490"
+        "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2"
       },
       "source_observations": [
         {
@@ -3526,7 +3742,9 @@
         "USK-WU-031",
         "USK-WU-032",
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-REL-003",
@@ -3537,7 +3755,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/release/train.md",
-        "sha256": "54dedcf3c2401d4acfa6543b00da71f8b8d60142df22fd9a2222747556fd1490"
+        "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2"
       },
       "source_observations": [
         {
@@ -3562,7 +3780,9 @@
         "USK-WU-031",
         "USK-WU-032",
         "USK-WU-033"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ROADMAP-001",
@@ -3582,7 +3802,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         }
       ],
       "acceptance_ids": [
@@ -3591,7 +3811,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-ROADMAP-002",
@@ -3611,7 +3833,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "bbc7bcd5bef1a4900e30a4718c617565969d8fe214af7a35757c92ce466f181f"
+          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
         }
       ],
       "acceptance_ids": [
@@ -3620,7 +3842,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-SDK-001",
@@ -3655,7 +3879,9 @@
         "USK-WU-014",
         "USK-WU-027",
         "USK-WU-028"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-SDK-002",
@@ -3690,7 +3916,9 @@
         "USK-WU-014",
         "USK-WU-027",
         "USK-WU-028"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-SDK-003",
@@ -3725,7 +3953,9 @@
         "USK-WU-014",
         "USK-WU-027",
         "USK-WU-028"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-STREAM-001",
@@ -3759,7 +3989,9 @@
       "planned_workunits": [
         "USK-WU-005",
         "USK-WU-025"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-STREAM-002",
@@ -3793,7 +4025,9 @@
       "planned_workunits": [
         "USK-WU-005",
         "USK-WU-025"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-STREAM-003",
@@ -3827,7 +4061,9 @@
       "planned_workunits": [
         "USK-WU-005",
         "USK-WU-025"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-SUPPLY-001",
@@ -3862,7 +4098,9 @@
         "USK-WU-024",
         "USK-WU-029",
         "USK-WU-032"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-SUPPLY-002",
@@ -3897,7 +4135,9 @@
         "USK-WU-024",
         "USK-WU-029",
         "USK-WU-032"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-SUPPLY-003",
@@ -3932,7 +4172,9 @@
         "USK-WU-024",
         "USK-WU-029",
         "USK-WU-032"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TEST-001",
@@ -3956,7 +4198,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -3968,7 +4210,9 @@
         "USK-WU-021",
         "USK-WU-030",
         "USK-WU-031"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TEST-002",
@@ -3992,7 +4236,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -4004,7 +4248,9 @@
         "USK-WU-021",
         "USK-WU-030",
         "USK-WU-031"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TEST-003",
@@ -4028,7 +4274,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -4040,7 +4286,9 @@
         "USK-WU-021",
         "USK-WU-030",
         "USK-WU-031"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-THREAT-001",
@@ -4056,7 +4304,7 @@
       "source_observations": [
         {
           "path": "docs/security/no_arbitrary_scripts.md",
-          "sha256": "f581b66f72de9e18964c11edbada62479f7acec3c9b89b63f654ddc540087efc"
+          "sha256": "1cf61312697ab7f8c710af5ac73bf3355d1b20ae5b12a8a366ff966efb503068"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4064,7 +4312,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -4073,7 +4321,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-004"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-THREAT-002",
@@ -4089,7 +4339,7 @@
       "source_observations": [
         {
           "path": "docs/security/no_arbitrary_scripts.md",
-          "sha256": "f581b66f72de9e18964c11edbada62479f7acec3c9b89b63f654ddc540087efc"
+          "sha256": "1cf61312697ab7f8c710af5ac73bf3355d1b20ae5b12a8a366ff966efb503068"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4097,7 +4347,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -4106,7 +4356,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-004"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-THREAT-003",
@@ -4122,7 +4374,7 @@
       "source_observations": [
         {
           "path": "docs/security/no_arbitrary_scripts.md",
-          "sha256": "f581b66f72de9e18964c11edbada62479f7acec3c9b89b63f654ddc540087efc"
+          "sha256": "1cf61312697ab7f8c710af5ac73bf3355d1b20ae5b12a8a366ff966efb503068"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4130,7 +4382,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "75c9e48e11ece2205616200fed8587f4405f16d16963a79302464d963181985f"
+          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
         }
       ],
       "acceptance_ids": [
@@ -4139,7 +4391,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-004"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TRUST-001",
@@ -4172,7 +4426,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-024"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TRUST-002",
@@ -4205,7 +4461,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-024"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TRUST-003",
@@ -4238,7 +4496,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-024"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TXN-001",
@@ -4273,7 +4533,9 @@
         "USK-WU-008",
         "USK-WU-015",
         "USK-WU-030"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TXN-002",
@@ -4308,7 +4570,9 @@
         "USK-WU-008",
         "USK-WU-015",
         "USK-WU-030"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-TXN-003",
@@ -4343,7 +4607,9 @@
         "USK-WU-008",
         "USK-WU-015",
         "USK-WU-030"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-ULK-001",
@@ -4359,7 +4625,7 @@
       "source_observations": [
         {
           "path": "docs/architecture/ecosystem_vision.md",
-          "sha256": "bb8aa975887b6b12046d9dd6b80481c2f2c157529e02616b3a6636d2a16f6d07"
+          "sha256": "e8c152cc6f3a370c59a888b189ab341ac661bfaacdf179d2839fffe078b4ac3c"
         },
         {
           "path": "runtime/setup/lifecycle/README.md",
@@ -4372,7 +4638,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-ULK-002",
@@ -4388,7 +4656,7 @@
       "source_observations": [
         {
           "path": "docs/architecture/ecosystem_vision.md",
-          "sha256": "bb8aa975887b6b12046d9dd6b80481c2f2c157529e02616b3a6636d2a16f6d07"
+          "sha256": "e8c152cc6f3a370c59a888b189ab341ac661bfaacdf179d2839fffe078b4ac3c"
         },
         {
           "path": "runtime/setup/lifecycle/README.md",
@@ -4401,7 +4669,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "scheduled_later",
+      "release_disposition_note": "Retained in the programme but outside the mandatory 1.1.0 boundary selected by the owner."
     },
     {
       "requirement_id": "USK-R-VISION-001",
@@ -4421,11 +4691,11 @@
         },
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -4434,7 +4704,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-VISION-002",
@@ -4454,11 +4726,11 @@
         },
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -4467,7 +4739,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-VISION-003",
@@ -4487,11 +4761,11 @@
         },
         {
           "path": "apps/gui/README.md",
-          "sha256": "b68b3302657b519dd3efdab45d921ea9c8e072a94f06e4d44f72525edde84e1d"
+          "sha256": "e6f8e85d064c67391e379e8f3505906984e1f8d222f59c3817d433dc4d16e130"
         },
         {
           "path": "apps/tui/README.md",
-          "sha256": "f217b93edc75a348cf14df79354287c127b10470aafa45129aaa6de5255baf69"
+          "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
         }
       ],
       "acceptance_ids": [
@@ -4500,7 +4774,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-021"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-WIRE-001",
@@ -4516,7 +4792,7 @@
       "source_observations": [
         {
           "path": "runtime/command/README.md",
-          "sha256": "ec7e3a483824907231e69c065e5906e6e7d6dbcca77b7fef8e575164fc636f66"
+          "sha256": "3101b5db213a3081574eda424e5b737554263285cee0025cf6cbe3c562ecb36e"
         },
         {
           "path": "include/usk/usk_command.h",
@@ -4530,7 +4806,9 @@
       "planned_workunits": [
         "USK-WU-013",
         "USK-WU-020"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-WIRE-002",
@@ -4546,7 +4824,7 @@
       "source_observations": [
         {
           "path": "runtime/command/README.md",
-          "sha256": "ec7e3a483824907231e69c065e5906e6e7d6dbcca77b7fef8e575164fc636f66"
+          "sha256": "3101b5db213a3081574eda424e5b737554263285cee0025cf6cbe3c562ecb36e"
         },
         {
           "path": "include/usk/usk_command.h",
@@ -4560,7 +4838,9 @@
       "planned_workunits": [
         "USK-WU-013",
         "USK-WU-020"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-WIRE-003",
@@ -4576,7 +4856,7 @@
       "source_observations": [
         {
           "path": "runtime/command/README.md",
-          "sha256": "ec7e3a483824907231e69c065e5906e6e7d6dbcca77b7fef8e575164fc636f66"
+          "sha256": "3101b5db213a3081574eda424e5b737554263285cee0025cf6cbe3c562ecb36e"
         },
         {
           "path": "include/usk/usk_command.h",
@@ -4590,7 +4870,9 @@
       "planned_workunits": [
         "USK-WU-013",
         "USK-WU-020"
-      ]
+      ],
+      "release_disposition": "required_for_selected_release",
+      "release_disposition_note": "Required for the selected 1.1.0 Local Setup Foundation product boundary."
     },
     {
       "requirement_id": "USK-R-WORK-001",
@@ -4619,7 +4901,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-WORK-002",
@@ -4648,7 +4932,9 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     },
     {
       "requirement_id": "USK-R-WORK-003",
@@ -4677,7 +4963,22 @@
       "acceptance_status": "not_run",
       "planned_workunits": [
         "USK-WU-003"
-      ]
+      ],
+      "release_disposition": "optional_for_selected_release",
+      "release_disposition_note": "Development/knowledge integration is useful but is not a customer-runtime requirement for 1.1.0."
     }
-  ]
+  ],
+  "release_selection_ref": "spec/plan/release-selection.json",
+  "release_disposition_definitions": {
+    "required_for_selected_release": "Mandatory for the selected 1.1.0 product boundary; implementation and acceptance remain separate fields.",
+    "optional_for_selected_release": "May support development/qualification but is not mandatory customer product scope for 1.1.0.",
+    "scheduled_later": "Explicitly retained for a later train and not required for 1.1.0.",
+    "unresolved": "Cannot yet be placed because an applicable open decision remains."
+  },
+  "release_disposition_counts": {
+    "required_for_selected_release": 109,
+    "optional_for_selected_release": 21,
+    "scheduled_later": 11,
+    "unresolved": 3
+  }
 }

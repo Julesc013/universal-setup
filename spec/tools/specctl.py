@@ -343,6 +343,24 @@ def load_bundle(root: Path) -> dict:
     for decision in decisions:
         for tid in decision.get('blocks',[]):
             if tid not in tasks: errors.append(decision['id']+': missing blocked task '+tid)
+    release_selection = load_json(root/'plan/release-selection.json')
+    if release_selection.get('schema') != 'usk.spec.release-selection/1':
+        errors.append('plan/release-selection.json: unsupported schema')
+    selected_decisions = release_selection.get('decisions')
+    if not isinstance(selected_decisions, dict) or set(selected_decisions) != {'OD-002','OD-003','OD-008'}:
+        errors.append('plan/release-selection.json: expected OD-002, OD-003 and OD-008 selections')
+        selected_decisions = {}
+    decision_map = {decision.get('id'):decision for decision in decisions}
+    for decision_id, selection in selected_decisions.items():
+        if decision_map.get(decision_id, {}).get('status') != 'open':
+            errors.append(decision_id + ': selected direction must retain open parent status until obligations close')
+        if not isinstance(selection, dict) or selection.get('parent_status') != 'open':
+            errors.append(decision_id + ': release selection must declare open parent status')
+    selection_authority = release_selection.get('authority')
+    if not isinstance(selection_authority, dict) or not selection_authority:
+        errors.append('plan/release-selection.json: missing authority ceiling')
+    elif any(value is not False for value in selection_authority.values()):
+        errors.append('plan/release-selection.json: direction selection must not grant operational authority')
     if errors:
         raise SpecError('\n'.join(errors))
     repository_status = load_json(root/'integration/repository-status.json')
@@ -368,6 +386,7 @@ def load_bundle(root: Path) -> dict:
         if digest(record_path.read_bytes()) != adoption.get('record_sha256'):
             raise SpecError('integration/repository-status.json: adoption record digest mismatch')
     return {'root':root,'files':files,'manifest':manifest,'repository_status':repository_status,
+            'release_selection':release_selection,
             'docs':docs,'requirements':reqs,'tasks':tasks,'cases':cases,'decisions':decisions}
 
 
@@ -472,12 +491,21 @@ def next_tasks(bundle:dict, completed:list[str]) -> dict:
 
 def status_report(bundle: dict) -> dict:
     adoption = bundle['repository_status']['adoption']
+    release = bundle['release_selection']['decisions']['OD-008']['selected']
+    profile = bundle['release_selection']['decisions']['OD-002']['selected']
     return {'spec_version':bundle['manifest']['spec_version'],
             'adoption':adoption['status'],
             'adoption_scope':adoption['scope'],
             'adoption_record':adoption['record'],
             'adoption_workunit':adoption['workunit_id'],
             'import_manifest_adoption':bundle['manifest']['adoption'],
+            'development_train':release['development_train'],
+            'target_release':release['target_release'],
+            'release_product_name':release['product_name'],
+            'release_readiness':release['current_release_readiness'],
+            'initial_profile':{'os_family':profile['os_family'],'architecture':profile['architecture'],
+                               'filesystem':profile['mutation_filesystem'],
+                               'graphical_adapter':profile['first_graphical_adapter']},
             'authority_granted':False,
             'concepts':len(bundle['docs']),
             'requirements':len(bundle['requirements']),

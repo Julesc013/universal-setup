@@ -32,6 +32,11 @@
       "title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"
     },
     {
+      "id": "OWNER-DECISION-20260922",
+      "resource": "urn:sha256:ed6bab5a72716c8f03e58248c97ff1d69e600e4a14808e3192d7c0b4f92ec9bb",
+      "title": "Owner selection of initial platform, compatibility policy and 1.1 release train"
+    },
+    {
       "id": "REPO-README",
       "resource": "https://github.com/Julesc013/universal-setup/blob/0ca648a2c4fa8a37bb78a22639578093aecf6254/README.md",
       "title": "Universal Setup pinned README"

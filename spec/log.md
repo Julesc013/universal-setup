@@ -7,3 +7,7 @@ Authored the proposed Universal Setup engineering baseline and knowledge/tooling
 ## 2026-09-21T13:51:34Z — repository operations correction
 
 Separated task context inputs, writable paths, explicit read-only paths and forbidden paths across all 33 inactive WorkUnit templates; added rejection of contradictory effective scopes; preserved inactive/no-authority export behavior; projected the repository's existing `USK-WU-001` adoption record separately from imported manifest provenance; and added a required CI specification job with the reviewed `jsonschema` development pin. No runtime, queue, grant, signing, protected-reference or publication state was changed.
+
+## 2026-09-21T21:31:51Z — initial product and release direction
+
+Recorded the owner-selected Windows NT x64/local NTFS/WinForms-first development profile, additive ABI and contract compatibility policy, and Universal Setup 1.1 train targeting `1.1.0 — Local Setup Foundation`. OD-002, OD-003 and OD-008 remain open because exact lab qualification, per-change migration evidence, signing identity/custody/trust and publication approval remain outstanding. No runtime, queue, grant, signing, tagging, protected-reference or publication authority was granted.

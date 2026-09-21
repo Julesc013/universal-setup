@@ -81,6 +81,15 @@ class BundleTests(unittest.TestCase):
         for tid,t in self.bundle['tasks'].items():
             self.assertTrue(t['context_paths'],tid)
             self.assertEqual(m.task_scope_errors(tid,t),[])
+    def test_release_direction_preserves_open_obligations(self):
+        selections=self.bundle['release_selection']['decisions']
+        self.assertEqual(set(selections),{'OD-002','OD-003','OD-008'})
+        decisions={decision['id']:decision for decision in self.bundle['decisions']}
+        for decision_id in selections:
+            self.assertEqual(decisions[decision_id]['status'],'open')
+            self.assertEqual(decisions[decision_id]['direction_status'],'selected_with_outstanding_obligations')
+            self.assertTrue(decisions[decision_id]['outstanding_obligations'])
+        self.assertTrue(all(value is False for value in self.bundle['release_selection']['authority'].values()))
     def test_cases_not_run(self):
         for c in self.bundle['cases'].values():
             self.assertEqual(c['status'],'not_run');self.assertEqual(c['result_refs'],[])
@@ -157,6 +166,9 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(code,0);self.assertEqual(result['product_acceptance_executed'],0)
         self.assertEqual(result['adoption'],'adopted')
         self.assertEqual(result['import_manifest_adoption'],'not_performed')
+        self.assertEqual(result['target_release'],'1.1.0')
+        self.assertEqual(result['release_readiness'],'not established')
+        self.assertEqual(result['initial_profile']['graphical_adapter'],'WinForms OEM+')
         self.assertFalse(result['authority_granted'])
     def test_missing_aide_schema(self):
         with tempfile.TemporaryDirectory() as td:
@@ -249,6 +261,9 @@ class MutationTests(unittest.TestCase):
     def test_repository_projection_cannot_grant_authority(self):
         path=self.root/'integration/repository-status.json';x=m.load_json(path);x['authority_granted']=True;path.write_text(m.json_text(x))
         with self.assertRaisesRegex(m.SpecError,'must not grant execution authority'):m.load_bundle(self.root)
+    def test_release_selection_cannot_grant_authority(self):
+        path=self.root/'plan/release-selection.json';x=m.load_json(path);x['authority']['signing']=True;path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'must not grant operational authority'):m.load_bundle(self.root)
     def test_duplicate_id_rejected(self):
         source=self.root/'model/identity.md';target=self.root/'model/copied.md';target.write_bytes(source.read_bytes())
         with self.assertRaises(m.SpecError):m.load_bundle(self.root)

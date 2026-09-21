@@ -198,7 +198,7 @@
       "path": "interfaces/native-shells.md",
       "title": "Native OEM+ shells, accessibility and appearance",
       "description": "Use platform controls and shared semantics while allowing bounded product branding.",
-      "sha256": "9c6953266303cb0938995e08da8445b81a9c112476f2c92e5bc691e62ff5802e",
+      "sha256": "6eb8be702ee8725c6854aad31231b03d5e924f6a51ae9cd4d40b15ed615f705e",
       "depends_on": [
         "USK-S-PRESENT"
       ]
@@ -356,7 +356,7 @@
       "path": "build/portability.md",
       "title": "Portability profiles and early compatibility canaries",
       "description": "Separate portable semantics, source standards, loader floors and actual target execution.",
-      "sha256": "3ff4ca8638fb4d31e74f3b312d31f505f77b8f6ec90be9d697dc4c5676f5d31d",
+      "sha256": "dd0ae6008cd5ed7a2227b026e9c1260fcf5812d41b46a20902511b7000a5627a",
       "depends_on": [
         "USK-S-CAPS",
         "USK-S-SDK"
@@ -423,7 +423,7 @@
       "path": "provenance/reconciliation.md",
       "title": "Conflicts, superseded proposals and open decisions",
       "description": "Preserve disagreements explicitly rather than silently selecting convenient historical claims.",
-      "sha256": "e5c0b05791468e5bcd6498634a20e98b072602b2e9cd25e7a174c44ae45d9418",
+      "sha256": "16796e6d3f789acef3c2fed90373b63dbe223f3f6609500b4d96ee7458added3",
       "depends_on": [
         "USK-S-BASE"
       ]
@@ -433,7 +433,7 @@
       "path": "release/train.md",
       "title": "Release trains, exact locks and maintenance",
       "description": "Version contracts independently and ship bounded support promises through evidence gates.",
-      "sha256": "54dedcf3c2401d4acfa6543b00da71f8b8d60142df22fd9a2222747556fd1490",
+      "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2",
       "depends_on": [
         "USK-S-SDK",
         "USK-S-MIG",
