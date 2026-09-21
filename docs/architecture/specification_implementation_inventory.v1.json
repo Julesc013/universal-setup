@@ -6,6 +6,7 @@
   "repository_base_tree": "22410182479ded6e22d0e9efff9851a0a13fda0e",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "f398d68f9d6ec5c22bb0d8cd215504f247ae57aeb0f7a0b1e9a33b0e8d782f0d",
+  "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
   "working_tree_note": "Specification operations corrections are present after the bound base; each cited file is independently SHA-256 bound.",
@@ -20,7 +21,7 @@
     {
       "command": "python -m unittest discover -s tests -v",
       "result": "PASS",
-      "tests": 68,
+      "tests": 69,
       "scope": "repository Python/contract/policy tests; no native runtime execution"
     },
     {
@@ -666,11 +667,11 @@
       "source_observations": [
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
-          "sha256": "3d587bfe5a1a388d9fb850d4cf6e963a6adbefe2e490dc90de871c708822eb73"
+          "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
         },
         {
           "path": "contracts/schema/setup/product_setup_recipe.v1.schema.json",
-          "sha256": "603d5103dcd8219ab942bbc367c4b7fad4b582c0fca04bf893069b5f314da4a7"
+          "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
           "path": "tools/product_package_contract_check.py",
@@ -702,11 +703,11 @@
       "source_observations": [
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
-          "sha256": "3d587bfe5a1a388d9fb850d4cf6e963a6adbefe2e490dc90de871c708822eb73"
+          "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
         },
         {
           "path": "contracts/schema/setup/product_setup_recipe.v1.schema.json",
-          "sha256": "603d5103dcd8219ab942bbc367c4b7fad4b582c0fca04bf893069b5f314da4a7"
+          "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
           "path": "tools/product_package_contract_check.py",
@@ -738,11 +739,11 @@
       "source_observations": [
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
-          "sha256": "3d587bfe5a1a388d9fb850d4cf6e963a6adbefe2e490dc90de871c708822eb73"
+          "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
         },
         {
           "path": "contracts/schema/setup/product_setup_recipe.v1.schema.json",
-          "sha256": "603d5103dcd8219ab942bbc367c4b7fad4b582c0fca04bf893069b5f314da4a7"
+          "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
           "path": "tools/product_package_contract_check.py",
@@ -867,11 +868,11 @@
       "source_observations": [
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
-          "sha256": "3d587bfe5a1a388d9fb850d4cf6e963a6adbefe2e490dc90de871c708822eb73"
+          "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
         },
         {
           "path": "contracts/schema/setup/operation_plan.v1.schema.json",
-          "sha256": "e722e4a0e616860c0585e6f9b1442ed25a7f1cf50e0df6e9358c550f271631c7"
+          "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
           "path": "tests/test_product_package_contracts.py",
@@ -902,11 +903,11 @@
       "source_observations": [
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
-          "sha256": "3d587bfe5a1a388d9fb850d4cf6e963a6adbefe2e490dc90de871c708822eb73"
+          "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
         },
         {
           "path": "contracts/schema/setup/operation_plan.v1.schema.json",
-          "sha256": "e722e4a0e616860c0585e6f9b1442ed25a7f1cf50e0df6e9358c550f271631c7"
+          "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
           "path": "tests/test_product_package_contracts.py",
@@ -937,11 +938,11 @@
       "source_observations": [
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
-          "sha256": "3d587bfe5a1a388d9fb850d4cf6e963a6adbefe2e490dc90de871c708822eb73"
+          "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
         },
         {
           "path": "contracts/schema/setup/operation_plan.v1.schema.json",
-          "sha256": "e722e4a0e616860c0585e6f9b1442ed25a7f1cf50e0df6e9358c550f271631c7"
+          "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
           "path": "tests/test_product_package_contracts.py",
@@ -1057,7 +1058,7 @@
         },
         {
           "path": "contracts/schema/setup/target_policy.v1.schema.json",
-          "sha256": "9b62b75c4b94f412bea33a209ffdb5ab93fbe36e855c5c3e3f9457eb049a93e6"
+          "sha256": "dc99617ea1715f5f3ca2f524b2367b3b5b28a708bf4bb481c247e397be962ffc"
         },
         {
           "path": "tests/native/usk_target_policy_smoke.cpp",
@@ -1092,7 +1093,7 @@
         },
         {
           "path": "contracts/schema/setup/target_policy.v1.schema.json",
-          "sha256": "9b62b75c4b94f412bea33a209ffdb5ab93fbe36e855c5c3e3f9457eb049a93e6"
+          "sha256": "dc99617ea1715f5f3ca2f524b2367b3b5b28a708bf4bb481c247e397be962ffc"
         },
         {
           "path": "tests/native/usk_target_policy_smoke.cpp",
@@ -1127,7 +1128,7 @@
         },
         {
           "path": "contracts/schema/setup/target_policy.v1.schema.json",
-          "sha256": "9b62b75c4b94f412bea33a209ffdb5ab93fbe36e855c5c3e3f9457eb049a93e6"
+          "sha256": "dc99617ea1715f5f3ca2f524b2367b3b5b28a708bf4bb481c247e397be962ffc"
         },
         {
           "path": "tests/native/usk_target_policy_smoke.cpp",
@@ -1957,7 +1958,7 @@
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
-          "sha256": "d8a6b243cd7129d3aed691748e19238eb2a43da9f09f51cd8ef9db086113d3fa"
+          "sha256": "3e34755be06849a102afd98b09e9fecec8099b9159aa55c4cb46c1b6fbc92f9b"
         }
       ],
       "acceptance_ids": [
@@ -1993,7 +1994,7 @@
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
-          "sha256": "d8a6b243cd7129d3aed691748e19238eb2a43da9f09f51cd8ef9db086113d3fa"
+          "sha256": "3e34755be06849a102afd98b09e9fecec8099b9159aa55c4cb46c1b6fbc92f9b"
         }
       ],
       "acceptance_ids": [
@@ -2029,7 +2030,7 @@
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
-          "sha256": "d8a6b243cd7129d3aed691748e19238eb2a43da9f09f51cd8ef9db086113d3fa"
+          "sha256": "3e34755be06849a102afd98b09e9fecec8099b9159aa55c4cb46c1b6fbc92f9b"
         }
       ],
       "acceptance_ids": [
@@ -2288,7 +2289,7 @@
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
-          "sha256": "d8a6b243cd7129d3aed691748e19238eb2a43da9f09f51cd8ef9db086113d3fa"
+          "sha256": "3e34755be06849a102afd98b09e9fecec8099b9159aa55c4cb46c1b6fbc92f9b"
         }
       ],
       "acceptance_ids": [
@@ -2319,7 +2320,7 @@
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
-          "sha256": "d8a6b243cd7129d3aed691748e19238eb2a43da9f09f51cd8ef9db086113d3fa"
+          "sha256": "3e34755be06849a102afd98b09e9fecec8099b9159aa55c4cb46c1b6fbc92f9b"
         }
       ],
       "acceptance_ids": [
@@ -2350,7 +2351,7 @@
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
-          "sha256": "d8a6b243cd7129d3aed691748e19238eb2a43da9f09f51cd8ef9db086113d3fa"
+          "sha256": "3e34755be06849a102afd98b09e9fecec8099b9159aa55c4cb46c1b6fbc92f9b"
         }
       ],
       "acceptance_ids": [
@@ -2829,7 +2830,7 @@
       "source_observations": [
         {
           "path": "contracts/schema/setup/operation_plan.v1.schema.json",
-          "sha256": "e722e4a0e616860c0585e6f9b1442ed25a7f1cf50e0df6e9358c550f271631c7"
+          "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -2865,7 +2866,7 @@
       "source_observations": [
         {
           "path": "contracts/schema/setup/operation_plan.v1.schema.json",
-          "sha256": "e722e4a0e616860c0585e6f9b1442ed25a7f1cf50e0df6e9358c550f271631c7"
+          "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -2901,7 +2902,7 @@
       "source_observations": [
         {
           "path": "contracts/schema/setup/operation_plan.v1.schema.json",
-          "sha256": "e722e4a0e616860c0585e6f9b1442ed25a7f1cf50e0df6e9358c550f271631c7"
+          "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -3052,7 +3053,7 @@
         },
         {
           "path": "contracts/schema/setup/policy.v1.schema.json",
-          "sha256": "37ca81fd231b67e3f6f3385612cef6652ab8a9d99e1bc5f31d6f4c77849561aa"
+          "sha256": "093f4dc7fe8966814b138fb6f820617124d0107a6a1b15a66d0a396c6684068b"
         },
         {
           "path": "tests/native/usk_target_policy_smoke.cpp",
@@ -3088,7 +3089,7 @@
         },
         {
           "path": "contracts/schema/setup/policy.v1.schema.json",
-          "sha256": "37ca81fd231b67e3f6f3385612cef6652ab8a9d99e1bc5f31d6f4c77849561aa"
+          "sha256": "093f4dc7fe8966814b138fb6f820617124d0107a6a1b15a66d0a396c6684068b"
         },
         {
           "path": "tests/native/usk_target_policy_smoke.cpp",
@@ -3124,7 +3125,7 @@
         },
         {
           "path": "contracts/schema/setup/policy.v1.schema.json",
-          "sha256": "37ca81fd231b67e3f6f3385612cef6652ab8a9d99e1bc5f31d6f4c77849561aa"
+          "sha256": "093f4dc7fe8966814b138fb6f820617124d0107a6a1b15a66d0a396c6684068b"
         },
         {
           "path": "tests/native/usk_target_policy_smoke.cpp",
@@ -4417,7 +4418,7 @@
         },
         {
           "path": "contracts/schema/setup/package_verify_report.v1.schema.json",
-          "sha256": "50ece6f58e6476e10d782249c99ce1c2e83e0b214aa03c01a4859e1563043fb8"
+          "sha256": "875feff080b4f7078f5dc9450a6e0ef59f9fe8aeee958f26acf1134749733cbe"
         }
       ],
       "acceptance_ids": [
@@ -4452,7 +4453,7 @@
         },
         {
           "path": "contracts/schema/setup/package_verify_report.v1.schema.json",
-          "sha256": "50ece6f58e6476e10d782249c99ce1c2e83e0b214aa03c01a4859e1563043fb8"
+          "sha256": "875feff080b4f7078f5dc9450a6e0ef59f9fe8aeee958f26acf1134749733cbe"
         }
       ],
       "acceptance_ids": [
@@ -4487,7 +4488,7 @@
         },
         {
           "path": "contracts/schema/setup/package_verify_report.v1.schema.json",
-          "sha256": "50ece6f58e6476e10d782249c99ce1c2e83e0b214aa03c01a4859e1563043fb8"
+          "sha256": "875feff080b4f7078f5dc9450a6e0ef59f9fe8aeee958f26acf1134749733cbe"
         }
       ],
       "acceptance_ids": [

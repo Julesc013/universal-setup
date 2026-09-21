@@ -13,6 +13,17 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs" / "architecture" / "specification_implementation_inventory.v1.json"
 SPECCTL = ROOT / "spec" / "tools" / "specctl.py"
+SOURCE_HASH_CONTRACT = "sha256-lf-text-v1"
+
+
+def canonical_text_bytes(data: bytes) -> bytes:
+    if b"\x00" in data:
+        raise AssertionError("inventory source is not text")
+    return data.replace(b"\r\n", b"\n")
+
+
+def canonical_source_bytes(path: Path) -> bytes:
+    return canonical_text_bytes(path.read_bytes())
 
 module_spec = importlib.util.spec_from_file_location("usk_specctl_inventory", SPECCTL)
 assert module_spec is not None and module_spec.loader is not None
@@ -53,6 +64,7 @@ class SpecificationImplementationInventoryTests(unittest.TestCase):
             self.assertEqual(row["planned_workunits"], expected_tasks)
 
     def test_all_source_observations_are_exact_and_local(self) -> None:
+        self.assertEqual(self.inventory["source_hash_contract"], SOURCE_HASH_CONTRACT)
         for row in self.inventory["requirements"]:
             references = [row["spec_source"], *row["source_observations"]]
             self.assertTrue(row["source_observations"], row["requirement_id"])
@@ -62,7 +74,14 @@ class SpecificationImplementationInventoryTests(unittest.TestCase):
                 self.assertNotIn("..", relative.parts)
                 path = ROOT.joinpath(*relative.parts)
                 self.assertTrue(path.is_file(), reference["path"])
-                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), reference["sha256"])
+                self.assertEqual(
+                    hashlib.sha256(canonical_source_bytes(path)).hexdigest(),
+                    reference["sha256"],
+                )
+
+    def test_source_hashes_are_checkout_line_ending_stable(self) -> None:
+        fixture = b"first\r\nsecond\r\n"
+        self.assertEqual(canonical_text_bytes(fixture), b"first\nsecond\n")
 
     def test_inventory_binds_current_sealed_spec(self) -> None:
         integrity = json.loads((ROOT / "spec" / "integrity.json").read_text(encoding="utf-8"))
