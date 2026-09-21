@@ -5,7 +5,7 @@ description: "Read, validate, adopt and resume the Universal Setup specification
 tags: ["universal-setup","start-here"]
 generated: {"by": "chatgpt/gpt-6-astra-pro","at": "2026-09-20T12:23:08Z"}
 sources: [{"id": "CONVERSATION","resource": "urn:usk:input:current-conversation-design","title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"},{"id": "REPO-ROOT","resource": "https://github.com/Julesc013/universal-setup/blob/0ca648a2c4fa8a37bb78a22639578093aecf6254/tools/structure_policy_check.py","title": "Universal Setup pinned root/structure validator"},{"id": "REPO-README","resource": "https://github.com/Julesc013/universal-setup/blob/0ca648a2c4fa8a37bb78a22639578093aecf6254/README.md","title": "Universal Setup pinned README"},{"id": "AIDE-CONTEXT","resource": "https://github.com/Julesc013/aide/blob/aec53b1d3675f02e2fdd17cc718fdcff6cd4e9f3/.aide/protocol/aide-context-pack-v2.schema.json","title": "Pinned AIDE ContextPack v2 schema"}]
-usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-START","revision": "1","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "design","depends_on": []}
+usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-START","revision": "2","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "design","depends_on": []}
 ---
 
 # Start here: specification operating manual
@@ -21,6 +21,8 @@ This package is a proposed engineering baseline for Universal Setup: an embeddab
 5. Select one WorkUnit, inspect its dependencies, and build a focused context pack with `context`.
 
 The tools inspect specification data and create requested local outputs. They do not install software, call models, enqueue AIDE work, apply patches, authorize workers, or write protected Git references.
+
+In this repository, [`integration/repository-status.json`](integration/repository-status.json) projects the current adoption outcome from the repository-owned record while `manifest.json` preserves the imported package's original `not_performed` provenance. `status` reports both. The projection grants no implementation or operational authority and does not claim live queue state.
 
 ## Adoption is separate from unpacking
 The pinned repository root validator does not admit `spec/`. Review `integration/root-admission.patch` before adding the folder to an integration branch. The patch adds only the root name; it does not approve the proposed architecture or grant operations. Preserve the newly revised root README. Optional agent-instruction and CI templates are inert files, not automatically installed workflows.

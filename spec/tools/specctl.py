@@ -21,7 +21,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 import zipfile
 
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 MAX_FILE = 8 * 1024 * 1024
 MAX_TOTAL = 64 * 1024 * 1024
 IGNORE = {'__pycache__', '.git', '.pytest_cache'}
@@ -30,6 +30,7 @@ ID_RE = re.compile(r'^USK-S-[A-Z0-9-]+$')
 REQ_RE = re.compile(r'^### (USK-R-[A-Z0-9-]+) — (.+)$', re.M)
 LINK_RE = re.compile(r'(?<!!)\[[^\]\n]*\]\(([^)\n]+)\)')
 AUTHORITY_IDS = ['USK-S-AUTH', 'USK-S-OKF', 'USK-S-WORK']
+SCOPE_FIELDS = ('context_paths', 'allowed_paths', 'read_only_paths', 'forbidden_paths')
 
 class SpecError(Exception):
     pass
@@ -172,6 +173,69 @@ def graph_errors(graph: dict[str, list[str]], label: str) -> list[str]:
     return errors
 
 
+def scope_pattern_parts(pattern: str) -> tuple[str, bool]:
+    """Return a normalized literal prefix and whether it represents a subtree."""
+    if not isinstance(pattern, str) or not pattern:
+        raise SpecError('scope path pattern must be a non-empty string')
+    path = PurePosixPath(pattern)
+    if path.is_absolute() or '..' in path.parts or '\\' in pattern:
+        raise SpecError('scope path pattern must be repository-relative POSIX: ' + pattern)
+    subtree = pattern.endswith('/**')
+    literal = pattern[:-3] if subtree else pattern
+    if not literal or any(char in literal for char in '*?['):
+        raise SpecError('scope path pattern supports only literal paths or a final /**: ' + pattern)
+    return literal.rstrip('/'), subtree
+
+
+def scope_patterns_overlap(left: str, right: str) -> bool:
+    """Conservatively detect intersections in the supported scope-pattern subset."""
+    left_path, left_tree = scope_pattern_parts(left)
+    right_path, right_tree = scope_pattern_parts(right)
+    if left_path == right_path:
+        return True
+    if left_tree and (right_path.startswith(left_path + '/')):
+        return True
+    if right_tree and (left_path.startswith(right_path + '/')):
+        return True
+    return False
+
+
+def task_scope_errors(task_id: str, task: dict) -> list[str]:
+    errors = []
+    for field in SCOPE_FIELDS:
+        values = task.get(field)
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            errors.append(task_id + ': ' + field + ' must be a string list')
+            continue
+        if len(values) != len(set(values)):
+            errors.append(task_id + ': duplicate ' + field + ' entry')
+        for value in values:
+            try:
+                scope_pattern_parts(value)
+            except SpecError as exc:
+                errors.append(task_id + ': ' + field + ': ' + str(exc))
+    operations = task.get('forbidden_operations')
+    if not isinstance(operations, list) or any(not isinstance(value, str) or not value for value in operations):
+        errors.append(task_id + ': forbidden_operations must be a non-empty string list')
+    elif not operations:
+        errors.append(task_id + ': forbidden_operations must not be empty')
+    allowed = task.get('allowed_paths') if isinstance(task.get('allowed_paths'), list) else []
+    for deny_field in ('read_only_paths', 'forbidden_paths'):
+        denied = task.get(deny_field) if isinstance(task.get(deny_field), list) else []
+        for writable in allowed:
+            for deny in denied:
+                try:
+                    overlaps = scope_patterns_overlap(writable, deny)
+                except SpecError:
+                    continue
+                if overlaps:
+                    errors.append(
+                        task_id + ': contradictory writable scope ' + writable +
+                        ' overlaps ' + deny_field + ' entry ' + deny
+                    )
+    return errors
+
+
 def local_link_errors(root: Path, page: Path, body: str) -> list[str]:
     errors = []
     for match in LINK_RE.finditer(body):
@@ -262,8 +326,9 @@ def load_bundle(root: Path) -> dict:
     for tid, task in tasks.items():
         if task.get('status') != 'proposed' or task.get('authorizes_implementation') is not False:
             errors.append(tid + ': template must remain inactive/proposed')
-        for field in ('steps','deliverables','allowed_paths','stop_conditions','required_grant'):
+        for field in ('steps','deliverables','allowed_paths','context_paths','stop_conditions','required_grant'):
             if not task.get(field): errors.append(tid + ': missing '+field)
+        errors.extend(task_scope_errors(tid, task))
         for sid in task.get('spec_ids',[]):
             if sid not in docs: errors.append(tid + ': missing spec '+sid)
         for rid in task.get('requirement_ids',[]):
@@ -280,7 +345,30 @@ def load_bundle(root: Path) -> dict:
             if tid not in tasks: errors.append(decision['id']+': missing blocked task '+tid)
     if errors:
         raise SpecError('\n'.join(errors))
-    return {'root':root,'files':files,'manifest':manifest,'docs':docs,'requirements':reqs,'tasks':tasks,'cases':cases,'decisions':decisions}
+    repository_status = load_json(root/'integration/repository-status.json')
+    if repository_status.get('schema') != 'usk.spec.repository-status/1':
+        raise SpecError('integration/repository-status.json: unsupported schema')
+    adoption = repository_status.get('adoption')
+    if not isinstance(adoption, dict) or adoption.get('status') not in ('adopted', 'not_adopted'):
+        raise SpecError('integration/repository-status.json: invalid adoption projection')
+    for field in ('scope', 'record', 'workunit_id'):
+        if not isinstance(adoption.get(field), str) or not adoption[field]:
+            raise SpecError('integration/repository-status.json: missing adoption.' + field)
+    if repository_status.get('import_manifest_adoption') != manifest.get('adoption'):
+        raise SpecError('integration/repository-status.json: import adoption provenance mismatch')
+    if repository_status.get('authority_granted') is not False:
+        raise SpecError('integration/repository-status.json must not grant execution authority')
+    record = PurePosixPath(adoption['record'])
+    if record.is_absolute() or '..' in record.parts or '\\' in adoption['record']:
+        raise SpecError('integration/repository-status.json: adoption record must be repository-relative POSIX')
+    if (root.parent/'.git').exists():
+        record_path = root.parent/record
+        if not record_path.is_file():
+            raise SpecError('integration/repository-status.json: adoption record is missing')
+        if digest(record_path.read_bytes()) != adoption.get('record_sha256'):
+            raise SpecError('integration/repository-status.json: adoption record digest mismatch')
+    return {'root':root,'files':files,'manifest':manifest,'repository_status':repository_status,
+            'docs':docs,'requirements':reqs,'tasks':tasks,'cases':cases,'decisions':decisions}
 
 
 def make_index(bundle: dict) -> dict:
@@ -382,6 +470,24 @@ def next_tasks(bundle:dict, completed:list[str]) -> dict:
     return {'status':'proposal-only','assumed_completed':completed,'actual_completion_verified':False,'candidates':ready}
 
 
+def status_report(bundle: dict) -> dict:
+    adoption = bundle['repository_status']['adoption']
+    return {'spec_version':bundle['manifest']['spec_version'],
+            'adoption':adoption['status'],
+            'adoption_scope':adoption['scope'],
+            'adoption_record':adoption['record'],
+            'adoption_workunit':adoption['workunit_id'],
+            'import_manifest_adoption':bundle['manifest']['adoption'],
+            'authority_granted':False,
+            'concepts':len(bundle['docs']),
+            'requirements':len(bundle['requirements']),
+            'product_acceptance_designs':len(bundle['cases']),
+            'product_acceptance_executed':0,
+            'proposed_workunits':len(bundle['tasks']),
+            'open_decisions':len([x for x in bundle['decisions'] if x['status']=='open']),
+            'current_runtime_readiness':'not_assessed_by_spec_tool'}
+
+
 def context_pack(bundle:dict, task_id:str, max_bytes:int, full_closure:bool=False) -> tuple[dict,str]:
     if max_bytes<=0:raise SpecError('byte budget must be positive')
     task=bundle['tasks'].get(task_id)
@@ -404,7 +510,9 @@ def context_pack(bundle:dict, task_id:str, max_bytes:int, full_closure:bool=Fals
     cases=[bundle['cases'][cid] for cid in task['acceptance_ids']]
     pack={'schema':'usk.spec.context/1','generator':'specctl/'+VERSION,'purpose':task['title'],'task_id':task_id,
           'source_refs':refs,'task':task,'sections':sections,'acceptance_designs':cases,
-          'scope':{'allowed_paths':task['allowed_paths'],'forbidden_paths':task['forbidden_paths']},
+          'scope':{'context_paths':task['context_paths'],'allowed_paths':task['allowed_paths'],
+                   'read_only_paths':task['read_only_paths'],'forbidden_paths':task['forbidden_paths'],
+                   'forbidden_operations':task['forbidden_operations']},
           'open_decisions':[x for x in bundle['decisions'] if x['status']=='open'],
           'execution_authorized':False,'runtime_tests_executed':False,'byte_budget':max_bytes,'full_closure':full_closure,
           'dependency_refs':reference_only,'omissions':[{'id':r['id'],'reason':'transitive reference; not task-declared full-reading input; fetch before changing its semantics'} for r in reference_only],
@@ -495,8 +603,9 @@ def aide_workunit(bundle:dict, task_id:str) -> dict:
         'authorizes_implementation':False,'check_only':True,'acceptance_review':False,
         'implementation_scope':'; '.join(t['deliverables']),'stop_state':'proposed; awaiting actual queue/grant admission',
         'predecessors':t['depends_on'],'dependencies':t['depends_on'],
-        'scope':{'allowed_paths':t['allowed_paths'],'forbidden_paths':t['forbidden_paths'],
-                 'read_only_review_paths':t['read_only_paths'],'forbidden_operations':t['forbidden_operations']},
+        'scope':{'context_input_paths':t['context_paths'],'allowed_paths':t['allowed_paths'],
+                 'forbidden_paths':t['forbidden_paths'],'read_only_review_paths':t['read_only_paths'],
+                 'forbidden_operations':t['forbidden_operations']},
         'validation':{'commands':[{'command':' '.join(c['argv']),'status':'NOT_RUN','notes':c['scope']+'; display only, never executed by exporter'} for c in t['checks']]},
         'evidence_requirements':t['acceptance_ids'],
         'explicit_non_capabilities':['no grant','no native execution','no queue admission','no protected Git write','no signing or publication']},
@@ -510,8 +619,11 @@ def aide_context(bundle:dict, pack:dict) -> dict:
        'sourcePath':'spec/'+pack['task']['definition_path'],'producer':{'name':'usk-specctl','version':VERSION},
        'compatibility':{'schemaVersion':'2','protocolVersion':'2','minReaderVersion':'2','minWriterVersion':'2','featureFlags':[]}},
       'spec':{'context_pack_ref':'urn:usk:context:'+digest(json_text(pack).encode()),'purpose':pack['purpose'],
-       'source_refs':pack['source_refs'],'sections':pack['sections'],'allowed_paths':pack['scope']['allowed_paths'],
-       'forbidden_paths':pack['scope']['forbidden_paths'],'required_capability_refs':[],
+       'source_refs':pack['source_refs'],'sections':pack['sections'],
+       'context_input_paths':pack['scope']['context_paths'],
+       'allowed_paths':pack['scope']['allowed_paths'],'read_only_paths':pack['scope']['read_only_paths'],
+       'forbidden_paths':pack['scope']['forbidden_paths'],
+       'forbidden_operations':pack['scope']['forbidden_operations'],'required_capability_refs':[],
        'required_evidence_refs':[], 'required_acceptance_definition_ids':pack['task']['acceptance_ids'],
        'reference_only_dependencies':pack.get('dependency_refs',[]),
        'explicit_non_capabilities':['no queue admission','no worker execution','no model call','no mutation grant','no proof of runtime qualification']},
@@ -651,7 +763,7 @@ def main(argv:list[str]|None=None) -> int:
         root=args.root.absolute()
         b=load_bundle(root)
         if args.cmd=='validate':result={'status':'PASS','concepts':len(b['docs']),'requirements':len(b['requirements']),'acceptance_designs':len(b['cases']),'inactive_workunits':len(b['tasks']),'runtime_tests_run':0}
-        elif args.cmd=='status':result={'spec_version':b['manifest']['spec_version'],'adoption':b['manifest']['adoption'],'authority_granted':False,'concepts':len(b['docs']),'requirements':len(b['requirements']),'product_acceptance_designs':len(b['cases']),'product_acceptance_executed':0,'proposed_workunits':len(b['tasks']),'open_decisions':len([x for x in b['decisions'] if x['status']=='open']),'current_runtime_readiness':'not_assessed_by_spec_tool'}
+        elif args.cmd=='status':result=status_report(b)
         elif args.cmd=='index':result=generate_index(b,args.check)
         elif args.cmd=='schema-check':result=schema_check(b)
         elif args.cmd=='search':result=search(b,args.query)

@@ -56,6 +56,15 @@ class ParsingTests(unittest.TestCase):
         self.assertTrue(m.graph_errors({'A':['B']},'test'))
     def test_dag(self):
         self.assertEqual(m.graph_errors({'A':[],'B':['A'],'C':['A','B']},'test'),[])
+    def test_scope_pattern_overlap(self):
+        self.assertTrue(m.scope_patterns_overlap('docs/**','docs/architecture/**'))
+        self.assertTrue(m.scope_patterns_overlap('docs/architecture/file.md','docs/**'))
+        self.assertTrue(m.scope_patterns_overlap('README.md','README.md'))
+        self.assertFalse(m.scope_patterns_overlap('docs/testing/**','docs/architecture/**'))
+    def test_scope_pattern_rejects_unsupported_glob(self):
+        with self.assertRaises(m.SpecError):m.scope_pattern_parts('docs/*.md')
+    def test_scope_pattern_rejects_traversal(self):
+        with self.assertRaises(m.SpecError):m.scope_pattern_parts('../outside/**')
 
 class BundleTests(unittest.TestCase):
     @classmethod
@@ -68,6 +77,10 @@ class BundleTests(unittest.TestCase):
     def test_tasks_inactive(self):
         for t in self.bundle['tasks'].values():
             self.assertFalse(t['authorizes_implementation']);self.assertEqual(t['status'],'proposed')
+    def test_task_scopes_are_separate(self):
+        for tid,t in self.bundle['tasks'].items():
+            self.assertTrue(t['context_paths'],tid)
+            self.assertEqual(m.task_scope_errors(tid,t),[])
     def test_cases_not_run(self):
         for c in self.bundle['cases'].values():
             self.assertEqual(c['status'],'not_run');self.assertEqual(c['result_refs'],[])
@@ -126,10 +139,12 @@ class BundleTests(unittest.TestCase):
         x=m.aide_workunit(self.bundle,'USK-WU-001')
         self.assertEqual(x['kind'],'WorkUnit');self.assertFalse(x['spec']['authorizes_implementation'])
         self.assertEqual(x['status']['phase'],'planned');self.assertFalse(x['status']['validated'])
+        self.assertTrue(x['spec']['scope']['context_input_paths'])
         self.assertTrue(all(c['status']=='NOT_RUN' for c in x['spec']['validation']['commands']))
     def test_context_shape_inactive(self):
         p,_=m.context_pack(self.bundle,'USK-WU-001',200000);x=m.aide_context(self.bundle,p)
         self.assertEqual(x['kind'],'ContextPack');self.assertFalse(x['status']['trusted'])
+        self.assertTrue(x['spec']['context_input_paths'])
         self.assertFalse(x['status']['worker_started']);self.assertFalse(x['status']['repository_mutated'])
     def test_full_schema(self):
         try:import jsonschema
@@ -138,7 +153,11 @@ class BundleTests(unittest.TestCase):
     def test_cli_status(self):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             code=m.main(['--root',str(ROOT),'status'])
-        self.assertEqual(code,0);self.assertEqual(json.loads(out.getvalue())['product_acceptance_executed'],0)
+        result=json.loads(out.getvalue())
+        self.assertEqual(code,0);self.assertEqual(result['product_acceptance_executed'],0)
+        self.assertEqual(result['adoption'],'adopted')
+        self.assertEqual(result['import_manifest_adoption'],'not_performed')
+        self.assertFalse(result['authority_granted'])
     def test_missing_aide_schema(self):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(m.SpecError):
@@ -224,6 +243,12 @@ class MutationTests(unittest.TestCase):
     def test_task_cycle_rejected(self):
         path=self.root/'plan/tasks/usk-wu-001.md';s=path.read_text();s=s.replace('"depends_on": []','"depends_on": ["USK-WU-002"]');path.write_text(s)
         with self.assertRaises(m.SpecError):m.load_bundle(self.root)
+    def test_contradictory_task_scope_rejected(self):
+        path=self.root/'plan/tasks/usk-wu-001.md';s=path.read_text();s=s.replace('"read_only_paths": ["contracts/**","release/**"]','"read_only_paths": ["contracts/**","release/**","spec/**"]');path.write_text(s)
+        with self.assertRaisesRegex(m.SpecError,'contradictory writable scope'):m.load_bundle(self.root)
+    def test_repository_projection_cannot_grant_authority(self):
+        path=self.root/'integration/repository-status.json';x=m.load_json(path);x['authority_granted']=True;path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'must not grant execution authority'):m.load_bundle(self.root)
     def test_duplicate_id_rejected(self):
         source=self.root/'model/identity.md';target=self.root/'model/copied.md';target.write_bytes(source.read_bytes())
         with self.assertRaises(m.SpecError):m.load_bundle(self.root)

@@ -1,6 +1,6 @@
 {
   "schema": "usk.spec.derived-index/1",
-  "generator": "specctl/0.1.0",
+  "generator": "specctl/0.2.0",
   "authority": "derived-not-normative",
   "spec_version": "0.1.0-draft.1",
   "documents": [
@@ -479,7 +479,7 @@
       "path": "start-here.md",
       "title": "Start here: specification operating manual",
       "description": "Read, validate, adopt and resume the Universal Setup specification without relying on chat memory.",
-      "sha256": "1c15345de04c0c5447b0006d90fef3479a5d0d36ded4dbf814268543ec5d85fc",
+      "sha256": "17f75e3141d7c1278b6732beb4ceb47faa7e0ec96c2a082a45269098dc60eee8",
       "depends_on": []
     },
     {
@@ -508,7 +508,7 @@
       "path": "plan/tasks/usk-wu-001.md",
       "title": "Admit the spec root and engineering authority boundary",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "f30b7ff1dcf988d3bf4e246d2cd635eae959a43f40ac2adfd65dbde78a05e48f",
+      "sha256": "5995e605838652fcce8b556b1248d7b40f7a0670f48281e20a7ec5a915ef8698",
       "depends_on": [
         "USK-S-AUTH",
         "USK-S-OKF",
@@ -520,7 +520,7 @@
       "path": "plan/tasks/usk-wu-002.md",
       "title": "Reconcile source and contracts against the proposed baseline",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "9e1a3d9af3a482c046f65425a9c0dcbcaa8fe84f8137c575200ffc3af3642544",
+      "sha256": "4fee639b937c2d74d33a5c70a9e352bdefb470a87b90f4709bf9f3738bc15280",
       "depends_on": [
         "USK-S-ADOPT",
         "USK-S-RECON",
@@ -532,7 +532,7 @@
       "path": "plan/tasks/usk-wu-003.md",
       "title": "Qualify spec tooling and context export",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "e08cfc0d146c9d80111ea8e628660fe09d8cce8a5c85fa928b41d962503798b0",
+      "sha256": "e60090078197cd612748eec7c4a9e9aacb227158dbe5dcd58c0c00e243be921e",
       "depends_on": [
         "USK-S-WORK",
         "USK-S-AIDE",
@@ -547,7 +547,7 @@
       "path": "plan/tasks/usk-wu-004.md",
       "title": "Specify publication adversary and enforceable guarantee",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "e6c0e8e2a7d2cc660f52cac057e34d3e8b96dccd99543d0058f490aa45575243",
+      "sha256": "6c33d1e46e60c8bb78aaf4d8cecb330e2e50b4b3e64b1c700fb932093bf57363",
       "depends_on": [
         "USK-S-THREAT",
         "USK-S-PUB",
@@ -559,7 +559,7 @@
       "path": "plan/tasks/usk-wu-005.md",
       "title": "Bound preimage inventory and full lifecycle memory",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "a08a31471e4dac8131cd468c62d59611a7d7f5dddb9f0bae0f0f634acd69fc79",
+      "sha256": "8a189c0b2862653d281a7660b77d466a86e51e5338c6f81e28dc8b9f489a9033",
       "depends_on": [
         "USK-S-STREAM",
         "USK-S-ARCHIVE"
@@ -570,7 +570,7 @@
       "path": "plan/tasks/usk-wu-006.md",
       "title": "Implement the qualified staged-child publisher",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "9d883ce7adb8345c25e4f046342799a9d084935ef686ef955f9810219e3af57f",
+      "sha256": "28e777ce4074682dc684cb9e880e22b25ba748de9e2c84e2f889fb7a3a5c0c3e",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-PLAT"
@@ -581,7 +581,7 @@
       "path": "plan/tasks/usk-wu-007.md",
       "title": "Add per-install leases and stale-worker fencing",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "b9fa19d17aad9e65e0ba040f55b898a43bbaa0807a1cefe4c46a4ab9015f174f",
+      "sha256": "bd414dcc5d99735345606eb17ed304ee2c351c8f156ba039874ba9dad277f455",
       "depends_on": [
         "USK-S-LEASE",
         "USK-S-POLICY"
@@ -592,7 +592,7 @@
       "path": "plan/tasks/usk-wu-008.md",
       "title": "Complete exact operation journals and recovery",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "2b08de2c8b02a64c9bfd96aef3156d95c9ac0aa860a1946c1ad197a4ad183d15",
+      "sha256": "0ee95cc4ecf8ac63d74f15389129b415507dce9fb1aac23cc22f02ca5d21e74b",
       "depends_on": [
         "USK-S-TXN",
         "USK-S-REC",
@@ -604,7 +604,7 @@
       "path": "plan/tasks/usk-wu-009.md",
       "title": "Implement installed generations and collection plans",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "72b460eecf7714422201ec3d2480913c56d574004b36e5793ed8d73b4e0d7132",
+      "sha256": "0b4023c9efa0366886dc5bd30f8e8fb286efe96e30cb4fcf87c0ec334004b594",
       "depends_on": [
         "USK-S-GEN",
         "USK-S-OPS"
@@ -615,7 +615,7 @@
       "path": "plan/tasks/usk-wu-010.md",
       "title": "Correct lifecycle schema and command compatibility",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "2e1923f9a35ecbbb681f4055371e29f7be430d774505106a6079c8badde20dab",
+      "sha256": "44abcd1b8929e2e1004586b760d737780d6c5411bdfeb99150559c4ad02b981a",
       "depends_on": [
         "USK-S-ID",
         "USK-S-PLAN",
@@ -627,7 +627,7 @@
       "path": "plan/tasks/usk-wu-011.md",
       "title": "Deliver independent local lifecycle qualification",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "843ac5f7afd7d4d4cc2a16374c39e7c6a04dfe8c83f3f0df6af157b0c4d9f8a8",
+      "sha256": "4104ee6a4bbb3ecdbe8e6c87d16d39a7cb218d500387e1b705ae7736c123d815",
       "depends_on": [
         "USK-S-TEST",
         "USK-S-FAULT",
@@ -639,7 +639,7 @@
       "path": "plan/tasks/usk-wu-012.md",
       "title": "Define and implement minimal product bundle authoring",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "52d047a336abdfbe7fd206b4f2053f6fb0b00827711620d868e482f68c56eb5a",
+      "sha256": "b3372520a6175ec2c965f11c663051c8e797c46dddcb99eec89ff62a745fff6d",
       "depends_on": [
         "USK-S-BUNDLE",
         "USK-S-AUTHOR"
@@ -650,7 +650,7 @@
       "path": "plan/tasks/usk-wu-013.md",
       "title": "Add exact one-shot command host and machine CLI",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "c2f844d01b255a0b821cd8513f441a3b53d3cbf8c4ce26a0ad8be5d04db048d8",
+      "sha256": "83b86e41d19626e7b9ba0cbe2488be02078150b7d150605c400e8f2e539a867f",
       "depends_on": [
         "USK-S-WIRE",
         "USK-S-CLI",
@@ -662,7 +662,7 @@
       "path": "plan/tasks/usk-wu-014.md",
       "title": "Build no-code generic and embedded setup envelopes",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "0ba6fd05c0c90362dd6f6aeeaa89871a3a1b4fc0c80b445fb0492727eda13d4a",
+      "sha256": "d9d17a42c4aa60759003c4c9c78e6fce9c11304c9d96f26d1580388d0a1b0883",
       "depends_on": [
         "USK-S-PREFAB",
         "USK-S-AUTHOR",
@@ -674,7 +674,7 @@
       "path": "plan/tasks/usk-wu-015.md",
       "title": "Add owned operation API and progress/cancellation",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "5ef3e4211088e2ba3f102c436016d8dda7656d41c219aaa6bc5c2e000174e4fe",
+      "sha256": "8eeb08ad7d93c87dd218f0984db97be9a9f44679b90a4128d6cf4f6b935979f4",
       "depends_on": [
         "USK-S-API",
         "USK-S-TXN"
@@ -685,7 +685,7 @@
       "path": "plan/tasks/usk-wu-016.md",
       "title": "Implement shared setup presentation service",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "1ff98df38a753690eb82ec52a9899e9d34b66d71164f855fdd46a4e29689cc6c",
+      "sha256": "e86a9b30d016815b968d8ddc1276e8fd32a08cedf13175484a0b343485b47d21",
       "depends_on": [
         "USK-S-PRESENT",
         "USK-S-OPS"
@@ -696,7 +696,7 @@
       "path": "plan/tasks/usk-wu-017.md",
       "title": "Complete human CLI and both TUI modes",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "5ca66146b3ad3c444571633ed63d714c67076092fd5fc6b2abf3d57f7644fb8c",
+      "sha256": "9fc629cdaf57f3d89c6f865d9723dcfb96c519db8273e11059730c6e83be201d",
       "depends_on": [
         "USK-S-CLI",
         "USK-S-PRESENT"
@@ -707,7 +707,7 @@
       "path": "plan/tasks/usk-wu-018.md",
       "title": "Build first native prefab and interface laboratory",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "040db009ed0f75e117f08b7b8d398c6a7fe0224f6f4f1b6a8af552ebb4ee9155",
+      "sha256": "d2dbaed78da92b93f7c6bc38b47cb92a05710eb61c5cdb3076095ea865f93e76",
       "depends_on": [
         "USK-S-GUI",
         "USK-S-PREFAB"
@@ -718,7 +718,7 @@
       "path": "plan/tasks/usk-wu-019.md",
       "title": "Implement native effects with ownership receipts",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "5542c4f936844e5111037bae3bbc05e11c0f29515ba45954dbe13691f1e5f861",
+      "sha256": "5946c2ed291d3decf8e2fc781200cedafe1a15df1f4229dbeb7e9ed603b7393d",
       "depends_on": [
         "USK-S-PLAT",
         "USK-S-OWN",
@@ -730,7 +730,7 @@
       "path": "plan/tasks/usk-wu-020.md",
       "title": "Implement privileged broker and self-maintenance",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "46bb3c8fe3379cfee5c865922586cb663a16af10f89e9627bff3b5777383466c",
+      "sha256": "9d75313248b381e7e2efd62cf5b48b49cf31983b5e9ca62c94f34e6834b71edc",
       "depends_on": [
         "USK-S-BROKER",
         "USK-S-WIRE"
@@ -741,7 +741,7 @@
       "path": "plan/tasks/usk-wu-021.md",
       "title": "Qualify neutral and demanding product consumers",
       "description": "Proposed M4 WorkUnit; no implementation authority is granted.",
-      "sha256": "b6445333be100ab33cdf72f710b4aa4b98b750ea9d2234c1dac5db3603c8309b",
+      "sha256": "7e328c85e01ed3e2a21f873e46852758fc98232ee7b42c4cac53525c4b72a957",
       "depends_on": [
         "USK-S-CONSUMER",
         "USK-S-TEST",
@@ -755,7 +755,7 @@
       "path": "plan/tasks/usk-wu-022.md",
       "title": "Add prerequisites, detection and unattended deployment",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "d59895d95c69c8b64f45292d44559b3860045ef5872cb7a79bc2034673b4f89b",
+      "sha256": "1f4deb235bf2cfaa20cb35a54385af0585766a2f3c07e87e3db833192685f0c0",
       "depends_on": [
         "USK-S-ENT",
         "USK-S-POLICY"
@@ -766,7 +766,7 @@
       "path": "plan/tasks/usk-wu-023.md",
       "title": "Add native package-manager delegation",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "abae5343e3f424da83201b2b764858ad1baa64e0b146428764f2ddb29e0fa13f",
+      "sha256": "16f0a27784bd1f86d0fd6e8544f89eada58a50574740fa3b5fc2ee6109563b32",
       "depends_on": [
         "USK-S-PLAT",
         "USK-S-ENT"
@@ -777,7 +777,7 @@
       "path": "plan/tasks/usk-wu-024.md",
       "title": "Build trust provider and offline trust closure",
       "description": "Proposed M6 WorkUnit; no implementation authority is granted.",
-      "sha256": "dd227a77d4f13840525e7b0ee0f784866cd0226ef7ce9a639ffb87dbbc9109e5",
+      "sha256": "0cab3e2aa5861817e7a7b741e2dc1eb349f738826da5a49eff9bc98e3ebfb0b4",
       "depends_on": [
         "USK-S-TRUST",
         "USK-S-SUPPLY"
@@ -788,7 +788,7 @@
       "path": "plan/tasks/usk-wu-025.md",
       "title": "Add optional resumable acquisition and verified cache",
       "description": "Proposed M6 WorkUnit; no implementation authority is granted.",
-      "sha256": "b65707f84ab23a931692b2ce987de1b4aa310c6f004907172a03aa3aa6baf9df",
+      "sha256": "21ecc8a260f7009568181a11baadebbea5aba8ca1f4610ee976702d61768c733",
       "depends_on": [
         "USK-S-CACHE",
         "USK-S-STREAM"
@@ -799,7 +799,7 @@
       "path": "plan/tasks/usk-wu-026.md",
       "title": "Qualify macOS and Linux native shells",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "fe98366e0bda8bd8e5daa5a2f080164ba0fe62029d8bdc931e0187b8891728a7",
+      "sha256": "2784431571d305839ec200adbfd0b49dedcddded9c5c34c7926c2f8a70e33457",
       "depends_on": [
         "USK-S-GUI",
         "USK-S-PORT"
@@ -810,7 +810,7 @@
       "path": "plan/tasks/usk-wu-027.md",
       "title": "Run early downlevel compatibility canary",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "64786df32b8de27d8f5c526c2c181c14c3302e6fcfbb9312dd84fd1a931f368d",
+      "sha256": "61df60a60d49d60d89368650fdd231c00b904aa92eaf7566c499326b4808c687",
       "depends_on": [
         "USK-S-PORT",
         "USK-S-ID",
@@ -822,7 +822,7 @@
       "path": "plan/tasks/usk-wu-028.md",
       "title": "Productize SDK components and language bindings",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "29099d1ca4a5f49c822f40c6a107a21a4c3a8e469549f3eb804c2891606dffab",
+      "sha256": "f4f007e92c429b6bd14c12828104523048f4d2d5306dd62853af4b4c14af93c4",
       "depends_on": [
         "USK-S-SDK",
         "USK-S-API"
@@ -833,7 +833,7 @@
       "path": "plan/tasks/usk-wu-029.md",
       "title": "Build candidate and immutable publication workflows",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "fe837d4208f350e74ca6eb482b3603f3f508d427448849f06ec67fd37f8481e2",
+      "sha256": "07b2c3ceb11304df3f8a5faeea9004bfb2cd3e74c80a2b11cfe9fb7779ff4baa",
       "depends_on": [
         "USK-S-REL",
         "USK-S-SUPPLY"
@@ -844,7 +844,7 @@
       "path": "plan/tasks/usk-wu-030.md",
       "title": "Model-check and fuzz critical lifecycle state",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "3b331e37799625d882c4e5d84dbd0720f57b5323759f40a98dec39bfad693648",
+      "sha256": "0ed59c3a5e923ab74f5dab5f3c5283da94f8d045f029361b02fbf0973dd23571",
       "depends_on": [
         "USK-S-FAULT",
         "USK-S-TEST",
@@ -856,7 +856,7 @@
       "path": "plan/tasks/usk-wu-031.md",
       "title": "Freeze supported local beta profile",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "18f0ede636b1e0add9f21262c354a75118d61bb0189ded67d47482523f3618a0",
+      "sha256": "b276c11c22c55fcb073101b148c9c641353aa36b0dcbe250c7a734f46e1e94fa",
       "depends_on": [
         "USK-S-REL",
         "USK-S-TEST",
@@ -868,7 +868,7 @@
       "path": "plan/tasks/usk-wu-032.md",
       "title": "Accept and publish the supported lifecycle baseline",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "216fc54ad5e8260d22545b50b6f65e4fd31c765a31bf519cf5a87c3b59f50738",
+      "sha256": "dd003890753f063113b4e51780a4058cd0118de413286df4b392693ded204249",
       "depends_on": [
         "USK-S-REL",
         "USK-S-SUPPLY",
@@ -880,7 +880,7 @@
       "path": "plan/tasks/usk-wu-033.md",
       "title": "Maintain compatibility and extend only proved seams",
       "description": "Proposed POST-V1 WorkUnit; no implementation authority is granted.",
-      "sha256": "9b6e0e27a3fe4ba37a88c031bd14834440da8f2f20a2c6d939f8dc601196299f",
+      "sha256": "114de9fe20edfe818b725bcd7f495e8e07056d167773009617055ae6cc22c646",
       "depends_on": [
         "USK-S-MAINT",
         "USK-S-REL",
@@ -914,7 +914,7 @@
       "path": "tools/workbench.md",
       "title": "Specification tools and reproducible maintenance",
       "description": "Exact commands, trust limits, generated artifacts and validation scope.",
-      "sha256": "98dd16c8e9ca2554212c176bb2a11f50db6d094bcf6d2bf46dcf494999cd5717",
+      "sha256": "979027c51cfbb26cee6927154e246afe0ad807997a280bd905ac7f426eab6372",
       "depends_on": [
         "USK-S-OKF",
         "USK-S-CONTEXT"
@@ -2456,17 +2456,21 @@
         "USK-AT-OKF-002",
         "USK-AT-OKF-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "spec/**",
         "tools/structure_policy_check.py",
         "docs/architecture/specification_authority.md"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
-        "spec/**"
+        "release/**"
       ],
       "forbidden_paths": [
         "README.md",
@@ -2566,17 +2570,21 @@
         "USK-AT-ADOPT-001",
         "USK-AT-ADOPT-002"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "spec/**",
         "docs/architecture/**",
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
-        "spec/**"
+        "release/**"
       ],
       "forbidden_paths": [
         "README.md",
@@ -2703,17 +2711,22 @@
         "USK-AT-ROADMAP-001",
         "USK-AT-ROADMAP-002"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "spec/**",
         "tools/**",
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
-        "docs/**",
-        "spec/**"
+        "docs/**"
       ],
       "forbidden_paths": [
         "README.md",
@@ -2823,17 +2836,21 @@
         "USK-AT-THREAT-002",
         "USK-AT-THREAT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "spec/**",
         "tests/**",
         "docs/security/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
-        "spec/**"
+        "release/**"
       ],
       "forbidden_paths": [
         "README.md",
@@ -2936,6 +2953,13 @@
         "USK-AT-ARCHIVE-002",
         "USK-AT-ARCHIVE-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/setup/lifecycle/**",
         "runtime/base/**",
@@ -2944,10 +2968,8 @@
         "docs/testing/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3052,6 +3074,13 @@
         "USK-AT-PLAT-002",
         "USK-AT-PLAT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/base/**",
         "runtime/setup/transaction/**",
@@ -3059,7 +3088,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -3166,6 +3194,13 @@
         "USK-AT-LEASE-002",
         "USK-AT-LEASE-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/setup/transaction/**",
         "runtime/setup/state/**",
@@ -3173,7 +3208,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -3287,6 +3321,13 @@
         "USK-AT-MIG-002",
         "USK-AT-MIG-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/setup/transaction/**",
         "runtime/setup/rollback/**",
@@ -3295,7 +3336,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -3402,6 +3442,13 @@
         "USK-AT-OPS-002",
         "USK-AT-OPS-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/setup/state/**",
         "runtime/setup/lifecycle/**",
@@ -3409,7 +3456,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -3523,6 +3569,13 @@
         "USK-AT-OPS-002",
         "USK-AT-OPS-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "contracts/**",
         "runtime/setup/kernel/**",
@@ -3530,8 +3583,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -3645,6 +3696,13 @@
         "USK-AT-FAULT-002",
         "USK-AT-FAULT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "tests/**",
         "tools/**",
@@ -3652,10 +3710,7 @@
         "release/index/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3760,6 +3815,13 @@
         "USK-AT-AUTHOR-002",
         "USK-AT-AUTHOR-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "contracts/schema/package/**",
         "contracts/schema/setup/**",
@@ -3769,8 +3831,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -3884,13 +3944,19 @@
         "USK-AT-CLI-002",
         "USK-AT-CLI-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "apps/cli/**",
         "runtime/command/**",
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -4005,6 +4071,13 @@
         "USK-AT-SDK-002",
         "USK-AT-SDK-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "apps/cli/**",
         "tools/**",
@@ -4012,9 +4085,7 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
         "docs/**",
         "spec/**"
       ],
@@ -4120,6 +4191,13 @@
         "USK-AT-API-002",
         "USK-AT-API-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "include/usk/**",
         "runtime/setup/kernel/**",
@@ -4129,8 +4207,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -4236,14 +4312,19 @@
         "USK-AT-PRESENT-002",
         "USK-AT-PRESENT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/command/**",
         "contracts/schema/setup/**",
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -4349,13 +4430,19 @@
         "USK-AT-CLI-002",
         "USK-AT-CLI-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "apps/cli/**",
         "apps/tui/**",
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -4463,6 +4550,13 @@
         "USK-AT-PREFAB-002",
         "USK-AT-PREFAB-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "apps/gui/**",
         "contracts/schema/setup/**",
@@ -4470,8 +4564,6 @@
         "tools/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -4587,6 +4679,13 @@
         "USK-AT-PLAT-002",
         "USK-AT-PLAT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/platform/**",
         "runtime/setup/lifecycle/**",
@@ -4595,8 +4694,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -4702,6 +4799,13 @@
         "USK-AT-BROKER-002",
         "USK-AT-BROKER-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/platform/**",
         "runtime/command/**",
@@ -4709,7 +4813,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -4838,6 +4941,13 @@
         "USK-AT-VISION-002",
         "USK-AT-VISION-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "tests/**",
         "content/templates/**",
@@ -4845,10 +4955,7 @@
         "release/index/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -4955,6 +5062,13 @@
         "USK-AT-ENT-003",
         "USK-AT-ENT-004"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/setup/resolver/**",
         "runtime/platform/**",
@@ -4963,8 +5077,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -5072,6 +5184,13 @@
         "USK-AT-ENT-003",
         "USK-AT-ENT-004"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/platform/**",
         "release/packaging/**",
@@ -5079,9 +5198,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
-        "release/**",
         "docs/**",
         "spec/**"
       ],
@@ -5187,6 +5303,13 @@
         "USK-AT-SUPPLY-002",
         "USK-AT-SUPPLY-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/setup/policy/**",
         "runtime/platform/**",
@@ -5195,8 +5318,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
         "release/**",
         "docs/**",
         "spec/**"
@@ -5302,6 +5423,13 @@
         "USK-AT-CACHE-002",
         "USK-AT-CACHE-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/setup/fetch/**",
         "runtime/setup/streaming/**",
@@ -5309,7 +5437,6 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
         "docs/**",
@@ -5417,6 +5544,13 @@
         "USK-AT-PORT-002",
         "USK-AT-PORT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "apps/gui/**",
         "release/packaging/**",
@@ -5424,9 +5558,7 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
         "docs/**",
         "spec/**"
       ],
@@ -5538,6 +5670,13 @@
         "USK-AT-PORT-002",
         "USK-AT-PORT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "cmake/**",
         "tests/**",
@@ -5545,10 +5684,7 @@
         "docs/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -5653,6 +5789,13 @@
         "USK-AT-SDK-002",
         "USK-AT-SDK-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "include/**",
         "cmake/**",
@@ -5661,9 +5804,7 @@
         "release/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
         "docs/**",
         "spec/**"
       ],
@@ -5769,6 +5910,13 @@
         "USK-AT-SUPPLY-002",
         "USK-AT-SUPPLY-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         ".github/**",
         "release/**",
@@ -5777,10 +5925,7 @@
         "docs/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -5892,16 +6037,21 @@
         "USK-AT-FAULT-002",
         "USK-AT-FAULT-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "tests/**",
         "tools/**",
         "docs/testing/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -6015,6 +6165,13 @@
         "USK-AT-TEST-002",
         "USK-AT-TEST-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "release/**",
         "docs/**",
@@ -6022,11 +6179,7 @@
         "tests/**"
       ],
       "read_only_paths": [
-        "README.md",
-        "contracts/**",
-        "release/**",
-        "docs/**",
-        "spec/**"
+        "contracts/**"
       ],
       "forbidden_paths": [
         "README.md",
@@ -6136,15 +6289,19 @@
         "USK-AT-SUPPLY-002",
         "USK-AT-SUPPLY-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "release/**",
         "docs/**"
       ],
       "read_only_paths": [
-        "README.md",
         "contracts/**",
-        "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -6253,6 +6410,13 @@
         "USK-AT-REL-002",
         "USK-AT-REL-003"
       ],
+      "context_paths": [
+        "README.md",
+        "contracts/**",
+        "release/**",
+        "docs/**",
+        "spec/**"
+      ],
       "allowed_paths": [
         "runtime/**",
         "contracts/**",
@@ -6261,13 +6425,7 @@
         "docs/**",
         "spec/**"
       ],
-      "read_only_paths": [
-        "README.md",
-        "contracts/**",
-        "release/**",
-        "docs/**",
-        "spec/**"
-      ],
+      "read_only_paths": [],
       "forbidden_paths": [
         "README.md",
         ".git/**",
