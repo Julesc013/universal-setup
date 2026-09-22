@@ -410,6 +410,24 @@ class MutationTests(unittest.TestCase):
         reference['sha256']=hashlib.sha256(receipt.read_bytes()).hexdigest()
         status['release_1_1']['evidence']['readiness']=[reference];path.write_text(m.json_text(status))
         with self.assertRaisesRegex(m.SpecError,'referenced source commit is unavailable'):m.load_bundle(self.root)
+    def test_source_binding_rejects_missing_historical_commit_in_shallow_clone(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source=Path(temporary)/'source';shallow=Path(temporary)/'shallow';(source/'spec').mkdir(parents=True)
+            empty=[];aggregate=hashlib.sha256(json.dumps(empty,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            (source/'spec/integrity.json').write_text(m.json_text({
+                'schema':'usk.spec.integrity/1','algorithm':'sha256','self_excluded':'integrity.json',
+                'aggregate_sha256':aggregate,'files':empty,
+            }))
+            for command in (
+                ['git','init'],['git','config','user.email','tests@example.invalid'],['git','config','user.name','specctl tests'],
+                ['git','add','.'],['git','commit','-m','historical source'],
+            ):subprocess.run(command,cwd=source,check=True,capture_output=True)
+            commit=subprocess.run(['git','rev-parse','HEAD'],cwd=source,check=True,capture_output=True,text=True).stdout.strip()
+            tree=subprocess.run(['git','rev-parse','HEAD^{tree}'],cwd=source,check=True,capture_output=True,text=True).stdout.strip()
+            (source/'tip.txt').write_text('tip\n');subprocess.run(['git','add','.'],cwd=source,check=True);subprocess.run(['git','commit','-m','tip'],cwd=source,check=True,capture_output=True)
+            subprocess.run(['git','clone','--depth','1',source.as_uri(),str(shallow)],check=True,capture_output=True)
+            errors=m.source_binding_errors(shallow/'spec',{'commit':commit,'tree':tree},aggregate,'release/evidence/absent.json','shallow')
+            self.assertIn('shallow referenced source commit is unavailable',errors)
     def test_machine_qualification_rejects_generic_file_reference(self):
         path=self.root/'plan/programme-status.json';status=m.load_json(path)
         status['release_1_1']['machine_qualified']=True
