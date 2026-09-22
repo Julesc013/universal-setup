@@ -4,8 +4,8 @@ title: "Portability profiles and early compatibility canaries"
 description: "Separate portable semantics, source standards, loader floors and actual target execution."
 tags: ["universal-setup","build"]
 generated: {"by": "chatgpt/gpt-6-astra-pro","at": "2026-09-20T12:23:08Z"}
-sources: [{"id": "USR-SYSPANE","resource": "urn:sha256:0bb15977ef76559f166352751b0043060ff240a844d97d6a7b74a41e95185879","title": "User-supplied SysPane setup integration review"},{"id": "USR-DISKED","resource": "urn:sha256:9299eec8bc1709009beb0500c99382483b63c8a34fa74adf2e473ceabd5de0b0","title": "User-supplied DiskEd setup integration review"},{"id": "CONVERSATION","resource": "urn:usk:input:current-conversation-design","title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"}]
-usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-PORT","revision": "1","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "design","depends_on": ["USK-S-CAPS","USK-S-SDK"]}
+sources: [{"id": "USR-SYSPANE","resource": "urn:sha256:0bb15977ef76559f166352751b0043060ff240a844d97d6a7b74a41e95185879","title": "User-supplied SysPane setup integration review"},{"id": "USR-DISKED","resource": "urn:sha256:9299eec8bc1709009beb0500c99382483b63c8a34fa74adf2e473ceabd5de0b0","title": "User-supplied DiskEd setup integration review"},{"id": "CONVERSATION","resource": "urn:usk:input:current-conversation-design","title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"},{"id": "OWNER-DECISION-20260922","resource": "urn:sha256:ed6bab5a72716c8f03e58248c97ff1d69e600e4a14808e3192d7c0b4f92ec9bb","title": "Owner selection of initial platform, compatibility policy and 1.1 release train"}]
+usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-PORT","revision": "2","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "design","depends_on": ["USK-S-CAPS","USK-S-SDK"]}
 ---
 
 # Portability profiles and early compatibility canaries
@@ -15,6 +15,8 @@ Each profile identifies data representation, API/ABI, compiler/runtime, loader i
 
 ## Development sequence
 Keep modern local profiles moving while running an early read-only downlevel canary before public API freeze. The canary discovers integer/encoding/thread/runtime assumptions cheaply. It does not enable unqualified mutation. Historical target support is a separately versioned implementation/profile programme, not an excuse to constrain every modern shell to old APIs.
+
+The selected first complete native product direction is Windows NT x64 on local NTFS under explicitly authorized roots.[^OWNER-DECISION-20260922] This is sequencing, not a Windows support claim or Windows-only architecture. Exact endpoint image/build, compiler/runtime closure, NTFS configuration and an authorized disposable lab must be bound before qualification. Build host, emitted runtime floor and qualified endpoint remain separate facts; Linux, macOS and historical compatibility objectives remain in the programme.
 
 ## Binary gates
 Windows: machine/subsystem/imports/CRT/exports/manifest/ISA. macOS: architectures, deployment target, strong/weak imports, framework/dylib closure, bundle signing behavior. ELF: interpreter, DT_NEEDED, GLIBC/GLIBCXX/CXXABI versions, RPATH/RUNPATH and ISA. Cross-build success must be recorded separately from loader/run proof.
@@ -51,8 +53,9 @@ Qualify NTFS/FAT/exFAT, APFS/HFS+, ext4/XFS/btrfs and selected network/removable
 
 ## Provenance and status
 
-This is authored engineering intent, not an implementation or runtime qualification claim. Source-derived constraints and the proposed extensions above are separated by the package authority policy. Sources: [^USR-SYSPANE], [^USR-DISKED], [^CONVERSATION].
+This is authored engineering intent, not an implementation or runtime qualification claim. Source-derived constraints and the proposed extensions above are separated by the package authority policy. Sources: [^USR-SYSPANE], [^USR-DISKED], [^CONVERSATION], [^OWNER-DECISION-20260922].
 
 [^USR-SYSPANE]: User-supplied SysPane setup integration review. [Source registry](../provenance/sources.json); identity `urn:sha256:0bb15977ef76559f166352751b0043060ff240a844d97d6a7b74a41e95185879`.
 [^USR-DISKED]: User-supplied DiskEd setup integration review. [Source registry](../provenance/sources.json); identity `urn:sha256:9299eec8bc1709009beb0500c99382483b63c8a34fa74adf2e473ceabd5de0b0`.
 [^CONVERSATION]: Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export. [Source registry](../provenance/sources.json); identity `urn:usk:input:current-conversation-design`.
+[^OWNER-DECISION-20260922]: Owner selection of initial platform, compatibility policy and 1.1 release train. [Source registry](../provenance/sources.json); identity `urn:sha256:ed6bab5a72716c8f03e58248c97ff1d69e600e4a14808e3192d7c0b4f92ec9bb`.

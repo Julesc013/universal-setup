@@ -6,4 +6,5 @@
 
 ## Data and tools
 
+- [requirements-ci.txt](requirements-ci.txt)
 - [specctl.py](specctl.py)

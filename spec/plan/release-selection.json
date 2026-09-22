@@ -1,0 +1,113 @@
+{
+  "schema": "usk.spec.release-selection/1",
+  "recorded_at": "2026-09-21T21:31:51Z",
+  "source": {
+    "id": "OWNER-DECISION-20260922",
+    "resource": "urn:sha256:ed6bab5a72716c8f03e58248c97ff1d69e600e4a14808e3192d7c0b4f92ec9bb",
+    "title": "Owner selection of initial platform, compatibility policy and 1.1 release train"
+  },
+  "status": "development_direction_selected_qualification_outstanding",
+  "decisions": {
+    "OD-002": {
+      "parent_status": "open",
+      "selected": {
+        "os_family": "Windows NT",
+        "architecture": "x86_64",
+        "mutation_filesystem": "local NTFS under explicitly authorized roots",
+        "deployment_scope": "managed-portable first plus user-scope integrations explicitly admitted by the release contract",
+        "setup_implementation": "native kernel, worker and independent recovery path",
+        "first_graphical_adapter": "WinForms OEM+",
+        "terminal_interfaces": [
+          "human CLI",
+          "machine mode",
+          "fullscreen TUI",
+          "linear TUI"
+        ],
+        "appearance_default": "System Native with bounded data-only OEM+ branding"
+      },
+      "outstanding": [
+        "exact endpoint OS image/build",
+        "compiler and runtime closure",
+        "filesystem configuration and operation guarantees",
+        "actual authorized disposable lab identity",
+        "technical qualification and support approval"
+      ],
+      "non_claims": [
+        "not a Windows support claim",
+        "not a minimum supported OS declaration",
+        "not authorization for endpoint mutation",
+        "does not remove Linux, macOS or historical compatibility programmes"
+      ]
+    },
+    "OD-003": {
+      "parent_status": "open",
+      "selected": {
+        "policy": "additive compatibility",
+        "existing_c_abi": "preserve ABI 1.0 callers, symbols, calling conventions, layouts and ownership/lifetime rules",
+        "new_capabilities": "prefer new functions and explicitly versioned records",
+        "contract_identity": "never change an admitted schema identity while silently changing its meaning",
+        "breaking_change_rule": "use an explicit breaking boundary rather than conceal incompatibility under 1.1.0"
+      },
+      "required_analysis": [
+        "old caller to new implementation",
+        "new caller to old implementation",
+        "old persisted state to new reader",
+        "new persisted state to old reader",
+        "unknown optional content",
+        "unknown critical content",
+        "migration and recovery behavior"
+      ],
+      "outstanding": [
+        "reviewed migration for each promoted contract",
+        "executable compatibility tests for each actual change"
+      ]
+    },
+    "OD-008": {
+      "parent_status": "open",
+      "selected": {
+        "development_train": "1.1",
+        "target_release": "1.1.0",
+        "product_name": "Local Setup Foundation",
+        "stages": [
+          "Alpha",
+          "Beta",
+          "RC",
+          "supported release"
+        ],
+        "current_release_readiness": "not established"
+      },
+      "product_objective": "A developer can define a product without forking Universal Setup, generate its setup package, install and maintain it through the shared SDK and user interfaces, and recover every supported interrupted operation.",
+      "required_families": [
+        "safety core",
+        "local lifecycle",
+        "authoring",
+        "application service and owned operations",
+        "CLI, machine mode, both TUI modes and first native OEM+ shell",
+        "SDK, setup envelopes, independent recovery and exact distribution inventory",
+        "consumer, interruption, package and accessibility qualification"
+      ],
+      "scheduled_later": [
+        "broad network acquisition",
+        "fleet administration and broad prerequisite orchestration",
+        "additional GUI frameworks",
+        "unqualified historical targets"
+      ],
+      "outstanding": [
+        "production signing identity",
+        "signing-key custody",
+        "publisher-trust policy",
+        "public publication authorization",
+        "exact candidate qualification"
+      ]
+    }
+  },
+  "authority": {
+    "implementation_grant": false,
+    "endpoint_mutation_grant": false,
+    "protected_ref_write": false,
+    "signing": false,
+    "tagging": false,
+    "publication": false,
+    "queue_changed": false
+  }
+}

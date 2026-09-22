@@ -11,3 +11,4 @@
 
 - [open-decisions.json](open-decisions.json)
 - [programme.json](programme.json)
+- [release-selection.json](release-selection.json)

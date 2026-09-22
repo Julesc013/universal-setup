@@ -5,13 +5,13 @@ description: "Exact commands, trust limits, generated artifacts and validation s
 tags: ["universal-setup","tools"]
 generated: {"by": "chatgpt/gpt-6-astra-pro","at": "2026-09-20T12:23:08Z"}
 sources: [{"id": "CONVERSATION","resource": "urn:usk:input:current-conversation-design","title": "Current specification-authoring request"}]
-usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-TOOLS","revision": "1","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "tooling","depends_on": ["USK-S-OKF","USK-S-CONTEXT"]}
+usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-TOOLS","revision": "2","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "tooling","depends_on": ["USK-S-OKF","USK-S-CONTEXT"]}
 ---
 
 # Specification tools and reproducible maintenance
 
 ## Requirements
-Use Python 3.9+ for the bundled offline tools. The delivered run was tested on Python 3.13.5, not every possible Python/OS combination. Core commands use the standard library. `schema-check` and exact external AIDE schema validation require the optional `jsonschema` development package; this delivery tested 4.26.0. Pin that dependency through the repository's real tooling policy before adopting CI. No endpoint setup runtime depends on these tools.
+Use Python 3.9+ for the bundled offline tools. The delivered run was tested on Python 3.13.5, not every possible Python/OS combination. Core commands use the standard library. `schema-check` and exact external AIDE schema validation require the optional `jsonschema` development package; CI installs the reviewed 4.26.0 pin from `spec/tools/requirements-ci.txt`. No endpoint setup runtime depends on these tools.
 
 The nested `.gitattributes` keeps specification text at LF in Git checkouts so exact hashes remain stable across platforms. Add explicit binary rules for future binary assets.
 
@@ -34,7 +34,7 @@ python spec/tools/specctl.py impact --path runtime/setup/transaction/publisher.c
 python -B -m unittest discover -s spec/tools/tests -v
 ```
 
-`validate` checks concept metadata, references, dependency cycles, JSON integrity and requirement/acceptance/task traceability. It does not validate the complete runtime design. `schema-check` checks proposed schemas/examples and metadata shapes, not native semantics. `status` describes this specification, not live repository readiness. `next` reports dependency-ready proposals; `--completed` is an explicit hypothetical input, not proof those tasks are accepted.
+`validate` checks concept metadata, references, dependency cycles, JSON integrity, non-contradictory task scopes and requirement/acceptance/task traceability. It does not validate the complete runtime design. `schema-check` checks proposed schemas/examples and metadata shapes, not native semantics. `status` separates imported package provenance from the repository adoption projection; it does not report live runtime readiness or queue completion. `next` reports dependency-ready proposals; `--completed` is an explicit hypothetical input, not proof those tasks are accepted.
 
 ## Context and AIDE exports
 Use new/empty external output directories. Replace the illustrative output path with an actual authorized path.

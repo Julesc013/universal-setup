@@ -56,9 +56,17 @@
       "lines": 325,
       "coverage": "read",
       "source_type": "user-supplied review; not execution evidence"
+    },
+    {
+      "filename": "Owner decision 2026-09-22 (pasted text).md",
+      "sha256": "ed6bab5a72716c8f03e58248c97ff1d69e600e4a14808e3192d7c0b4f92ec9bb",
+      "bytes": 16100,
+      "lines": 204,
+      "coverage": "read",
+      "source_type": "owner development-direction decision; not implementation or qualification evidence"
     }
   ],
-  "unique_contents": 5,
+  "unique_contents": 6,
   "full_chat_export_available": false,
   "live_native_build_performed": false,
   "source_material_included_in_primary_zip": false
