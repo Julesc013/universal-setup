@@ -464,11 +464,14 @@ def collect_github_merge_observation(
     runs = check_data.get("check_runs", [])
     bound_checks = []
     for name in REQUIRED_STATUS_CHECKS:
+        # A context name is only trustworthy when every exact-head producer of
+        # that name is acceptable.  In particular, do not hide a competing
+        # producer by filtering it out before merge_admission_errors can check
+        # the pinned GitHub Actions integration.
         candidates = [item for item in runs if item.get("name") == name and
-                      item.get("app", {}).get("id") == GITHUB_ACTIONS_INTEGRATION_ID and
                       item.get("head_sha") == head_oid]
         if not candidates:
-            raise RuntimeError("live check set is missing for exact head/app: " + name)
+            raise RuntimeError("live check set is missing for exact head: " + name)
         for item in candidates:
             bound_checks.append({
                 "name": name,

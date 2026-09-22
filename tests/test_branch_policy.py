@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import tomllib
 import unittest
+from unittest.mock import patch
 
 from tools import branch_policy_check
 
@@ -159,6 +160,69 @@ class BranchPolicyTests(unittest.TestCase):
             "wrong GitHub integration" in error
             for error in branch_policy_check.merge_admission_errors(observation)
         ))
+
+    def test_collector_retains_wrong_app_duplicate_for_admission(self) -> None:
+        def check_run(name: str, *, app_id: int, conclusion: str) -> dict:
+            return {
+                "name": name,
+                "status": "completed",
+                "conclusion": conclusion.lower(),
+                "head_sha": HEAD,
+                "app": {"id": app_id},
+                "details_url": "https://github.com/Julesc013/universal-setup/actions/runs/1/job/2",
+            }
+
+        required = [
+            {"context": name, "integration_id": branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID}
+            for name in branch_policy_check.REQUIRED_STATUS_CHECKS
+        ]
+        runs = [
+            check_run(name, app_id=branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID,
+                      conclusion="SUCCESS")
+            for name in branch_policy_check.REQUIRED_STATUS_CHECKS
+        ]
+        runs.append(check_run("native-windows", app_id=1, conclusion="FAILURE"))
+
+        def github(arguments: list[str]) -> dict:
+            endpoint = arguments[0]
+            if endpoint.endswith("/pulls/62"):
+                return {
+                    "base": {"ref": "dev", "sha": BASE},
+                    "head": {"ref": "task/campaign", "sha": HEAD},
+                    "user": {"login": "Julesc013"},
+                    "state": "open", "draft": False, "mergeable": True,
+                    "mergeable_state": "clean",
+                }
+            if "/rules/branches/" in endpoint:
+                return [
+                    {"type": "required_status_checks", "ruleset_id": branch_policy_check.GITHUB_RULESET_ID,
+                     "parameters": {"strict_required_status_checks_policy": True,
+                                    "required_status_checks": required}},
+                    {"type": "pull_request", "parameters": {
+                        "required_approving_review_count": 0,
+                        "required_review_thread_resolution": True,
+                    }},
+                ]
+            if endpoint.endswith("/check-runs"):
+                return {"check_runs": runs}
+            if endpoint == "graphql":
+                return {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                    "nodes": [], "pageInfo": {"hasNextPage": False},
+                }}}}}
+            if endpoint == "user":
+                return {"login": "Julesc013"}
+            self.fail("unexpected GitHub API request: " + endpoint)
+
+        with patch.object(branch_policy_check, "_gh_json", side_effect=github), patch.object(
+            branch_policy_check, "_review_from_github", return_value=valid_merge()["technical_review"],
+        ):
+            observation = branch_policy_check.collect_github_merge_observation(
+                "Julesc013/universal-setup", 62, HEAD, BASE,
+                {"kind": "agent", "reviewer_context": "reviewer-context", "github_record_id": 1},
+            )
+        errors = branch_policy_check.merge_admission_errors(observation)
+        self.assertTrue(any("not successful: native-windows" in error for error in errors))
+        self.assertTrue(any("wrong GitHub integration: native-windows" in error for error in errors))
 
     def test_direct_force_bypass_and_unresolved_threads_are_denied(self) -> None:
         observation = valid_merge()
