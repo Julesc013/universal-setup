@@ -146,7 +146,7 @@ FULL_CONTROL = ("DELETE", "FILE_ADD_FILE", "FILE_ADD_SUBDIRECTORY", "FILE_APPEND
                 "WRITE_OWNER")
 EXPECTED_ACES = (Ace("S-1-5-18", "allow", FULL_CONTROL), Ace(SERVICE_SID, "allow", FULL_CONTROL))
 EXPECTED_COVERED_OBJECTS = ("staging_root", "destination_parent", "state_anchor", "journal_anchor",
-                            "all_ancestors", "all_descendants")
+                            "publication_root", "all_ancestors", "all_descendants")
 EXPECTED_APIS = ("GetSecurityInfo", "GetFileInformationByHandleEx:FileIdInfo",
                  "GetFileInformationByHandleEx:FileAttributeTagInfo",
                  "GetFileInformationByHandleEx:FileStandardInfo",
@@ -343,13 +343,17 @@ class ProfileEvidence:
 
     def validate(self) -> None:
         anchor_roles = ("staging_root", "destination_parent", "state_anchor", "journal_anchor")
+        fixed_roles = anchor_roles + ("publication_root",)
         roles = tuple(item.role for item in self.protected_objects)
-        expected_ancestor_roles = tuple(f"ancestor:{index}" for index in range(max(0, len(roles) - len(anchor_roles))))
+        expected_ancestor_roles = tuple(f"ancestor:{index}" for index in range(max(0, len(roles) - len(fixed_roles))))
         object_ids = tuple(item.file_id for item in self.protected_objects)
         object_paths = tuple(item.observed_path.casefold() for item in self.protected_objects)
         try:
             parsed_paths = tuple(_validate_relative_path(item.observed_path) for item in self.protected_objects)
-            ancestors = parsed_paths[len(anchor_roles):]
+            publication_root = parsed_paths[len(anchor_roles)]
+            ancestors = parsed_paths[len(fixed_roles):]
+            if len(publication_root) != 1 or not ancestors or ancestors[0][:-1] != publication_root:
+                raise EvidenceError("protected chain must start at its single-component publication root")
             if any(ancestors[index][:-1] != ancestors[index - 1] for index in range(1, len(ancestors))):
                 raise EvidenceError("protected ancestor paths must form an immediate parent chain")
             if any(path[:-1] != ancestors[-1] for path in parsed_paths[:len(anchor_roles)]):
@@ -370,12 +374,13 @@ class ProfileEvidence:
             not re.fullmatch(r"[0-9a-f]{8}", self.volume_information_serial) or
             self.volume_serial[-8:] != self.volume_information_serial or self.filesystem_name != "NTFS" or
             self.maximum_component_length != MAX_COMPONENT_UTF16_UNITS or
+            self.filesystem_flags > 0xFFFFFFFF or
             self.filesystem_flags & REQUIRED_FILESYSTEM_FLAGS != REQUIRED_FILESYSTEM_FLAGS or
             self.remote_protocol_query_status != "error" or self.remote_protocol_error != 87 or
             any(value is not None for value in (self.remote_protocol, self.remote_protocol_major,
                 self.remote_protocol_minor, self.remote_protocol_revision, self.remote_protocol_flags)) or
-            len(roles) <= len(anchor_roles) or roles[:len(anchor_roles)] != anchor_roles or
-            roles[len(anchor_roles):] != expected_ancestor_roles or
+            len(roles) <= len(fixed_roles) or roles[:len(fixed_roles)] != fixed_roles or
+            roles[len(fixed_roles):] != expected_ancestor_roles or
             len(set(object_ids)) != len(object_ids) or len(set(object_paths)) != len(object_paths) or
             chain_rejected or
             any(_file_id_parts(file_id, "protected object file_id")[0] != self.volume_serial
@@ -623,7 +628,9 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
         except EvidenceError:
             return _retained(state, "sealed_evidence_refused")
         staging_root = state.profile.protected_objects[0]
-        if root.file_id != staging_root.file_id or root.security != staging_root.security:
+        protected_ids = {item.file_id for item in state.profile.protected_objects}
+        if (root.file_id != staging_root.file_id or root.security != staging_root.security or
+                any(item.file_id in protected_ids for item in closure)):
             return _retained(state, "sealed_evidence_refused")
         serialized = len(json.dumps({"root": event["root"], "closure": event["closure"]},
                                     sort_keys=True, separators=(",", ":")).encode())

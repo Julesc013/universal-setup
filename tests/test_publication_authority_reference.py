@@ -67,6 +67,8 @@ class FixtureResolver:
             "$contradictory_reparse_closure": _patch(closure, {"1.attributes": ["ARCHIVE", "REPARSE_POINT"],
                                                                 "1.reparse": False, "1.reparse_tag": 0}),
             "$duplicate_identity_closure": _patch(closure, {"1.file_id": closure[0]["file_id"]}),
+            "$protected_alias_closure": _patch(
+                closure, {"1.file_id": self.evidence["protected_objects"][1]["file_id"]}),
             "$file_directory_attribute_closure": _patch(closure, {"1.attributes": ["ARCHIVE", "DIRECTORY"]}),
             "$directory_missing_attribute_closure": _patch(closure, {"0.attributes": []}),
         }
@@ -99,6 +101,10 @@ class FixtureResolver:
             return deepcopy(self.security)
         if value == "$valid_profile":
             return deepcopy(self.evidence)
+        if value == "$truncated_ancestor_profile":
+            result = deepcopy(self.evidence)
+            result["protected_objects"] = result["protected_objects"][:4] + [result["protected_objects"][5]]
+            return result
         if value == "$verified_root":
             return deepcopy(self.binding["root"])
         if isinstance(value, str) and value in self.roots:
@@ -225,11 +231,13 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
         cases = {case["id"]: case for case in self.fixture["cases"]}
         expected = {
             "duplicate-closure-stable-identity": ("retained_refusal", "sealed_evidence_refused"),
+            "closure-aliases-protected-destination-parent": ("retained_refusal", "sealed_evidence_refused"),
             "root-shares-descendant-identity": ("retained_refusal", "sealed_evidence_refused"),
             "file-with-directory-attribute": ("retained_refusal", "sealed_evidence_refused"),
             "directory-without-directory-attribute": ("retained_refusal", "sealed_evidence_refused"),
             "aliased-protected-object-roles": ("no_effect_refusal", "profile_evidence_refused"),
             "broken-protected-parent-chain": ("no_effect_refusal", "profile_evidence_refused"),
+            "truncated-unrooted-ancestor-chain": ("no_effect_refusal", "profile_evidence_refused"),
         }
         self.assertTrue(set(expected).issubset(cases))
         for case_id, (disposition, reason) in expected.items():
@@ -253,6 +261,7 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
              "remote_protocol": 0, "remote_protocol_major": 0, "remote_protocol_minor": 0,
              "remote_protocol_revision": 0, "remote_protocol_flags": 0},
             {"volume_serial": "000000001b6df063"},
+            {"filesystem_flags": 0x103E706FF},
         ]
         for changes in mutations:
             evidence = _patch(self.resolver.evidence, changes)

@@ -2,7 +2,7 @@
   "schema": "usk.spec.integrity/1",
   "algorithm": "sha256",
   "self_excluded": "integrity.json",
-  "aggregate_sha256": "45d6b3fca7b0504237ffbb1bbdb6e52aad484727a5d8ceaaded8c6bd6ea0edec",
+  "aggregate_sha256": "6f03c9582896a0c01ba2ed312c1039c5ffdc99870ad8d19276adfffad6032927",
   "files": [
     {
       "path": ".gitattributes",
@@ -82,7 +82,7 @@
     {
       "path": "derived/catalogue.json",
       "bytes": 233783,
-      "sha256": "2b398e8b42a276509f9723e3dae05ae5197089fe40c5b3cc5345491627f1ddc1"
+      "sha256": "473359005bce01cc61edc9cc7f1d6a7dae8cb96b96fbe59b1c034efc61dc08b8"
     },
     {
       "path": "derived/index.md",
@@ -296,8 +296,8 @@
     },
     {
       "path": "lifecycle/publication.md",
-      "bytes": 16237,
-      "sha256": "9a1af877c39a9b31c162a70b02891ba2019e31021dc2547c61276e99b2e21120"
+      "bytes": 16454,
+      "sha256": "42d1f1e50c18ae6634203445621e177656878838118be86ca416bc4665c7221a"
     },
     {
       "path": "lifecycle/state-machine.md",
@@ -321,8 +321,8 @@
     },
     {
       "path": "model/capabilities.md",
-      "bytes": 7431,
-      "sha256": "a0c5a81eabcea8b7bacfe0a68a5c543c8bdb6397916eb9478c30e33984e09824"
+      "bytes": 7575,
+      "sha256": "7b00b2b9de7bf1a5e1165b6ba03901b09bba4794ce9696f99e910f5d05cd0ec5"
     },
     {
       "path": "model/identity.md",
@@ -741,8 +741,8 @@
     },
     {
       "path": "security/threat-model.md",
-      "bytes": 8262,
-      "sha256": "54eea142391c8a14088ae7ea3e1df9cdc9bb2a3019002f662fd83491155fc5e0"
+      "bytes": 8341,
+      "sha256": "bd7dcb0b053171bf7e1628f21fe6226eef1fa1fe9a9b8067af54e11a7d348492"
     },
     {
       "path": "security/trust-servicing.md",
