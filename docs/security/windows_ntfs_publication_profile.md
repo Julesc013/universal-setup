@@ -18,7 +18,7 @@ The owner is exactly `SYSTEM` (`S-1-5-18`). The DACL is protected, contains no i
 
 Before visible binding there is no consumer grant. After exact visible binding, a future implementation may add a separately specified consumer allow ACE containing read, execute, traverse, synchronize, and read-control rights only. No untrusted principal may receive delete, write, append, add-file, add-subdirectory, delete-child, `WRITE_DAC`, or `WRITE_OWNER` rights.
 
-Security descriptor evidence is the SHA-256 of the exact self-relative binary security descriptor returned by `GetSecurityInfo`, including owner, group, control flags, and ACL/ACE bytes. The candidate requires one canonical Windows binary encoding; SDDL text reserialization is not the digest input. Each anchor, ancestor, root, and descendant carries its own digest.
+For every anchor, ancestor, root, and descendant, an independent observer consumes `GetSecurityInfo` output from the same handle used for identity and reports the parsed owner, DACL protection flag, inherited ACEs, exact ordered ACEs/rights, all other ACEs, and explicit effective-right sets for the initiating and untrusted principals. The deterministic model serializes those closed parsed facts as sorted-key compact UTF-8 JSON and recomputes their SHA-256; an arbitrary digest change without matching structured facts rejects. The two untrusted effective-right sets are empty before binding. This consistency oracle does not substitute for Windows `AccessCheck`, an attacker harness, or platform proof.
 
 ## Handle provenance instead of global enumeration
 
@@ -32,17 +32,21 @@ The claimed interval begins with atomic creation of the protected empty staging 
 
 At admission, seal, immediately before rename, and after rename where applicable, the service observes and revalidates:
 
-- owner and protected exact DACL through `GetSecurityInfo`;
-- stable volume/file identity through `GetFileInformationByHandleEx(FileIdInfo)`;
+- parsed owner, protected exact DACL, all ACEs/effective rights, and canonical structured-evidence digest through independent `GetSecurityInfo` observation on the same handle;
+- composite volume/file identity through `GetFileInformationByHandleEx(FileIdInfo)`;
 - attributes and reparse tag through `FileAttributeTagInfo`, rejecting every reparse point;
 - link count through `FileStandardInfo`, requiring exactly one link;
 - streams through `FileStreamInfo`, allowing a file's unnamed `::$DATA` stream only and no directory streams;
 - case sensitivity through `FileCaseSensitiveInfo`, requiring it disabled on every ancestor and directory;
-- a local NTFS volume, identical volume serial for all handles, and the same bound destination parent;
+- concrete volume name, 32-bit volume serial, filesystem name, maximum component length, and filesystem flags through `GetVolumeInformationByHandleW`, with the `FILE_ID_INFO` 64-bit volume serial required to be the zero-extended same value;
+- zero protocol/version/flags from `GetFileInformationByHandleEx(FileRemoteProtocolInfo)`, rather than a caller `local=true` assertion;
+- an equal parsed volume prefix on every anchor, ancestor, sealed/visible root, and descendant file ID, plus the same bound destination parent;
 - unchanged ancestor identities and security descriptor digests;
-- an absent destination, one canonical final component of at most 255 UTF-16 code units, and `ReplaceIfExists=FALSE`.
+- the destination-parent handle name and post-rename visible final component from `FileNameInfo`, equality with the stored validated `destination_name`, an independent pre-rename relative open result of `ERROR_FILE_NOT_FOUND`, and `ReplaceIfExists=FALSE`.
 
-The closure contains at most 200,000 descendants, depth at most 128, serialized evidence at most 256 MiB, and total content at most 16 TiB. Every entry records canonical relative path, file or directory type, volume/file identity, file content SHA-256 (mandatory for files and absent for directories), size, attributes, security-descriptor digest, link count, exact stream set, reparse flag, and reparse tag. Missing evidence is not replaced with a verified value. The exact visible root and exact ordered descendant closure must equal the sealed root and closure, including same-path file identities and hashes.
+The destination and closure use a canonical case-insensitive Windows relative namespace. Absolute, drive-relative, UNC, device-prefixed, backslash-ambiguous, empty, dot, dot-dot, colon/ADS, control-character, Win32-forbidden-character, trailing-dot/space, and reserved DOS device components refuse. Components are NFC and at most 255 UTF-16 units; depth is at most 128. Case-fold aliases refuse. Every nested entry's intermediate parent must be present in the closure as a directory, so a missing parent or file-as-parent refuses.
+
+The closure contains at most 200,000 descendants, serialized evidence at most 256 MiB, and total content at most 16 TiB. Every entry records canonical relative path, file or directory type, composite volume/file identity, file content SHA-256 (mandatory for files and absent for directories), size, attributes, structured security facts/digest, link count exactly one, exact stream set, reparse flag, and reparse tag. Reparse attribute/flag/tag facts must agree and every reparse object ultimately refuses. Files permit only unnamed `::$DATA`; directories permit no data streams. Missing evidence is not replaced with a verified value. The exact visible root and exact ordered descendant closure must equal the sealed root and closure, including same-path file identities and hashes. A wholesale closure with internally consistent IDs from another volume prefix refuses.
 
 ## Protocol and terminal outcomes
 

@@ -37,22 +37,49 @@ def _patch(value: object, changes: dict[str, object]) -> object:
 class FixtureResolver:
     def __init__(self, fixture: dict[str, object]) -> None:
         profile = fixture["profile"]
-        self.evidence = deepcopy(profile["valid_evidence"])
-        self.binding = deepcopy(profile["verified_binding"])
+        self.security = deepcopy(profile["protected_security"])
+
+        def expand_security(value: object) -> object:
+            if value == "$protected_security":
+                return deepcopy(self.security)
+            if isinstance(value, dict):
+                return {key: expand_security(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [expand_security(item) for item in value]
+            return deepcopy(value)
+
+        self.evidence = expand_security(profile["valid_evidence"])
+        self.binding = expand_security(profile["verified_binding"])
         closure = self.binding["closure"]
         self.closures = {
             "$verified_closure": closure,
-            "$foreign_id_closure": _patch(closure, {"1.file_id": "aaaaaaaaaaaaaaaa:abababababababababababababababab"}),
+            "$foreign_id_closure": _patch(closure, {"1.file_id": "000000001234abcd:abababababababababababababababab"}),
             "$changed_hash_closure": _patch(closure, {"1.content_sha256": "0123456789abcdef" * 4}),
             "$missing_child_closure": closure[:1],
             "$hardlink_closure": _patch(closure, {"1.link_count": 2}),
             "$ads_closure": _patch(closure, {"1.streams": ["::$DATA", ":evil:$DATA"]}),
+            "$cross_volume_closure": _patch(closure, {"0.file_id": "bbbbbbbbbbbbbbbb:88888888888888888888888888888888",
+                                                       "1.file_id": "bbbbbbbbbbbbbbbb:99999999999999999999999999999999"}),
+            "$ads_path_closure": _patch(closure, {"1.relative_path": "sub/payload.bin:evil"}),
+            "$orphan_closure": closure[1:],
+            "$file_parent_closure": _patch(closure, {"0.type": "file", "0.content_sha256": "2" * 64,
+                                                      "0.attributes": ["ARCHIVE"], "0.streams": ["::$DATA"]}),
+            "$contradictory_reparse_closure": _patch(closure, {"1.attributes": ["ARCHIVE", "REPARSE_POINT"],
+                                                                "1.reparse": False, "1.reparse_tag": 0}),
         }
+        case_alias = deepcopy(closure)
+        alias = deepcopy(closure[0])
+        alias["relative_path"] = "SUB"
+        alias["file_id"] = "000000001234abcd:12121212121212121212121212121212"
+        case_alias.insert(1, alias)
+        self.closures["$case_alias_closure"] = case_alias
+        self.roots = {"$cross_volume_root": _patch(
+            self.binding["root"], {"file_id": "bbbbbbbbbbbbbbbb:77777777777777777777777777777777"})}
         extra = deepcopy(closure)
         extra.append({"relative_path": "z.bin", "type": "file",
-                      "file_id": "aaaaaaaaaaaaaaaa:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+                      "file_id": "000000001234abcd:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
                       "content_sha256": "1234567890abcdef" * 4, "size": 1,
-                      "attributes": ["ARCHIVE"], "security_descriptor_sha256": "1" * 64,
+                      "attributes": ["ARCHIVE"], "security": deepcopy(self.security),
                       "link_count": 1, "streams": ["::$DATA"], "reparse": False, "reparse_tag": None})
         self.closures["$extra_child_closure"] = extra
         self.bindings = {
@@ -64,10 +91,14 @@ class FixtureResolver:
         }
 
     def value(self, value: object) -> object:
+        if value == "$protected_security":
+            return deepcopy(self.security)
         if value == "$valid_profile":
             return deepcopy(self.evidence)
         if value == "$verified_root":
             return deepcopy(self.binding["root"])
+        if isinstance(value, str) and value in self.roots:
+            return deepcopy(self.roots[value])
         if isinstance(value, str) and value in self.closures:
             return deepcopy(self.closures[value])
         if isinstance(value, str) and value in self.bindings:
@@ -94,7 +125,8 @@ class FixtureResolver:
         if name == "$through_rename":
             return renamed
         if name == "$through_visible":
-            return renamed + [{"action": "confirm_visible", "root": deepcopy(self.binding["root"]),
+            return renamed + [{"action": "confirm_visible", "destination_name": "generation-1",
+                               "root": deepcopy(self.binding["root"]),
                                "closure": deepcopy(self.binding["closure"])}]
         if name == "$metadata":
             return [{"action": "begin_metadata"}, {"action": "complete_metadata", "success": True}]
@@ -123,7 +155,8 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
         self.assertEqual(self.fixture["schema"], "usk.wu004.windows-ntfs-publication-oracles/2")
         self.assertEqual(set(self.fixture["profile"]), {
             "id", "status", "minimum_platform", "required_evidence_fields", "bounds", "required_ace_set",
-            "included_adversaries", "excluded_adversaries", "nonclaims", "valid_evidence", "verified_binding"})
+            "protected_security", "included_adversaries", "excluded_adversaries", "nonclaims",
+            "valid_evidence", "verified_binding"})
         self.assertEqual(set(self.fixture["profile"]["valid_evidence"]), set(oracle.PROFILE_KEYS))
         self.assertEqual(set(self.fixture["profile"]["required_evidence_fields"]), set(oracle.PROFILE_KEYS))
         self.assertEqual(self.fixture["profile"]["bounds"], {
@@ -169,18 +202,51 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
                 self.assertNotEqual(result.state.phase, oracle.Phase.COMPLETED, case["id"])
                 self.assertEqual(len(result.state.completed_generations), 0, case["id"])
 
+    def test_volume_namespace_tree_and_reparse_adversarial_regressions_refuse(self) -> None:
+        ids = {"wholesale-cross-volume-closure", "ads-colon-in-relative-path",
+               "missing-intermediate-directory", "file-used-as-parent", "case-fold-alias",
+               "contradictory-reparse-facts", "security-digest-structure-mismatch",
+               "reserved-destination-name", "visible-destination-name-mismatch"}
+        cases = {case["id"]: case for case in self.fixture["cases"]}
+        self.assertTrue(ids.issubset(cases))
+        self.assertIs(cases["wholesale-cross-volume-closure"]["mutation"]["evidence"]
+                      ["caller_same_volume_assertion"], True)
+        for case_id in ids:
+            result = oracle.replay(oracle.initial_state(), self.resolver.events(cases[case_id]["events"]))
+            self.assertIn(result.disposition,
+                          {"no_effect_refusal", "retained_refusal", "recovery_required"}, case_id)
+            self.assertNotEqual(result.state.phase, oracle.Phase.COMPLETED, case_id)
+
+    def test_windows_component_rules_reject_reserved_and_ambiguous_names(self) -> None:
+        for component in ("NUL.txt", "COM1", "bad.", "bad ", "bad<name", "bad:name", "bad\\name",
+                          "C:drive", "control" + chr(1)):
+            with self.assertRaises(oracle.EvidenceError, msg=component):
+                oracle._validate_component(component)
+
     def test_unknown_fields_and_invalid_types_are_rejected(self) -> None:
-        evidence = deepcopy(self.fixture["profile"]["valid_evidence"])
+        evidence = deepcopy(self.resolver.evidence)
         evidence["caller_eligible"] = True
         result = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": evidence})
         self.assertEqual(result.disposition, "no_effect_refusal")
-        evidence = deepcopy(self.fixture["profile"]["valid_evidence"])
+        evidence = deepcopy(self.resolver.evidence)
         evidence["closure_entry_count"] = True
         result = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": evidence})
         self.assertEqual(result.disposition, "no_effect_refusal")
         result = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": evidence,
                                                             "eligible": True})
         self.assertEqual(result.disposition, "invalid_trace")
+
+    def test_every_protected_object_identity_must_match_observed_volume(self) -> None:
+        evidence = deepcopy(self.resolver.evidence)
+        evidence["volume_information_serial"] = "deadbeef"
+        result = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": evidence})
+        self.assertEqual(result.disposition, "no_effect_refusal")
+        for index in range(len(self.resolver.evidence["protected_objects"])):
+            evidence = deepcopy(self.resolver.evidence)
+            evidence["protected_objects"][index]["file_id"] = \
+                "bbbbbbbbbbbbbbbb:" + evidence["protected_objects"][index]["file_id"].split(":", 1)[1]
+            result = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": evidence})
+            self.assertEqual(result.disposition, "no_effect_refusal", index)
 
     def test_replay_stops_at_every_terminal_disposition(self) -> None:
         for case_id in ("unknown-profile-field", "continuation-after-destination-exists",
@@ -191,9 +257,9 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
             self.assertEqual(oracle.projection(result), self.resolver.value(case["expected"]), case_id)
 
     def test_immutable_types_and_completion_invariants(self) -> None:
-        profile = oracle.ProfileEvidence.parse(self.fixture["profile"]["valid_evidence"])
+        profile = oracle.ProfileEvidence.parse(self.resolver.evidence)
         with self.assertRaises(Exception):
-            profile.local_volume = False
+            profile.remote_protocol = 1
         success = next(case for case in self.fixture["cases"] if case["id"] == "protected-success")
         result = oracle.replay(oracle.initial_state(), self.resolver.events(success["events"]))
         second = oracle.transition(result.state, {"action": "complete_metadata", "success": True})

@@ -100,6 +100,56 @@
       "id": "MS-SERVICE-SID-INFO",
       "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info",
       "title": "Microsoft Learn: SERVICE_SID_INFO"
+    },
+    {
+      "id": "MS-FILE-ATTRIBUTE-TAG",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_attribute_tag_info",
+      "title": "Microsoft Learn: FILE_ATTRIBUTE_TAG_INFO"
+    },
+    {
+      "id": "MS-FILE-STANDARD",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_standard_info",
+      "title": "Microsoft Learn: FILE_STANDARD_INFO"
+    },
+    {
+      "id": "MS-FILE-STREAM-INFO",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_stream_info",
+      "title": "Microsoft Learn: FILE_STREAM_INFO"
+    },
+    {
+      "id": "MS-CASE-SENSITIVITY",
+      "resource": "https://learn.microsoft.com/en-us/windows/wsl/case-sensitivity",
+      "title": "Microsoft Learn: Windows filesystem case sensitivity"
+    },
+    {
+      "id": "MS-FILE-INFO-CLASS",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/minwinbase/ne-minwinbase-file_info_by_handle_class",
+      "title": "Microsoft Learn: FILE_INFO_BY_HANDLE_CLASS"
+    },
+    {
+      "id": "MS-VOLUME-BY-HANDLE",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationbyhandlew",
+      "title": "Microsoft Learn: GetVolumeInformationByHandleW"
+    },
+    {
+      "id": "MS-REMOTE-PROTOCOL",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_remote_protocol_info",
+      "title": "Microsoft Learn: FILE_REMOTE_PROTOCOL_INFO"
+    },
+    {
+      "id": "MS-FILE-NAME-INFO",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_name_info",
+      "title": "Microsoft Learn: FILE_NAME_INFO"
+    },
+    {
+      "id": "MS-WINDOWS-NAMES",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file",
+      "title": "Microsoft Learn: Naming Files, Paths, and Namespaces"
+    },
+    {
+      "id": "MS-FILE-STREAMS",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/fileio/file-streams",
+      "title": "Microsoft Learn: File Streams"
     }
   ]
 }

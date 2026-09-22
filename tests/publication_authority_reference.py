@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
+import hashlib
 import json
 import re
+import unicodedata
 from typing import Any, Iterable, Mapping
 
 
@@ -22,6 +24,13 @@ PROFILE_ID = "windows_nt_x64_local_ntfs_service_sid_noreplace_v1"
 SERVICE_SID = "S-1-5-80-3180180915-1861177297-4117424284-3321057921-2519428456"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FILE_ID_RE = re.compile(r"^[0-9a-f]{16}:[0-9a-f]{32}$")
+VOLUME_SERIAL_RE = re.compile(r"^[0-9a-f]{16}$")
+VOLUME_NAME_RE = re.compile(r"^\\\\\?\\Volume\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}\\$")
+FORBIDDEN_COMPONENT_CHARACTERS = frozenset('<>:"/\\|?*')
+RESERVED_DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+                                   "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³",
+                                   "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
+                                   "LPT9", "LPT¹", "LPT²", "LPT³"})
 
 
 class Phase(str, Enum):
@@ -94,6 +103,13 @@ def _strings(value: Any, label: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _file_id_parts(value: str, label: str) -> tuple[str, str]:
+    if not FILE_ID_RE.fullmatch(value):
+        raise EvidenceError(f"{label} must be a FILE_ID_INFO volume:file-id composite")
+    volume_serial, file_id = value.split(":", 1)
+    return volume_serial, file_id
+
+
 @dataclass(frozen=True, order=True)
 class Ace:
     principal: str
@@ -121,37 +137,107 @@ EXPECTED_APIS = ("GetSecurityInfo", "GetFileInformationByHandleEx:FileIdInfo",
                  "GetFileInformationByHandleEx:FileAttributeTagInfo",
                  "GetFileInformationByHandleEx:FileStandardInfo",
                  "GetFileInformationByHandleEx:FileStreamInfo",
-                 "GetFileInformationByHandleEx:FileCaseSensitiveInfo")
+                 "GetFileInformationByHandleEx:FileCaseSensitiveInfo",
+                 "GetVolumeInformationByHandleW",
+                 "GetFileInformationByHandleEx:FileRemoteProtocolInfo",
+                 "GetFileInformationByHandleEx:FileNameInfo")
+EXPECTED_FILESYSTEM_FLAGS = ("FILE_CASE_PRESERVED_NAMES", "FILE_CASE_SENSITIVE_SEARCH",
+                             "FILE_PERSISTENT_ACLS", "FILE_SUPPORTS_REPARSE_POINTS",
+                             "FILE_SUPPORTS_USN_JOURNAL")
 
 
 @dataclass(frozen=True, order=True)
-class AncestorEvidence:
-    file_id: str
-    security_descriptor_sha256: str
-    reparse: bool
-    case_sensitive: bool
+class EffectiveAccess:
+    principal: str
+    rights: tuple[str, ...]
 
     @classmethod
-    def parse(cls, value: Any) -> "AncestorEvidence":
+    def parse(cls, value: Any) -> "EffectiveAccess":
         if not isinstance(value, Mapping):
-            raise EvidenceError("ancestor must be an object")
-        _exact_keys(value, frozenset({"file_id", "security_descriptor_sha256", "reparse", "case_sensitive"}), "ancestor")
-        result = cls(_string(value["file_id"], "ancestor.file_id"),
-                     _string(value["security_descriptor_sha256"], "ancestor.security_descriptor_sha256"),
-                     _boolean(value["reparse"], "ancestor.reparse"),
-                     _boolean(value["case_sensitive"], "ancestor.case_sensitive"))
-        if not FILE_ID_RE.fullmatch(result.file_id) or not SHA256_RE.fullmatch(result.security_descriptor_sha256):
-            raise EvidenceError("ancestor identity or digest format is invalid")
+            raise EvidenceError("effective access must be an object")
+        _exact_keys(value, frozenset({"principal", "rights"}), "effective access")
+        return cls(_string(value["principal"], "effective_access.principal"),
+                   _strings(value["rights"], "effective_access.rights"))
+
+
+EXPECTED_EFFECTIVE_ACCESS = (EffectiveAccess("initiating_user", ()), EffectiveAccess("untrusted_users", ()))
+SECURITY_KEYS = frozenset({"owner_sid", "dacl_protected", "inherited_aces", "dacl_aces",
+                           "other_aces", "effective_access", "canonical_descriptor_sha256"})
+
+
+def _security_canonical_payload(value: Mapping[str, Any]) -> bytes:
+    payload = {key: value[key] for key in SECURITY_KEYS if key != "canonical_descriptor_sha256"}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+@dataclass(frozen=True, order=True)
+class SecurityEvidence:
+    owner_sid: str
+    dacl_protected: bool
+    inherited_aces: tuple[str, ...]
+    dacl_aces: tuple[Ace, ...]
+    other_aces: tuple[str, ...]
+    effective_access: tuple[EffectiveAccess, ...]
+    canonical_descriptor_sha256: str
+
+    @classmethod
+    def parse(cls, value: Any) -> "SecurityEvidence":
+        if not isinstance(value, Mapping):
+            raise EvidenceError("security evidence must be an object")
+        _exact_keys(value, SECURITY_KEYS, "security evidence")
+        if not isinstance(value["dacl_aces"], list) or not isinstance(value["effective_access"], list):
+            raise EvidenceError("security ACE and effective access evidence must be lists")
+        digest = _string(value["canonical_descriptor_sha256"], "canonical_descriptor_sha256")
+        expected_digest = hashlib.sha256(_security_canonical_payload(value)).hexdigest()
+        result = cls(_string(value["owner_sid"], "security.owner_sid"),
+                     _boolean(value["dacl_protected"], "security.dacl_protected"),
+                     _strings(value["inherited_aces"], "security.inherited_aces"),
+                     tuple(Ace.parse(item) for item in value["dacl_aces"]),
+                     _strings(value["other_aces"], "security.other_aces"),
+                     tuple(EffectiveAccess.parse(item) for item in value["effective_access"]), digest)
+        if (result.owner_sid != "S-1-5-18" or not result.dacl_protected or result.inherited_aces or
+                result.dacl_aces != EXPECTED_ACES or result.other_aces or
+                result.effective_access != EXPECTED_EFFECTIVE_ACCESS or
+                not SHA256_RE.fullmatch(digest) or digest != expected_digest):
+            raise EvidenceError("security evidence does not match the exact protected descriptor")
+        return result
+
+
+@dataclass(frozen=True, order=True)
+class ProtectedObjectEvidence:
+    role: str
+    observed_path: str
+    file_id: str
+    reparse: bool
+    case_sensitive: bool
+    security: SecurityEvidence
+
+    @classmethod
+    def parse(cls, value: Any) -> "ProtectedObjectEvidence":
+        if not isinstance(value, Mapping):
+            raise EvidenceError("protected object must be an object")
+        _exact_keys(value, frozenset({"role", "observed_path", "file_id", "reparse", "case_sensitive", "security"}),
+                    "protected object")
+        result = cls(_string(value["role"], "protected_object.role"),
+                     _string(value["observed_path"], "protected_object.observed_path"),
+                     _string(value["file_id"], "protected_object.file_id"),
+                     _boolean(value["reparse"], "protected_object.reparse"),
+                     _boolean(value["case_sensitive"], "protected_object.case_sensitive"),
+                     SecurityEvidence.parse(value["security"]))
+        _file_id_parts(result.file_id, "protected_object.file_id")
+        if result.reparse or result.case_sensitive:
+            raise EvidenceError("protected object identity/reparse/case evidence is invalid")
         return result
 
 
 PROFILE_KEYS = frozenset({"profile_id", "os_family", "os_arch", "windows_build", "sdk_version",
-    "publisher_service_sid", "service_sid_type", "anchor_creation", "owner_sid", "dacl_protected",
-    "inherited_aces", "dacl_aces", "consumer_grants", "untrusted_mutating_rights", "covered_objects",
+    "publisher_service_sid", "service_sid_type", "anchor_creation", "consumer_grants",
+    "untrusted_mutating_rights", "covered_objects", "observer_provenance",
     "handle_provenance", "anchor_preexisting", "handles_inheritable", "handles_duplicated_outside_service",
-    "filesystem", "local_volume", "same_volume", "volume_serial", "staging_parent_id",
-    "destination_parent_id", "state_anchor_id", "journal_anchor_id", "ancestor_chain",
-    "ancestors_revalidated", "destination_absent", "single_final_component", "replace_if_exists",
+    "volume_name", "volume_serial", "volume_information_serial", "filesystem_name",
+    "maximum_component_length", "filesystem_flags", "remote_protocol", "remote_protocol_major",
+    "remote_protocol_minor", "remote_protocol_revision", "remote_protocol_flags", "protected_objects",
+    "ancestors_revalidated", "destination_name", "destination_open_result", "replace_if_exists",
     "observation_apis", "closure_entry_count", "closure_max_depth", "max_component_utf16_units",
     "serialized_evidence_bytes", "total_content_bytes"})
 
@@ -166,29 +252,29 @@ class ProfileEvidence:
     publisher_service_sid: str
     service_sid_type: str
     anchor_creation: str
-    owner_sid: str
-    dacl_protected: bool
-    inherited_aces: tuple[str, ...]
-    dacl_aces: tuple[Ace, ...]
     consumer_grants: tuple[str, ...]
     untrusted_mutating_rights: tuple[str, ...]
     covered_objects: tuple[str, ...]
+    observer_provenance: str
     handle_provenance: str
     anchor_preexisting: bool
     handles_inheritable: bool
     handles_duplicated_outside_service: bool
-    filesystem: str
-    local_volume: bool
-    same_volume: bool
+    volume_name: str
     volume_serial: str
-    staging_parent_id: str
-    destination_parent_id: str
-    state_anchor_id: str
-    journal_anchor_id: str
-    ancestor_chain: tuple[AncestorEvidence, ...]
+    volume_information_serial: str
+    filesystem_name: str
+    maximum_component_length: int
+    filesystem_flags: tuple[str, ...]
+    remote_protocol: int
+    remote_protocol_major: int
+    remote_protocol_minor: int
+    remote_protocol_revision: int
+    remote_protocol_flags: int
+    protected_objects: tuple[ProtectedObjectEvidence, ...]
     ancestors_revalidated: bool
-    destination_absent: bool
-    single_final_component: bool
+    destination_name: str
+    destination_open_result: str
     replace_if_exists: bool
     observation_apis: tuple[str, ...]
     closure_entry_count: int
@@ -202,30 +288,35 @@ class ProfileEvidence:
         if not isinstance(value, Mapping):
             raise EvidenceError("profile evidence must be an object")
         _exact_keys(value, PROFILE_KEYS, "profile evidence")
-        if not isinstance(value["dacl_aces"], list) or not isinstance(value["ancestor_chain"], list):
-            raise EvidenceError("dacl_aces and ancestor_chain must be lists")
+        if not isinstance(value["protected_objects"], list):
+            raise EvidenceError("protected_objects must be a list")
         result = cls(
             _string(value["profile_id"], "profile_id"), _string(value["os_family"], "os_family"),
             _string(value["os_arch"], "os_arch"), _integer(value["windows_build"], "windows_build"),
             _string(value["sdk_version"], "sdk_version"), _string(value["publisher_service_sid"], "publisher_service_sid"),
             _string(value["service_sid_type"], "service_sid_type"), _string(value["anchor_creation"], "anchor_creation"),
-            _string(value["owner_sid"], "owner_sid"), _boolean(value["dacl_protected"], "dacl_protected"),
-            _strings(value["inherited_aces"], "inherited_aces"), tuple(Ace.parse(x) for x in value["dacl_aces"]),
             _strings(value["consumer_grants"], "consumer_grants"),
             _strings(value["untrusted_mutating_rights"], "untrusted_mutating_rights"),
-            _strings(value["covered_objects"], "covered_objects"), _string(value["handle_provenance"], "handle_provenance"),
+            _strings(value["covered_objects"], "covered_objects"),
+            _string(value["observer_provenance"], "observer_provenance"),
+            _string(value["handle_provenance"], "handle_provenance"),
             _boolean(value["anchor_preexisting"], "anchor_preexisting"),
             _boolean(value["handles_inheritable"], "handles_inheritable"),
             _boolean(value["handles_duplicated_outside_service"], "handles_duplicated_outside_service"),
-            _string(value["filesystem"], "filesystem"), _boolean(value["local_volume"], "local_volume"),
-            _boolean(value["same_volume"], "same_volume"), _string(value["volume_serial"], "volume_serial"),
-            _string(value["staging_parent_id"], "staging_parent_id"),
-            _string(value["destination_parent_id"], "destination_parent_id"),
-            _string(value["state_anchor_id"], "state_anchor_id"), _string(value["journal_anchor_id"], "journal_anchor_id"),
-            tuple(AncestorEvidence.parse(x) for x in value["ancestor_chain"]),
+            _string(value["volume_name"], "volume_name"), _string(value["volume_serial"], "volume_serial"),
+            _string(value["volume_information_serial"], "volume_information_serial"),
+            _string(value["filesystem_name"], "filesystem_name"),
+            _integer(value["maximum_component_length"], "maximum_component_length", 1),
+            _strings(value["filesystem_flags"], "filesystem_flags"),
+            _integer(value["remote_protocol"], "remote_protocol"),
+            _integer(value["remote_protocol_major"], "remote_protocol_major"),
+            _integer(value["remote_protocol_minor"], "remote_protocol_minor"),
+            _integer(value["remote_protocol_revision"], "remote_protocol_revision"),
+            _integer(value["remote_protocol_flags"], "remote_protocol_flags"),
+            tuple(ProtectedObjectEvidence.parse(x) for x in value["protected_objects"]),
             _boolean(value["ancestors_revalidated"], "ancestors_revalidated"),
-            _boolean(value["destination_absent"], "destination_absent"),
-            _boolean(value["single_final_component"], "single_final_component"),
+            _string(value["destination_name"], "destination_name"),
+            _string(value["destination_open_result"], "destination_open_result"),
             _boolean(value["replace_if_exists"], "replace_if_exists"),
             _strings(value["observation_apis"], "observation_apis"),
             _integer(value["closure_entry_count"], "closure_entry_count"),
@@ -237,30 +328,73 @@ class ProfileEvidence:
         return result
 
     def validate(self) -> None:
-        identities = (self.volume_serial, self.staging_parent_id, self.destination_parent_id,
-                      self.state_anchor_id, self.journal_anchor_id)
+        anchor_roles = ("staging_root", "destination_parent", "state_anchor", "journal_anchor")
+        roles = tuple(item.role for item in self.protected_objects)
+        expected_ancestor_roles = tuple(f"ancestor:{index}" for index in range(max(0, len(roles) - len(anchor_roles))))
+        object_ids = tuple(item.file_id for item in self.protected_objects)
         rejected = (self.profile_id != PROFILE_ID or self.os_family != "Windows NT" or self.os_arch != "x64" or
             self.windows_build < 17763 or self.sdk_version != "10.0.17763.0" or
             self.publisher_service_sid != SERVICE_SID or self.service_sid_type != "SERVICE_SID_TYPE_RESTRICTED" or
-            self.anchor_creation != "atomic_protected_from_inception" or self.owner_sid != "S-1-5-18" or
-            not self.dacl_protected or bool(self.inherited_aces) or self.dacl_aces != EXPECTED_ACES or
+            self.anchor_creation != "atomic_protected_from_inception" or
             bool(self.consumer_grants) or bool(self.untrusted_mutating_rights) or
             self.covered_objects != EXPECTED_COVERED_OBJECTS or
+            self.observer_provenance != "independent_observer_same_handle" or
             self.handle_provenance != "service_created_from_inception" or self.anchor_preexisting or
-            self.handles_inheritable or self.handles_duplicated_outside_service or self.filesystem != "NTFS" or
-            not self.local_volume or not self.same_volume or any(not FILE_ID_RE.fullmatch(x) for x in identities) or
-            not self.ancestor_chain or any(x.reparse or x.case_sensitive for x in self.ancestor_chain) or
-            not self.ancestors_revalidated or not self.destination_absent or not self.single_final_component or
+            self.handles_inheritable or self.handles_duplicated_outside_service or
+            not VOLUME_NAME_RE.fullmatch(self.volume_name) or not VOLUME_SERIAL_RE.fullmatch(self.volume_serial) or
+            not re.fullmatch(r"[0-9a-f]{8}", self.volume_information_serial) or
+            self.volume_serial != "00000000" + self.volume_information_serial or self.filesystem_name != "NTFS" or
+            self.maximum_component_length != MAX_COMPONENT_UTF16_UNITS or self.filesystem_flags != EXPECTED_FILESYSTEM_FLAGS or
+            any((self.remote_protocol, self.remote_protocol_major, self.remote_protocol_minor,
+                 self.remote_protocol_revision, self.remote_protocol_flags)) or
+            len(roles) <= len(anchor_roles) or roles[:len(anchor_roles)] != anchor_roles or
+            roles[len(anchor_roles):] != expected_ancestor_roles or
+            any(_file_id_parts(file_id, "protected object file_id")[0] != self.volume_serial
+                                                 for file_id in object_ids) or
+            not self.ancestors_revalidated or self.destination_open_result != "ERROR_FILE_NOT_FOUND" or
             self.replace_if_exists or self.observation_apis != EXPECTED_APIS or
             self.closure_entry_count > MAX_CLOSURE_ENTRIES or self.closure_max_depth > MAX_CLOSURE_DEPTH or
-            self.max_component_utf16_units > MAX_COMPONENT_UTF16_UNITS or
+            self.max_component_utf16_units != self.maximum_component_length or
             self.serialized_evidence_bytes > MAX_EVIDENCE_BYTES or self.total_content_bytes > MAX_CONTENT_BYTES)
+        try:
+            _validate_component(self.destination_name)
+        except EvidenceError:
+            rejected = True
         if rejected:
             raise EvidenceError("profile evidence does not satisfy the closed profile")
 
 
+def _validate_component(component: str) -> None:
+    if not component or component in {".", ".."} or component[-1] in {".", " "}:
+        raise EvidenceError("Windows path component is empty, relative, or has a forbidden suffix")
+    if unicodedata.normalize("NFC", component) != component:
+        raise EvidenceError("Windows path component is not canonically normalized")
+    if any(character in FORBIDDEN_COMPONENT_CHARACTERS or ord(character) < 32 for character in component):
+        raise EvidenceError("Windows path component contains a forbidden character")
+    if component.split(".", 1)[0].upper() in RESERVED_DEVICE_NAMES:
+        raise EvidenceError("Windows path component is a reserved DOS device name")
+    try:
+        units = len(component.encode("utf-16-le")) // 2
+    except UnicodeEncodeError as exc:
+        raise EvidenceError("Windows path component is not valid Unicode") from exc
+    if units > MAX_COMPONENT_UTF16_UNITS:
+        raise EvidenceError("Windows path component exceeds the NTFS limit")
+
+
+def _validate_relative_path(path: str) -> tuple[str, ...]:
+    if (path.startswith(("/", "\\")) or "\\" in path or re.match(r"^[A-Za-z]:", path) or
+            path.startswith(("//", "\\\\", "\\?\\", "\\.\\"))):
+        raise EvidenceError("path must be an unambiguous canonical relative path")
+    parts = tuple(path.split("/"))
+    if len(parts) > MAX_CLOSURE_DEPTH:
+        raise EvidenceError("closure depth exceeds profile limit")
+    for part in parts:
+        _validate_component(part)
+    return parts
+
+
 ENTRY_KEYS = frozenset({"relative_path", "type", "file_id", "content_sha256", "size", "attributes",
-                        "security_descriptor_sha256", "link_count", "streams", "reparse", "reparse_tag"})
+                        "security", "link_count", "streams", "reparse", "reparse_tag"})
 
 
 @dataclass(frozen=True, order=True)
@@ -271,7 +405,7 @@ class ClosureEntry:
     content_sha256: str | None
     size: int
     attributes: tuple[str, ...]
-    security_descriptor_sha256: str
+    security: SecurityEvidence
     link_count: int
     streams: tuple[str, ...]
     reparse: bool
@@ -295,16 +429,20 @@ class ClosureEntry:
         result = cls(_string(value["relative_path"], "relative_path"), entry_type,
                      _string(value["file_id"], "file_id"), digest, _integer(value["size"], "size"),
                      _strings(value["attributes"], "attributes"),
-                     _string(value["security_descriptor_sha256"], "security_descriptor_sha256"),
+                     SecurityEvidence.parse(value["security"]),
                      _integer(value["link_count"], "link_count", 1), _strings(value["streams"], "streams"),
                      _boolean(value["reparse"], "reparse"), tag)
         result.validate()
         return result
 
     def validate(self) -> None:
-        if not FILE_ID_RE.fullmatch(self.file_id) or not SHA256_RE.fullmatch(self.security_descriptor_sha256):
-            raise EvidenceError("closure identity or security descriptor digest is invalid")
-        if self.reparse or self.reparse_tag is not None or self.link_count != 1:
+        _file_id_parts(self.file_id, "closure file_id")
+        attribute_reparse = "REPARSE_POINT" in self.attributes
+        if attribute_reparse != self.reparse or ((self.reparse_tag is not None) != self.reparse):
+            raise EvidenceError("reparse attribute, flag, and tag are inconsistent")
+        if self.reparse and (self.reparse_tag is None or self.reparse_tag <= 0):
+            raise EvidenceError("reparse tag must be nonzero when present")
+        if self.reparse or self.link_count != 1:
             raise EvidenceError("reparse or multiply-linked entries are not admitted")
         if self.entry_type == EntryType.FILE:
             if self.content_sha256 is None or not SHA256_RE.fullmatch(self.content_sha256):
@@ -317,16 +455,11 @@ class ClosureEntry:
             if self.entry_type != EntryType.DIRECTORY:
                 raise EvidenceError("root must be a directory")
             return
-        if self.relative_path.startswith(("/", "\\")) or "\\" in self.relative_path:
-            raise EvidenceError("relative path must use canonical slash separators")
-        parts = self.relative_path.split("/")
-        if any(part in ("", ".", "..") for part in parts) or len(parts) > MAX_CLOSURE_DEPTH:
-            raise EvidenceError("relative path is invalid or too deep")
-        if any(len(part.encode("utf-16-le")) // 2 > MAX_COMPONENT_UTF16_UNITS for part in parts):
-            raise EvidenceError("component length exceeds profile limit")
+        _validate_relative_path(self.relative_path)
 
 
-def _parse_closure(root_value: Any, entries_value: Any) -> tuple[ClosureEntry, tuple[ClosureEntry, ...]]:
+def _parse_closure(root_value: Any, entries_value: Any,
+                   volume_serial: str) -> tuple[ClosureEntry, tuple[ClosureEntry, ...]]:
     root = ClosureEntry.parse(root_value)
     if root.relative_path != "." or not isinstance(entries_value, list):
         raise EvidenceError("root/closure shape invalid")
@@ -336,6 +469,16 @@ def _parse_closure(root_value: Any, entries_value: Any) -> tuple[ClosureEntry, t
     paths = tuple(item.relative_path for item in entries)
     if paths != tuple(sorted(paths, key=str.casefold)) or len({x.casefold() for x in paths}) != len(paths):
         raise EvidenceError("closure paths must be unique and case-insensitively sorted")
+    if _file_id_parts(root.file_id, "root file_id")[0] != volume_serial or any(
+            _file_id_parts(item.file_id, "closure file_id")[0] != volume_serial for item in entries):
+        raise EvidenceError("root or descendant is on a different volume")
+    by_path = {item.relative_path.casefold(): item for item in entries}
+    for entry in entries:
+        parts = entry.relative_path.split("/")
+        for end in range(1, len(parts)):
+            parent = by_path.get("/".join(parts[:end]).casefold())
+            if parent is None or parent.entry_type != EntryType.DIRECTORY:
+                raise EvidenceError("every intermediate parent must be a closure directory")
     return root, entries
 
 
@@ -394,7 +537,7 @@ EVENT_KEYS = {
     "seal": frozenset({"action", "root", "closure"}),
     "prepare_publish": frozenset({"action"}),
     "rename": frozenset({"action", "outcome", "replace_if_exists", "destination_exists"}),
-    "confirm_visible": frozenset({"action", "root", "closure"}),
+    "confirm_visible": frozenset({"action", "destination_name", "root", "closure"}),
     "begin_metadata": frozenset({"action"}),
     "complete_metadata": frozenset({"action", "success"}),
     "crash": frozenset({"action", "rename_outcome"}),
@@ -435,11 +578,11 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
     if action == "seal":
         if state.phase != Phase.MATERIALIZING:
             return _result(state, "invalid_trace", "seal_wrong_phase")
+        assert state.profile is not None
         try:
-            root, closure = _parse_closure(event["root"], event["closure"])
+            root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial)
         except EvidenceError:
             return _retained(state, "sealed_evidence_refused")
-        assert state.profile is not None
         serialized = len(json.dumps({"root": event["root"], "closure": event["closure"]},
                                     sort_keys=True, separators=(",", ":")).encode())
         depth = max((len(item.relative_path.split("/")) for item in closure), default=0)
@@ -482,8 +625,13 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
     if action == "confirm_visible":
         if state.phase != Phase.RENAMED_UNCONFIRMED:
             return _result(state, "invalid_trace", "confirm_wrong_phase")
+        assert state.profile is not None
         try:
-            root, closure = _parse_closure(event["root"], event["closure"])
+            destination_name = _string(event["destination_name"], "visible destination_name")
+            _validate_component(destination_name)
+            if destination_name != state.profile.destination_name:
+                raise EvidenceError("visible destination component differs from prepared component")
+            root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial)
         except EvidenceError:
             return _recovery(state, "visible_evidence_missing_or_invalid")
         observed = replace(state, visible_root=root, visible_closure=closure)
@@ -532,10 +680,21 @@ def replay(state: ModelState, events: Iterable[Mapping[str, Any]]) -> StepResult
     return result
 
 
+def _security_projection(security: SecurityEvidence) -> dict[str, Any]:
+    return {"owner_sid": security.owner_sid, "dacl_protected": security.dacl_protected,
+            "inherited_aces": list(security.inherited_aces),
+            "dacl_aces": [{"principal": ace.principal, "type": ace.ace_type, "rights": list(ace.rights)}
+                          for ace in security.dacl_aces],
+            "other_aces": list(security.other_aces),
+            "effective_access": [{"principal": access.principal, "rights": list(access.rights)}
+                                 for access in security.effective_access],
+            "canonical_descriptor_sha256": security.canonical_descriptor_sha256}
+
+
 def _entry_projection(entry: ClosureEntry) -> dict[str, Any]:
     return {"relative_path": entry.relative_path, "type": entry.entry_type.value, "file_id": entry.file_id,
             "content_sha256": entry.content_sha256, "size": entry.size, "attributes": list(entry.attributes),
-            "security_descriptor_sha256": entry.security_descriptor_sha256, "link_count": entry.link_count,
+            "security": _security_projection(entry.security), "link_count": entry.link_count,
             "streams": list(entry.streams), "reparse": entry.reparse, "reparse_tag": entry.reparse_tag}
 
 

@@ -1076,9 +1076,9 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Closed Windows-build/SDK/service-SID/DACL/handle-provenance candidate corpus with explicit sealed and visible root plus per-descendant identity, content, size, attribute, security-descriptor, link, stream and reparse evidence.",
+      "fixture": "Closed Windows-build/SDK/service-SID/DACL/handle-provenance candidate corpus with explicit handle-returned volume/protocol/name facts and sealed/visible root plus per-descendant identity, content, size, attribute, structured security, link, stream and reparse evidence.",
       "procedure": [
-        "Exercise identical-byte same-name foreign identity, changed hash at the same path, extra/missing child, omitted visible evidence, reparse, hardlink, ADS, parent substitution, destination precreation and owner/DACL/provenance attacks.",
+        "Exercise identical-byte same-name foreign identity, changed hash at the same path, wholesale cross-volume identity, extra/missing child, missing/file parent, case alias, ADS path, omitted visible evidence, contradictory reparse facts, hardlink, destination precreation and structured owner/DACL/digest/provenance attacks.",
         "Require the ordered protected_empty/materializing/sealed/publish_prepared/renamed_unconfirmed/visible_bound/metadata_pending protocol and three-valued rename result.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
