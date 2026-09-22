@@ -2,7 +2,7 @@
   "schema": "usk.spec.integrity/1",
   "algorithm": "sha256",
   "self_excluded": "integrity.json",
-  "aggregate_sha256": "1e706f99917ade33c2af4440b2986c5416008e49124be730ce8d161d08b86d55",
+  "aggregate_sha256": "59c3a09cd9965aa841cd15ea494efc79d8993303a336c2d9d37c20d1259a3c6d",
   "files": [
     {
       "path": ".gitattributes",
@@ -82,7 +82,7 @@
     {
       "path": "derived/catalogue.json",
       "bytes": 233783,
-      "sha256": "1865528fd26538b2a1d75dae534ed2169aafb6a83feb5a7ee63c69f35c1ed859"
+      "sha256": "a2b43c10aa758fe457712e688f14d901d6dc6bf0708842f9b81aabe6fd540df3"
     },
     {
       "path": "derived/index.md",
@@ -296,8 +296,8 @@
     },
     {
       "path": "lifecycle/publication.md",
-      "bytes": 4834,
-      "sha256": "eac59789451d82565542372d7c680c707600f2d1a6b11872b07ae2c700028958"
+      "bytes": 17211,
+      "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
     },
     {
       "path": "lifecycle/state-machine.md",
@@ -321,8 +321,8 @@
     },
     {
       "path": "model/capabilities.md",
-      "bytes": 4217,
-      "sha256": "9e5b6cd61a81556b041fd5f33deed78ffd1417c6cff21636a44440fea1d031db"
+      "bytes": 7898,
+      "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72"
     },
     {
       "path": "model/identity.md",
@@ -356,8 +356,8 @@
     },
     {
       "path": "plan/open-decisions.json",
-      "bytes": 4469,
-      "sha256": "de7f9f5c9de8f0b92e59291fce5730ad4ea0117ebae8e560a962782423275908"
+      "bytes": 5118,
+      "sha256": "b8a3a024bafa1855cc4cadb8315adbc105603aac637bb54ebeb12aacc335f2df"
     },
     {
       "path": "plan/programme-status.json",
@@ -671,13 +671,13 @@
     },
     {
       "path": "provenance/reconciliation.md",
-      "bytes": 8038,
-      "sha256": "6cceb13a6d94909f3e9a9b7b80d98f84959c871870fcb2b28896e3846b158a59"
+      "bytes": 8626,
+      "sha256": "c861f6cc88ea5aad5c5e83b704f0cf498b97f0210f2e48a6981dbac575360c43"
     },
     {
       "path": "provenance/sources.json",
-      "bytes": 3360,
-      "sha256": "a5fe83d59c472414186d917f5800d212e3945a93a19b8c1b65315e43828c26b5"
+      "bytes": 6480,
+      "sha256": "dec79be0ac51d3a7a4d2c6e13be1f2e21e636fe8629efd677095c6c12687180a"
     },
     {
       "path": "providers/host.md",
@@ -741,8 +741,8 @@
     },
     {
       "path": "security/threat-model.md",
-      "bytes": 4099,
-      "sha256": "d07f03c7a2fd5eea1da981e948387e95d97b9e7e9c686d83883868bb97b4fa69"
+      "bytes": 8748,
+      "sha256": "ffe0b8cd75ff8a40eaf1e7fe08519f72c02bb077174ad4e9c1dc2a1f16c568cc"
     },
     {
       "path": "security/trust-servicing.md",
@@ -771,8 +771,8 @@
     },
     {
       "path": "tools/tests/test_specctl.py",
-      "bytes": 38484,
-      "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
+      "bytes": 39494,
+      "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
     },
     {
       "path": "tools/workbench.md",
@@ -781,8 +781,8 @@
     },
     {
       "path": "verification/acceptance-cases.json",
-      "bytes": 161486,
-      "sha256": "29ee87d47c02c13629112cc073a6337b06f3ea80c90662fbb0c4f79e01319914"
+      "bytes": 164135,
+      "sha256": "da6d315d40137fe830a3cad87a6c4bf9128585b687e62113484299773a22f755"
     },
     {
       "path": "verification/faults-performance.md",
