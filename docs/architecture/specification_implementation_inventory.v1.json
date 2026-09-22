@@ -1,11 +1,11 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-21T13:51:34Z",
+  "generated_at": "2026-09-22T03:15:31Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "2075284609647248c8c562bb046c6070ec6c5cdf",
   "repository_base_tree": "22410182479ded6e22d0e9efff9851a0a13fda0e",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "f398d68f9d6ec5c22bb0d8cd215504f247ae57aeb0f7a0b1e9a33b0e8d782f0d",
+  "spec_aggregate_sha256": "4293fedf831ea3a51da3bcf9d6b90ad86a88cf3a7104eacae8c7944be32cdb36",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
@@ -27,8 +27,8 @@
     {
       "command": "python -B -m unittest discover -s spec/tools/tests -v",
       "result": "PASS",
-      "tests": 74,
-      "scope": "specification tooling; jsonschema-enabled run had 3 Windows symlink skips"
+      "tests": 79,
+      "scope": "specification tooling with pinned jsonschema; local run had 3 Windows symlink restriction skips"
     },
     {
       "command": "python spec/tools/specctl.py schema-check",
@@ -241,11 +241,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -276,11 +276,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -311,11 +311,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -1348,11 +1348,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -1379,11 +1379,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -1410,11 +1410,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -2058,11 +2058,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -2089,11 +2089,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -2213,7 +2213,7 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/log.md",
@@ -2221,7 +2221,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "60f870c8f28c3fce4ceaecd75599bba9883aac1619d1e9f8aeb97519662f9f8e"
+          "sha256": "481a396361f9912370cfbfc8c0945b40b8646cc4c3e1173dca207e89593f4364"
         }
       ],
       "acceptance_ids": [
@@ -2249,7 +2249,7 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/log.md",
@@ -2257,7 +2257,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "60f870c8f28c3fce4ceaecd75599bba9883aac1619d1e9f8aeb97519662f9f8e"
+          "sha256": "481a396361f9912370cfbfc8c0945b40b8646cc4c3e1173dca207e89593f4364"
         }
       ],
       "acceptance_ids": [
@@ -2483,11 +2483,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2518,11 +2518,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2553,11 +2553,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -3157,7 +3157,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c84bc36f8c3a998e9733d0f3dcb4754e16209a9411a5607b8bcab950c5ebc68f"
+          "sha256": "0f04e333cb1bf9c8b3f5e0e264c619a9d2288b8a94ddd8972eb44b3363952083"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3193,7 +3193,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c84bc36f8c3a998e9733d0f3dcb4754e16209a9411a5607b8bcab950c5ebc68f"
+          "sha256": "0f04e333cb1bf9c8b3f5e0e264c619a9d2288b8a94ddd8972eb44b3363952083"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3229,7 +3229,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c84bc36f8c3a998e9733d0f3dcb4754e16209a9411a5607b8bcab950c5ebc68f"
+          "sha256": "0f04e333cb1bf9c8b3f5e0e264c619a9d2288b8a94ddd8972eb44b3363952083"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3803,7 +3803,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         }
       ],
       "acceptance_ids": [
@@ -3834,7 +3834,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "860ea2fa47c2d169b8fb43d37cda92cc15687e985eadfb98346b6fffff112c5d"
+          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
         }
       ],
       "acceptance_ids": [
@@ -4199,7 +4199,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -4237,7 +4237,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -4275,7 +4275,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -4313,7 +4313,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -4348,7 +4348,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [
@@ -4383,7 +4383,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "6b2e34cf7f15ea3ebf862b6f4e5557452d986537b2117a612b1b3307a24492b5"
+          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
         }
       ],
       "acceptance_ids": [

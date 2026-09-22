@@ -264,6 +264,21 @@ class MutationTests(unittest.TestCase):
     def test_release_selection_cannot_grant_authority(self):
         path=self.root/'plan/release-selection.json';x=m.load_json(path);x['authority']['signing']=True;path.write_text(m.json_text(x))
         with self.assertRaisesRegex(m.SpecError,'must not grant operational authority'):m.load_bundle(self.root)
+    def test_release_selection_requires_complete_authority_ceiling(self):
+        path=self.root/'plan/release-selection.json';x=m.load_json(path);del x['authority']['publication'];path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'authority ceiling fields are incomplete'):m.load_bundle(self.root)
+    def test_release_selection_requires_status_report_fields(self):
+        path=self.root/'plan/release-selection.json';x=m.load_json(path);del x['decisions']['OD-008']['selected']['current_release_readiness'];path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'missing selected.current_release_readiness'):m.load_bundle(self.root)
+    def test_release_selection_rejects_unknown_selected_fields(self):
+        path=self.root/'plan/release-selection.json';x=m.load_json(path);x['decisions']['OD-002']['selected']['ready']=True;path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'selected fields are incomplete or unknown'):m.load_bundle(self.root)
+    def test_release_selection_rejects_readiness_overclaim(self):
+        path=self.root/'plan/release-selection.json';x=m.load_json(path);x['decisions']['OD-008']['selected']['current_release_readiness']='ready';path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'release readiness must remain not established'):m.load_bundle(self.root)
+    def test_release_selection_requires_nonempty_obligations(self):
+        path=self.root/'plan/release-selection.json';x=m.load_json(path);x['decisions']['OD-003']['outstanding']=[];path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'outstanding must be a non-empty string list'):m.load_bundle(self.root)
     def test_duplicate_id_rejected(self):
         source=self.root/'model/identity.md';target=self.root/'model/copied.md';target.write_bytes(source.read_bytes())
         with self.assertRaises(m.SpecError):m.load_bundle(self.root)

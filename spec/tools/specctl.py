@@ -31,6 +31,40 @@ REQ_RE = re.compile(r'^### (USK-R-[A-Z0-9-]+) — (.+)$', re.M)
 LINK_RE = re.compile(r'(?<!!)\[[^\]\n]*\]\(([^)\n]+)\)')
 AUTHORITY_IDS = ['USK-S-AUTH', 'USK-S-OKF', 'USK-S-WORK']
 SCOPE_FIELDS = ('context_paths', 'allowed_paths', 'read_only_paths', 'forbidden_paths')
+RELEASE_SELECTION_IDS = {'OD-002', 'OD-003', 'OD-008'}
+RELEASE_SELECTION_FIELDS = {'schema', 'recorded_at', 'source', 'status', 'decisions', 'authority'}
+RELEASE_AUTHORITY_FIELDS = {
+    'implementation_grant', 'endpoint_mutation_grant', 'protected_ref_write',
+    'signing', 'tagging', 'publication', 'queue_changed'
+}
+RELEASE_SELECTED_STRING_FIELDS = {
+    'OD-002': {
+        'os_family', 'architecture', 'mutation_filesystem', 'deployment_scope',
+        'setup_implementation', 'first_graphical_adapter', 'appearance_default'
+    },
+    'OD-003': {
+        'policy', 'existing_c_abi', 'new_capabilities', 'contract_identity',
+        'breaking_change_rule'
+    },
+    'OD-008': {
+        'development_train', 'target_release', 'product_name', 'current_release_readiness'
+    },
+}
+RELEASE_SELECTED_LIST_FIELDS = {
+    'OD-002': {'terminal_interfaces'},
+    'OD-003': set(),
+    'OD-008': {'stages'},
+}
+RELEASE_SELECTION_LIST_FIELDS = {
+    'OD-002': {'outstanding', 'non_claims'},
+    'OD-003': {'required_analysis', 'outstanding'},
+    'OD-008': {'required_families', 'scheduled_later', 'outstanding'},
+}
+RELEASE_DECISION_FIELDS = {
+    decision_id: {'parent_status', 'selected'} | RELEASE_SELECTION_LIST_FIELDS[decision_id]
+    for decision_id in RELEASE_SELECTION_IDS
+}
+RELEASE_DECISION_FIELDS['OD-008'].add('product_objective')
 
 class SpecError(Exception):
     pass
@@ -236,6 +270,83 @@ def task_scope_errors(task_id: str, task: dict) -> list[str]:
     return errors
 
 
+def release_selection_errors(release_selection: Any, decisions: list[dict]) -> list[str]:
+    """Validate the selected direction without converting it into operational authority."""
+    prefix = 'plan/release-selection.json: '
+    if not isinstance(release_selection, dict):
+        return [prefix + 'root must be an object']
+    errors = []
+    if set(release_selection) != RELEASE_SELECTION_FIELDS:
+        errors.append(prefix + 'top-level fields are incomplete or unknown')
+    if release_selection.get('schema') != 'usk.spec.release-selection/1':
+        errors.append(prefix + 'unsupported schema')
+    if not ensure_timestamp(release_selection.get('recorded_at')):
+        errors.append(prefix + 'timezone-aware recorded_at required')
+    if release_selection.get('status') != 'development_direction_selected_qualification_outstanding':
+        errors.append(prefix + 'invalid development-direction status')
+    source = release_selection.get('source')
+    if not isinstance(source, dict) or set(source) != {'id', 'resource', 'title'} or any(
+            not isinstance(source.get(field), str) or not source[field]
+            for field in ('id', 'resource', 'title')):
+        errors.append(prefix + 'source must bind non-empty id, resource and title')
+
+    selected_decisions = release_selection.get('decisions')
+    if not isinstance(selected_decisions, dict) or set(selected_decisions) != RELEASE_SELECTION_IDS:
+        errors.append(prefix + 'expected OD-002, OD-003 and OD-008 selections')
+        selected_decisions = {}
+    decision_map = {decision.get('id'): decision for decision in decisions if isinstance(decision, dict)}
+    for decision_id, selection in selected_decisions.items():
+        parent = decision_map.get(decision_id, {})
+        if (parent.get('status') != 'open' or
+                parent.get('direction_status') != 'selected_with_outstanding_obligations'):
+            errors.append(decision_id + ': selected direction must retain an open parent with outstanding obligations')
+        expected_ref = 'release-selection.json#/decisions/' + decision_id
+        if parent.get('selected_direction_ref') != expected_ref:
+            errors.append(decision_id + ': selected direction reference mismatch')
+        if (not isinstance(parent.get('outstanding_obligations'), list) or
+                not parent['outstanding_obligations'] or
+                any(not isinstance(item, str) or not item for item in parent['outstanding_obligations'])):
+            errors.append(decision_id + ': parent decision must retain outstanding obligations')
+        if not isinstance(selection, dict) or selection.get('parent_status') != 'open':
+            errors.append(decision_id + ': release selection must declare open parent status')
+            continue
+        if set(selection) != RELEASE_DECISION_FIELDS[decision_id]:
+            errors.append(decision_id + ': selection fields are incomplete or unknown')
+        selected = selection.get('selected')
+        if not isinstance(selected, dict):
+            errors.append(decision_id + ': selected direction must be an object')
+        else:
+            expected_selected = (RELEASE_SELECTED_STRING_FIELDS[decision_id] |
+                                 RELEASE_SELECTED_LIST_FIELDS[decision_id])
+            if set(selected) != expected_selected:
+                errors.append(decision_id + ': selected fields are incomplete or unknown')
+            for field in sorted(RELEASE_SELECTED_STRING_FIELDS[decision_id]):
+                if not isinstance(selected.get(field), str) or not selected[field]:
+                    errors.append(decision_id + ': missing selected.' + field)
+            for field in sorted(RELEASE_SELECTED_LIST_FIELDS[decision_id]):
+                value = selected.get(field)
+                if (not isinstance(value, list) or not value or
+                        any(not isinstance(item, str) or not item for item in value)):
+                    errors.append(decision_id + ': selected.' + field + ' must be a non-empty string list')
+        for field in sorted(RELEASE_SELECTION_LIST_FIELDS[decision_id]):
+            value = selection.get(field)
+            if (not isinstance(value, list) or not value or
+                    any(not isinstance(item, str) or not item for item in value)):
+                errors.append(decision_id + ': ' + field + ' must be a non-empty string list')
+        if decision_id == 'OD-008':
+            if not isinstance(selection.get('product_objective'), str) or not selection['product_objective']:
+                errors.append(decision_id + ': product_objective must be a non-empty string')
+            if isinstance(selected, dict) and selected.get('current_release_readiness') != 'not established':
+                errors.append(decision_id + ': release readiness must remain not established')
+
+    selection_authority = release_selection.get('authority')
+    if not isinstance(selection_authority, dict) or set(selection_authority) != RELEASE_AUTHORITY_FIELDS:
+        errors.append(prefix + 'authority ceiling fields are incomplete or unknown')
+    elif any(value is not False for value in selection_authority.values()):
+        errors.append(prefix + 'direction selection must not grant operational authority')
+    return errors
+
+
 def local_link_errors(root: Path, page: Path, body: str) -> list[str]:
     errors = []
     for match in LINK_RE.finditer(body):
@@ -344,23 +455,7 @@ def load_bundle(root: Path) -> dict:
         for tid in decision.get('blocks',[]):
             if tid not in tasks: errors.append(decision['id']+': missing blocked task '+tid)
     release_selection = load_json(root/'plan/release-selection.json')
-    if release_selection.get('schema') != 'usk.spec.release-selection/1':
-        errors.append('plan/release-selection.json: unsupported schema')
-    selected_decisions = release_selection.get('decisions')
-    if not isinstance(selected_decisions, dict) or set(selected_decisions) != {'OD-002','OD-003','OD-008'}:
-        errors.append('plan/release-selection.json: expected OD-002, OD-003 and OD-008 selections')
-        selected_decisions = {}
-    decision_map = {decision.get('id'):decision for decision in decisions}
-    for decision_id, selection in selected_decisions.items():
-        if decision_map.get(decision_id, {}).get('status') != 'open':
-            errors.append(decision_id + ': selected direction must retain open parent status until obligations close')
-        if not isinstance(selection, dict) or selection.get('parent_status') != 'open':
-            errors.append(decision_id + ': release selection must declare open parent status')
-    selection_authority = release_selection.get('authority')
-    if not isinstance(selection_authority, dict) or not selection_authority:
-        errors.append('plan/release-selection.json: missing authority ceiling')
-    elif any(value is not False for value in selection_authority.values()):
-        errors.append('plan/release-selection.json: direction selection must not grant operational authority')
+    errors.extend(release_selection_errors(release_selection, decisions))
     if errors:
         raise SpecError('\n'.join(errors))
     repository_status = load_json(root/'integration/repository-status.json')

@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path, PurePosixPath
+import subprocess
 import unittest
 
 
@@ -89,6 +90,26 @@ class SpecificationImplementationInventoryTests(unittest.TestCase):
         self.assertTrue(self.inventory["release_scope"].startswith("selected: Universal Setup 1.1"))
         self.assertEqual(self.inventory["release_selection_ref"], "spec/plan/release-selection.json")
         self.assertEqual(self.inventory["counts"]["outside_selected_release"], 0)
+
+    def test_repository_base_commit_and_tree_are_exact(self) -> None:
+        commit = self.inventory["repository_base_commit"]
+        tree = self.inventory["repository_base_tree"]
+        self.assertRegex(commit, r"\A[0-9a-f]{40}\Z")
+        self.assertRegex(tree, r"\A[0-9a-f]{40}\Z")
+        if not (ROOT / ".git").exists():
+            self.skipTest("Git metadata unavailable")
+        result = subprocess.run(
+            ["git", "rev-parse", f"{commit}^{{commit}}", f"{commit}^{{tree}}"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        resolved_commit, resolved_tree = result.stdout.splitlines()
+        self.assertEqual(resolved_commit, commit)
+        self.assertEqual(resolved_tree, tree)
 
     def test_every_requirement_has_an_independent_release_disposition(self) -> None:
         allowed = {
