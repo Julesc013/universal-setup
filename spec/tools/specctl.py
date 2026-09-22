@@ -430,6 +430,51 @@ def source_binding_errors(root: Path, source: Any, aggregate: Any,
     return []
 
 
+def git_commit_errors(root: Path, commit: Any, tree: Any | None, prefix: str,
+                      require_main_reachability: bool = False) -> list[str]:
+    """Require a real commit (and optionally its exact tree) in the local Git graph."""
+    if not re.fullmatch(r'[0-9a-f]{40}', str(commit)):
+        return [prefix + ' commit is invalid']
+    if tree is not None and not re.fullmatch(r'[0-9a-f]{40}', str(tree)):
+        return [prefix + ' tree is invalid']
+    repository = root.parent
+    try:
+        observed_commit = subprocess.run(
+            ['git', 'rev-parse', '--verify', str(commit) + '^{commit}'], cwd=repository,
+            check=False, capture_output=True, text=True, timeout=30,
+        )
+        if observed_commit.returncode or observed_commit.stdout.strip() != commit:
+            return [prefix + ' commit is unavailable or non-canonical']
+        if tree is not None:
+            observed_tree = subprocess.run(
+                ['git', 'rev-parse', '--verify', str(commit) + '^{tree}'], cwd=repository,
+                check=False, capture_output=True, text=True, timeout=30,
+            )
+            if observed_tree.returncode or observed_tree.stdout.strip() != tree:
+                return [prefix + ' tree does not belong to its commit']
+        if require_main_reachability:
+            main_oid = ''
+            for main_ref in ('main^{commit}', 'refs/remotes/origin/main^{commit}'):
+                main = subprocess.run(
+                    ['git', 'rev-parse', '--verify', main_ref], cwd=repository,
+                    check=False, capture_output=True, text=True, timeout=30,
+                )
+                if not main.returncode:
+                    main_oid = main.stdout.strip()
+                    break
+            if not main_oid:
+                return [prefix + ' cannot verify reachability from main']
+            reachable = subprocess.run(
+                ['git', 'merge-base', '--is-ancestor', str(commit), main_oid], cwd=repository,
+                check=False, capture_output=True, timeout=30,
+            )
+            if reachable.returncode:
+                return [prefix + ' commit is not reachable from main']
+    except OSError as exc:
+        return [prefix + ' Git validation failed: ' + str(exc)]
+    return []
+
+
 def typed_receipt_record(root: Path, reference: Any, expected_schema: str,
                          expected_claim: str, prefix: str) -> tuple[dict, list[str]]:
     """Load an accepted, source-bound evidence receipt from the governed ledger."""
@@ -525,6 +570,11 @@ def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
                 details.get('branch') != 'main' or
                 any(not re.fullmatch(r'[0-9a-f]{40}', str(details.get(field, ''))) for field in ('commit', 'tree'))):
             errors.append(prefix + ' integration evidence must bind exact main commit/tree')
+        else:
+            errors.extend(git_commit_errors(
+                root, details.get('commit'), details.get('tree'),
+                prefix + ' integration evidence', require_main_reachability=True
+            ))
     elif expected_claim == 'release_1_1.published':
         assets = details.get('remote_assets')
         expected = {'candidate_sha256', 'tag', 'tag_commit', 'remote_assets',
@@ -539,6 +589,10 @@ def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
                  not item.get('name') or not SHA256_RE.fullmatch(str(item.get('sha256', ''))) or
                  not str(item.get('url', '')).startswith('https://') for item in assets):
             errors.append(prefix + ' publication assets require name, digest and HTTPS readback URL')
+        else:
+            errors.extend(git_commit_errors(
+                root, details.get('tag_commit'), None, prefix + ' publication evidence'
+            ))
     elif expected_claim == 'full_spec_baseline.complete':
         workunits = details.get('completed_workunits')
         expected_workunits = {f'USK-WU-{index:03d}' for index in range(1, 34)}
@@ -560,10 +614,22 @@ def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
 
 
 DECISION_EVIDENCE_KINDS = {
+    'OD-001': ('platform_publication_security', {
+        'enforcement', 'adversary_model_sha256', 'attack_evidence_sha256'
+    }),
     'OD-002': ('machine_qualification', {'candidate_sha256', 'profile', 'qualification_receipt'}),
     'OD-003': ('c_abi_analysis', {'analysis_sha256', 'contract_identity'}),
+    'OD-004': ('trust_provider_expiry', {
+        'trust_provider', 'offline_expiry_seconds', 'test_vectors_sha256'
+    }),
     'OD-008': ('release_plan', {'plan_sha256', 'target_release'}),
     'OD-005': ('campaign_authority_binding', {'authority_sha256', 'binding_policy'}),
+    'OD-006': ('lab_experience_assessment', {
+        'lab_target_identity', 'assessment_kind', 'observer_principals', 'assessment_sha256'
+    }),
+    'OD-007': ('performance_budget_measurement', {
+        'corpus_sha256', 'budget_p95_ms', 'measured_p95_ms'
+    }),
 }
 
 
@@ -580,7 +646,21 @@ def decision_evidence_errors(root: Path, decision_id: str, reference: Any,
     if (not isinstance(details, dict) or set(details) != expected_fields | {'evidence_kind'} or
             details.get('evidence_kind') != kind):
         errors.append(prefix + ' is not suitable typed evidence for ' + decision_id)
+        return errors
+    def required_sha256(field: str) -> bool:
+        return SHA256_RE.fullmatch(str(details.get(field, ''))) is not None
+    selection_path = root / 'plan/release-selection.json'
+    selection = load_json(selection_path) if selection_path.is_file() else {}
+    selected = selection.get('decisions', {}).get(decision_id, {}).get('selected', {}) if isinstance(selection, dict) else {}
+    if decision_id == 'OD-001':
+        if details.get('enforcement') != 'platform_enforced' or not all(
+                required_sha256(field) for field in ('adversary_model_sha256', 'attack_evidence_sha256')):
+            errors.append(prefix + ' must bind platform enforcement and exact adversary/attack evidence')
     if decision_id == 'OD-002' and isinstance(details, dict):
+        expected_profile = 'windows-nt-x86_64'
+        if (selected.get('os_family') != 'Windows NT' or selected.get('architecture') != 'x86_64' or
+                details.get('profile') != expected_profile):
+            errors.append(prefix + ' profile differs from the canonical OD-002 selection')
         nested = details.get('qualification_receipt')
         qualification, nested_errors = typed_receipt_record(
             root, nested, 'universal.machine_qualification_receipt/1',
@@ -591,6 +671,35 @@ def decision_evidence_errors(root: Path, decision_id: str, reference: Any,
         if (not isinstance(qualified, dict) or qualified.get('candidate_sha256') != details.get('candidate_sha256') or
                 qualified.get('profile') != details.get('profile') or qualified.get('result') != 'pass'):
             errors.append(prefix + ' qualification receipt does not support the decision evidence')
+    elif decision_id == 'OD-003':
+        if not required_sha256('analysis_sha256') or details.get('contract_identity') != selected.get('contract_identity'):
+            errors.append(prefix + ' must bind exact analysis to the canonical OD-003 contract identity')
+    elif decision_id == 'OD-004':
+        if (not isinstance(details.get('trust_provider'), str) or not details['trust_provider'] or
+                type(details.get('offline_expiry_seconds')) is not int or details['offline_expiry_seconds'] <= 0 or
+                not required_sha256('test_vectors_sha256')):
+            errors.append(prefix + ' must bind a trust provider, positive offline expiry and exact test vectors')
+    elif decision_id == 'OD-005':
+        authority_path = root.parent / 'release/index/campaign_authority.v1.toml'
+        if (not authority_path.is_file() or details.get('authority_sha256') != digest(authority_path.read_bytes()) or
+                details.get('binding_policy') != 'exact_non_widening_task_binding'):
+            errors.append(prefix + ' must bind the canonical campaign authority digest and non-widening policy')
+    elif decision_id == 'OD-006':
+        principals = details.get('observer_principals')
+        if (not isinstance(details.get('lab_target_identity'), str) or not details['lab_target_identity'].startswith('lab:') or
+                details.get('assessment_kind') not in {'automated', 'human', 'mixed'} or
+                not isinstance(principals, list) or not principals or
+                any(not isinstance(item, str) or not item for item in principals) or
+                not required_sha256('assessment_sha256')):
+            errors.append(prefix + ' must bind a lab target, attributed assessment and exact assessment evidence')
+    elif decision_id == 'OD-007':
+        if (not required_sha256('corpus_sha256') or type(details.get('budget_p95_ms')) is not int or
+                type(details.get('measured_p95_ms')) is not int or details['budget_p95_ms'] <= 0 or
+                details['measured_p95_ms'] < 0 or details['measured_p95_ms'] > details['budget_p95_ms']):
+            errors.append(prefix + ' must bind an exact corpus and a measurement within its p95 budget')
+    elif decision_id == 'OD-008':
+        if not required_sha256('plan_sha256') or details.get('target_release') != selected.get('target_release'):
+            errors.append(prefix + ' must bind an exact plan to the canonical OD-008 target release')
     return errors
 
 
@@ -749,14 +858,14 @@ def programme_status_errors(root: Path, status: Any, decisions: list[dict]) -> l
                     details = record.get('details', {})
                     if details.get('candidate_sha256'):
                         candidate_digests.add(details['candidate_sha256'])
-                    if field == 'integrated' and details.get('commit'):
+                    if field == 'integrated' and not record_errors and details.get('commit'):
                         integrated_commits.add(details['commit'])
-                    if field == 'published' and details.get('tag_commit'):
+                    if field == 'published' and not record_errors and details.get('tag_commit'):
                         published_commits.add(details['tag_commit'])
         if len(candidate_digests) > 1:
             errors.append(prefix + 'release evidence refers to different candidate bytes')
-        if integrated_commits and published_commits and integrated_commits != published_commits:
-            errors.append(prefix + 'published tag commit differs from integrated main commit')
+        if published_commits and integrated_commits != published_commits:
+            errors.append(prefix + 'published tag commit differs from a genuinely validated integrated main commit')
         if release.get('published') is True and not all(release.get(field) is True for field in (
                 'implementation_complete', 'machine_qualified', 'experience_assessed', 'integrated')):
             errors.append(prefix + 'published requires every prior 1.1 predicate')

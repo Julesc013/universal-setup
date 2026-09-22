@@ -135,6 +135,29 @@ class CampaignTaskBindingTests(unittest.TestCase):
         )
         self.assertTrue(any("not a typed governed receipt" in error for error in errors))
 
+    def test_workunit_receipt_dereferences_bounded_evidence_receipts(self) -> None:
+        source_commit = campaign_task_binding.git_oid("HEAD")
+        source_tree = campaign_task_binding.git_oid("HEAD^{tree}")
+        document = {
+            "schema": "universal.workunit_receipt.v1", "status": "accepted",
+            "workunit": "USK-WU-002", "source_commit": source_commit, "source_tree": source_tree,
+            "evidence": [{
+                "path": "release/evidence/no-such-workunit-evidence.json", "sha256": "0" * 64, "kind": "review",
+            }],
+        }
+        errors = campaign_task_binding.predecessor_receipt_errors(
+            "USK-WU-002", campaign_task_binding.ROOT / "release/evidence/example.json", document, source_commit
+        )
+        self.assertTrue(any("is missing or unsafe" in error for error in errors))
+        actual = campaign_task_binding.ROOT / "release/evidence/od-005-campaign-authority.json"
+        document["evidence"] = [{
+            "path": "release/evidence/od-005-campaign-authority.json", "sha256": campaign_task_binding.sha256(actual), "kind": "review",
+        }]
+        errors = campaign_task_binding.predecessor_receipt_errors(
+            "USK-WU-002", campaign_task_binding.ROOT / "release/evidence/example.json", document, source_commit
+        )
+        self.assertTrue(any("fields are incomplete or unknown" in error for error in errors))
+
     def test_effect_receipt_rejects_future_issuance_and_arbitrary_authority(self) -> None:
         path = campaign_task_binding.ROOT / "release/evidence/example.json"
         now = dt.datetime.now(dt.timezone.utc)

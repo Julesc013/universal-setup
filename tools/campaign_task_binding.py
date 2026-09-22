@@ -27,6 +27,7 @@ OID_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 SCOPE_FIELDS = ("context_paths", "allowed_paths", "read_only_paths", "forbidden_paths", "forbidden_operations")
 EFFECT_RE = re.compile(r"^[a-z][a-z0-9_.:-]{2,127}$")
+MAX_WORKUNIT_EVIDENCE = 32
 
 
 class BindingError(ValueError):
@@ -148,6 +149,49 @@ def receipt_document(path: Path) -> dict[str, Any]:
     return value
 
 
+def workunit_evidence_errors(
+    workunit: str, item: Any, source_commit: str, source_tree: str, index: int,
+) -> list[str]:
+    """Validate a bounded leaf evidence receipt; nested WorkUnit receipts are never followed."""
+    prefix = "accepted WorkUnit receipt evidence[" + str(index) + "]"
+    if (not isinstance(item, dict) or set(item) != {"path", "sha256", "kind"} or
+            not isinstance(item.get("path"), str) or not item["path"].startswith("release/evidence/") or
+            not item["path"].endswith(".json") or not SHA_RE.fullmatch(str(item.get("sha256", ""))) or
+            item.get("kind") not in {"acceptance", "qualification", "integration", "review"}):
+        return [prefix + " is not a typed governed receipt"]
+    try:
+        path = repository_path(item["path"])
+    except BindingError as exc:
+        return [prefix + " is missing or unsafe: " + str(exc)]
+    errors: list[str] = []
+    if sha256(path) != item["sha256"]:
+        errors.append(prefix + " digest is stale")
+        return errors
+    try:
+        if hashlib.sha256(git_file_bytes(source_commit, item["path"])).hexdigest() != item["sha256"]:
+            errors.append(prefix + " is not bound to the predecessor source")
+            return errors
+        nested = receipt_document(path)
+    except BindingError as exc:
+        return [prefix + " is unreadable from the predecessor source: " + str(exc)]
+    expected = {
+        "schema", "status", "campaign", "workunit", "kind", "claim", "source_commit", "source_tree", "details",
+    }
+    if set(nested) != expected:
+        errors.append(prefix + " fields are incomplete or unknown")
+        return errors
+    if (nested.get("schema") != "universal.workunit_evidence.v1" or nested.get("status") != "accepted" or
+            nested.get("campaign") != "USK-SPEC-TO-RELEASE-01" or nested.get("workunit") != workunit or
+            nested.get("kind") != item["kind"] or nested.get("claim") != "workunit:" + workunit + ":" + item["kind"] or
+            nested.get("source_commit") != source_commit or nested.get("source_tree") != source_tree or
+            not isinstance(nested.get("details"), dict)):
+        errors.append(prefix + " schema, kind, claim or source binding is invalid")
+    errors.extend(prefix + " " + error for error in source_identity_errors(
+        str(nested.get("source_commit", "")), str(nested.get("source_tree", ""))
+    ))
+    return errors
+
+
 def predecessor_receipt_errors(
     workunit: str, path: Path, document: dict[str, Any], source_commit: str,
 ) -> list[str]:
@@ -186,13 +230,11 @@ def predecessor_receipt_errors(
         evidence = document.get("evidence")
         if not isinstance(evidence, list) or not evidence:
             errors.append("accepted WorkUnit receipt requires typed evidence")
+        elif len(evidence) > MAX_WORKUNIT_EVIDENCE:
+            errors.append("accepted WorkUnit receipt exceeds bounded evidence count")
         else:
             for index, item in enumerate(evidence):
-                if (not isinstance(item, dict) or set(item) != {"path", "sha256", "kind"} or
-                        not isinstance(item.get("path"), str) or not item["path"].startswith("release/evidence/") or
-                        not item["path"].endswith(".json") or not SHA_RE.fullmatch(str(item.get("sha256", ""))) or
-                        item.get("kind") not in {"acceptance", "qualification", "integration", "review"}):
-                    errors.append("accepted WorkUnit receipt evidence[" + str(index) + "] is not a typed governed receipt")
+                errors.extend(workunit_evidence_errors(workunit, item, commit, tree, index))
     else:
         errors.append("unsupported predecessor receipt schema")
         return errors

@@ -353,12 +353,12 @@ class MutationTests(unittest.TestCase):
         qualification=self.typed_receipt(
             'test-machine-qualification.json','universal.machine_qualification_receipt/1',
             'release_1_1.machine_qualified',
-            {'candidate_sha256':'4'*64,'profile':'windows-nt-x64','result':'pass'},
+            {'candidate_sha256':'4'*64,'profile':'windows-nt-x86_64','result':'pass'},
         )
         evidence=self.typed_receipt(
             'test-od-002-decision.json','universal.decision_evidence/1','OD-002',
             {'evidence_kind':'machine_qualification','candidate_sha256':'4'*64,
-             'profile':'windows-nt-x64','qualification_receipt':qualification},
+             'profile':'windows-nt-x86_64','qualification_receipt':qualification},
         )
         decisions_path=self.root/'plan/open-decisions.json';decisions=m.load_json(decisions_path)
         decision=next(item for item in decisions['decisions'] if item['id']=='OD-002')
@@ -438,6 +438,42 @@ class MutationTests(unittest.TestCase):
             })]
         path.write_text(m.json_text(status))
         with self.assertRaisesRegex(m.SpecError,'qualification receipt.*release/evidence'):m.load_bundle(self.root)
+    def test_integration_and_publication_reject_unavailable_git_objects(self):
+        integration=self.programme_receipt('release_1_1.integrated',{
+            'candidate_sha256':'4'*64,'branch':'main','commit':'f'*40,'tree':'e'*40,
+        })
+        _, errors=m.programme_evidence_record(self.root,integration,'release_1_1.integrated','integration')
+        self.assertIn('integration integration evidence commit is unavailable or non-canonical',errors)
+        publication=self.programme_receipt('release_1_1.published',{
+            'candidate_sha256':'4'*64,'tag':'v1.1.0','tag_commit':'f'*40,
+            'remote_assets':[{'name':'bundle.zip','sha256':'5'*64,'url':'https://example.invalid/bundle.zip'}],
+            'remote_readback_at':'2026-09-22T00:00:00Z','immutable':True,'signing':'not_required_by_release_profile',
+        })
+        _, errors=m.programme_evidence_record(self.root,publication,'release_1_1.published','publication')
+        self.assertIn('publication publication evidence commit is unavailable or non-canonical',errors)
+    def test_each_decision_has_semantic_evidence_contract(self):
+        common={'source':{'commit':self.source_commit,'tree':self.source_tree},'spec_aggregate_sha256':self.source_aggregate}
+        qualification=self.typed_receipt('decision-qualification.json','universal.machine_qualification_receipt/1','release_1_1.machine_qualified',{
+            'candidate_sha256':'4'*64,'profile':'windows-nt-x86_64','result':'pass',
+        })
+        selection=m.load_json(self.root/'plan/release-selection.json')['decisions']
+        details={
+            'OD-001':{'evidence_kind':'platform_publication_security','enforcement':'platform_enforced','adversary_model_sha256':'1'*64,'attack_evidence_sha256':'2'*64},
+            'OD-002':{'evidence_kind':'machine_qualification','candidate_sha256':'4'*64,'profile':'windows-nt-x86_64','qualification_receipt':qualification},
+            'OD-003':{'evidence_kind':'c_abi_analysis','analysis_sha256':'3'*64,'contract_identity':selection['OD-003']['selected']['contract_identity']},
+            'OD-004':{'evidence_kind':'trust_provider_expiry','trust_provider':'platform-store','offline_expiry_seconds':3600,'test_vectors_sha256':'4'*64},
+            'OD-005':{'evidence_kind':'campaign_authority_binding','authority_sha256':hashlib.sha256((self.root.parent/'release/index/campaign_authority.v1.toml').read_bytes()).hexdigest(),'binding_policy':'exact_non_widening_task_binding'},
+            'OD-006':{'evidence_kind':'lab_experience_assessment','lab_target_identity':'lab:windows-nt-x86_64','assessment_kind':'automated','observer_principals':['agent:qualification'],'assessment_sha256':'5'*64},
+            'OD-007':{'evidence_kind':'performance_budget_measurement','corpus_sha256':'6'*64,'budget_p95_ms':100,'measured_p95_ms':99},
+            'OD-008':{'evidence_kind':'release_plan','plan_sha256':'7'*64,'target_release':selection['OD-008']['selected']['target_release']},
+        }
+        for decision_id, detail in details.items():
+            with self.subTest(decision_id=decision_id):
+                reference=self.typed_receipt('decision-'+decision_id+'.json','universal.decision_evidence/1',decision_id,detail)
+                self.assertEqual(m.decision_evidence_errors(self.root,decision_id,reference,decision_id),[])
+        bad=details['OD-005'].copy();bad['authority_sha256']='0'*64
+        reference=self.typed_receipt('decision-OD-005-bad.json','universal.decision_evidence/1','OD-005',bad)
+        self.assertTrue(any('canonical campaign authority digest' in error for error in m.decision_evidence_errors(self.root,'OD-005',reference,'OD-005')))
     def test_resolved_decision_rejects_generic_evidence(self):
         decisions_path=self.root/'plan/open-decisions.json';decisions=m.load_json(decisions_path)
         decision=next(item for item in decisions['decisions'] if item['id']=='OD-003')
