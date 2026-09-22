@@ -1,11 +1,11 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-22T08:40:02Z",
+  "generated_at": "2026-09-22T08:43:01Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "5e9152a11f07559f6e60cfb5bbc7351917e44353",
   "repository_base_tree": "6786355652ffec48bd7a3118528f6ecd333fe29e",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "d3d50384b3727e3512b444a28441bf2188f308fc8496839dd853e983b82ca622",
+  "spec_aggregate_sha256": "37c24562ca32d36d3df0f9f586dd896c7d9a5d3111b504d724102435ab9ee797",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
@@ -2244,7 +2244,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "c03da4fd00b32956360341a966db1079f4b6b7b2f16b6d4788b67acf73893ed3"
+          "sha256": "ffcd2bfb6abb0ad1699f5c069efc40d9b1ec7f0d7d8c7da96ec80c7f9d24f403"
         }
       ],
       "acceptance_ids": [
@@ -2280,7 +2280,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "c03da4fd00b32956360341a966db1079f4b6b7b2f16b6d4788b67acf73893ed3"
+          "sha256": "ffcd2bfb6abb0ad1699f5c069efc40d9b1ec7f0d7d8c7da96ec80c7f9d24f403"
         }
       ],
       "acceptance_ids": [

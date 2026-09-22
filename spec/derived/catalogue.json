@@ -547,7 +547,7 @@
       "path": "plan/tasks/usk-wu-004.md",
       "title": "Specify publication adversary and enforceable guarantee",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "dfc86251373102fb9263c2de6574de8fc0ea2f3cb10fce501b242b7c60d5270f",
+      "sha256": "7fb02ec5efde058de579ec49b14ebd386e2c0206ef60647f35697fc7ff78f4b3",
       "depends_on": [
         "USK-S-THREAT",
         "USK-S-PUB",
@@ -2846,7 +2846,8 @@
       "allowed_paths": [
         "spec/**",
         "tests/**",
-        "docs/security/**"
+        "docs/security/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
