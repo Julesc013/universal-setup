@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_sha256.h"
+#include "usk_json.h"
 #include "usk_streaming_source_target.h"
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -165,7 +167,7 @@ int cancellation_and_faults()
         value.progress = &cancellation;
         const auto result = streaming::stream_directory_to_target(std::move(value));
         if (result.completed || result.error_code != "stream_cancelled" ||
-            result.disposition != "rolled_back_no_target_visible" ||
+            result.disposition != "recovery_required_no_target_visible" ||
             fs::exists(spec.target_root)) {
             return 30;
         }
@@ -182,7 +184,7 @@ int cancellation_and_faults()
             }
         };
         const auto result = streaming::stream_directory_to_target(std::move(value));
-        if (result.completed || result.disposition != "rolled_back_no_target_visible" ||
+        if (result.completed || result.disposition != "recovery_required_no_target_visible" ||
             fs::exists(spec.target_root)) return 31;
     }
     for (const std::string boundary : {
@@ -201,7 +203,7 @@ int cancellation_and_faults()
         };
         const auto result = streaming::stream_directory_to_target(std::move(value));
         if (result.completed || result.error_code != "stream_cancelled" ||
-            result.disposition != "rolled_back_no_target_visible" ||
+            result.disposition != "recovery_required_no_target_visible" ||
             fs::exists(spec.target_root)) return 35;
     }
     {
@@ -216,7 +218,7 @@ int cancellation_and_faults()
             }
         };
         const auto result = streaming::stream_directory_to_target(std::move(value));
-        if (result.completed || result.disposition != "rolled_back_no_target_visible" ||
+        if (result.completed || result.disposition != "recovery_required_no_target_visible" ||
             fs::exists(spec.target_root)) return 32;
     }
     {
@@ -231,7 +233,7 @@ int cancellation_and_faults()
             }
         };
         const auto result = streaming::stream_directory_to_target(std::move(value));
-        if (result.completed || result.disposition != "rolled_back_no_target_visible" ||
+        if (result.completed || result.disposition != "recovery_required_no_target_visible" ||
             fs::exists(spec.target_root)) return 34;
     }
     {
@@ -270,6 +272,211 @@ int identity_and_integrity_faults()
     return 0;
 }
 
+std::string read_text(const fs::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input) throw std::runtime_error("cannot read retention fixture");
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+void write_text(const fs::path& path, const std::string& text)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << text;
+    if (!output) throw std::runtime_error("cannot write retention fixture");
+}
+
+int ownership_cleanup_faults()
+{
+    for (const std::string scenario : {
+             "existing-file", "before-create", "replaced-file",
+             "replaced-directory", "replaced-empty-directory", "staged-restart"}) {
+        Fixture fixture("ownership-" + scenario);
+        const auto spec = fixture.spec("ownership");
+        const fs::path journal = spec.state_root / "transactions" /
+            (spec.transaction_id + ".journal.json");
+        fs::path destination;
+        const fs::path retained = fixture.root / "retained-original";
+        const std::string payload = "reviewed payload";
+        const std::string foreign = (scenario == "replaced-file" || scenario == "staged-restart")
+            ? payload : "foreign content must survive cleanup";
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(payload.data()), payload.size());
+        const std::string expected = digest.finish();
+        bool retention_observed_before_file_effect = false;
+        auto transaction = std::make_unique<usk::transaction::TransactionSession>(
+            spec, [&](const std::string&, const std::string& point) {
+                if (point == "before_stage_stream") {
+                    const auto document = usk::json::parse(read_text(journal));
+                    const auto& metadata = document.at("recovery_metadata");
+                    retention_observed_before_file_effect =
+                        metadata.at("stream_cleanup_policy").as_string() == "retain_only" &&
+                        metadata.at("staging_identity").type() == usk::json::Value::Type::null_value;
+                    if (scenario == "before-create") {
+                        write_text(destination, foreign);
+                        throw std::runtime_error("injected refusal before exclusive creation");
+                    }
+                    if (scenario == "replaced-empty-directory") {
+                        fs::rename(destination.parent_path(), retained);
+                        fs::create_directory(destination.parent_path());
+                        throw std::runtime_error("injected empty directory substitution before file creation");
+                    }
+                }
+                if (point != "after_stage_stream") return;
+                if (scenario == "replaced-file") {
+                    // Move the original outside staging, then substitute an
+                    // identical-byte foreign object: path/hash cannot expose it.
+                    fs::rename(destination, retained);
+                    write_text(destination, foreign);
+                    throw std::runtime_error("injected identical-byte pathname substitution");
+                }
+                if (scenario == "replaced-directory") {
+                    fs::rename(destination.parent_path(), retained);
+                    fs::create_directory(destination.parent_path());
+                    throw std::runtime_error("injected staged directory substitution");
+                }
+            });
+        destination = transaction->staging_root() / "nested" / "payload.bin";
+        if (scenario == "existing-file") {
+            fs::create_directory(destination.parent_path());
+            write_text(destination, foreign);
+        }
+        std::size_t offset = 0;
+        bool refused = false;
+        try {
+            (void)transaction->stage_file_stream(
+                fs::path("nested") / "payload.bin", payload.size(), expected, kBufferBytes,
+                [&](unsigned char* output, std::size_t capacity) -> std::size_t {
+                    const std::size_t count = std::min(capacity, payload.size() - offset);
+                    for (std::size_t index = 0; index < count; ++index) {
+                        output[index] = static_cast<unsigned char>(payload[offset + index]);
+                    }
+                    offset += count;
+                    return count;
+                });
+        } catch (const std::exception&) {
+            refused = true;
+        }
+        if (!retention_observed_before_file_effect || fs::exists(spec.target_root) ||
+            (scenario == "staged-restart" ? refused : !refused)) return 50;
+        if (scenario != "staged-restart") {
+            bool rollback_refused = false;
+            try { transaction->rollback(); } catch (const std::exception&) { rollback_refused = true; }
+            if (!rollback_refused) return 51;
+        }
+        transaction.reset(); // No live state may be used by the resumed decision.
+        if (scenario == "staged-restart") {
+            fs::rename(destination, retained);
+            write_text(destination, foreign);
+        }
+        const auto assert_retained = [&]() -> bool {
+            const bool directory_case = scenario == "replaced-directory" ||
+                scenario == "replaced-empty-directory";
+            if (directory_case) {
+                if (!fs::is_directory(destination.parent_path()) ||
+                    !fs::is_empty(destination.parent_path()) || !fs::is_directory(retained)) return false;
+                return scenario == "replaced-empty-directory"
+                    ? fs::is_empty(retained)
+                    : usk::base::sha256_hex_file(retained / "payload.bin") == expected;
+            }
+            if (read_text(destination) != foreign) return false;
+            return (scenario != "replaced-file" && scenario != "staged-restart") ||
+                usk::base::sha256_hex_file(retained) == expected;
+        };
+        const auto assert_reopen_refuses = [&]() -> bool {
+            const auto recovery = usk::transaction::TransactionSession::inspect_recovery(spec);
+            if (!recovery.staging_exists || recovery.target_exists ||
+                recovery.available_actions != std::vector<std::string>{"retain_for_operator"}) return false;
+            bool rollback_refused = false;
+            try {
+                auto resumed = usk::transaction::TransactionSession::resume_rollback(spec);
+                resumed->rollback();
+            } catch (const std::exception&) { rollback_refused = true; }
+            return rollback_refused && assert_retained();
+        };
+        if (!assert_reopen_refuses()) return 52;
+        const std::string original_journal = read_text(journal);
+        auto document = usk::json::parse(original_journal);
+        auto& metadata = document.as_object().at("recovery_metadata").as_object();
+        if (metadata.at("staging_identity").type() != usk::json::Value::Type::null_value) return 53;
+        metadata.erase("stream_cleanup_policy");
+        write_text(journal, usk::json::canonical(document));
+        // Simulate a reader that ignores the optional field: absent identity
+        // must independently prevent automatic rollback of identical bytes.
+        if (!assert_reopen_refuses()) return 54;
+        for (const auto& invalid : {usk::json::Value("delete_allowed"), usk::json::Value(true)}) {
+            document = usk::json::parse(original_journal);
+            document.as_object().at("recovery_metadata").as_object()["stream_cleanup_policy"] = invalid;
+            write_text(journal, usk::json::canonical(document));
+            bool invalid_refused = false;
+            try { (void)usk::transaction::TransactionSession::inspect_recovery(spec); }
+            catch (const std::exception&) { invalid_refused = true; }
+            if (!invalid_refused || !assert_retained()) return 55;
+        }
+        write_text(journal, original_journal);
+    }
+    return 0;
+}
+
+int streamed_visible_target_finalization()
+{
+    Fixture fixture("stream-finalization");
+    const auto spec = fixture.spec("stream-finalization");
+    const std::string payload = "retained streaming can finalize after target visibility";
+    usk::base::Sha256 digest;
+    digest.update(reinterpret_cast<const unsigned char*>(payload.data()), payload.size());
+    const std::string expected = digest.finish();
+    {
+        usk::transaction::TransactionSession transaction(spec);
+        std::size_t offset = 0;
+        (void)transaction.stage_file_stream(
+            "payload.bin", payload.size(), expected, kBufferBytes,
+            [&](unsigned char* output, std::size_t capacity) -> std::size_t {
+                const std::size_t count = std::min(capacity, payload.size() - offset);
+                for (std::size_t index = 0; index < count; ++index) {
+                    output[index] = static_cast<unsigned char>(payload[offset + index]);
+                }
+                offset += count;
+                return count;
+            });
+        transaction.mark_staged();
+        transaction.mark_verified();
+        transaction.commit_effect();
+    }
+    const auto recovery = usk::transaction::TransactionSession::inspect_recovery(spec);
+    if (recovery.available_actions != std::vector<std::string>{"resume"} ||
+        recovery.staging_exists || !recovery.target_exists) return 56;
+    auto resumed = usk::transaction::TransactionSession::resume_finalization(spec);
+    resumed->mark_committed();
+    resumed->mark_completed();
+    if (usk::base::sha256_hex_file(spec.target_root / "payload.bin") != expected ||
+        usk::transaction::TransactionSession::inspect_recovery(spec).current_state != "completed") return 57;
+    return 0;
+}
+
+int apply_entry_budget_refusal()
+{
+    Fixture fixture("apply-budget");
+    write_generated(fixture.source / "first.bin", 19u, 1u);
+    write_generated(fixture.source / "second.bin", 23u, 2u);
+    const auto source = streaming::inspect_directory_source(
+        fixture.source, {kBufferBytes, 2u});
+    const auto spec = fixture.spec("apply-budget");
+    auto value = request(source, spec, "apply-budget");
+    value.budget.maximum_entries = 1u;
+    bool transaction_observed = false;
+    value.fault = [&](const std::string&, const std::string&, std::uint64_t) {
+        transaction_observed = true;
+    };
+    const auto result = streaming::stream_directory_to_target(std::move(value));
+    if (result.completed || result.disposition != "refused_before_transaction" ||
+        !contains(result.detail, "apply entry budget") || transaction_observed ||
+        result.entries_completed != 0u || result.bytes_completed != 0u ||
+        fs::exists(spec.target_root) || !fs::is_empty(fixture.staging) ||
+        !fs::is_empty(fixture.state / "transactions") || !fs::is_empty(fixture.audit)) return 60;
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -278,6 +485,9 @@ int main()
     if (const int result = bounded_memory_proof()) return result;
     if (const int result = cancellation_and_faults()) return result;
     if (const int result = identity_and_integrity_faults()) return result;
+    if (const int result = ownership_cleanup_faults()) return result;
+    if (const int result = streamed_visible_target_finalization()) return result;
+    if (const int result = apply_entry_budget_refusal()) return result;
     std::cout << "usk-streaming-source-target: ok; peak_payload_buffer_bytes="
               << kBufferBytes << "; logical_max_bytes=" << (512ull * 1024ull * 1024ull)
               << "; public_abi=1.0-unchanged\n";

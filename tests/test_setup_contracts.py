@@ -340,6 +340,16 @@ class SetupContractTests(unittest.TestCase):
             True,
         )
 
+    def test_stream_retention_cannot_grant_journal_rollback_authority(self) -> None:
+        metadata = load_schema("transaction_journal")["properties"]["recovery_metadata"]
+        self.assertFalse(metadata["additionalProperties"])
+        self.assertEqual(metadata["properties"]["stream_cleanup_policy"], {"enum": ["retain_only"]})
+        self.assertNotIn("stream_cleanup_policy", metadata["required"])
+        self.assertEqual(
+            metadata["dependentSchemas"]["stream_cleanup_policy"]["properties"]["staging_identity"],
+            {"type": "null"},
+        )
+
     def test_audit_and_lifecycle_reports_preserve_foreign_content(self) -> None:
         audit = load_schema("audit_event")
         self.assertIn("previous_event_digest", audit["required"])
