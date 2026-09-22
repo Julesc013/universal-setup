@@ -28,6 +28,12 @@ REQUIRED_STATUS_CHECKS = [
 ]
 GITHUB_RULESET_ID = 20445004
 GITHUB_ACTIONS_INTEGRATION_ID = 15368
+ASSOCIATED_PROMOTION_PR_PAGE_SIZE = 100
+MAX_ASSOCIATED_PROMOTION_PR_PAGES = 3
+CLOSEOUT_PROOF_FIELDS = {
+    "live_main_tip_oid", "live_dev_tip_oid", "promotion_merge",
+    "dev_base_tree_oid", "prior_main_ancestry", "promotion_pull_request",
+}
 
 
 EXPECTED_POLICY = {
@@ -52,8 +58,8 @@ EXPECTED_POLICY = {
         "consumer_pins_may_reference_dev": False,
     },
     "synchronization": {
-        "after_dev_promotion": "fast_forward_dev_to_canonical_main_closeout",
-        "after_main_hotfix": "open_main_to_dev_pull_request",
+        "after_dev_promotion": "zero_content_normal_pull_request_main_to_dev_closeout",
+        "after_main_hotfix": "require_separate_hotfix_reconciliation_review",
         "unrelated_divergence": "fail_for_technical_review",
         "force_reset_dev": False,
     },
@@ -92,6 +98,11 @@ EXPECTED_POLICY = {
         "mergeable_required": True,
         "technical_review_exact_head_required": True,
         "normal_pull_request_path_required": True,
+        "post_promotion_closeout_main_to_dev_route_only": True,
+        "post_promotion_closeout_exact_live_tips_required": True,
+        "post_promotion_closeout_two_parent_promotion_merge_required": True,
+        "post_promotion_closeout_zero_content_tree_required": True,
+        "post_promotion_closeout_exact_merged_pr_provenance_required": True,
     },
     "release_gate": {
         "exact_main_source_required": True,
@@ -229,29 +240,100 @@ def check_campaign_data(data: dict[str, Any]) -> list[str]:
     return problems
 
 
+def _closeout_proof_errors(observation: dict[str, Any]) -> list[str]:
+    """Validate the closed live facts required for a main-to-dev closeout."""
+    errors: list[str] = []
+    proof = observation.get("closeout_proof")
+    if not isinstance(proof, dict) or set(proof) != CLOSEOUT_PROOF_FIELDS:
+        return ["main-to-dev closeout proof is missing or malformed"]
+    expected_head = observation.get("expected_head_oid")
+    expected_base = observation.get("expected_base_oid")
+    if proof.get("live_main_tip_oid") != expected_head:
+        errors.append("closeout proof is not bound to the live main tip")
+    if proof.get("live_dev_tip_oid") != expected_base:
+        errors.append("closeout proof is not bound to the live dev tip")
+
+    merge = proof.get("promotion_merge")
+    if not isinstance(merge, dict) or set(merge) != {"oid", "tree_oid", "parent_oids"}:
+        errors.append("closeout promotion merge proof is malformed")
+        parents: list[Any] = []
+    else:
+        parents = merge.get("parent_oids") if isinstance(merge.get("parent_oids"), list) else []
+        if merge.get("oid") != expected_head:
+            errors.append("closeout promotion merge is not the exact main head")
+        if not OID_RE.fullmatch(str(merge.get("tree_oid", ""))):
+            errors.append("closeout promotion merge tree is invalid")
+        if (len(parents) != 2 or any(not OID_RE.fullmatch(str(parent)) for parent in parents) or
+                (len(parents) == 2 and parents[0] == parents[1])):
+            errors.append("closeout promotion merge must have exactly two Git parents")
+        elif parents[1] != expected_base:
+            errors.append("closeout promotion merge second parent is not the exact dev base")
+        if merge.get("tree_oid") != proof.get("dev_base_tree_oid"):
+            errors.append("closeout promotion merge tree differs from the exact dev base tree")
+    if not OID_RE.fullmatch(str(proof.get("dev_base_tree_oid", ""))):
+        errors.append("closeout dev base tree is invalid")
+
+    ancestry = proof.get("prior_main_ancestry")
+    expected_prior = parents[0] if len(parents) == 2 else None
+    if not isinstance(ancestry, dict) or set(ancestry) != {
+        "ancestor_oid", "descendant_oid", "merge_base_oid", "status",
+    }:
+        errors.append("closeout prior-main ancestry proof is malformed")
+    else:
+        if ancestry.get("ancestor_oid") != expected_prior or ancestry.get("descendant_oid") != expected_base:
+            errors.append("closeout prior-main ancestry is not bound to the promotion parents")
+        if ancestry.get("merge_base_oid") != expected_prior or ancestry.get("status") != "AHEAD":
+            errors.append("closeout prior-main is not an ancestor of the exact dev base")
+
+    promotion_pr = proof.get("promotion_pull_request")
+    if not isinstance(promotion_pr, dict) or set(promotion_pr) != {
+        "number", "merged", "base_ref", "head_ref", "base_repository", "head_repository",
+        "merge_commit_oid", "head_oid",
+    }:
+        errors.append("closeout promotion pull-request proof is malformed")
+    else:
+        if type(promotion_pr.get("number")) is not int or promotion_pr["number"] <= 0:
+            errors.append("closeout promotion pull-request number is invalid")
+        if promotion_pr.get("merged") is not True:
+            errors.append("closeout promotion pull request is not merged")
+        if promotion_pr.get("base_ref") != "main" or promotion_pr.get("head_ref") != "dev":
+            errors.append("closeout promotion pull request is not dev-to-main")
+        if (promotion_pr.get("base_repository") != "Julesc013/universal-setup" or
+                promotion_pr.get("head_repository") != "Julesc013/universal-setup"):
+            errors.append("closeout promotion pull request must use canonical same-repository refs")
+        if promotion_pr.get("merge_commit_oid") != expected_head or promotion_pr.get("head_oid") != expected_base:
+            errors.append("closeout promotion pull request is not bound to the exact merge and dev base")
+    return errors
+
+
 def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
     """Validate a closed observation produced by the live GitHub collector below."""
     errors: list[str] = []
     expected_top = {
         "schema", "collector", "collected_from_github", "repository", "pull_request",
-        "base_ref", "head_ref", "expected_head_oid", "observed_head_oid",
+        "base_ref", "head_ref", "base_repository", "head_repository", "expected_head_oid", "observed_head_oid",
         "expected_base_oid", "observed_base_oid", "state", "draft", "mergeable",
         "merge_state_status", "merge_method", "direct_protected_push", "force_update",
         "bypass", "unresolved_threads", "author_context", "executor_context",
         "author_login", "required_check_policy", "required_checks", "technical_review",
+        "closeout_proof",
     }
     if set(observation) != expected_top:
         errors.append("merge observation fields are incomplete or unknown")
-    if observation.get("schema") != "universal.github_merge_observation.v1":
+    if observation.get("schema") != "universal.github_merge_observation.v2":
         errors.append("merge observation schema is invalid")
-    if observation.get("collector") != "tools/branch_policy_check.py/live-v1" or observation.get("collected_from_github") is not True:
+    if observation.get("collector") != "tools/branch_policy_check.py/live-v2" or observation.get("collected_from_github") is not True:
         errors.append("merge observation must come from the live GitHub collector")
     if observation.get("repository") != "Julesc013/universal-setup":
         errors.append("merge observation repository is invalid")
+    if (observation.get("head_repository") != "Julesc013/universal-setup" or
+            observation.get("base_repository") != "Julesc013/universal-setup"):
+        errors.append("pull request must use canonical same-repository refs")
     if type(observation.get("pull_request")) is not int or observation["pull_request"] <= 0:
         errors.append("pull request number is invalid")
     head_ref = observation.get("head_ref")
     base_ref = observation.get("base_ref")
+    main_to_dev_closeout = False
     if not isinstance(head_ref, str) or not head_ref:
         errors.append("pull request refs are invalid")
     elif head_ref.startswith("task/"):
@@ -260,8 +342,17 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
     elif head_ref == "dev":
         if base_ref != "main":
             errors.append("dev promotion pull request must target main")
+    elif head_ref == "main":
+        if base_ref != "dev":
+            errors.append("main closeout pull request must target dev")
+        else:
+            main_to_dev_closeout = True
     else:
         errors.append("pull request route is not declared by branch policy")
+    if main_to_dev_closeout:
+        errors.extend(_closeout_proof_errors(observation))
+    elif observation.get("closeout_proof") is not None:
+        errors.append("closeout proof must be null outside main-to-dev closeout")
     for field in ("expected_head_oid", "observed_head_oid", "expected_base_oid", "observed_base_oid"):
         if not OID_RE.fullmatch(str(observation.get(field, ""))):
             errors.append(field + " must be a Git object ID")
@@ -304,7 +395,7 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
             errors.append("required check observations do not exactly cover the pinned set")
         for check in checks:
             if not isinstance(check, dict) or set(check) != {
-                "name", "status", "conclusion", "head_oid", "base_oid",
+                "name", "status", "conclusion", "head_oid",
                 "integration_id", "details_url",
             }:
                 errors.append("required check observation is malformed")
@@ -317,8 +408,6 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
                 errors.append("required check details URL is invalid: " + str(check.get("name")))
             if check.get("head_oid") != observation.get("expected_head_oid"):
                 errors.append("required check is bound to a stale head: " + str(check.get("name")))
-            if check.get("base_oid") != observation.get("expected_base_oid"):
-                errors.append("required check is bound to a stale base: " + str(check.get("name")))
     review = observation.get("technical_review")
     if not isinstance(review, dict):
         errors.append("technical review is missing")
@@ -424,6 +513,90 @@ def _review_from_github(
     }
 
 
+def _live_branch_tip(repository: str, branch: str) -> str:
+    ref = _gh_json([f"repos/{repository}/git/ref/heads/{branch}"])
+    tip = ref.get("object", {})
+    if tip.get("type") != "commit" or not OID_RE.fullmatch(str(tip.get("sha", ""))):
+        raise RuntimeError("live branch tip is not a commit: " + branch)
+    return tip["sha"]
+
+
+def _collect_closeout_proof(repository: str, head_oid: str, base_oid: str) -> dict[str, Any]:
+    """Read and bind the one zero-content promotion closeout shape from GitHub."""
+    main_tip = _live_branch_tip(repository, "main")
+    dev_tip = _live_branch_tip(repository, "dev")
+    if main_tip != head_oid or dev_tip != base_oid:
+        raise RuntimeError("main-to-dev closeout is not bound to the live main and dev tips")
+
+    promotion = _gh_json([f"repos/{repository}/git/commits/{head_oid}"])
+    dev_base = _gh_json([f"repos/{repository}/git/commits/{base_oid}"])
+    parents = [parent.get("sha") for parent in promotion.get("parents", []) if isinstance(parent, dict)]
+    promotion_tree = promotion.get("tree", {}).get("sha")
+    dev_tree = dev_base.get("tree", {}).get("sha")
+    if (len(parents) != 2 or any(not OID_RE.fullmatch(str(parent)) for parent in parents) or
+            (len(parents) == 2 and parents[0] == parents[1]) or
+            parents[1] != base_oid or not OID_RE.fullmatch(str(promotion_tree)) or
+            promotion_tree != dev_tree):
+        raise RuntimeError("main-to-dev closeout lacks an exact zero-content promotion merge")
+
+    comparison = _gh_json([f"repos/{repository}/compare/{parents[0]}...{base_oid}"])
+    comparison_status = str(comparison.get("status", "")).upper()
+    merge_base_oid = comparison.get("merge_base_commit", {}).get("sha")
+    if comparison_status != "AHEAD" or merge_base_oid != parents[0]:
+        raise RuntimeError("promotion prior-main is not an ancestor of the exact dev base")
+
+    associated: list[Any] = []
+    for page in range(1, MAX_ASSOCIATED_PROMOTION_PR_PAGES + 1):
+        page_items = _gh_json([
+            f"repos/{repository}/commits/{head_oid}/pulls", "--method", "GET", "-f",
+            f"per_page={ASSOCIATED_PROMOTION_PR_PAGE_SIZE}", "-f", f"page={page}",
+        ])
+        if not isinstance(page_items, list):
+            raise RuntimeError("associated promotion pull-request response is malformed")
+        associated.extend(page_items)
+        if len(page_items) < ASSOCIATED_PROMOTION_PR_PAGE_SIZE:
+            break
+    else:
+        raise RuntimeError("associated promotion pull-request set exceeds bounded collector")
+    candidates = [item for item in associated if isinstance(item, dict) and
+                  item.get("merged_at") is not None and
+                  item.get("base", {}).get("ref") == "main" and
+                  item.get("head", {}).get("ref") == "dev" and
+                  item.get("base", {}).get("repo", {}).get("full_name") == repository and
+                  item.get("head", {}).get("repo", {}).get("full_name") == repository and
+                  item.get("merge_commit_sha") == head_oid and
+                  item.get("head", {}).get("sha") == base_oid]
+    if len(candidates) != 1 or type(candidates[0].get("number")) is not int:
+        raise RuntimeError("exact merged dev-to-main promotion provenance is unavailable")
+    promotion_pr = candidates[0]
+    return {
+        "live_main_tip_oid": head_oid,
+        "live_dev_tip_oid": base_oid,
+        "promotion_merge": {
+            "oid": head_oid,
+            "tree_oid": promotion_tree,
+            "parent_oids": parents,
+        },
+        "dev_base_tree_oid": dev_tree,
+        "prior_main_ancestry": {
+            "ancestor_oid": parents[0],
+            "descendant_oid": base_oid,
+            "merge_base_oid": merge_base_oid,
+            "status": comparison_status,
+        },
+        "promotion_pull_request": {
+            "number": promotion_pr["number"],
+            "merged": True,
+            "base_ref": "main",
+            "head_ref": "dev",
+            "base_repository": repository,
+            "head_repository": repository,
+            "merge_commit_oid": head_oid,
+            "head_oid": base_oid,
+        },
+    }
+
+
 def collect_github_merge_observation(
     repository: str, pull_request: int, expected_head: str, expected_base: str,
     review_receipt: dict[str, Any],
@@ -457,6 +630,9 @@ def collect_github_merge_observation(
     review = _review_from_github(
         repository, pull_request, head_oid, author_context, review_receipt,
     )
+    closeout_proof = None
+    if pr.get("head", {}).get("ref") == "main" and pr.get("base", {}).get("ref") == "dev":
+        closeout_proof = _collect_closeout_proof(repository, head_oid, base_oid)
     check_data = _gh_json([
         f"repos/{repository}/commits/{head_oid}/check-runs", "--method", "GET",
         "-f", "filter=latest", "-f", "per_page=100",
@@ -478,7 +654,6 @@ def collect_github_merge_observation(
                 "status": str(item.get("status", "")).upper(),
                 "conclusion": str(item.get("conclusion", "")).upper(),
                 "head_oid": item.get("head_sha"),
-                "base_oid": base_oid,
                 "integration_id": item.get("app", {}).get("id"),
                 "details_url": item.get("details_url"),
             })
@@ -493,14 +668,19 @@ def collect_github_merge_observation(
         raise RuntimeError("review thread set exceeds bounded live collector")
     unresolved = sum(not item["isResolved"] for item in threads["nodes"])
     executor = _gh_json(["user"])
+    if (_live_branch_tip(repository, str(pr.get("head", {}).get("ref", ""))) != head_oid or
+            _live_branch_tip(repository, str(pr.get("base", {}).get("ref", ""))) != base_oid):
+        raise RuntimeError("pull request refs changed during live collection")
     observation = {
-        "schema": "universal.github_merge_observation.v1",
-        "collector": "tools/branch_policy_check.py/live-v1",
+        "schema": "universal.github_merge_observation.v2",
+        "collector": "tools/branch_policy_check.py/live-v2",
         "collected_from_github": True,
         "repository": repository,
         "pull_request": pull_request,
         "base_ref": pr.get("base", {}).get("ref"),
         "head_ref": pr.get("head", {}).get("ref"),
+        "base_repository": pr.get("base", {}).get("repo", {}).get("full_name"),
+        "head_repository": pr.get("head", {}).get("repo", {}).get("full_name"),
         "expected_head_oid": expected_head,
         "observed_head_oid": head_oid,
         "expected_base_oid": expected_base,
@@ -525,6 +705,7 @@ def collect_github_merge_observation(
         },
         "required_checks": bound_checks,
         "technical_review": review,
+        "closeout_proof": closeout_proof,
     }
     return observation
 
