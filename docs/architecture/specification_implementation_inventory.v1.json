@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-22T03:15:31Z",
+  "generated_at": "2026-09-22T08:43:01Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "2075284609647248c8c562bb046c6070ec6c5cdf",
-  "repository_base_tree": "22410182479ded6e22d0e9efff9851a0a13fda0e",
+  "repository_base_commit": "5e9152a11f07559f6e60cfb5bbc7351917e44353",
+  "repository_base_tree": "6786355652ffec48bd7a3118528f6ecd333fe29e",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "4293fedf831ea3a51da3bcf9d6b90ad86a88cf3a7104eacae8c7944be32cdb36",
+  "spec_aggregate_sha256": "1e706f99917ade33c2af4440b2986c5416008e49124be730ce8d161d08b86d55",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Specification operations corrections are present after the bound base; each cited file is independently SHA-256 bound.",
+  "working_tree_note": "The R2 campaign-authority and task-admission correction is present after the exact dev base; every cited file is independently SHA-256 bound.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -21,19 +21,19 @@
     {
       "command": "python -m unittest discover -s tests -v",
       "result": "PASS",
-      "tests": 69,
+      "tests": 84,
       "scope": "repository Python/contract/policy tests; no native runtime execution"
     },
     {
       "command": "python -B -m unittest discover -s spec/tools/tests -v",
       "result": "PASS",
-      "tests": 79,
+      "tests": 86,
       "scope": "specification tooling with pinned jsonschema; local run had 3 Windows symlink restriction skips"
     },
     {
       "command": "python spec/tools/specctl.py schema-check",
       "result": "PASS",
-      "instances": 98,
+      "instances": 99,
       "scope": "spec/prototype syntax and shape only"
     },
     {
@@ -47,7 +47,6 @@
     "OD-002",
     "OD-003",
     "OD-004",
-    "OD-005",
     "OD-006",
     "OD-007",
     "OD-008"
@@ -131,7 +130,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/agent-adapters.md",
-        "sha256": "acd2adf7e128a312e29e70c25910acec8781fd5086f6f89cb37faa522847172a"
+        "sha256": "10166b18a231f167a31918bd88a69447ac9ec24a94009209a633c8dfdc8779d0"
       },
       "source_observations": [
         {
@@ -144,7 +143,7 @@
         },
         {
           "path": "spec/AGENTS.md",
-          "sha256": "a6c8cd2570c489fc91044ef325f6a99af6031313c98a6869e1dd604fe8967ef1"
+          "sha256": "ecafbec10d7ef3d4e82852bbfc55423f2d18d8eae1c6a85ae48e4d417a0fa8a4"
         }
       ],
       "acceptance_ids": [
@@ -166,7 +165,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/agent-adapters.md",
-        "sha256": "acd2adf7e128a312e29e70c25910acec8781fd5086f6f89cb37faa522847172a"
+        "sha256": "10166b18a231f167a31918bd88a69447ac9ec24a94009209a633c8dfdc8779d0"
       },
       "source_observations": [
         {
@@ -179,7 +178,7 @@
         },
         {
           "path": "spec/AGENTS.md",
-          "sha256": "a6c8cd2570c489fc91044ef325f6a99af6031313c98a6869e1dd604fe8967ef1"
+          "sha256": "ecafbec10d7ef3d4e82852bbfc55423f2d18d8eae1c6a85ae48e4d417a0fa8a4"
         }
       ],
       "acceptance_ids": [
@@ -201,7 +200,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/agent-adapters.md",
-        "sha256": "acd2adf7e128a312e29e70c25910acec8781fd5086f6f89cb37faa522847172a"
+        "sha256": "10166b18a231f167a31918bd88a69447ac9ec24a94009209a633c8dfdc8779d0"
       },
       "source_observations": [
         {
@@ -214,7 +213,7 @@
         },
         {
           "path": "spec/AGENTS.md",
-          "sha256": "a6c8cd2570c489fc91044ef325f6a99af6031313c98a6869e1dd604fe8967ef1"
+          "sha256": "ecafbec10d7ef3d4e82852bbfc55423f2d18d8eae1c6a85ae48e4d417a0fa8a4"
         }
       ],
       "acceptance_ids": [
@@ -236,16 +235,16 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/execution/aide.md",
-        "sha256": "5264da2009640a7a85c71abf1c46213ff89e8392d6a5fed7d13ba520a98f1aea"
+        "sha256": "5b2b926162d2e2df2290f0bf37824a5e4aa953cbecf577410c65fda0a9a7786b"
       },
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -271,16 +270,16 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/execution/aide.md",
-        "sha256": "5264da2009640a7a85c71abf1c46213ff89e8392d6a5fed7d13ba520a98f1aea"
+        "sha256": "5b2b926162d2e2df2290f0bf37824a5e4aa953cbecf577410c65fda0a9a7786b"
       },
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -306,16 +305,16 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/execution/aide.md",
-        "sha256": "5264da2009640a7a85c71abf1c46213ff89e8392d6a5fed7d13ba520a98f1aea"
+        "sha256": "5b2b926162d2e2df2290f0bf37824a5e4aa953cbecf577410c65fda0a9a7786b"
       },
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -557,7 +556,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/governance/authority.md",
-        "sha256": "1aef48a50479318b47694c225094a6a75bec797934aa23fb39970bb671cde8fd"
+        "sha256": "0768e5c1375e1136ab1ba4c2606aab699619270f06394e7313da86dce4aabdbe"
       },
       "source_observations": [
         {
@@ -570,7 +569,15 @@
         },
         {
           "path": "tools/structure_policy_check.py",
-          "sha256": "d57a5288a51ed5ad8e18af62f28f6cbb2f91cdb497f817ad35c45c0811ee3d16"
+          "sha256": "b1cccbd813ff26704e978e441a36ce3e0280814f3d03a0b52414f5973f70bc8f"
+        },
+        {
+          "path": "release/index/campaign_authority.v1.toml",
+          "sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28"
+        },
+        {
+          "path": "tools/campaign_task_binding.py",
+          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
         }
       ],
       "acceptance_ids": [
@@ -592,7 +599,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/governance/authority.md",
-        "sha256": "1aef48a50479318b47694c225094a6a75bec797934aa23fb39970bb671cde8fd"
+        "sha256": "0768e5c1375e1136ab1ba4c2606aab699619270f06394e7313da86dce4aabdbe"
       },
       "source_observations": [
         {
@@ -605,7 +612,15 @@
         },
         {
           "path": "tools/structure_policy_check.py",
-          "sha256": "d57a5288a51ed5ad8e18af62f28f6cbb2f91cdb497f817ad35c45c0811ee3d16"
+          "sha256": "b1cccbd813ff26704e978e441a36ce3e0280814f3d03a0b52414f5973f70bc8f"
+        },
+        {
+          "path": "release/index/campaign_authority.v1.toml",
+          "sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28"
+        },
+        {
+          "path": "tools/campaign_task_binding.py",
+          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
         }
       ],
       "acceptance_ids": [
@@ -627,7 +642,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/governance/authority.md",
-        "sha256": "1aef48a50479318b47694c225094a6a75bec797934aa23fb39970bb671cde8fd"
+        "sha256": "0768e5c1375e1136ab1ba4c2606aab699619270f06394e7313da86dce4aabdbe"
       },
       "source_observations": [
         {
@@ -640,7 +655,15 @@
         },
         {
           "path": "tools/structure_policy_check.py",
-          "sha256": "d57a5288a51ed5ad8e18af62f28f6cbb2f91cdb497f817ad35c45c0811ee3d16"
+          "sha256": "b1cccbd813ff26704e978e441a36ce3e0280814f3d03a0b52414f5973f70bc8f"
+        },
+        {
+          "path": "release/index/campaign_authority.v1.toml",
+          "sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28"
+        },
+        {
+          "path": "tools/campaign_task_binding.py",
+          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
         }
       ],
       "acceptance_ids": [
@@ -1348,11 +1371,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -1379,11 +1402,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -1410,11 +1433,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -2058,11 +2081,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -2089,11 +2112,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -2213,7 +2236,7 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/log.md",
@@ -2221,7 +2244,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "481a396361f9912370cfbfc8c0945b40b8646cc4c3e1173dca207e89593f4364"
+          "sha256": "52d088b68f77d78a5ff9f322dd0836b07d647bacfb1544b23b8190071e43ff73"
         }
       ],
       "acceptance_ids": [
@@ -2249,7 +2272,7 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/log.md",
@@ -2257,7 +2280,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "481a396361f9912370cfbfc8c0945b40b8646cc4c3e1173dca207e89593f4364"
+          "sha256": "52d088b68f77d78a5ff9f322dd0836b07d647bacfb1544b23b8190071e43ff73"
         }
       ],
       "acceptance_ids": [
@@ -2483,11 +2506,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2518,11 +2541,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2553,11 +2576,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -3157,7 +3180,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "0f04e333cb1bf9c8b3f5e0e264c619a9d2288b8a94ddd8972eb44b3363952083"
+          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3193,7 +3216,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "0f04e333cb1bf9c8b3f5e0e264c619a9d2288b8a94ddd8972eb44b3363952083"
+          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3229,7 +3252,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "0f04e333cb1bf9c8b3f5e0e264c619a9d2288b8a94ddd8972eb44b3363952083"
+          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3680,12 +3703,12 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/release/train.md",
-        "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2"
+        "sha256": "dba2989059342fd5dd98dd0df21d891fdbe096b858305eae4131281777392d59"
       },
       "source_observations": [
         {
-          "path": "release/index/branch_policy.v1.toml",
-          "sha256": "9f3afe5499e64f7a0adc52aefa71168539f9cd4d93d8531f3aa8dbc7459a3928"
+          "path": "release/index/branch_policy.v2.toml",
+          "sha256": "1cb5ab836e1ae4b23ce79b1172f8bc04a10532753e2bf555acfaca1b894b32ce"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -3693,7 +3716,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "a0d88c4c01595b2d53905e54b069047f11bbd8f2587467dff77b4a28edb114f1"
+          "sha256": "6cac028344765a7d65fec62d50986e4da9a2d4f526b4f3bdf884f01554bc7f3e"
         }
       ],
       "acceptance_ids": [
@@ -3718,12 +3741,12 @@
       "note": "This targeted inventory did not establish a sufficient source-to-test mapping; no implementation claim is made.",
       "spec_source": {
         "path": "spec/release/train.md",
-        "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2"
+        "sha256": "dba2989059342fd5dd98dd0df21d891fdbe096b858305eae4131281777392d59"
       },
       "source_observations": [
         {
-          "path": "release/index/branch_policy.v1.toml",
-          "sha256": "9f3afe5499e64f7a0adc52aefa71168539f9cd4d93d8531f3aa8dbc7459a3928"
+          "path": "release/index/branch_policy.v2.toml",
+          "sha256": "1cb5ab836e1ae4b23ce79b1172f8bc04a10532753e2bf555acfaca1b894b32ce"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -3731,7 +3754,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "a0d88c4c01595b2d53905e54b069047f11bbd8f2587467dff77b4a28edb114f1"
+          "sha256": "6cac028344765a7d65fec62d50986e4da9a2d4f526b4f3bdf884f01554bc7f3e"
         }
       ],
       "acceptance_ids": [
@@ -3756,12 +3779,12 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/release/train.md",
-        "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2"
+        "sha256": "dba2989059342fd5dd98dd0df21d891fdbe096b858305eae4131281777392d59"
       },
       "source_observations": [
         {
-          "path": "release/index/branch_policy.v1.toml",
-          "sha256": "9f3afe5499e64f7a0adc52aefa71168539f9cd4d93d8531f3aa8dbc7459a3928"
+          "path": "release/index/branch_policy.v2.toml",
+          "sha256": "1cb5ab836e1ae4b23ce79b1172f8bc04a10532753e2bf555acfaca1b894b32ce"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -3769,7 +3792,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "a0d88c4c01595b2d53905e54b069047f11bbd8f2587467dff77b4a28edb114f1"
+          "sha256": "6cac028344765a7d65fec62d50986e4da9a2d4f526b4f3bdf884f01554bc7f3e"
         }
       ],
       "acceptance_ids": [
@@ -3794,7 +3817,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/implementation-plan.md",
-        "sha256": "4643409257c5086880ec8ec39ab98a69df7c808d1c59bdc8861d1471d30a8563"
+        "sha256": "1154e73eb1262a57639faa5bbfe841f4cca9cadbb9a5aa6d2e7a169192be5d1e"
       },
       "source_observations": [
         {
@@ -3803,7 +3826,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         }
       ],
       "acceptance_ids": [
@@ -3825,7 +3848,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/implementation-plan.md",
-        "sha256": "4643409257c5086880ec8ec39ab98a69df7c808d1c59bdc8861d1471d30a8563"
+        "sha256": "1154e73eb1262a57639faa5bbfe841f4cca9cadbb9a5aa6d2e7a169192be5d1e"
       },
       "source_observations": [
         {
@@ -3834,7 +3857,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "1e867e572f6cd6cce8064bf99cf0cef10272cde6b5cad047354056fcb0d329ff"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         }
       ],
       "acceptance_ids": [
@@ -4191,7 +4214,7 @@
       "source_observations": [
         {
           "path": "spec/verification/acceptance-cases.json",
-          "sha256": "a2387c9fe84de0f94b5849da9407410d9eb9747dc22bdc4e49d7502cebd598b5"
+          "sha256": "29ee87d47c02c13629112cc073a6337b06f3ea80c90662fbb0c4f79e01319914"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4199,7 +4222,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4229,7 +4252,7 @@
       "source_observations": [
         {
           "path": "spec/verification/acceptance-cases.json",
-          "sha256": "a2387c9fe84de0f94b5849da9407410d9eb9747dc22bdc4e49d7502cebd598b5"
+          "sha256": "29ee87d47c02c13629112cc073a6337b06f3ea80c90662fbb0c4f79e01319914"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4237,7 +4260,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4267,7 +4290,7 @@
       "source_observations": [
         {
           "path": "spec/verification/acceptance-cases.json",
-          "sha256": "a2387c9fe84de0f94b5849da9407410d9eb9747dc22bdc4e49d7502cebd598b5"
+          "sha256": "29ee87d47c02c13629112cc073a6337b06f3ea80c90662fbb0c4f79e01319914"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4275,7 +4298,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4313,7 +4336,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4348,7 +4371,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4383,7 +4406,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "af99e57b4fd732acf0b07b4bc0a35134b56e8a97bb3920263b8c28a6430b884b"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4688,7 +4711,7 @@
       "source_observations": [
         {
           "path": "README.md",
-          "sha256": "6cdca24e8352b10f662f6e22ba9144a79c3d5e38e8cae92d34eeddbc0c833355"
+          "sha256": "9d3773968887ae851ba9c92d9dd4be0263e37b7915f64cb520a673199a6244a5"
         },
         {
           "path": "apps/gui/README.md",
@@ -4723,7 +4746,7 @@
       "source_observations": [
         {
           "path": "README.md",
-          "sha256": "6cdca24e8352b10f662f6e22ba9144a79c3d5e38e8cae92d34eeddbc0c833355"
+          "sha256": "9d3773968887ae851ba9c92d9dd4be0263e37b7915f64cb520a673199a6244a5"
         },
         {
           "path": "apps/gui/README.md",
@@ -4758,7 +4781,7 @@
       "source_observations": [
         {
           "path": "README.md",
-          "sha256": "6cdca24e8352b10f662f6e22ba9144a79c3d5e38e8cae92d34eeddbc0c833355"
+          "sha256": "9d3773968887ae851ba9c92d9dd4be0263e37b7915f64cb520a673199a6244a5"
         },
         {
           "path": "apps/gui/README.md",
@@ -4884,16 +4907,16 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/workflow.md",
-        "sha256": "d4b65870633f496ee0066c50e840301c66be2205f5767cc55b55c5bbd73db917"
+        "sha256": "db3ac67978bb65b0e6d69865093c0abb575557520439a85da319c124a00757c6"
       },
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "532cd0fd0a23598c259e0c4903a2c10ea3c79bc8b165d2ba7b26de332c026911"
+          "sha256": "435230616bf08412a6e9bf861feef085e0cf857afe2a28578c5a09360fbf36d0"
         },
         {
           "path": "spec/execution/workflow.md",
-          "sha256": "d4b65870633f496ee0066c50e840301c66be2205f5767cc55b55c5bbd73db917"
+          "sha256": "db3ac67978bb65b0e6d69865093c0abb575557520439a85da319c124a00757c6"
         }
       ],
       "acceptance_ids": [
@@ -4915,16 +4938,16 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/workflow.md",
-        "sha256": "d4b65870633f496ee0066c50e840301c66be2205f5767cc55b55c5bbd73db917"
+        "sha256": "db3ac67978bb65b0e6d69865093c0abb575557520439a85da319c124a00757c6"
       },
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "532cd0fd0a23598c259e0c4903a2c10ea3c79bc8b165d2ba7b26de332c026911"
+          "sha256": "435230616bf08412a6e9bf861feef085e0cf857afe2a28578c5a09360fbf36d0"
         },
         {
           "path": "spec/execution/workflow.md",
-          "sha256": "d4b65870633f496ee0066c50e840301c66be2205f5767cc55b55c5bbd73db917"
+          "sha256": "db3ac67978bb65b0e6d69865093c0abb575557520439a85da319c124a00757c6"
         }
       ],
       "acceptance_ids": [
@@ -4946,16 +4969,16 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/execution/workflow.md",
-        "sha256": "d4b65870633f496ee0066c50e840301c66be2205f5767cc55b55c5bbd73db917"
+        "sha256": "db3ac67978bb65b0e6d69865093c0abb575557520439a85da319c124a00757c6"
       },
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "532cd0fd0a23598c259e0c4903a2c10ea3c79bc8b165d2ba7b26de332c026911"
+          "sha256": "435230616bf08412a6e9bf861feef085e0cf857afe2a28578c5a09360fbf36d0"
         },
         {
           "path": "spec/execution/workflow.md",
-          "sha256": "d4b65870633f496ee0066c50e840301c66be2205f5767cc55b55c5bbd73db917"
+          "sha256": "db3ac67978bb65b0e6d69865093c0abb575557520439a85da319c124a00757c6"
         }
       ],
       "acceptance_ids": [
@@ -4981,5 +5004,6 @@
     "optional_for_selected_release": 21,
     "scheduled_later": 11,
     "unresolved": 3
-  }
+  },
+  "programme_status_ref": "spec/plan/programme-status.json"
 }

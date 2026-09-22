@@ -90,7 +90,11 @@ reviewed promotion. Stable consumers retain exact pins reachable from `main`;
 canary SHAs never rewrite their tracked locks.
 
 See the [repository branch model](docs/governance/branch_model.md) and its
-[machine-readable policy](release/index/branch_policy.v1.toml).
+[active machine-readable policy](release/index/branch_policy.v2.toml). The
+[campaign authority record](release/index/campaign_authority.v1.toml) permits
+normal exact-green PR integration and qualified release operations while
+retaining the bans on direct protected pushes, force updates, bypasses,
+fabricated review, credential disclosure, and unrelated data mutation.
 
 ## Bootstrap Validation
 

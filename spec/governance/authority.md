@@ -13,20 +13,20 @@ usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-AUTH","revisi
 ## Authority map
 | Surface | Canonical responsibility | Must not become |
 |---|---|---|
-| Existing repository governance/policy | Permitted work, branches, publication, lab roots | A generated summary |
+| Existing repository governance/policy | Permitted work, campaign authority, branches, publication, lab roots | A generated summary |
 | `spec/` after adoption | Intended semantics, requirements, decisions, acceptance definitions | Runtime permission or test evidence |
 | `contracts/` | Executable published ABI, schemas and wire contracts | Independently rewritten prose copy |
 | `runtime/`, `apps/`, `include/` | Implementation and public code surface | Proof of support by existence |
 | `tests/` | Executable verification | Its own authority to approve effects |
 | `release/` | Actual versions, packages, qualification and release claims | Speculative future status |
-| AIDE queue/protocol/evidence | Admitted tasks, attempts, grants and receipts | A shadow copy of product state |
+| Campaign binding or AIDE queue/protocol/evidence | Exact admitted task scope, attempts, grants and receipts | A shadow copy of product state |
 | `docs/` | User/developer explanations, tutorials and publication | A second normative definition |
 | Derived indexes/context packs | Retrieval, summaries, routing | Permission, acceptance or current repository truth |
 
 Conflicts are recorded and resolved by an explicit decision. A later timestamp alone does not overrule policy, source evidence or an adopted contract. The newest user product objective can propose a policy change; it cannot retrospectively make old test evidence support it.
 
 ## Adoption record
-An adoption record identifies this specification version/digest, reviewed changes, accepted decisions, exceptions, repository base, approving principal and scope. Separate architectural adoption from implementation delegation, disposable-lab effects, protected integration and public release approval.
+An adoption record identifies this specification version/digest, reviewed changes, accepted decisions, exceptions, repository base, approving principal and scope. The repository campaign authority may delegate implementation, normal PR integration and qualified release operations once for a bounded campaign. Each task still receives an exact source/scope/environment binding, and disposable-lab or customer-machine effects remain separate factual capabilities.
 
 ## Requirements language
 MUST and MUST NOT describe proposed normative obligations. SHOULD requires a documented justified exception. MAY means optional behavior that is still constrained by the owning profile. No sentence in this archive authorizes operating on real user state.

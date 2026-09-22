@@ -19,7 +19,7 @@ The archive pins AIDE main, its WorkUnit schema path and Git blob identity, and 
 When an exact AIDE checkout is supplied, validate the exported object against that schema and record the checker version/result. Without the schema, report unverified compatibility. A permissive schema validation is only shape proof, not queue acceptance, adapter admission or worker capability. The checked-in AIDE README may lag implemented schemas; source observations are preserved instead of repeating old blanket pre-runtime descriptions.
 
 ## Authority split
-`spec/` defines intended engineering semantics after adoption. AIDE queue/protocol/evidence owns operational task state. `.aide/knowledge/okf` is a generated explanation of actual work/evidence, not a second normative spec. A spec index can be a knowledge input but must retain origin/status. Do not make two independently editable queues.
+`spec/` defines intended engineering semantics after adoption. A repository campaign binding or an AIDE queue/protocol/evidence record owns operational task state. `.aide/knowledge/okf` is a generated explanation of actual work/evidence, not a second normative spec. A spec index can be a knowledge input but must retain origin/status. Do not make two independently editable queues.
 
 ## Model/budget policy
 Root model and reasoning choice remain user/deployment-controlled. Descendant models, effort, tokens/money, wall time, tool capabilities, network domains and filesystem scope are separate axes. Quality is established through tests/evaluation, not a claim that every task used the largest model. Version/provider strings are observations, never permanently hard-coded role identities.
@@ -28,7 +28,7 @@ Root model and reasoning choice remain user/deployment-controlled. Descendant mo
 
 ### USK-R-AIDE-001 — Export is not admission
 
-**Requirement.** AIDE exports MUST remain proposed with authorizes_implementation=false unless an actual separately authorized queue/grant workflow changes them.
+**Requirement.** AIDE exports MUST remain proposed with authorizes_implementation=false. Execution MAY proceed when a separate exact repository campaign binding or admitted queue record supplies authority; the export itself never does.
 
 **Rationale.** A spec package cannot self-authorize.
 

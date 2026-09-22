@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal.repository_branch_policy.v2"
+repository = "universal-setup"
+reviewed_on = "2026-09-22"
+status = "active"
+campaign_authority = "release/index/campaign_authority.v1.toml"
+
+[branches]
+canonical = "main"
+integration = "dev"
+task_prefix = "task/"
+hotfix_prefix = "hotfix/"
+release_tags_from = "main"
+
+[invariants]
+main_must_be_ancestor_of_dev = true
+task_must_start_from_exact_dev = true
+normal_task_pull_request_target = "dev"
+normal_main_pull_request_source = "dev"
+direct_protected_push = false
+force_push = false
+protected_branch_deletion = false
+merge_bypass = false
+immutable_release_tags = true
+maximum_completed_unpromoted_work_units = 1
+consumer_pins_may_reference_dev = false
+
+[synchronization]
+after_dev_promotion = "fast_forward_dev_to_canonical_main_closeout"
+after_main_hotfix = "open_main_to_dev_pull_request"
+unrelated_divergence = "fail_for_technical_review"
+force_reset_dev = false
+
+[dependency_tracks]
+stable = "exact_provider_sha_reachable_from_provider_main"
+canary = "exact_provider_dev_sha_input_without_tracked_lock_change"
+adoption = "separate_exact_pin_pull_request_after_provider_main_promotion"
+atomic_cross_repository_merge = false
+
+[automation_authority]
+task_branch_write = true
+pull_request_write = true
+protected_branch_write = false
+normal_pull_request_merge = true
+merge_executor_may_equal_pr_author = true
+github_self_approval = false
+technical_review_required = true
+different_review_context_required = true
+human_review_claim_requires_human_principal = true
+configured_release_signing = true
+qualified_release_publication = true
+configured_release_credentials = true
+credential_creation_or_export = false
+unrelated_product_credentials = false
+
+[merge_gate]
+expected_head_required = true
+expected_base_required = true
+required_checks_must_succeed = true
+strict_required_status_checks = true
+github_ruleset_id = 20445004
+github_actions_integration_id = 15368
+required_status_checks = ["native-windows", "native-windows-win32", "native-linux", "native-macos", "sanitizer", "fuzz-smoke"]
+unresolved_threads_allowed = false
+draft_allowed = false
+mergeable_required = true
+technical_review_exact_head_required = true
+normal_pull_request_path_required = true
+
+[release_gate]
+exact_main_source_required = true
+machine_qualification_required = true
+remote_readback_required = true
+tag_movement_allowed = false
+configured_signer_required_when_signing = true
+qualified_candidate_required = true

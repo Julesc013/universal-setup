@@ -13,7 +13,7 @@ usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-ROADMAP","rev
 ## Milestones
 M0 adopt this spec, reconcile conflicts and characterize the exact baseline. M1 close bounded inventory, publication, concurrency and operation-specific recovery. M2 deliver no-code authoring and a one-shot human/machine host. M3 deliver owned operations, TUI and a native prefab shell. M4 qualify tiny and demanding consumers with lifecycle/preservation proof. M5 add enterprise native effects/prerequisites/reboot/delegation. M6 add secure optional network servicing. M7 extend targets, bindings and public compatibility based on evidence.
 
-The machine-readable task catalogue defines concrete work and dependency edges. It is a desired programme, not live completion state. An active queue adapter binds an exact source base and real grant when one task is admitted. All shipped task statuses begin proposed and all product acceptance designs begin not_run.
+The machine-readable task catalogue defines concrete work and dependency edges. It is a desired programme, not live completion state. `tools/campaign_task_binding.py` binds an eligible task to the active campaign, exact accepted source/tree, current specification aggregate, immutable task scope, predecessor receipts and environment. A supported external queue adapter may provide an equivalent binding. All shipped task statuses begin proposed and all product acceptance designs begin not_run.
 
 ## Critical path
 Preserve strong refusal until the publisher is qualified. Do not postpone concurrency/recovery until after a graphical install demonstration. In parallel, authoring/presentation can use an in-memory backend and recorded scenarios without enabling real effects. Once the local lifecycle is safe, the same application service drives CLI, TUI, GUI and unattended use.
@@ -28,7 +28,7 @@ A supported v1 is a completed bounded compatibility promise, not an end to devel
 
 ### USK-R-ROADMAP-001 — Dependency-ordered work
 
-**Requirement.** A task MUST NOT enter effectful implementation/qualification while a mandatory dependency or required grant is unresolved.
+**Requirement.** A task MUST NOT enter effectful implementation/qualification while a mandatory dependency, exact campaign task binding or required target/environment receipt is unresolved.
 
 **Rationale.** A plan is not an executable schedule.
 

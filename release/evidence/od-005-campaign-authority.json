@@ -1,0 +1,17 @@
+{
+  "schema": "universal.decision_evidence/1",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "claim": "OD-005",
+  "status": "accepted",
+  "recorded_at": "2026-09-22T00:00:00Z",
+  "source": {
+    "commit": "dc11549af857147065e78e65694eb24657ed75aa",
+    "tree": "434de1428cd703afe268af0584efe45400a7c260"
+  },
+  "spec_aggregate_sha256": "37c24562ca32d36d3df0f9f586dd896c7d9a5d3111b504d724102435ab9ee797",
+  "details": {
+    "evidence_kind": "campaign_authority_binding",
+    "authority_sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28",
+    "binding_policy": "exact_non_widening_task_binding"
+  }
+}
