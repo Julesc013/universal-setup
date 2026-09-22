@@ -25,12 +25,14 @@ SERVICE_SID = "S-1-5-80-3180180915-1861177297-4117424284-3321057921-2519428456"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FILE_ID_RE = re.compile(r"^[0-9a-f]{16}:[0-9a-f]{32}$")
 VOLUME_SERIAL_RE = re.compile(r"^[0-9a-f]{16}$")
-VOLUME_NAME_RE = re.compile(r"^\\\\\?\\Volume\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}\\$")
 FORBIDDEN_COMPONENT_CHARACTERS = frozenset('<>:"/\\|?*')
 RESERVED_DEVICE_NAMES = frozenset({"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
                                    "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³",
                                    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
                                    "LPT9", "LPT¹", "LPT²", "LPT³"})
+ALLOWED_ATTRIBUTES = frozenset({"ARCHIVE", "COMPRESSED", "DIRECTORY", "ENCRYPTED", "HIDDEN",
+                                "NOT_CONTENT_INDEXED", "OFFLINE", "READONLY", "REPARSE_POINT",
+                                "SPARSE_FILE", "SYSTEM", "TEMPORARY", "NORMAL"})
 
 
 class Phase(str, Enum):
@@ -91,6 +93,18 @@ def _string(value: Any, label: str) -> str:
     return value
 
 
+def _text(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise EvidenceError(f"{label} must be a string")
+    return value
+
+
+def _optional_integer(value: Any, label: str) -> int | None:
+    if value is None:
+        return None
+    return _integer(value, label)
+
+
 def _boolean(value: Any, label: str) -> bool:
     if not isinstance(value, bool):
         raise EvidenceError(f"{label} must be a boolean")
@@ -141,9 +155,7 @@ EXPECTED_APIS = ("GetSecurityInfo", "GetFileInformationByHandleEx:FileIdInfo",
                  "GetVolumeInformationByHandleW",
                  "GetFileInformationByHandleEx:FileRemoteProtocolInfo",
                  "GetFileInformationByHandleEx:FileNameInfo")
-EXPECTED_FILESYSTEM_FLAGS = ("FILE_CASE_PRESERVED_NAMES", "FILE_CASE_SENSITIVE_SEARCH",
-                             "FILE_PERSISTENT_ACLS", "FILE_SUPPORTS_REPARSE_POINTS",
-                             "FILE_SUPPORTS_USN_JOURNAL")
+REQUIRED_FILESYSTEM_FLAGS = 0x0200008B
 
 
 @dataclass(frozen=True, order=True)
@@ -235,9 +247,9 @@ PROFILE_KEYS = frozenset({"profile_id", "os_family", "os_arch", "windows_build",
     "untrusted_mutating_rights", "covered_objects", "observer_provenance",
     "handle_provenance", "anchor_preexisting", "handles_inheritable", "handles_duplicated_outside_service",
     "volume_name", "volume_serial", "volume_information_serial", "filesystem_name",
-    "maximum_component_length", "filesystem_flags", "remote_protocol", "remote_protocol_major",
-    "remote_protocol_minor", "remote_protocol_revision", "remote_protocol_flags", "protected_objects",
-    "ancestors_revalidated", "destination_name", "destination_open_result", "replace_if_exists",
+    "maximum_component_length", "filesystem_flags", "remote_protocol_query_status", "remote_protocol_error",
+    "remote_protocol", "remote_protocol_major", "remote_protocol_minor", "remote_protocol_revision",
+    "remote_protocol_flags", "protected_objects", "destination_name", "destination_open_result", "replace_if_exists",
     "observation_apis", "closure_entry_count", "closure_max_depth", "max_component_utf16_units",
     "serialized_evidence_bytes", "total_content_bytes"})
 
@@ -265,14 +277,15 @@ class ProfileEvidence:
     volume_information_serial: str
     filesystem_name: str
     maximum_component_length: int
-    filesystem_flags: tuple[str, ...]
-    remote_protocol: int
-    remote_protocol_major: int
-    remote_protocol_minor: int
-    remote_protocol_revision: int
-    remote_protocol_flags: int
+    filesystem_flags: int
+    remote_protocol_query_status: str
+    remote_protocol_error: int | None
+    remote_protocol: int | None
+    remote_protocol_major: int | None
+    remote_protocol_minor: int | None
+    remote_protocol_revision: int | None
+    remote_protocol_flags: int | None
     protected_objects: tuple[ProtectedObjectEvidence, ...]
-    ancestors_revalidated: bool
     destination_name: str
     destination_open_result: str
     replace_if_exists: bool
@@ -303,18 +316,19 @@ class ProfileEvidence:
             _boolean(value["anchor_preexisting"], "anchor_preexisting"),
             _boolean(value["handles_inheritable"], "handles_inheritable"),
             _boolean(value["handles_duplicated_outside_service"], "handles_duplicated_outside_service"),
-            _string(value["volume_name"], "volume_name"), _string(value["volume_serial"], "volume_serial"),
+            _text(value["volume_name"], "volume_name"), _string(value["volume_serial"], "volume_serial"),
             _string(value["volume_information_serial"], "volume_information_serial"),
             _string(value["filesystem_name"], "filesystem_name"),
             _integer(value["maximum_component_length"], "maximum_component_length", 1),
-            _strings(value["filesystem_flags"], "filesystem_flags"),
-            _integer(value["remote_protocol"], "remote_protocol"),
-            _integer(value["remote_protocol_major"], "remote_protocol_major"),
-            _integer(value["remote_protocol_minor"], "remote_protocol_minor"),
-            _integer(value["remote_protocol_revision"], "remote_protocol_revision"),
-            _integer(value["remote_protocol_flags"], "remote_protocol_flags"),
+            _integer(value["filesystem_flags"], "filesystem_flags"),
+            _string(value["remote_protocol_query_status"], "remote_protocol_query_status"),
+            _optional_integer(value["remote_protocol_error"], "remote_protocol_error"),
+            _optional_integer(value["remote_protocol"], "remote_protocol"),
+            _optional_integer(value["remote_protocol_major"], "remote_protocol_major"),
+            _optional_integer(value["remote_protocol_minor"], "remote_protocol_minor"),
+            _optional_integer(value["remote_protocol_revision"], "remote_protocol_revision"),
+            _optional_integer(value["remote_protocol_flags"], "remote_protocol_flags"),
             tuple(ProtectedObjectEvidence.parse(x) for x in value["protected_objects"]),
-            _boolean(value["ancestors_revalidated"], "ancestors_revalidated"),
             _string(value["destination_name"], "destination_name"),
             _string(value["destination_open_result"], "destination_open_result"),
             _boolean(value["replace_if_exists"], "replace_if_exists"),
@@ -332,6 +346,17 @@ class ProfileEvidence:
         roles = tuple(item.role for item in self.protected_objects)
         expected_ancestor_roles = tuple(f"ancestor:{index}" for index in range(max(0, len(roles) - len(anchor_roles))))
         object_ids = tuple(item.file_id for item in self.protected_objects)
+        object_paths = tuple(item.observed_path.casefold() for item in self.protected_objects)
+        try:
+            parsed_paths = tuple(_validate_relative_path(item.observed_path) for item in self.protected_objects)
+            ancestors = parsed_paths[len(anchor_roles):]
+            if any(ancestors[index][:-1] != ancestors[index - 1] for index in range(1, len(ancestors))):
+                raise EvidenceError("protected ancestor paths must form an immediate parent chain")
+            if any(path[:-1] != ancestors[-1] for path in parsed_paths[:len(anchor_roles)]):
+                raise EvidenceError("protected anchors must be distinct direct children of the bound ancestor")
+            chain_rejected = False
+        except (EvidenceError, IndexError):
+            chain_rejected = True
         rejected = (self.profile_id != PROFILE_ID or self.os_family != "Windows NT" or self.os_arch != "x64" or
             self.windows_build < 17763 or self.sdk_version != "10.0.17763.0" or
             self.publisher_service_sid != SERVICE_SID or self.service_sid_type != "SERVICE_SID_TYPE_RESTRICTED" or
@@ -341,17 +366,21 @@ class ProfileEvidence:
             self.observer_provenance != "independent_observer_same_handle" or
             self.handle_provenance != "service_created_from_inception" or self.anchor_preexisting or
             self.handles_inheritable or self.handles_duplicated_outside_service or
-            not VOLUME_NAME_RE.fullmatch(self.volume_name) or not VOLUME_SERIAL_RE.fullmatch(self.volume_serial) or
+            not VOLUME_SERIAL_RE.fullmatch(self.volume_serial) or
             not re.fullmatch(r"[0-9a-f]{8}", self.volume_information_serial) or
-            self.volume_serial != "00000000" + self.volume_information_serial or self.filesystem_name != "NTFS" or
-            self.maximum_component_length != MAX_COMPONENT_UTF16_UNITS or self.filesystem_flags != EXPECTED_FILESYSTEM_FLAGS or
-            any((self.remote_protocol, self.remote_protocol_major, self.remote_protocol_minor,
-                 self.remote_protocol_revision, self.remote_protocol_flags)) or
+            self.volume_serial[-8:] != self.volume_information_serial or self.filesystem_name != "NTFS" or
+            self.maximum_component_length != MAX_COMPONENT_UTF16_UNITS or
+            self.filesystem_flags & REQUIRED_FILESYSTEM_FLAGS != REQUIRED_FILESYSTEM_FLAGS or
+            self.remote_protocol_query_status != "error" or self.remote_protocol_error != 87 or
+            any(value is not None for value in (self.remote_protocol, self.remote_protocol_major,
+                self.remote_protocol_minor, self.remote_protocol_revision, self.remote_protocol_flags)) or
             len(roles) <= len(anchor_roles) or roles[:len(anchor_roles)] != anchor_roles or
             roles[len(anchor_roles):] != expected_ancestor_roles or
+            len(set(object_ids)) != len(object_ids) or len(set(object_paths)) != len(object_paths) or
+            chain_rejected or
             any(_file_id_parts(file_id, "protected object file_id")[0] != self.volume_serial
                                                  for file_id in object_ids) or
-            not self.ancestors_revalidated or self.destination_open_result != "ERROR_FILE_NOT_FOUND" or
+            self.destination_open_result != "ERROR_FILE_NOT_FOUND" or
             self.replace_if_exists or self.observation_apis != EXPECTED_APIS or
             self.closure_entry_count > MAX_CLOSURE_ENTRIES or self.closure_max_depth > MAX_CLOSURE_DEPTH or
             self.max_component_utf16_units != self.maximum_component_length or
@@ -437,6 +466,13 @@ class ClosureEntry:
 
     def validate(self) -> None:
         _file_id_parts(self.file_id, "closure file_id")
+        if (self.attributes != tuple(sorted(set(self.attributes))) or
+                not set(self.attributes).issubset(ALLOWED_ATTRIBUTES) or
+                ("NORMAL" in self.attributes and len(self.attributes) != 1)):
+            raise EvidenceError("attributes must be a canonical admitted FILE_ATTRIBUTE set")
+        attribute_directory = "DIRECTORY" in self.attributes
+        if attribute_directory != (self.entry_type == EntryType.DIRECTORY):
+            raise EvidenceError("entry type and DIRECTORY attribute disagree")
         attribute_reparse = "REPARSE_POINT" in self.attributes
         if attribute_reparse != self.reparse or ((self.reparse_tag is not None) != self.reparse):
             raise EvidenceError("reparse attribute, flag, and tag are inconsistent")
@@ -467,8 +503,11 @@ def _parse_closure(root_value: Any, entries_value: Any,
     if len(entries) > MAX_CLOSURE_ENTRIES:
         raise EvidenceError("closure count exceeds profile limit")
     paths = tuple(item.relative_path for item in entries)
+    identities = (root.file_id,) + tuple(item.file_id for item in entries)
     if paths != tuple(sorted(paths, key=str.casefold)) or len({x.casefold() for x in paths}) != len(paths):
         raise EvidenceError("closure paths must be unique and case-insensitively sorted")
+    if len(set(identities)) != len(identities):
+        raise EvidenceError("root and closure paths must have distinct stable identities")
     if _file_id_parts(root.file_id, "root file_id")[0] != volume_serial or any(
             _file_id_parts(item.file_id, "closure file_id")[0] != volume_serial for item in entries):
         raise EvidenceError("root or descendant is on a different volume")
@@ -582,6 +621,9 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
         try:
             root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial)
         except EvidenceError:
+            return _retained(state, "sealed_evidence_refused")
+        staging_root = state.profile.protected_objects[0]
+        if root.file_id != staging_root.file_id or root.security != staging_root.security:
             return _retained(state, "sealed_evidence_refused")
         serialized = len(json.dumps({"root": event["root"], "closure": event["closure"]},
                                     sort_keys=True, separators=(",", ":")).encode())

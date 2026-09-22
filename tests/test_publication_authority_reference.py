@@ -53,7 +53,7 @@ class FixtureResolver:
         closure = self.binding["closure"]
         self.closures = {
             "$verified_closure": closure,
-            "$foreign_id_closure": _patch(closure, {"1.file_id": "000000001234abcd:abababababababababababababababab"}),
+            "$foreign_id_closure": _patch(closure, {"1.file_id": "3478de651b6df063:abababababababababababababababab"}),
             "$changed_hash_closure": _patch(closure, {"1.content_sha256": "0123456789abcdef" * 4}),
             "$missing_child_closure": closure[:1],
             "$hardlink_closure": _patch(closure, {"1.link_count": 2}),
@@ -66,18 +66,22 @@ class FixtureResolver:
                                                       "0.attributes": ["ARCHIVE"], "0.streams": ["::$DATA"]}),
             "$contradictory_reparse_closure": _patch(closure, {"1.attributes": ["ARCHIVE", "REPARSE_POINT"],
                                                                 "1.reparse": False, "1.reparse_tag": 0}),
+            "$duplicate_identity_closure": _patch(closure, {"1.file_id": closure[0]["file_id"]}),
+            "$file_directory_attribute_closure": _patch(closure, {"1.attributes": ["ARCHIVE", "DIRECTORY"]}),
+            "$directory_missing_attribute_closure": _patch(closure, {"0.attributes": []}),
         }
         case_alias = deepcopy(closure)
         alias = deepcopy(closure[0])
         alias["relative_path"] = "SUB"
-        alias["file_id"] = "000000001234abcd:12121212121212121212121212121212"
+        alias["file_id"] = "3478de651b6df063:12121212121212121212121212121212"
         case_alias.insert(1, alias)
         self.closures["$case_alias_closure"] = case_alias
         self.roots = {"$cross_volume_root": _patch(
-            self.binding["root"], {"file_id": "bbbbbbbbbbbbbbbb:77777777777777777777777777777777"})}
+            self.binding["root"], {"file_id": "bbbbbbbbbbbbbbbb:77777777777777777777777777777777"}),
+            "$duplicate_descendant_root": _patch(self.binding["root"], {"file_id": closure[0]["file_id"]})}
         extra = deepcopy(closure)
         extra.append({"relative_path": "z.bin", "type": "file",
-                      "file_id": "000000001234abcd:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+                      "file_id": "3478de651b6df063:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
                       "content_sha256": "1234567890abcdef" * 4, "size": 1,
                       "attributes": ["ARCHIVE"], "security": deepcopy(self.security),
                       "link_count": 1, "streams": ["::$DATA"], "reparse": False, "reparse_tag": None})
@@ -216,6 +220,44 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
             self.assertIn(result.disposition,
                           {"no_effect_refusal", "retained_refusal", "recovery_required"}, case_id)
             self.assertNotEqual(result.state.phase, oracle.Phase.COMPLETED, case_id)
+
+    def test_identity_type_and_protected_object_aliases_refuse(self) -> None:
+        cases = {case["id"]: case for case in self.fixture["cases"]}
+        expected = {
+            "duplicate-closure-stable-identity": ("retained_refusal", "sealed_evidence_refused"),
+            "root-shares-descendant-identity": ("retained_refusal", "sealed_evidence_refused"),
+            "file-with-directory-attribute": ("retained_refusal", "sealed_evidence_refused"),
+            "directory-without-directory-attribute": ("retained_refusal", "sealed_evidence_refused"),
+            "aliased-protected-object-roles": ("no_effect_refusal", "profile_evidence_refused"),
+            "broken-protected-parent-chain": ("no_effect_refusal", "profile_evidence_refused"),
+        }
+        self.assertTrue(set(expected).issubset(cases))
+        for case_id, (disposition, reason) in expected.items():
+            result = oracle.replay(oracle.initial_state(), self.resolver.events(cases[case_id]["events"]))
+            self.assertEqual((result.disposition, result.reason_code), (disposition, reason), case_id)
+            self.assertNotEqual(result.state.phase, oracle.Phase.COMPLETED, case_id)
+            self.assertEqual(len(result.state.completed_generations), 0, case_id)
+
+    def test_actual_local_ntfs_probe_semantics_and_old_assumptions(self) -> None:
+        profile = oracle.ProfileEvidence.parse(self.resolver.evidence)
+        self.assertEqual(profile.volume_name, "Fast")
+        self.assertEqual(profile.volume_serial, "3478de651b6df063")
+        self.assertEqual(profile.volume_information_serial, "1b6df063")
+        self.assertEqual(profile.filesystem_flags, 0x03E706FF)
+        self.assertEqual((profile.remote_protocol_query_status, profile.remote_protocol_error), ("error", 87))
+        self.assertIsNone(profile.remote_protocol)
+
+        mutations = [
+            {"filesystem_flags": ["FILE_PERSISTENT_ACLS", "FILE_SUPPORTS_REPARSE_POINTS"]},
+            {"remote_protocol_query_status": "success", "remote_protocol_error": None,
+             "remote_protocol": 0, "remote_protocol_major": 0, "remote_protocol_minor": 0,
+             "remote_protocol_revision": 0, "remote_protocol_flags": 0},
+            {"volume_serial": "000000001b6df063"},
+        ]
+        for changes in mutations:
+            evidence = _patch(self.resolver.evidence, changes)
+            result = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": evidence})
+            self.assertEqual(result.disposition, "no_effect_refusal", changes)
 
     def test_windows_component_rules_reject_reserved_and_ambiguous_names(self) -> None:
         for component in ("NUL.txt", "COM1", "bad.", "bad ", "bad<name", "bad:name", "bad\\name",

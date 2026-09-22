@@ -1,11 +1,11 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-22T12:15:00Z",
+  "generated_at": "2026-09-22T13:05:00Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "16a773ea964f5d3228647795d17ae4ff6dbbc20e",
   "repository_base_tree": "fa579840055f6cfb1cf0e852f929d93e45605281",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "e19a56204f85f58be4710726bc050585dc142fd80e5a1b3b330a24804598d9a2",
+  "spec_aggregate_sha256": "45d6b3fca7b0504237ffbb1bbdb6e52aad484727a5d8ceaaded8c6bd6ea0edec",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
@@ -21,7 +21,7 @@
     {
       "command": "python -m unittest discover -s tests -v",
       "result": "PASS",
-      "tests": 105,
+      "tests": 107,
       "scope": "repository Python/contract/policy tests; no native runtime execution"
     },
     {
@@ -1072,7 +1072,7 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
-        "sha256": "f3e8c87db9d5c482735b20a1bc36463a559bf2ab0ed68da9a3f829a7b0443e0d"
+        "sha256": "a0c5a81eabcea8b7bacfe0a68a5c543c8bdb6397916eb9478c30e33984e09824"
       },
       "source_observations": [
         {
@@ -1107,7 +1107,7 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
-        "sha256": "f3e8c87db9d5c482735b20a1bc36463a559bf2ab0ed68da9a3f829a7b0443e0d"
+        "sha256": "a0c5a81eabcea8b7bacfe0a68a5c543c8bdb6397916eb9478c30e33984e09824"
       },
       "source_observations": [
         {
@@ -1142,7 +1142,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
-        "sha256": "f3e8c87db9d5c482735b20a1bc36463a559bf2ab0ed68da9a3f829a7b0443e0d"
+        "sha256": "a0c5a81eabcea8b7bacfe0a68a5c543c8bdb6397916eb9478c30e33984e09824"
       },
       "source_observations": [
         {
@@ -2244,7 +2244,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "437d76210394043933103646240e714c675457844a89c66981cbc52e7dd445f1"
+          "sha256": "423364a8f4f26cac1317664fd100a183a3ec7ae407a070a2788623e945410f2b"
         }
       ],
       "acceptance_ids": [
@@ -2280,7 +2280,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "437d76210394043933103646240e714c675457844a89c66981cbc52e7dd445f1"
+          "sha256": "423364a8f4f26cac1317664fd100a183a3ec7ae407a070a2788623e945410f2b"
         }
       ],
       "acceptance_ids": [
@@ -3490,7 +3490,7 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "198864d0d6ba0e87543febe5f3b71fb1a9f9b633f424735b6eeae19834065eba"
+        "sha256": "9a1af877c39a9b31c162a70b02891ba2019e31021dc2547c61276e99b2e21120"
       },
       "source_observations": [
         {
@@ -3526,7 +3526,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "198864d0d6ba0e87543febe5f3b71fb1a9f9b633f424735b6eeae19834065eba"
+        "sha256": "9a1af877c39a9b31c162a70b02891ba2019e31021dc2547c61276e99b2e21120"
       },
       "source_observations": [
         {
@@ -3562,7 +3562,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "198864d0d6ba0e87543febe5f3b71fb1a9f9b633f424735b6eeae19834065eba"
+        "sha256": "9a1af877c39a9b31c162a70b02891ba2019e31021dc2547c61276e99b2e21120"
       },
       "source_observations": [
         {
@@ -4323,7 +4323,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/security/threat-model.md",
-        "sha256": "abf8dae8d618a7561959767d7aee4efb1886bbf1fb4f21b94ba251cf1b78a373"
+        "sha256": "54eea142391c8a14088ae7ea3e1df9cdc9bb2a3019002f662fd83491155fc5e0"
       },
       "source_observations": [
         {
@@ -4358,7 +4358,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/security/threat-model.md",
-        "sha256": "abf8dae8d618a7561959767d7aee4efb1886bbf1fb4f21b94ba251cf1b78a373"
+        "sha256": "54eea142391c8a14088ae7ea3e1df9cdc9bb2a3019002f662fd83491155fc5e0"
       },
       "source_observations": [
         {
@@ -4393,7 +4393,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/security/threat-model.md",
-        "sha256": "abf8dae8d618a7561959767d7aee4efb1886bbf1fb4f21b94ba251cf1b78a373"
+        "sha256": "54eea142391c8a14088ae7ea3e1df9cdc9bb2a3019002f662fd83491155fc5e0"
       },
       "source_observations": [
         {
