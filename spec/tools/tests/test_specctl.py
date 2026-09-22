@@ -93,6 +93,20 @@ class BundleTests(unittest.TestCase):
             self.assertEqual(decisions[decision_id]['direction_status'],'selected_with_outstanding_obligations')
             self.assertTrue(decisions[decision_id]['outstanding_obligations'])
         self.assertTrue(all(value is False for value in self.bundle['release_selection']['authority'].values()))
+    def test_wu004_candidate_does_not_resolve_od001_or_advance_programme(self):
+        decisions={decision['id']:decision for decision in self.bundle['decisions']}
+        candidate=decisions['OD-001']
+        self.assertEqual(candidate['status'],'open')
+        self.assertEqual(candidate['direction_status'],'candidate_selected_evidence_outstanding')
+        self.assertEqual(candidate['selected_direction_ref'],'docs/security/windows_ntfs_publication_profile.md')
+        self.assertEqual(candidate['blocks'],['USK-WU-006'])
+        self.assertTrue(candidate['outstanding_obligations'])
+        status=self.bundle['programme_status']
+        self.assertEqual(status['release_1_1']['readiness'],'not_established')
+        self.assertFalse(status['release_1_1']['implementation_complete'])
+        self.assertFalse(status['release_1_1']['machine_qualified'])
+        self.assertFalse(status['release_1_1']['published'])
+        self.assertEqual(status['decisions']['OD-001'],{'status':'open','evidence':[]})
     def test_cases_not_run(self):
         for c in self.bundle['cases'].values():
             self.assertEqual(c['status'],'not_run');self.assertEqual(c['result_refs'],[])

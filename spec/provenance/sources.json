@@ -75,6 +75,31 @@
       "id": "CLAUDE",
       "resource": "https://code.claude.com/docs/en/memory",
       "title": "Official Claude Code project instruction guidance, retrieved 2026-09-20"
+    },
+    {
+      "id": "MS-FILE-ID",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info",
+      "title": "Microsoft Learn: FILE_ID_INFO"
+    },
+    {
+      "id": "MS-FILE-RENAME",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info",
+      "title": "Microsoft Learn: FILE_RENAME_INFO"
+    },
+    {
+      "id": "MS-FILE-SECURITY",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights",
+      "title": "Microsoft Learn: File Security and Access Rights"
+    },
+    {
+      "id": "MS-SERVICE-SID",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/services/service-sids",
+      "title": "Microsoft Learn: Service SIDs"
+    },
+    {
+      "id": "MS-SERVICE-SID-INFO",
+      "resource": "https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info",
+      "title": "Microsoft Learn: SERVICE_SID_INFO"
     }
   ]
 }

@@ -1,0 +1,27 @@
+{
+  "schema": "usk.wu004.windows-ntfs-publication-oracles/1",
+  "authority": "deterministic-reference-model-only",
+  "runtime_results": "not_run",
+  "cases": [
+    {"id":"protected-success","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","rename","confirm_visible","metadata"],"expected_result":"completed","expected_phase":"completed"},
+    {"id":"concurrent-loser","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared",{"action":"rename","destination_exists":true}],"expected_result":"retained_refusal","expected_phase":"publish_prepared"},
+    {"id":"identical-substitution","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","rename",{"action":"confirm_visible","identity":"file:foreign"}],"expected_result":"recovery_required","expected_phase":"recovery_required"},
+    {"id":"changed-substitution","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","rename",{"action":"confirm_visible","closure":["changed.bin"]}],"expected_result":"recovery_required","expected_phase":"recovery_required"},
+    {"id":"insertion","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","rename",{"action":"confirm_visible","closure":["payload.bin","foreign.bin"]}],"expected_result":"recovery_required","expected_phase":"recovery_required"},
+    {"id":"reparse-refusal","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"hardlink-refusal","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"ads-refusal","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"parent-substitution","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","rename",{"action":"confirm_visible","identity":"parent:foreign"}],"expected_result":"recovery_required","expected_phase":"recovery_required"},
+    {"id":"destination-precreation","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared",{"action":"rename","destination_exists":true}],"expected_result":"retained_refusal","expected_phase":"publish_prepared"},
+    {"id":"acl-owner-mutation","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"preopened-hostile-handle","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"sid-failure","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"non-ntfs","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"remote","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"cross-volume","initial":{"available":true,"eligible":false},"steps":["preflight"],"expected_result":"no_effect_refusal","expected_phase":"initial"},
+    {"id":"crash-before-rename","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","crash"],"expected_result":"recovery_required","expected_phase":"recovery_required"},
+    {"id":"crash-after-rename","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","rename","crash"],"expected_result":"recovery_required","expected_phase":"recovery_required"},
+    {"id":"metadata-failure","initial":{"available":true,"eligible":true},"steps":["preflight","publish_prepared","rename","confirm_visible",{"action":"metadata","fail":true}],"expected_result":"recovery_required","expected_phase":"recovery_required"},
+    {"id":"privileged-attacker-outside-claim","initial":{"available":true,"eligible":true},"steps":["privileged_attacker"],"expected_result":"no_effect_refusal","expected_phase":"initial"}
+  ]
+}

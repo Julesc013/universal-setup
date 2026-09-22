@@ -5,10 +5,18 @@
       "id": "OD-001",
       "topic": "Publication mechanism and adversary ceiling",
       "status": "open",
+      "direction_status": "candidate_selected_evidence_outstanding",
+      "selected_direction_ref": "docs/security/windows_ntfs_publication_profile.md",
+      "selected_direction": "windows_nt_x64_local_ntfs_service_sid_noreplace_v1: dedicated restricted service SID, SYSTEM-owned protected DACL anchors, same-live-local-NTFS handle-bound no-replace publication",
+      "outstanding_obligations": [
+        "admitted Windows attack execution against the exact implementation candidate",
+        "exact target and NTFS configuration receipt",
+        "independent technical and security review"
+      ],
       "blocks": [
         "USK-WU-006"
       ],
-      "resolution_required": "platform-enforced mechanism and attack evidence"
+      "resolution_required": "platform-enforced mechanism and attack evidence; candidate direction alone is not resolution"
     },
     {
       "id": "OD-002",

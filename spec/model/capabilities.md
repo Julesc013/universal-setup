@@ -4,8 +4,8 @@ title: "Targets, capabilities, guarantees and support claims"
 description: "Select concrete implementations without conflating representation, permission, proof and support."
 tags: ["universal-setup","model"]
 generated: {"by": "chatgpt/gpt-6-astra-pro","at": "2026-09-20T12:23:08Z"}
-sources: [{"id": "CONVERSATION","resource": "urn:usk:input:current-conversation-design","title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"}]
-usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-CAPS","revision": "1","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "design","depends_on": ["USK-S-ID"]}
+sources: [{"id": "CONVERSATION","resource": "urn:usk:input:current-conversation-design","title": "Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export"},{"id": "MS-SERVICE-SID","resource": "https://learn.microsoft.com/en-us/windows/win32/services/service-sids","title": "Microsoft Learn: Service SIDs"},{"id": "MS-FILE-SECURITY","resource": "https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights","title": "Microsoft Learn: File Security and Access Rights"}]
+usk_spec: {"profile": "usk-engineering/0.1.0-draft.1","id": "USK-S-CAPS","revision": "2","status": "proposed","authority": "engineering-intent-only-after-adoption","owner": "universal-setup","layer": "design","depends_on": ["USK-S-ID"]}
 ---
 
 # Targets, capabilities, guarantees and support claims
@@ -19,6 +19,11 @@ Represent independently: known semantics, implementation state, realization mode
 Resolution intersects requirement, target constraints, provider capabilities, guarantee floor, trust policy, administrator/deployment/product policy and current observations. Explicit preferences break ties only among eligible providers. An unresolved tie refuses. Never select by directory enumeration, PATH or module load order.
 
 A selected-provider result records rejected candidates and reasons, effective constraints, relevant evidence references, exact implementation digest and plan invalidation inputs. Runtime revalidation may refuse a stale selection; it must not silently choose a materially different provider after plan review.
+
+## Candidate publication profile record
+The selected design direction is `windows_nt_x64_local_ntfs_service_sid_noreplace_v1`: Windows NT x64, one live local NTFS volume, and a dedicated restricted-service-SID publisher. Its record is deliberately `implementation: absent`, `availability: false`, `qualification: not_run`, and `support: unsupported`. The record is a candidate design, not an eligible provider and not a support declaration.[^MS-SERVICE-SID][^MS-FILE-SECURITY]
+
+Eligibility requires independently observed local NTFS identity, same-volume bound parent handles, service-SID/DACL setup, no reparse or case-sensitive ancestors, and no ADS, multiple links, or pre-opened hostile handles. A caller-provided `available`, trusted-path, hash, journal identifier, or equivalent Boolean/claim MUST NOT upgrade any record dimension or satisfy a required guarantee. Until independent target evidence changes the record, resolution for a protected-publication request is a no-effect refusal.
 
 ## Guarantee profile
 Use independent dimensions: publication visibility, identity protection, restart recovery, durability, concurrent-reader behavior, rollback/compensation, cross-volume behavior and external-owner delegation. T0/T1/T2/T3 may be UI summaries, not substitutes for those dimensions. T3 requires actual abrupt-power-loss evidence on the named storage profile. Do not define all guarantees as a single sortable integer: they form a constrained compatibility relation.
@@ -54,6 +59,8 @@ Historical targets may inspect modern records without implementing modern mutati
 
 ## Provenance and status
 
-This is authored engineering intent, not an implementation or runtime qualification claim. Source-derived constraints and the proposed extensions above are separated by the package authority policy. Sources: [^CONVERSATION].
+This is authored engineering intent, not an implementation or runtime qualification claim. Source-derived constraints and the proposed extensions above are separated by the package authority policy. Sources: [^CONVERSATION], [^MS-SERVICE-SID], [^MS-FILE-SECURITY].
 
 [^CONVERSATION]: Current conversation: enterprise synthesis and specification-authoring request; not a full transcript export. [Source registry](../provenance/sources.json); identity `urn:usk:input:current-conversation-design`.
+[^MS-SERVICE-SID]: [Microsoft Learn: Service SIDs](https://learn.microsoft.com/en-us/windows/win32/services/service-sids).
+[^MS-FILE-SECURITY]: [Microsoft Learn: File Security and Access Rights](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights).
