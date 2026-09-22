@@ -38,6 +38,29 @@ struct PayloadFile {
     std::size_t stream_buffer_bytes = streaming_payload_buffer_bytes;
 };
 
+// A complete-tree preimage deliberately has no payload storage or reader.  It
+// is only the reviewed metadata needed to re-open one source at a time.
+struct PreimageResourceObservation {
+    std::string volume_id;
+    std::string file_id;
+    std::uint64_t modified_time_ns = 0;
+    std::uint32_t link_count = 0;
+};
+
+struct PreimageFile {
+    std::string relative_path;
+    std::string sha256;
+    std::uint64_t size_bytes = 0;
+    PreimageResourceObservation resource;
+};
+
+struct LifecycleResourceObservation {
+    std::size_t peak_payload_buffer = 0;
+    std::size_t peak_open_source_files = 0;
+    std::size_t retained_payload = 0;
+    bool complete_payload_retained = false;
+};
+
 struct RecipeBinding {
     std::string product_id;
     std::string product_version;
@@ -143,7 +166,8 @@ struct MovePlan {
     std::filesystem::path new_root;
     std::filesystem::path staging_parent;
     LifecycleRoots roots;
-    std::vector<PayloadFile> complete_files;
+    std::vector<PreimageFile> complete_files;
+    LifecycleResourceObservation resource_observation;
 };
 
 struct MoveResult {
@@ -166,7 +190,7 @@ struct UpdatePlan {
     std::filesystem::path target_root;
     LifecycleRoots roots;
     RecipeBinding recipe;
-    std::vector<PayloadFile> old_complete_files;
+    std::vector<PreimageFile> old_complete_files;
     std::vector<PayloadFile> new_complete_files;
     std::function<void()> validate_source;
     transaction::CommitAuthorityRequirement required_commit_authority =

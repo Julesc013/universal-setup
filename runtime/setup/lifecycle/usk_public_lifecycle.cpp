@@ -1150,7 +1150,7 @@ Value operation_plan_document(
     const std::string& policy,
     const usk::lifecycle::LifecycleRoots& roots,
     const fs::path& destination,
-    const std::vector<usk::lifecycle::PayloadFile>& files,
+    const std::vector<usk::lifecycle::PreimageFile>& files,
     const usk::lifecycle::VerificationReport* verification)
 {
     Value::Array root_values{

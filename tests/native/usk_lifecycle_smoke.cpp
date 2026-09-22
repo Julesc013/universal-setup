@@ -7,6 +7,7 @@
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_state_repository.h"
+#include "usk_replacement_session.h"
 #include "usk_transaction_session.h"
 
 #include <algorithm>
@@ -333,9 +334,44 @@ int run()
         return 7;
     }
 
+    auto next_recipe = recipe();
+    next_recipe.product_version = "2.0.0";
+    const auto update_plan = usk::lifecycle::plan_update(
+        fixture.roots, "install.synthetic", "plan.synthetic.update", "2026-07-14T00:10:07Z",
+        "upgrade", target, next_recipe, payload());
+    if (update_plan.old_snapshot_digest != usk::transaction::replacement_snapshot_digest(target) ||
+        update_plan.old_complete_files.empty() ||
+        update_plan.old_complete_files.front().sha256.empty() ||
+        update_plan.old_complete_files.front().resource.file_id.empty()) {
+        return 17;
+    }
+
     const fs::path moved_target = fixture.root / "targets/moved-portable";
-    const auto move_plan = usk::lifecycle::plan_move(
+    auto move_plan = usk::lifecycle::plan_move(
         fixture.roots, "install.synthetic", "plan.synthetic.move", "2026-07-14T00:10:08Z", moved_target);
+    if (move_plan.resource_observation.peak_payload_buffer != 64u * 1024u ||
+        move_plan.resource_observation.peak_open_source_files != 1u ||
+        move_plan.resource_observation.retained_payload != 0u ||
+        move_plan.resource_observation.complete_payload_retained) {
+        return 18;
+    }
+    bool stream_fault_refused = false;
+    try {
+        (void)usk::lifecycle::apply_move(move_plan, move_plan.plan_digest,
+            "tx.synthetic.move.stream-fault", "2026-07-14T00:10:09Z",
+            [](const std::string&, const std::string& point) {
+                if (point == "transaction.staging.after_stream_intent") {
+                    throw std::runtime_error("injected move stream intent failure");
+                }
+            });
+    } catch (const std::exception& error) {
+        stream_fault_refused = true;
+        (void)error;
+    }
+    if (!stream_fault_refused || !fs::is_directory(target) || fs::exists(moved_target) ||
+        !fs::exists(moved_target.parent_path() / ".usk-stage-tx.synthetic.move.stream-fault")) {
+        return 19;
+    }
     const auto move_result = usk::lifecycle::apply_move(
         move_plan, move_plan.plan_digest, "tx.synthetic.move", "2026-07-14T00:10:09Z");
     if (move_result.verification.status != "warn" || !fs::is_directory(target) ||
