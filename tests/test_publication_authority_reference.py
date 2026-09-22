@@ -50,6 +50,10 @@ class FixtureResolver:
 
         self.evidence = expand_security(profile["valid_evidence"])
         self.binding = expand_security(profile["verified_binding"])
+        self.observation = {key: deepcopy(self.evidence[key]) for key in oracle.PHASE_OBSERVATION_KEYS}
+        self.post_observation = deepcopy(self.observation)
+        self.post_observation["protected_objects"][0]["observed_path"] = \
+            self.evidence["protected_objects"][1]["observed_path"] + "/" + self.evidence["destination_name"]
         closure = self.binding["closure"]
         self.closures = {
             "$verified_closure": closure,
@@ -101,9 +105,13 @@ class FixtureResolver:
             return deepcopy(self.security)
         if value == "$valid_profile":
             return deepcopy(self.evidence)
+        if value == "$phase_observation":
+            return deepcopy(self.observation)
+        if value == "$post_rename_observation":
+            return deepcopy(self.post_observation)
         if value == "$truncated_ancestor_profile":
             result = deepcopy(self.evidence)
-            result["protected_objects"] = result["protected_objects"][:4] + [result["protected_objects"][5]]
+            result["protected_objects"] = result["protected_objects"][:4] + [result["protected_objects"][6]]
             return result
         if value == "$verified_root":
             return deepcopy(self.binding["root"])
@@ -115,6 +123,10 @@ class FixtureResolver:
             return deepcopy(self.bindings[value])
         if isinstance(value, dict) and set(value) == {"$profile_patch"}:
             return _patch(self.evidence, value["$profile_patch"])
+        if isinstance(value, dict) and set(value) == {"$observation_patch"}:
+            return _patch(self.observation, value["$observation_patch"])
+        if isinstance(value, dict) and set(value) == {"$post_observation_patch"}:
+            return _patch(self.post_observation, value["$post_observation_patch"])
         if isinstance(value, dict):
             return {key: self.value(item) for key, item in value.items()}
         if isinstance(value, list):
@@ -125,17 +137,20 @@ class FixtureResolver:
         basic = [
             {"action": "admit_profile", "evidence": deepcopy(self.evidence)},
             {"action": "begin_materialization"},
-            {"action": "seal", "root": deepcopy(self.binding["root"]), "closure": deepcopy(self.binding["closure"])},
+            {"action": "seal", "observation": deepcopy(self.observation),
+             "root": deepcopy(self.binding["root"]), "closure": deepcopy(self.binding["closure"])},
             {"action": "prepare_publish"},
         ]
         if name == "$through_prepare":
             return basic
-        renamed = basic + [{"action": "rename", "outcome": "applied", "replace_if_exists": False,
+        renamed = basic + [{"action": "rename", "observation": deepcopy(self.observation),
+                            "outcome": "applied", "replace_if_exists": False,
                             "destination_exists": False}]
         if name == "$through_rename":
             return renamed
         if name == "$through_visible":
-            return renamed + [{"action": "confirm_visible", "destination_name": "generation-1",
+            return renamed + [{"action": "confirm_visible", "observation": deepcopy(self.post_observation),
+                               "destination_name": "generation-1",
                                "root": deepcopy(self.binding["root"]),
                                "closure": deepcopy(self.binding["closure"])}]
         if name == "$metadata":
@@ -238,6 +253,12 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
             "aliased-protected-object-roles": ("no_effect_refusal", "profile_evidence_refused"),
             "broken-protected-parent-chain": ("no_effect_refusal", "profile_evidence_refused"),
             "truncated-unrooted-ancestor-chain": ("no_effect_refusal", "profile_evidence_refused"),
+            "seal-protected-ancestor-substitution": ("retained_refusal", "sealed_evidence_refused"),
+            "seal-protected-reparse-change": ("retained_refusal", "sealed_evidence_refused"),
+            "pre-rename-protected-dacl-change": ("retained_refusal", "pre_rename_observation_refused"),
+            "post-rename-protected-case-change": ("recovery_required", "post_rename_observation_refused"),
+            "post-rename-locality-change": ("recovery_required", "post_rename_observation_refused"),
+            "post-rename-volume-change": ("recovery_required", "post_rename_observation_refused"),
         }
         self.assertTrue(set(expected).issubset(cases))
         for case_id, (disposition, reason) in expected.items():
@@ -267,6 +288,54 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
             evidence = _patch(self.resolver.evidence, changes)
             result = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": evidence})
             self.assertEqual(result.disposition, "no_effect_refusal", changes)
+
+    def test_every_phase_reobserves_chain_security_case_reparse_volume_and_locality(self) -> None:
+        mutations = {
+            "ancestor_rename": {"protected_objects.6.observed_path": "repo/other"},
+            "ancestor_substitution": {
+                "protected_objects.6.file_id": "3478de651b6df063:abababababababababababababababab"},
+            "ancestor_dacl": {
+                "protected_objects.6.security.effective_access.1.rights": ["FILE_DELETE_CHILD"],
+                "protected_objects.6.security.canonical_descriptor_sha256":
+                    "c2b8a8bc1bb3ed71d8b705b3d08c8c6d02b9efefbda7d27ea5bbdd2cc1047d65"},
+            "ancestor_case": {"protected_objects.6.case_sensitive": True},
+            "ancestor_reparse": {"protected_objects.6.reparse": True},
+            "volume": {"volume_serial": "bbbbbbbbbbbbbbbb"},
+            "locality": {"remote_protocol_query_status": "success"},
+        }
+        materializing = oracle.replay(
+            oracle.initial_state(), self.resolver.events([
+                {"action": "admit_profile", "evidence": "$valid_profile"},
+                {"action": "begin_materialization"}])).state
+        prepared = oracle.replay(oracle.initial_state(), self.resolver._prefix("$through_prepare")).state
+        renamed = oracle.replay(oracle.initial_state(), self.resolver._prefix("$through_rename")).state
+        for label, changes in mutations.items():
+            seal = oracle.transition(materializing, {
+                "action": "seal", "observation": _patch(self.resolver.observation, changes),
+                "root": deepcopy(self.resolver.binding["root"]),
+                "closure": deepcopy(self.resolver.binding["closure"])})
+            self.assertEqual((seal.disposition, seal.reason_code),
+                             ("retained_refusal", "sealed_evidence_refused"), label)
+            pre = oracle.transition(prepared, {
+                "action": "rename", "observation": _patch(self.resolver.observation, changes),
+                "outcome": "applied", "replace_if_exists": False, "destination_exists": False})
+            self.assertEqual((pre.disposition, pre.reason_code),
+                             ("retained_refusal", "pre_rename_observation_refused"), label)
+            post = oracle.transition(renamed, {
+                "action": "confirm_visible", "observation": _patch(self.resolver.post_observation, changes),
+                "destination_name": "generation-1", "root": deepcopy(self.resolver.binding["root"]),
+                "closure": deepcopy(self.resolver.binding["closure"])})
+            self.assertEqual((post.disposition, post.reason_code),
+                             ("recovery_required", "post_rename_observation_refused"), label)
+
+        boundary = deepcopy(self.resolver.evidence)
+        boundary_security = boundary["protected_objects"][4]["security"]
+        boundary_security["effective_access"][1]["rights"] = ["FILE_DELETE_CHILD"]
+        boundary_security["canonical_descriptor_sha256"] = oracle.hashlib.sha256(
+            oracle._security_canonical_payload(boundary_security)).hexdigest()
+        refused = oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": boundary})
+        self.assertEqual((refused.disposition, refused.reason_code),
+                         ("no_effect_refusal", "profile_evidence_refused"))
 
     def test_windows_component_rules_reject_reserved_and_ambiguous_names(self) -> None:
         for component in ("NUL.txt", "COM1", "bad.", "bad ", "bad<name", "bad:name", "bad\\name",

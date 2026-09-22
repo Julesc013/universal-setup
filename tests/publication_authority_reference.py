@@ -146,7 +146,7 @@ FULL_CONTROL = ("DELETE", "FILE_ADD_FILE", "FILE_ADD_SUBDIRECTORY", "FILE_APPEND
                 "WRITE_OWNER")
 EXPECTED_ACES = (Ace("S-1-5-18", "allow", FULL_CONTROL), Ace(SERVICE_SID, "allow", FULL_CONTROL))
 EXPECTED_COVERED_OBJECTS = ("staging_root", "destination_parent", "state_anchor", "journal_anchor",
-                            "publication_root", "all_ancestors", "all_descendants")
+                            "volume_root", "publication_root", "all_ancestors", "all_descendants")
 EXPECTED_APIS = ("GetSecurityInfo", "GetFileInformationByHandleEx:FileIdInfo",
                  "GetFileInformationByHandleEx:FileAttributeTagInfo",
                  "GetFileInformationByHandleEx:FileStandardInfo",
@@ -245,7 +245,8 @@ class ProtectedObjectEvidence:
 PROFILE_KEYS = frozenset({"profile_id", "os_family", "os_arch", "windows_build", "sdk_version",
     "publisher_service_sid", "service_sid_type", "anchor_creation", "consumer_grants",
     "untrusted_mutating_rights", "covered_objects", "observer_provenance",
-    "handle_provenance", "anchor_preexisting", "handles_inheritable", "handles_duplicated_outside_service",
+    "handle_provenance", "volume_root_provenance", "anchor_preexisting", "handles_inheritable",
+    "handles_duplicated_outside_service",
     "volume_name", "volume_serial", "volume_information_serial", "filesystem_name",
     "maximum_component_length", "filesystem_flags", "remote_protocol_query_status", "remote_protocol_error",
     "remote_protocol", "remote_protocol_major", "remote_protocol_minor", "remote_protocol_revision",
@@ -269,6 +270,7 @@ class ProfileEvidence:
     covered_objects: tuple[str, ...]
     observer_provenance: str
     handle_provenance: str
+    volume_root_provenance: str
     anchor_preexisting: bool
     handles_inheritable: bool
     handles_duplicated_outside_service: bool
@@ -313,6 +315,7 @@ class ProfileEvidence:
             _strings(value["covered_objects"], "covered_objects"),
             _string(value["observer_provenance"], "observer_provenance"),
             _string(value["handle_provenance"], "handle_provenance"),
+            _string(value["volume_root_provenance"], "volume_root_provenance"),
             _boolean(value["anchor_preexisting"], "anchor_preexisting"),
             _boolean(value["handles_inheritable"], "handles_inheritable"),
             _boolean(value["handles_duplicated_outside_service"], "handles_duplicated_outside_service"),
@@ -343,16 +346,21 @@ class ProfileEvidence:
 
     def validate(self) -> None:
         anchor_roles = ("staging_root", "destination_parent", "state_anchor", "journal_anchor")
-        fixed_roles = anchor_roles + ("publication_root",)
+        fixed_roles = anchor_roles + ("volume_root", "publication_root")
         roles = tuple(item.role for item in self.protected_objects)
         expected_ancestor_roles = tuple(f"ancestor:{index}" for index in range(max(0, len(roles) - len(fixed_roles))))
         object_ids = tuple(item.file_id for item in self.protected_objects)
         object_paths = tuple(item.observed_path.casefold() for item in self.protected_objects)
         try:
-            parsed_paths = tuple(_validate_relative_path(item.observed_path) for item in self.protected_objects)
-            publication_root = parsed_paths[len(anchor_roles)]
+            parsed_paths = tuple(
+                () if index == len(anchor_roles) and item.observed_path == "."
+                else _validate_relative_path(item.observed_path)
+                for index, item in enumerate(self.protected_objects))
+            volume_root = self.protected_objects[len(anchor_roles)].observed_path
+            publication_root = parsed_paths[len(anchor_roles) + 1]
             ancestors = parsed_paths[len(fixed_roles):]
-            if len(publication_root) != 1 or not ancestors or ancestors[0][:-1] != publication_root:
+            if (volume_root != "." or len(publication_root) != 1 or not ancestors or
+                    ancestors[0][:-1] != publication_root):
                 raise EvidenceError("protected chain must start at its single-component publication root")
             if any(ancestors[index][:-1] != ancestors[index - 1] for index in range(1, len(ancestors))):
                 raise EvidenceError("protected ancestor paths must form an immediate parent chain")
@@ -369,6 +377,7 @@ class ProfileEvidence:
             self.covered_objects != EXPECTED_COVERED_OBJECTS or
             self.observer_provenance != "independent_observer_same_handle" or
             self.handle_provenance != "service_created_from_inception" or self.anchor_preexisting or
+            self.volume_root_provenance != "qualified_dedicated_volume_root_boundary" or
             self.handles_inheritable or self.handles_duplicated_outside_service or
             not VOLUME_SERIAL_RE.fullmatch(self.volume_serial) or
             not re.fullmatch(r"[0-9a-f]{8}", self.volume_information_serial) or
@@ -396,6 +405,72 @@ class ProfileEvidence:
             rejected = True
         if rejected:
             raise EvidenceError("profile evidence does not satisfy the closed profile")
+
+
+PHASE_OBSERVATION_KEYS = frozenset({"volume_name", "volume_serial", "volume_information_serial",
+    "filesystem_name", "maximum_component_length", "filesystem_flags", "remote_protocol_query_status",
+    "remote_protocol_error", "remote_protocol", "remote_protocol_major", "remote_protocol_minor",
+    "remote_protocol_revision", "remote_protocol_flags", "protected_objects"})
+
+
+@dataclass(frozen=True)
+class PhaseObservation:
+    volume_name: str
+    volume_serial: str
+    volume_information_serial: str
+    filesystem_name: str
+    maximum_component_length: int
+    filesystem_flags: int
+    remote_protocol_query_status: str
+    remote_protocol_error: int | None
+    remote_protocol: int | None
+    remote_protocol_major: int | None
+    remote_protocol_minor: int | None
+    remote_protocol_revision: int | None
+    remote_protocol_flags: int | None
+    protected_objects: tuple[ProtectedObjectEvidence, ...]
+
+    @classmethod
+    def parse(cls, value: Any, profile: ProfileEvidence, after_rename: bool = False) -> "PhaseObservation":
+        if not isinstance(value, Mapping):
+            raise EvidenceError("phase observation must be an object")
+        _exact_keys(value, PHASE_OBSERVATION_KEYS, "phase observation")
+        if not isinstance(value["protected_objects"], list):
+            raise EvidenceError("phase protected_objects must be a list")
+        result = cls(
+            _text(value["volume_name"], "phase.volume_name"),
+            _string(value["volume_serial"], "phase.volume_serial"),
+            _string(value["volume_information_serial"], "phase.volume_information_serial"),
+            _string(value["filesystem_name"], "phase.filesystem_name"),
+            _integer(value["maximum_component_length"], "phase.maximum_component_length", 1),
+            _integer(value["filesystem_flags"], "phase.filesystem_flags"),
+            _string(value["remote_protocol_query_status"], "phase.remote_protocol_query_status"),
+            _optional_integer(value["remote_protocol_error"], "phase.remote_protocol_error"),
+            _optional_integer(value["remote_protocol"], "phase.remote_protocol"),
+            _optional_integer(value["remote_protocol_major"], "phase.remote_protocol_major"),
+            _optional_integer(value["remote_protocol_minor"], "phase.remote_protocol_minor"),
+            _optional_integer(value["remote_protocol_revision"], "phase.remote_protocol_revision"),
+            _optional_integer(value["remote_protocol_flags"], "phase.remote_protocol_flags"),
+            tuple(ProtectedObjectEvidence.parse(item) for item in value["protected_objects"]))
+        expected_objects = profile.protected_objects
+        if after_rename:
+            destination_parent = expected_objects[1].observed_path
+            expected_objects = (replace(expected_objects[0],
+                                        observed_path=f"{destination_parent}/{profile.destination_name}"),
+                                ) + expected_objects[1:]
+        expected_locality = (profile.volume_name, profile.volume_serial, profile.volume_information_serial,
+            profile.filesystem_name, profile.maximum_component_length, profile.filesystem_flags,
+            profile.remote_protocol_query_status, profile.remote_protocol_error, profile.remote_protocol,
+            profile.remote_protocol_major, profile.remote_protocol_minor, profile.remote_protocol_revision,
+            profile.remote_protocol_flags)
+        actual_locality = (result.volume_name, result.volume_serial, result.volume_information_serial,
+            result.filesystem_name, result.maximum_component_length, result.filesystem_flags,
+            result.remote_protocol_query_status, result.remote_protocol_error, result.remote_protocol,
+            result.remote_protocol_major, result.remote_protocol_minor, result.remote_protocol_revision,
+            result.remote_protocol_flags)
+        if actual_locality != expected_locality or result.protected_objects != expected_objects:
+            raise EvidenceError("phase observation differs from the admitted handle-bound environment")
+        return result
 
 
 def _validate_component(component: str) -> None:
@@ -531,6 +606,9 @@ class ModelState:
     phase: Phase = Phase.UNAVAILABLE
     generation: str = "generation-1"
     profile: ProfileEvidence | None = None
+    sealed_observation: PhaseObservation | None = None
+    pre_rename_observation: PhaseObservation | None = None
+    post_rename_observation: PhaseObservation | None = None
     verified_root: ClosureEntry | None = None
     verified_closure: tuple[ClosureEntry, ...] | None = None
     visible_root: ClosureEntry | None = None
@@ -578,10 +656,10 @@ def _retained(state: ModelState, reason: str) -> StepResult:
 EVENT_KEYS = {
     "admit_profile": frozenset({"action", "evidence"}),
     "begin_materialization": frozenset({"action"}),
-    "seal": frozenset({"action", "root", "closure"}),
+    "seal": frozenset({"action", "observation", "root", "closure"}),
     "prepare_publish": frozenset({"action"}),
-    "rename": frozenset({"action", "outcome", "replace_if_exists", "destination_exists"}),
-    "confirm_visible": frozenset({"action", "destination_name", "root", "closure"}),
+    "rename": frozenset({"action", "observation", "outcome", "replace_if_exists", "destination_exists"}),
+    "confirm_visible": frozenset({"action", "observation", "destination_name", "root", "closure"}),
     "begin_metadata": frozenset({"action"}),
     "complete_metadata": frozenset({"action", "success"}),
     "crash": frozenset({"action", "rename_outcome"}),
@@ -624,6 +702,7 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
             return _result(state, "invalid_trace", "seal_wrong_phase")
         assert state.profile is not None
         try:
+            observation = PhaseObservation.parse(event["observation"], state.profile)
             root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial)
         except EvidenceError:
             return _retained(state, "sealed_evidence_refused")
@@ -642,7 +721,8 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
                 component_width > state.profile.max_component_utf16_units or
                 serialized > state.profile.serialized_evidence_bytes or total > state.profile.total_content_bytes):
             return _retained(state, "closure_bounds_mismatch")
-        return _result(replace(state, phase=Phase.SEALED, verified_root=root, verified_closure=closure),
+        return _result(replace(state, phase=Phase.SEALED, sealed_observation=observation,
+                               verified_root=root, verified_closure=closure),
                        "advanced", "closure_sealed")
     if action == "prepare_publish":
         if state.phase != Phase.SEALED:
@@ -659,6 +739,12 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
             outcome = RenameState(event["outcome"])
         except (TypeError, ValueError):
             return _result(state, "invalid_trace", "invalid_rename_outcome")
+        assert state.profile is not None
+        try:
+            observation = PhaseObservation.parse(event["observation"], state.profile)
+        except EvidenceError:
+            return _retained(state, "pre_rename_observation_refused")
+        state = replace(state, pre_rename_observation=observation)
         if event["replace_if_exists"]:
             return _retained(state, "replace_if_exists_forbidden")
         if event["destination_exists"]:
@@ -669,12 +755,17 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
             return _retained(state, "rename_not_applied")
         if outcome == RenameState.UNKNOWN:
             return _recovery(state, "rename_outcome_unknown", RenameState.UNKNOWN)
-        return _result(replace(state, phase=Phase.RENAMED_UNCONFIRMED, rename_state=RenameState.APPLIED,
+        return _result(replace(state, phase=Phase.RENAMED_UNCONFIRMED,
+                               pre_rename_observation=observation, rename_state=RenameState.APPLIED,
                                effect_state=EffectState.RENAMED), "advanced", "rename_applied_unconfirmed")
     if action == "confirm_visible":
         if state.phase != Phase.RENAMED_UNCONFIRMED:
             return _result(state, "invalid_trace", "confirm_wrong_phase")
         assert state.profile is not None
+        try:
+            observation = PhaseObservation.parse(event["observation"], state.profile, after_rename=True)
+        except EvidenceError:
+            return _recovery(state, "post_rename_observation_refused")
         try:
             destination_name = _string(event["destination_name"], "visible destination_name")
             _validate_component(destination_name)
@@ -683,7 +774,8 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
             root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial)
         except EvidenceError:
             return _recovery(state, "visible_evidence_missing_or_invalid")
-        observed = replace(state, visible_root=root, visible_closure=closure)
+        observed = replace(state, post_rename_observation=observation,
+                           visible_root=root, visible_closure=closure)
         if root != state.verified_root or closure != state.verified_closure:
             return _recovery(observed, "visible_binding_mismatch")
         return _result(replace(observed, phase=Phase.VISIBLE_BOUND,
@@ -773,9 +865,18 @@ def invariant_errors(state: ModelState) -> tuple[str, ...]:
             errors.append("completed durable milestone order is invalid")
         if state.generation not in state.completed_generations or len(state.completed_generations) != 1:
             errors.append("generation must complete exactly once")
+        if (state.sealed_observation is None or state.pre_rename_observation is None or
+                state.post_rename_observation is None):
+            errors.append("completed requires all phase-bound protected observations")
     if state.phase in {Phase.RENAMED_UNCONFIRMED, Phase.VISIBLE_BOUND, Phase.METADATA_PENDING, Phase.COMPLETED} and \
             "publish_prepared" not in state.durable_milestones:
         errors.append("rename requires durable prepare")
+    if state.phase in {Phase.RENAMED_UNCONFIRMED, Phase.VISIBLE_BOUND, Phase.METADATA_PENDING, Phase.COMPLETED} and \
+            (state.sealed_observation is None or state.pre_rename_observation is None):
+        errors.append("rename requires seal and immediate pre-rename observations")
+    if state.phase in {Phase.VISIBLE_BOUND, Phase.METADATA_PENDING, Phase.COMPLETED} and \
+            state.post_rename_observation is None:
+        errors.append("visible binding requires post-rename protected observation")
     if state.phase == Phase.VISIBLE_BOUND and (state.visible_root != state.verified_root or
                                                 state.visible_closure != state.verified_closure):
         errors.append("visible_bound requires exact visible evidence")

@@ -121,7 +121,7 @@
       "path": "model/capabilities.md",
       "title": "Targets, capabilities, guarantees and support claims",
       "description": "Select concrete implementations without conflating representation, permission, proof and support.",
-      "sha256": "7b00b2b9de7bf1a5e1165b6ba03901b09bba4794ce9696f99e910f5d05cd0ec5",
+      "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72",
       "depends_on": [
         "USK-S-ID"
       ]
@@ -401,7 +401,7 @@
       "path": "lifecycle/publication.md",
       "title": "Protected staging and publication authority",
       "description": "Prevent staged-object substitution across the verification-to-publication interval.",
-      "sha256": "42d1f1e50c18ae6634203445621e177656878838118be86ca416bc4665c7221a",
+      "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da",
       "depends_on": [
         "USK-S-TXN",
         "USK-S-CAPS"
@@ -903,7 +903,7 @@
       "path": "security/threat-model.md",
       "title": "Threat model and security claims",
       "description": "Bind every protection claim to an adversary, trust boundary and independently testable mechanism.",
-      "sha256": "bd7dcb0b053171bf7e1628f21fe6226eef1fa1fe9a9b8067af54e11a7d348492",
+      "sha256": "ffe0b8cd75ff8a40eaf1e7fe08519f72c02bb077174ad4e9c1dc2a1f16c568cc",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-POLICY"

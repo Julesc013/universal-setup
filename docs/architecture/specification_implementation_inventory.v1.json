@@ -5,7 +5,7 @@
   "repository_base_commit": "16a773ea964f5d3228647795d17ae4ff6dbbc20e",
   "repository_base_tree": "fa579840055f6cfb1cf0e852f929d93e45605281",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "6f03c9582896a0c01ba2ed312c1039c5ffdc99870ad8d19276adfffad6032927",
+  "spec_aggregate_sha256": "59c3a09cd9965aa841cd15ea494efc79d8993303a336c2d9d37c20d1259a3c6d",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
@@ -21,7 +21,7 @@
     {
       "command": "python -m unittest discover -s tests -v",
       "result": "PASS",
-      "tests": 107,
+      "tests": 108,
       "scope": "repository Python/contract/policy tests; no native runtime execution"
     },
     {
@@ -1072,7 +1072,7 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
-        "sha256": "7b00b2b9de7bf1a5e1165b6ba03901b09bba4794ce9696f99e910f5d05cd0ec5"
+        "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72"
       },
       "source_observations": [
         {
@@ -1107,7 +1107,7 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
-        "sha256": "7b00b2b9de7bf1a5e1165b6ba03901b09bba4794ce9696f99e910f5d05cd0ec5"
+        "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72"
       },
       "source_observations": [
         {
@@ -1142,7 +1142,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
-        "sha256": "7b00b2b9de7bf1a5e1165b6ba03901b09bba4794ce9696f99e910f5d05cd0ec5"
+        "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72"
       },
       "source_observations": [
         {
@@ -2244,7 +2244,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "c826f1aadb441b63916cf03afd84c2302de3ed5643139b420448177e8201ef2b"
+          "sha256": "fe1404cdf904d7c106ebbd5b8604e1255f3a6b5d818ee98529d103415604b724"
         }
       ],
       "acceptance_ids": [
@@ -2280,7 +2280,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "c826f1aadb441b63916cf03afd84c2302de3ed5643139b420448177e8201ef2b"
+          "sha256": "fe1404cdf904d7c106ebbd5b8604e1255f3a6b5d818ee98529d103415604b724"
         }
       ],
       "acceptance_ids": [
@@ -3490,7 +3490,7 @@
       "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "42d1f1e50c18ae6634203445621e177656878838118be86ca416bc4665c7221a"
+        "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
       },
       "source_observations": [
         {
@@ -3526,7 +3526,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "42d1f1e50c18ae6634203445621e177656878838118be86ca416bc4665c7221a"
+        "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
       },
       "source_observations": [
         {
@@ -3562,7 +3562,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "42d1f1e50c18ae6634203445621e177656878838118be86ca416bc4665c7221a"
+        "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
       },
       "source_observations": [
         {
@@ -4323,7 +4323,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/security/threat-model.md",
-        "sha256": "bd7dcb0b053171bf7e1628f21fe6226eef1fa1fe9a9b8067af54e11a7d348492"
+        "sha256": "ffe0b8cd75ff8a40eaf1e7fe08519f72c02bb077174ad4e9c1dc2a1f16c568cc"
       },
       "source_observations": [
         {
@@ -4358,7 +4358,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/security/threat-model.md",
-        "sha256": "bd7dcb0b053171bf7e1628f21fe6226eef1fa1fe9a9b8067af54e11a7d348492"
+        "sha256": "ffe0b8cd75ff8a40eaf1e7fe08519f72c02bb077174ad4e9c1dc2a1f16c568cc"
       },
       "source_observations": [
         {
@@ -4393,7 +4393,7 @@
       "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
       "spec_source": {
         "path": "spec/security/threat-model.md",
-        "sha256": "bd7dcb0b053171bf7e1628f21fe6226eef1fa1fe9a9b8067af54e11a7d348492"
+        "sha256": "ffe0b8cd75ff8a40eaf1e7fe08519f72c02bb077174ad4e9c1dc2a1f16c568cc"
       },
       "source_observations": [
         {
