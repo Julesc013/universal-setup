@@ -1,0 +1,18 @@
+{
+  "schema": "usk.spec.repository-status/1",
+  "repository": "Julesc013/universal-setup",
+  "adoption": {
+    "status": "adopted",
+    "scope": "engineering-intent source; no implementation, runtime, queue, signing, protected-ref or publication authority",
+    "workunit_id": "USK-WU-001",
+    "record": "docs/architecture/specification_authority.md",
+    "record_sha256": "20aeb84a5cda9f5985d523cfb80ca46ccdcaab3c4c9d8a165a99785ea190fd86",
+    "adopted_at": "2026-09-20",
+    "repository_adapted_aggregate_sha256_at_adoption": "425723300e08278acd2b0871d74fbc2114065549d821226d4d46b462aa746762",
+    "operational_queue_status": "not asserted by this projection"
+  },
+  "import_manifest": "manifest.json",
+  "import_manifest_adoption": "not_performed",
+  "runtime_execution": "not_assessed",
+  "authority_granted": false
+}

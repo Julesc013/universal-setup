@@ -10,4 +10,5 @@
 - [CLAUDE.md.txt](CLAUDE.md.txt)
 - [FRESH-CHAT.txt](FRESH-CHAT.txt)
 - [ci-snippet.yml.txt](ci-snippet.yml.txt)
+- [repository-status.json](repository-status.json)
 - [root-admission.patch](root-admission.patch)

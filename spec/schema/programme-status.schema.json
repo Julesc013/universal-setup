@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://universal-setup.invalid/schema/spec/programme-status.v1.schema.json",
+  "title": "Universal Setup programme status projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "recorded_at",
+    "release_selection_snapshot",
+    "campaign_authority",
+    "authority_granted_by_this_projection",
+    "decisions",
+    "release_1_1",
+    "full_spec_baseline"
+  ],
+  "properties": {
+    "schema": {"const": "usk.spec.programme-status/1"},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "release_selection_snapshot": {"$ref": "#/$defs/fileRef"},
+    "campaign_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["campaign", "path", "sha256", "status"],
+      "properties": {
+        "campaign": {"const": "USK-SPEC-TO-RELEASE-01"},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "status": {"const": "active"}
+      }
+    },
+    "authority_granted_by_this_projection": {"const": false},
+    "decisions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/decision"}
+    },
+    "release_1_1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "readiness",
+        "implementation_complete",
+        "machine_qualified",
+        "experience_assessed",
+        "integrated",
+        "published",
+        "evidence"
+      ],
+      "properties": {
+        "readiness": {"enum": ["not_established", "alpha", "beta", "rc", "supported"]},
+        "implementation_complete": {"type": "boolean"},
+        "machine_qualified": {"type": "boolean"},
+        "experience_assessed": {"type": "boolean"},
+        "integrated": {"type": "boolean"},
+        "published": {"type": "boolean"},
+        "evidence": {"$ref": "#/$defs/evidenceMap"}
+      }
+    },
+    "full_spec_baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "continuing_maintenance_operational", "evidence"],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "continuing_maintenance_operational": {"type": "boolean"},
+        "evidence": {"$ref": "#/$defs/evidenceMap"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fileRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "evidence"],
+      "properties": {
+        "status": {"enum": ["open", "resolved"]},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/fileRef"}}
+      }
+    },
+    "evidenceMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"$ref": "#/$defs/fileRef"}
+      }
+    }
+  }
+}

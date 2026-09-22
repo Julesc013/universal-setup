@@ -5,15 +5,33 @@
       "id": "OD-001",
       "topic": "Publication mechanism and adversary ceiling",
       "status": "open",
+      "direction_status": "candidate_selected_evidence_outstanding",
+      "selected_direction_ref": "docs/security/windows_ntfs_publication_profile.md",
+      "selected_direction": "windows_nt_x64_local_ntfs_service_sid_noreplace_v1: dedicated restricted service SID, SYSTEM-owned protected DACL anchors, same-live-local-NTFS handle-bound no-replace publication",
+      "outstanding_obligations": [
+        "admitted Windows attack execution against the exact implementation candidate",
+        "exact target and NTFS configuration receipt",
+        "independent technical and security review"
+      ],
       "blocks": [
         "USK-WU-006"
       ],
-      "resolution_required": "platform-enforced mechanism and attack evidence"
+      "resolution_required": "platform-enforced mechanism and attack evidence; candidate direction alone is not resolution"
     },
     {
       "id": "OD-002",
       "topic": "First supported target/filesystem/frontend",
       "status": "open",
+      "direction_status": "selected_with_outstanding_obligations",
+      "selected_direction_ref": "release-selection.json#/decisions/OD-002",
+      "selected_direction": "Windows NT x64 first complete native profile; local NTFS; managed-portable-first plus explicitly admitted user-scope integration; WinForms first OEM+ shell over a native kernel, worker and independent recovery path",
+      "outstanding_obligations": [
+        "bind exact endpoint OS image and build",
+        "bind compiler, runtime and binary dependency closure",
+        "bind NTFS configuration and selected operation guarantees",
+        "bind an actual authorized disposable lab identity",
+        "complete qualification before making a support claim"
+      ],
       "blocks": [
         "USK-WU-011",
         "USK-WU-018"
@@ -24,6 +42,15 @@
       "id": "OD-003",
       "topic": "Runtime contract promotion and compatibility",
       "status": "open",
+      "direction_status": "selected_with_outstanding_obligations",
+      "selected_direction_ref": "release-selection.json#/decisions/OD-003",
+      "selected_direction": "preserve existing ABI 1.0 consumers and admitted contract behavior; add capabilities compatibly and explicitly version any interface or persisted format that cannot retain compatibility",
+      "outstanding_obligations": [
+        "review each actual ABI or schema change",
+        "define old/new caller, implementation and persisted-state compatibility",
+        "define migration and recovery behavior",
+        "add executable compatibility tests before promotion"
+      ],
       "blocks": [
         "USK-WU-010",
         "USK-WU-012"
@@ -42,18 +69,24 @@
     {
       "id": "OD-005",
       "topic": "AIDE adapter and grants",
-      "status": "open",
+      "status": "resolved",
       "blocks": [],
-      "resolution_required": "actual pinned runtime admission; export alone insufficient"
+      "resolution": "The active repository campaign authority plus an exact, non-widening task binding admits ordinary repository work without an AIDE runtime or a fresh per-WorkUnit owner grant. AIDE exports remain inert; endpoint or user-state effects still require an exact target/environment receipt.",
+      "resolution_evidence": [
+        {
+          "path": "release/evidence/od-005-campaign-authority.json",
+          "sha256": "11a603d8491390e5fe4093b545164e3159609712c03eb29c42c0cfb65be14ddd"
+        }
+      ]
     },
     {
       "id": "OD-006",
-      "topic": "Human reviewer and lab authorization",
+      "topic": "Exact lab access and experience-evidence scope",
       "status": "open",
       "blocks": [
         "USK-WU-032"
       ],
-      "resolution_required": "real principals and granted exact environments"
+      "resolution_required": "actual target access plus honestly attributed automated and available human observations; no ceremonial merge approval"
     },
     {
       "id": "OD-007",
@@ -68,10 +101,18 @@
       "id": "OD-008",
       "topic": "Release numbering and signing identity",
       "status": "open",
+      "direction_status": "selected_with_outstanding_obligations",
+      "selected_direction_ref": "release-selection.json#/decisions/OD-008",
+      "selected_direction": "Universal Setup 1.1 development train targeting 1.1.0 Local Setup Foundation through Alpha, Beta, RC and supported-release gates",
+      "outstanding_obligations": [
+        "select and verify production signing identity",
+        "establish signing-key custody and publisher-trust policy",
+        "qualify exact candidate bytes before allocating a public prerelease or release"
+      ],
       "blocks": [
         "USK-WU-032"
       ],
-      "resolution_required": "maintainer channel decision; no preallocated version claim"
+      "resolution_required": "verified signing/trust mechanism and qualified exact candidate; no preallocated version claim"
     }
   ]
 }

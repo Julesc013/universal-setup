@@ -28,7 +28,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -56,7 +56,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -84,7 +84,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -112,7 +112,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -140,7 +140,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -168,7 +168,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -196,7 +196,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -224,7 +224,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -252,7 +252,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -280,7 +280,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -308,7 +308,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -336,7 +336,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -364,7 +364,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -392,7 +392,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -420,7 +420,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -448,7 +448,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -476,7 +476,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -504,7 +504,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -532,7 +532,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -544,14 +544,14 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Implemented update planner with refused publisher.",
+      "fixture": "Candidate windows_nt_x64_local_ntfs_service_sid_noreplace_v1 record with implementation absent, availability false, qualification not_run and support unsupported.",
       "procedure": [
         "Query availability.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "The command is recognized and the missing publication guarantee is explained.",
-      "negative_control": "Mark all registered commands supported.",
-      "oracle": "Capability fixture and UI projection.",
+      "expected": "The candidate remains unavailable and unsupported; caller booleans, path claims, hashes and journal IDs cannot upgrade it.",
+      "negative_control": "Set a caller-provided available=true or trusted path claim.",
+      "oracle": "Deterministic publication-authority reference model and capability projection.",
       "required_evidence": [
         "exact source and dependencies",
         "target and filesystem profile",
@@ -560,7 +560,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -588,7 +588,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -600,14 +600,14 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Recipe requires protected publication; provider only offers legacy rename.",
+      "fixture": "Recipe requires protected publication while the selected candidate remains unavailable or fails one eligibility preflight.",
       "procedure": [
         "Plan and apply.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "Both explain the unmet guarantee and preserve existing state.",
-      "negative_control": "Change a presentation label to claim stronger support.",
-      "oracle": "Policy result plus external state oracle.",
+      "expected": "Both return a typed no-effect refusal and preserve existing state; a claim cannot substitute for observed qualification.",
+      "negative_control": "Change a presentation label, hash, or journal ID to claim stronger support.",
+      "oracle": "Deterministic publication-authority reference model plus external state oracle.",
       "required_evidence": [
         "exact source and dependencies",
         "target and filesystem profile",
@@ -616,7 +616,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -644,7 +644,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -672,7 +672,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -700,7 +700,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -728,7 +728,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -756,7 +756,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -784,7 +784,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -812,7 +812,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -840,7 +840,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -868,7 +868,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -896,7 +896,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -924,7 +924,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -952,7 +952,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -980,7 +980,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1008,7 +1008,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1036,7 +1036,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1064,7 +1064,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1076,14 +1076,15 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Attacker races file replacement, hardlinks, symlinks and descendant insertion after verification.",
+      "fixture": "Closed Windows-build/SDK/service-SID/DACL/handle-provenance candidate corpus with explicit handle-returned volume/protocol/name facts and sealed/visible root plus per-descendant identity, content, size, attribute, structured security, link, stream and reparse evidence.",
       "procedure": [
-        "Exercise the target-specific publish protocol repeatedly.",
+        "Exercise identical-byte same-name foreign identity, changed hash at the same path, wholesale cross-volume identity, extra/missing child, missing/file parent, case alias, ADS path, omitted visible evidence, contradictory reparse facts, hardlink, destination precreation and structured owner/DACL/digest/provenance attacks.",
+        "Require the ordered protected_empty/materializing/sealed/publish_prepared/renamed_unconfirmed/visible_bound/metadata_pending protocol and three-valued rename result.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "No substituted payload publishes under original verified identity; unsupported threat profile refuses.",
-      "negative_control": "Replace a staged file between verify and rename.",
-      "oracle": "External attacker harness and visible payload hash/native identity.",
+      "expected": "No foreign, incomplete or substituted root/closure completes; every descendant must have explicit exact visible evidence, and applied/unknown rename ambiguity retains for recovery.",
+      "negative_control": "Replace a staged file with identical bytes between verification and rename.",
+      "oracle": "Admitted external attacker harness plus deterministic publication-authority reference model and visible FILE_ID_INFO/closure observation.",
       "required_evidence": [
         "exact source and dependencies",
         "target and filesystem profile",
@@ -1092,7 +1093,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1104,14 +1105,14 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Strong recipe on legacy rename-only provider.",
+      "fixture": "Protected recipe on unavailable candidate plus unknown/ill-typed evidence, remote/non-NTFS/cross-volume, SID/DACL/provenance failure, pre-existing anchors, closure count 200001, depth 129 and ReplaceIfExists=true.",
       "procedure": [
-        "Plan and attempt apply.",
+        "Submit every required closed evidence field and independently mutate each named predicate; also try preflight from a later phase, repeat rename and continuation after refusal.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "Typed refusal, no existing-target change.",
-      "negative_control": "Pass user asserted trusted=true.",
-      "oracle": "Pre/post root identities, files and policy trace.",
+      "expected": "Typed no-effect or retained refusal with no invented eligibility; unknown/missing/ill-typed evidence, service-SID failure and caller trusted=true do not bypass it, and terminal results do not continue.",
+      "negative_control": "Pass user asserted trusted=true, availability=true, or a trusted journal ID.",
+      "oracle": "Pre/post bound identities, files, policy trace, and deterministic publication-authority reference model.",
       "required_evidence": [
         "exact source and dependencies",
         "target and filesystem profile",
@@ -1120,7 +1121,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1132,14 +1133,14 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Publish succeeds, installed-state write fails.",
+      "fixture": "Exact visible root/closure success, metadata failure, crash immediately before/around/after rename, and privileged excluded actor after an applied rename.",
       "procedure": [
-        "Inspect/recover under original operation context.",
+        "Inspect/recover under the original operation context without manufacturing profile evidence, handle provenance, ownership or capability.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "Visible target remains identified, result recovery_required, no invented complete state.",
-      "negative_control": "Treat missing state file as proof install never happened.",
-      "oracle": "Independent post-state and immutable journal.",
+      "expected": "Applied rename stays labeled renamed and unknown stays ambiguous; visible material is retained, disposition is recovery_required, and no completion, no-effect label or cleanup is invented.",
+      "negative_control": "Treat missing metadata as proof installation never happened or delete ambiguous visible material.",
+      "oracle": "Independent post-state, immutable journal, and deterministic publication-authority reference model.",
       "required_evidence": [
         "exact source and dependencies",
         "target and filesystem profile",
@@ -1148,7 +1149,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1176,7 +1177,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1204,7 +1205,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1232,7 +1233,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1260,7 +1261,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1288,7 +1289,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1316,7 +1317,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1344,7 +1345,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1372,7 +1373,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1400,7 +1401,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1428,7 +1429,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1456,7 +1457,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1484,7 +1485,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1512,7 +1513,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1540,7 +1541,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1568,7 +1569,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1596,7 +1597,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1624,7 +1625,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1652,7 +1653,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1680,7 +1681,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1708,7 +1709,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1736,7 +1737,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1764,7 +1765,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1792,7 +1793,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1820,7 +1821,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1848,7 +1849,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1876,7 +1877,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1904,7 +1905,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1932,7 +1933,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1960,7 +1961,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -1988,7 +1989,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2016,7 +2017,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2044,7 +2045,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2072,7 +2073,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2100,7 +2101,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2128,7 +2129,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2156,7 +2157,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2184,7 +2185,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2212,7 +2213,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2240,7 +2241,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2252,14 +2253,14 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Publisher claim against same-user modification.",
+      "fixture": "Candidate profile matrix for same-user/local-unprivileged attacks and explicit administrator/SYSTEM/publisher/kernel/filter/offline-storage/DoS/unqualified-power-loss exclusions.",
       "procedure": [
         "Review provider threat profile and run attacker harness.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "Claim limited to evidenced mechanism; stronger unproved threat refused.",
-      "negative_control": "Label process separation a sandbox with no restrictions.",
-      "oracle": "Threat/claim matrix and adversarial result.",
+      "expected": "Claim remains limited to the stated candidate ceiling and enforcement design; stronger or unqualified claims refuse.",
+      "negative_control": "Label a process, path, hash, or service name an isolated sandbox without enforcement evidence.",
+      "oracle": "Threat/claim matrix, deterministic publication-authority reference model, and admitted adversarial result.",
       "required_evidence": [
         "exact source and dependencies",
         "target and filesystem profile",
@@ -2268,7 +2269,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2296,7 +2297,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2308,14 +2309,14 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Staged-substitution defect fixed by new publisher.",
+      "fixture": "Retained legacy C++ staged-substitution negative control and candidate deterministic corpus.",
       "procedure": [
         "Refactor publisher and rerun regression.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "Unsafe behavior cannot reappear unnoticed.",
-      "negative_control": "Remove test because current code refuses.",
-      "oracle": "Regression inventory and executed outcome.",
+      "expected": "The legacy negative control and candidate corpus remain discoverable; no designed case is represented as executed evidence.",
+      "negative_control": "Remove the legacy C++ negative control because the candidate currently refuses.",
+      "oracle": "Regression inventory, deterministic publication-authority reference model, and future admitted execution outcome.",
       "required_evidence": [
         "exact source and dependencies",
         "target and filesystem profile",
@@ -2324,7 +2325,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2352,7 +2353,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2380,7 +2381,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2408,7 +2409,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2436,7 +2437,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2464,7 +2465,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2492,7 +2493,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2520,7 +2521,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2548,7 +2549,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2576,7 +2577,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2604,7 +2605,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2632,7 +2633,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2660,7 +2661,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2688,7 +2689,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2716,7 +2717,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2744,7 +2745,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2772,7 +2773,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2800,7 +2801,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2828,7 +2829,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2856,7 +2857,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2884,7 +2885,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2912,7 +2913,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2940,7 +2941,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2968,7 +2969,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -2996,7 +2997,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3024,7 +3025,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3052,7 +3053,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3080,7 +3081,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3108,7 +3109,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3136,7 +3137,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3164,7 +3165,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3192,7 +3193,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3220,7 +3221,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3248,7 +3249,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3276,7 +3277,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3304,7 +3305,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3332,7 +3333,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3360,7 +3361,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3388,7 +3389,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3416,7 +3417,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3444,7 +3445,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3472,7 +3473,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3500,7 +3501,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3528,7 +3529,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3556,7 +3557,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3584,7 +3585,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3612,7 +3613,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3640,7 +3641,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3668,7 +3669,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3696,7 +3697,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3724,7 +3725,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3752,7 +3753,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3780,7 +3781,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3808,7 +3809,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3836,7 +3837,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3864,7 +3865,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3892,7 +3893,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3920,7 +3921,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3948,7 +3949,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -3976,7 +3977,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -4004,7 +4005,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     },
     {
@@ -4032,7 +4033,7 @@
         "independent post-state observation",
         "classified failures and skips"
       ],
-      "execution_authority": "requires-separately-admitted-task-and-lab-grant",
+      "execution_authority": "requires-active-campaign-task-binding-and-target-receipt-for-effects",
       "result_refs": []
     }
   ]
