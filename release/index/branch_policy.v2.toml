@@ -28,8 +28,8 @@ maximum_completed_unpromoted_work_units = 1
 consumer_pins_may_reference_dev = false
 
 [synchronization]
-after_dev_promotion = "fast_forward_dev_to_canonical_main_closeout"
-after_main_hotfix = "open_main_to_dev_pull_request"
+after_dev_promotion = "zero_content_normal_pull_request_main_to_dev_closeout"
+after_main_hotfix = "require_separate_hotfix_reconciliation_review"
 unrelated_divergence = "fail_for_technical_review"
 force_reset_dev = false
 
@@ -68,6 +68,11 @@ draft_allowed = false
 mergeable_required = true
 technical_review_exact_head_required = true
 normal_pull_request_path_required = true
+post_promotion_closeout_main_to_dev_route_only = true
+post_promotion_closeout_exact_live_tips_required = true
+post_promotion_closeout_two_parent_promotion_merge_required = true
+post_promotion_closeout_zero_content_tree_required = true
+post_promotion_closeout_exact_merged_pr_provenance_required = true
 
 [release_gate]
 exact_main_source_required = true
