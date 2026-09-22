@@ -57,6 +57,8 @@ ALLOWED_CONTENT_ROOTS = {"policy", "templates"}
 ALLOWED_RELEASE_ROOTS = {"index", "license.v1.toml", "packaging", "profiles"}
 ALLOWED_RELEASE_INDEX = {
     "branch_policy.v1.toml",
+    "branch_policy.v2.toml",
+    "campaign_authority.v1.toml",
     "consumer_matrix.v1.toml",
     "contract_maturity.v1.toml",
     "deflate_zip64_streaming_workunit.v1.toml",
@@ -66,6 +68,7 @@ ALLOWED_RELEASE_INDEX = {
     "provider_capabilities.v1.toml",
     "provider_package_truth_workunit.v1.toml",
     "sdk_package_workunit.v1.toml",
+    "specification_baseline.v1.toml",
 }
 ALLOWED_PACKAGING_ROOTS = {"bsd", "linux", "macos", "portable", "windows"}
 ALLOWED_APPS = {"cli", "daemon", "gui", "tui"}
@@ -188,7 +191,8 @@ def check_required_paths() -> list[str]:
         ROOT / "docs" / "roadmap.md",
         ROOT / "docs" / "governance" / "branch_model.md",
         ROOT / "tools" / "branch_policy_check.py",
-        ROOT / "release" / "index" / "branch_policy.v1.toml",
+        ROOT / "release" / "index" / "branch_policy.v2.toml",
+        ROOT / "release" / "index" / "campaign_authority.v1.toml",
         ROOT / "release" / "index" / "contract_maturity.v1.toml",
     ]
     return [f"missing required path {path.relative_to(ROOT)}" for path in required if not path.exists()]

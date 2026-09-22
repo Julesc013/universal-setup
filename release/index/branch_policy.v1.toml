@@ -4,6 +4,8 @@
 schema = "universal.repository_branch_policy.v1"
 repository = "universal-setup"
 reviewed_on = "2026-08-04"
+status = "superseded"
+superseded_by = "release/index/branch_policy.v2.toml"
 
 [branches]
 canonical = "main"

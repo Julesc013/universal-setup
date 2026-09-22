@@ -10,8 +10,42 @@ import unittest
 from tools import branch_policy_check
 
 
+HEAD = "1" * 40
+BASE = "2" * 40
+
+
+def valid_merge() -> dict:
+    return {
+        "expected_head_oid": HEAD,
+        "observed_head_oid": HEAD,
+        "expected_base_oid": BASE,
+        "observed_base_oid": BASE,
+        "state": "OPEN",
+        "draft": False,
+        "mergeable": True,
+        "merge_method": "normal_pull_request",
+        "direct_protected_push": False,
+        "force_update": False,
+        "bypass": False,
+        "unresolved_threads": 0,
+        "author_context": "writer-context",
+        "executor_context": "writer-context",
+        "required_checks": [
+            {"name": "ci", "conclusion": "SUCCESS", "head_oid": HEAD, "base_oid": BASE}
+        ],
+        "technical_review": {
+            "kind": "agent",
+            "reviewer_context": "reviewer-context",
+            "author_context": "writer-context",
+            "head_oid": HEAD,
+            "claims_human": False,
+            "github_state": "COMMENTED",
+        },
+    }
+
+
 class BranchPolicyTests(unittest.TestCase):
-    def test_canonical_policy_is_valid(self) -> None:
+    def test_canonical_policy_and_campaign_are_valid(self) -> None:
         self.assertEqual(branch_policy_check.check(), [])
 
     def test_provider_dev_cannot_become_a_consumer_pin(self) -> None:
@@ -23,6 +57,56 @@ class BranchPolicyTests(unittest.TestCase):
             "branch policy invariants.consumer_pins_may_reference_dev must be False",
             branch_policy_check.check_data(invalid),
         )
+
+    def test_exact_green_pr_merge_allows_author_to_execute_merge(self) -> None:
+        observation = valid_merge()
+        self.assertEqual(observation["author_context"], observation["executor_context"])
+        self.assertEqual(branch_policy_check.merge_admission_errors(observation), [])
+
+    def test_stale_head_and_base_are_denied_even_with_green_checks(self) -> None:
+        observation = valid_merge()
+        observation["observed_head_oid"] = "3" * 40
+        observation["observed_base_oid"] = "4" * 40
+        errors = branch_policy_check.merge_admission_errors(observation)
+        self.assertIn("pull request head is stale", errors)
+        self.assertIn("pull request base is stale", errors)
+
+    def test_red_pending_or_stale_check_is_denied(self) -> None:
+        for conclusion in ("FAILURE", "PENDING", "CANCELLED"):
+            with self.subTest(conclusion=conclusion):
+                observation = valid_merge()
+                observation["required_checks"][0]["conclusion"] = conclusion
+                self.assertTrue(any(
+                    "required check is not successful" in error
+                    for error in branch_policy_check.merge_admission_errors(observation)
+                ))
+        observation = valid_merge()
+        observation["required_checks"][0]["head_oid"] = "5" * 40
+        self.assertTrue(any(
+            "stale head" in error for error in branch_policy_check.merge_admission_errors(observation)
+        ))
+
+    def test_direct_force_bypass_and_unresolved_threads_are_denied(self) -> None:
+        observation = valid_merge()
+        observation["direct_protected_push"] = True
+        observation["force_update"] = True
+        observation["bypass"] = True
+        observation["unresolved_threads"] = 1
+        errors = branch_policy_check.merge_admission_errors(observation)
+        self.assertIn("direct protected push is forbidden", errors)
+        self.assertIn("force update is forbidden", errors)
+        self.assertIn("ruleset bypass is forbidden", errors)
+        self.assertIn("all review threads must be resolved", errors)
+
+    def test_review_must_be_independent_and_truthfully_agent_authored(self) -> None:
+        observation = valid_merge()
+        observation["technical_review"]["reviewer_context"] = "writer-context"
+        observation["technical_review"]["claims_human"] = True
+        observation["technical_review"]["github_state"] = "APPROVED"
+        errors = branch_policy_check.merge_admission_errors(observation)
+        self.assertIn("technical review must use a different review context", errors)
+        self.assertIn("agent review must not claim human provenance", errors)
+        self.assertIn("agent review must not fabricate GitHub approval", errors)
 
 
 if __name__ == "__main__":

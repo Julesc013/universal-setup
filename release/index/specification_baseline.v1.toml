@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal.specification_baseline_receipt.v1"
+status = "accepted_source_reconciliation"
+workunits = ["USK-WU-001", "USK-WU-002", "USK-WU-003"]
+repository = "Julesc013/universal-setup"
+integrated_head = "dcae73ed45abad21058939d3a883a6427c027671"
+merge_commit = "5e9152a11f07559f6e60cfb5bbc7351917e44353"
+merge_tree = "6786355652ffec48bd7a3118528f6ecd333fe29e"
+pull_request = 61
+post_merge_ci_run = 35685527326
+post_merge_ci_conclusion = "success"
+technical_review_kind = "agent_comment_review"
+technical_review_id = 5274035443
+human_product_acceptance = false
+runtime_qualification = false
+claim = "The adopted specification, implementation inventory, and selected 1.1 direction are reconciled at this exact source; this receipt does not claim product acceptance or runtime qualification."

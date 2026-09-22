@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
+schema = "universal.spec_to_release_campaign_authority.v1"
+campaign = "USK-SPEC-TO-RELEASE-01"
+repository = "Julesc013/universal-setup"
+status = "active"
+recorded_at = "2026-09-22T14:08:29+10:00"
+authority_source = "direct repository-owner instruction in the current coding session"
+r2_zip_sha256 = "8b1c72ff01b9e8b954a6d796af952c4ae5756bebc8441063180c8ecbc6640545"
+r2_goal_sha256 = "7b5d0b6cfeb07e6810511a2a9825c86b8c39621c4ab0a1596ddcdf287218cf66"
+initial_dev_commit = "5e9152a11f07559f6e60cfb5bbc7351917e44353"
+initial_dev_tree = "6786355652ffec48bd7a3118528f6ecd333fe29e"
+
+[scope]
+implementation = true
+testing = true
+documentation = true
+task_branches_and_worktrees = true
+pull_requests = true
+qualified_dev_merge = true
+qualified_main_promotion = true
+automatic_exact_task_binding = true
+build_and_package = true
+immutable_release_tagging = true
+configured_release_signing = true
+qualified_release_publication = true
+
+[binding]
+fresh_owner_approval_per_workunit = false
+exact_source_commit_and_tree = true
+exact_task_definition_digest = true
+exact_specification_aggregate = true
+scope_may_widen_template = false
+accepted_predecessor_receipts_required = true
+effect_target_receipt_required_for_endpoint_or_user_state = true
+ordinary_source_change_requires_rebind_not_reauthorization = true
+
+[review]
+technical_review_required = true
+different_review_context_required = true
+agent_review_allowed = true
+human_approval_required_by_campaign = false
+truthful_provenance_required = true
+agent_review_must_not_claim_human_approval = true
+
+[constraints]
+direct_protected_push = false
+force_push = false
+merge_bypass = false
+red_or_pending_merge = false
+stale_head_or_base_merge = false
+fabricated_acceptance = false
+credential_creation_export_or_disclosure = false
+unrelated_data_mutation = false
+customer_machine_effects_without_runtime_consent_and_policy = false
+tag_movement = false
+
+[release]
+exact_main_source = true
+qualified_candidate_bytes = true
+configured_purpose_authorized_signer_only = true
+remote_tag_asset_and_digest_readback = true
+missing_signer_blocks_only_signing_and_claims_that_require_it = true

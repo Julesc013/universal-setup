@@ -2,7 +2,9 @@
 
 Universal Setup is continuously integrated and independently releasable. The
 machine-readable authority is
-[`release/index/branch_policy.v1.toml`](../../release/index/branch_policy.v1.toml).
+[`release/index/branch_policy.v2.toml`](../../release/index/branch_policy.v2.toml).
+The superseded v1 policy remains in Git and in the tree as an explicit
+historical record.
 
 | Ref | Role |
 | --- | --- |
@@ -22,8 +24,18 @@ may test an exact `dev` SHA supplied as an input, but they do not change the
 tracked consumer lock. After promotion, adoption is a separate exact-pin pull
 request. No provider merge directly changes a consumer revision.
 
-`main` and `dev` are protected from force pushes, deletion, and direct writes.
-Promotion and hotfix synchronization preserve ancestry; unrelated divergence
-fails for human review. Automation may write only bot-owned task branches and
-pull requests. It may not approve or merge its own work, sign, publish, use
-product credentials, or bypass protection.
+`main` and `dev` are protected from force pushes, deletion, bypasses, and
+direct writes. A normal GitHub PR merge is not a direct protected push. Under
+the active campaign authority, the merge executor may be the PR author after
+an exact-head, exact-base, green-check gate and a separately identified
+technical review context pass. An agent review is recorded as agent review; it
+is never presented as a human or GitHub approval.
+
+The same standing authority covers qualified `dev` promotion and release
+execution. Signing uses only an already configured purpose-authorized signer,
+and publication requires exact qualified candidate bytes plus remote
+tag/asset/digest readback. It grants no permission to create or export
+credentials, move immutable tags, bypass a failing gate, mutate unrelated
+data, or turn repository authority into customer-machine runtime consent.
+
+See [campaign authority](campaign_authority.md) for binding and review rules.
