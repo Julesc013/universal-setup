@@ -1076,12 +1076,13 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Bound-handle candidate corpus: identical/changed substitution, insertion, reparse, hardlink, ADS, parent substitution, destination precreation, DACL/owner mutation and hostile pre-opened handle.",
+      "fixture": "Closed Windows-build/SDK/service-SID/DACL/handle-provenance candidate corpus with explicit sealed and visible root plus per-descendant identity, content, size, attribute, security-descriptor, link, stream and reparse evidence.",
       "procedure": [
-        "Exercise the target-specific publish protocol repeatedly.",
+        "Exercise identical-byte same-name foreign identity, changed hash at the same path, extra/missing child, omitted visible evidence, reparse, hardlink, ADS, parent substitution, destination precreation and owner/DACL/provenance attacks.",
+        "Require the ordered protected_empty/materializing/sealed/publish_prepared/renamed_unconfirmed/visible_bound/metadata_pending protocol and three-valued rename result.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "No foreign or substituted closure completes under the verified identity; unavailable or ineligible profiles refuse with no effect or retain for recovery.",
+      "expected": "No foreign, incomplete or substituted root/closure completes; every descendant must have explicit exact visible evidence, and applied/unknown rename ambiguity retains for recovery.",
       "negative_control": "Replace a staged file with identical bytes between verification and rename.",
       "oracle": "Admitted external attacker harness plus deterministic publication-authority reference model and visible FILE_ID_INFO/closure observation.",
       "required_evidence": [
@@ -1104,12 +1105,12 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Protected recipe on unavailable candidate, legacy rename-only provider, or non-NTFS/remote/cross-volume target.",
+      "fixture": "Protected recipe on unavailable candidate plus unknown/ill-typed evidence, remote/non-NTFS/cross-volume, SID/DACL/provenance failure, pre-existing anchors, closure count 200001, depth 129 and ReplaceIfExists=true.",
       "procedure": [
-        "Plan and attempt apply.",
+        "Submit every required closed evidence field and independently mutate each named predicate; also try preflight from a later phase, repeat rename and continuation after refusal.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "Typed no-effect refusal, with no existing-target change; service-SID failure and caller trusted=true do not bypass it.",
+      "expected": "Typed no-effect or retained refusal with no invented eligibility; unknown/missing/ill-typed evidence, service-SID failure and caller trusted=true do not bypass it, and terminal results do not continue.",
       "negative_control": "Pass user asserted trusted=true, availability=true, or a trusted journal ID.",
       "oracle": "Pre/post bound identities, files, policy trace, and deterministic publication-authority reference model.",
       "required_evidence": [
@@ -1132,12 +1133,12 @@
       ],
       "kind": "product-acceptance-design",
       "status": "not_run",
-      "fixture": "Visible bound identity/closure succeeds and metadata fails, plus crash immediately before and after rename.",
+      "fixture": "Exact visible root/closure success, metadata failure, crash immediately before/around/after rename, and privileged excluded actor after an applied rename.",
       "procedure": [
-        "Inspect/recover under original operation context.",
+        "Inspect/recover under the original operation context without manufacturing profile evidence, handle provenance, ownership or capability.",
         "Capture the result and compare independently observed effects and retained state with the oracle."
       ],
-      "expected": "Visible target remains identified where rename occurred, disposition is recovery_required, and no complete state or cleanup is invented.",
+      "expected": "Applied rename stays labeled renamed and unknown stays ambiguous; visible material is retained, disposition is recovery_required, and no completion, no-effect label or cleanup is invented.",
       "negative_control": "Treat missing metadata as proof installation never happened or delete ambiguous visible material.",
       "oracle": "Independent post-state, immutable journal, and deterministic publication-authority reference model.",
       "required_evidence": [
