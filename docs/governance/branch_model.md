@@ -9,15 +9,22 @@ historical record.
 | Ref | Role |
 | --- | --- |
 | `main` | Stable, canonical, releasable provider source |
-| `dev` | Green integration train that always contains `main` |
+| `dev` | Green integration train, returned to containing `main` by closeout |
 | `task/*` | One bounded WorkUnit based on an exact recorded `dev` SHA |
-| `hotfix/*` | Emergency correction based on `main`, synchronized back to `dev` |
+| `hotfix/*` | Emergency correction based on `main`; reconciliation is separately reviewed |
 | tags | Releases created only from accepted `main` |
 
 Normal work follows `task/* -> dev -> consumer canary -> main`. A completed
 provider WorkUnit must not accumulate on `dev` behind more than one other
 completed-but-unpromoted WorkUnit. Product-only changes do not create provider
 commits or broaden Setup authority.
+
+The only `main -> dev` route is the narrow zero-content normal-PR closeout
+after a normal `dev -> main` promotion. It is admitted only when the live
+`main` tip is the two-parent promotion merge of the exact live `dev` tip, its
+tree is identical to that `dev` tip, and GitHub associates that merge with the
+unique exact merged `dev -> main` PR. The closeout is not a fast-forward,
+direct write, hotfix synchronization, or a route for arbitrary `main` history.
 
 Stable consumers pin exact commits reachable from provider `main`. Canary jobs
 may test an exact `dev` SHA supplied as an input, but they do not change the

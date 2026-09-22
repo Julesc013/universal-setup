@@ -3708,7 +3708,7 @@
       "source_observations": [
         {
           "path": "release/index/branch_policy.v2.toml",
-          "sha256": "1cb5ab836e1ae4b23ce79b1172f8bc04a10532753e2bf555acfaca1b894b32ce"
+          "sha256": "678b707dbcf6eaaa2696e5ea3cec78b572fdcadf096366affcc1070e0bf7e686"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -3716,7 +3716,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "6cac028344765a7d65fec62d50986e4da9a2d4f526b4f3bdf884f01554bc7f3e"
+          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
         }
       ],
       "acceptance_ids": [
@@ -3746,7 +3746,7 @@
       "source_observations": [
         {
           "path": "release/index/branch_policy.v2.toml",
-          "sha256": "1cb5ab836e1ae4b23ce79b1172f8bc04a10532753e2bf555acfaca1b894b32ce"
+          "sha256": "678b707dbcf6eaaa2696e5ea3cec78b572fdcadf096366affcc1070e0bf7e686"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -3754,7 +3754,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "6cac028344765a7d65fec62d50986e4da9a2d4f526b4f3bdf884f01554bc7f3e"
+          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
         }
       ],
       "acceptance_ids": [
@@ -3784,7 +3784,7 @@
       "source_observations": [
         {
           "path": "release/index/branch_policy.v2.toml",
-          "sha256": "1cb5ab836e1ae4b23ce79b1172f8bc04a10532753e2bf555acfaca1b894b32ce"
+          "sha256": "678b707dbcf6eaaa2696e5ea3cec78b572fdcadf096366affcc1070e0bf7e686"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -3792,7 +3792,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "6cac028344765a7d65fec62d50986e4da9a2d4f526b4f3bdf884f01554bc7f3e"
+          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
         }
       ],
       "acceptance_ids": [
@@ -4912,7 +4912,7 @@
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "435230616bf08412a6e9bf861feef085e0cf857afe2a28578c5a09360fbf36d0"
+          "sha256": "bfbe5d28ac18ae241abc140d480a8311b82a01d6413f52bc33a2d76e57129e9a"
         },
         {
           "path": "spec/execution/workflow.md",
@@ -4943,7 +4943,7 @@
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "435230616bf08412a6e9bf861feef085e0cf857afe2a28578c5a09360fbf36d0"
+          "sha256": "bfbe5d28ac18ae241abc140d480a8311b82a01d6413f52bc33a2d76e57129e9a"
         },
         {
           "path": "spec/execution/workflow.md",
@@ -4974,7 +4974,7 @@
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "435230616bf08412a6e9bf861feef085e0cf857afe2a28578c5a09360fbf36d0"
+          "sha256": "bfbe5d28ac18ae241abc140d480a8311b82a01d6413f52bc33a2d76e57129e9a"
         },
         {
           "path": "spec/execution/workflow.md",
