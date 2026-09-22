@@ -185,6 +185,10 @@ class BranchPolicyTests(unittest.TestCase):
                 lambda proof: proof["prior_main_ancestry"].__setitem__("status", "DIVERGED"),
                 "closeout prior-main is not an ancestor of the exact dev base",
             ),
+            "identical ancestry": (
+                lambda proof: proof["prior_main_ancestry"].__setitem__("status", "IDENTICAL"),
+                "closeout prior-main is not an ancestor of the exact dev base",
+            ),
             "unmerged promotion": (
                 lambda proof: proof["promotion_pull_request"].__setitem__("merged", False),
                 "closeout promotion pull request is not merged",
@@ -422,7 +426,12 @@ class BranchPolicyTests(unittest.TestCase):
                 if endpoint.endswith("/git/commits/" + BASE):
                     return {"tree": {"sha": PRIOR_MAIN if case == "unequal trees" else TREE}}
                 if "/compare/" in endpoint:
-                    return {"status": "diverged" if case == "nonancestor" else "ahead",
+                    status = "ahead"
+                    if case == "nonancestor":
+                        status = "diverged"
+                    elif case == "identical ancestry":
+                        status = "identical"
+                    return {"status": status,
                             "merge_base_commit": {"sha": PRIOR_MAIN}}
                 if endpoint.endswith("/commits/" + HEAD + "/pulls"):
                     promotion = {
@@ -439,6 +448,10 @@ class BranchPolicyTests(unittest.TestCase):
                         promotion["merged_at"] = None
                     if case == "mismatched promotion":
                         promotion["head"]["sha"] = PRIOR_MAIN
+                    if case == "second page exact":
+                        if "page=1" in arguments:
+                            return [promotion, *[{"number": number} for number in range(99)]]
+                        return [copy.deepcopy(promotion)]
                     return [promotion]
                 if endpoint.endswith("/check-runs"):
                     return {"check_runs": runs}
@@ -467,10 +480,12 @@ class BranchPolicyTests(unittest.TestCase):
             "duplicate parents": "zero-content promotion merge",
             "unequal trees": "zero-content promotion merge",
             "nonancestor": "not an ancestor",
+            "identical ancestry": "not an ancestor",
             "missing promotion": "promotion provenance is unavailable",
             "ambiguous promotion": "promotion provenance is unavailable",
             "unmerged promotion": "promotion provenance is unavailable",
             "mismatched promotion": "promotion provenance is unavailable",
+            "second page exact": "promotion provenance is unavailable",
             "raced refs": "refs changed during live collection",
         }
         for case, expected in failures.items():

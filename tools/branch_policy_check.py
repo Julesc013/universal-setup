@@ -28,6 +28,8 @@ REQUIRED_STATUS_CHECKS = [
 ]
 GITHUB_RULESET_ID = 20445004
 GITHUB_ACTIONS_INTEGRATION_ID = 15368
+ASSOCIATED_PROMOTION_PR_PAGE_SIZE = 100
+MAX_ASSOCIATED_PROMOTION_PR_PAGES = 3
 CLOSEOUT_PROOF_FIELDS = {
     "live_main_tip_oid", "live_dev_tip_oid", "promotion_merge",
     "dev_base_tree_oid", "prior_main_ancestry", "promotion_pull_request",
@@ -280,7 +282,7 @@ def _closeout_proof_errors(observation: dict[str, Any]) -> list[str]:
     else:
         if ancestry.get("ancestor_oid") != expected_prior or ancestry.get("descendant_oid") != expected_base:
             errors.append("closeout prior-main ancestry is not bound to the promotion parents")
-        if ancestry.get("merge_base_oid") != expected_prior or ancestry.get("status") not in {"AHEAD", "IDENTICAL"}:
+        if ancestry.get("merge_base_oid") != expected_prior or ancestry.get("status") != "AHEAD":
             errors.append("closeout prior-main is not an ancestor of the exact dev base")
 
     promotion_pr = proof.get("promotion_pull_request")
@@ -540,12 +542,22 @@ def _collect_closeout_proof(repository: str, head_oid: str, base_oid: str) -> di
     comparison = _gh_json([f"repos/{repository}/compare/{parents[0]}...{base_oid}"])
     comparison_status = str(comparison.get("status", "")).upper()
     merge_base_oid = comparison.get("merge_base_commit", {}).get("sha")
-    if comparison_status not in {"AHEAD", "IDENTICAL"} or merge_base_oid != parents[0]:
+    if comparison_status != "AHEAD" or merge_base_oid != parents[0]:
         raise RuntimeError("promotion prior-main is not an ancestor of the exact dev base")
 
-    associated = _gh_json([
-        f"repos/{repository}/commits/{head_oid}/pulls", "--method", "GET", "-f", "per_page=100",
-    ])
+    associated: list[Any] = []
+    for page in range(1, MAX_ASSOCIATED_PROMOTION_PR_PAGES + 1):
+        page_items = _gh_json([
+            f"repos/{repository}/commits/{head_oid}/pulls", "--method", "GET", "-f",
+            f"per_page={ASSOCIATED_PROMOTION_PR_PAGE_SIZE}", "-f", f"page={page}",
+        ])
+        if not isinstance(page_items, list):
+            raise RuntimeError("associated promotion pull-request response is malformed")
+        associated.extend(page_items)
+        if len(page_items) < ASSOCIATED_PROMOTION_PR_PAGE_SIZE:
+            break
+    else:
+        raise RuntimeError("associated promotion pull-request set exceeds bounded collector")
     candidates = [item for item in associated if isinstance(item, dict) and
                   item.get("merged_at") is not None and
                   item.get("base", {}).get("ref") == "main" and

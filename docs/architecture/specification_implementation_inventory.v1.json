@@ -3716,7 +3716,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "1a9874250fddaf86546ff25cb18740bf0914147111a57e52118258e17800fa5a"
+          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
         }
       ],
       "acceptance_ids": [
@@ -3754,7 +3754,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "1a9874250fddaf86546ff25cb18740bf0914147111a57e52118258e17800fa5a"
+          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
         }
       ],
       "acceptance_ids": [
@@ -3792,7 +3792,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "1a9874250fddaf86546ff25cb18740bf0914147111a57e52118258e17800fa5a"
+          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
         }
       ],
       "acceptance_ids": [
