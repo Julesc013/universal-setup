@@ -72,7 +72,7 @@ def load_inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
 def git_oid(expression: str) -> str:
     result = subprocess.run(
-        ["git", "rev-parse", expression], cwd=ROOT, check=False,
+        ["git", "rev-parse", "--verify", "--end-of-options", expression], cwd=ROOT, check=False,
         capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:
@@ -81,6 +81,20 @@ def git_oid(expression: str) -> str:
     if not OID_RE.fullmatch(value):
         raise BindingError("resolved Git identity is malformed: " + expression)
     return value
+
+
+def source_identity_errors(source_commit: str, source_tree: str) -> list[str]:
+    try:
+        observed_commit = git_oid(source_commit + "^{commit}")
+        observed_tree = git_oid(source_commit + "^{tree}")
+    except BindingError:
+        return ["source commit is not an available commit object"]
+    errors = []
+    if observed_commit != source_commit:
+        errors.append("source commit is not canonical")
+    if observed_tree != source_tree:
+        errors.append("source tree does not belong to source commit")
+    return errors
 
 
 def predecessor_receipts(values: list[str]) -> dict[str, dict[str, str]]:
@@ -111,6 +125,9 @@ def create_binding(
         raise BindingError("unknown WorkUnit: " + workunit_id)
     if not OID_RE.fullmatch(source_commit) or not OID_RE.fullmatch(source_tree):
         raise BindingError("source commit and tree must be exact Git object IDs")
+    source_errors = source_identity_errors(source_commit, source_tree)
+    if source_errors:
+        raise BindingError("; ".join(source_errors))
     receipts = predecessor_receipts(predecessor_values)
     target_receipt = None
     if effect_target_receipt is not None:
@@ -209,6 +226,8 @@ def binding_errors(
         not OID_RE.fullmatch(str(source.get(field, ""))) for field in ("commit", "tree")
     ):
         errors.append("source binding must contain exact commit and tree IDs")
+    else:
+        errors.extend(source_identity_errors(source["commit"], source["tree"]))
     spec = binding.get("specification")
     if not isinstance(spec, dict) or spec != {
         "path": INTEGRITY_PATH.relative_to(ROOT).as_posix(),

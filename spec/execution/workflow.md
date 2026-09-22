@@ -19,22 +19,22 @@ read exact context -> inspect -> propose bounded change -> implement
 Humans, Codex, Claude, ChatGPT with connectors, local models and CI use the same repository commands and contracts. Model/tool-specific instructions are small generated routers, not alternate policy sources. A coding model choice is independent of execution privileges, budgets, descendant model permissions and review role.
 
 ## WorkUnit content
-Every task has stable ID, goal, requirements, input base/spec digest, prerequisites, allowed/read-only/forbidden paths, affected contracts, implementation steps, test plan, expected outputs, authority ceiling, stop conditions and rollback/cleanup. Templates in this archive are proposed and not live queue items. Materialize one into the actual queue only through its supported admitted adapter.
+Every task has stable ID, goal, requirements, input base/spec digest, prerequisites, allowed/read-only/forbidden paths, affected contracts, implementation steps, test plan, expected outputs, authority ceiling, stop conditions and rollback/cleanup. Templates in this archive are proposed and not live queue items. Pair one with an exact repository campaign binding or materialize it through a supported external queue adapter. The binding records existing authority; it does not widen the template or mint customer-machine permission.
 
 ## WIP and independence
 Prefer one kernel safety migration, one application/authoring slice and one release/evidence task. Avoid concurrent writers to the same authority records. Worktrees organize changes but do not isolate unsafe effects. Independent review means another execution/review context with access to original source and evidence, not a self-approved label or mandatory fixed model percentages.
 
 ## Stop rules
-Stop on missing grants, stale base, unknown ownership, conflicting authority, unsupported contract, altered private fixtures, incomplete negative-control proof or unavailable target. Record a blocker and continue unrelated admitted work. Never erase a failing test or broaden a sandbox root to make the task pass.
+Stop the affected action on inactive/out-of-scope campaign authority, a stale binding, unknown ownership, conflicting authority, unsupported contract, altered private fixtures, incomplete negative-control proof or an unavailable required target/credential. Rebind automatically after ordinary accepted source movement. Record a real blocker once and continue unrelated eligible work. Never erase a failing test or broaden a sandbox root to make the task pass.
 
 ## Completion
-A handoff identifies files/digests changed, commands actually run, outputs/results, failed attempts, unresolved issues, current branch/tree and next safe action. Only an accepted queue transition changes operational completion. Committing a prose report does not make a lifecycle capability release-qualified.
+A handoff identifies files/digests changed, commands actually run, outputs/results, failed attempts, unresolved issues, current branch/tree and next safe action. Only an accepted campaign-binding/receipt transition or external queue transition changes operational completion. Committing a prose report does not make a lifecycle capability release-qualified.
 
 ## Verifiable requirements
 
 ### USK-R-WORK-001 — Bound task authority
 
-**Requirement.** Every nontrivial implementation task MUST bind scope, exact inputs, acceptance and an independently established execution grant.
+**Requirement.** Every nontrivial implementation task MUST bind scope, exact inputs, acceptance and an independently established execution authority. An active campaign record may supply standing authority; the task binding supplies exact source, scope, predecessors and environment without requiring a fresh owner ceremony.
 
 **Rationale.** Tasks must survive context/model changes safely.
 

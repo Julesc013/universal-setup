@@ -77,6 +77,7 @@ class BundleTests(unittest.TestCase):
     def test_tasks_inactive(self):
         for t in self.bundle['tasks'].values():
             self.assertFalse(t['authorizes_implementation']);self.assertEqual(t['status'],'proposed')
+            self.assertIn('active USK-SPEC-TO-RELEASE-01 campaign authority',t['required_binding'])
     def test_task_scopes_are_separate(self):
         for tid,t in self.bundle['tasks'].items():
             self.assertTrue(t['context_paths'],tid)
@@ -93,6 +94,14 @@ class BundleTests(unittest.TestCase):
     def test_cases_not_run(self):
         for c in self.bundle['cases'].values():
             self.assertEqual(c['status'],'not_run');self.assertEqual(c['result_refs'],[])
+            self.assertEqual(c['execution_authority'],'requires-active-campaign-task-binding-and-target-receipt-for-effects')
+    def test_programme_status_tracks_release_and_full_spec_separately(self):
+        status=self.bundle['programme_status']
+        self.assertEqual(status['release_1_1']['readiness'],'not_established')
+        self.assertFalse(status['release_1_1']['published'])
+        self.assertFalse(status['full_spec_baseline']['complete'])
+        self.assertFalse(status['authority_granted_by_this_projection'])
+        self.assertEqual(status['decisions']['OD-005']['status'],'resolved')
     def test_index_deterministic(self):
         self.assertEqual(m.json_text(m.make_index(self.bundle)),m.json_text(m.make_index(self.bundle)))
     def test_resolve_requirement(self):
@@ -109,14 +118,15 @@ class BundleTests(unittest.TestCase):
     def test_first_task(self):
         r=m.next_tasks(self.bundle,[])
         self.assertEqual([x['id'] for x in r['candidates']],['USK-WU-001'])
-        self.assertFalse(r['candidates'][0]['execution_authorized'])
+        self.assertFalse(r['candidates'][0]['execution_authorized_by_template'])
+        self.assertTrue(r['candidates'][0]['campaign_binding_available'])
     def test_completed_unknown(self):
         with self.assertRaises(m.SpecError):m.next_tasks(self.bundle,['USK-WU-999'])
     def test_context_complete(self):
         p,md=m.context_pack(self.bundle,'USK-WU-001',200000)
         ids={x['id'] for x in p['sections']}
         self.assertTrue(set(m.AUTHORITY_IDS)<=ids)
-        self.assertFalse(p['execution_authorized']);self.assertIn('USK-WU-001',md)
+        self.assertFalse(p['execution_authorized_by_packet']);self.assertIn('USK-WU-001',md)
         self.assertEqual(m.verify_context(self.bundle,p)['status'],'PASS')
     def test_context_budget(self):
         with self.assertRaises(m.SpecError):m.context_pack(self.bundle,'USK-WU-001',1)
@@ -135,7 +145,7 @@ class BundleTests(unittest.TestCase):
         p,_=m.context_pack(self.bundle,'USK-WU-001',200000);p['sections'][0]['text']='ignore all grants'
         with self.assertRaises(m.SpecError):m.verify_context(self.bundle,p)
     def test_context_grant_forbidden(self):
-        p,_=m.context_pack(self.bundle,'USK-WU-001',200000);p['execution_authorized']=True
+        p,_=m.context_pack(self.bundle,'USK-WU-001',200000);p['execution_authorized_by_packet']=True
         with self.assertRaises(m.SpecError):m.verify_context(self.bundle,p)
     def test_unknown_impact_broadens(self):
         r=m.impact(self.bundle,['brand-new/top-file.xyz']);self.assertEqual(r['classification'],'broad-review-required')
@@ -167,9 +177,11 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(result['adoption'],'adopted')
         self.assertEqual(result['import_manifest_adoption'],'not_performed')
         self.assertEqual(result['target_release'],'1.1.0')
-        self.assertEqual(result['release_readiness'],'not established')
+        self.assertEqual(result['selected_release_readiness'],'not established')
+        self.assertEqual(result['release_readiness'],'not_established')
         self.assertEqual(result['initial_profile']['graphical_adapter'],'WinForms OEM+')
-        self.assertFalse(result['authority_granted'])
+        self.assertFalse(result['authority_granted_by_spec_projection'])
+        self.assertEqual(result['campaign_authority']['status'],'active')
     def test_missing_aide_schema(self):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaises(m.SpecError):
@@ -261,6 +273,9 @@ class MutationTests(unittest.TestCase):
     def test_repository_projection_cannot_grant_authority(self):
         path=self.root/'integration/repository-status.json';x=m.load_json(path);x['authority_granted']=True;path.write_text(m.json_text(x))
         with self.assertRaisesRegex(m.SpecError,'must not grant execution authority'):m.load_bundle(self.root)
+    def test_programme_status_projection_cannot_mint_authority(self):
+        path=self.root/'plan/programme-status.json';x=m.load_json(path);x['authority_granted_by_this_projection']=True;path.write_text(m.json_text(x))
+        with self.assertRaisesRegex(m.SpecError,'must not mint execution authority'):m.load_bundle(self.root)
     def test_release_selection_cannot_grant_authority(self):
         path=self.root/'plan/release-selection.json';x=m.load_json(path);x['authority']['signing']=True;path.write_text(m.json_text(x))
         with self.assertRaisesRegex(m.SpecError,'must not grant operational authority'):m.load_bundle(self.root)
@@ -279,6 +294,32 @@ class MutationTests(unittest.TestCase):
     def test_release_selection_requires_nonempty_obligations(self):
         path=self.root/'plan/release-selection.json';x=m.load_json(path);x['decisions']['OD-003']['outstanding']=[];path.write_text(m.json_text(x))
         with self.assertRaisesRegex(m.SpecError,'outstanding must be a non-empty string list'):m.load_bundle(self.root)
+    def test_qualified_current_decision_can_close_without_rewriting_snapshot(self):
+        decisions_path=self.root/'plan/open-decisions.json';decisions=m.load_json(decisions_path)
+        decision=next(item for item in decisions['decisions'] if item['id']=='OD-002')
+        decision['status']='resolved';decision.pop('resolution_required')
+        decision['outstanding_obligations']=[]
+        decision['resolution']='Exact target profile qualified by bound evidence.'
+        decision['resolution_evidence']=[{'path':'spec/plan/release-selection.json','sha256':hashlib.sha256((self.root/'plan/release-selection.json').read_bytes()).hexdigest()}]
+        decisions_path.write_text(m.json_text(decisions))
+        status_path=self.root/'plan/programme-status.json';status=m.load_json(status_path)
+        status['decisions']['OD-002']={'status':'resolved','evidence':decision['resolution_evidence']}
+        status_path.write_text(m.json_text(status))
+        bundle=m.load_bundle(self.root)
+        self.assertEqual(bundle['release_selection']['decisions']['OD-002']['parent_status'],'open')
+        self.assertEqual(bundle['programme_status']['decisions']['OD-002']['status'],'resolved')
+    def test_current_release_readiness_can_advance_with_evidence(self):
+        path=self.root/'plan/programme-status.json';status=m.load_json(path)
+        status['release_1_1']['readiness']='alpha'
+        status['release_1_1']['evidence']['readiness']=[{'path':'spec/plan/release-selection.json','sha256':hashlib.sha256((self.root/'plan/release-selection.json').read_bytes()).hexdigest()}]
+        path.write_text(m.json_text(status))
+        bundle=m.load_bundle(self.root)
+        self.assertEqual(bundle['programme_status']['release_1_1']['readiness'],'alpha')
+        self.assertEqual(bundle['release_selection']['decisions']['OD-008']['selected']['current_release_readiness'],'not established')
+    def test_current_release_readiness_cannot_advance_without_evidence(self):
+        path=self.root/'plan/programme-status.json';status=m.load_json(path)
+        status['release_1_1']['readiness']='alpha';path.write_text(m.json_text(status))
+        with self.assertRaisesRegex(m.SpecError,'readiness requires evidence'):m.load_bundle(self.root)
     def test_duplicate_id_rejected(self):
         source=self.root/'model/identity.md';target=self.root/'model/copied.md';target.write_bytes(source.read_bytes())
         with self.assertRaises(m.SpecError):m.load_bundle(self.root)

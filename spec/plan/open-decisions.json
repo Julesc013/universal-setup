@@ -61,18 +61,24 @@
     {
       "id": "OD-005",
       "topic": "AIDE adapter and grants",
-      "status": "open",
+      "status": "resolved",
       "blocks": [],
-      "resolution_required": "actual pinned runtime admission; export alone insufficient"
+      "resolution": "The active repository campaign authority plus an exact, non-widening task binding admits ordinary repository work without an AIDE runtime or a fresh per-WorkUnit owner grant. AIDE exports remain inert; endpoint or user-state effects still require an exact target/environment receipt.",
+      "resolution_evidence": [
+        {
+          "path": "release/index/campaign_authority.v1.toml",
+          "sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28"
+        }
+      ]
     },
     {
       "id": "OD-006",
-      "topic": "Human reviewer and lab authorization",
+      "topic": "Exact lab access and experience-evidence scope",
       "status": "open",
       "blocks": [
         "USK-WU-032"
       ],
-      "resolution_required": "real principals and granted exact environments"
+      "resolution_required": "actual target access plus honestly attributed automated and available human observations; no ceremonial merge approval"
     },
     {
       "id": "OD-007",
@@ -93,13 +99,12 @@
       "outstanding_obligations": [
         "select and verify production signing identity",
         "establish signing-key custody and publisher-trust policy",
-        "obtain publication authorization",
         "qualify exact candidate bytes before allocating a public prerelease or release"
       ],
       "blocks": [
         "USK-WU-032"
       ],
-      "resolution_required": "maintainer channel decision; no preallocated version claim"
+      "resolution_required": "verified signing/trust mechanism and qualified exact candidate; no preallocated version claim"
     }
   ]
 }

@@ -65,6 +65,17 @@ RELEASE_DECISION_FIELDS = {
     for decision_id in RELEASE_SELECTION_IDS
 }
 RELEASE_DECISION_FIELDS['OD-008'].add('product_objective')
+PROGRAMME_STATUS_FIELDS = {
+    'schema', 'recorded_at', 'release_selection_snapshot', 'campaign_authority',
+    'authority_granted_by_this_projection', 'decisions', 'release_1_1',
+    'full_spec_baseline'
+}
+RELEASE_PREDICATES = {
+    'implementation_complete', 'machine_qualified', 'experience_assessed',
+    'integrated', 'published'
+}
+RELEASE_READINESS = {'not_established', 'alpha', 'beta', 'rc', 'supported'}
+SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
 
 class SpecError(Exception):
     pass
@@ -270,8 +281,8 @@ def task_scope_errors(task_id: str, task: dict) -> list[str]:
     return errors
 
 
-def release_selection_errors(release_selection: Any, decisions: list[dict]) -> list[str]:
-    """Validate the selected direction without converting it into operational authority."""
+def release_selection_snapshot_errors(release_selection: Any) -> list[str]:
+    """Validate the immutable selection-time snapshot, not current programme state."""
     prefix = 'plan/release-selection.json: '
     if not isinstance(release_selection, dict):
         return [prefix + 'root must be an object']
@@ -294,21 +305,9 @@ def release_selection_errors(release_selection: Any, decisions: list[dict]) -> l
     if not isinstance(selected_decisions, dict) or set(selected_decisions) != RELEASE_SELECTION_IDS:
         errors.append(prefix + 'expected OD-002, OD-003 and OD-008 selections')
         selected_decisions = {}
-    decision_map = {decision.get('id'): decision for decision in decisions if isinstance(decision, dict)}
     for decision_id, selection in selected_decisions.items():
-        parent = decision_map.get(decision_id, {})
-        if (parent.get('status') != 'open' or
-                parent.get('direction_status') != 'selected_with_outstanding_obligations'):
-            errors.append(decision_id + ': selected direction must retain an open parent with outstanding obligations')
-        expected_ref = 'release-selection.json#/decisions/' + decision_id
-        if parent.get('selected_direction_ref') != expected_ref:
-            errors.append(decision_id + ': selected direction reference mismatch')
-        if (not isinstance(parent.get('outstanding_obligations'), list) or
-                not parent['outstanding_obligations'] or
-                any(not isinstance(item, str) or not item for item in parent['outstanding_obligations'])):
-            errors.append(decision_id + ': parent decision must retain outstanding obligations')
         if not isinstance(selection, dict) or selection.get('parent_status') != 'open':
-            errors.append(decision_id + ': release selection must declare open parent status')
+            errors.append(decision_id + ': selection-time snapshot must declare its then-open parent status')
             continue
         if set(selection) != RELEASE_DECISION_FIELDS[decision_id]:
             errors.append(decision_id + ': selection fields are incomplete or unknown')
@@ -344,6 +343,194 @@ def release_selection_errors(release_selection: Any, decisions: list[dict]) -> l
         errors.append(prefix + 'authority ceiling fields are incomplete or unknown')
     elif any(value is not False for value in selection_authority.values()):
         errors.append(prefix + 'direction selection must not grant operational authority')
+    return errors
+
+
+def evidence_ref_errors(reference: Any, prefix: str) -> list[str]:
+    if not isinstance(reference, dict) or set(reference) != {'path', 'sha256'}:
+        return [prefix + ' evidence reference must contain only path and sha256']
+    path = reference.get('path')
+    if (not isinstance(path, str) or not path or '\\' in path or
+            PurePosixPath(path).is_absolute() or '..' in PurePosixPath(path).parts):
+        return [prefix + ' evidence path must be repository-relative POSIX']
+    if not SHA256_RE.fullmatch(str(reference.get('sha256', ''))):
+        return [prefix + ' evidence sha256 is invalid']
+    return []
+
+
+def evidence_file_errors(root: Path, reference: Any, prefix: str) -> list[str]:
+    errors = evidence_ref_errors(reference, prefix)
+    if errors:
+        return errors
+    relative = PurePosixPath(reference['path'])
+    repository = root.parent
+    path = repository.joinpath(*relative.parts)
+    must_exist_here = reference['path'].startswith('spec/') or (repository / '.git').exists()
+    if must_exist_here:
+        if not path.is_file() or path.is_symlink():
+            errors.append(prefix + ' evidence file is missing or unsafe')
+        elif digest(path.read_bytes()) != reference['sha256']:
+            errors.append(prefix + ' evidence file digest is stale')
+    return errors
+
+
+def decision_state_errors(decisions: Any) -> list[str]:
+    prefix = 'plan/open-decisions.json: '
+    if not isinstance(decisions, list) or not decisions:
+        return [prefix + 'decisions must be a non-empty list']
+    errors = []
+    ids = []
+    for decision in decisions:
+        if not isinstance(decision, dict) or not isinstance(decision.get('id'), str):
+            errors.append(prefix + 'decision entry is malformed')
+            continue
+        decision_id = decision['id']
+        ids.append(decision_id)
+        status = decision.get('status')
+        if status not in ('open', 'resolved'):
+            errors.append(decision_id + ': status must be open or resolved')
+        if status == 'open':
+            if not isinstance(decision.get('resolution_required'), str) or not decision['resolution_required']:
+                errors.append(decision_id + ': open decision requires resolution_required')
+        else:
+            if not isinstance(decision.get('resolution'), str) or not decision['resolution']:
+                errors.append(decision_id + ': resolved decision requires resolution')
+            evidence = decision.get('resolution_evidence')
+            if not isinstance(evidence, list) or not evidence:
+                errors.append(decision_id + ': resolved decision requires evidence')
+            else:
+                for index, reference in enumerate(evidence):
+                    errors.extend(evidence_ref_errors(reference, decision_id + f' evidence[{index}]'))
+            if 'resolution_required' in decision:
+                errors.append(decision_id + ': resolved decision must not retain resolution_required')
+            if decision.get('outstanding_obligations'):
+                errors.append(decision_id + ': resolved decision must not retain outstanding obligations')
+    if len(ids) != len(set(ids)):
+        errors.append(prefix + 'duplicate decision ID')
+    return errors
+
+
+def programme_status_errors(root: Path, status: Any, decisions: list[dict]) -> list[str]:
+    prefix = 'plan/programme-status.json: '
+    if not isinstance(status, dict):
+        return [prefix + 'root must be an object']
+    errors = []
+    if set(status) != PROGRAMME_STATUS_FIELDS:
+        errors.append(prefix + 'top-level fields are incomplete or unknown')
+    if status.get('schema') != 'usk.spec.programme-status/1':
+        errors.append(prefix + 'unsupported schema')
+    if not ensure_timestamp(status.get('recorded_at')):
+        errors.append(prefix + 'timezone-aware recorded_at required')
+    if status.get('authority_granted_by_this_projection') is not False:
+        errors.append(prefix + 'status projection must not mint execution authority')
+
+    snapshot = status.get('release_selection_snapshot')
+    errors.extend(evidence_file_errors(root, snapshot, prefix + 'release selection'))
+    expected_snapshot = {
+        'path': 'spec/plan/release-selection.json',
+        'sha256': digest((root / 'plan/release-selection.json').read_bytes()),
+    }
+    if snapshot != expected_snapshot:
+        errors.append(prefix + 'release-selection snapshot binding is stale')
+
+    campaign = status.get('campaign_authority')
+    if not isinstance(campaign, dict) or set(campaign) != {'campaign', 'path', 'sha256', 'status'}:
+        errors.append(prefix + 'campaign authority binding is malformed')
+    else:
+        errors.extend(evidence_file_errors(root,
+            {'path': campaign.get('path'), 'sha256': campaign.get('sha256')},
+            prefix + 'campaign authority'))
+        if campaign.get('campaign') != 'USK-SPEC-TO-RELEASE-01' or campaign.get('status') != 'active':
+            errors.append(prefix + 'campaign authority must identify the active campaign')
+        if campaign.get('path') != 'release/index/campaign_authority.v1.toml':
+            errors.append(prefix + 'campaign authority path is not canonical')
+        if (root.parent / '.git').exists():
+            authority_path = root.parent.joinpath(*PurePosixPath(campaign['path']).parts)
+            if not authority_path.is_file() or digest(authority_path.read_bytes()) != campaign.get('sha256'):
+                errors.append(prefix + 'campaign authority file binding is stale')
+
+    current_decisions = status.get('decisions')
+    decision_map = {item.get('id'): item for item in decisions if isinstance(item, dict)}
+    if not isinstance(current_decisions, dict) or set(current_decisions) != set(decision_map):
+        errors.append(prefix + 'decision projection must cover the exact decision set')
+    else:
+        for decision_id, projection in current_decisions.items():
+            if (not isinstance(projection, dict) or set(projection) != {'status', 'evidence'} or
+                    projection.get('status') not in ('open', 'resolved')):
+                errors.append(decision_id + ': current decision projection is malformed')
+                continue
+            if projection['status'] != decision_map[decision_id].get('status'):
+                errors.append(decision_id + ': projected decision status differs from decision register')
+            evidence = projection.get('evidence')
+            if not isinstance(evidence, list):
+                errors.append(decision_id + ': decision evidence must be a list')
+                continue
+            if projection['status'] == 'resolved' and not evidence:
+                errors.append(decision_id + ': resolved projection requires evidence')
+            if (projection['status'] == 'resolved' and
+                    evidence != decision_map[decision_id].get('resolution_evidence')):
+                errors.append(decision_id + ': projected resolution evidence differs from decision register')
+            for index, reference in enumerate(evidence):
+                errors.extend(evidence_file_errors(root, reference, decision_id + f' projection evidence[{index}]'))
+
+    release = status.get('release_1_1')
+    release_fields = {'readiness', *RELEASE_PREDICATES, 'evidence'}
+    if not isinstance(release, dict) or set(release) != release_fields:
+        errors.append(prefix + 'release_1_1 fields are incomplete or unknown')
+    else:
+        if release.get('readiness') not in RELEASE_READINESS:
+            errors.append(prefix + 'release readiness is invalid')
+        if any(type(release.get(field)) is not bool for field in RELEASE_PREDICATES):
+            errors.append(prefix + 'release predicates must be booleans')
+        evidence = release.get('evidence')
+        if not isinstance(evidence, dict) or not set(evidence) <= (RELEASE_PREDICATES | {'readiness'}):
+            errors.append(prefix + 'release evidence map has unknown predicates')
+            evidence = {}
+        readiness_refs = evidence.get('readiness', []) if isinstance(evidence, dict) else []
+        if release.get('readiness') != 'not_established' and (
+                not isinstance(readiness_refs, list) or not readiness_refs):
+            errors.append(prefix + 'readiness requires evidence before advancement')
+        if not isinstance(readiness_refs, list):
+            errors.append(prefix + 'readiness evidence must be a list')
+        else:
+            for index, reference in enumerate(readiness_refs):
+                errors.extend(evidence_file_errors(root, reference, prefix + f'readiness evidence[{index}]'))
+        for field in RELEASE_PREDICATES:
+            refs = evidence.get(field, []) if isinstance(evidence, dict) else []
+            if release.get(field) is True and (not isinstance(refs, list) or not refs):
+                errors.append(prefix + field + ' requires evidence before becoming true')
+            if not isinstance(refs, list):
+                errors.append(prefix + field + ' evidence must be a list')
+            else:
+                for index, reference in enumerate(refs):
+                    errors.extend(evidence_file_errors(root, reference, prefix + field + f' evidence[{index}]'))
+        if release.get('published') is True and not all(release.get(field) is True for field in (
+                'implementation_complete', 'machine_qualified', 'experience_assessed', 'integrated')):
+            errors.append(prefix + 'published requires every prior 1.1 predicate')
+        if release.get('readiness') == 'supported' and release.get('published') is not True:
+            errors.append(prefix + 'supported readiness requires published=true')
+
+    full = status.get('full_spec_baseline')
+    if not isinstance(full, dict) or set(full) != {'complete', 'continuing_maintenance_operational', 'evidence'}:
+        errors.append(prefix + 'full_spec_baseline fields are incomplete or unknown')
+    else:
+        evidence = full.get('evidence')
+        if not isinstance(evidence, dict) or not set(evidence) <= {'complete', 'continuing_maintenance_operational'}:
+            errors.append(prefix + 'full-spec evidence map is malformed')
+            evidence = {}
+        for field in ('complete', 'continuing_maintenance_operational'):
+            if type(full.get(field)) is not bool:
+                errors.append(prefix + 'full-spec predicates must be booleans')
+            refs = evidence.get(field, []) if isinstance(evidence, dict) else []
+            if full.get(field) is True and (not isinstance(refs, list) or not refs):
+                errors.append(prefix + 'full-spec ' + field + ' requires evidence')
+            if not isinstance(refs, list):
+                errors.append(prefix + 'full-spec ' + field + ' evidence must be a list')
+            else:
+                for index, reference in enumerate(refs):
+                    errors.extend(evidence_file_errors(root, reference, prefix + field + f' evidence[{index}]'))
+        if full.get('complete') is True and full.get('continuing_maintenance_operational') is not True:
+            errors.append(prefix + 'full-spec completion requires operational continuing maintenance')
     return errors
 
 
@@ -437,7 +624,7 @@ def load_bundle(root: Path) -> dict:
     for tid, task in tasks.items():
         if task.get('status') != 'proposed' or task.get('authorizes_implementation') is not False:
             errors.append(tid + ': template must remain inactive/proposed')
-        for field in ('steps','deliverables','allowed_paths','context_paths','stop_conditions','required_grant'):
+        for field in ('steps','deliverables','allowed_paths','context_paths','stop_conditions','required_binding'):
             if not task.get(field): errors.append(tid + ': missing '+field)
         errors.extend(task_scope_errors(tid, task))
         for sid in task.get('spec_ids',[]):
@@ -451,11 +638,14 @@ def load_bundle(root: Path) -> dict:
     errors.extend(graph_errors({k:v['meta']['usk_spec']['depends_on'] for k,v in docs.items()},'spec'))
     errors.extend(graph_errors({k:v.get('depends_on',[]) for k,v in tasks.items()},'task'))
     decisions = load_json(root/'plan/open-decisions.json')['decisions']
+    errors.extend(decision_state_errors(decisions))
     for decision in decisions:
         for tid in decision.get('blocks',[]):
             if tid not in tasks: errors.append(decision['id']+': missing blocked task '+tid)
     release_selection = load_json(root/'plan/release-selection.json')
-    errors.extend(release_selection_errors(release_selection, decisions))
+    errors.extend(release_selection_snapshot_errors(release_selection))
+    programme_status = load_json(root/'plan/programme-status.json')
+    errors.extend(programme_status_errors(root, programme_status, decisions))
     if errors:
         raise SpecError('\n'.join(errors))
     repository_status = load_json(root/'integration/repository-status.json')
@@ -481,7 +671,7 @@ def load_bundle(root: Path) -> dict:
         if digest(record_path.read_bytes()) != adoption.get('record_sha256'):
             raise SpecError('integration/repository-status.json: adoption record digest mismatch')
     return {'root':root,'files':files,'manifest':manifest,'repository_status':repository_status,
-            'release_selection':release_selection,
+            'release_selection':release_selection,'programme_status':programme_status,
             'docs':docs,'requirements':reqs,'tasks':tasks,'cases':cases,'decisions':decisions}
 
 
@@ -579,15 +769,19 @@ def next_tasks(bundle:dict, completed:list[str]) -> dict:
     for tid,t in sorted(bundle['tasks'].items()):
         if tid not in completed and set(t['depends_on'])<=set(completed):
             blockers=[d['id'] for d in bundle['decisions'] if d['status']=='open' and tid in d.get('blocks',[])]
-            ready.append({'id':tid,'title':t['title'],'open_decisions':blockers,'execution_authorized':False,
-                          'classification':'dependency-ready proposal only; verify real queue and grants'})
-    return {'status':'proposal-only','assumed_completed':completed,'actual_completion_verified':False,'candidates':ready}
+            ready.append({'id':tid,'title':t['title'],'open_decisions':blockers,
+                          'execution_authorized_by_template':False,
+                          'campaign_binding_available':True,
+                          'classification':'dependency-ready definition; derive exact campaign binding before work'})
+    return {'status':'binding-required','assumed_completed':completed,'actual_completion_verified':False,
+            'campaign':'USK-SPEC-TO-RELEASE-01','candidates':ready}
 
 
 def status_report(bundle: dict) -> dict:
     adoption = bundle['repository_status']['adoption']
     release = bundle['release_selection']['decisions']['OD-008']['selected']
     profile = bundle['release_selection']['decisions']['OD-002']['selected']
+    programme = bundle['programme_status']
     return {'spec_version':bundle['manifest']['spec_version'],
             'adoption':adoption['status'],
             'adoption_scope':adoption['scope'],
@@ -597,11 +791,16 @@ def status_report(bundle: dict) -> dict:
             'development_train':release['development_train'],
             'target_release':release['target_release'],
             'release_product_name':release['product_name'],
-            'release_readiness':release['current_release_readiness'],
+            'selected_release_readiness':release['current_release_readiness'],
+            'release_readiness':programme['release_1_1']['readiness'],
+            'release_1_1_predicates':{
+                key:programme['release_1_1'][key] for key in sorted(RELEASE_PREDICATES)},
+            'full_spec_baseline':programme['full_spec_baseline'],
             'initial_profile':{'os_family':profile['os_family'],'architecture':profile['architecture'],
                                'filesystem':profile['mutation_filesystem'],
                                'graphical_adapter':profile['first_graphical_adapter']},
-            'authority_granted':False,
+            'authority_granted_by_spec_projection':False,
+            'campaign_authority':programme['campaign_authority'],
             'concepts':len(bundle['docs']),
             'requirements':len(bundle['requirements']),
             'product_acceptance_designs':len(bundle['cases']),
@@ -637,7 +836,9 @@ def context_pack(bundle:dict, task_id:str, max_bytes:int, full_closure:bool=Fals
                    'read_only_paths':task['read_only_paths'],'forbidden_paths':task['forbidden_paths'],
                    'forbidden_operations':task['forbidden_operations']},
           'open_decisions':[x for x in bundle['decisions'] if x['status']=='open'],
-          'execution_authorized':False,'runtime_tests_executed':False,'byte_budget':max_bytes,'full_closure':full_closure,
+          'execution_authorized_by_packet':False,
+          'required_binding':task['required_binding'],
+          'runtime_tests_executed':False,'byte_budget':max_bytes,'full_closure':full_closure,
           'dependency_refs':reference_only,'omissions':[{'id':r['id'],'reason':'transitive reference; not task-declared full-reading input; fetch before changing its semantics'} for r in reference_only],
           'source_commit_observed':bundle['manifest']['source_commit_observed'],
           'source_commit_must_be_rebound_at_admission':True}
@@ -645,7 +846,7 @@ def context_pack(bundle:dict, task_id:str, max_bytes:int, full_closure:bool=Fals
     if len(raw)>max_bytes:
         raise SpecError(f'required context is {len(raw)} UTF-8 bytes; budget is {max_bytes}; refusing silent truncation; split the task or raise the explicit budget')
     markdown='# '+task_id+' — '+task['title']+'\n\n'
-    markdown+='Proposed context only. Revalidate source, grants and spec hashes. No installation, execution, protected integration or publication is authorized.\n\n'
+    markdown+='Proposed context only. Revalidate source and spec hashes, then pair it with an exact campaign task binding. This packet alone authorizes no execution, endpoint effect, integration, signing or publication.\n\n'
     for section in sections:
         markdown+='\n---\n\n## Context: '+section['id']+' (`'+section['path']+'`)\n\n'+section['text']
     markdown+='\n---\n\n## Dependency references not embedded\n\nDo not treat these as read. Retrieve before modifying their contracts; use --full-closure for complete transitive content.\n\n'+''.join('- `'+r['id']+'` — `'+r['path']+'`, SHA-256 `'+r['sha256']+'`\n' for r in reference_only)
@@ -663,7 +864,7 @@ def verify_context(bundle:dict, pack:dict) -> dict:
         if not d or d['path']!=ref.get('path') or d['sha256']!=ref.get('sha256'):
             mismatches.append(ref.get('id','<missing>'))
     if mismatches:raise SpecError('stale context: '+', '.join(mismatches))
-    if pack.get('execution_authorized') is not False: raise SpecError('context cannot grant execution')
+    if pack.get('execution_authorized_by_packet') is not False: raise SpecError('context cannot grant execution')
     expected,_=context_pack(bundle,pack.get('task_id',''),pack.get('byte_budget',0),pack.get('full_closure',False))
     if pack != expected: raise SpecError('context content/metadata differs from bound canonical inputs')
     return {'status':'PASS','source_files_checked':len(pack.get('source_refs',[])),'runtime_authority':False}
@@ -724,14 +925,15 @@ def aide_workunit(bundle:dict, task_id:str) -> dict:
         'usk_spec_export':{'status':'proposed','schema_validation':'not_run','pinned_aide':load_json(bundle['root']/'provenance/pins.json')['aide']['commit']}},
       'spec':{'task_id':task_id,'title':t['title'],'work_type':'check' if t['phase']=='M0' else 'build',
         'authorizes_implementation':False,'check_only':True,'acceptance_review':False,
-        'implementation_scope':'; '.join(t['deliverables']),'stop_state':'proposed; awaiting actual queue/grant admission',
+        'implementation_scope':'; '.join(t['deliverables']),
+        'stop_state':'proposed definition; pair with exact campaign binding or external queue authority',
         'predecessors':t['depends_on'],'dependencies':t['depends_on'],
         'scope':{'context_input_paths':t['context_paths'],'allowed_paths':t['allowed_paths'],
                  'forbidden_paths':t['forbidden_paths'],'read_only_review_paths':t['read_only_paths'],
                  'forbidden_operations':t['forbidden_operations']},
         'validation':{'commands':[{'command':' '.join(c['argv']),'status':'NOT_RUN','notes':c['scope']+'; display only, never executed by exporter'} for c in t['checks']]},
         'evidence_requirements':t['acceptance_ids'],
-        'explicit_non_capabilities':['no grant','no native execution','no queue admission','no protected Git write','no signing or publication']},
+        'explicit_non_capabilities':['template grants no authority','no native execution by exporter','no queue admission by exporter','no direct protected Git write','no unqualified signing or publication']},
       'status':{'phase':'planned','result':'NOT_RUN','validated':False,'validation_errors':[],
                 'validation_warnings':['Exported design; validate against pinned AIDE schema and admit separately.']}}
 
@@ -812,6 +1014,12 @@ def schema_check(bundle:dict) -> dict:
     require_local_schema(schema)
     errors=list(Draft202012Validator(schema).iter_errors(load_json(bundle['root']/'verification/acceptance-cases.json')))
     if errors:raise SpecError('acceptance schema: '+'; '.join(e.message for e in errors))
+    checks+=1
+    schema=load_json(bundle['root']/'schema/programme-status.schema.json')
+    require_local_schema(schema)
+    Draft202012Validator.check_schema(schema)
+    errors=list(Draft202012Validator(schema,format_checker=FormatChecker()).iter_errors(bundle['programme_status']))
+    if errors:raise SpecError('programme status schema: '+'; '.join(e.message for e in errors))
     return {'status':'PASS','instances_checked':checks+1,'scope':'spec/prototype syntax and shape only; no runtime conformance'}
 
 
@@ -898,7 +1106,7 @@ def main(argv:list[str]|None=None) -> int:
         elif args.cmd=='context':
             packet,md=context_pack(b,args.task,args.max_bytes,args.full_closure);out=output_directory(root,args.output_dir)
             write_file(out/'context.json',json_text(packet));write_file(out/'context.md',md)
-            result={'status':'PASS','output':str(out),'packet_sha256':digest((out/'context.json').read_bytes()),'bytes':(out/'context.json').stat().st_size,'execution_authorized':False}
+            result={'status':'PASS','output':str(out),'packet_sha256':digest((out/'context.json').read_bytes()),'bytes':(out/'context.json').stat().st_size,'execution_authorized_by_packet':False}
         elif args.cmd=='context-check':result=verify_context(b,load_json(args.packet))
         elif args.cmd=='impact':result=impact(b,args.path)
         elif args.cmd=='aide-export':

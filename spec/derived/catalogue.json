@@ -19,7 +19,7 @@
       "path": "execution/agent-adapters.md",
       "title": "Codex, Claude and chat-mode instruction adapters",
       "description": "Keep tool-specific instruction files thin and subordinate to the same repository contracts.",
-      "sha256": "acd2adf7e128a312e29e70c25910acec8781fd5086f6f89cb37faa522847172a",
+      "sha256": "10166b18a231f167a31918bd88a69447ac9ec24a94009209a633c8dfdc8779d0",
       "depends_on": [
         "USK-S-CONTEXT"
       ]
@@ -29,7 +29,7 @@
       "path": "execution/aide.md",
       "title": "AIDE integration without a mandatory runtime dependency",
       "description": "Export bounded WorkUnit and ContextPack records against pinned actual AIDE contracts.",
-      "sha256": "5264da2009640a7a85c71abf1c46213ff89e8392d6a5fed7d13ba520a98f1aea",
+      "sha256": "5b2b926162d2e2df2290f0bf37824a5e4aa953cbecf577410c65fda0a9a7786b",
       "depends_on": [
         "USK-S-WORK"
       ]
@@ -60,7 +60,7 @@
       "path": "governance/authority.md",
       "title": "Authority, adoption and source-of-truth boundaries",
       "description": "Define what each repository surface may decide and prohibit accidental grants from prose.",
-      "sha256": "1aef48a50479318b47694c225094a6a75bec797934aa23fb39970bb671cde8fd",
+      "sha256": "0768e5c1375e1136ab1ba4c2606aab699619270f06394e7313da86dce4aabdbe",
       "depends_on": []
     },
     {
@@ -423,7 +423,7 @@
       "path": "provenance/reconciliation.md",
       "title": "Conflicts, superseded proposals and open decisions",
       "description": "Preserve disagreements explicitly rather than silently selecting convenient historical claims.",
-      "sha256": "16796e6d3f789acef3c2fed90373b63dbe223f3f6609500b4d96ee7458added3",
+      "sha256": "6cceb13a6d94909f3e9a9b7b80d98f84959c871870fcb2b28896e3846b158a59",
       "depends_on": [
         "USK-S-BASE"
       ]
@@ -433,7 +433,7 @@
       "path": "release/train.md",
       "title": "Release trains, exact locks and maintenance",
       "description": "Version contracts independently and ship bounded support promises through evidence gates.",
-      "sha256": "57197659e07ec42964a446ca8cea58a2dfdb6528efeea44a0502771beeec8cb2",
+      "sha256": "dba2989059342fd5dd98dd0df21d891fdbe096b858305eae4131281777392d59",
       "depends_on": [
         "USK-S-SDK",
         "USK-S-MIG",
@@ -445,7 +445,7 @@
       "path": "execution/implementation-plan.md",
       "title": "Dependency-ordered implementation programme",
       "description": "Build complete slices while retaining the existing kernel and stopping at unsatisfied authority gates.",
-      "sha256": "4643409257c5086880ec8ec39ab98a69df7c808d1c59bdc8861d1471d30a8563",
+      "sha256": "1154e73eb1262a57639faa5bbfe841f4cca9cadbb9a5aa6d2e7a169192be5d1e",
       "depends_on": [
         "USK-S-WORK",
         "USK-S-PUB",
@@ -457,7 +457,7 @@
       "path": "AGENTS.md",
       "title": "Scoped instructions for specification work",
       "description": "Agent routing for edits under spec/; no new repository or runtime authority.",
-      "sha256": "a6c8cd2570c489fc91044ef325f6a99af6031313c98a6869e1dd604fe8967ef1",
+      "sha256": "ecafbec10d7ef3d4e82852bbfc55423f2d18d8eae1c6a85ae48e4d417a0fa8a4",
       "depends_on": [
         "USK-S-AUTH",
         "USK-S-OKF"
@@ -508,7 +508,7 @@
       "path": "plan/tasks/usk-wu-001.md",
       "title": "Admit the spec root and engineering authority boundary",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "5995e605838652fcce8b556b1248d7b40f7a0670f48281e20a7ec5a915ef8698",
+      "sha256": "9bb3fbf94bd7a2d7f50662a9d9dd6b872340bd099d46ca12d5b0b4eb536c26a7",
       "depends_on": [
         "USK-S-AUTH",
         "USK-S-OKF",
@@ -520,7 +520,7 @@
       "path": "plan/tasks/usk-wu-002.md",
       "title": "Reconcile source and contracts against the proposed baseline",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "4fee639b937c2d74d33a5c70a9e352bdefb470a87b90f4709bf9f3738bc15280",
+      "sha256": "55746c18f4c35ca8d9417166ad5c19a4d4e486c2f7bf24e1a88b0aa5505e3699",
       "depends_on": [
         "USK-S-ADOPT",
         "USK-S-RECON",
@@ -532,7 +532,7 @@
       "path": "plan/tasks/usk-wu-003.md",
       "title": "Qualify spec tooling and context export",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "e60090078197cd612748eec7c4a9e9aacb227158dbe5dcd58c0c00e243be921e",
+      "sha256": "0c347cfacd37a0f1e78aa73c565767534fc8dc2b4eed705a6401aae2d3608593",
       "depends_on": [
         "USK-S-WORK",
         "USK-S-AIDE",
@@ -547,7 +547,7 @@
       "path": "plan/tasks/usk-wu-004.md",
       "title": "Specify publication adversary and enforceable guarantee",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "6c33d1e46e60c8bb78aaf4d8cecb330e2e50b4b3e64b1c700fb932093bf57363",
+      "sha256": "dfc86251373102fb9263c2de6574de8fc0ea2f3cb10fce501b242b7c60d5270f",
       "depends_on": [
         "USK-S-THREAT",
         "USK-S-PUB",
@@ -559,7 +559,7 @@
       "path": "plan/tasks/usk-wu-005.md",
       "title": "Bound preimage inventory and full lifecycle memory",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "8a189c0b2862653d281a7660b77d466a86e51e5338c6f81e28dc8b9f489a9033",
+      "sha256": "95ea8d9491831a401b473e630f498f7151c234fe08d7bd30f338ef2b263ab68c",
       "depends_on": [
         "USK-S-STREAM",
         "USK-S-ARCHIVE"
@@ -570,7 +570,7 @@
       "path": "plan/tasks/usk-wu-006.md",
       "title": "Implement the qualified staged-child publisher",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "28e777ce4074682dc684cb9e880e22b25ba748de9e2c84e2f889fb7a3a5c0c3e",
+      "sha256": "089431a7ff46b54f0b58568edc740ad35fc372808e64c409758498d3af780dfd",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-PLAT"
@@ -581,7 +581,7 @@
       "path": "plan/tasks/usk-wu-007.md",
       "title": "Add per-install leases and stale-worker fencing",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "bd414dcc5d99735345606eb17ed304ee2c351c8f156ba039874ba9dad277f455",
+      "sha256": "d5c8ddc3f0d755586d0cf2249dbd193062c0e65a09cecdd1ed67f031755a6af3",
       "depends_on": [
         "USK-S-LEASE",
         "USK-S-POLICY"
@@ -592,7 +592,7 @@
       "path": "plan/tasks/usk-wu-008.md",
       "title": "Complete exact operation journals and recovery",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "0ee95cc4ecf8ac63d74f15389129b415507dce9fb1aac23cc22f02ca5d21e74b",
+      "sha256": "fa7bf1175b0d2ba6d3e5a08582892da2f8150fbcf8a2e9a88facdceeaa82b08d",
       "depends_on": [
         "USK-S-TXN",
         "USK-S-REC",
@@ -604,7 +604,7 @@
       "path": "plan/tasks/usk-wu-009.md",
       "title": "Implement installed generations and collection plans",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "0b4023c9efa0366886dc5bd30f8e8fb286efe96e30cb4fcf87c0ec334004b594",
+      "sha256": "aaf9c8803c09c1f08650e17268a78943498a8de4e410275f5a201ade725c1b4b",
       "depends_on": [
         "USK-S-GEN",
         "USK-S-OPS"
@@ -615,7 +615,7 @@
       "path": "plan/tasks/usk-wu-010.md",
       "title": "Correct lifecycle schema and command compatibility",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "44abcd1b8929e2e1004586b760d737780d6c5411bdfeb99150559c4ad02b981a",
+      "sha256": "4b24fcdcff731bf3edfbaa5282febd46d40fe1f285813d2b71f90ea7709debfe",
       "depends_on": [
         "USK-S-ID",
         "USK-S-PLAN",
@@ -627,7 +627,7 @@
       "path": "plan/tasks/usk-wu-011.md",
       "title": "Deliver independent local lifecycle qualification",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "4104ee6a4bbb3ecdbe8e6c87d16d39a7cb218d500387e1b705ae7736c123d815",
+      "sha256": "f1c28f2e1ae288935c971ac9e10c85be13b4e43dc0f1f5811737918914bc2d86",
       "depends_on": [
         "USK-S-TEST",
         "USK-S-FAULT",
@@ -639,7 +639,7 @@
       "path": "plan/tasks/usk-wu-012.md",
       "title": "Define and implement minimal product bundle authoring",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "b3372520a6175ec2c965f11c663051c8e797c46dddcb99eec89ff62a745fff6d",
+      "sha256": "08ea9ed729366b44101755228425d76f56f86e18cf093dde1e8e29e99499c059",
       "depends_on": [
         "USK-S-BUNDLE",
         "USK-S-AUTHOR"
@@ -650,7 +650,7 @@
       "path": "plan/tasks/usk-wu-013.md",
       "title": "Add exact one-shot command host and machine CLI",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "83b86e41d19626e7b9ba0cbe2488be02078150b7d150605c400e8f2e539a867f",
+      "sha256": "aff463061a9e595d7d2d12c052968906e0204214cfc5cb5e9e71a89a090d557e",
       "depends_on": [
         "USK-S-WIRE",
         "USK-S-CLI",
@@ -662,7 +662,7 @@
       "path": "plan/tasks/usk-wu-014.md",
       "title": "Build no-code generic and embedded setup envelopes",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "d9d17a42c4aa60759003c4c9c78e6fce9c11304c9d96f26d1580388d0a1b0883",
+      "sha256": "2fb996b21dc47a88d2d5b35b4a9478761729273e4b503d0aa67ad8eb77dfe8c8",
       "depends_on": [
         "USK-S-PREFAB",
         "USK-S-AUTHOR",
@@ -674,7 +674,7 @@
       "path": "plan/tasks/usk-wu-015.md",
       "title": "Add owned operation API and progress/cancellation",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "8eeb08ad7d93c87dd218f0984db97be9a9f44679b90a4128d6cf4f6b935979f4",
+      "sha256": "7600f017166164c797dab35d27011b6320091807aa411a17c030ee0e134e788f",
       "depends_on": [
         "USK-S-API",
         "USK-S-TXN"
@@ -685,7 +685,7 @@
       "path": "plan/tasks/usk-wu-016.md",
       "title": "Implement shared setup presentation service",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "e86a9b30d016815b968d8ddc1276e8fd32a08cedf13175484a0b343485b47d21",
+      "sha256": "8204e4e195fbdfa4a2a9d0e2c79b4f886592f7800fac2ee24845c21534eaa39b",
       "depends_on": [
         "USK-S-PRESENT",
         "USK-S-OPS"
@@ -696,7 +696,7 @@
       "path": "plan/tasks/usk-wu-017.md",
       "title": "Complete human CLI and both TUI modes",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "9fc629cdaf57f3d89c6f865d9723dcfb96c519db8273e11059730c6e83be201d",
+      "sha256": "aa608f8030ef9df07da49968e6d4cf43fe29c7e0e5aa2938733104e63bf42281",
       "depends_on": [
         "USK-S-CLI",
         "USK-S-PRESENT"
@@ -707,7 +707,7 @@
       "path": "plan/tasks/usk-wu-018.md",
       "title": "Build first native prefab and interface laboratory",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "d2dbaed78da92b93f7c6bc38b47cb92a05710eb61c5cdb3076095ea865f93e76",
+      "sha256": "f1b08f950f17c96524cb6cff5888fb992e64ac74335e6da246fda763281720da",
       "depends_on": [
         "USK-S-GUI",
         "USK-S-PREFAB"
@@ -718,7 +718,7 @@
       "path": "plan/tasks/usk-wu-019.md",
       "title": "Implement native effects with ownership receipts",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "5946c2ed291d3decf8e2fc781200cedafe1a15df1f4229dbeb7e9ed603b7393d",
+      "sha256": "203d9c609cebbcb8a60c277b8bd633424a0bdbb87b50e7424595147b3a4a2142",
       "depends_on": [
         "USK-S-PLAT",
         "USK-S-OWN",
@@ -730,7 +730,7 @@
       "path": "plan/tasks/usk-wu-020.md",
       "title": "Implement privileged broker and self-maintenance",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "9d75313248b381e7e2efd62cf5b48b49cf31983b5e9ca62c94f34e6834b71edc",
+      "sha256": "9dcf5ac10ef5024d9df3fbbafb0b4180944302f11f1cf989919bb20817786e2a",
       "depends_on": [
         "USK-S-BROKER",
         "USK-S-WIRE"
@@ -741,7 +741,7 @@
       "path": "plan/tasks/usk-wu-021.md",
       "title": "Qualify neutral and demanding product consumers",
       "description": "Proposed M4 WorkUnit; no implementation authority is granted.",
-      "sha256": "7e328c85e01ed3e2a21f873e46852758fc98232ee7b42c4cac53525c4b72a957",
+      "sha256": "af4085f1988a03258530897ef0826f3abfa65672cb4065f90f776a6e296a1c49",
       "depends_on": [
         "USK-S-CONSUMER",
         "USK-S-TEST",
@@ -755,7 +755,7 @@
       "path": "plan/tasks/usk-wu-022.md",
       "title": "Add prerequisites, detection and unattended deployment",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "1f4deb235bf2cfaa20cb35a54385af0585766a2f3c07e87e3db833192685f0c0",
+      "sha256": "8235d4c9e7842dc69023d187f3543701ffd01a21c6f04acc2617845e93cd1663",
       "depends_on": [
         "USK-S-ENT",
         "USK-S-POLICY"
@@ -766,7 +766,7 @@
       "path": "plan/tasks/usk-wu-023.md",
       "title": "Add native package-manager delegation",
       "description": "Proposed M5 WorkUnit; no implementation authority is granted.",
-      "sha256": "16f0a27784bd1f86d0fd6e8544f89eada58a50574740fa3b5fc2ee6109563b32",
+      "sha256": "b9dc787852ca467dc02ab553b1f1eb4dc4879c4ffeef7cdfedd36d6e64c5b8f9",
       "depends_on": [
         "USK-S-PLAT",
         "USK-S-ENT"
@@ -777,7 +777,7 @@
       "path": "plan/tasks/usk-wu-024.md",
       "title": "Build trust provider and offline trust closure",
       "description": "Proposed M6 WorkUnit; no implementation authority is granted.",
-      "sha256": "0cab3e2aa5861817e7a7b741e2dc1eb349f738826da5a49eff9bc98e3ebfb0b4",
+      "sha256": "110327836cbe1c556b11465faad7cdad295679547755a2e3f47f1b8fa8399a2c",
       "depends_on": [
         "USK-S-TRUST",
         "USK-S-SUPPLY"
@@ -788,7 +788,7 @@
       "path": "plan/tasks/usk-wu-025.md",
       "title": "Add optional resumable acquisition and verified cache",
       "description": "Proposed M6 WorkUnit; no implementation authority is granted.",
-      "sha256": "21ecc8a260f7009568181a11baadebbea5aba8ca1f4610ee976702d61768c733",
+      "sha256": "cf1aa71bffcdbe153d6561644400f49049c3a6d883fa494153f584b33b90c4d3",
       "depends_on": [
         "USK-S-CACHE",
         "USK-S-STREAM"
@@ -799,7 +799,7 @@
       "path": "plan/tasks/usk-wu-026.md",
       "title": "Qualify macOS and Linux native shells",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "2784431571d305839ec200adbfd0b49dedcddded9c5c34c7926c2f8a70e33457",
+      "sha256": "1823085eeb22cf560989c2daf3194cffb4bdd425d424c70f568c0789c47216f4",
       "depends_on": [
         "USK-S-GUI",
         "USK-S-PORT"
@@ -810,7 +810,7 @@
       "path": "plan/tasks/usk-wu-027.md",
       "title": "Run early downlevel compatibility canary",
       "description": "Proposed M0 WorkUnit; no implementation authority is granted.",
-      "sha256": "61df60a60d49d60d89368650fdd231c00b904aa92eaf7566c499326b4808c687",
+      "sha256": "939e6ae0285431aa324f8324a76a5dd2b619ab6088343d57421cbdee7b11c1bf",
       "depends_on": [
         "USK-S-PORT",
         "USK-S-ID",
@@ -822,7 +822,7 @@
       "path": "plan/tasks/usk-wu-028.md",
       "title": "Productize SDK components and language bindings",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "f4f007e92c429b6bd14c12828104523048f4d2d5306dd62853af4b4c14af93c4",
+      "sha256": "7c6028a89bd4464c7da9700f9a103b555e18945b3e4e6fd1ba75f12e360ce234",
       "depends_on": [
         "USK-S-SDK",
         "USK-S-API"
@@ -833,7 +833,7 @@
       "path": "plan/tasks/usk-wu-029.md",
       "title": "Build candidate and immutable publication workflows",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "07b2c3ceb11304df3f8a5faeea9004bfb2cd3e74c80a2b11cfe9fb7779ff4baa",
+      "sha256": "0baa32b3611baea7bd461e6ae7a3edc2df0bdbe081f9fb3b4e120d802fd68fa8",
       "depends_on": [
         "USK-S-REL",
         "USK-S-SUPPLY"
@@ -844,7 +844,7 @@
       "path": "plan/tasks/usk-wu-030.md",
       "title": "Model-check and fuzz critical lifecycle state",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "0ed59c3a5e923ab74f5dab5f3c5283da94f8d045f029361b02fbf0973dd23571",
+      "sha256": "0ec2164e4595ac0fec1b74428b9b61bb414b3b1b7987e95512d73b4e66e4dd2c",
       "depends_on": [
         "USK-S-FAULT",
         "USK-S-TEST",
@@ -856,7 +856,7 @@
       "path": "plan/tasks/usk-wu-031.md",
       "title": "Freeze supported local beta profile",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "b276c11c22c55fcb073101b148c9c641353aa36b0dcbe250c7a734f46e1e94fa",
+      "sha256": "e2f6b18d70375b885e0c0609b41c1496d7c6fb606c8e596f6bc063371e620501",
       "depends_on": [
         "USK-S-REL",
         "USK-S-TEST",
@@ -868,7 +868,7 @@
       "path": "plan/tasks/usk-wu-032.md",
       "title": "Accept and publish the supported lifecycle baseline",
       "description": "Proposed M7 WorkUnit; no implementation authority is granted.",
-      "sha256": "dd003890753f063113b4e51780a4058cd0118de413286df4b392693ded204249",
+      "sha256": "77dc014e233c382c7d0172e2fa21ef5fa07f4bc976581e55e22af1482c3d1b11",
       "depends_on": [
         "USK-S-REL",
         "USK-S-SUPPLY",
@@ -880,7 +880,7 @@
       "path": "plan/tasks/usk-wu-033.md",
       "title": "Maintain compatibility and extend only proved seams",
       "description": "Proposed POST-V1 WorkUnit; no implementation authority is granted.",
-      "sha256": "114de9fe20edfe818b725bcd7f495e8e07056d167773009617055ae6cc22c646",
+      "sha256": "a1a4d8d408c15aa24f431ab40858e992fdac9969d2a28ce8427cc7e245fe5d56",
       "depends_on": [
         "USK-S-MAINT",
         "USK-S-REL",
@@ -979,7 +979,7 @@
       "path": "execution/workflow.md",
       "title": "Human and agent engineering workflow",
       "description": "Use one bounded, evidence-producing workflow for every worker and tool.",
-      "sha256": "d4b65870633f496ee0066c50e840301c66be2205f5767cc55b55c5bbd73db917",
+      "sha256": "db3ac67978bb65b0e6d69865093c0abb575557520439a85da319c124a00757c6",
       "depends_on": [
         "USK-S-AUTH",
         "USK-S-TEST"
@@ -1040,7 +1040,7 @@
     {
       "id": "USK-R-AIDE-001",
       "title": "Export is not admission",
-      "statement": "AIDE exports MUST remain proposed with authorizes_implementation=false unless an actual separately authorized queue/grant workflow changes them.",
+      "statement": "AIDE exports MUST remain proposed with authorizes_implementation=false. Execution MAY proceed when a separate exact repository campaign binding or admitted queue record supplies authority; the export itself never does.",
       "spec_id": "USK-S-AIDE",
       "path": "execution/aide.md",
       "acceptance_ids": [
@@ -2090,7 +2090,7 @@
     {
       "id": "USK-R-ROADMAP-001",
       "title": "Dependency-ordered work",
-      "statement": "A task MUST NOT enter effectful implementation/qualification while a mandatory dependency or required grant is unresolved.",
+      "statement": "A task MUST NOT enter effectful implementation/qualification while a mandatory dependency, exact campaign task binding or required target/environment receipt is unresolved.",
       "spec_id": "USK-S-ROADMAP",
       "path": "execution/implementation-plan.md",
       "acceptance_ids": [
@@ -2400,7 +2400,7 @@
     {
       "id": "USK-R-WORK-001",
       "title": "Bound task authority",
-      "statement": "Every nontrivial implementation task MUST bind scope, exact inputs, acceptance and an independently established execution grant.",
+      "statement": "Every nontrivial implementation task MUST bind scope, exact inputs, acceptance and an independently established execution authority. An active campaign record may supply standing authority; the task binding supplies exact source, scope, predecessors and environment without requiring a fresh owner ceremony.",
       "spec_id": "USK-S-WORK",
       "path": "execution/workflow.md",
       "acceptance_ids": [
@@ -2531,17 +2531,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-001.md",
       "definition_spec_id": "USK-S-TASK-001"
     },
@@ -2645,17 +2645,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-002.md",
       "definition_spec_id": "USK-S-TASK-002"
     },
@@ -2787,17 +2787,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-003.md",
       "definition_spec_id": "USK-S-TASK-003"
     },
@@ -2911,17 +2911,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-004.md",
       "definition_spec_id": "USK-S-TASK-004"
     },
@@ -3031,17 +3031,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-005.md",
       "definition_spec_id": "USK-S-TASK-005"
     },
@@ -3152,17 +3152,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-006.md",
       "definition_spec_id": "USK-S-TASK-006"
     },
@@ -3272,17 +3272,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-007.md",
       "definition_spec_id": "USK-S-TASK-007"
     },
@@ -3400,17 +3400,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-008.md",
       "definition_spec_id": "USK-S-TASK-008"
     },
@@ -3520,17 +3520,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-009.md",
       "definition_spec_id": "USK-S-TASK-009"
     },
@@ -3646,17 +3646,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-010.md",
       "definition_spec_id": "USK-S-TASK-010"
     },
@@ -3772,17 +3772,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-011.md",
       "definition_spec_id": "USK-S-TASK-011"
     },
@@ -3894,17 +3894,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-012.md",
       "definition_spec_id": "USK-S-TASK-012"
     },
@@ -4021,17 +4021,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-013.md",
       "definition_spec_id": "USK-S-TASK-013"
     },
@@ -4148,17 +4148,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-014.md",
       "definition_spec_id": "USK-S-TASK-014"
     },
@@ -4270,17 +4270,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-015.md",
       "definition_spec_id": "USK-S-TASK-015"
     },
@@ -4388,17 +4388,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-016.md",
       "definition_spec_id": "USK-S-TASK-016"
     },
@@ -4507,17 +4507,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-017.md",
       "definition_spec_id": "USK-S-TASK-017"
     },
@@ -4627,17 +4627,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-018.md",
       "definition_spec_id": "USK-S-TASK-018"
     },
@@ -4757,17 +4757,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-019.md",
       "definition_spec_id": "USK-S-TASK-019"
     },
@@ -4877,17 +4877,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-020.md",
       "definition_spec_id": "USK-S-TASK-020"
     },
@@ -5017,17 +5017,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-021.md",
       "definition_spec_id": "USK-S-TASK-021"
     },
@@ -5140,17 +5140,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-022.md",
       "definition_spec_id": "USK-S-TASK-022"
     },
@@ -5260,17 +5260,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-023.md",
       "definition_spec_id": "USK-S-TASK-023"
     },
@@ -5381,17 +5381,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-024.md",
       "definition_spec_id": "USK-S-TASK-024"
     },
@@ -5501,17 +5501,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-025.md",
       "definition_spec_id": "USK-S-TASK-025"
     },
@@ -5621,17 +5621,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-026.md",
       "definition_spec_id": "USK-S-TASK-026"
     },
@@ -5746,17 +5746,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-027.md",
       "definition_spec_id": "USK-S-TASK-027"
     },
@@ -5867,17 +5867,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-028.md",
       "definition_spec_id": "USK-S-TASK-028"
     },
@@ -5945,7 +5945,7 @@
         "Create exact-source candidate build with complete artifact inventory.",
         "Pin actions, minimize permissions and separate build/publish identities.",
         "Generate SBOM/provenance/symbols/checksums.",
-        "Keep publication disabled until external channel approval."
+        "Keep publication disabled until candidate qualification and configured channel preconditions pass."
       ],
       "deliverables": [
         "Unpublished release candidate",
@@ -5953,7 +5953,7 @@
         "Withdrawal rehearsal plan"
       ],
       "risks": [
-        "No tag/sign/publish authority is granted by this task."
+        "This task prepares publication but does not itself satisfy release qualification or signer/channel availability."
       ],
       "checks": [
         {
@@ -5987,17 +5987,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-029.md",
       "definition_spec_id": "USK-S-TASK-029"
     },
@@ -6113,17 +6113,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-030.md",
       "definition_spec_id": "USK-S-TASK-030"
     },
@@ -6197,16 +6197,16 @@
       "steps": [
         "Select exactly which operations/targets/contracts are supported.",
         "Close required machine gaps and classify all skips.",
-        "Freeze candidate hashes and prepare human acceptance packet.",
+        "Freeze candidate hashes and prepare an honestly attributed experience-assessment packet.",
         "Leave unqualified optional enterprise/network targets excluded."
       ],
       "deliverables": [
-        "GO_FOR_HUMAN_ACCEPTANCE candidate or blocker",
+        "GO_FOR_EXPERIENCE_ASSESSMENT candidate or blocker",
         "Support/migration matrix",
         "Exact acceptance packet"
       ],
       "risks": [
-        "Beta publication still requires separate authority/human receipt."
+        "Beta publication requires qualified candidate evidence; record human experience only when actually observed."
       ],
       "checks": [
         {
@@ -6240,17 +6240,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-031.md",
       "definition_spec_id": "USK-S-TASK-031"
     },
@@ -6310,18 +6310,21 @@
         "external/**"
       ],
       "forbidden_operations": [
-        "protected-ref-write",
+        "direct-protected-ref-write",
         "force-push",
-        "sign",
-        "publish",
+        "merge-bypass",
+        "unqualified-sign",
+        "unqualified-publish",
+        "move-release-tag",
+        "credential-export",
         "operate-on-user-state",
         "activate-own-authority"
       ],
       "steps": [
-        "Obtain exact human experience and release-policy decisions.",
+        "Obtain exact experience evidence and release-policy decisions; attribute any human observations truthfully.",
         "Repair through new candidate identities rather than editing receipts.",
         "Reconstruct RC and verify signature/inventory transformations.",
-        "Publish only through separately approved immutable channel."
+        "Publish exact qualified bytes through the configured immutable channel under campaign authority."
       ],
       "deliverables": [
         "Accepted supported profile",
@@ -6329,7 +6332,7 @@
         "Support/withdrawal runbook"
       ],
       "risks": [
-        "This template itself authorizes no signing or publication."
+        "Campaign authority does not waive qualification, signer availability, immutable tags or remote asset verification."
       ],
       "checks": [
         {
@@ -6363,17 +6366,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-032.md",
       "definition_spec_id": "USK-S-TASK-032"
     },
@@ -6485,17 +6488,17 @@
           "scope": "existing-repository-tests; qualify relevance and dependencies before execution"
         }
       ],
-      "required_grant": "separate-admitted-D1; D3 required for endpoint effects; no implicit D2/D4",
+      "required_binding": "active USK-SPEC-TO-RELEASE-01 campaign authority plus an exact task binding; exact target/environment receipt additionally required for endpoint or user-state effects",
       "authorizes_implementation": false,
-      "base_binding": "bind actual repository commit/tree and current spec manifest at admission",
+      "base_binding": "derive exact accepted source commit/tree, task-definition digest, current spec aggregate, non-widened scope and predecessor receipts",
       "stop_conditions": [
         "required source/spec inputs changed",
-        "required grant unavailable",
+        "active campaign authority or exact task binding unavailable",
         "affected contract decision unresolved",
         "unexplained failure or required skip",
         "possible user-state or protected-ref effect"
       ],
-      "completion": "implementation plus specified evidence and independent acceptance under actual queue policy; document count is insufficient",
+      "completion": "implementation plus specified evidence and independent technical review under active campaign policy; document count is insufficient",
       "definition_path": "plan/tasks/usk-wu-033.md",
       "definition_spec_id": "USK-S-TASK-033"
     }

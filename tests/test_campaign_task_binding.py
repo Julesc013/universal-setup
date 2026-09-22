@@ -15,10 +15,12 @@ class CampaignTaskBindingTests(unittest.TestCase):
         cls.authority, cls.bundle, cls.integrity = campaign_task_binding.load_inputs()
 
     def binding(self) -> dict:
+        source_commit = campaign_task_binding.git_oid("HEAD")
+        source_tree = campaign_task_binding.git_oid("HEAD^{tree}")
         return campaign_task_binding.create_binding(
             "USK-WU-004",
-            "1" * 40,
-            "2" * 40,
+            source_commit,
+            source_tree,
             ["USK-WU-002=release/index/specification_baseline.v1.toml"],
             "repository-development",
             False,
@@ -63,11 +65,26 @@ class CampaignTaskBindingTests(unittest.TestCase):
         ):
             campaign_task_binding.create_binding(
                 "USK-WU-004",
-                "1" * 40,
-                "2" * 40,
+                campaign_task_binding.git_oid("HEAD"),
+                campaign_task_binding.git_oid("HEAD^{tree}"),
                 ["USK-WU-002=release/index/specification_baseline.v1.toml"],
                 "disposable-windows-lab",
                 True,
+                None,
+            )
+
+    def test_source_tree_must_belong_to_source_commit(self) -> None:
+        with self.assertRaisesRegex(
+            campaign_task_binding.BindingError,
+            "source tree does not belong to source commit",
+        ):
+            campaign_task_binding.create_binding(
+                "USK-WU-004",
+                campaign_task_binding.git_oid("HEAD"),
+                campaign_task_binding.git_oid("HEAD"),
+                ["USK-WU-002=release/index/specification_baseline.v1.toml"],
+                "repository-development",
+                False,
                 None,
             )
 

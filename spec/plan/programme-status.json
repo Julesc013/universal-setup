@@ -1,0 +1,47 @@
+{
+  "schema": "usk.spec.programme-status/1",
+  "recorded_at": "2026-09-22T14:08:29+10:00",
+  "release_selection_snapshot": {
+    "path": "spec/plan/release-selection.json",
+    "sha256": "bb5bc5093d80f7f845887c1b41800768c61057f1b72c09bde6e18a09bfd30d83"
+  },
+  "campaign_authority": {
+    "campaign": "USK-SPEC-TO-RELEASE-01",
+    "path": "release/index/campaign_authority.v1.toml",
+    "sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28",
+    "status": "active"
+  },
+  "authority_granted_by_this_projection": false,
+  "decisions": {
+    "OD-001": {"status": "open", "evidence": []},
+    "OD-002": {"status": "open", "evidence": []},
+    "OD-003": {"status": "open", "evidence": []},
+    "OD-004": {"status": "open", "evidence": []},
+    "OD-005": {
+      "status": "resolved",
+      "evidence": [
+        {
+          "path": "release/index/campaign_authority.v1.toml",
+          "sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28"
+        }
+      ]
+    },
+    "OD-006": {"status": "open", "evidence": []},
+    "OD-007": {"status": "open", "evidence": []},
+    "OD-008": {"status": "open", "evidence": []}
+  },
+  "release_1_1": {
+    "readiness": "not_established",
+    "implementation_complete": false,
+    "machine_qualified": false,
+    "experience_assessed": false,
+    "integrated": false,
+    "published": false,
+    "evidence": {}
+  },
+  "full_spec_baseline": {
+    "complete": false,
+    "continuing_maintenance_operational": false,
+    "evidence": {}
+  }
+}
