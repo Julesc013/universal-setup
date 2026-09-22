@@ -131,6 +131,35 @@ class BranchPolicyTests(unittest.TestCase):
             "stale head" in error for error in branch_policy_check.merge_admission_errors(observation)
         ))
 
+    def test_duplicate_exact_head_success_suites_are_admitted_but_any_red_duplicate_is_denied(self) -> None:
+        observation = valid_merge()
+        observation["required_checks"].append(copy.deepcopy(observation["required_checks"][0]))
+        self.assertEqual(branch_policy_check.merge_admission_errors(observation), [])
+        for conclusion in ("PENDING", "FAILURE"):
+            with self.subTest(conclusion=conclusion):
+                invalid = valid_merge()
+                duplicate = copy.deepcopy(invalid["required_checks"][0])
+                duplicate["conclusion"] = conclusion
+                invalid["required_checks"].append(duplicate)
+                self.assertTrue(any(
+                    "required check is not successful" in error
+                    for error in branch_policy_check.merge_admission_errors(invalid)
+                ))
+
+    def test_required_check_cannot_be_missing_or_from_the_wrong_app(self) -> None:
+        observation = valid_merge()
+        observation["required_checks"] = observation["required_checks"][1:]
+        self.assertIn(
+            "required check observations do not exactly cover the pinned set",
+            branch_policy_check.merge_admission_errors(observation),
+        )
+        observation = valid_merge()
+        observation["required_checks"][0]["integration_id"] = 1
+        self.assertTrue(any(
+            "wrong GitHub integration" in error
+            for error in branch_policy_check.merge_admission_errors(observation)
+        ))
+
     def test_direct_force_bypass_and_unresolved_threads_are_denied(self) -> None:
         observation = valid_merge()
         observation["direct_protected_push"] = True

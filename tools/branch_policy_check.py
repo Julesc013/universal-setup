@@ -300,7 +300,7 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
         errors.append("required checks are missing")
     else:
         names = [check.get("name") for check in checks if isinstance(check, dict)]
-        if len(names) != len(set(names)) or set(names) != set(REQUIRED_STATUS_CHECKS):
+        if set(names) != set(REQUIRED_STATUS_CHECKS):
             errors.append("required check observations do not exactly cover the pinned set")
         for check in checks:
             if not isinstance(check, dict) or set(check) != {
@@ -465,19 +465,20 @@ def collect_github_merge_observation(
     bound_checks = []
     for name in REQUIRED_STATUS_CHECKS:
         candidates = [item for item in runs if item.get("name") == name and
-                      item.get("app", {}).get("id") == GITHUB_ACTIONS_INTEGRATION_ID]
-        if len(candidates) != 1:
-            raise RuntimeError("live check set is missing or ambiguous: " + name)
-        item = candidates[0]
-        bound_checks.append({
-            "name": name,
-            "status": str(item.get("status", "")).upper(),
-            "conclusion": str(item.get("conclusion", "")).upper(),
-            "head_oid": item.get("head_sha"),
-            "base_oid": base_oid,
-            "integration_id": item.get("app", {}).get("id"),
-            "details_url": item.get("details_url"),
-        })
+                      item.get("app", {}).get("id") == GITHUB_ACTIONS_INTEGRATION_ID and
+                      item.get("head_sha") == head_oid]
+        if not candidates:
+            raise RuntimeError("live check set is missing for exact head/app: " + name)
+        for item in candidates:
+            bound_checks.append({
+                "name": name,
+                "status": str(item.get("status", "")).upper(),
+                "conclusion": str(item.get("conclusion", "")).upper(),
+                "head_oid": item.get("head_sha"),
+                "base_oid": base_oid,
+                "integration_id": item.get("app", {}).get("id"),
+                "details_url": item.get("details_url"),
+            })
     owner, name = repository.split("/", 1)
     query = """query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}pageInfo{hasNextPage}}}}}"""
     thread_data = _gh_json([
