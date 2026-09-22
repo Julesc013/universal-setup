@@ -374,6 +374,116 @@ def evidence_file_errors(root: Path, reference: Any, prefix: str) -> list[str]:
     return errors
 
 
+def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
+                              prefix: str) -> tuple[dict, list[str]]:
+    errors = evidence_file_errors(root, reference, prefix)
+    if errors:
+        return {}, errors
+    path_text = reference['path']
+    if not path_text.startswith('release/evidence/') or not path_text.endswith('.json'):
+        return {}, [prefix + ' programme evidence must be a JSON receipt under release/evidence/']
+    path = root.parent.joinpath(*PurePosixPath(path_text).parts)
+    try:
+        record = load_json(path)
+    except (SpecError, OSError) as exc:
+        return {}, [prefix + ' programme evidence is unreadable: ' + str(exc)]
+    expected_fields = {
+        'schema', 'campaign', 'claim', 'status', 'recorded_at', 'source',
+        'spec_aggregate_sha256', 'details'
+    }
+    if not isinstance(record, dict) or set(record) != expected_fields:
+        return {}, [prefix + ' programme evidence fields are incomplete or unknown']
+    if record.get('schema') != 'universal.programme_evidence/1':
+        errors.append(prefix + ' programme evidence schema is invalid')
+    if record.get('campaign') != 'USK-SPEC-TO-RELEASE-01' or record.get('status') != 'accepted':
+        errors.append(prefix + ' programme evidence is not accepted for the active campaign')
+    if record.get('claim') != expected_claim:
+        errors.append(prefix + ' programme evidence claim mismatch')
+    if not ensure_timestamp(record.get('recorded_at')):
+        errors.append(prefix + ' programme evidence timestamp is invalid')
+    source = record.get('source')
+    if (not isinstance(source, dict) or set(source) != {'commit', 'tree'} or
+            any(not re.fullmatch(r'[0-9a-f]{40}', str(source.get(field, '')))
+                for field in ('commit', 'tree'))):
+        errors.append(prefix + ' programme evidence source identity is invalid')
+    if not SHA256_RE.fullmatch(str(record.get('spec_aggregate_sha256', ''))):
+        errors.append(prefix + ' programme evidence specification digest is invalid')
+    details = record.get('details')
+    if not isinstance(details, dict):
+        errors.append(prefix + ' programme evidence details must be an object')
+        return record, errors
+
+    candidate_claims = {
+        'release_1_1.readiness', 'release_1_1.implementation_complete',
+        'release_1_1.machine_qualified', 'release_1_1.experience_assessed',
+        'release_1_1.integrated', 'release_1_1.published'
+    }
+    if expected_claim in candidate_claims and not SHA256_RE.fullmatch(str(details.get('candidate_sha256', ''))):
+        errors.append(prefix + ' release evidence requires an exact candidate digest')
+    if expected_claim == 'release_1_1.readiness':
+        if set(details) != {'candidate_sha256', 'readiness'} or details.get('readiness') not in RELEASE_READINESS - {'not_established'}:
+            errors.append(prefix + ' readiness evidence details are invalid')
+    elif expected_claim == 'release_1_1.implementation_complete':
+        workunits = details.get('completed_workunits')
+        if (set(details) != {'candidate_sha256', 'completed_workunits'} or
+                not isinstance(workunits, list) or not workunits or
+                any(not isinstance(item, str) or not re.fullmatch(r'USK-WU-\d{3}', item) for item in workunits) or
+                len(workunits) != len(set(workunits))):
+            errors.append(prefix + ' implementation evidence needs unique completed WorkUnits')
+    elif expected_claim == 'release_1_1.machine_qualified':
+        profiles = details.get('profiles')
+        receipts = details.get('qualification_receipts')
+        if set(details) != {'candidate_sha256', 'profiles', 'qualification_receipts'} or not isinstance(profiles, list) or not profiles or any(not isinstance(item, str) or not item for item in profiles) or not isinstance(receipts, list) or not receipts:
+            errors.append(prefix + ' machine qualification evidence details are invalid')
+        elif isinstance(receipts, list):
+            for index, nested in enumerate(receipts):
+                errors.extend(evidence_file_errors(root, nested, prefix + f' qualification receipt[{index}]'))
+    elif expected_claim == 'release_1_1.experience_assessed':
+        kind = details.get('assessment_kind')
+        principals = details.get('observer_principals')
+        if set(details) != {'candidate_sha256', 'assessment_kind', 'observer_principals'} or kind not in {'automated', 'human', 'mixed'} or not isinstance(principals, list):
+            errors.append(prefix + ' experience evidence details are invalid')
+        elif kind in {'human', 'mixed'} and (not principals or any(not isinstance(item, str) or not item for item in principals)):
+            errors.append(prefix + ' human experience evidence requires actual observer principals')
+    elif expected_claim == 'release_1_1.integrated':
+        if (set(details) != {'candidate_sha256', 'branch', 'commit', 'tree'} or
+                details.get('branch') != 'main' or
+                any(not re.fullmatch(r'[0-9a-f]{40}', str(details.get(field, ''))) for field in ('commit', 'tree'))):
+            errors.append(prefix + ' integration evidence must bind exact main commit/tree')
+    elif expected_claim == 'release_1_1.published':
+        assets = details.get('remote_assets')
+        expected = {'candidate_sha256', 'tag', 'tag_commit', 'remote_assets',
+                    'remote_readback_at', 'immutable', 'signing'}
+        if (set(details) != expected or not re.fullmatch(r'v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?', str(details.get('tag', ''))) or
+                not re.fullmatch(r'[0-9a-f]{40}', str(details.get('tag_commit', ''))) or
+                details.get('immutable') is not True or
+                details.get('signing') not in {'not_required_by_release_profile', 'configured_signer_verified'} or
+                not ensure_timestamp(details.get('remote_readback_at')) or not isinstance(assets, list) or not assets):
+            errors.append(prefix + ' publication evidence details are invalid')
+        elif any(not isinstance(item, dict) or set(item) != {'name', 'sha256', 'url'} or
+                 not item.get('name') or not SHA256_RE.fullmatch(str(item.get('sha256', ''))) or
+                 not str(item.get('url', '')).startswith('https://') for item in assets):
+            errors.append(prefix + ' publication assets require name, digest and HTTPS readback URL')
+    elif expected_claim == 'full_spec_baseline.complete':
+        workunits = details.get('completed_workunits')
+        expected_workunits = {f'USK-WU-{index:03d}' for index in range(1, 34)}
+        profiles = details.get('admitted_profiles')
+        if (set(details) != {'completed_workunits', 'admitted_profiles'} or
+                not isinstance(workunits, list) or
+                any(not isinstance(item, str) for item in workunits) or
+                set(workunits) != expected_workunits or
+                not isinstance(profiles, list) or not profiles):
+            errors.append(prefix + ' full-spec evidence must cover all baseline WorkUnits and admitted profiles')
+    elif expected_claim == 'full_spec_baseline.continuing_maintenance_operational':
+        channels = details.get('channels')
+        if (set(details) != {'workunit', 'operational_since', 'channels'} or
+                details.get('workunit') != 'USK-WU-033' or
+                not ensure_timestamp(details.get('operational_since')) or
+                not isinstance(channels, list) or not channels):
+            errors.append(prefix + ' continuing-maintenance evidence details are invalid')
+    return record, errors
+
+
 def decision_state_errors(decisions: Any) -> list[str]:
     prefix = 'plan/open-decisions.json: '
     if not isinstance(decisions, list) or not decisions:
@@ -490,20 +600,49 @@ def programme_status_errors(root: Path, status: Any, decisions: list[dict]) -> l
         if release.get('readiness') != 'not_established' and (
                 not isinstance(readiness_refs, list) or not readiness_refs):
             errors.append(prefix + 'readiness requires evidence before advancement')
+        if release.get('readiness') == 'not_established' and readiness_refs:
+            errors.append(prefix + 'not-established readiness must not cite acceptance evidence')
+        candidate_digests = set()
+        integrated_commits = set()
+        published_commits = set()
         if not isinstance(readiness_refs, list):
             errors.append(prefix + 'readiness evidence must be a list')
         else:
             for index, reference in enumerate(readiness_refs):
-                errors.extend(evidence_file_errors(root, reference, prefix + f'readiness evidence[{index}]'))
+                record, record_errors = programme_evidence_record(
+                    root, reference, 'release_1_1.readiness',
+                    prefix + f'readiness evidence[{index}]')
+                errors.extend(record_errors)
+                details = record.get('details', {})
+                if details.get('readiness') != release.get('readiness'):
+                    errors.append(prefix + f'readiness evidence[{index}] does not match current readiness')
+                if details.get('candidate_sha256'):
+                    candidate_digests.add(details['candidate_sha256'])
         for field in RELEASE_PREDICATES:
             refs = evidence.get(field, []) if isinstance(evidence, dict) else []
             if release.get(field) is True and (not isinstance(refs, list) or not refs):
                 errors.append(prefix + field + ' requires evidence before becoming true')
+            if release.get(field) is False and refs:
+                errors.append(prefix + field + ' is false but cites acceptance evidence')
             if not isinstance(refs, list):
                 errors.append(prefix + field + ' evidence must be a list')
             else:
                 for index, reference in enumerate(refs):
-                    errors.extend(evidence_file_errors(root, reference, prefix + field + f' evidence[{index}]'))
+                    record, record_errors = programme_evidence_record(
+                        root, reference, 'release_1_1.' + field,
+                        prefix + field + f' evidence[{index}]')
+                    errors.extend(record_errors)
+                    details = record.get('details', {})
+                    if details.get('candidate_sha256'):
+                        candidate_digests.add(details['candidate_sha256'])
+                    if field == 'integrated' and details.get('commit'):
+                        integrated_commits.add(details['commit'])
+                    if field == 'published' and details.get('tag_commit'):
+                        published_commits.add(details['tag_commit'])
+        if len(candidate_digests) > 1:
+            errors.append(prefix + 'release evidence refers to different candidate bytes')
+        if integrated_commits and published_commits and integrated_commits != published_commits:
+            errors.append(prefix + 'published tag commit differs from integrated main commit')
         if release.get('published') is True and not all(release.get(field) is True for field in (
                 'implementation_complete', 'machine_qualified', 'experience_assessed', 'integrated')):
             errors.append(prefix + 'published requires every prior 1.1 predicate')
@@ -524,11 +663,16 @@ def programme_status_errors(root: Path, status: Any, decisions: list[dict]) -> l
             refs = evidence.get(field, []) if isinstance(evidence, dict) else []
             if full.get(field) is True and (not isinstance(refs, list) or not refs):
                 errors.append(prefix + 'full-spec ' + field + ' requires evidence')
+            if full.get(field) is False and refs:
+                errors.append(prefix + 'full-spec ' + field + ' is false but cites acceptance evidence')
             if not isinstance(refs, list):
                 errors.append(prefix + 'full-spec ' + field + ' evidence must be a list')
             else:
                 for index, reference in enumerate(refs):
-                    errors.extend(evidence_file_errors(root, reference, prefix + field + f' evidence[{index}]'))
+                    _, record_errors = programme_evidence_record(
+                        root, reference, 'full_spec_baseline.' + field,
+                        prefix + field + f' evidence[{index}]')
+                    errors.extend(record_errors)
         if full.get('complete') is True and full.get('continuing_maintenance_operational') is not True:
             errors.append(prefix + 'full-spec completion requires operational continuing maintenance')
     return errors

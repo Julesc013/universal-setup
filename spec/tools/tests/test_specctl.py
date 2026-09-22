@@ -252,6 +252,20 @@ class MutationTests(unittest.TestCase):
         self.root=Path(self.tmp.name)/'Unicode Δ space'/ 'spec'
         shutil.copytree(ROOT,self.root,ignore=shutil.ignore_patterns('__pycache__','integrity.json'))
     def tearDown(self):self.tmp.cleanup()
+    def programme_receipt(self,claim,details):
+        path=self.root.parent/'release/evidence/test-programme-evidence.json'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(m.json_text({
+            'schema':'universal.programme_evidence/1',
+            'campaign':'USK-SPEC-TO-RELEASE-01',
+            'claim':claim,
+            'status':'accepted',
+            'recorded_at':'2026-09-22T00:00:00Z',
+            'source':{'commit':'1'*40,'tree':'2'*40},
+            'spec_aggregate_sha256':'3'*64,
+            'details':details,
+        }))
+        return {'path':'release/evidence/test-programme-evidence.json','sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
     def test_clean_index_single_pass(self):
         shutil.rmtree(self.root/'derived',ignore_errors=True)
         for p in self.root.rglob('index.md'):p.unlink()
@@ -311,7 +325,8 @@ class MutationTests(unittest.TestCase):
     def test_current_release_readiness_can_advance_with_evidence(self):
         path=self.root/'plan/programme-status.json';status=m.load_json(path)
         status['release_1_1']['readiness']='alpha'
-        status['release_1_1']['evidence']['readiness']=[{'path':'spec/plan/release-selection.json','sha256':hashlib.sha256((self.root/'plan/release-selection.json').read_bytes()).hexdigest()}]
+        status['release_1_1']['evidence']['readiness']=[self.programme_receipt(
+            'release_1_1.readiness',{'candidate_sha256':'4'*64,'readiness':'alpha'})]
         path.write_text(m.json_text(status))
         bundle=m.load_bundle(self.root)
         self.assertEqual(bundle['programme_status']['release_1_1']['readiness'],'alpha')
@@ -320,6 +335,21 @@ class MutationTests(unittest.TestCase):
         path=self.root/'plan/programme-status.json';status=m.load_json(path)
         status['release_1_1']['readiness']='alpha';path.write_text(m.json_text(status))
         with self.assertRaisesRegex(m.SpecError,'readiness requires evidence'):m.load_bundle(self.root)
+    def test_irrelevant_file_cannot_advance_release_readiness(self):
+        path=self.root/'plan/programme-status.json';status=m.load_json(path)
+        status['release_1_1']['readiness']='alpha'
+        status['release_1_1']['evidence']['readiness']=[{
+            'path':'spec/plan/release-selection.json',
+            'sha256':hashlib.sha256((self.root/'plan/release-selection.json').read_bytes()).hexdigest()}]
+        path.write_text(m.json_text(status))
+        with self.assertRaisesRegex(m.SpecError,'programme evidence must be a JSON receipt under release/evidence'):m.load_bundle(self.root)
+    def test_evidence_claim_cannot_be_reused_for_another_predicate(self):
+        path=self.root/'plan/programme-status.json';status=m.load_json(path)
+        status['release_1_1']['implementation_complete']=True
+        status['release_1_1']['evidence']['implementation_complete']=[self.programme_receipt(
+            'release_1_1.readiness',{'candidate_sha256':'4'*64,'readiness':'alpha'})]
+        path.write_text(m.json_text(status))
+        with self.assertRaisesRegex(m.SpecError,'programme evidence claim mismatch'):m.load_bundle(self.root)
     def test_duplicate_id_rejected(self):
         source=self.root/'model/identity.md';target=self.root/'model/copied.md';target.write_bytes(source.read_bytes())
         with self.assertRaises(m.SpecError):m.load_bundle(self.root)

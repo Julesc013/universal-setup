@@ -54,7 +54,7 @@ ALLOWED_SETUP_MODULES = {
 ALLOWED_CONTRACT_ROOTS = {"abi", "command", "diagnostic", "policy", "refusal", "result", "schema"}
 ALLOWED_SCHEMA_ROOTS = {"audit", "common", "install", "package", "setup", "state", "transaction"}
 ALLOWED_CONTENT_ROOTS = {"policy", "templates"}
-ALLOWED_RELEASE_ROOTS = {"index", "license.v1.toml", "packaging", "profiles"}
+ALLOWED_RELEASE_ROOTS = {"evidence", "index", "license.v1.toml", "packaging", "profiles"}
 ALLOWED_RELEASE_INDEX = {
     "branch_policy.v1.toml",
     "branch_policy.v2.toml",

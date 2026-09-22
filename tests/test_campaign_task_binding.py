@@ -23,7 +23,6 @@ class CampaignTaskBindingTests(unittest.TestCase):
             source_tree,
             ["USK-WU-002=release/index/specification_baseline.v1.toml"],
             "repository-development",
-            False,
             None,
         )
 
@@ -58,10 +57,10 @@ class CampaignTaskBindingTests(unittest.TestCase):
             ),
         )
 
-    def test_effectful_binding_requires_exact_target_receipt(self) -> None:
+    def test_arbitrary_file_cannot_be_effect_target_receipt(self) -> None:
         with self.assertRaisesRegex(
             campaign_task_binding.BindingError,
-            "effectful binding requires an exact target/environment receipt",
+            "effect target receipt must be under release/evidence",
         ):
             campaign_task_binding.create_binding(
                 "USK-WU-004",
@@ -69,7 +68,20 @@ class CampaignTaskBindingTests(unittest.TestCase):
                 campaign_task_binding.git_oid("HEAD^{tree}"),
                 ["USK-WU-002=release/index/specification_baseline.v1.toml"],
                 "disposable-windows-lab",
-                True,
+                "spec/manifest.json",
+            )
+
+    def test_arbitrary_file_cannot_be_predecessor_receipt(self) -> None:
+        with self.assertRaisesRegex(
+            campaign_task_binding.BindingError,
+            "predecessor receipt must be repository-governed release evidence",
+        ):
+            campaign_task_binding.create_binding(
+                "USK-WU-004",
+                campaign_task_binding.git_oid("HEAD"),
+                campaign_task_binding.git_oid("HEAD^{tree}"),
+                ["USK-WU-002=spec/manifest.json"],
+                "repository-development",
                 None,
             )
 
@@ -84,7 +96,6 @@ class CampaignTaskBindingTests(unittest.TestCase):
                 campaign_task_binding.git_oid("HEAD"),
                 ["USK-WU-002=release/index/specification_baseline.v1.toml"],
                 "repository-development",
-                False,
                 None,
             )
 

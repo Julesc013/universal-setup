@@ -16,6 +16,13 @@ BASE = "2" * 40
 
 def valid_merge() -> dict:
     return {
+        "schema": "universal.github_merge_observation.v1",
+        "collector": "tools/branch_policy_check.py/live-v1",
+        "collected_from_github": True,
+        "repository": "Julesc013/universal-setup",
+        "pull_request": 62,
+        "base_ref": "dev",
+        "head_ref": "task/campaign",
         "expected_head_oid": HEAD,
         "observed_head_oid": HEAD,
         "expected_base_oid": BASE,
@@ -23,23 +30,44 @@ def valid_merge() -> dict:
         "state": "OPEN",
         "draft": False,
         "mergeable": True,
+        "merge_state_status": "CLEAN",
         "merge_method": "normal_pull_request",
         "direct_protected_push": False,
         "force_update": False,
         "bypass": False,
         "unresolved_threads": 0,
-        "author_context": "writer-context",
-        "executor_context": "writer-context",
-        "required_checks": [
-            {"name": "ci", "conclusion": "SUCCESS", "head_oid": HEAD, "base_oid": BASE}
-        ],
+        "author_context": "github:Julesc013",
+        "executor_context": "github:Julesc013",
+        "author_login": "Julesc013",
+        "required_check_policy": {
+            "ruleset_id": branch_policy_check.GITHUB_RULESET_ID,
+            "strict": True,
+            "integration_id": branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID,
+            "names": branch_policy_check.REQUIRED_STATUS_CHECKS,
+        },
+        "required_checks": [{
+            "name": name,
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "head_oid": HEAD,
+            "base_oid": BASE,
+            "integration_id": branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID,
+            "details_url": "https://github.com/Julesc013/universal-setup/actions/runs/1/job/2",
+        } for name in branch_policy_check.REQUIRED_STATUS_CHECKS],
         "technical_review": {
             "kind": "agent",
             "reviewer_context": "reviewer-context",
-            "author_context": "writer-context",
+            "author_context": "github:Julesc013",
             "head_oid": HEAD,
             "claims_human": False,
             "github_state": "COMMENTED",
+            "reviewer_principal": "agent:reviewer-context",
+            "provenance": {
+                "provider": "github_issue_comment",
+                "id": 1,
+                "url": "https://github.com/Julesc013/universal-setup/issues/62#issuecomment-1",
+                "body_sha256": "a" * 64,
+            },
         },
     }
 
@@ -100,13 +128,31 @@ class BranchPolicyTests(unittest.TestCase):
 
     def test_review_must_be_independent_and_truthfully_agent_authored(self) -> None:
         observation = valid_merge()
-        observation["technical_review"]["reviewer_context"] = "writer-context"
+        observation["technical_review"]["reviewer_context"] = observation["author_context"]
         observation["technical_review"]["claims_human"] = True
         observation["technical_review"]["github_state"] = "APPROVED"
         errors = branch_policy_check.merge_admission_errors(observation)
         self.assertIn("technical review must use a different review context", errors)
         self.assertIn("agent review must not claim human provenance", errors)
         self.assertIn("agent review must not fabricate GitHub approval", errors)
+
+    def test_observation_requires_live_collector_and_exact_required_check_set(self) -> None:
+        observation = valid_merge()
+        observation["collected_from_github"] = False
+        observation["required_checks"].pop()
+        errors = branch_policy_check.merge_admission_errors(observation)
+        self.assertIn("merge observation must come from the live GitHub collector", errors)
+        self.assertIn("required check observations do not exactly cover the pinned set", errors)
+
+    def test_human_claim_requires_github_review_provenance(self) -> None:
+        observation = valid_merge()
+        review = observation["technical_review"]
+        review["kind"] = "human"
+        review["claims_human"] = True
+        review["github_state"] = "APPROVED"
+        review["reviewer_principal"] = "human-reviewer"
+        errors = branch_policy_check.merge_admission_errors(observation)
+        self.assertIn("technical review provenance provider or ID is invalid", errors)
 
 
 if __name__ == "__main__":

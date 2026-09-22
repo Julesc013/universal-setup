@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+import argparse
 import datetime
+import hashlib
+import json
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -17,6 +21,13 @@ CAMPAIGN_AUTHORITY = ROOT / "release/index/campaign_authority.v1.toml"
 REPOSITORY = "universal-setup"
 CAMPAIGN = "USK-SPEC-TO-RELEASE-01"
 OID_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+REQUIRED_STATUS_CHECKS = [
+    "native-windows", "native-windows-win32", "native-linux", "native-macos",
+    "sanitizer", "fuzz-smoke",
+]
+GITHUB_RULESET_ID = 20445004
+GITHUB_ACTIONS_INTEGRATION_ID = 15368
 
 
 EXPECTED_POLICY = {
@@ -72,6 +83,10 @@ EXPECTED_POLICY = {
         "expected_head_required": True,
         "expected_base_required": True,
         "required_checks_must_succeed": True,
+        "strict_required_status_checks": True,
+        "github_ruleset_id": GITHUB_RULESET_ID,
+        "github_actions_integration_id": GITHUB_ACTIONS_INTEGRATION_ID,
+        "required_status_checks": REQUIRED_STATUS_CHECKS,
         "unresolved_threads_allowed": False,
         "draft_allowed": False,
         "mergeable_required": True,
@@ -215,8 +230,28 @@ def check_campaign_data(data: dict[str, Any]) -> list[str]:
 
 
 def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
-    """Pure exact-green PR merge oracle; it performs no GitHub operation."""
+    """Validate a closed observation produced by the live GitHub collector below."""
     errors: list[str] = []
+    expected_top = {
+        "schema", "collector", "collected_from_github", "repository", "pull_request",
+        "base_ref", "head_ref", "expected_head_oid", "observed_head_oid",
+        "expected_base_oid", "observed_base_oid", "state", "draft", "mergeable",
+        "merge_state_status", "merge_method", "direct_protected_push", "force_update",
+        "bypass", "unresolved_threads", "author_context", "executor_context",
+        "author_login", "required_check_policy", "required_checks", "technical_review",
+    }
+    if set(observation) != expected_top:
+        errors.append("merge observation fields are incomplete or unknown")
+    if observation.get("schema") != "universal.github_merge_observation.v1":
+        errors.append("merge observation schema is invalid")
+    if observation.get("collector") != "tools/branch_policy_check.py/live-v1" or observation.get("collected_from_github") is not True:
+        errors.append("merge observation must come from the live GitHub collector")
+    if observation.get("repository") != "Julesc013/universal-setup":
+        errors.append("merge observation repository is invalid")
+    if type(observation.get("pull_request")) is not int or observation["pull_request"] <= 0:
+        errors.append("pull request number is invalid")
+    if observation.get("base_ref") != "dev" or not isinstance(observation.get("head_ref"), str):
+        errors.append("pull request refs are invalid")
     for field in ("expected_head_oid", "observed_head_oid", "expected_base_oid", "observed_base_oid"):
         if not OID_RE.fullmatch(str(observation.get(field, ""))):
             errors.append(field + " must be a Git object ID")
@@ -228,6 +263,8 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
         errors.append("pull request must be open and non-draft")
     if observation.get("mergeable") is not True:
         errors.append("pull request must be mergeable")
+    if observation.get("merge_state_status") != "CLEAN":
+        errors.append("GitHub merge state must be CLEAN")
     if observation.get("merge_method") != "normal_pull_request":
         errors.append("normal pull-request merge path is required")
     for field, message in (
@@ -239,16 +276,35 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
             errors.append(message)
     if observation.get("unresolved_threads") != 0:
         errors.append("all review threads must be resolved")
+    check_policy = observation.get("required_check_policy")
+    expected_check_policy = {
+        "ruleset_id": GITHUB_RULESET_ID,
+        "strict": True,
+        "integration_id": GITHUB_ACTIONS_INTEGRATION_ID,
+        "names": REQUIRED_STATUS_CHECKS,
+    }
+    if check_policy != expected_check_policy:
+        errors.append("required-check policy differs from the live pinned GitHub ruleset")
     checks = observation.get("required_checks")
-    if not isinstance(checks, list) or not checks:
+    if not isinstance(checks, list):
         errors.append("required checks are missing")
     else:
+        names = [check.get("name") for check in checks if isinstance(check, dict)]
+        if len(names) != len(set(names)) or set(names) != set(REQUIRED_STATUS_CHECKS):
+            errors.append("required check observations do not exactly cover the pinned set")
         for check in checks:
-            if not isinstance(check, dict) or not check.get("name"):
+            if not isinstance(check, dict) or set(check) != {
+                "name", "status", "conclusion", "head_oid", "base_oid",
+                "integration_id", "details_url",
+            }:
                 errors.append("required check observation is malformed")
                 continue
-            if check.get("conclusion") != "SUCCESS":
+            if check.get("status") != "COMPLETED" or check.get("conclusion") != "SUCCESS":
                 errors.append("required check is not successful: " + str(check.get("name")))
+            if check.get("integration_id") != GITHUB_ACTIONS_INTEGRATION_ID:
+                errors.append("required check has the wrong GitHub integration: " + str(check.get("name")))
+            if not re.fullmatch(r"https://github\.com/Julesc013/universal-setup/actions/runs/\d+/job/\d+", str(check.get("details_url", ""))):
+                errors.append("required check details URL is invalid: " + str(check.get("name")))
             if check.get("head_oid") != observation.get("expected_head_oid"):
                 errors.append("required check is bound to a stale head: " + str(check.get("name")))
             if check.get("base_oid") != observation.get("expected_base_oid"):
@@ -257,18 +313,206 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
     if not isinstance(review, dict):
         errors.append("technical review is missing")
     else:
+        expected_review_fields = {
+            "kind", "reviewer_context", "author_context", "head_oid", "claims_human",
+            "github_state", "reviewer_principal", "provenance",
+        }
+        if set(review) != expected_review_fields:
+            errors.append("technical review fields are incomplete or unknown")
         if review.get("kind") not in {"agent", "human"}:
             errors.append("technical review kind must be agent or human")
-        if not review.get("reviewer_context") or review.get("reviewer_context") == review.get("author_context"):
+        if review.get("author_context") != observation.get("author_context"):
+            errors.append("technical review author context is not bound to the live PR author")
+        if not review.get("reviewer_context") or review.get("reviewer_context") == observation.get("author_context"):
             errors.append("technical review must use a different review context")
         if review.get("head_oid") != observation.get("expected_head_oid"):
             errors.append("technical review is bound to a stale head")
         if review.get("kind") == "agent":
-            if review.get("claims_human") is not False:
+            if review.get("claims_human") is not False or not str(review.get("reviewer_principal", "")).startswith("agent:"):
                 errors.append("agent review must not claim human provenance")
-            if review.get("github_state") == "APPROVED":
+            if review.get("github_state") != "COMMENTED":
                 errors.append("agent review must not fabricate GitHub approval")
+            expected_provider = "github_issue_comment"
+        else:
+            if review.get("claims_human") is not True or str(review.get("reviewer_principal", "")).startswith("agent:"):
+                errors.append("human review needs an actual human principal")
+            if review.get("github_state") != "APPROVED":
+                errors.append("human technical review must be an actual GitHub approval")
+            expected_provider = "github_pull_request_review"
+        provenance = review.get("provenance")
+        if not isinstance(provenance, dict) or set(provenance) != {"provider", "id", "url", "body_sha256"}:
+            errors.append("technical review provenance is malformed")
+        else:
+            if provenance.get("provider") != expected_provider or type(provenance.get("id")) is not int or provenance["id"] <= 0:
+                errors.append("technical review provenance provider or ID is invalid")
+            if not str(provenance.get("url", "")).startswith("https://github.com/Julesc013/universal-setup/"):
+                errors.append("technical review provenance URL is invalid")
+            if not SHA256_RE.fullmatch(str(provenance.get("body_sha256", ""))):
+                errors.append("technical review body digest is invalid")
     return errors
+
+
+def _gh_json(arguments: list[str]) -> Any:
+    result = subprocess.run(
+        ["gh", "api", *arguments], cwd=ROOT, check=False,
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("GitHub API read failed: " + result.stderr.strip())
+    return json.loads(result.stdout)
+
+
+def _review_from_github(
+    repository: str, pull_request: int, head_oid: str, author_context: str,
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    kind = receipt.get("kind")
+    reviewer_context = receipt.get("reviewer_context")
+    record_id = receipt.get("github_record_id")
+    if kind not in {"agent", "human"} or not isinstance(reviewer_context, str) or not reviewer_context:
+        raise RuntimeError("technical review receipt kind/context is invalid")
+    if type(record_id) is not int or record_id <= 0:
+        raise RuntimeError("technical review receipt GitHub record ID is invalid")
+    if kind == "agent":
+        record = _gh_json([f"repos/{repository}/issues/comments/{record_id}"])
+        body = str(record.get("body", ""))
+        if head_oid not in body or reviewer_context not in body or "RESULT: APPROVE" not in body:
+            raise RuntimeError("agent review comment does not bind the exact head/context/approval result")
+        if record.get("issue_url", "").rsplit("/", 1)[-1] != str(pull_request):
+            raise RuntimeError("agent review comment belongs to a different pull request")
+        principal = "agent:" + reviewer_context
+        state = "COMMENTED"
+        claims_human = False
+        provider = "github_issue_comment"
+        url = record.get("html_url")
+    else:
+        record = _gh_json([f"repos/{repository}/pulls/{pull_request}/reviews/{record_id}"])
+        body = str(record.get("body", ""))
+        if record.get("commit_id") != head_oid or record.get("state") != "APPROVED":
+            raise RuntimeError("human GitHub review is not an exact-head approval")
+        principal = str(record.get("user", {}).get("login", ""))
+        if not principal:
+            raise RuntimeError("human GitHub review has no principal")
+        state = "APPROVED"
+        claims_human = True
+        provider = "github_pull_request_review"
+        url = record.get("html_url")
+    return {
+        "kind": kind,
+        "reviewer_context": reviewer_context,
+        "author_context": author_context,
+        "head_oid": head_oid,
+        "claims_human": claims_human,
+        "github_state": state,
+        "reviewer_principal": principal,
+        "provenance": {
+            "provider": provider,
+            "id": record_id,
+            "url": url,
+            "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        },
+    }
+
+
+def collect_github_merge_observation(
+    repository: str, pull_request: int, expected_head: str, expected_base: str,
+    review_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    if repository != "Julesc013/universal-setup":
+        raise RuntimeError("repository is outside the canonical policy")
+    pr = _gh_json([f"repos/{repository}/pulls/{pull_request}"])
+    rules = _gh_json([f"repos/{repository}/rules/branches/{pr['base']['ref']}"])
+    check_rule = next((item for item in rules if item.get("type") == "required_status_checks"), None)
+    pull_rule = next((item for item in rules if item.get("type") == "pull_request"), None)
+    if check_rule is None or pull_rule is None:
+        raise RuntimeError("live branch rules do not contain required checks and pull-request gates")
+    parameters = check_rule.get("parameters", {})
+    live_checks = parameters.get("required_status_checks", [])
+    live_names = [item.get("context") for item in live_checks]
+    live_integrations = {item.get("integration_id") for item in live_checks}
+    if (check_rule.get("ruleset_id") != GITHUB_RULESET_ID or
+            parameters.get("strict_required_status_checks_policy") is not True or
+            live_names != REQUIRED_STATUS_CHECKS or
+            live_integrations != {GITHUB_ACTIONS_INTEGRATION_ID}):
+        raise RuntimeError("live required-check rules differ from the pinned policy")
+    pull_parameters = pull_rule.get("parameters", {})
+    if (pull_parameters.get("required_approving_review_count") != 0 or
+            pull_parameters.get("required_review_thread_resolution") is not True):
+        raise RuntimeError("live pull-request rules differ from the pinned policy")
+
+    head_oid = str(pr.get("head", {}).get("sha", ""))
+    base_oid = str(pr.get("base", {}).get("sha", ""))
+    author_login = str(pr.get("user", {}).get("login", ""))
+    author_context = "github:" + author_login
+    review = _review_from_github(
+        repository, pull_request, head_oid, author_context, review_receipt,
+    )
+    check_data = _gh_json([
+        f"repos/{repository}/commits/{head_oid}/check-runs", "--method", "GET",
+        "-f", "filter=latest", "-f", "per_page=100",
+    ])
+    runs = check_data.get("check_runs", [])
+    bound_checks = []
+    for name in REQUIRED_STATUS_CHECKS:
+        candidates = [item for item in runs if item.get("name") == name and
+                      item.get("app", {}).get("id") == GITHUB_ACTIONS_INTEGRATION_ID]
+        if len(candidates) != 1:
+            raise RuntimeError("live check set is missing or ambiguous: " + name)
+        item = candidates[0]
+        bound_checks.append({
+            "name": name,
+            "status": str(item.get("status", "")).upper(),
+            "conclusion": str(item.get("conclusion", "")).upper(),
+            "head_oid": item.get("head_sha"),
+            "base_oid": base_oid,
+            "integration_id": item.get("app", {}).get("id"),
+            "details_url": item.get("details_url"),
+        })
+    owner, name = repository.split("/", 1)
+    query = """query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}pageInfo{hasNextPage}}}}}"""
+    thread_data = _gh_json([
+        "graphql", "-f", "query=" + query, "-F", "owner=" + owner,
+        "-F", "name=" + name, "-F", "number=" + str(pull_request),
+    ])
+    threads = thread_data["data"]["repository"]["pullRequest"]["reviewThreads"]
+    if threads["pageInfo"]["hasNextPage"]:
+        raise RuntimeError("review thread set exceeds bounded live collector")
+    unresolved = sum(not item["isResolved"] for item in threads["nodes"])
+    executor = _gh_json(["user"])
+    observation = {
+        "schema": "universal.github_merge_observation.v1",
+        "collector": "tools/branch_policy_check.py/live-v1",
+        "collected_from_github": True,
+        "repository": repository,
+        "pull_request": pull_request,
+        "base_ref": pr.get("base", {}).get("ref"),
+        "head_ref": pr.get("head", {}).get("ref"),
+        "expected_head_oid": expected_head,
+        "observed_head_oid": head_oid,
+        "expected_base_oid": expected_base,
+        "observed_base_oid": base_oid,
+        "state": str(pr.get("state", "")).upper(),
+        "draft": pr.get("draft"),
+        "mergeable": pr.get("mergeable"),
+        "merge_state_status": str(pr.get("mergeable_state", "")).upper(),
+        "merge_method": "normal_pull_request",
+        "direct_protected_push": False,
+        "force_update": False,
+        "bypass": False,
+        "unresolved_threads": unresolved,
+        "author_context": author_context,
+        "executor_context": "github:" + str(executor.get("login", "")),
+        "author_login": author_login,
+        "required_check_policy": {
+            "ruleset_id": GITHUB_RULESET_ID,
+            "strict": True,
+            "integration_id": GITHUB_ACTIONS_INTEGRATION_ID,
+            "names": REQUIRED_STATUS_CHECKS,
+        },
+        "required_checks": bound_checks,
+        "technical_review": review,
+    }
+    return observation
 
 
 def check() -> list[str]:
@@ -291,12 +535,38 @@ def check() -> list[str]:
     return problems
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subcommands = parser.add_subparsers(dest="command")
+    merge = subcommands.add_parser("merge-check")
+    merge.add_argument("--repository", default="Julesc013/universal-setup")
+    merge.add_argument("--pull-request", type=int, required=True)
+    merge.add_argument("--expected-head", required=True)
+    merge.add_argument("--expected-base", required=True)
+    merge.add_argument("--review-receipt", type=Path, required=True)
+    args = parser.parse_args(argv)
     problems = check()
     if problems:
         for problem in problems:
             print(f"branch-policy-check: {problem}", file=sys.stderr)
         return 1
+    if args.command == "merge-check":
+        try:
+            receipt = json.loads(args.review_receipt.read_text(encoding="utf-8"))
+            observation = collect_github_merge_observation(
+                args.repository, args.pull_request, args.expected_head,
+                args.expected_base, receipt,
+            )
+            problems = merge_admission_errors(observation)
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
+            print("branch-policy-check: " + str(exc), file=sys.stderr)
+            return 1
+        if problems:
+            for problem in problems:
+                print(f"branch-policy-check: {problem}", file=sys.stderr)
+            return 1
+        print(json.dumps({"status": "PASS", "observation": observation}, indent=2))
+        return 0
     print("branch-policy-check: ok")
     return 0
 

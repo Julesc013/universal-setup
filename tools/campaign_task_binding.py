@@ -66,6 +66,10 @@ def load_inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         raise BindingError("campaign authority is not active")
     specctl = load_specctl()
     bundle = specctl.load_bundle(ROOT / "spec")
+    try:
+        specctl.seal(ROOT / "spec", True)
+    except specctl.SpecError as exc:
+        raise BindingError("specification seal is stale: " + str(exc)) from exc
     integrity = json.loads(INTEGRITY_PATH.read_text(encoding="utf-8"))
     return authority, bundle, integrity
 
@@ -97,7 +101,124 @@ def source_identity_errors(source_commit: str, source_tree: str) -> list[str]:
     return errors
 
 
-def predecessor_receipts(values: list[str]) -> dict[str, dict[str, str]]:
+def git_file_bytes(commit: str, relative: str) -> bytes:
+    path = PurePosixPath(relative)
+    if path.is_absolute() or ".." in path.parts or "\\" in relative:
+        raise BindingError("Git path must be repository-relative POSIX: " + relative)
+    result = subprocess.run(
+        ["git", "show", commit + ":" + relative], cwd=ROOT, check=False,
+        capture_output=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise BindingError("source commit does not contain required path: " + relative)
+    return result.stdout
+
+
+def git_is_ancestor(ancestor: str, descendant: str) -> bool:
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd=ROOT,
+        check=False, capture_output=True, timeout=30,
+    )
+    return result.returncode == 0
+
+
+def current_checkout_errors(source_commit: str, source_tree: str) -> list[str]:
+    errors = source_identity_errors(source_commit, source_tree)
+    if errors:
+        return errors
+    if git_oid("HEAD") != source_commit or git_oid("HEAD^{tree}") != source_tree:
+        errors.append("source must equal the current checkout HEAD and tree")
+    return errors
+
+
+def receipt_document(path: Path) -> dict[str, Any]:
+    try:
+        if path.suffix == ".toml":
+            with path.open("rb") as handle:
+                value = tomllib.load(handle)
+        elif path.suffix == ".json":
+            value = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            raise BindingError("receipt must be TOML or JSON: " + path.as_posix())
+    except (tomllib.TOMLDecodeError, json.JSONDecodeError) as exc:
+        raise BindingError("receipt is malformed: " + path.as_posix()) from exc
+    if not isinstance(value, dict):
+        raise BindingError("receipt root must be an object/table: " + path.as_posix())
+    return value
+
+
+def predecessor_receipt_errors(
+    workunit: str, path: Path, document: dict[str, Any], source_commit: str,
+) -> list[str]:
+    errors: list[str] = []
+    relative = path.relative_to(ROOT).as_posix()
+    if not relative.startswith(("release/index/", "release/evidence/")):
+        errors.append("predecessor receipt must be repository-governed release evidence")
+        return errors
+    if document.get("schema") == "universal.specification_baseline_receipt.v1":
+        if document.get("status") != "accepted_source_reconciliation":
+            errors.append("specification baseline receipt is not accepted")
+        if workunit not in document.get("workunits", []):
+            errors.append("specification baseline receipt does not cover " + workunit)
+        commit = str(document.get("merge_commit", ""))
+        tree = str(document.get("merge_tree", ""))
+    elif document.get("schema") == "universal.workunit_receipt.v1":
+        if document.get("status") != "accepted" or document.get("workunit") != workunit:
+            errors.append("WorkUnit receipt identity or accepted status is invalid")
+        commit = str(document.get("source_commit", ""))
+        tree = str(document.get("source_tree", ""))
+        evidence = document.get("evidence")
+        if not isinstance(evidence, list) or not evidence:
+            errors.append("accepted WorkUnit receipt requires non-empty evidence")
+    else:
+        errors.append("unsupported predecessor receipt schema")
+        return errors
+    if not OID_RE.fullmatch(commit) or not OID_RE.fullmatch(tree):
+        errors.append("predecessor receipt source identity is malformed")
+    else:
+        errors.extend("predecessor " + error for error in source_identity_errors(commit, tree))
+        if not git_is_ancestor(commit, source_commit):
+            errors.append("predecessor receipt source is not an ancestor of task source")
+    return errors
+
+
+def target_receipt_errors(
+    workunit: str, path: Path, document: dict[str, Any], environment: str,
+) -> list[str]:
+    relative = path.relative_to(ROOT).as_posix()
+    errors: list[str] = []
+    if not relative.startswith("release/evidence/"):
+        errors.append("effect target receipt must be under release/evidence/")
+    expected = {
+        "schema", "status", "campaign", "workunits", "environment_kind",
+        "effect_class", "target_identity", "authorized_effects", "issued_at", "expires_at",
+    }
+    if set(document) != expected:
+        errors.append("effect target receipt fields are incomplete or unknown")
+    if document.get("schema") != "universal.effect_target_receipt.v1" or document.get("status") != "admitted":
+        errors.append("effect target receipt schema/status is invalid")
+    if document.get("campaign") != "USK-SPEC-TO-RELEASE-01" or workunit not in document.get("workunits", []):
+        errors.append("effect target receipt does not cover the campaign and WorkUnit")
+    if document.get("environment_kind") != environment:
+        errors.append("effect target receipt environment does not match")
+    if document.get("effect_class") not in {"disposable_lab", "endpoint", "user_state"}:
+        errors.append("effect target receipt effect_class is invalid")
+    if not isinstance(document.get("target_identity"), str) or not document["target_identity"]:
+        errors.append("effect target receipt needs an exact target identity")
+    effects = document.get("authorized_effects")
+    if not isinstance(effects, list) or not effects or any(not isinstance(item, str) or not item for item in effects):
+        errors.append("effect target receipt needs non-empty authorized effects")
+    try:
+        issued = dt.datetime.fromisoformat(str(document.get("issued_at", "")).replace("Z", "+00:00"))
+        expires = dt.datetime.fromisoformat(str(document.get("expires_at", "")).replace("Z", "+00:00"))
+        if issued.tzinfo is None or expires.tzinfo is None or expires <= issued or expires <= dt.datetime.now(dt.timezone.utc):
+            raise ValueError
+    except ValueError:
+        errors.append("effect target receipt timestamps are invalid or expired")
+    return errors
+
+
+def predecessor_receipts(values: list[str], source_commit: str) -> dict[str, dict[str, str]]:
     receipts: dict[str, dict[str, str]] = {}
     for value in values:
         if "=" not in value:
@@ -106,6 +227,12 @@ def predecessor_receipts(values: list[str]) -> dict[str, dict[str, str]]:
         if not re.fullmatch(r"USK-WU-\d{3}", workunit) or workunit in receipts:
             raise BindingError("invalid or duplicate predecessor receipt: " + workunit)
         path = repository_path(relative)
+        document = receipt_document(path)
+        errors = predecessor_receipt_errors(workunit, path, document, source_commit)
+        if errors:
+            raise BindingError("; ".join(errors))
+        if hashlib.sha256(git_file_bytes(source_commit, relative)).hexdigest() != sha256(path):
+            raise BindingError("predecessor receipt is not part of the exact task source: " + relative)
         receipts[workunit] = {"path": relative, "sha256": sha256(path)}
     return receipts
 
@@ -116,7 +243,6 @@ def create_binding(
     source_tree: str,
     predecessor_values: list[str],
     environment: str,
-    effectful: bool,
     effect_target_receipt: str | None,
 ) -> dict[str, Any]:
     authority, bundle, integrity = load_inputs()
@@ -125,16 +251,24 @@ def create_binding(
         raise BindingError("unknown WorkUnit: " + workunit_id)
     if not OID_RE.fullmatch(source_commit) or not OID_RE.fullmatch(source_tree):
         raise BindingError("source commit and tree must be exact Git object IDs")
-    source_errors = source_identity_errors(source_commit, source_tree)
+    source_errors = current_checkout_errors(source_commit, source_tree)
     if source_errors:
         raise BindingError("; ".join(source_errors))
-    receipts = predecessor_receipts(predecessor_values)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,63}", environment):
+        raise BindingError("environment kind must be a non-empty stable identifier")
+    receipts = predecessor_receipts(predecessor_values, source_commit)
     target_receipt = None
+    effect_class = "none"
     if effect_target_receipt is not None:
         path = repository_path(effect_target_receipt)
+        document = receipt_document(path)
+        target_errors = target_receipt_errors(workunit_id, path, document, environment)
+        if target_errors:
+            raise BindingError("; ".join(target_errors))
+        if hashlib.sha256(git_file_bytes(source_commit, effect_target_receipt)).hexdigest() != sha256(path):
+            raise BindingError("effect target receipt is not part of the exact task source")
         target_receipt = {"path": effect_target_receipt, "sha256": sha256(path)}
-    if effectful and target_receipt is None:
-        raise BindingError("effectful binding requires an exact target/environment receipt")
+        effect_class = document["effect_class"]
     task_path = ROOT / "spec" / task["definition_path"]
     binding = {
         "schema": "universal.campaign_task_binding/1",
@@ -151,13 +285,14 @@ def create_binding(
         "source": {"commit": source_commit, "tree": source_tree},
         "specification": {
             "path": INTEGRITY_PATH.relative_to(ROOT).as_posix(),
+            "sha256": sha256(INTEGRITY_PATH),
             "aggregate_sha256": integrity["aggregate_sha256"],
         },
         "scope": {field: copy.deepcopy(task[field]) for field in SCOPE_FIELDS},
         "predecessors": receipts,
         "environment": {
             "kind": environment,
-            "effectful": effectful,
+            "effect_class": effect_class,
             "target_receipt": target_receipt,
         },
         "authorization": {
@@ -192,11 +327,22 @@ def binding_errors(
         errors.append("unsupported binding schema")
     if binding.get("campaign") != authority.get("campaign") or authority.get("status") != "active":
         errors.append("binding campaign is not active or does not match")
+    source = binding.get("source")
+    if not isinstance(source, dict) or set(source) != {"commit", "tree"} or any(
+        not OID_RE.fullmatch(str(source.get(field, ""))) for field in ("commit", "tree")
+    ):
+        errors.append("source binding must contain exact commit and tree IDs")
+        source_commit = ""
+    else:
+        source_commit = source["commit"]
+        errors.extend(current_checkout_errors(source["commit"], source["tree"]))
     authority_ref = binding.get("campaign_authority")
     if not isinstance(authority_ref, dict) or authority_ref != {
         "path": AUTHORITY_PATH.relative_to(ROOT).as_posix(), "sha256": sha256(AUTHORITY_PATH)
     }:
         errors.append("campaign authority binding is stale")
+    elif source_commit and hashlib.sha256(git_file_bytes(source_commit, authority_ref["path"])).hexdigest() != authority_ref["sha256"]:
+        errors.append("campaign authority is not bound to the exact task source")
     task = bundle["tasks"].get(binding.get("workunit"))
     if task is None:
         errors.append("binding names an unknown WorkUnit")
@@ -206,6 +352,8 @@ def binding_errors(
             "path": task_path.relative_to(ROOT).as_posix(), "sha256": sha256(task_path)
         }:
             errors.append("task definition binding is stale")
+        elif source_commit and hashlib.sha256(git_file_bytes(source_commit, task_path.relative_to(ROOT).as_posix())).hexdigest() != sha256(task_path):
+            errors.append("task definition is not bound to the exact task source")
         expected_scope = {field: copy.deepcopy(task[field]) for field in SCOPE_FIELDS}
         if binding.get("scope") != expected_scope:
             errors.append("task scope differs from the immutable template")
@@ -213,7 +361,7 @@ def binding_errors(
         if not isinstance(predecessors, dict) or set(predecessors) != set(task.get("depends_on", [])):
             errors.append("accepted predecessor receipts do not match dependencies")
         elif isinstance(predecessors, dict):
-            for receipt in predecessors.values():
+            for predecessor, receipt in predecessors.items():
                 try:
                     path = repository_path(str(receipt.get("path")))
                 except (BindingError, AttributeError):
@@ -221,26 +369,47 @@ def binding_errors(
                     continue
                 if receipt.get("sha256") != sha256(path):
                     errors.append("predecessor receipt digest is stale")
-    source = binding.get("source")
-    if not isinstance(source, dict) or set(source) != {"commit", "tree"} or any(
-        not OID_RE.fullmatch(str(source.get(field, ""))) for field in ("commit", "tree")
-    ):
-        errors.append("source binding must contain exact commit and tree IDs")
-    else:
-        errors.extend(source_identity_errors(source["commit"], source["tree"]))
+                elif source_commit:
+                    try:
+                        document = receipt_document(path)
+                        errors.extend(predecessor_receipt_errors(predecessor, path, document, source_commit))
+                        if hashlib.sha256(git_file_bytes(source_commit, receipt["path"])).hexdigest() != receipt["sha256"]:
+                            errors.append("predecessor receipt is not bound to the exact task source")
+                    except BindingError as exc:
+                        errors.append(str(exc))
     spec = binding.get("specification")
     if not isinstance(spec, dict) or spec != {
         "path": INTEGRITY_PATH.relative_to(ROOT).as_posix(),
+        "sha256": sha256(INTEGRITY_PATH),
         "aggregate_sha256": integrity.get("aggregate_sha256"),
     }:
         errors.append("specification aggregate binding is stale")
+    elif source_commit:
+        source_integrity = git_file_bytes(source_commit, spec["path"])
+        if hashlib.sha256(source_integrity).hexdigest() != spec["sha256"]:
+            errors.append("specification integrity record is not bound to the exact task source")
+        else:
+            try:
+                source_record = json.loads(source_integrity)
+            except json.JSONDecodeError:
+                errors.append("source specification integrity record is malformed")
+            else:
+                if source_record.get("aggregate_sha256") != spec["aggregate_sha256"]:
+                    errors.append("source specification aggregate does not match binding")
     environment = binding.get("environment")
-    if not isinstance(environment, dict) or set(environment) != {"kind", "effectful", "target_receipt"}:
+    if not isinstance(environment, dict) or set(environment) != {"kind", "effect_class", "target_receipt"}:
         errors.append("environment binding is malformed")
-    elif environment.get("effectful") is True:
+    elif not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,63}", str(environment.get("kind", ""))):
+        errors.append("environment kind is invalid")
+    elif environment.get("effect_class") == "none":
+        if environment.get("target_receipt") is not None:
+            errors.append("non-effectful binding must not carry a target receipt")
+    elif environment.get("effect_class") not in {"disposable_lab", "endpoint", "user_state"}:
+        errors.append("environment effect class is invalid")
+    else:
         receipt = environment.get("target_receipt")
-        if not isinstance(receipt, dict):
-            errors.append("effectful binding lacks target receipt")
+        if not isinstance(receipt, dict) or set(receipt) != {"path", "sha256"}:
+            errors.append("effectful binding lacks an exact target receipt")
         else:
             try:
                 path = repository_path(str(receipt.get("path")))
@@ -249,6 +418,15 @@ def binding_errors(
             else:
                 if receipt.get("sha256") != sha256(path):
                     errors.append("effect target receipt digest is stale")
+                else:
+                    document = receipt_document(path)
+                    errors.extend(target_receipt_errors(
+                        str(binding.get("workunit")), path, document, environment["kind"]
+                    ))
+                    if document.get("effect_class") != environment["effect_class"]:
+                        errors.append("effect target receipt class differs from binding")
+                    if source_commit and hashlib.sha256(git_file_bytes(source_commit, receipt["path"])).hexdigest() != receipt["sha256"]:
+                        errors.append("effect target receipt is not bound to the exact task source")
     authorization = binding.get("authorization")
     if authorization != {
         "derived_from_active_campaign": True,
@@ -286,7 +464,6 @@ def main(argv: list[str] | None = None) -> int:
     bind.add_argument("--source-tree", default="HEAD^{tree}")
     bind.add_argument("--predecessor-receipt", action="append", default=[])
     bind.add_argument("--environment", default="repository-development")
-    bind.add_argument("--effectful", action="store_true")
     bind.add_argument("--effect-target-receipt")
     bind.add_argument("--output", type=Path)
     check = commands.add_parser("check")
@@ -299,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
             tree = git_oid(args.source_tree) if not OID_RE.fullmatch(args.source_tree) else args.source_tree
             value = create_binding(
                 args.workunit, commit, tree, args.predecessor_receipt, args.environment,
-                args.effectful, args.effect_target_receipt,
+                args.effect_target_receipt,
             )
             if args.output:
                 write_binding(args.output, value)
