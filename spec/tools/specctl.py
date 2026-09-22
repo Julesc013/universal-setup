@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import subprocess
 import sys
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -374,40 +375,104 @@ def evidence_file_errors(root: Path, reference: Any, prefix: str) -> list[str]:
     return errors
 
 
-def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
-                              prefix: str) -> tuple[dict, list[str]]:
+def git_source_bytes(repository: Path, commit: str, path: str) -> bytes:
+    """Read an exact repository path from a commit, never from the worktree."""
+    result = subprocess.run(
+        ['git', 'show', commit + ':' + path], cwd=repository, check=False,
+        capture_output=True, timeout=30,
+    )
+    if result.returncode:
+        raise SpecError('source commit does not contain ' + path)
+    return result.stdout
+
+
+def source_binding_errors(root: Path, source: Any, aggregate: Any,
+                          evidence_path: str, prefix: str) -> list[str]:
+    """Bind a receipt, its source identity, and its specification inventory together."""
+    if (not isinstance(source, dict) or set(source) != {'commit', 'tree'} or
+            any(not re.fullmatch(r'[0-9a-f]{40}', str(source.get(field, '')))
+                for field in ('commit', 'tree'))):
+        return [prefix + ' programme evidence source identity is invalid']
+    if not SHA256_RE.fullmatch(str(aggregate)):
+        return [prefix + ' programme evidence specification digest is invalid']
+    repository = root.parent
+    try:
+        observed_commit = subprocess.run(
+            ['git', 'rev-parse', '--verify', source['commit'] + '^{commit}'], cwd=repository,
+            check=False, capture_output=True, text=True, timeout=30,
+        )
+        observed_tree = subprocess.run(
+            ['git', 'rev-parse', '--verify', source['commit'] + '^{tree}'], cwd=repository,
+            check=False, capture_output=True, text=True, timeout=30,
+        )
+        if observed_commit.returncode or observed_tree.returncode:
+            raise SpecError('referenced source commit is unavailable')
+        if observed_commit.stdout.strip() != source['commit']:
+            raise SpecError('referenced source commit is not canonical')
+        if observed_tree.stdout.strip() != source['tree']:
+            raise SpecError('referenced source tree does not belong to source commit')
+        integrity = json_loads(git_source_bytes(repository, source['commit'], 'spec/integrity.json').decode('utf-8'))
+        if (not isinstance(integrity, dict) or integrity.get('schema') != 'usk.spec.integrity/1' or
+                integrity.get('algorithm') != 'sha256' or integrity.get('self_excluded') != 'integrity.json' or
+                not isinstance(integrity.get('files'), list) or
+                integrity.get('aggregate_sha256') != aggregate):
+            raise SpecError('source specification aggregate is invalid')
+        rows = integrity['files']
+        if digest(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()) != aggregate:
+            raise SpecError('source specification aggregate does not match its inventory')
+        for row in rows:
+            if (not isinstance(row, dict) or set(row) != {'path', 'bytes', 'sha256'} or
+                    not isinstance(row['path'], str) or not isinstance(row['bytes'], int) or
+                    row['bytes'] < 0 or not SHA256_RE.fullmatch(str(row['sha256']))):
+                raise SpecError('source specification inventory is malformed')
+    except (OSError, UnicodeError, SpecError) as exc:
+        return [prefix + ' ' + str(exc)]
+    return []
+
+
+def typed_receipt_record(root: Path, reference: Any, expected_schema: str,
+                         expected_claim: str, prefix: str) -> tuple[dict, list[str]]:
+    """Load an accepted, source-bound evidence receipt from the governed ledger."""
     errors = evidence_file_errors(root, reference, prefix)
     if errors:
         return {}, errors
     path_text = reference['path']
     if not path_text.startswith('release/evidence/') or not path_text.endswith('.json'):
-        return {}, [prefix + ' programme evidence must be a JSON receipt under release/evidence/']
-    path = root.parent.joinpath(*PurePosixPath(path_text).parts)
+        return {}, [prefix + ' must be a JSON receipt under release/evidence/']
     try:
-        record = load_json(path)
+        record = load_json(root.parent.joinpath(*PurePosixPath(path_text).parts))
     except (SpecError, OSError) as exc:
-        return {}, [prefix + ' programme evidence is unreadable: ' + str(exc)]
+        return {}, [prefix + ' is unreadable: ' + str(exc)]
     expected_fields = {
         'schema', 'campaign', 'claim', 'status', 'recorded_at', 'source',
         'spec_aggregate_sha256', 'details'
     }
     if not isinstance(record, dict) or set(record) != expected_fields:
-        return {}, [prefix + ' programme evidence fields are incomplete or unknown']
-    if record.get('schema') != 'universal.programme_evidence/1':
-        errors.append(prefix + ' programme evidence schema is invalid')
+        return {}, [prefix + ' fields are incomplete or unknown']
+    if record.get('schema') != expected_schema:
+        errors.append(prefix + ' schema is invalid')
     if record.get('campaign') != 'USK-SPEC-TO-RELEASE-01' or record.get('status') != 'accepted':
-        errors.append(prefix + ' programme evidence is not accepted for the active campaign')
+        errors.append(prefix + ' is not accepted for the active campaign')
     if record.get('claim') != expected_claim:
-        errors.append(prefix + ' programme evidence claim mismatch')
+        errors.append(prefix + ' claim mismatch')
     if not ensure_timestamp(record.get('recorded_at')):
-        errors.append(prefix + ' programme evidence timestamp is invalid')
-    source = record.get('source')
-    if (not isinstance(source, dict) or set(source) != {'commit', 'tree'} or
-            any(not re.fullmatch(r'[0-9a-f]{40}', str(source.get(field, '')))
-                for field in ('commit', 'tree'))):
-        errors.append(prefix + ' programme evidence source identity is invalid')
-    if not SHA256_RE.fullmatch(str(record.get('spec_aggregate_sha256', ''))):
-        errors.append(prefix + ' programme evidence specification digest is invalid')
+        errors.append(prefix + ' timestamp is invalid')
+    errors.extend(source_binding_errors(
+        root, record.get('source'), record.get('spec_aggregate_sha256'), path_text, prefix
+    ))
+    if not isinstance(record.get('details'), dict):
+        errors.append(prefix + ' details must be an object')
+    return record, errors
+
+
+def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
+                              prefix: str) -> tuple[dict, list[str]]:
+    record, errors = typed_receipt_record(
+        root, reference, 'universal.programme_evidence/1', expected_claim,
+        prefix + ' programme evidence'
+    )
+    if not record:
+        return {}, errors
     details = record.get('details')
     if not isinstance(details, dict):
         errors.append(prefix + ' programme evidence details must be an object')
@@ -437,7 +502,17 @@ def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
             errors.append(prefix + ' machine qualification evidence details are invalid')
         elif isinstance(receipts, list):
             for index, nested in enumerate(receipts):
-                errors.extend(evidence_file_errors(root, nested, prefix + f' qualification receipt[{index}]'))
+                qualification, qualification_errors = typed_receipt_record(
+                    root, nested, 'universal.machine_qualification_receipt/1',
+                    'release_1_1.machine_qualified',
+                    prefix + f' qualification receipt[{index}]'
+                )
+                errors.extend(qualification_errors)
+                detail = qualification.get('details', {})
+                if (set(detail) != {'candidate_sha256', 'profile', 'result'} or
+                        detail.get('candidate_sha256') != details.get('candidate_sha256') or
+                        detail.get('profile') not in profiles or detail.get('result') != 'pass'):
+                    errors.append(prefix + f' qualification receipt[{index}] is not a passing receipt for an admitted profile')
     elif expected_claim == 'release_1_1.experience_assessed':
         kind = details.get('assessment_kind')
         principals = details.get('observer_principals')
@@ -484,7 +559,42 @@ def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
     return record, errors
 
 
-def decision_state_errors(decisions: Any) -> list[str]:
+DECISION_EVIDENCE_KINDS = {
+    'OD-002': ('machine_qualification', {'candidate_sha256', 'profile', 'qualification_receipt'}),
+    'OD-003': ('c_abi_analysis', {'analysis_sha256', 'contract_identity'}),
+    'OD-008': ('release_plan', {'plan_sha256', 'target_release'}),
+    'OD-005': ('campaign_authority_binding', {'authority_sha256', 'binding_policy'}),
+}
+
+
+def decision_evidence_errors(root: Path, decision_id: str, reference: Any,
+                             prefix: str) -> list[str]:
+    expected = DECISION_EVIDENCE_KINDS.get(decision_id)
+    if expected is None:
+        return [prefix + ' has no registered typed evidence contract']
+    record, errors = typed_receipt_record(
+        root, reference, 'universal.decision_evidence/1', decision_id, prefix
+    )
+    details = record.get('details', {})
+    kind, expected_fields = expected
+    if (not isinstance(details, dict) or set(details) != expected_fields | {'evidence_kind'} or
+            details.get('evidence_kind') != kind):
+        errors.append(prefix + ' is not suitable typed evidence for ' + decision_id)
+    if decision_id == 'OD-002' and isinstance(details, dict):
+        nested = details.get('qualification_receipt')
+        qualification, nested_errors = typed_receipt_record(
+            root, nested, 'universal.machine_qualification_receipt/1',
+            'release_1_1.machine_qualified', prefix + ' qualification receipt'
+        )
+        errors.extend(nested_errors)
+        qualified = qualification.get('details', {})
+        if (not isinstance(qualified, dict) or qualified.get('candidate_sha256') != details.get('candidate_sha256') or
+                qualified.get('profile') != details.get('profile') or qualified.get('result') != 'pass'):
+            errors.append(prefix + ' qualification receipt does not support the decision evidence')
+    return errors
+
+
+def decision_state_errors(root: Path, decisions: Any) -> list[str]:
     prefix = 'plan/open-decisions.json: '
     if not isinstance(decisions, list) or not decisions:
         return [prefix + 'decisions must be a non-empty list']
@@ -510,7 +620,9 @@ def decision_state_errors(decisions: Any) -> list[str]:
                 errors.append(decision_id + ': resolved decision requires evidence')
             else:
                 for index, reference in enumerate(evidence):
-                    errors.extend(evidence_ref_errors(reference, decision_id + f' evidence[{index}]'))
+                    errors.extend(decision_evidence_errors(
+                        root, decision_id, reference, decision_id + f' evidence[{index}]'
+                    ))
             if 'resolution_required' in decision:
                 errors.append(decision_id + ': resolved decision must not retain resolution_required')
             if decision.get('outstanding_obligations'):
@@ -581,7 +693,9 @@ def programme_status_errors(root: Path, status: Any, decisions: list[dict]) -> l
                     evidence != decision_map[decision_id].get('resolution_evidence')):
                 errors.append(decision_id + ': projected resolution evidence differs from decision register')
             for index, reference in enumerate(evidence):
-                errors.extend(evidence_file_errors(root, reference, decision_id + f' projection evidence[{index}]'))
+                errors.extend(decision_evidence_errors(
+                    root, decision_id, reference, decision_id + f' projection evidence[{index}]'
+                ))
 
     release = status.get('release_1_1')
     release_fields = {'readiness', *RELEASE_PREDICATES, 'evidence'}
@@ -782,7 +896,7 @@ def load_bundle(root: Path) -> dict:
     errors.extend(graph_errors({k:v['meta']['usk_spec']['depends_on'] for k,v in docs.items()},'spec'))
     errors.extend(graph_errors({k:v.get('depends_on',[]) for k,v in tasks.items()},'task'))
     decisions = load_json(root/'plan/open-decisions.json')['decisions']
-    errors.extend(decision_state_errors(decisions))
+    errors.extend(decision_state_errors(root, decisions))
     for decision in decisions:
         for tid in decision.get('blocks',[]):
             if tid not in tasks: errors.append(decision['id']+': missing blocked task '+tid)

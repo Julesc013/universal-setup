@@ -21,8 +21,8 @@
       "status": "resolved",
       "evidence": [
         {
-          "path": "release/index/campaign_authority.v1.toml",
-          "sha256": "f7d313438a07827333d107940f4f35b423a8259b00ef8c55e69a5f001aad9a28"
+          "path": "release/evidence/od-005-campaign-authority.json",
+          "sha256": "11a603d8491390e5fe4093b545164e3159609712c03eb29c42c0cfb65be14ddd"
         }
       ]
     },

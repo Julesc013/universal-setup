@@ -26,6 +26,7 @@ INTEGRITY_PATH = ROOT / "spec/integrity.json"
 OID_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 SCOPE_FIELDS = ("context_paths", "allowed_paths", "read_only_paths", "forbidden_paths", "forbidden_operations")
+EFFECT_RE = re.compile(r"^[a-z][a-z0-9_.:-]{2,127}$")
 
 
 class BindingError(ValueError):
@@ -156,10 +157,25 @@ def predecessor_receipt_errors(
         errors.append("predecessor receipt must be repository-governed release evidence")
         return errors
     if document.get("schema") == "universal.specification_baseline_receipt.v1":
+        expected = {
+            "schema", "status", "workunits", "repository", "integrated_head",
+            "merge_commit", "merge_tree", "pull_request", "post_merge_ci_run",
+            "post_merge_ci_conclusion", "technical_review_kind", "technical_review_id",
+            "human_product_acceptance", "runtime_qualification", "claim",
+        }
+        if set(document) != expected:
+            errors.append("specification baseline receipt fields are incomplete or unknown")
         if document.get("status") != "accepted_source_reconciliation":
             errors.append("specification baseline receipt is not accepted")
+        if document.get("repository") != "Julesc013/universal-setup":
+            errors.append("specification baseline receipt repository is invalid")
         if workunit not in document.get("workunits", []):
             errors.append("specification baseline receipt does not cover " + workunit)
+        if type(document.get("post_merge_ci_run")) is not int or document["post_merge_ci_run"] <= 0 or document.get("post_merge_ci_conclusion") != "success":
+            errors.append("specification baseline receipt requires successful post-merge CI provenance")
+        if (document.get("technical_review_kind") not in {"agent_comment_review", "human_pull_request_review"} or
+                type(document.get("technical_review_id")) is not int or document["technical_review_id"] <= 0):
+            errors.append("specification baseline receipt requires typed technical review provenance")
         commit = str(document.get("merge_commit", ""))
         tree = str(document.get("merge_tree", ""))
     elif document.get("schema") == "universal.workunit_receipt.v1":
@@ -169,7 +185,14 @@ def predecessor_receipt_errors(
         tree = str(document.get("source_tree", ""))
         evidence = document.get("evidence")
         if not isinstance(evidence, list) or not evidence:
-            errors.append("accepted WorkUnit receipt requires non-empty evidence")
+            errors.append("accepted WorkUnit receipt requires typed evidence")
+        else:
+            for index, item in enumerate(evidence):
+                if (not isinstance(item, dict) or set(item) != {"path", "sha256", "kind"} or
+                        not isinstance(item.get("path"), str) or not item["path"].startswith("release/evidence/") or
+                        not item["path"].endswith(".json") or not SHA_RE.fullmatch(str(item.get("sha256", ""))) or
+                        item.get("kind") not in {"acceptance", "qualification", "integration", "review"}):
+                    errors.append("accepted WorkUnit receipt evidence[" + str(index) + "] is not a typed governed receipt")
     else:
         errors.append("unsupported predecessor receipt schema")
         return errors
@@ -184,6 +207,7 @@ def predecessor_receipt_errors(
 
 def target_receipt_errors(
     workunit: str, path: Path, document: dict[str, Any], environment: str,
+    requested_effects: list[str],
 ) -> list[str]:
     relative = path.relative_to(ROOT).as_posix()
     errors: list[str] = []
@@ -206,12 +230,19 @@ def target_receipt_errors(
     if not isinstance(document.get("target_identity"), str) or not document["target_identity"]:
         errors.append("effect target receipt needs an exact target identity")
     effects = document.get("authorized_effects")
-    if not isinstance(effects, list) or not effects or any(not isinstance(item, str) or not item for item in effects):
-        errors.append("effect target receipt needs non-empty authorized effects")
+    if (not isinstance(effects, list) or not effects or len(effects) != len(set(effects)) or
+            any(not isinstance(item, str) or not EFFECT_RE.fullmatch(item) or item == "anything" for item in effects)):
+        errors.append("effect target receipt needs exact authorized effects")
+    if (not isinstance(requested_effects, list) or not requested_effects or
+            len(requested_effects) != len(set(requested_effects)) or
+            any(not isinstance(item, str) or not EFFECT_RE.fullmatch(item) or item == "anything" for item in requested_effects) or
+            set(effects) != set(requested_effects)):
+        errors.append("effect target receipt authorized effects must exactly bind requested effects")
     try:
         issued = dt.datetime.fromisoformat(str(document.get("issued_at", "")).replace("Z", "+00:00"))
         expires = dt.datetime.fromisoformat(str(document.get("expires_at", "")).replace("Z", "+00:00"))
-        if issued.tzinfo is None or expires.tzinfo is None or expires <= issued or expires <= dt.datetime.now(dt.timezone.utc):
+        now = dt.datetime.now(dt.timezone.utc)
+        if issued.tzinfo is None or expires.tzinfo is None or issued > now or expires <= issued or expires <= now:
             raise ValueError
     except ValueError:
         errors.append("effect target receipt timestamps are invalid or expired")
@@ -244,6 +275,7 @@ def create_binding(
     predecessor_values: list[str],
     environment: str,
     effect_target_receipt: str | None,
+    requested_effects: list[str] | None = None,
 ) -> dict[str, Any]:
     authority, bundle, integrity = load_inputs()
     task = bundle["tasks"].get(workunit_id)
@@ -259,10 +291,11 @@ def create_binding(
     receipts = predecessor_receipts(predecessor_values, source_commit)
     target_receipt = None
     effect_class = "none"
+    requested_effects = requested_effects or []
     if effect_target_receipt is not None:
         path = repository_path(effect_target_receipt)
         document = receipt_document(path)
-        target_errors = target_receipt_errors(workunit_id, path, document, environment)
+        target_errors = target_receipt_errors(workunit_id, path, document, environment, requested_effects)
         if target_errors:
             raise BindingError("; ".join(target_errors))
         if hashlib.sha256(git_file_bytes(source_commit, effect_target_receipt)).hexdigest() != sha256(path):
@@ -294,6 +327,7 @@ def create_binding(
             "kind": environment,
             "effect_class": effect_class,
             "target_receipt": target_receipt,
+            "requested_effects": requested_effects,
         },
         "authorization": {
             "derived_from_active_campaign": True,
@@ -397,12 +431,12 @@ def binding_errors(
                 if source_record.get("aggregate_sha256") != spec["aggregate_sha256"]:
                     errors.append("source specification aggregate does not match binding")
     environment = binding.get("environment")
-    if not isinstance(environment, dict) or set(environment) != {"kind", "effect_class", "target_receipt"}:
+    if not isinstance(environment, dict) or set(environment) != {"kind", "effect_class", "target_receipt", "requested_effects"}:
         errors.append("environment binding is malformed")
     elif not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,63}", str(environment.get("kind", ""))):
         errors.append("environment kind is invalid")
     elif environment.get("effect_class") == "none":
-        if environment.get("target_receipt") is not None:
+        if environment.get("target_receipt") is not None or environment.get("requested_effects") != []:
             errors.append("non-effectful binding must not carry a target receipt")
     elif environment.get("effect_class") not in {"disposable_lab", "endpoint", "user_state"}:
         errors.append("environment effect class is invalid")
@@ -421,7 +455,8 @@ def binding_errors(
                 else:
                     document = receipt_document(path)
                     errors.extend(target_receipt_errors(
-                        str(binding.get("workunit")), path, document, environment["kind"]
+                        str(binding.get("workunit")), path, document, environment["kind"],
+                        environment.get("requested_effects")
                     ))
                     if document.get("effect_class") != environment["effect_class"]:
                         errors.append("effect target receipt class differs from binding")
@@ -465,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
     bind.add_argument("--predecessor-receipt", action="append", default=[])
     bind.add_argument("--environment", default="repository-development")
     bind.add_argument("--effect-target-receipt")
+    bind.add_argument("--requested-effect", action="append", default=[])
     bind.add_argument("--output", type=Path)
     check = commands.add_parser("check")
     check.add_argument("binding", type=Path)
@@ -476,7 +512,7 @@ def main(argv: list[str] | None = None) -> int:
             tree = git_oid(args.source_tree) if not OID_RE.fullmatch(args.source_tree) else args.source_tree
             value = create_binding(
                 args.workunit, commit, tree, args.predecessor_receipt, args.environment,
-                args.effect_target_receipt,
+                args.effect_target_receipt, args.requested_effect,
             )
             if args.output:
                 write_binding(args.output, value)

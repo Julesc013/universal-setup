@@ -91,6 +91,23 @@ class BranchPolicyTests(unittest.TestCase):
         self.assertEqual(observation["author_context"], observation["executor_context"])
         self.assertEqual(branch_policy_check.merge_admission_errors(observation), [])
 
+    def test_declared_dev_to_main_promotion_is_admitted(self) -> None:
+        observation = valid_merge()
+        observation["head_ref"] = "dev"
+        observation["base_ref"] = "main"
+        self.assertEqual(branch_policy_check.merge_admission_errors(observation), [])
+
+    def test_undeclared_routes_are_denied(self) -> None:
+        observation = valid_merge()
+        observation["head_ref"] = "feature/unreviewed"
+        self.assertIn(
+            "pull request route is not declared by branch policy",
+            branch_policy_check.merge_admission_errors(observation),
+        )
+        observation = valid_merge()
+        observation["base_ref"] = "main"
+        self.assertIn("task pull request must target dev", branch_policy_check.merge_admission_errors(observation))
+
     def test_stale_head_and_base_are_denied_even_with_green_checks(self) -> None:
         observation = valid_merge()
         observation["observed_head_oid"] = "3" * 40

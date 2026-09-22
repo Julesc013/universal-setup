@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import unittest
 
 from tools import campaign_task_binding
@@ -109,6 +110,48 @@ class CampaignTaskBindingTests(unittest.TestCase):
                 invalid, self.authority, self.bundle, self.integrity
             ),
         )
+
+    def test_baseline_requires_successful_ci_and_typed_review_provenance(self) -> None:
+        path = campaign_task_binding.ROOT / "release/index/specification_baseline.v1.toml"
+        document = campaign_task_binding.receipt_document(path)
+        document["post_merge_ci_conclusion"] = "failure"
+        document.pop("technical_review_id")
+        errors = campaign_task_binding.predecessor_receipt_errors(
+            "USK-WU-002", path, document, campaign_task_binding.git_oid("HEAD")
+        )
+        self.assertTrue(any("successful post-merge CI" in error for error in errors))
+        self.assertTrue(any("technical review provenance" in error for error in errors))
+
+    def test_workunit_receipt_rejects_generic_evidence(self) -> None:
+        path = campaign_task_binding.ROOT / "release/evidence/example.json"
+        document = {
+            "schema": "universal.workunit_receipt.v1", "status": "accepted",
+            "workunit": "USK-WU-002", "source_commit": campaign_task_binding.git_oid("HEAD"),
+            "source_tree": campaign_task_binding.git_oid("HEAD^{tree}"),
+            "evidence": [{"path": "README.md"}],
+        }
+        errors = campaign_task_binding.predecessor_receipt_errors(
+            "USK-WU-002", path, document, campaign_task_binding.git_oid("HEAD")
+        )
+        self.assertTrue(any("not a typed governed receipt" in error for error in errors))
+
+    def test_effect_receipt_rejects_future_issuance_and_arbitrary_authority(self) -> None:
+        path = campaign_task_binding.ROOT / "release/evidence/example.json"
+        now = dt.datetime.now(dt.timezone.utc)
+        document = {
+            "schema": "universal.effect_target_receipt.v1", "status": "admitted",
+            "campaign": "USK-SPEC-TO-RELEASE-01", "workunits": ["USK-WU-004"],
+            "environment_kind": "disposable-windows-lab", "effect_class": "disposable_lab",
+            "target_identity": "lab:one", "authorized_effects": ["anything"],
+            "issued_at": (now + dt.timedelta(minutes=5)).isoformat(),
+            "expires_at": (now + dt.timedelta(hours=1)).isoformat(),
+        }
+        errors = campaign_task_binding.target_receipt_errors(
+            "USK-WU-004", path, document, "disposable-windows-lab", ["install.package"]
+        )
+        self.assertTrue(any("exact authorized effects" in error for error in errors))
+        self.assertTrue(any("exactly bind requested effects" in error for error in errors))
+        self.assertTrue(any("timestamps are invalid" in error for error in errors))
 
 
 if __name__ == "__main__":

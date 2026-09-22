@@ -250,8 +250,18 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
         errors.append("merge observation repository is invalid")
     if type(observation.get("pull_request")) is not int or observation["pull_request"] <= 0:
         errors.append("pull request number is invalid")
-    if observation.get("base_ref") != "dev" or not isinstance(observation.get("head_ref"), str):
+    head_ref = observation.get("head_ref")
+    base_ref = observation.get("base_ref")
+    if not isinstance(head_ref, str) or not head_ref:
         errors.append("pull request refs are invalid")
+    elif head_ref.startswith("task/"):
+        if base_ref != "dev":
+            errors.append("task pull request must target dev")
+    elif head_ref == "dev":
+        if base_ref != "main":
+            errors.append("dev promotion pull request must target main")
+    else:
+        errors.append("pull request route is not declared by branch policy")
     for field in ("expected_head_oid", "observed_head_oid", "expected_base_oid", "observed_base_oid"):
         if not OID_RE.fullmatch(str(observation.get(field, ""))):
             errors.append(field + " must be a Git object ID")

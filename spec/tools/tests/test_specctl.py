@@ -5,6 +5,7 @@
 import contextlib
 import copy
 import hashlib
+import subprocess
 import importlib.util
 import io
 import json
@@ -250,7 +251,38 @@ class MutationTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.root=Path(self.tmp.name)/'Unicode Δ space'/ 'spec'
-        shutil.copytree(ROOT,self.root,ignore=shutil.ignore_patterns('__pycache__','integrity.json'))
+        shutil.copytree(ROOT,self.root,ignore=shutil.ignore_patterns('__pycache__'))
+        receipt_source=ROOT.parent/'release/evidence/od-005-campaign-authority.json'
+        receipt_target=self.root.parent/'release/evidence/od-005-campaign-authority.json'
+        receipt_target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(receipt_source,receipt_target)
+        authority_target=self.root.parent/'release/index/campaign_authority.v1.toml'
+        authority_target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(ROOT.parent/'release/index/campaign_authority.v1.toml',authority_target)
+        adoption_target=self.root.parent/'docs/architecture/specification_authority.md'
+        adoption_target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(ROOT.parent/'docs/architecture/specification_authority.md',adoption_target)
+        m.seal(self.root)
+        repository=self.root.parent
+        for command in (
+            ['git','init'], ['git','config','user.email','tests@example.invalid'],
+            ['git','config','user.name','specctl tests'], ['git','add','.'],
+            ['git','commit','-m','baseline'],
+        ):
+            subprocess.run(command,cwd=repository,check=True,capture_output=True)
+        self.source_commit=subprocess.run(['git','rev-parse','HEAD'],cwd=repository,check=True,capture_output=True,text=True).stdout.strip()
+        self.source_tree=subprocess.run(['git','rev-parse','HEAD^{tree}'],cwd=repository,check=True,capture_output=True,text=True).stdout.strip()
+        self.source_aggregate=m.load_json(self.root/'integrity.json')['aggregate_sha256']
+        receipt=self.root.parent/'release/evidence/od-005-campaign-authority.json'
+        record=m.load_json(receipt);record['source']={'commit':self.source_commit,'tree':self.source_tree};record['spec_aggregate_sha256']=self.source_aggregate
+        receipt.write_text(m.json_text(record))
+        reference={'path':'release/evidence/od-005-campaign-authority.json','sha256':hashlib.sha256(receipt.read_bytes()).hexdigest()}
+        for path in (self.root/'plan/open-decisions.json',self.root/'plan/programme-status.json'):
+            value=m.load_json(path)
+            if 'decisions' in value and isinstance(value['decisions'],list):
+                next(item for item in value['decisions'] if item['id']=='OD-005')['resolution_evidence']=[reference]
+            else:value['decisions']['OD-005']['evidence']=[reference]
+            path.write_text(m.json_text(value))
     def tearDown(self):self.tmp.cleanup()
     def programme_receipt(self,claim,details):
         path=self.root.parent/'release/evidence/test-programme-evidence.json'
@@ -261,11 +293,20 @@ class MutationTests(unittest.TestCase):
             'claim':claim,
             'status':'accepted',
             'recorded_at':'2026-09-22T00:00:00Z',
-            'source':{'commit':'1'*40,'tree':'2'*40},
-            'spec_aggregate_sha256':'3'*64,
+            'source':{'commit':self.source_commit,'tree':self.source_tree},
+            'spec_aggregate_sha256':self.source_aggregate,
             'details':details,
         }))
         return {'path':'release/evidence/test-programme-evidence.json','sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+    def typed_receipt(self,name,schema,claim,details):
+        path=self.root.parent/'release/evidence'/name
+        path.write_text(m.json_text({
+            'schema':schema,'campaign':'USK-SPEC-TO-RELEASE-01','claim':claim,
+            'status':'accepted','recorded_at':'2026-09-22T00:00:00Z',
+            'source':{'commit':self.source_commit,'tree':self.source_tree},
+            'spec_aggregate_sha256':self.source_aggregate,'details':details,
+        }))
+        return {'path':'release/evidence/'+name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
     def test_clean_index_single_pass(self):
         shutil.rmtree(self.root/'derived',ignore_errors=True)
         for p in self.root.rglob('index.md'):p.unlink()
@@ -309,12 +350,22 @@ class MutationTests(unittest.TestCase):
         path=self.root/'plan/release-selection.json';x=m.load_json(path);x['decisions']['OD-003']['outstanding']=[];path.write_text(m.json_text(x))
         with self.assertRaisesRegex(m.SpecError,'outstanding must be a non-empty string list'):m.load_bundle(self.root)
     def test_qualified_current_decision_can_close_without_rewriting_snapshot(self):
+        qualification=self.typed_receipt(
+            'test-machine-qualification.json','universal.machine_qualification_receipt/1',
+            'release_1_1.machine_qualified',
+            {'candidate_sha256':'4'*64,'profile':'windows-nt-x64','result':'pass'},
+        )
+        evidence=self.typed_receipt(
+            'test-od-002-decision.json','universal.decision_evidence/1','OD-002',
+            {'evidence_kind':'machine_qualification','candidate_sha256':'4'*64,
+             'profile':'windows-nt-x64','qualification_receipt':qualification},
+        )
         decisions_path=self.root/'plan/open-decisions.json';decisions=m.load_json(decisions_path)
         decision=next(item for item in decisions['decisions'] if item['id']=='OD-002')
         decision['status']='resolved';decision.pop('resolution_required')
         decision['outstanding_obligations']=[]
         decision['resolution']='Exact target profile qualified by bound evidence.'
-        decision['resolution_evidence']=[{'path':'spec/plan/release-selection.json','sha256':hashlib.sha256((self.root/'plan/release-selection.json').read_bytes()).hexdigest()}]
+        decision['resolution_evidence']=[evidence]
         decisions_path.write_text(m.json_text(decisions))
         status_path=self.root/'plan/programme-status.json';status=m.load_json(status_path)
         status['decisions']['OD-002']={'status':'resolved','evidence':decision['resolution_evidence']}
@@ -350,6 +401,35 @@ class MutationTests(unittest.TestCase):
             'release_1_1.readiness',{'candidate_sha256':'4'*64,'readiness':'alpha'})]
         path.write_text(m.json_text(status))
         with self.assertRaisesRegex(m.SpecError,'programme evidence claim mismatch'):m.load_bundle(self.root)
+    def test_programme_evidence_rejects_fabricated_source_commit(self):
+        path=self.root/'plan/programme-status.json';status=m.load_json(path)
+        status['release_1_1']['readiness']='alpha'
+        reference=self.programme_receipt('release_1_1.readiness',{'candidate_sha256':'4'*64,'readiness':'alpha'})
+        receipt=self.root.parent/reference['path'];record=m.load_json(receipt)
+        record['source']['commit']='f'*40;receipt.write_text(m.json_text(record))
+        reference['sha256']=hashlib.sha256(receipt.read_bytes()).hexdigest()
+        status['release_1_1']['evidence']['readiness']=[reference];path.write_text(m.json_text(status))
+        with self.assertRaisesRegex(m.SpecError,'referenced source commit is unavailable'):m.load_bundle(self.root)
+    def test_machine_qualification_rejects_generic_file_reference(self):
+        path=self.root/'plan/programme-status.json';status=m.load_json(path)
+        status['release_1_1']['machine_qualified']=True
+        status['release_1_1']['evidence']['machine_qualified']=[self.programme_receipt(
+            'release_1_1.machine_qualified',{
+                'candidate_sha256':'4'*64,'profiles':['windows-nt-x64'],
+                'qualification_receipts':[{'path':'spec/manifest.json','sha256':hashlib.sha256((self.root/'manifest.json').read_bytes()).hexdigest()}],
+            })]
+        path.write_text(m.json_text(status))
+        with self.assertRaisesRegex(m.SpecError,'qualification receipt.*release/evidence'):m.load_bundle(self.root)
+    def test_resolved_decision_rejects_generic_evidence(self):
+        decisions_path=self.root/'plan/open-decisions.json';decisions=m.load_json(decisions_path)
+        decision=next(item for item in decisions['decisions'] if item['id']=='OD-003')
+        decision['status']='resolved';decision.pop('resolution_required');decision['outstanding_obligations']=[]
+        decision['resolution']='Compatibility analysis complete.'
+        decision['resolution_evidence']=[{'path':'spec/plan/release-selection.json','sha256':hashlib.sha256((self.root/'plan/release-selection.json').read_bytes()).hexdigest()}]
+        decisions_path.write_text(m.json_text(decisions))
+        status_path=self.root/'plan/programme-status.json';status=m.load_json(status_path)
+        status['decisions']['OD-003']={'status':'resolved','evidence':decision['resolution_evidence']};status_path.write_text(m.json_text(status))
+        with self.assertRaisesRegex(m.SpecError,'OD-003 evidence.*release/evidence'):m.load_bundle(self.root)
     def test_duplicate_id_rejected(self):
         source=self.root/'model/identity.md';target=self.root/'model/copied.md';target.write_bytes(source.read_bytes())
         with self.assertRaises(m.SpecError):m.load_bundle(self.root)
