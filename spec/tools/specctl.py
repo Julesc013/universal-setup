@@ -453,17 +453,13 @@ def git_commit_errors(root: Path, commit: Any, tree: Any | None, prefix: str,
             if observed_tree.returncode or observed_tree.stdout.strip() != tree:
                 return [prefix + ' tree does not belong to its commit']
         if require_main_reachability:
-            main_oid = ''
-            for main_ref in ('main^{commit}', 'refs/remotes/origin/main^{commit}'):
-                main = subprocess.run(
-                    ['git', 'rev-parse', '--verify', main_ref], cwd=repository,
-                    check=False, capture_output=True, text=True, timeout=30,
-                )
-                if not main.returncode:
-                    main_oid = main.stdout.strip()
-                    break
+            main = subprocess.run(
+                ['git', 'rev-parse', '--verify', 'refs/remotes/origin/main^{commit}'], cwd=repository,
+                check=False, capture_output=True, text=True, timeout=30,
+            )
+            main_oid = main.stdout.strip() if not main.returncode else ''
             if not main_oid:
-                return [prefix + ' cannot verify reachability from main']
+                return [prefix + ' cannot verify reachability from authoritative origin/main']
             reachable = subprocess.run(
                 ['git', 'merge-base', '--is-ancestor', str(commit), main_oid], cwd=repository,
                 check=False, capture_output=True, timeout=30,
@@ -472,6 +468,40 @@ def git_commit_errors(root: Path, commit: Any, tree: Any | None, prefix: str,
                 return [prefix + ' commit is not reachable from main']
     except OSError as exc:
         return [prefix + ' Git validation failed: ' + str(exc)]
+    return []
+
+
+def remote_tag_errors(root: Path, tag: str, tag_commit: str, tag_object: Any,
+                      tag_kind: Any) -> list[str]:
+    """Read the authoritative remote tag namespace and bind its exact target."""
+    if tag_kind not in {'lightweight', 'annotated'} or not re.fullmatch(r'[0-9a-f]{40}', str(tag_object)):
+        return ['publication evidence remote tag identity is invalid']
+    try:
+        result = subprocess.run(
+            ['git', 'ls-remote', '--tags', 'origin', 'refs/tags/' + tag, 'refs/tags/' + tag + '^{}'],
+            cwd=root.parent, check=False, capture_output=True, text=True, timeout=30,
+        )
+    except OSError as exc:
+        return ['publication evidence authoritative remote tag readback failed: ' + str(exc)]
+    if result.returncode:
+        return ['publication evidence authoritative remote tag readback is unavailable']
+    tag_ref = 'refs/tags/' + tag
+    observed: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        fields = line.split('\t')
+        if len(fields) != 2 or not re.fullmatch(r'[0-9a-f]{40}', fields[0]) or fields[1] not in {tag_ref, tag_ref + '^{}'}:
+            return ['publication evidence authoritative remote tag readback is malformed']
+        if fields[1] in observed:
+            return ['publication evidence authoritative remote tag readback is ambiguous']
+        observed[fields[1]] = fields[0]
+    if observed.get(tag_ref) != tag_object:
+        return ['publication evidence named tag is absent or has moved in authoritative origin']
+    peeled = observed.get(tag_ref + '^{}')
+    if tag_kind == 'annotated':
+        if peeled != tag_commit:
+            return ['publication evidence annotated tag does not peel to tag_commit']
+    elif peeled is not None or tag_object != tag_commit:
+        return ['publication evidence lightweight tag does not resolve exactly to tag_commit']
     return []
 
 
@@ -577,8 +607,8 @@ def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
             ))
     elif expected_claim == 'release_1_1.published':
         assets = details.get('remote_assets')
-        expected = {'candidate_sha256', 'tag', 'tag_commit', 'remote_assets',
-                    'remote_readback_at', 'immutable', 'signing'}
+        expected = {'candidate_sha256', 'tag', 'tag_commit', 'remote_tag_object', 'tag_kind',
+                    'remote_assets', 'remote_readback_at', 'immutable', 'signing'}
         if (set(details) != expected or not re.fullmatch(r'v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?', str(details.get('tag', ''))) or
                 not re.fullmatch(r'[0-9a-f]{40}', str(details.get('tag_commit', ''))) or
                 details.get('immutable') is not True or
@@ -590,9 +620,14 @@ def programme_evidence_record(root: Path, reference: Any, expected_claim: str,
                  not str(item.get('url', '')).startswith('https://') for item in assets):
             errors.append(prefix + ' publication assets require name, digest and HTTPS readback URL')
         else:
-            errors.extend(git_commit_errors(
+            commit_errors = git_commit_errors(
                 root, details.get('tag_commit'), None, prefix + ' publication evidence'
-            ))
+            )
+            errors.extend(commit_errors)
+            if not commit_errors:
+                errors.extend(remote_tag_errors(
+                    root, details['tag'], details['tag_commit'], details.get('remote_tag_object'), details.get('tag_kind')
+                ))
     elif expected_claim == 'full_spec_baseline.complete':
         workunits = details.get('completed_workunits')
         expected_workunits = {f'USK-WU-{index:03d}' for index in range(1, 34)}

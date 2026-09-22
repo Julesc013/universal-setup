@@ -13,6 +13,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 TOOL=Path(__file__).resolve().parents[1]/'specctl.py'
@@ -446,11 +447,42 @@ class MutationTests(unittest.TestCase):
         self.assertIn('integration integration evidence commit is unavailable or non-canonical',errors)
         publication=self.programme_receipt('release_1_1.published',{
             'candidate_sha256':'4'*64,'tag':'v1.1.0','tag_commit':'f'*40,
+            'remote_tag_object':'f'*40,'tag_kind':'lightweight',
             'remote_assets':[{'name':'bundle.zip','sha256':'5'*64,'url':'https://example.invalid/bundle.zip'}],
             'remote_readback_at':'2026-09-22T00:00:00Z','immutable':True,'signing':'not_required_by_release_profile',
         })
         _, errors=m.programme_evidence_record(self.root,publication,'release_1_1.published','publication')
         self.assertIn('publication publication evidence commit is unavailable or non-canonical',errors)
+    def test_remote_tag_readback_rejects_missing_moved_and_wrong_targets(self):
+        tag='v1.1.0';commit='a'*40;object_id='b'*40
+        def readback(lines):
+            return mock.patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],0,lines,''))
+        with readback(object_id+'\trefs/tags/'+tag+'\n'):
+            self.assertEqual(m.remote_tag_errors(self.root,tag,commit,object_id,'lightweight'),[
+                'publication evidence lightweight tag does not resolve exactly to tag_commit'])
+        with readback(''):
+            self.assertEqual(m.remote_tag_errors(self.root,tag,commit,object_id,'annotated'),[
+                'publication evidence named tag is absent or has moved in authoritative origin'])
+        with readback('c'*40+'\trefs/tags/'+tag+'\n'):
+            self.assertEqual(m.remote_tag_errors(self.root,tag,commit,object_id,'lightweight'),[
+                'publication evidence named tag is absent or has moved in authoritative origin'])
+        with readback(object_id+'\trefs/tags/'+tag+'\n'+'c'*40+'\trefs/tags/'+tag+'^{}\n'):
+            self.assertEqual(m.remote_tag_errors(self.root,tag,commit,object_id,'annotated'),[
+                'publication evidence annotated tag does not peel to tag_commit'])
+        with readback(object_id+'\trefs/tags/'+tag+'\n'+commit+'\trefs/tags/'+tag+'^{}\n'):
+            self.assertEqual(m.remote_tag_errors(self.root,tag,commit,object_id,'annotated'),[])
+    def test_integration_never_trusts_moved_local_main(self):
+        commit='a'*40;tree='b'*40;calls=[]
+        def fake_run(argv,**kwargs):
+            calls.append(argv)
+            expression=argv[-1]
+            if expression == commit+'^{commit}':return subprocess.CompletedProcess(argv,0,commit+'\n','')
+            if expression == commit+'^{tree}':return subprocess.CompletedProcess(argv,0,tree+'\n','')
+            return subprocess.CompletedProcess(argv,1,'','missing origin/main')
+        with mock.patch.object(m.subprocess,'run',side_effect=fake_run):
+            self.assertEqual(m.git_commit_errors(self.root,commit,tree,'integration',True),[
+                'integration cannot verify reachability from authoritative origin/main'])
+        self.assertFalse(any(command[-1]=='main^{commit}' for command in calls))
     def test_each_decision_has_semantic_evidence_contract(self):
         common={'source':{'commit':self.source_commit,'tree':self.source_tree},'spec_aggregate_sha256':self.source_aggregate}
         qualification=self.typed_receipt('decision-qualification.json','universal.machine_qualification_receipt/1','release_1_1.machine_qualified',{

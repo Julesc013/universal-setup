@@ -5,7 +5,7 @@
   "repository_base_commit": "5e9152a11f07559f6e60cfb5bbc7351917e44353",
   "repository_base_tree": "6786355652ffec48bd7a3118528f6ecd333fe29e",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "2c89a66a543b3d9b9743427794fc98aa4c81e0ccf63d9cb38661b48a0b9edd96",
+  "spec_aggregate_sha256": "1e706f99917ade33c2af4440b2986c5416008e49124be730ce8d161d08b86d55",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
@@ -240,11 +240,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -275,11 +275,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -310,11 +310,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -1371,11 +1371,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -1402,11 +1402,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -1433,11 +1433,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -2081,11 +2081,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -2112,11 +2112,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -2236,7 +2236,7 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/log.md",
@@ -2244,7 +2244,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "02556b62520e6c457aa0ec2126fbb7ae1586547ff0423bf305eba53b400a17ee"
+          "sha256": "52d088b68f77d78a5ff9f322dd0836b07d647bacfb1544b23b8190071e43ff73"
         }
       ],
       "acceptance_ids": [
@@ -2272,7 +2272,7 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/log.md",
@@ -2280,7 +2280,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "02556b62520e6c457aa0ec2126fbb7ae1586547ff0423bf305eba53b400a17ee"
+          "sha256": "52d088b68f77d78a5ff9f322dd0836b07d647bacfb1544b23b8190071e43ff73"
         }
       ],
       "acceptance_ids": [
@@ -2506,11 +2506,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2541,11 +2541,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2576,11 +2576,11 @@
       "source_observations": [
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -3826,7 +3826,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         }
       ],
       "acceptance_ids": [
@@ -3857,7 +3857,7 @@
         },
         {
           "path": "spec/tools/specctl.py",
-          "sha256": "8134c28ac1ad54f121fdcf65579b5a37d144144414b9cde7929c8b6a772dd429"
+          "sha256": "ddbd1e60e141c4e27e7edecfc55be4ba17afa34923d6d900639fab42c02182ea"
         }
       ],
       "acceptance_ids": [
@@ -4222,7 +4222,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4260,7 +4260,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4298,7 +4298,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4336,7 +4336,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4371,7 +4371,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
@@ -4406,7 +4406,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "eaaa2bc293119a457d1f5a7c62acced74eacd73326b97afc8ee662331540d1ea"
+          "sha256": "078afba545ad9aa1e1326a2fd33e1c7479fe67e088ddfd4eb0a5c97b301c41ef"
         }
       ],
       "acceptance_ids": [
