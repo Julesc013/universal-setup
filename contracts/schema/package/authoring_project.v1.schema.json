@@ -22,16 +22,16 @@
           "id": {"$ref": "#/$defs/id"},
           "required": {"type": "boolean"},
           "default_selected": {"type": "boolean"},
-          "requires": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-          "conflicts": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+          "requires": {"type": "array", "maxItems": 65536, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+          "conflicts": {"type": "array", "maxItems": 65536, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
           "variants": {
-            "type": "array", "minItems": 1,
+            "type": "array", "minItems": 1, "maxItems": 256,
             "items": {
               "type": "object", "required": ["target", "files"],
               "properties": {
                 "target": {"$ref": "#/$defs/id"},
                 "files": {
-                  "type": "array", "minItems": 1,
+                  "type": "array", "minItems": 1, "maxItems": 65536,
                   "items": {
                     "type": "object", "required": ["source", "path"],
                     "properties": {
@@ -52,7 +52,10 @@
   },
   "$defs": {
     "id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
-    "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[ -~]+$"}
+    "path": {
+      "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[ -~]+$",
+      "description": "Semantic validator additionally rejects traversal, native collisions, reserved names, devices and unsupported separators."
+    }
   },
   "additionalProperties": false
 }
