@@ -71,14 +71,16 @@ set_target_properties(usk_base_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(WIN32)
   add_library(usk_publisher_windows_static STATIC
     runtime/platform/windows/usk_publisher_anchor_create.cpp
+    runtime/platform/windows/usk_publisher_directory_entries.cpp
     runtime/platform/windows/usk_publisher_handle_observation.cpp
     runtime/platform/windows/usk_publisher_security_descriptor.cpp
+    runtime/platform/windows/usk_publisher_tree_observation.cpp
     runtime/platform/windows/usk_publisher_token_observation.cpp
     runtime/platform/windows/usk_publisher_volume_stream_observation.cpp)
   target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
   target_include_directories(usk_publisher_windows_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
-  target_link_libraries(usk_publisher_windows_static PUBLIC advapi32)
+  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32)
   set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
   usk_enable_strict_warnings(usk_publisher_windows_static)
 endif()
@@ -544,6 +546,26 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_volume_stream_observation_smoke
       COMMAND usk_publisher_volume_stream_observation_smoke)
     set_tests_properties(usk_publisher_volume_stream_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_directory_entries_smoke
+      tests/native/usk_publisher_directory_entries_smoke.cpp)
+    target_compile_features(usk_publisher_directory_entries_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_directory_entries_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_directory_entries_smoke)
+    add_test(NAME usk_publisher_directory_entries_smoke
+      COMMAND usk_publisher_directory_entries_smoke)
+    set_tests_properties(usk_publisher_directory_entries_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_tree_observation_smoke
+      tests/native/usk_publisher_tree_observation_smoke.cpp)
+    target_compile_features(usk_publisher_tree_observation_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_tree_observation_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_tree_observation_smoke)
+    add_test(NAME usk_publisher_tree_observation_smoke
+      COMMAND usk_publisher_tree_observation_smoke)
+    set_tests_properties(usk_publisher_tree_observation_smoke PROPERTIES TIMEOUT 30)
   endif()
 
   add_executable(usk_entry_restart_smoke tests/native/usk_entry_restart_smoke.cpp)
