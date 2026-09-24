@@ -1,0 +1,124 @@
+{
+  "schema": "usk.lifecycle_memory_ceiling_matrix.v1",
+  "source": {
+    "commit": "2d899f434019dfbb90ee3eae7c542d42ce6268dd",
+    "tree": "5ba0a4d12178bebcddd93c0436f9a6854664a62b",
+    "working_tree_dirty": false
+  },
+  "recorded_at_utc": "2026-09-24T15:51:04.922228+00:00",
+  "build": {
+    "configuration": "Debug",
+    "binary_sha256": "f661160c490d57f302c7ea6f1ac51810de7efad8ff3e66b3bc08dacec2b80130",
+    "cmake_cache_sha256": "2be0d9745af537f07c162d671be131ef3238dbedbb260809435ab41706cd54ed"
+  },
+  "method": "Isolated native child process per shape; Windows peak working set sampled while alive. The plan-only shape excludes staging and journal persistence.",
+  "commands": [
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> install 2147483648 1",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> plan_install 1048576 128",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> plan_install 1048576 4096",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> plan_install 33554432 4096"
+  ],
+  "cases": [
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "install",
+      "requested_payload_bytes": 2147483648,
+      "entries": 1,
+      "source_kind": "streaming",
+      "binary_sha256": "f661160c490d57f302c7ea6f1ac51810de7efad8ff3e66b3bc08dacec2b80130",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "2d899f434019dfbb90ee3eae7c542d42ce6268dd",
+        "tree": "5ba0a4d12178bebcddd93c0436f9a6854664a62b",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 11411456,
+      "samples": 52229,
+      "elapsed_ms": 287767,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass install streaming 2147483648 1"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "plan_install",
+      "requested_payload_bytes": 1048576,
+      "entries": 128,
+      "source_kind": "streaming",
+      "binary_sha256": "f661160c490d57f302c7ea6f1ac51810de7efad8ff3e66b3bc08dacec2b80130",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "2d899f434019dfbb90ee3eae7c542d42ce6268dd",
+        "tree": "5ba0a4d12178bebcddd93c0436f9a6854664a62b",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 11128832,
+      "samples": 11,
+      "elapsed_ms": 71,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass plan_install streaming 1048576 128"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "plan_install",
+      "requested_payload_bytes": 1048576,
+      "entries": 4096,
+      "source_kind": "streaming",
+      "binary_sha256": "f661160c490d57f302c7ea6f1ac51810de7efad8ff3e66b3bc08dacec2b80130",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "2d899f434019dfbb90ee3eae7c542d42ce6268dd",
+        "tree": "5ba0a4d12178bebcddd93c0436f9a6854664a62b",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 42246144,
+      "samples": 116,
+      "elapsed_ms": 650,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass plan_install streaming 1048576 4096"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "plan_install",
+      "requested_payload_bytes": 33554432,
+      "entries": 4096,
+      "source_kind": "streaming",
+      "binary_sha256": "f661160c490d57f302c7ea6f1ac51810de7efad8ff3e66b3bc08dacec2b80130",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "2d899f434019dfbb90ee3eae7c542d42ce6268dd",
+        "tree": "5ba0a4d12178bebcddd93c0436f9a6854664a62b",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 42307584,
+      "samples": 119,
+      "elapsed_ms": 667,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass plan_install streaming 33554432 4096"
+    }
+  ],
+  "comparison": {
+    "plan_entry_delta_bytes": 31117312,
+    "plan_payload_delta_bytes": 61440,
+    "single_file_2gib_install_peak_under_64mib": true,
+    "4096_entry_plan_peak_under_64mib": true,
+    "4096_entry_plan_payload_delta_under_8mib": true
+  },
+  "status": "PASS",
+  "claim_limit": "One 2 GiB streamed install/verify and planning-only 4,096-entry shapes on local Windows NTFS Debug. A full 4,096-entry install run was intentionally faulted after 2,571 staged entries because per-file journal snapshots made the run slow; no complete ceiling lifecycle, legacy-report, hostile-namespace, or release acceptance claim."
+}
