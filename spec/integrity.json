@@ -2,7 +2,7 @@
   "schema": "usk.spec.integrity/1",
   "algorithm": "sha256",
   "self_excluded": "integrity.json",
-  "aggregate_sha256": "f7cf7fee71fb68d6813e29f45ec7104ab162b69696ba474b645a7d04cfa456e5",
+  "aggregate_sha256": "35f4aaa21c0f8c8ac64beb54f8ddbb1d214d5dc8f19628f38bfd6696ff1d0f4c",
   "files": [
     {
       "path": ".gitattributes",
@@ -771,8 +771,8 @@
     },
     {
       "path": "tools/tests/test_specctl.py",
-      "bytes": 39494,
-      "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+      "bytes": 40002,
+      "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
     },
     {
       "path": "tools/workbench.md",
