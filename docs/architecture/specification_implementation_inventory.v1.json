@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T17:19:29Z",
+  "generated_at": "2026-09-24T17:37:13Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "4a7161ff0bc9edd2c0c30e505c746455111be0e0",
-  "repository_base_tree": "adddbc14363d8eea2abc80073eaef7063cda0a99",
+  "repository_base_commit": "a9f4cecd4e1d52c04b52fe464692a9875c109b9d",
+  "repository_base_tree": "1eb7ab4f938ba0414b65a82b87d1af39906351a2",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "35f4aaa21c0f8c8ac64beb54f8ddbb1d214d5dc8f19628f38bfd6696ff1d0f4c",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. Disposable candidates now cover native no-replace rename, same-handle identity/security observation, token facts, protected descriptor construction, and parent-bound create-only anchor creation; the qualified publisher remains absent. A further disposable read-only candidate observes held-handle local NTFS facts and exact file/directory stream shape; it does not change publisher classification. A read-only candidate now enumerates held-directory descendants, reopens them relative to retained parents, and records bounded identity/content digests; protected security and multi-phase publication remain absent. The read-only tree candidate now carries same-handle file/directory owner and DACL facts, compares independent phase observations, and checks an exact protected descriptor shape; no service-bound or effective-right qualification is claimed. A held destination-parent wrapper now derives the exact visible-root name and reopens the listed child against the sealed tree; parent-chain protection and publication remain unqualified. A further read-only candidate binds exact directory chains from held parent handles and compares fresh phases; the volume-root boundary, sibling anchor roles, service and effective rights remain unqualified. A read-only candidate now binds four sibling anchor roles under a held directory chain and corroborates a named own-process restricted SCM service with current process-token facts. The ordinary-user fixture only proves refusal for an absent service; no installed target or publisher qualification exists. WU-005 follow-up records one completed 2 GiB streamed install/verify and planning-only 4,096-entry child-process peaks; full ceiling lifecycle and release acceptance remain open. A further WU-005 legacy-record probe prepares prior-format records outside the measured child, then separately measures verify and uninstall planning at 128, 4,097 and 8,192 one-byte files; it does not establish an aggregate report budget. A WU-006 file-creation candidate now creates regular staged files relative to a held parent with a creation-time descriptor; local ordinary-user tests cover canonical names and collision/substitution refusal. This is not protected staging or a qualified publisher. WU-012 through WU-018 now permit only the exact generated inventory output after implementation changes; this scope correction does not change implementation classifications.",
+  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. Disposable candidates now cover native no-replace rename, same-handle identity/security observation, token facts, protected descriptor construction, and parent-bound create-only anchor creation; the qualified publisher remains absent. A further disposable read-only candidate observes held-handle local NTFS facts and exact file/directory stream shape; it does not change publisher classification. A read-only candidate now enumerates held-directory descendants, reopens them relative to retained parents, and records bounded identity/content digests; protected security and multi-phase publication remain absent. The read-only tree candidate now carries same-handle file/directory owner and DACL facts, compares independent phase observations, and checks an exact protected descriptor shape; no service-bound or effective-right qualification is claimed. A held destination-parent wrapper now derives the exact visible-root name and reopens the listed child against the sealed tree; parent-chain protection and publication remain unqualified. A further read-only candidate binds exact directory chains from held parent handles and compares fresh phases; the volume-root boundary, sibling anchor roles, service and effective rights remain unqualified. A read-only candidate now binds four sibling anchor roles under a held directory chain and corroborates a named own-process restricted SCM service with current process-token facts. The ordinary-user fixture only proves refusal for an absent service; no installed target or publisher qualification exists. WU-005 follow-up records one completed 2 GiB streamed install/verify and planning-only 4,096-entry child-process peaks; full ceiling lifecycle and release acceptance remain open. A further WU-005 legacy-record probe prepares prior-format records outside the measured child, then separately measures verify and uninstall planning at 128, 4,097 and 8,192 one-byte files; it does not establish an aggregate report budget. A WU-006 file-creation candidate now creates regular staged files relative to a held parent with a creation-time descriptor; local ordinary-user tests cover canonical names and collision/substitution refusal. This is not protected staging or a qualified publisher. WU-012 through WU-018 now permit only the exact generated inventory output after implementation changes; this scope correction does not change implementation classifications. WU-012 now has a bounded source-level authoring compiler for a selected target, deterministic unsigned ZIP/sidecar output, exact byte inventory and reopening checks; this is not a machine plan, setup application, signed package, or acceptance-qualified release.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment source includes WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f and WU-006 candidate source. WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 now has one completed 2 GiB streamed install/verify and 4,096-entry planning-only peaks. Full ceiling lifecycle, wider multi-gigabyte corpus and legacy-report acceptance remain partial. A clean-source Windows NTFS Debug matrix measured prior-format verify/uninstall planning in fresh children at 128, 4,097 and 8,192 files after separate fixture preparation; 8,192-file verify peaked at 97,431,552 bytes, above the 64 MiB comparison threshold, and no aggregate report budget is enforced. WU-006 revision 4 admits named file families while contracts, release records and other specification files remain read-only. Local Windows 10 build 19045 C: NTFS fixtures passed no-replace/substitution probes, same-handle owner/DACL reobservation, token/impersonation observations, protected descriptor shape, and parent-bound create-only/collision observations. The descriptor test is in memory; the create probe uses a disposable ordinary-user descriptor, not a restricted service. No installed restricted service, dedicated protected volume, complete closure, durable recovery, crash qualification, or production publication success is included. OD-001 and wider lifecycle/authoring acceptance remain open. A later ordinary-user C: NTFS fixture observed the handle-bound volume tuple, one unnamed file data stream, empty directory stream enumeration, and rejection of named streams on files and directories. This is not a dedicated protected volume or complete closure qualification. A local ordinary-user Windows 10 build 19045 C: NTFS fixture exercised 640-file directory pagination, exact native parent/name and listed/reopened 128-bit ID binding, nested digest observation, hard-link and named-stream refusal. A directory listing size was stale while a writer remained open; the candidate uses the reopened file handle for size and content. This is not an admitted protected target, complete security closure, durable publication, or recovery proof. Additional ordinary-user C: NTFS tests observed a descendant DACL protection change and a root rename across fresh tree phases; a synthetic exact descriptor tree passes the shape predicate while the real ordinary-user tree refuses. A held destination-parent wrapper derives the exact visible name and reopens the listed child; a local fixture verified handle binding after parent-path substitution. The parent chain is not qualified as protected. No installed restricted service or effective-right attack harness was used. A local ordinary-user 12-level directory-chain fixture with 64 sibling files per level passed; the observer releases each full sibling listing before descending, rechecks held parents, and rejects forged disconnected paths, duplicate identities, noncanonical components and changed DACL facts. This does not establish the dedicated protected volume-root boundary or a complete publisher. A local ordinary-user anchor fixture reobserved staging, destination-parent, state and journal sibling roles and refused duplicate IDs, case-fold name collisions, DACL drift and ordinary-user protected shape. A local token fixture refused an absent/malformed named service; no installed restricted publisher service positive observation was run. The second anchor enumeration detects stable name substitution between scans, not an atomic snapshot or hostile concurrent-race exclusion. A parent-bound file primitive passed a disposable local Windows Debug probe for write/flush, canonical Unicode and 129-unit names, create-only collision, and held-parent path substitution. Independent source review found no blocker for this partial candidate; OD-001 and strict production refusal remain open. Exact inventory-output scope was admitted for WU-012 through WU-018 with task revisions and regenerated specification seal; no product behavior or acceptance is claimed by this correction. The specification self-test fixture cleanup now retries only transient ENOTEMPTY from its disposable Git repository after two hosted specification jobs observed that race; persistent cleanup errors still fail.",
+  "working_tree_note": "Assessment source includes WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f and WU-006 candidate source. WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 now has one completed 2 GiB streamed install/verify and 4,096-entry planning-only peaks. Full ceiling lifecycle, wider multi-gigabyte corpus and legacy-report acceptance remain partial. A clean-source Windows NTFS Debug matrix measured prior-format verify/uninstall planning in fresh children at 128, 4,097 and 8,192 files after separate fixture preparation; 8,192-file verify peaked at 97,431,552 bytes, above the 64 MiB comparison threshold, and no aggregate report budget is enforced. WU-006 revision 4 admits named file families while contracts, release records and other specification files remain read-only. Local Windows 10 build 19045 C: NTFS fixtures passed no-replace/substitution probes, same-handle owner/DACL reobservation, token/impersonation observations, protected descriptor shape, and parent-bound create-only/collision observations. The descriptor test is in memory; the create probe uses a disposable ordinary-user descriptor, not a restricted service. No installed restricted service, dedicated protected volume, complete closure, durable recovery, crash qualification, or production publication success is included. OD-001 and wider lifecycle/authoring acceptance remain open. A later ordinary-user C: NTFS fixture observed the handle-bound volume tuple, one unnamed file data stream, empty directory stream enumeration, and rejection of named streams on files and directories. This is not a dedicated protected volume or complete closure qualification. A local ordinary-user Windows 10 build 19045 C: NTFS fixture exercised 640-file directory pagination, exact native parent/name and listed/reopened 128-bit ID binding, nested digest observation, hard-link and named-stream refusal. A directory listing size was stale while a writer remained open; the candidate uses the reopened file handle for size and content. This is not an admitted protected target, complete security closure, durable publication, or recovery proof. Additional ordinary-user C: NTFS tests observed a descendant DACL protection change and a root rename across fresh tree phases; a synthetic exact descriptor tree passes the shape predicate while the real ordinary-user tree refuses. A held destination-parent wrapper derives the exact visible name and reopens the listed child; a local fixture verified handle binding after parent-path substitution. The parent chain is not qualified as protected. No installed restricted service or effective-right attack harness was used. A local ordinary-user 12-level directory-chain fixture with 64 sibling files per level passed; the observer releases each full sibling listing before descending, rechecks held parents, and rejects forged disconnected paths, duplicate identities, noncanonical components and changed DACL facts. This does not establish the dedicated protected volume-root boundary or a complete publisher. A local ordinary-user anchor fixture reobserved staging, destination-parent, state and journal sibling roles and refused duplicate IDs, case-fold name collisions, DACL drift and ordinary-user protected shape. A local token fixture refused an absent/malformed named service; no installed restricted publisher service positive observation was run. The second anchor enumeration detects stable name substitution between scans, not an atomic snapshot or hostile concurrent-race exclusion. A parent-bound file primitive passed a disposable local Windows Debug probe for write/flush, canonical Unicode and 129-unit names, create-only collision, and held-parent path substitution. Independent source review found no blocker for this partial candidate; OD-001 and strict production refusal remain open. Exact inventory-output scope was admitted for WU-012 through WU-018 with task revisions and regenerated specification seal; no product behavior or acceptance is claimed by this correction. The specification self-test fixture cleanup now retries only transient ENOTEMPTY from its disposable Git repository after two hosted specification jobs observed that race; persistent cleanup errors still fail. A WU-012 compiler reads declared finalized files without hooks, emits deterministic stored ZIP bytes and a sidecar retaining component choices, then reopens and hashes every entry. Focused tests cover graph alternatives, hostile paths/collisions, tampering and an independently compiled one-file executable from a separate project root. The source-open checks do not qualify hostile concurrent source swaps; no native lifecycle integration, full target matrix or signed carrier exists.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -52,11 +52,11 @@
     "OD-008"
   ],
   "counts": {
+    "absent": 56,
     "implemented": 29,
-    "partial": 53,
-    "absent": 58,
-    "unverified": 4,
-    "outside_selected_release": 0
+    "outside_selected_release": 0,
+    "partial": 55,
+    "unverified": 4
   },
   "requirements": [
     {
@@ -680,14 +680,22 @@
       "requirement_id": "USK-R-AUTHOR-001",
       "title": "Deterministic bundle",
       "spec_id": "USK-S-AUTHOR",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "A target-specific unsigned bundle compiler now emits reproducible ZIP and canonical sidecar bytes from finalized files; tests compare ASCII, spaced and Unicode source roots. Full carrier/profile reproducibility and product acceptance remain open.",
       "spec_source": {
         "path": "spec/authoring/toolchain.md",
         "sha256": "448090c0436d9562b87dad56d269b9b2408670ca56ea3f954894c62c3a611504"
       },
       "source_observations": [
+        {
+          "path": "contracts/schema/package/authoring_project.v1.schema.json",
+          "sha256": "b062ac66fc2eb80f5c94aeb44f83679b20824438e92900863e074b019c54748d"
+        },
+        {
+          "path": "contracts/schema/package/product_bundle.v1.schema.json",
+          "sha256": "fe74c1ad36b4118703925796ab0f7da9fc0cedad7399093a430b1f9cf6d4a1ff"
+        },
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
           "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
@@ -697,8 +705,16 @@
           "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "e59ae380f02e13ab6f508396ff6cb8f903c8b149d026bc912d37dba7160a365b"
+        },
+        {
           "path": "tools/product_package_contract_check.py",
           "sha256": "234570eae959627a255a6303f690ad2900e6546861b4dd02f0b7f647ada8daad"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "6661e20a60411676ba27b38352b92998694824e442544571ea57f5b52dcbe98b"
         }
       ],
       "acceptance_ids": [
@@ -752,9 +768,9 @@
       "requirement_id": "USK-R-AUTHOR-003",
       "title": "No-code consumer",
       "spec_id": "USK-S-AUTHOR",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "A separate one-file C product can be compiled and authored into a checked unsigned bundle without editing engine source. No setup application or qualified no-code consumer walkthrough exists.",
       "spec_source": {
         "path": "spec/authoring/toolchain.md",
         "sha256": "448090c0436d9562b87dad56d269b9b2408670ca56ea3f954894c62c3a611504"
@@ -769,8 +785,28 @@
           "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
+          "path": "tests/fixtures/authoring/neutral_one_file/README.md",
+          "sha256": "a049b08b296012f73044cd5529c9a9cc600987b993b30ca0566a1e1638114c8a"
+        },
+        {
+          "path": "tests/fixtures/authoring/neutral_one_file/hello.c",
+          "sha256": "4932f446eb767f51ff5a16678460b1485fe9c5026a6d46c22ed3b41986c3d9d4"
+        },
+        {
+          "path": "tests/fixtures/authoring/neutral_one_file/project.json",
+          "sha256": "28127312d3aaa859c96be8a069e7f4f9cba7fc15f0c3439c3f6fa8f819e8da17"
+        },
+        {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "e59ae380f02e13ab6f508396ff6cb8f903c8b149d026bc912d37dba7160a365b"
+        },
+        {
           "path": "tools/product_package_contract_check.py",
           "sha256": "234570eae959627a255a6303f690ad2900e6546861b4dd02f0b7f647ada8daad"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "6661e20a60411676ba27b38352b92998694824e442544571ea57f5b52dcbe98b"
         }
       ],
       "acceptance_ids": [
@@ -883,12 +919,16 @@
       "spec_id": "USK-S-BUNDLE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "The source-level target bundle retains component choices and is separate from the resolve command. Machine-specific planning and complete target variants remain unimplemented.",
       "spec_source": {
         "path": "spec/model/bundle.md",
         "sha256": "31ef388fb3773a952d7607c5b6e5b84674847dd6343183014289495a13c3e636"
       },
       "source_observations": [
+        {
+          "path": "contracts/schema/package/product_bundle.v1.schema.json",
+          "sha256": "fe74c1ad36b4118703925796ab0f7da9fc0cedad7399093a430b1f9cf6d4a1ff"
+        },
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
           "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
@@ -898,8 +938,20 @@
           "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "e59ae380f02e13ab6f508396ff6cb8f903c8b149d026bc912d37dba7160a365b"
+        },
+        {
           "path": "tests/test_product_package_contracts.py",
           "sha256": "9b768e9febc1510c4dde6abae033f1ecd44fe518a126be96f71d19d48d3a4321"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "6661e20a60411676ba27b38352b92998694824e442544571ea57f5b52dcbe98b"
+        },
+        {
+          "path": "tools/usk_component_resolver.py",
+          "sha256": "505d7bc527396fb6d949fe391940e493b2a7e7eaca585ec35718fe5ca153b9aa"
         }
       ],
       "acceptance_ids": [
@@ -918,7 +970,7 @@
       "spec_id": "USK-S-BUNDLE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "The target compiler carries and independently rereads exact finalized file bytes in a deterministic local ZIP. Native setup envelope and full portable-release acceptance remain open.",
       "spec_source": {
         "path": "spec/model/bundle.md",
         "sha256": "31ef388fb3773a952d7607c5b6e5b84674847dd6343183014289495a13c3e636"
@@ -933,8 +985,16 @@
           "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "e59ae380f02e13ab6f508396ff6cb8f903c8b149d026bc912d37dba7160a365b"
+        },
+        {
           "path": "tests/test_product_package_contracts.py",
           "sha256": "9b768e9febc1510c4dde6abae033f1ecd44fe518a126be96f71d19d48d3a4321"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "6661e20a60411676ba27b38352b92998694824e442544571ea57f5b52dcbe98b"
         }
       ],
       "acceptance_ids": [
@@ -953,7 +1013,7 @@
       "spec_id": "USK-S-BUNDLE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "The bounded deterministic graph resolver now validates compiler input and inspected bundle selection; latent cycles, selected conflicts, hostile paths and resource limits have source-level tests. Endpoint planner and product acceptance remain open.",
       "spec_source": {
         "path": "spec/model/bundle.md",
         "sha256": "31ef388fb3773a952d7607c5b6e5b84674847dd6343183014289495a13c3e636"
@@ -968,8 +1028,24 @@
           "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "e59ae380f02e13ab6f508396ff6cb8f903c8b149d026bc912d37dba7160a365b"
+        },
+        {
+          "path": "tests/test_component_resolver.py",
+          "sha256": "5aab634d8462941bfae46c1139ddfc89e549b83c8ac4ca7917a2606a4762eb95"
+        },
+        {
           "path": "tests/test_product_package_contracts.py",
           "sha256": "9b768e9febc1510c4dde6abae033f1ecd44fe518a126be96f71d19d48d3a4321"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "6661e20a60411676ba27b38352b92998694824e442544571ea57f5b52dcbe98b"
+        },
+        {
+          "path": "tools/usk_component_resolver.py",
+          "sha256": "505d7bc527396fb6d949fe391940e493b2a7e7eaca585ec35718fe5ca153b9aa"
         }
       ],
       "acceptance_ids": [
