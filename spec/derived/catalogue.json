@@ -570,7 +570,7 @@
       "path": "plan/tasks/usk-wu-006.md",
       "title": "Implement the qualified staged-child publisher",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "6dd394074df96b3e5172afeaf751c3756c72ac7d604045e5e7a07a9385d45225",
+      "sha256": "ff3375d8c1cd09a01a6eaaad627b0f65e97f30852d3931881c138ee912711f56",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-PLAT"
@@ -3085,6 +3085,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        ".github/workflows/ci.yml",
         "CMakeLists.txt",
         "cmake/**",
         "apps/daemon/**",
