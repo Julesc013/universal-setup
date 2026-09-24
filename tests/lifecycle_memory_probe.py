@@ -88,11 +88,17 @@ def source_identity() -> dict:
     }
 
 
-def measure(binary: Path, operation: str, payload_bytes: int, entries: int, materialized: bool) -> dict:
+def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int,
+                  materialized: bool, fixture_root: Path | None = None) -> dict:
     if not binary.is_file() or payload_bytes < 1 or entries < 1:
         raise ValueError("binary and positive scenario dimensions are required")
-    command = [str(binary), "--memory-scenario", operation, str(payload_bytes), str(entries)]
-    if materialized:
+    if fixture_root is not None:
+        command = [str(binary), "--observe-legacy-memory", operation,
+                   str(fixture_root), str(entries)]
+    else:
+        command = [str(binary), "--memory-scenario", operation,
+                   str(payload_bytes), str(entries)]
+    if materialized and fixture_root is None:
         command.append("materialized")
     started = time.monotonic()
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -127,13 +133,17 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int, mate
         "operation": operation,
         "requested_payload_bytes": payload_bytes,
         "entries": entries,
-        "source_kind": "materialized" if materialized else "streaming",
+        "source_kind": "legacy_record" if operation.startswith("legacy_") else
+                       ("materialized" if materialized else "streaming"),
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "platform": platform.platform(),
         "temporary_root": tempfile.gettempdir(),
         "filesystem_profile": filesystem_profile(Path(tempfile.gettempdir())),
         "source": source_identity(),
-        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture": ("prior-format ownership record with one-byte files, prepared in a separate process"
+                    if operation.startswith("legacy_") else
+                    "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source"),
+        "fixture_prepared_outside_measured_process": fixture_root is not None,
         "metric": metric,
         "peak_bytes": peak_bytes,
         "samples": samples,
@@ -143,10 +153,32 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int, mate
     }
 
 
+def measure(binary: Path, operation: str, payload_bytes: int, entries: int,
+            materialized: bool) -> dict:
+    if operation.startswith("legacy_"):
+        if os.name != "nt":
+            raise RuntimeError("isolated legacy child peaks currently require Windows process counters")
+        if materialized or operation not in {
+            "legacy_verify", "legacy_uninstall_plan", "legacy_report"
+        } or entries not in {128, 4097, 8192} or payload_bytes != entries:
+            raise ValueError("legacy scenario dimensions are invalid")
+        with tempfile.TemporaryDirectory(prefix="usk-legacy-probe-") as directory:
+            fixture_root = Path(directory)
+            prepared = subprocess.run(
+                [str(binary), "--prepare-legacy-memory", str(fixture_root), str(entries)],
+                check=True, capture_output=True, text=True,
+            )
+            if prepared.stdout.strip() != f"legacy-fixture-prepared {entries}":
+                raise RuntimeError("legacy fixture preparation did not complete")
+            return measure_child(binary, operation, payload_bytes, entries,
+                                 materialized, fixture_root)
+    return measure_child(binary, operation, payload_bytes, entries, materialized)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
-    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery", "plan_install"])
+    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery", "plan_install", "legacy_report", "legacy_verify", "legacy_uninstall_plan"])
     parser.add_argument("payload_bytes", type=int)
     parser.add_argument("entries", type=int)
     parser.add_argument("--materialized", action="store_true")

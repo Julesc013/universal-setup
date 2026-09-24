@@ -82,9 +82,25 @@ the disposable fixture was deliberately made to fail its next exclusive file
 creation, allowing cleanup. The transaction currently persists a growing
 journal snapshot per staged file, making this shape slow; the failed run is
 diagnostic evidence, not a passing ceiling observation. A complete 4,096-entry
-install/verify/repair/move/update/recovery matrix and legacy-report peak remain
+install/verify/repair/move/update/recovery matrix and legacy-report budget remain
 open. The 2 GiB result establishes one multi-gigabyte install shape, not the
 full corpus or release acceptance.
+
+`m1_lifecycle_legacy_report_memory_observations.v1.json` measures the
+prior-format ownership reader separately for verify and uninstall planning.
+The native fixture writes one-byte files and a real ownership record in a
+separate setup process, then a fresh measured child invokes the public
+lifecycle function. On Windows 10 build 19045, C: NTFS Debug, 128-file verify
+and uninstall planning peaked at 11,440,128 and 11,489,280 bytes respectively.
+At 4,097 files the peaks were 53,506,048 and 53,542,912 bytes; at 8,192 files
+they were 97,431,552 and 97,804,288 bytes. A combined 4,097-file sequence,
+with its first report released before planning, peaked at 53,776,384 bytes.
+Fixture construction and cleanup are outside the measured process. Its peak
+includes record parsing, reporting, and plan hashing, so it does not isolate
+allocator ownership by subsystem. The 8,192-file cases exceed a 64 MiB
+comparison threshold, and the current legacy reader has no aggregate report
+budget at that shape. Compatibility is preserved, but full lifecycle memory
+qualification remains open.
 
 Move planning binds the source root's native identity. Move staging checks root
 identity and ancestor path safety before and after each source read and again
