@@ -36,7 +36,9 @@ python tools/usk_prefab_envelope.py inspect --path <envelope-output>
 For the carrier profile, use `--profile one_file_carrier` and inspect
 `<envelope-output>/setup.carrier.zip`. The builder validates the compiled
 bundle before and after composition, streams the supplied runtime and payload
-without changing their bytes, and reopens the emitted closure. Rebuilding from
+without changing their bytes, and reopens the emitted closure. The reopened
+manifest must match the manifest derived from the reviewed inputs, so a valid
+alternate output substituted during composition is refused. Rebuilding from
 identical inputs produces identical unsigned output bytes. The provided runtime
 is identified by its SHA-256 and a Windows PE header prefix; this is not a
 signature, provenance, import or compatibility qualification. An independent

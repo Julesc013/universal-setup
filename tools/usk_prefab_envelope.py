@@ -174,7 +174,8 @@ def build_envelope(bundle_path: Path, runtime: Path, profile: str, output_dir: P
                 raise EnvelopeError("source identity changed after inventory")
         with (output_dir / "prefab.manifest.json").open("xb") as output:
             output.write(manifest_bytes)
-        inspect_envelope(output_dir)
+        if inspect_envelope(output_dir) != manifest:
+            raise EnvelopeError("emitted sidecar differs from its reviewed inputs")
     else:
         carrier = output_dir / "setup.carrier.zip"
         with zipfile.ZipFile(carrier, "x", allowZip64=True) as archive:
@@ -187,7 +188,8 @@ def build_envelope(bundle_path: Path, runtime: Path, profile: str, output_dir: P
                                                   MAX_RUNTIME_BYTES if name == RUNTIME_NAME else None)
                     if observed != entries[name]:
                         raise EnvelopeError("source identity changed after inventory")
-        inspect_envelope(carrier)
+        if inspect_envelope(carrier) != manifest:
+            raise EnvelopeError("emitted carrier differs from its reviewed inputs")
     # Revalidate the original graph after composition, including the ZIP bytes.
     if inspect_bundle(bundle_path) != bundle:
         raise EnvelopeError("compiled bundle changed during envelope composition")

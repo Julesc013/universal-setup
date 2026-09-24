@@ -117,6 +117,37 @@ class PrefabEnvelopeTests(unittest.TestCase):
                     build_envelope(bundle, runtime, "sidecar", output)
             self.assertEqual((output / "prefab.manifest.json").read_bytes(), b"concurrent writer")
 
+    def test_valid_output_substitution_cannot_change_build_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle, runtime = self._inputs(root)
+            alternate_runtime = root / "alternate runtime.exe"
+            alternate_runtime.write_bytes(b"MZ\x00another-valid-inspect-host\n")
+            original_inspect = usk_prefab_envelope.inspect_envelope
+            for profile in ("sidecar", "one_file_carrier"):
+                alternate = root / f"alternate-{profile}"
+                alternate.mkdir()
+                alternate_manifest = build_envelope(bundle, alternate_runtime, profile, alternate)
+                output = root / f"output-{profile}"
+                output.mkdir()
+
+                def substitute(path: Path) -> dict:
+                    if profile == "sidecar":
+                        (output / "usk_machine.exe").write_bytes(
+                            (alternate / "usk_machine.exe").read_bytes())
+                        (output / "prefab.manifest.json").write_bytes(
+                            (alternate / "prefab.manifest.json").read_bytes())
+                    else:
+                        (output / "setup.carrier.zip").write_bytes(
+                            (alternate / "setup.carrier.zip").read_bytes())
+                    return original_inspect(path)
+
+                with mock.patch.object(usk_prefab_envelope, "inspect_envelope", substitute):
+                    with self.assertRaisesRegex(EnvelopeError, "differs from its reviewed inputs"):
+                        build_envelope(bundle, runtime, profile, output)
+                carrier = output if profile == "sidecar" else output / "setup.carrier.zip"
+                self.assertEqual(original_inspect(carrier), alternate_manifest)
+
     def test_hidden_carrier_prefix_and_suffix_are_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
