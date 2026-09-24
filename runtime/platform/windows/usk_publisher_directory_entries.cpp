@@ -72,6 +72,10 @@ bool valid_component(const std::wstring& name) {
 }
 } // namespace
 
+bool is_publisher_canonical_component(const std::wstring& name) {
+    return valid_component(name);
+}
+
 std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
     HANDLE directory, std::size_t byte_budget) {
     if (!directory || directory == INVALID_HANDLE_VALUE) {

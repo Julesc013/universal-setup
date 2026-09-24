@@ -279,6 +279,101 @@ std::wstring descendant_native_name(const std::wstring& root,
     for (const wchar_t ch : relative) result += ch == L'/' ? L'\\' : ch;
     return result;
 }
+
+void walk_directory_chain(HANDLE parent, std::size_t index,
+    const std::vector<std::wstring>& components,
+    PublisherDirectoryChainObservation& result,
+    std::set<std::string>& seen_ids) {
+    if (index == components.size()) return;
+    const auto expected_parent = index == 0 ?
+        result.boundary : result.children.back().object;
+    const auto parent_before = observe_publisher_directory_handle(parent);
+    if (!same_handle_facts(expected_parent, parent_before) ||
+        expected_parent.native_name != parent_before.native_name ||
+        !same_volume_facts(result.volume, observe_local_ntfs_volume_handle(parent))) {
+        throw std::runtime_error("publisher directory-chain parent drifted before traversal");
+    }
+    const auto& component = components[index];
+    if (!is_publisher_canonical_component(component)) {
+        throw std::runtime_error("publisher directory-chain component is invalid");
+    }
+    const PublisherDirectoryEntry selected = [&]() {
+        const auto children = observe_publisher_directory_entries(parent);
+        const auto found = std::find_if(children.begin(), children.end(),
+            [&](const PublisherDirectoryEntry& child) {
+                return child.name == component;
+            });
+        if (found == children.end() ||
+            (found->attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            throw std::runtime_error("publisher exact directory-chain child is unavailable");
+        }
+        return *found;
+    }();
+    OwnedHandle child(open_publisher_listed_child(parent, selected));
+    const auto observed = observe_publisher_directory_handle(child.get());
+    const auto expected_name = descendant_native_name(parent_before.native_name, component);
+    if (observed.native_name != expected_name || observed.case_sensitive ||
+        observed.link_count != 1 ||
+        (observed.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        !seen_ids.insert(observed.file_id).second ||
+        !same_volume_facts(result.volume, observe_local_ntfs_volume_handle(child.get()))) {
+        throw std::runtime_error("publisher directory-chain child facts are inadmissible");
+    }
+    require_publisher_stream_shape(child.get());
+    result.children.push_back({component, observed});
+    walk_directory_chain(child.get(), index + 1, components, result, seen_ids);
+    const auto child_after = observe_publisher_directory_handle(child.get());
+    const auto parent_after = observe_publisher_directory_handle(parent);
+    if (!same_handle_facts(observed, child_after) ||
+        observed.native_name != child_after.native_name ||
+        !same_handle_facts(parent_before, parent_after) ||
+        parent_before.native_name != parent_after.native_name ||
+        !same_volume_facts(result.volume, observe_local_ntfs_volume_handle(child.get())) ||
+        !same_volume_facts(result.volume, observe_local_ntfs_volume_handle(parent))) {
+        throw std::runtime_error("publisher directory chain drifted during traversal");
+    }
+}
+
+void require_directory_chain_closed(
+    const PublisherDirectoryChainObservation& chain) {
+    if (chain.children.empty() || chain.children.size() > 128 ||
+        chain.boundary.native_name.empty()) {
+        throw std::runtime_error("publisher directory-chain structure is incomplete");
+    }
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string volume_prefix(16, '0');
+    for (unsigned index = 0; index < 16; ++index) {
+        volume_prefix[index] = digits[
+            (chain.volume.file_id_volume_serial >> ((15u - index) * 4u)) & 15u];
+    }
+    std::set<std::string> seen_ids;
+    auto check_directory = [&](const PublisherHandleObservation& object) {
+        if (object.file_id.size() != 49 ||
+            object.file_id.compare(0, 16, volume_prefix) != 0 ||
+            object.file_id[16] != ':' ||
+            !std::all_of(object.file_id.begin() + 17, object.file_id.end(),
+                [](char ch) { return (ch >= '0' && ch <= '9') ||
+                    (ch >= 'a' && ch <= 'f'); }) ||
+            !seen_ids.insert(object.file_id).second ||
+            (object.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+            (object.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+            object.reparse_tag != 0 || object.case_sensitive ||
+            object.link_count != 1) {
+            throw std::runtime_error("publisher directory-chain identity or shape is invalid");
+        }
+    };
+    check_directory(chain.boundary);
+    std::wstring parent_name = chain.boundary.native_name;
+    for (const auto& child : chain.children) {
+        if (!is_publisher_canonical_component(child.component) ||
+            child.object.native_name !=
+                descendant_native_name(parent_name, child.component)) {
+            throw std::runtime_error("publisher directory-chain native path is disconnected");
+        }
+        check_directory(child.object);
+        parent_name = child.object.native_name;
+    }
+}
 } // namespace
 
 PublisherTreeObservation observe_publisher_tree(HANDLE root) {
@@ -399,6 +494,60 @@ PublisherTreeObservation observe_visible_publisher_tree_against_seal(
         descendant_native_name(before.native_name, destination_component);
     require_publisher_tree_phase_match(sealed, observed, expected_name);
     return observed;
+}
+
+PublisherDirectoryChainObservation observe_publisher_directory_chain(
+    HANDLE boundary, const std::vector<std::wstring>& components) {
+    if (!boundary || boundary == INVALID_HANDLE_VALUE || components.empty() ||
+        components.size() > 128) {
+        throw std::runtime_error("publisher directory chain requires a held boundary and bounded path");
+    }
+    PublisherDirectoryChainObservation result{};
+    result.volume = observe_local_ntfs_volume_handle(boundary);
+    result.boundary = observe_publisher_directory_handle(boundary);
+    if (result.boundary.case_sensitive || result.boundary.link_count != 1 ||
+        (result.boundary.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        throw std::runtime_error("publisher directory-chain boundary is inadmissible");
+    }
+    require_publisher_stream_shape(boundary);
+    std::set<std::string> seen_ids{result.boundary.file_id};
+    result.children.reserve(components.size());
+    walk_directory_chain(boundary, 0, components, result, seen_ids);
+    require_directory_chain_closed(result);
+    return result;
+}
+
+void require_publisher_directory_chain_phase_match(
+    const PublisherDirectoryChainObservation& earlier,
+    const PublisherDirectoryChainObservation& later) {
+    require_directory_chain_closed(earlier);
+    require_directory_chain_closed(later);
+    if (!same_volume_facts(earlier.volume, later.volume) ||
+        !same_handle_facts(earlier.boundary, later.boundary) ||
+        earlier.boundary.native_name != later.boundary.native_name ||
+        earlier.children.size() != later.children.size()) {
+        throw std::runtime_error("publisher directory-chain phase boundary diverged");
+    }
+    for (std::size_t index = 0; index < earlier.children.size(); ++index) {
+        const auto& before = earlier.children[index];
+        const auto& after = later.children[index];
+        if (before.component != after.component ||
+            !same_handle_facts(before.object, after.object) ||
+            before.object.native_name != after.object.native_name) {
+            throw std::runtime_error("publisher directory-chain phase child diverged");
+        }
+    }
+}
+
+void require_publisher_directory_chain_security_shape(
+    const PublisherDirectoryChainObservation& chain,
+    const std::string& service_sid) {
+    require_directory_chain_closed(chain);
+    require_canonical_service_sid(service_sid);
+    require_protected_object_shape(chain.boundary, service_sid);
+    for (const auto& child : chain.children) {
+        require_protected_object_shape(child.object, service_sid);
+    }
 }
 
 } // namespace usk::platform::windows

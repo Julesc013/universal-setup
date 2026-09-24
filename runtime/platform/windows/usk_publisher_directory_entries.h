@@ -26,6 +26,10 @@ struct PublisherDirectoryEntry {
     std::int64_t listing_size;
 };
 
+// Exact canonical component rule used for both live names and recorded
+// assertions. A true result alone does not establish that the child exists.
+bool is_publisher_canonical_component(const std::wstring& name);
+
 // Read-only enumeration from one held directory handle. The returned 128-bit
 // IDs and listing attributes are untrusted observations until each child is
 // independently reopened relative to this parent and verified on that handle.
