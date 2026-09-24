@@ -41,3 +41,9 @@ identical inputs produces identical unsigned output bytes. The provided runtime
 is identified by its SHA-256 and a Windows PE header prefix; this is not a
 signature, provenance, import or compatibility qualification. An independent
 source audit and runtime dependency inventory are required before product use.
+
+Inspection checks the entire ZIP carrier against a disposable canonical
+reconstruction, including bytes outside declared ZIP members. It also runs the
+existing product-bundle inspector on the emitted sidecar or on named members
+extracted to a disposable directory. Large carrier inspection therefore needs
+temporary disk space for its canonical copy and extracted payload.

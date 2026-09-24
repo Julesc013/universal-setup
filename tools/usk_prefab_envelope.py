@@ -11,11 +11,13 @@ file that requires extraction; it is not a single-file executable setup.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
 import stat
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -71,10 +73,6 @@ def _copy_observed(source: Path, destination: Any, limit: int | None = None) -> 
                 before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) or count != before.st_size:
             raise EnvelopeError("input changed while copying")
     return {"sha256": digest.hexdigest(), "size_bytes": count}
-
-
-def _digest_bytes(data: bytes) -> dict[str, Any]:
-    return {"sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)}
 
 
 def _digest_stream(stream: Any, limit: int | None = None) -> dict[str, Any]:
@@ -196,6 +194,75 @@ def build_envelope(bundle_path: Path, runtime: Path, profile: str, output_dir: P
     return manifest
 
 
+def _inspect_carrier(path: Path) -> tuple[bytes, dict[str, dict[str, Any]], bytes, dict[str, Any]]:
+    _, before = _read_plain_file(path)
+    names = sorted((RUNTIME_NAME, *INPUT_NAMES, "prefab.manifest.json"))
+    observed: dict[str, dict[str, Any]] = {}
+    runtime_prefix = b""
+    with tempfile.TemporaryDirectory(prefix="usk-prefab-inspect-") as directory:
+        extracted_root = Path(directory)
+        with path.open("rb") as source, tempfile.TemporaryFile(mode="w+b") as rebuilt:
+            opened = os.fstat(source.fileno())
+            if (opened.st_dev, opened.st_ino, opened.st_size) != (
+                    before.st_dev, before.st_ino, before.st_size):
+                raise EnvelopeError("carrier changed while opening")
+            with zipfile.ZipFile(source) as archive:
+                if archive.namelist() != names:
+                    raise EnvelopeError("one-file carrier closure is not exact")
+                if archive.comment or any(
+                        item.compress_type != zipfile.ZIP_STORED or
+                        item.date_time != (1980, 1, 1, 0, 0, 0) or
+                        item.create_system != 3 or (item.external_attr >> 16) != 0o100644
+                        for item in archive.infolist()):
+                    raise EnvelopeError("carrier metadata profile changed")
+                # Recreate the complete carrier in a disposable file, then
+                # compare every physical byte. ZIP readers may otherwise skip
+                # a PE prefix, hidden suffix, or other unlisted carrier bytes.
+                with zipfile.ZipFile(rebuilt, "w", allowZip64=True) as canonical:
+                    for name in names:
+                        limit = (MAX_RUNTIME_BYTES if name == RUNTIME_NAME else
+                                 MAX_MANIFEST_BYTES if name == "prefab.manifest.json" else
+                                 MAX_BUNDLE_BYTES if name == "product.bundle.json" else None)
+                        digest = hashlib.sha256()
+                        size = 0
+                        with ExitStack() as stack:
+                            reader = stack.enter_context(archive.open(name))
+                            writer = stack.enter_context(canonical.open(_zip_info(name), "w"))
+                            extracted = (stack.enter_context((extracted_root / name).open("xb"))
+                                         if name != RUNTIME_NAME else None)
+                            for block in iter(lambda: reader.read(BUFFER), b""):
+                                size += len(block)
+                                if limit is not None and size > limit:
+                                    raise EnvelopeError("carrier member exceeds its byte budget")
+                                if name == RUNTIME_NAME and not runtime_prefix:
+                                    runtime_prefix = block[:2]
+                                digest.update(block)
+                                writer.write(block)
+                                if extracted is not None:
+                                    extracted.write(block)
+                        if name != "prefab.manifest.json":
+                            observed[name] = {"sha256": digest.hexdigest(), "size_bytes": size}
+            source.seek(0)
+            rebuilt.seek(0)
+            while True:
+                actual = source.read(BUFFER)
+                if actual != rebuilt.read(BUFFER):
+                    raise EnvelopeError("carrier contains noncanonical physical bytes")
+                if not actual:
+                    break
+            after = os.fstat(source.fileno())
+            if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != (
+                    before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns):
+                raise EnvelopeError("carrier changed during inspection")
+        with (extracted_root / "prefab.manifest.json").open("rb") as stream:
+            data = _read_bounded(stream, MAX_MANIFEST_BYTES)
+        try:
+            bundle = inspect_bundle(extracted_root / "product.bundle.json")
+        except AuthoringError as error:
+            raise EnvelopeError("carrier product bundle failed full inspection") from error
+    return data, observed, runtime_prefix, bundle
+
+
 def inspect_envelope(path: Path) -> dict[str, Any]:
     if path.is_dir():
         if {item.name for item in path.iterdir()} != {
@@ -211,35 +278,16 @@ def inspect_envelope(path: Path) -> dict[str, Any]:
             with source.open("rb") as stream:
                 observed[name] = _digest_stream(stream,
                     MAX_RUNTIME_BYTES if name == RUNTIME_NAME else None)
-        with (path / "product.bundle.json").open("rb") as stream:
-            bundle_bytes = _read_bounded(stream, MAX_BUNDLE_BYTES)
         with (path / RUNTIME_NAME).open("rb") as stream:
             runtime_prefix = stream.read(2)
+        try:
+            bundle = inspect_bundle(path / "product.bundle.json")
+        except AuthoringError as error:
+            raise EnvelopeError("sidecar product bundle failed full inspection") from error
     else:
         if path.name != "setup.carrier.zip":
             raise EnvelopeError("one-file carrier name is invalid")
-        _read_plain_file(path)
-        with zipfile.ZipFile(path) as archive:
-            names = archive.namelist()
-            if names != sorted((RUNTIME_NAME, *INPUT_NAMES, "prefab.manifest.json")):
-                raise EnvelopeError("one-file carrier closure is not exact")
-            if archive.comment or any(
-                    item.compress_type != zipfile.ZIP_STORED or
-                    item.date_time != (1980, 1, 1, 0, 0, 0) or
-                    item.create_system != 3 or (item.external_attr >> 16) != 0o100644
-                    for item in archive.infolist()):
-                raise EnvelopeError("carrier metadata profile changed")
-            with archive.open("prefab.manifest.json") as stream:
-                data = _read_bounded(stream, MAX_MANIFEST_BYTES)
-            observed = {}
-            for name in (RUNTIME_NAME, *INPUT_NAMES):
-                with archive.open(name) as stream:
-                    observed[name] = _digest_stream(stream,
-                        MAX_RUNTIME_BYTES if name == RUNTIME_NAME else None)
-            with archive.open("product.bundle.json") as stream:
-                bundle_bytes = _read_bounded(stream, MAX_BUNDLE_BYTES)
-            with archive.open(RUNTIME_NAME) as stream:
-                runtime_prefix = stream.read(2)
+        data, observed, runtime_prefix, bundle = _inspect_carrier(path)
         profile = "one_file_carrier"
     if not data.endswith(b"\n"):
         raise EnvelopeError("envelope manifest is oversized or not canonical")
@@ -258,12 +306,6 @@ def inspect_envelope(path: Path) -> dict[str, Any]:
         raise EnvelopeError("envelope member identity mismatch")
     if runtime_prefix != b"MZ":
         raise EnvelopeError("runtime member lacks PE signature")
-    try:
-        bundle = json.loads(bundle_bytes)
-    except (ValueError, UnicodeDecodeError) as error:
-        raise EnvelopeError("product bundle member is invalid") from error
-    if not isinstance(bundle, dict) or not isinstance(bundle.get("payload"), dict):
-        raise EnvelopeError("product bundle member has invalid shape")
     if (manifest.get("target"), manifest.get("product_id"), manifest.get("product_version")) != (
             bundle.get("target"), bundle.get("product_id"), bundle.get("product_version")) or \
             bundle["payload"].get("sha256") != observed["payload.zip"]["sha256"] or \

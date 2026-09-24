@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -115,6 +116,58 @@ class PrefabEnvelopeTests(unittest.TestCase):
                 with self.assertRaises(FileExistsError):
                     build_envelope(bundle, runtime, "sidecar", output)
             self.assertEqual((output / "prefab.manifest.json").read_bytes(), b"concurrent writer")
+
+    def test_hidden_carrier_prefix_and_suffix_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle, runtime = self._inputs(root)
+            output = root / "carrier"
+            output.mkdir()
+            build_envelope(bundle, runtime, "one_file_carrier", output)
+            carrier = output / "setup.carrier.zip"
+            original = carrier.read_bytes()
+            for tampered in (runtime.read_bytes() + original,
+                             original + b"unlisted trailing bytes"):
+                carrier.write_bytes(tampered)
+                with self.assertRaises(EnvelopeError):
+                    inspect_envelope(carrier)
+            carrier.write_bytes(original)
+            self.assertEqual(inspect_envelope(carrier)["profile"], "one_file_carrier")
+
+    def test_self_consistent_but_invalid_bundle_is_refused_in_both_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle, runtime = self._inputs(root)
+            for profile in ("sidecar", "one_file_carrier"):
+                output = root / profile
+                output.mkdir()
+                build_envelope(bundle, runtime, profile, output)
+                if profile == "sidecar":
+                    files = {name: (output / name).read_bytes() for name in (
+                        "usk_machine.exe", "payload.zip", "product.bundle.json", "prefab.manifest.json")}
+                else:
+                    with zipfile.ZipFile(output / "setup.carrier.zip") as archive:
+                        files = {name: archive.read(name) for name in archive.namelist()}
+                product = json.loads(files["product.bundle.json"])
+                product["schema"] = "invalid.bundle.schema"
+                files["product.bundle.json"] = usk_prefab_envelope._canonical(product)
+                manifest = json.loads(files["prefab.manifest.json"])
+                manifest["entries"]["product.bundle.json"] = {
+                    "sha256": hashlib.sha256(files["product.bundle.json"]).hexdigest(),
+                    "size_bytes": len(files["product.bundle.json"])}
+                files["prefab.manifest.json"] = usk_prefab_envelope._canonical(manifest)
+                if profile == "sidecar":
+                    for name in ("product.bundle.json", "prefab.manifest.json"):
+                        (output / name).write_bytes(files[name])
+                    carrier = output
+                else:
+                    carrier = output / "setup.carrier.zip"
+                    carrier.unlink()
+                    with zipfile.ZipFile(carrier, "x", allowZip64=True) as archive:
+                        for name in sorted(files):
+                            archive.writestr(usk_prefab_envelope._zip_info(name), files[name])
+                with self.assertRaises(EnvelopeError):
+                    inspect_envelope(carrier)
 
 
 if __name__ == "__main__":
