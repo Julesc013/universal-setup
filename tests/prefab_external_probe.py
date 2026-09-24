@@ -35,13 +35,17 @@ def _git(*arguments: str) -> str:
     return subprocess.check_output(["git", *arguments], cwd=ROOT, text=True).strip()
 
 
-def run(runtime: Path) -> dict:
+def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) -> dict:
     if _git("status", "--porcelain"):
         raise RuntimeError("external probe requires a clean source checkout")
     compiler = shutil.which("gcc")
     if compiler is None:
         raise RuntimeError("GCC is required for the external C product probe")
     runtime = runtime.resolve(strict=True)
+    runtime_cmake_cache = runtime_cmake_cache.resolve(strict=True)
+    runtime_source_tree = subprocess.check_output(
+        ["git", "show", "-s", "--format=%T", runtime_source_commit],
+        cwd=ROOT, text=True).strip()
     compiler_version = subprocess.check_output([compiler, "--version"], text=True).splitlines()[0]
     request = (b'{"schema":"usk.oneshot_request.v1","request_id":"external-probe",'
                b'"command":"command_graph.inspect","payload":{},"dry_run":true}')
@@ -111,7 +115,13 @@ def run(runtime: Path) -> dict:
         "source_tree": _git("show", "-s", "--format=%T", "HEAD"),
         "platform": platform.platform(),
         "compiler_version": compiler_version,
-        "runtime_binary_sha256": _sha256(runtime),
+        "runtime_build": {
+            "declared_source_commit": runtime_source_commit,
+            "declared_source_tree": runtime_source_tree,
+            "cmake_cache_sha256": _sha256(runtime_cmake_cache),
+            "binary_sha256": _sha256(runtime),
+            "configuration": "Debug",
+        },
         "product": "external single-file C program, compiled outside the USK source tree",
         "qualification": "inspect-only envelope and machine-host startup; no installation or release acceptance",
         "observations": observations,
@@ -121,9 +131,11 @@ def run(runtime: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", required=True, type=Path)
+    parser.add_argument("--runtime-source-commit", required=True)
+    parser.add_argument("--runtime-cmake-cache", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    result = run(args.runtime)
+    result = run(args.runtime, args.runtime_source_commit, args.runtime_cmake_cache)
     args.output.write_bytes((json.dumps(result, indent=2) + "\n").encode("utf-8"))
     print(f"external-prefab-probe: PASS {result['source_commit']}")
     return 0
