@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T12:15:36Z",
+  "generated_at": "2026-09-24T12:41:10Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "1a665fead7fd2fbfed4885720a422d7f00aafe74",
-  "repository_base_tree": "7d249664ffd1d6f5e445c92d35e6601b58033277",
+  "repository_base_commit": "efe84789272e4709ddce4bbc0270d784a7b28eff",
+  "repository_base_tree": "e5737b2ff66ea433adc97179884c043e47b5933c",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "77eb7ad5478a54db4beec2d7aac7e492ddc265b50b98b0912e0db4f897d616a2",
+  "spec_aggregate_sha256": "4b64638bca609774136b6fc2e447d9fb6547d86b0bfba706a3eedd2779f684f7",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open.",
+  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. The WU-006 file-scope correction admits named service, build, lifecycle, policy and profile paths only; it adds no implementation or qualification.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment source is committed WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f; WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-006 publisher qualification and wider lifecycle/authoring acceptance remain open. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. The WU-004 erratum changes the candidate handle-relative call after a disposable probe; the WU-006 implementation and full target qualification are not included in this source assessment.",
+  "working_tree_note": "Assessment source is committed WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f; WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-006 publisher qualification and wider lifecycle/authoring acceptance remain open. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. The WU-004 erratum changes the candidate handle-relative call after a disposable probe; the WU-006 implementation and full target qualification are not included in this source assessment. WU-006 revision 4 widens only named file families needed for the restricted publisher; contracts, release records and other specification files remain read-only.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -2244,7 +2244,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "583306a5ef45ad5b3dfc6a63084820bf73e49176c2b0f6ae9ef148eeee923419"
+          "sha256": "b439c96923e2f1b42234d5cf7f396bee1f4dd3fe14f6676b56309eaf6a83f8a9"
         }
       ],
       "acceptance_ids": [
@@ -2280,7 +2280,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "583306a5ef45ad5b3dfc6a63084820bf73e49176c2b0f6ae9ef148eeee923419"
+          "sha256": "b439c96923e2f1b42234d5cf7f396bee1f4dd3fe14f6676b56309eaf6a83f8a9"
         }
       ],
       "acceptance_ids": [
