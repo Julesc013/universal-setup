@@ -401,7 +401,7 @@
       "path": "lifecycle/publication.md",
       "title": "Protected staging and publication authority",
       "description": "Prevent staged-object substitution across the verification-to-publication interval.",
-      "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da",
+      "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce",
       "depends_on": [
         "USK-S-TXN",
         "USK-S-CAPS"
@@ -423,7 +423,7 @@
       "path": "provenance/reconciliation.md",
       "title": "Conflicts, superseded proposals and open decisions",
       "description": "Preserve disagreements explicitly rather than silently selecting convenient historical claims.",
-      "sha256": "c861f6cc88ea5aad5c5e83b704f0cf498b97f0210f2e48a6981dbac575360c43",
+      "sha256": "dd1a62b0a9f8a9b1aec520b0b6f5423e42f4b88af32a0cf0d58eb5327eac43fe",
       "depends_on": [
         "USK-S-BASE"
       ]
