@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T12:55:00Z",
+  "generated_at": "2026-09-24T13:06:15Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "fe109aad9fa000c8c76c8a0973109dbdca0a1e31",
-  "repository_base_tree": "947db60fc2fb8842fcc5180246ca90938abf9712",
+  "repository_base_commit": "5217ab9957fed71ae5e2e14670c719deee4f5ce0",
+  "repository_base_tree": "d29d19902d8230aa834e3f63e4237ebffd526401",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "4b64638bca609774136b6fc2e447d9fb6547d86b0bfba706a3eedd2779f684f7",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. The candidate adds only a disposable Windows native rename primitive probe and leaves the qualified publisher absent.",
+  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. The candidate adds a disposable Windows native rename probe and a same-handle identity/security observer; the qualified publisher remains absent.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment source is committed WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f; WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-006 publisher qualification and wider lifecycle/authoring acceptance remain open. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. The WU-004 erratum changes the candidate handle-relative call after a disposable probe; the WU-006 implementation and full target qualification are not included in this source assessment. WU-006 revision 4 widens only named file families needed for the restricted publisher; contracts, release records and other specification files remain read-only. The WU-006 candidate source is included in the bound commit; a local Windows 10 build 19045 C: NTFS probe passed no-replace and substitution cases. It has no dedicated-volume restricted-service or crash qualification.",
+  "working_tree_note": "Assessment source includes WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f and WU-006 candidate source. WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. WU-006 revision 4 admits named file families while contracts, release records and other specification files remain read-only. The local Windows 10 build 19045 C: NTFS fixtures passed native no-replace/substitution probes and a same-handle owner/DACL reobservation after DACL protection changed. No dedicated-volume restricted service, complete closure, durable recovery, crash qualification, or production publication success is included. OD-001 and wider lifecycle/authoring acceptance remain open.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -2401,7 +2401,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "50cc8b7d4d64bd77e20fe569143e92e2766a183239e6126183d62dbca5084e28"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2436,7 +2436,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "50cc8b7d4d64bd77e20fe569143e92e2766a183239e6126183d62dbca5084e28"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2471,7 +2471,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "50cc8b7d4d64bd77e20fe569143e92e2766a183239e6126183d62dbca5084e28"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2965,7 +2965,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
+          "sha256": "b2cfe5eb4986bcc3e1182f5c6a11d56771617847624c08e588be93c9d41aff92"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3002,7 +3002,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
+          "sha256": "b2cfe5eb4986bcc3e1182f5c6a11d56771617847624c08e588be93c9d41aff92"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3039,7 +3039,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
+          "sha256": "b2cfe5eb4986bcc3e1182f5c6a11d56771617847624c08e588be93c9d41aff92"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3188,7 +3188,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "50cc8b7d4d64bd77e20fe569143e92e2766a183239e6126183d62dbca5084e28"
         }
       ],
       "acceptance_ids": [
@@ -3224,7 +3224,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "50cc8b7d4d64bd77e20fe569143e92e2766a183239e6126183d62dbca5084e28"
         }
       ],
       "acceptance_ids": [
@@ -3260,7 +3260,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "50cc8b7d4d64bd77e20fe569143e92e2766a183239e6126183d62dbca5084e28"
         }
       ],
       "acceptance_ids": [
@@ -3487,7 +3487,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "absent",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A disposable Windows NTFS native parent-bound no-replace rename candidate and adversarial probe exist, but no protected service, full descendant closure, durable publication/recovery, or qualified target-bound publisher is implemented. Strict production publication still refuses.",
+      "note": "Disposable Windows NTFS native parent-bound no-replace rename and same-handle identity/security observation candidates exist, but no protected service, full descendant closure, durable publication/recovery, or qualified target-bound publisher is implemented. Strict production publication still refuses.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3508,6 +3508,10 @@
         {
           "path": "runtime/base/usk_record_io.cpp",
           "sha256": "ae803bded024976400abf63efba4c09246f843a4f31bb5563e7c4698e159a56c"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.cpp",
+          "sha256": "ef8eccf86d6c7c9ec553d6dda0cecf523052fca22f7e4c1b3ab5728d8ee733d2"
         }
       ],
       "acceptance_ids": [
@@ -3563,7 +3567,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A disposable candidate records native root/parent/visible file IDs, but no durable publication receipt binds the full closure and protected service profile; target qualification remains absent.",
+      "note": "Disposable candidates record native root/parent/visible file IDs and same-handle owner/DACL facts, but no durable publication receipt binds the full closure and protected service profile; target qualification remains absent.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3584,6 +3588,14 @@
         {
           "path": "runtime/base/usk_record_io.cpp",
           "sha256": "ae803bded024976400abf63efba4c09246f843a4f31bb5563e7c4698e159a56c"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.cpp",
+          "sha256": "ef8eccf86d6c7c9ec553d6dda0cecf523052fca22f7e4c1b3ab5728d8ee733d2"
+        },
+        {
+          "path": "tests/native/usk_publisher_handle_observation_smoke.cpp",
+          "sha256": "671c9a61f8c1c1ca5933b24cde20e71bdb1bced6a851e94b7ae589a6293953b8"
         }
       ],
       "acceptance_ids": [
