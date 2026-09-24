@@ -10,7 +10,9 @@
 #endif
 #include <windows.h>
 
-#include <array>
+#include "usk_publisher_handle_observation.h"
+#include "usk_publisher_volume_stream_observation.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -19,22 +21,42 @@ namespace usk::platform::windows {
 
 struct PublisherTreeEntry {
     std::wstring relative_path;
-    std::array<std::uint8_t, 16> file_id;
-    std::uint32_t attributes;
-    bool directory;
+    PublisherHandleObservation object;
     std::uint64_t size;
     std::string sha256;
 };
 
 struct PublisherTreeObservation {
-    std::uint64_t volume_serial;
-    std::array<std::uint8_t, 16> root_file_id;
+    PublisherVolumeObservation volume;
+    PublisherHandleObservation root;
     std::vector<PublisherTreeEntry> descendants;
 };
 
-// Read-only candidate closure of namespace, identity, streams, and file bytes.
-// Security/anchor facts and phase equality are separate admission obligations.
+// Read-only candidate closure of namespace, identity, same-handle security
+// facts, streams, and file bytes. Protected-security admission, effective
+// rights, anchor facts, and phase equality are separate obligations.
 PublisherTreeObservation observe_publisher_tree(HANDLE root);
+
+// Consistency oracle for two independently observed phases. A non-empty
+// visible_root_name permits only the expected root-prefix path transition;
+// callers must derive that name from separately bound parent evidence.
+void require_publisher_tree_phase_match(
+    const PublisherTreeObservation& sealed,
+    const PublisherTreeObservation& observed,
+    const std::wstring& visible_root_name = {});
+
+// Necessary exact owner/protected-DACL/ACE predicate over independently
+// observed root and descendant facts. A matching structure is not proof of
+// SCM restricted-service identity, effective rights, or handle provenance.
+void require_publisher_tree_security_shape(
+    const PublisherTreeObservation& tree, const std::string& service_sid);
+
+// Reopen one exact visible component relative to a retained destination-parent
+// handle, freshly observe its tree, and compare it with the sealed tree. This
+// is a read-only consistency candidate, not protected-parent admission.
+PublisherTreeObservation observe_visible_publisher_tree_against_seal(
+    HANDLE destination_parent, const std::wstring& destination_component,
+    const PublisherTreeObservation& sealed);
 
 } // namespace usk::platform::windows
 #endif

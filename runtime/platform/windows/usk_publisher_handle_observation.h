@@ -41,6 +41,11 @@ struct PublisherHandleObservation {
 // namespace chain across all publication phases.
 PublisherHandleObservation observe_publisher_directory_handle(HANDLE handle);
 
+// Same-handle identity, name, links, owner, protected-DACL and ordered ACE
+// facts for a regular file. case_sensitive is false because it is a directory
+// property; callers must not interpret it as a file case-policy observation.
+PublisherHandleObservation observe_publisher_file_handle(HANDLE handle);
+
 } // namespace usk::platform::windows
 #endif
 

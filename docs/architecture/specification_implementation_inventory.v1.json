@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T14:10:07Z",
+  "generated_at": "2026-09-24T14:35:58Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "46014c0d52720779be2ac34b02e0608a0ac78438",
-  "repository_base_tree": "49863bc7b51c0a8d87a5105a73674210381b0c1b",
+  "repository_base_commit": "375eb703f440e5fdf9fad984439d887420cbaeb3",
+  "repository_base_tree": "01830f5193f9607c5595ba41c487acb7fad11f25",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "4b64638bca609774136b6fc2e447d9fb6547d86b0bfba706a3eedd2779f684f7",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. Disposable candidates now cover native no-replace rename, same-handle identity/security observation, token facts, protected descriptor construction, and parent-bound create-only anchor creation; the qualified publisher remains absent. A further disposable read-only candidate observes held-handle local NTFS facts and exact file/directory stream shape; it does not change publisher classification. A read-only candidate now enumerates held-directory descendants, reopens them relative to retained parents, and records bounded identity/content digests; protected security and multi-phase publication remain absent.",
+  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. Disposable candidates now cover native no-replace rename, same-handle identity/security observation, token facts, protected descriptor construction, and parent-bound create-only anchor creation; the qualified publisher remains absent. A further disposable read-only candidate observes held-handle local NTFS facts and exact file/directory stream shape; it does not change publisher classification. A read-only candidate now enumerates held-directory descendants, reopens them relative to retained parents, and records bounded identity/content digests; protected security and multi-phase publication remain absent. The read-only tree candidate now carries same-handle file/directory owner and DACL facts, compares independent phase observations, and checks an exact protected descriptor shape; no service-bound or effective-right qualification is claimed. A held destination-parent wrapper now derives the exact visible-root name and reopens the listed child against the sealed tree; parent-chain protection and publication remain unqualified.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment source includes WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f and WU-006 candidate source. WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. WU-006 revision 4 admits named file families while contracts, release records and other specification files remain read-only. Local Windows 10 build 19045 C: NTFS fixtures passed no-replace/substitution probes, same-handle owner/DACL reobservation, token/impersonation observations, protected descriptor shape, and parent-bound create-only/collision observations. The descriptor test is in memory; the create probe uses a disposable ordinary-user descriptor, not a restricted service. No installed restricted service, dedicated protected volume, complete closure, durable recovery, crash qualification, or production publication success is included. OD-001 and wider lifecycle/authoring acceptance remain open. A later ordinary-user C: NTFS fixture observed the handle-bound volume tuple, one unnamed file data stream, empty directory stream enumeration, and rejection of named streams on files and directories. This is not a dedicated protected volume or complete closure qualification. A local ordinary-user Windows 10 build 19045 C: NTFS fixture exercised 640-file directory pagination, exact native parent/name and listed/reopened 128-bit ID binding, nested digest observation, hard-link and named-stream refusal. A directory listing size was stale while a writer remained open; the candidate uses the reopened file handle for size and content. This is not an admitted protected target, complete security closure, durable publication, or recovery proof.",
+  "working_tree_note": "Assessment source includes WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f and WU-006 candidate source. WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. WU-006 revision 4 admits named file families while contracts, release records and other specification files remain read-only. Local Windows 10 build 19045 C: NTFS fixtures passed no-replace/substitution probes, same-handle owner/DACL reobservation, token/impersonation observations, protected descriptor shape, and parent-bound create-only/collision observations. The descriptor test is in memory; the create probe uses a disposable ordinary-user descriptor, not a restricted service. No installed restricted service, dedicated protected volume, complete closure, durable recovery, crash qualification, or production publication success is included. OD-001 and wider lifecycle/authoring acceptance remain open. A later ordinary-user C: NTFS fixture observed the handle-bound volume tuple, one unnamed file data stream, empty directory stream enumeration, and rejection of named streams on files and directories. This is not a dedicated protected volume or complete closure qualification. A local ordinary-user Windows 10 build 19045 C: NTFS fixture exercised 640-file directory pagination, exact native parent/name and listed/reopened 128-bit ID binding, nested digest observation, hard-link and named-stream refusal. A directory listing size was stale while a writer remained open; the candidate uses the reopened file handle for size and content. This is not an admitted protected target, complete security closure, durable publication, or recovery proof. Additional ordinary-user C: NTFS tests observed a descendant DACL protection change and a root rename across fresh tree phases; a synthetic exact descriptor tree passes the shape predicate while the real ordinary-user tree refuses. A held destination-parent wrapper derives the exact visible name and reopens the listed child; a local fixture verified handle binding after parent-path substitution. The parent chain is not qualified as protected. No installed restricted service or effective-right attack harness was used.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -2965,7 +2965,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "c3f984431ee5c44591f0a43734b1e2702e0466c63c860f3334c9a7d6e69ff5c8"
+          "sha256": "e3412e41044fdf0d4bec93827880876299cb188982d6abba00d9e955cd8c17b1"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3002,7 +3002,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "c3f984431ee5c44591f0a43734b1e2702e0466c63c860f3334c9a7d6e69ff5c8"
+          "sha256": "e3412e41044fdf0d4bec93827880876299cb188982d6abba00d9e955cd8c17b1"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3039,7 +3039,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "c3f984431ee5c44591f0a43734b1e2702e0466c63c860f3334c9a7d6e69ff5c8"
+          "sha256": "e3412e41044fdf0d4bec93827880876299cb188982d6abba00d9e955cd8c17b1"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3487,7 +3487,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "absent",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Disposable Windows NTFS native parent-bound no-replace rename, same-handle observation, restricted-token facts, protected descriptor construction and parent-bound create-only candidates exist, but no installed protected service, full descendant closure, durable publication/recovery, or qualified target-bound publisher is implemented. Strict production publication still refuses. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification.",
+      "note": "Disposable Windows NTFS native parent-bound no-replace rename, same-handle observation, restricted-token facts, protected descriptor construction and parent-bound create-only candidates exist, but no installed protected service, full descendant closure, durable publication/recovery, or qualified target-bound publisher is implemented. Strict production publication still refuses. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification. Structured same-handle security facts and phase comparison remain candidate evidence; exact service, effective rights, and durable publication are missing.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3511,7 +3511,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_handle_observation.cpp",
-          "sha256": "ef8eccf86d6c7c9ec553d6dda0cecf523052fca22f7e4c1b3ab5728d8ee733d2"
+          "sha256": "5c3f97ac4586cc910185eeebe95846214a69d9b15561cd9b148a961465978f85"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_token_observation.cpp",
@@ -3547,11 +3547,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
-          "sha256": "89cf814096f4fdf6d48739556a7d790f1ff93b432694d970010342f1932ae551"
+          "sha256": "c64adf3bcf34ea9648e2e6223cb3d1c813be56a6bcea1eb4fa02e00338db2688"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
-          "sha256": "06f76f9fbc45c26daa468f0425943c27fa5b54ed0898546985497913d9e8f27c"
+          "sha256": "841222771e836e180fd006467b2717a32233095e5a532d221f4ef09a856044d1"
         },
         {
           "path": "tests/native/usk_publisher_directory_entries_smoke.cpp",
@@ -3559,7 +3559,19 @@
         },
         {
           "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
-          "sha256": "49565ac8c8b86137c4762aa25837e5fd2edd1151abf5d8982a04690c19512e19"
+          "sha256": "d3ea495edcf5a437106ee0eeea5bde51681bc02b3772a8e88335131cd4f34c1b"
+        },
+        {
+          "path": "runtime/platform/windows/README.md",
+          "sha256": "e3412e41044fdf0d4bec93827880876299cb188982d6abba00d9e955cd8c17b1"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.h",
+          "sha256": "845c4648b91f6537b295ab335dad91ea8c7f7b253ae3b0ddcedb9f56b24cfb7f"
+        },
+        {
+          "path": "tests/native/usk_publisher_handle_observation_smoke.cpp",
+          "sha256": "422dfd83b69d6f6548cf6773e217fcb3b50768172a1169b169acb5560c2f5398"
         }
       ],
       "acceptance_ids": [
@@ -3615,7 +3627,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Disposable candidates record native root/parent/visible file IDs, same-handle owner/DACL and token facts, and parent-bound anchor creation, but no durable publication receipt binds the full closure and protected service profile; target qualification remains absent. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification.",
+      "note": "Disposable candidates record native root/parent/visible file IDs, same-handle owner/DACL and token facts, and parent-bound anchor creation, but no durable publication receipt binds the full closure and protected service profile; target qualification remains absent. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification. Structured same-handle security facts and phase comparison remain candidate evidence; exact service, effective rights, and durable publication are missing.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3639,11 +3651,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_handle_observation.cpp",
-          "sha256": "ef8eccf86d6c7c9ec553d6dda0cecf523052fca22f7e4c1b3ab5728d8ee733d2"
+          "sha256": "5c3f97ac4586cc910185eeebe95846214a69d9b15561cd9b148a961465978f85"
         },
         {
           "path": "tests/native/usk_publisher_handle_observation_smoke.cpp",
-          "sha256": "671c9a61f8c1c1ca5933b24cde20e71bdb1bced6a851e94b7ae589a6293953b8"
+          "sha256": "422dfd83b69d6f6548cf6773e217fcb3b50768172a1169b169acb5560c2f5398"
         },
         {
           "path": "tests/native/usk_publisher_token_observation_smoke.cpp",
@@ -3679,11 +3691,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
-          "sha256": "89cf814096f4fdf6d48739556a7d790f1ff93b432694d970010342f1932ae551"
+          "sha256": "c64adf3bcf34ea9648e2e6223cb3d1c813be56a6bcea1eb4fa02e00338db2688"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
-          "sha256": "06f76f9fbc45c26daa468f0425943c27fa5b54ed0898546985497913d9e8f27c"
+          "sha256": "841222771e836e180fd006467b2717a32233095e5a532d221f4ef09a856044d1"
         },
         {
           "path": "tests/native/usk_publisher_directory_entries_smoke.cpp",
@@ -3691,7 +3703,15 @@
         },
         {
           "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
-          "sha256": "49565ac8c8b86137c4762aa25837e5fd2edd1151abf5d8982a04690c19512e19"
+          "sha256": "d3ea495edcf5a437106ee0eeea5bde51681bc02b3772a8e88335131cd4f34c1b"
+        },
+        {
+          "path": "runtime/platform/windows/README.md",
+          "sha256": "e3412e41044fdf0d4bec93827880876299cb188982d6abba00d9e955cd8c17b1"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.h",
+          "sha256": "845c4648b91f6537b295ab335dad91ea8c7f7b253ae3b0ddcedb9f56b24cfb7f"
         }
       ],
       "acceptance_ids": [
