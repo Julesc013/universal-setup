@@ -86,6 +86,17 @@ install/verify/repair/move/update/recovery matrix and legacy-report budget remai
 open. The 2 GiB result establishes one multi-gigabyte install shape, not the
 full corpus or release acceptance.
 
+The R4 continuation completed one full 4,096-entry streamed install with a
+1 MiB total payload on Windows 10 build 19045, C: NTFS, Debug. The isolated
+child exited successfully with a 92,921,856-byte OS peak working set over
+2,756,388 ms. `m1_lifecycle_memory_4096_install_r4.v1.json` binds source
+`2dcb067044925c43cd76ef6223453029c13de611`, tree
+`2a57cb175b613abbab514a0cb23ed4d225dfdb23`, and the measured binary
+SHA-256. The 4,096-file staging and install/verification path ran end to end;
+the output does not measure the other operations, and a later report-budget
+source change means this historical binary observation cannot be silently
+rebound to the changed bytes.
+
 `m1_lifecycle_legacy_report_memory_observations.v1.json` measures the
 prior-format ownership reader separately for verify and uninstall planning.
 The native fixture writes one-byte files and a real ownership record in a
@@ -116,6 +127,16 @@ peaks were 64,434,176, 64,520,192 and 64,630,784 bytes respectively, below the
 enforced aggregate report allocation budget or a completed full 4,096-file
 lifecycle matrix. The new observations remain local ordinary-user Debug
 evidence; they do not qualify the protected publisher or release acceptance.
+
+Verification now charges every owned file, owned directory, and observed
+unknown path to a combined limit of 16,384 report entries and 4 MiB of
+cumulative relative-path text. Crossing either limit raises an explicit
+resource-budget error before a report or uninstall plan is returned. An
+isolated native `--report-budget-smoke` fixture installs a small owned payload,
+adds 16,384 unknown files, and observes budget refusal from both verification
+and uninstall planning while all owned and unknown files remain present. This
+is a deterministic count/path-text bound, not an exact allocator-byte ceiling;
+the current-source process peak and full operation matrix remain to be measured.
 
 Move planning binds the source root's native identity. Move staging checks root
 identity and ancestor path safety before and after each source read and again
