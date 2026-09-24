@@ -88,14 +88,15 @@ full corpus or release acceptance.
 
 `m1_lifecycle_legacy_report_memory_observations.v1.json` measures the
 prior-format ownership reader separately for verify and uninstall planning.
-The native fixture writes one-byte files and a real ownership record, then
-uses the public lifecycle functions. On Windows 10 build 19045, C: NTFS Debug,
-128-file verify and uninstall planning peaked at 11,620,352 and 11,624,448
-bytes respectively. At 4,097 files the peaks were 55,652,352 and 55,513,088
-bytes; at 8,192 files they were 102,699,008 and 101,961,728 bytes. A
-combined 4,097-file sequence, with its first report released before planning,
-peaked at 57,876,480 bytes. These are process peaks that include fixture
-construction, record parsing, reporting, and plan hashing; they do not isolate
+The native fixture writes one-byte files and a real ownership record in a
+separate setup process, then a fresh measured child invokes the public
+lifecycle function. On Windows 10 build 19045, C: NTFS Debug, 128-file verify
+and uninstall planning peaked at 11,440,128 and 11,489,280 bytes respectively.
+At 4,097 files the peaks were 53,506,048 and 53,542,912 bytes; at 8,192 files
+they were 97,431,552 and 97,804,288 bytes. A combined 4,097-file sequence,
+with its first report released before planning, peaked at 53,776,384 bytes.
+Fixture construction and cleanup are outside the measured process. Its peak
+includes record parsing, reporting, and plan hashing, so it does not isolate
 allocator ownership by subsystem. The 8,192-file cases exceed a 64 MiB
 comparison threshold, and the current legacy reader has no aggregate report
 budget at that shape. Compatibility is preserved, but full lifecycle memory
