@@ -268,7 +268,8 @@ void write_text(const fs::path& path, const std::string& text)
     output << text;
 }
 
-int legacy_ownership_compatibility_proof(std::size_t file_count = 4097)
+int legacy_ownership_compatibility_proof(std::size_t file_count = 4097,
+    const std::string& operation = "legacy_report")
 {
     Fixture fixture;
     const fs::path target = fixture.root / "targets/legacy";
@@ -311,13 +312,17 @@ int legacy_ownership_compatibility_proof(std::size_t file_count = 4097)
     installed.lifecycle_status = "installed";
     repository.write_installed(installed);
 
-    const auto verified = usk::lifecycle::verify_installed(fixture.roots, installed.install_id,
-        "verify.legacy.current", "2026-07-14T00:00:01Z");
-    if (verified.status != "pass" || verified.files.size() != file_count) return 60;
-    const auto uninstall = usk::lifecycle::plan_uninstall(fixture.roots, installed.install_id,
-        "plan.legacy.uninstall", "2026-07-14T00:00:02Z");
-    if (uninstall.verification.status != "pass" ||
-        uninstall.verification.files.size() != file_count || uninstall.plan_digest.size() != 64) return 61;
+    if (operation != "legacy_uninstall_plan") {
+        const auto verified = usk::lifecycle::verify_installed(fixture.roots, installed.install_id,
+            "verify.legacy.current", "2026-07-14T00:00:01Z");
+        if (verified.status != "pass" || verified.files.size() != file_count) return 60;
+    }
+    if (operation != "legacy_verify") {
+        const auto uninstall = usk::lifecycle::plan_uninstall(fixture.roots, installed.install_id,
+            "plan.legacy.uninstall", "2026-07-14T00:00:02Z");
+        if (uninstall.verification.status != "pass" ||
+            uninstall.verification.files.size() != file_count || uninstall.plan_digest.size() != 64) return 61;
+    }
     return 0;
 }
 
@@ -608,13 +613,14 @@ int run()
 int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
     std::size_t entries, bool materialized)
 {
-    if (operation == "legacy_report") {
-        if (materialized || (entries != 128 && entries != 4097) ||
+    if (operation == "legacy_report" || operation == "legacy_verify" ||
+        operation == "legacy_uninstall_plan") {
+        if (materialized || (entries != 128 && entries != 4097 && entries != 8192) ||
             payload_bytes != entries) {
             throw std::runtime_error("legacy report scenario dimensions are invalid");
         }
-        if (const int result = legacy_ownership_compatibility_proof(entries)) return result;
-        std::cout << "memory-scenario-pass legacy_report legacy_record " <<
+        if (const int result = legacy_ownership_compatibility_proof(entries, operation)) return result;
+        std::cout << "memory-scenario-pass " << operation << " legacy_record " <<
             payload_bytes << ' ' << entries << '\n';
         return 0;
     }
