@@ -103,22 +103,28 @@ std::vector<ObservedAce> observe_aces(PACL dacl) {
 }
 } // namespace
 
-PublisherHandleObservation observe_publisher_directory_handle(HANDLE handle) {
+static PublisherHandleObservation observe_publisher_handle(HANDLE handle,
+    bool require_directory) {
     if (!handle || handle == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("publisher observation requires an open handle");
     }
     FILE_ID_INFO id{};
     FILE_ATTRIBUTE_TAG_INFO attributes{};
     FILE_STANDARD_INFO standard{};
-    FILE_CASE_SENSITIVE_INFO case_info{};
     if (!GetFileInformationByHandleEx(handle, FileIdInfo, &id, sizeof(id)) ||
         !GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &attributes, sizeof(attributes)) ||
-        !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard, sizeof(standard)) ||
-        !GetFileInformationByHandleEx(handle, FileCaseSensitiveInfo, &case_info, sizeof(case_info))) {
-        throw std::runtime_error("publisher observation cannot read all directory identity facts");
+        !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard, sizeof(standard))) {
+        throw std::runtime_error("publisher observation cannot read all object identity facts");
     }
-    if ((attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
-        throw std::runtime_error("publisher observation requires a directory handle");
+    const bool directory =
+        (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (directory != require_directory) {
+        throw std::runtime_error("publisher observation handle type differs from the required type");
+    }
+    FILE_CASE_SENSITIVE_INFO case_info{};
+    if (directory && !GetFileInformationByHandleEx(handle, FileCaseSensitiveInfo,
+            &case_info, sizeof(case_info))) {
+        throw std::runtime_error("publisher observation cannot read directory case facts");
     }
     const std::wstring name = handle_name(handle);
     PSID owner = nullptr;
@@ -136,9 +142,20 @@ PublisherHandleObservation observe_publisher_directory_handle(HANDLE handle) {
     if (!GetSecurityDescriptorControl(raw_descriptor, &control, &revision)) {
         throw std::runtime_error("publisher observation cannot read DACL control flags");
     }
-    return {file_id_text(id), name, attributes.FileAttributes, attributes.ReparseTag,
+    const DWORD reparse_tag =
+        (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ?
+        attributes.ReparseTag : 0;
+    return {file_id_text(id), name, attributes.FileAttributes, reparse_tag,
         standard.NumberOfLinks, (case_info.Flags & FILE_CS_FLAG_CASE_SENSITIVE_DIR) != 0,
         sid_text(owner), (control & SE_DACL_PROTECTED) != 0, observe_aces(dacl)};
+}
+
+PublisherHandleObservation observe_publisher_directory_handle(HANDLE handle) {
+    return observe_publisher_handle(handle, true);
+}
+
+PublisherHandleObservation observe_publisher_file_handle(HANDLE handle) {
+    return observe_publisher_handle(handle, false);
 }
 
 } // namespace usk::platform::windows

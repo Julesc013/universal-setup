@@ -14,6 +14,7 @@
 
 namespace fs = std::filesystem;
 using usk::platform::windows::observe_publisher_directory_handle;
+using usk::platform::windows::observe_publisher_file_handle;
 
 namespace {
 class Handle {
@@ -102,6 +103,24 @@ int main() {
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             check(refused(regular.get()), "regular file was admitted as a directory");
+            const auto observed_file = observe_publisher_file_handle(regular.get());
+            check((observed_file.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
+                observed_file.link_count == 1 && !observed_file.owner_sid.empty() &&
+                !observed_file.dacl_aces.empty() && !observed_file.case_sensitive,
+                "same-handle regular-file security facts were not observed");
+            check(observed_file.native_name.size() >= 8 &&
+                observed_file.native_name.substr(
+                    observed_file.native_name.size() - 8) == L"file.bin",
+                "same-handle regular-file native name diverged");
+        }
+        {
+            Handle limited(CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+            bool denied = false;
+            try { (void)observe_publisher_file_handle(limited.get()); }
+            catch (const std::runtime_error&) { denied = true; }
+            check(denied, "file handle lacking READ_CONTROL supplied security facts");
         }
         fs::remove(file);
         fs::remove(directory);

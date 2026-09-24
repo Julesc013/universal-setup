@@ -42,5 +42,22 @@ and alternate-stream refusal. A file's listing size was observed as stale
 while its writer handle remained open; content size comes from the reopened
 handle. `FILE_OPEN_NO_RECALL` returned `STATUS_INVALID_PARAMETER` with the
 candidate relative-open options on Windows 10 build 19045 and is not used.
-The tree candidate still lacks protected owner/DACL/effective-right evidence,
-anchor/ancestor admission, phase comparison, and durable publication/recovery.
+The tree walk by itself is a fresh observation; it does not admit protected
+security or anchor/ancestor roles, or durably publish and recover.
+
+The following local slice extends the same-handle security observer to regular
+files and includes owner, DACL protection, and ordered ACE facts for every
+read-only descendant observation. A comparison helper requires fresh phase
+volume/root/descendant equality, with one caller-supplied expected native root
+path transition for a post-rename observation. A disposable fixture checks a
+descendant DACL-control change and an actual root rename. The expected visible
+path still has to come from independently bound destination-parent evidence;
+the helper does not establish effective rights, protected service provenance,
+or crash-safe publication.
+
+A necessary security-shape predicate checks the exact `SYSTEM` owner,
+protected DACL, and two ordered allow ACEs for a canonical service SID on the
+root and every descendant. The ordinary-user OS tree is rejected and a
+synthetic matching structure passes; the synthetic pass is not an OS admission
+result. The actual restricted SCM service, effective-right checks, protected
+volume-root chain, and attacker harness are still required.

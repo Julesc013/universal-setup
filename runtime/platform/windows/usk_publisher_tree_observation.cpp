@@ -5,12 +5,17 @@
 
 #if defined(_WIN32)
 #include "usk_publisher_directory_entries.h"
+#include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_sha256.h"
+
+#include <sddl.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -151,23 +156,117 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
             throw std::runtime_error("publisher tree exceeds its content budget");
         }
         content_bytes += size;
+        const auto observed = child_directory ?
+            observe_publisher_directory_handle(reopened.get()) :
+            observe_publisher_file_handle(reopened.get());
+        if (observed.attributes != attributes.FileAttributes ||
+            observed.link_count != standard.NumberOfLinks ||
+            (child_directory && observed.case_sensitive)) {
+            throw std::runtime_error("publisher tree same-handle security facts diverged from identity");
+        }
         const std::wstring path = prefix.empty() ? child.name :
             prefix + L"/" + child.name;
-        const std::size_t entry_bytes = sizeof(PublisherTreeEntry) +
-            path.size() * sizeof(WCHAR) + 64;
+        std::size_t entry_bytes = sizeof(PublisherTreeEntry) +
+            (path.size() + observed.native_name.size()) * sizeof(WCHAR) +
+            observed.file_id.size() + observed.owner_sid.size() + 64;
+        for (const auto& ace : observed.dacl_aces) {
+            entry_bytes += sizeof(ObservedAce) + ace.sid.size();
+        }
         if (entry_bytes > maximum_evidence_bytes - evidence_bytes) {
             throw std::runtime_error("publisher tree exceeds its evidence budget");
         }
         evidence_bytes += entry_bytes;
         const std::string digest = child_directory ? std::string() :
             hash_file(reopened.get(), size);
-        result.descendants.push_back({path, file_id, attributes.FileAttributes,
-            child_directory, size, digest});
+        result.descendants.push_back({path, observed, size, digest});
         if (child_directory) {
             walk(reopened.get(), path, depth + 1, volume, result, seen,
                 content_bytes, evidence_bytes, live_listing_bytes);
         }
     }
+}
+
+bool same_aces(const std::vector<ObservedAce>& left,
+    const std::vector<ObservedAce>& right) {
+    if (left.size() != right.size()) return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        if (left[index].type != right[index].type ||
+            left[index].flags != right[index].flags ||
+            left[index].access_mask != right[index].access_mask ||
+            left[index].sid != right[index].sid) return false;
+    }
+    return true;
+}
+
+struct LocalFreeDeleter {
+    void operator()(void* pointer) const { if (pointer) LocalFree(pointer); }
+};
+
+void require_canonical_service_sid(const std::string& service_sid) {
+    PSID raw = nullptr;
+    if (service_sid.empty() ||
+        !ConvertStringSidToSidA(service_sid.c_str(), &raw)) {
+        throw std::runtime_error("publisher security shape needs a valid service SID");
+    }
+    std::unique_ptr<void, LocalFreeDeleter> owned(raw);
+    const SID_IDENTIFIER_AUTHORITY nt_authority = SECURITY_NT_AUTHORITY;
+    if (!IsValidSid(raw) || *GetSidSubAuthorityCount(raw) != 6 ||
+        *GetSidSubAuthority(raw, 0) != SECURITY_SERVICE_ID_BASE_RID ||
+        std::memcmp(GetSidIdentifierAuthority(raw), &nt_authority,
+            sizeof(nt_authority)) != 0) {
+        throw std::runtime_error("publisher security shape needs a Windows service SID");
+    }
+    LPSTR canonical = nullptr;
+    if (!ConvertSidToStringSidA(raw, &canonical)) {
+        throw std::runtime_error("publisher service SID cannot be rendered");
+    }
+    std::unique_ptr<void, LocalFreeDeleter> canonical_owned(canonical);
+    if (service_sid != canonical) {
+        throw std::runtime_error("publisher service SID is not canonical");
+    }
+}
+
+void require_protected_object_shape(const PublisherHandleObservation& object,
+    const std::string& service_sid) {
+    const auto allowed_mask = publisher_directory_access_mask();
+    if (object.owner_sid != "S-1-5-18" || !object.dacl_protected ||
+        object.link_count != 1 || object.dacl_aces.size() != 2 ||
+        (object.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        ((object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+            object.case_sensitive)) {
+        throw std::runtime_error("publisher protected object shape differs from the profile");
+    }
+    const auto& system = object.dacl_aces[0];
+    const auto& service = object.dacl_aces[1];
+    if (system.type != ACCESS_ALLOWED_ACE_TYPE || system.flags != 0 ||
+        system.access_mask != allowed_mask || system.sid != "S-1-5-18" ||
+        service.type != ACCESS_ALLOWED_ACE_TYPE || service.flags != 0 ||
+        service.access_mask != allowed_mask || service.sid != service_sid) {
+        throw std::runtime_error("publisher protected DACL ACEs differ from the profile");
+    }
+}
+
+bool same_handle_facts(const PublisherHandleObservation& left,
+    const PublisherHandleObservation& right) {
+    return left.file_id == right.file_id &&
+        left.attributes == right.attributes &&
+        left.reparse_tag == right.reparse_tag &&
+        left.link_count == right.link_count &&
+        left.case_sensitive == right.case_sensitive &&
+        left.owner_sid == right.owner_sid &&
+        left.dacl_protected == right.dacl_protected &&
+        same_aces(left.dacl_aces, right.dacl_aces);
+}
+
+std::wstring descendant_native_name(const std::wstring& root,
+    const std::wstring& relative) {
+    if (root.empty() || relative.empty()) {
+        throw std::runtime_error("publisher phase has an empty native path");
+    }
+    std::wstring result = root;
+    if (result.back() != L'\\') result += L'\\';
+    for (const wchar_t ch : relative) result += ch == L'/' ? L'\\' : ch;
+    return result;
 }
 } // namespace
 
@@ -186,10 +285,15 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root) {
     const auto volume = observe_local_ntfs_volume_handle(root);
     const auto root_id = handle_id(root);
     PublisherTreeObservation result{};
-    result.volume_serial = volume.file_id_volume_serial;
+    result.volume = volume;
+    result.root = observe_publisher_directory_handle(root);
+    if (result.root.case_sensitive) {
+        throw std::runtime_error("publisher tree root has case sensitivity enabled");
+    }
+    std::array<std::uint8_t, 16> root_file_id{};
     std::copy(std::begin(root_id.FileId.Identifier),
-        std::end(root_id.FileId.Identifier), result.root_file_id.begin());
-    std::set<std::array<std::uint8_t, 16>> seen{result.root_file_id};
+        std::end(root_id.FileId.Identifier), root_file_id.begin());
+    std::set<std::array<std::uint8_t, 16>> seen{root_file_id};
     std::uint64_t content_bytes = 0;
     std::size_t evidence_bytes = 0;
     std::size_t live_listing_bytes = 0;
@@ -207,6 +311,52 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root) {
             return order == CSTR_LESS_THAN;
         });
     return result;
+}
+
+void require_publisher_tree_phase_match(
+    const PublisherTreeObservation& sealed,
+    const PublisherTreeObservation& observed,
+    const std::wstring& visible_root_name) {
+    const auto& left = sealed.volume;
+    const auto& right = observed.volume;
+    if (left.volume_label != right.volume_label ||
+        left.volume_information_serial != right.volume_information_serial ||
+        left.file_id_volume_serial != right.file_id_volume_serial ||
+        left.filesystem_name != right.filesystem_name ||
+        left.maximum_component_length != right.maximum_component_length ||
+        left.filesystem_flags != right.filesystem_flags ||
+        left.remote_protocol_error != right.remote_protocol_error ||
+        !same_handle_facts(sealed.root, observed.root) ||
+        sealed.descendants.size() != observed.descendants.size()) {
+        throw std::runtime_error("publisher phase volume, root or closure count diverged");
+    }
+    const std::wstring expected_root = visible_root_name.empty() ?
+        sealed.root.native_name : visible_root_name;
+    if (observed.root.native_name != expected_root) {
+        throw std::runtime_error("publisher phase root native path diverged");
+    }
+    for (std::size_t index = 0; index < sealed.descendants.size(); ++index) {
+        const auto& before = sealed.descendants[index];
+        const auto& after = observed.descendants[index];
+        if (before.relative_path != after.relative_path ||
+            !same_handle_facts(before.object, after.object) ||
+            before.size != after.size || before.sha256 != after.sha256 ||
+            before.object.native_name != descendant_native_name(
+                sealed.root.native_name, before.relative_path) ||
+            after.object.native_name != descendant_native_name(
+                expected_root, after.relative_path)) {
+            throw std::runtime_error("publisher phase descendant facts diverged");
+        }
+    }
+}
+
+void require_publisher_tree_security_shape(
+    const PublisherTreeObservation& tree, const std::string& service_sid) {
+    require_canonical_service_sid(service_sid);
+    require_protected_object_shape(tree.root, service_sid);
+    for (const auto& entry : tree.descendants) {
+        require_protected_object_shape(entry.object, service_sid);
+    }
 }
 
 } // namespace usk::platform::windows
