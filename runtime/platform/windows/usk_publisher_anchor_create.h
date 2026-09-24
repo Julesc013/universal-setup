@@ -25,6 +25,14 @@ HANDLE create_directory_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
     const std::vector<unsigned char>& security_descriptor);
 
+// Create a regular staged file with the same parent-bound, create-only and
+// creation-time descriptor rules. The returned non-inheritable handle permits
+// writing and must be closed by the caller. This primitive does not establish
+// protected-parent provenance or enable the strict publisher.
+HANDLE create_file_relative_with_descriptor(
+    HANDLE parent, const std::wstring& name,
+    const std::vector<unsigned char>& security_descriptor);
+
 } // namespace usk::platform::windows
 #endif
 
