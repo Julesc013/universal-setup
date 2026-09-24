@@ -406,10 +406,39 @@ if(USK_BUILD_APPS)
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/evidence"
   )
   target_link_libraries(usk_live_acceptance PRIVATE usk_static usk_base_static usk_state_static)
+
+  add_executable(usk_machine
+    apps/cli/usk_machine.cpp
+    runtime/command/usk_one_shot.cpp)
+  target_compile_features(usk_machine PRIVATE cxx_std_17)
+  target_include_directories(usk_machine PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(usk_machine PRIVATE usk_static usk_base_static)
+  usk_enable_strict_warnings(usk_machine)
 endif()
 
 if(USK_BUILD_TESTS)
   enable_testing()
+
+  add_executable(usk_one_shot_smoke
+    tests/native/usk_one_shot_smoke.cpp
+    runtime/command/usk_one_shot.cpp)
+  target_compile_features(usk_one_shot_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_one_shot_smoke PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(usk_one_shot_smoke PRIVATE usk_static usk_base_static)
+  usk_enable_strict_warnings(usk_one_shot_smoke)
+  add_test(NAME usk_one_shot_smoke COMMAND usk_one_shot_smoke)
+  if(USK_BUILD_APPS)
+    add_test(NAME usk_machine_process_smoke
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_machine_process_probe.py"
+        "$<TARGET_FILE:usk_machine>")
+  endif()
 
   add_executable(usk_abi_layout_smoke tests/native/usk_abi_layout_smoke.c)
   target_link_libraries(usk_abi_layout_smoke PRIVATE usk_headers)

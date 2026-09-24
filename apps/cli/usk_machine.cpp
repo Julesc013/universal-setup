@@ -1,0 +1,55 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
+#include "usk_one_shot.h"
+
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#ifdef _WIN32
+#include <cstdio>
+#include <fcntl.h>
+#include <io.h>
+#endif
+
+int main(int argc, char** argv)
+{
+    if ((argc != 2 && argc != 4) ||
+        (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed") ||
+        (argc == 4 && (std::string(argv[2]) != "--request-file" || argv[3][0] == '\0'))) {
+        std::cerr << "usage: usk_machine --machine|--framed [--request-file path]\n";
+        return 2;
+    }
+    const bool framed = std::string(argv[1]) == "--framed";
+#ifdef _WIN32
+    // A frame is bytes, not CRT text: Ctrl+Z and newline translation corrupt it.
+    if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
+        _setmode(_fileno(stdout), _O_BINARY) == -1) {
+        std::cerr << "usk_machine: binary stream unavailable\n";
+        return 3;
+    }
+#endif
+    usk::command::OneShotResult result;
+    try {
+        std::ifstream file;
+        std::istream* source = &std::cin;
+        if (argc == 4) {
+            file.open(argv[3], std::ios::binary);
+            if (!file) throw std::runtime_error("request file unavailable");
+            source = &file;
+        }
+        const std::string request = usk::command::read_bounded_request(*source, framed);
+        result = usk::command::run_one_shot(request);
+    } catch (const std::exception&) {
+        result = usk::command::invalid_frame_result();
+    }
+    try {
+        usk::command::write_result(std::cout, result.document, framed);
+    } catch (const std::exception&) {
+        std::cerr << "usk_machine: output failed\n";
+        return 3;
+    }
+    if (!result.diagnostic.empty()) std::cerr << "usk_machine: " << result.diagnostic << '\n';
+    return result.exit_code;
+}
