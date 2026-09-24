@@ -9,11 +9,13 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from usk_bundle_author import compile_bundle
 from usk_prefab_envelope import EnvelopeError, build_envelope, inspect_envelope
+import usk_prefab_envelope
 from tests.test_bundle_author import project, write_project
 
 
@@ -93,6 +95,26 @@ class PrefabEnvelopeTests(unittest.TestCase):
                             encoding="ascii")
             with self.assertRaises(EnvelopeError):
                 inspect_envelope(output)
+
+    def test_concurrent_manifest_creation_is_never_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle, runtime = self._inputs(root)
+            output = root / "output"
+            output.mkdir()
+            original = usk_prefab_envelope._copy_observed
+
+            def competing_writer(source, destination, limit=None):
+                result = original(source, destination, limit)
+                outsider = output / "prefab.manifest.json"
+                if not outsider.exists():
+                    outsider.write_bytes(b"concurrent writer")
+                return result
+
+            with mock.patch.object(usk_prefab_envelope, "_copy_observed", competing_writer):
+                with self.assertRaises(FileExistsError):
+                    build_envelope(bundle, runtime, "sidecar", output)
+            self.assertEqual((output / "prefab.manifest.json").read_bytes(), b"concurrent writer")
 
 
 if __name__ == "__main__":

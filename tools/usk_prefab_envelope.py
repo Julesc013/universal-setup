@@ -174,7 +174,8 @@ def build_envelope(bundle_path: Path, runtime: Path, profile: str, output_dir: P
                                           MAX_RUNTIME_BYTES if name == RUNTIME_NAME else None)
             if observed != entries[name]:
                 raise EnvelopeError("source identity changed after inventory")
-        (output_dir / "prefab.manifest.json").write_bytes(manifest_bytes)
+        with (output_dir / "prefab.manifest.json").open("xb") as output:
+            output.write(manifest_bytes)
         inspect_envelope(output_dir)
     else:
         carrier = output_dir / "setup.carrier.zip"
