@@ -273,7 +273,8 @@ static int usk_json_append_field(
 
 static int usk_descriptor_is_executable(const usk_command_descriptor* descriptor)
 {
-    return strcmp(descriptor->availability, "planned") != 0;
+    return strcmp(descriptor->availability, "planned") != 0 &&
+        !(descriptor->handler == usk_handle_static && descriptor->response_status != USK_STATUS_OK);
 }
 
 static const char* usk_canonical_operation(const char* command)

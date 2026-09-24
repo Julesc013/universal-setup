@@ -134,7 +134,7 @@ static int run_command(
     return 0;
 }
 
-int main(void)
+int main(int argc, char** argv)
 {
     static const char* expected_commands[] = {
         "command_graph.inspect",
@@ -189,6 +189,17 @@ int main(void)
 
     if (usk_context_create_v1(0, &context) != USK_STATUS_OK || context == 0) {
         return 10;
+    }
+    if (argc == 2 && strcmp(argv[1], "--dump-v2") == 0) {
+        status = execute_status(context, "command_graph.inspect_v2", &response);
+        if (status != USK_STATUS_OK || response.status != USK_STATUS_OK ||
+            fwrite(response.json_payload.data, 1, (size_t)response.json_payload.size, stdout) !=
+                (size_t)response.json_payload.size) {
+            usk_context_destroy_v1(context);
+            return 42;
+        }
+        usk_context_destroy_v1(context);
+        return 0;
     }
     if (usk_abi_version_v1() != ((USK_API_VERSION_MAJOR << 16) | USK_API_VERSION_MINOR)) {
         return 11;
@@ -270,6 +281,12 @@ int main(void)
         operation_start = strstr(descriptor_start, operation_marker);
         if (operation_start == 0 || operation_start >= descriptor_end) {
             return 40;
+        }
+        if (strcmp(expected_commands[index], "verify.report") == 0) {
+            const char* executable = strstr(descriptor_start, "\"executable\":false");
+            if (executable == 0 || executable >= descriptor_end) {
+                return 41;
+            }
         }
     }
 

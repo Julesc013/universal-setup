@@ -7,7 +7,7 @@ import json
 import unittest
 from pathlib import Path
 
-from contracts.schema.transaction.compat import (
+from transaction_compat_reference import (
     LEGACY_OPERATIONS,
     VERSION_TWO_OPERATIONS,
     convert,

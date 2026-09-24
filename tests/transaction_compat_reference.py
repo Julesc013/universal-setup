@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
-"""Lossless version tagging for the retained transaction contracts.
+"""Lossless version tagging for already schema-validated transaction documents.
 
-This adapter does not authorize execution. Modern lifecycle mutation uses the
+Callers must validate input and output against the matching JSON Schema. This
+adapter does not authorize execution. Modern lifecycle mutation uses the
 reviewed operation plans and durable transaction journal instead.
 """
 
