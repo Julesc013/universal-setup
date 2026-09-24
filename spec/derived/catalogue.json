@@ -650,7 +650,7 @@
       "path": "plan/tasks/usk-wu-013.md",
       "title": "Add exact one-shot command host and machine CLI",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "a423225b11acf69847b7bf72bd66402ce79ce83062d24c62f4569c0c8bf09a21",
+      "sha256": "f90ebd1bd6926114637cb3997a6203afce3f86c2fe07192d1f1124d4e6772366",
       "depends_on": [
         "USK-S-WIRE",
         "USK-S-CLI",
@@ -662,7 +662,7 @@
       "path": "plan/tasks/usk-wu-014.md",
       "title": "Build no-code generic and embedded setup envelopes",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "ea1d77e15bef6c54a5c030ebcce47ebe38e0ba2065d9d83c83665442f7be10ee",
+      "sha256": "903015a9ee2187a44940fcec679669626611b32c5b7dce5e652806ccc41a3065",
       "depends_on": [
         "USK-S-PREFAB",
         "USK-S-AUTHOR",
@@ -674,7 +674,7 @@
       "path": "plan/tasks/usk-wu-015.md",
       "title": "Add owned operation API and progress/cancellation",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "ebffab5be75a42cae20f03d22af44fde3a30802658b2ddbc5cf78aa0cd982839",
+      "sha256": "990045648094aa6f33f92fb46fbe57753f7d7cf32cc842aa92863015f6091a4c",
       "depends_on": [
         "USK-S-API",
         "USK-S-TXN"
@@ -685,7 +685,7 @@
       "path": "plan/tasks/usk-wu-016.md",
       "title": "Implement shared setup presentation service",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "b3c1801b1bbc8eba18002fa018bdfff206b467f95e3719017e8fd3598bd29a6b",
+      "sha256": "a4a225bfcfd16d77175019b9e26105ae275d49c1e52d7d81548df5b31be8d68f",
       "depends_on": [
         "USK-S-PRESENT",
         "USK-S-OPS"
@@ -696,7 +696,7 @@
       "path": "plan/tasks/usk-wu-017.md",
       "title": "Complete human CLI and both TUI modes",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "dd7b15e85ee0b2d2c79a11af26ccc049db52e9433e9becb3ee0ccceaaa906396",
+      "sha256": "52ada07b63459af994cbcca8e4646f1231202a7189767c844a35ab274374db70",
       "depends_on": [
         "USK-S-CLI",
         "USK-S-PRESENT"
@@ -707,7 +707,7 @@
       "path": "plan/tasks/usk-wu-018.md",
       "title": "Build first native prefab and interface laboratory",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "8a2cf424ce375c0e9c8b8116b5ba1f8640d7f543b41670debcf64a796eb9080d",
+      "sha256": "de020f3a56369ad0edce4a2a565ac33ca34addae3634414e3aa7c49c2f7658c1",
       "depends_on": [
         "USK-S-GUI",
         "USK-S-PREFAB"
@@ -3963,6 +3963,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        "CMakeLists.txt",
         "apps/cli/**",
         "runtime/command/**",
         "tests/**",
@@ -4090,6 +4091,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        "CMakeLists.txt",
         "apps/cli/**",
         "tools/**",
         "release/packaging/**",
@@ -4210,6 +4212,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        "CMakeLists.txt",
         "include/usk/**",
         "runtime/setup/kernel/**",
         "runtime/command/**",
@@ -4331,6 +4334,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        "CMakeLists.txt",
         "runtime/command/**",
         "contracts/schema/setup/**",
         "tests/**",
@@ -4449,6 +4453,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        "CMakeLists.txt",
         "apps/cli/**",
         "apps/tui/**",
         "tests/**",
@@ -4569,6 +4574,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        "CMakeLists.txt",
         "apps/gui/**",
         "contracts/schema/setup/**",
         "tests/**",
