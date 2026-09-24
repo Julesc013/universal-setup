@@ -5,11 +5,11 @@
   "repository_base_commit": "16a773ea964f5d3228647795d17ae4ff6dbbc20e",
   "repository_base_tree": "fa579840055f6cfb1cf0e852f929d93e45605281",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "59c3a09cd9965aa841cd15ea494efc79d8993303a336c2d9d37c20d1259a3c6d",
+  "spec_aggregate_sha256": "d32bc04880100e4e3ae646eace2290e092db81ca2ad46245b761248190bdcb39",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment is bound to dev@16a773ea964f5d3228647795d17ae4ff6dbbc20e and its exact tree; candidate-only WU-004 specification/test additions make no runtime implementation or qualification claim.",
+  "working_tree_note": "Source-level implementation assessment remains bound to dev@16a773ea964f5d3228647795d17ae4ff6dbbc20e and its exact tree. WU-005 through WU-011 task-scope corrections update the current specification seal but do not change the assessed implementation or claim runtime qualification.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -2244,7 +2244,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "fe1404cdf904d7c106ebbd5b8604e1255f3a6b5d818ee98529d103415604b724"
+          "sha256": "f41998834d83b44342715a345dd386a3a56b1eb2347c036523108f01a97346f6"
         }
       ],
       "acceptance_ids": [
@@ -2280,7 +2280,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "fe1404cdf904d7c106ebbd5b8604e1255f3a6b5d818ee98529d103415604b724"
+          "sha256": "f41998834d83b44342715a345dd386a3a56b1eb2347c036523108f01a97346f6"
         }
       ],
       "acceptance_ids": [
