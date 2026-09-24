@@ -74,6 +74,23 @@ passed locally. The caller's boundary is not yet admitted as the dedicated
 protected volume root; sibling anchor roles, effective rights, service
 provenance, and hostile concurrent mutation remain unqualified.
 
+The read-only anchor-set observer now follows that held chain to its leaf and
+opens four exact sibling roles: staging, destination parent, state, and
+journal. It requires case-insensitively distinct names, disjoint file IDs,
+the same volume, connected native paths, and fresh facts for all four while
+their handles remain open. It re-enumerates and reopens the exact names before
+returning, with one full sibling listing live at a time. The ordinary-user
+fixture exercises role collision
+and changed DACL/identity refusal; it has no protected volume or service.
+
+A separate SCM/token observer now requires a named running own-process service
+whose process ID is the current process, whose SCM SID type is restricted, and
+whose current SYSTEM process token contains the same enabled and restricting
+service SID. It rechecks SCM status and SID type around the token observation.
+The local fixture only verifies refusal for an absent service and malformed
+name. No service has been installed or qualified, and later SCM or handle
+changes remain outside this one observation.
+
 A necessary security-shape predicate checks the exact `SYSTEM` owner,
 protected DACL, and two ordered allow ACEs for a canonical service SID on the
 root and every descendant. The ordinary-user OS tree is rejected and a

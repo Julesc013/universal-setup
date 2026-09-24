@@ -43,6 +43,21 @@ struct PublisherDirectoryChainObservation {
     std::vector<PublisherDirectoryChainLink> children;
 };
 
+struct PublisherAnchorNames {
+    std::wstring staging;
+    std::wstring destination_parent;
+    std::wstring state;
+    std::wstring journal;
+};
+
+struct PublisherAnchorSetObservation {
+    PublisherDirectoryChainObservation chain;
+    PublisherDirectoryChainLink staging;
+    PublisherDirectoryChainLink destination_parent;
+    PublisherDirectoryChainLink state;
+    PublisherDirectoryChainLink journal;
+};
+
 // Read-only candidate closure of namespace, identity, same-handle security
 // facts, streams, and file bytes. Protected-security admission, effective
 // rights, anchor facts, and phase equality are separate obligations.
@@ -82,6 +97,21 @@ void require_publisher_directory_chain_phase_match(
 
 void require_publisher_directory_chain_security_shape(
     const PublisherDirectoryChainObservation& chain,
+    const std::string& service_sid);
+
+// Observe the four distinct sibling anchors while the complete parent chain
+// is still held. The supplied boundary is not independently qualified as a
+// protected volume root; this is a read-only role-closure candidate.
+PublisherAnchorSetObservation observe_publisher_anchor_set(
+    HANDLE boundary, const std::vector<std::wstring>& ancestor_components,
+    const PublisherAnchorNames& names);
+
+void require_publisher_anchor_set_phase_match(
+    const PublisherAnchorSetObservation& earlier,
+    const PublisherAnchorSetObservation& later);
+
+void require_publisher_anchor_set_security_shape(
+    const PublisherAnchorSetObservation& set,
     const std::string& service_sid);
 
 } // namespace usk::platform::windows
