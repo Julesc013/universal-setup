@@ -159,7 +159,7 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int,
         if os.name != "nt":
             raise RuntimeError("isolated legacy child peaks currently require Windows process counters")
         if materialized or operation not in {
-            "legacy_verify", "legacy_uninstall_plan", "legacy_report"
+            "legacy_ownership_load", "legacy_verify", "legacy_uninstall_plan", "legacy_report"
         } or entries not in {128, 4097, 8192} or payload_bytes != entries:
             raise ValueError("legacy scenario dimensions are invalid")
         with tempfile.TemporaryDirectory(prefix="usk-legacy-probe-") as directory:
@@ -178,7 +178,7 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int,
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
-    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery", "plan_install", "legacy_report", "legacy_verify", "legacy_uninstall_plan"])
+    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery", "plan_install", "legacy_report", "legacy_ownership_load", "legacy_verify", "legacy_uninstall_plan"])
     parser.add_argument("payload_bytes", type=int)
     parser.add_argument("entries", type=int)
     parser.add_argument("--materialized", action="store_true")

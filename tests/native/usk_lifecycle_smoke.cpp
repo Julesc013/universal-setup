@@ -319,6 +319,11 @@ void prepare_legacy_ownership_fixture(const fs::path& root,
 int observe_legacy_ownership_fixture(const usk::lifecycle::LifecycleRoots& roots,
     std::size_t file_count, const std::string& operation)
 {
+    if (operation == "legacy_ownership_load") {
+        const usk::state::StateRepository repository(roots.state_root);
+        const auto ownership = repository.read_ownership("ownership.legacy");
+        if (ownership.files.size() != file_count) return 62;
+    }
     if (operation == "legacy_verify" || operation == "legacy_report") {
         const auto verified = usk::lifecycle::verify_installed(roots, "install.legacy",
             "verify.legacy.current", "2026-07-14T00:00:01Z");
@@ -773,7 +778,8 @@ int main(int argc, char** argv)
         }
         if (argc == 5 && std::string(argv[1]) == "--observe-legacy-memory") {
             const std::string operation = argv[2];
-            if (operation != "legacy_verify" && operation != "legacy_uninstall_plan" &&
+            if (operation != "legacy_ownership_load" && operation != "legacy_verify" &&
+                operation != "legacy_uninstall_plan" &&
                 operation != "legacy_report") {
                 throw std::runtime_error("unknown legacy observation operation");
             }
