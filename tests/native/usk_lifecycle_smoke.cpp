@@ -268,7 +268,7 @@ void write_text(const fs::path& path, const std::string& text)
     output << text;
 }
 
-int legacy_ownership_compatibility_proof()
+int legacy_ownership_compatibility_proof(std::size_t file_count = 4097)
 {
     Fixture fixture;
     const fs::path target = fixture.root / "targets/legacy";
@@ -283,7 +283,7 @@ int legacy_ownership_compatibility_proof()
     ownership.install_id = "install.legacy";
     ownership.target_root = target.string();
     ownership.created_by_transaction_id = "tx.legacy.install";
-    for (std::size_t index = 0; index < 4097; ++index) {
+    for (std::size_t index = 0; index < file_count; ++index) {
         const std::string relative = "entry-" + std::to_string(index) + ".bin";
         write_text(target / relative, "x");
         ownership.files.push_back({relative, file_digest, 1});
@@ -313,11 +313,11 @@ int legacy_ownership_compatibility_proof()
 
     const auto verified = usk::lifecycle::verify_installed(fixture.roots, installed.install_id,
         "verify.legacy.current", "2026-07-14T00:00:01Z");
-    if (verified.status != "pass" || verified.files.size() != 4097) return 60;
+    if (verified.status != "pass" || verified.files.size() != file_count) return 60;
     const auto uninstall = usk::lifecycle::plan_uninstall(fixture.roots, installed.install_id,
         "plan.legacy.uninstall", "2026-07-14T00:00:02Z");
     if (uninstall.verification.status != "pass" ||
-        uninstall.verification.files.size() != 4097 || uninstall.plan_digest.size() != 64) return 61;
+        uninstall.verification.files.size() != file_count || uninstall.plan_digest.size() != 64) return 61;
     return 0;
 }
 
@@ -608,6 +608,16 @@ int run()
 int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
     std::size_t entries, bool materialized)
 {
+    if (operation == "legacy_report") {
+        if (materialized || (entries != 128 && entries != 4097) ||
+            payload_bytes != entries) {
+            throw std::runtime_error("legacy report scenario dimensions are invalid");
+        }
+        if (const int result = legacy_ownership_compatibility_proof(entries)) return result;
+        std::cout << "memory-scenario-pass legacy_report legacy_record " <<
+            payload_bytes << ' ' << entries << '\n';
+        return 0;
+    }
     const auto maximum_payload = materialized ?
         128ull * 1024ull * 1024ull : 2ull * 1024ull * 1024ull * 1024ull;
     if (payload_bytes == 0 || payload_bytes > maximum_payload ||

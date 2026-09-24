@@ -127,13 +127,16 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int, mate
         "operation": operation,
         "requested_payload_bytes": payload_bytes,
         "entries": entries,
-        "source_kind": "materialized" if materialized else "streaming",
+        "source_kind": "legacy_record" if operation == "legacy_report" else
+                       ("materialized" if materialized else "streaming"),
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "platform": platform.platform(),
         "temporary_root": tempfile.gettempdir(),
         "filesystem_profile": filesystem_profile(Path(tempfile.gettempdir())),
         "source": source_identity(),
-        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture": ("usk_lifecycle_smoke legacy ownership verify plus uninstall plan; one-byte files"
+                    if operation == "legacy_report" else
+                    "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source"),
         "metric": metric,
         "peak_bytes": peak_bytes,
         "samples": samples,
@@ -146,7 +149,7 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int, mate
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
-    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery", "plan_install"])
+    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery", "plan_install", "legacy_report"])
     parser.add_argument("payload_bytes", type=int)
     parser.add_argument("entries", type=int)
     parser.add_argument("--materialized", action="store_true")
