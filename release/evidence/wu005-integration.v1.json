@@ -1,0 +1,23 @@
+{
+  "schema": "universal.workunit_evidence.v1",
+  "status": "accepted",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-005",
+  "kind": "integration",
+  "claim": "workunit:USK-WU-005:integration",
+  "source_commit": "1587f8bb072243e1f7bfb2d892c1bc923e1d8c07",
+  "source_tree": "833e79478dc0ba71d85dc345853a662adecef0c8",
+  "details": {
+    "pull_request": 69,
+    "merge_commit": "ebda448926c645f09324d3e5bd87bd3a67c1f945",
+    "successful_ci_runs": [
+      35991397652,
+      35991401033
+    ],
+    "agent_review_comment_id": 5812936667,
+    "memory_observations": "docs/testing/m1_lifecycle_memory_observations.v1.json",
+    "measured_code_commit": "140b08b1f4d3a16515a34e848fb55a56cee35fe6",
+    "implemented_scope": "Bounded preimage retention and selected install/verify/repair/move/update-validation/recovery process-memory cases",
+    "qualification": "Selected Windows NTFS Debug cases only; STREAM-001 remains partial; native publisher and larger legacy report peak unqualified"
+  }
+}
