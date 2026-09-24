@@ -1,0 +1,22 @@
+{
+  "schema": "universal.workunit_evidence.v1",
+  "status": "accepted",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-013",
+  "kind": "integration",
+  "claim": "workunit:USK-WU-013:integration",
+  "source_commit": "ec6f5d0a868bfad3eccdea6754f8730edf86f685",
+  "source_tree": "be9ce6f71a9744714915ad3261983d8b623229c1",
+  "details": {
+    "pull_request": 90,
+    "merge_commit": "ed4f5e8e3ad5dc483d8e49dcf04a1ec9be3236f7",
+    "successful_ci_runs": [
+      36039629986,
+      36039638017
+    ],
+    "agent_review_comment_id": 5819608684,
+    "repaired_review_comment_id": 5819555684,
+    "implemented_scope": "Bounded one-shot JSON and big-endian framed machine CLI, explicit request-file input, a closed read-only command subset, owned copy of borrowed public ABI response, generic stderr diagnostics, and process-level protocol probes",
+    "qualification": "Source-level one-shot read-only host only; no human CLI, attached-TTY acceptance, reconnect after effects, mutation routing, broader transport profile, protected publisher or 1.1 product acceptance"
+  }
+}
