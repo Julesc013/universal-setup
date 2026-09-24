@@ -268,6 +268,59 @@ void write_text(const fs::path& path, const std::string& text)
     output << text;
 }
 
+int legacy_ownership_compatibility_proof()
+{
+    Fixture fixture;
+    const fs::path target = fixture.root / "targets/legacy";
+    fs::create_directories(target);
+    const unsigned char byte = 'x';
+    usk::base::Sha256 hash;
+    hash.update(&byte, 1);
+    const std::string file_digest = hash.finish();
+
+    usk::state::OwnershipManifest ownership;
+    ownership.manifest_id = "ownership.legacy";
+    ownership.install_id = "install.legacy";
+    ownership.target_root = target.string();
+    ownership.created_by_transaction_id = "tx.legacy.install";
+    for (std::size_t index = 0; index < 4097; ++index) {
+        const std::string relative = "entry-" + std::to_string(index) + ".bin";
+        write_text(target / relative, "x");
+        ownership.files.push_back({relative, file_digest, 1});
+    }
+    usk::state::StateRepository repository(fixture.roots.state_root);
+    ownership = repository.write_ownership(std::move(ownership));
+
+    usk::state::InstalledState installed;
+    installed.install_id = ownership.install_id;
+    installed.product_id = "product.legacy";
+    installed.product_version = "1.0.0";
+    installed.recipe_digest = std::string(64, '1');
+    installed.source_archive_digest = std::string(64, '2');
+    installed.target_root = target.string();
+    installed.component_selection = {"core"};
+    installed.ownership_manifest_ref = "ownership/" + ownership.manifest_id + ".json";
+    installed.ownership_manifest_digest = ownership.manifest_digest;
+    installed.entrypoints = {{"application", "entry-0.bin", "application"}};
+    installed.provider_revision = "synthetic-provider-r1";
+    installed.transaction_id = "tx.legacy.install";
+    installed.created_at = "2026-07-14T00:00:00Z";
+    installed.last_verification = {"verify.legacy.old", std::string(64, '0'),
+        "pass", "2026-07-14T00:00:00Z"};
+    installed.audit_chain_id = "audit.legacy";
+    installed.lifecycle_status = "installed";
+    repository.write_installed(installed);
+
+    const auto verified = usk::lifecycle::verify_installed(fixture.roots, installed.install_id,
+        "verify.legacy.current", "2026-07-14T00:00:01Z");
+    if (verified.status != "pass" || verified.files.size() != 4097) return 60;
+    const auto uninstall = usk::lifecycle::plan_uninstall(fixture.roots, installed.install_id,
+        "plan.legacy.uninstall", "2026-07-14T00:00:02Z");
+    if (uninstall.verification.status != "pass" ||
+        uninstall.verification.files.size() != 4097 || uninstall.plan_digest.size() != 64) return 61;
+    return 0;
+}
+
 int run()
 {
     Fixture fixture;
@@ -366,6 +419,7 @@ int run()
         return 18;
     }
     const fs::path displaced_source = fixture.root / "targets/displaced-source";
+    bool same_resource_observed = true;
     bool source_substitution_refused = refuses([&] {
         (void)usk::lifecycle::apply_move(move_plan, move_plan.plan_digest,
             "tx.synthetic.move.source-swap", "2026-07-14T00:10:09Z",
@@ -376,11 +430,19 @@ int run()
                 for (const auto& file : move_plan.complete_files) {
                     const fs::path replacement = target / file.relative_path;
                     fs::create_directories(replacement.parent_path());
-                    fs::create_hard_link(displaced_source / file.relative_path, replacement);
+                    fs::rename(displaced_source / file.relative_path, replacement);
+                    const usk::base::StableFile moved(replacement);
+                    same_resource_observed = same_resource_observed &&
+                        moved.identity().volume_id == file.resource.volume_id &&
+                        moved.identity().file_id == file.resource.file_id &&
+                        moved.identity().link_count == file.resource.link_count;
                 }
             });
     });
-    if (!source_substitution_refused || fs::exists(moved_target)) return 58;
+    if (!source_substitution_refused || !same_resource_observed || fs::exists(moved_target)) return 58;
+    for (const auto& file : move_plan.complete_files) {
+        fs::rename(target / file.relative_path, displaced_source / file.relative_path);
+    }
     fs::remove_all(target);
     fs::rename(displaced_source, target);
 
@@ -663,6 +725,9 @@ int main(int argc, char** argv)
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
         if (const int streaming = streaming_install_and_fault_proof()) {
             return streaming;
+        }
+        if (const int legacy = legacy_ownership_compatibility_proof()) {
+            return legacy;
         }
         return run();
     } catch (const std::exception& error) {

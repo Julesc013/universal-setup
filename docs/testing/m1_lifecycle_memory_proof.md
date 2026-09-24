@@ -13,9 +13,14 @@ one stable native handle. The current lifecycle profile refuses more than 4,096
 files, 8,192 directories, 1 MiB each of file and directory path text, a path above 1,024
 bytes, a file above 4 GiB, 16 GiB of logical file bytes, or a canonical
 snapshot index above 64 MiB. Materialized (non-reader) payloads have a separate
-64 MiB aggregate retained-byte ceiling. Verification limits owned and unknown
-path reports separately. These are refusal bounds, not proof that the allocator
-uses exactly the charged number of bytes; entry-count scaling is measured below.
+64 MiB aggregate retained-byte ceiling. These new-plan and preimage-scan refusal
+bounds are not proof that the allocator uses exactly the charged number of bytes;
+entry-count scaling is measured below. Verification of an already persisted
+ownership manifest retains the earlier behavior, including larger closures and
+unknown-path reports, so existing installs remain available for verification and
+uninstall planning. Its repository record passes through a 4 MiB JSON parser
+input limit, but its full report allocation is outside the measured new-plan
+memory envelope.
 
 `MovePlan::resource_observation` reports the deterministic in-process bounds:
 `peak_payload_buffer=65536`, `peak_open_source_files=1`,
@@ -34,7 +39,8 @@ test compares the update-plan old digest with the existing
 The native lifecycle smoke covers streamed install payloads, cancellation,
 integrity/read failure retention, install recovery, verify, repair, move,
 move stream-intent failure retention, update preimage planning and snapshot
-compatibility, and uninstall. The adversarial and public lifecycle smoke
+compatibility, uninstall, and verification plus uninstall planning of a
+prior-format 4,097-file ownership record. The adversarial and public lifecycle smoke
 remain part of the targeted run. A move retains the old root after successful
 publication. Before a streaming intent, move attempts ordinary safe rollback;
 after intent, the transaction journal retains staging for an operator. After
@@ -61,7 +67,8 @@ peak claim at the 4,096-file ceiling or claim multi-gigabyte acceptance.
 
 Move planning binds the source root's native identity. Move staging checks root
 identity and ancestor path safety before and after each source read and again
-before publication; the native test injects a same-file-identity root swap.
+before publication; the native test injects a root swap after moving the original
+files into the substitute root, preserving each file's native identity and link count.
 These pathname checks reject observed substitutions but do not establish an
 atomic adversarial namespace guarantee on a concurrently writable POSIX root.
 That qualification belongs with the protected publisher and lease work.

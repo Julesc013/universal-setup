@@ -30,7 +30,6 @@ using usk::json::Value;
 
 namespace {
 
-constexpr std::size_t maximum_unknown_report_paths = 10000;
 constexpr std::size_t maximum_lifecycle_files = 4096;
 constexpr std::size_t maximum_lifecycle_directories = 8192;
 constexpr std::size_t maximum_relative_path_bytes = 1024;
@@ -518,25 +517,6 @@ usk::lifecycle::VerificationReport verify_manifest(
     report.installed_state_digest = installed_digest(state);
     report.ownership_manifest_digest = ownership.manifest_digest;
     report.verified_at = verified_at;
-    if (ownership.files.size() > maximum_lifecycle_files ||
-        ownership.directories.size() > maximum_lifecycle_directories) {
-        throw std::runtime_error("owned verification closure exceeds entry budget");
-    }
-    std::size_t owned_path_bytes = 0;
-    for (const auto& file : ownership.files) {
-        if (file.relative_path.size() > maximum_relative_path_bytes ||
-            file.relative_path.size() > maximum_closure_path_bytes - owned_path_bytes) {
-            throw std::runtime_error("owned verification path memory exceeds budget");
-        }
-        owned_path_bytes += file.relative_path.size();
-    }
-    for (const auto& directory : ownership.directories) {
-        if (directory.size() > maximum_relative_path_bytes ||
-            directory.size() > maximum_closure_path_bytes - owned_path_bytes) {
-            throw std::runtime_error("owned verification path memory exceeds budget");
-        }
-        owned_path_bytes += directory.size();
-    }
     const fs::path root(state.target_root);
     std::set<std::string> expected;
     for (const auto& file : ownership.files) {
@@ -581,19 +561,10 @@ usk::lifecycle::VerificationReport verify_manifest(
     if (!fs::is_directory(root) || fs::is_symlink(fs::symlink_status(root))) {
         report.status = "fail";
     } else {
-        std::size_t unknown_path_bytes = 0;
         for (const fs::directory_entry& entry : fs::recursive_directory_iterator(
                  root, fs::directory_options::skip_permission_denied)) {
             const std::string relative = entry.path().lexically_relative(root).generic_string();
-            if (expected.count(relative) == 0) {
-                if (report.unknown_paths.size() >= maximum_unknown_report_paths ||
-                    relative.size() > maximum_relative_path_bytes ||
-                    relative.size() > maximum_total_path_bytes - unknown_path_bytes) {
-                    throw std::runtime_error("verification unknown-path report exceeds budget");
-                }
-                unknown_path_bytes += relative.size();
-                report.unknown_paths.push_back(relative);
-            }
+            if (expected.count(relative) == 0) report.unknown_paths.push_back(relative);
         }
         std::sort(report.unknown_paths.begin(), report.unknown_paths.end());
         report.unknown_paths.erase(std::unique(report.unknown_paths.begin(), report.unknown_paths.end()),
