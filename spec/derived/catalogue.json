@@ -559,7 +559,7 @@
       "path": "plan/tasks/usk-wu-005.md",
       "title": "Bound preimage inventory and full lifecycle memory",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "8658f87f8af3ed15d91c461d573c126bc9d40160e6cef548dfd2136c6e097093",
+      "sha256": "f973d03530437957bb1078bbad4172e40aebdd197590dfbd4527796f2f0275f6",
       "depends_on": [
         "USK-S-STREAM",
         "USK-S-ARCHIVE"
@@ -2965,6 +2965,7 @@
         "runtime/setup/lifecycle/**",
         "runtime/base/**",
         "runtime/setup/streaming/**",
+        "runtime/setup/state/usk_state_repository.cpp",
         "tests/**",
         "docs/testing/**",
         "docs/architecture/specification_implementation_inventory.v1.json"
