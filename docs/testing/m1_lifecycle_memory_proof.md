@@ -55,7 +55,7 @@ fixed buffers from caller-retained payload. Each operation runs in its own proce
 install preparation is included in the peak for verify, repair, move and update.
 The native smoke independently checks output and refusal behavior. The 24
 observations in `m1_lifecycle_memory_observations.v1.json` bind source commit
-`d1e4e506285a4d6eaca737123d69d4050ee358de`, its tree and the measured
+`140b08b1f4d3a16515a34e848fb55a56cee35fe6`, its tree and the measured
 binary digest. On the measured Windows NTFS Debug fixture, six streaming
 operations at 1 MiB and 32 MiB each stayed at or below 11.1 MiB peak working
 set; the 128-entry, 1 MiB cases peaked at or below 14.2 MiB. The materialized
