@@ -639,7 +639,7 @@
       "path": "plan/tasks/usk-wu-012.md",
       "title": "Define and implement minimal product bundle authoring",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "08ea9ed729366b44101755228425d76f56f86e18cf093dde1e8e29e99499c059",
+      "sha256": "181cdc61cbaeb2f2d0eb524bba4b2b5a680142f88e7000b2b10a7e2766b3c6aa",
       "depends_on": [
         "USK-S-BUNDLE",
         "USK-S-AUTHOR"
@@ -650,7 +650,7 @@
       "path": "plan/tasks/usk-wu-013.md",
       "title": "Add exact one-shot command host and machine CLI",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "aff463061a9e595d7d2d12c052968906e0204214cfc5cb5e9e71a89a090d557e",
+      "sha256": "a423225b11acf69847b7bf72bd66402ce79ce83062d24c62f4569c0c8bf09a21",
       "depends_on": [
         "USK-S-WIRE",
         "USK-S-CLI",
@@ -662,7 +662,7 @@
       "path": "plan/tasks/usk-wu-014.md",
       "title": "Build no-code generic and embedded setup envelopes",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "2fb996b21dc47a88d2d5b35b4a9478761729273e4b503d0aa67ad8eb77dfe8c8",
+      "sha256": "ea1d77e15bef6c54a5c030ebcce47ebe38e0ba2065d9d83c83665442f7be10ee",
       "depends_on": [
         "USK-S-PREFAB",
         "USK-S-AUTHOR",
@@ -674,7 +674,7 @@
       "path": "plan/tasks/usk-wu-015.md",
       "title": "Add owned operation API and progress/cancellation",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "7600f017166164c797dab35d27011b6320091807aa411a17c030ee0e134e788f",
+      "sha256": "ebffab5be75a42cae20f03d22af44fde3a30802658b2ddbc5cf78aa0cd982839",
       "depends_on": [
         "USK-S-API",
         "USK-S-TXN"
@@ -685,7 +685,7 @@
       "path": "plan/tasks/usk-wu-016.md",
       "title": "Implement shared setup presentation service",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "8204e4e195fbdfa4a2a9d0e2c79b4f886592f7800fac2ee24845c21534eaa39b",
+      "sha256": "b3c1801b1bbc8eba18002fa018bdfff206b467f95e3719017e8fd3598bd29a6b",
       "depends_on": [
         "USK-S-PRESENT",
         "USK-S-OPS"
@@ -696,7 +696,7 @@
       "path": "plan/tasks/usk-wu-017.md",
       "title": "Complete human CLI and both TUI modes",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "aa608f8030ef9df07da49968e6d4cf43fe29c7e0e5aa2938733104e63bf42281",
+      "sha256": "dd7b15e85ee0b2d2c79a11af26ccc049db52e9433e9becb3ee0ccceaaa906396",
       "depends_on": [
         "USK-S-CLI",
         "USK-S-PRESENT"
@@ -707,7 +707,7 @@
       "path": "plan/tasks/usk-wu-018.md",
       "title": "Build first native prefab and interface laboratory",
       "description": "Proposed M3 WorkUnit; no implementation authority is granted.",
-      "sha256": "f1b08f950f17c96524cb6cff5888fb992e64ac74335e6da246fda763281720da",
+      "sha256": "8a2cf424ce375c0e9c8b8116b5ba1f8640d7f543b41670debcf64a796eb9080d",
       "depends_on": [
         "USK-S-GUI",
         "USK-S-PREFAB"
@@ -3839,11 +3839,11 @@
         "runtime/setup/manifest/**",
         "runtime/setup/resolver/**",
         "tools/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3965,12 +3965,12 @@
       "allowed_paths": [
         "apps/cli/**",
         "runtime/command/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -4093,11 +4093,11 @@
         "apps/cli/**",
         "tools/**",
         "release/packaging/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -4215,11 +4215,11 @@
         "runtime/command/**",
         "runtime/setup/lifecycle/**",
         "contracts/abi/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -4333,11 +4333,11 @@
       "allowed_paths": [
         "runtime/command/**",
         "contracts/schema/setup/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -4451,12 +4451,12 @@
       "allowed_paths": [
         "apps/cli/**",
         "apps/tui/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -4572,11 +4572,11 @@
         "apps/gui/**",
         "contracts/schema/setup/**",
         "tests/**",
-        "tools/**"
+        "tools/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
