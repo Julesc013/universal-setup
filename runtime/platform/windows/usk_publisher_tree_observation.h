@@ -32,6 +32,17 @@ struct PublisherTreeObservation {
     std::vector<PublisherTreeEntry> descendants;
 };
 
+struct PublisherDirectoryChainLink {
+    std::wstring component;
+    PublisherHandleObservation object;
+};
+
+struct PublisherDirectoryChainObservation {
+    PublisherVolumeObservation volume;
+    PublisherHandleObservation boundary;
+    std::vector<PublisherDirectoryChainLink> children;
+};
+
 // Read-only candidate closure of namespace, identity, same-handle security
 // facts, streams, and file bytes. Protected-security admission, effective
 // rights, anchor facts, and phase equality are separate obligations.
@@ -57,6 +68,21 @@ void require_publisher_tree_security_shape(
 PublisherTreeObservation observe_visible_publisher_tree_against_seal(
     HANDLE destination_parent, const std::wstring& destination_component,
     const PublisherTreeObservation& sealed);
+
+// Follow exact, enumerated directory components from one held boundary. All
+// parent handles stay open until their descendants have been observed and
+// each is rechecked on unwind. This does not admit the boundary as a protected
+// volume root or establish effective rights and service provenance.
+PublisherDirectoryChainObservation observe_publisher_directory_chain(
+    HANDLE boundary, const std::vector<std::wstring>& components);
+
+void require_publisher_directory_chain_phase_match(
+    const PublisherDirectoryChainObservation& earlier,
+    const PublisherDirectoryChainObservation& later);
+
+void require_publisher_directory_chain_security_shape(
+    const PublisherDirectoryChainObservation& chain,
+    const std::string& service_sid);
 
 } // namespace usk::platform::windows
 #endif

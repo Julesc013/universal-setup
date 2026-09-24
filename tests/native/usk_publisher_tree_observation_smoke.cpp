@@ -13,10 +13,14 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using usk::platform::windows::observe_publisher_tree;
+using usk::platform::windows::observe_publisher_directory_chain;
 using usk::platform::windows::observe_visible_publisher_tree_against_seal;
+using usk::platform::windows::require_publisher_directory_chain_phase_match;
+using usk::platform::windows::require_publisher_directory_chain_security_shape;
 using usk::platform::windows::PublisherTreeObservation;
 using usk::platform::windows::require_publisher_tree_phase_match;
 using usk::platform::windows::require_publisher_tree_security_shape;
@@ -100,6 +104,117 @@ int main() {
         check(fs::create_directory(nested), "fixture nested creation failed");
         const auto file = nested / "payload.bin";
         write_payload(file, "payload", 7);
+        {
+            auto held_boundary = open_directory(base);
+            const auto first = observe_publisher_directory_chain(
+                held_boundary.get(), {L"staging", L"nested"});
+            const auto second = observe_publisher_directory_chain(
+                held_boundary.get(), {L"staging", L"nested"});
+            check(first.children.size() == 2 &&
+                first.children[0].object.file_id != first.boundary.file_id &&
+                first.children[1].object.file_id != first.children[0].object.file_id,
+                "directory chain did not bind distinct child identities");
+            require_publisher_directory_chain_phase_match(first, second);
+            bool wrong_case_refused = false;
+            try {
+                (void)observe_publisher_directory_chain(
+                    held_boundary.get(), {L"STAGING", L"nested"});
+            } catch (const std::runtime_error&) {
+                wrong_case_refused = true;
+            }
+            check(wrong_case_refused,
+                "directory chain accepted a case-only component assertion");
+            bool ordinary_security_refused = false;
+            try {
+                require_publisher_directory_chain_security_shape(
+                    first, "S-1-5-80-1-2-3-4-5");
+            } catch (const std::runtime_error&) {
+                ordinary_security_refused = true;
+            }
+            check(ordinary_security_refused,
+                "ordinary-user directory chain passed protected security shape");
+            auto tampered = second;
+            tampered.children[1].object.dacl_protected =
+                !tampered.children[1].object.dacl_protected;
+            bool changed_child_refused = false;
+            try {
+                require_publisher_directory_chain_phase_match(first, tampered);
+            } catch (const std::runtime_error&) {
+                changed_child_refused = true;
+            }
+            check(changed_child_refused,
+                "directory-chain phase accepted a changed child DACL flag");
+            auto disconnected = second;
+            disconnected.children[1].object.native_name =
+                disconnected.boundary.native_name + L"\\unrelated";
+            bool disconnected_refused = false;
+            try {
+                require_publisher_directory_chain_phase_match(first, disconnected);
+            } catch (const std::runtime_error&) {
+                disconnected_refused = true;
+            }
+            check(disconnected_refused,
+                "directory-chain phase accepted an unrelated child path");
+            auto repeated_identity = second;
+            repeated_identity.children[1].object.file_id =
+                repeated_identity.children[0].object.file_id;
+            bool repeated_identity_refused = false;
+            try {
+                require_publisher_directory_chain_phase_match(
+                    first, repeated_identity);
+            } catch (const std::runtime_error&) {
+                repeated_identity_refused = true;
+            }
+            check(repeated_identity_refused,
+                "directory-chain phase accepted a repeated child identity");
+            auto invalid_component = second;
+            invalid_component.children[1].component = L"..";
+            bool invalid_component_refused = false;
+            try {
+                require_publisher_directory_chain_phase_match(
+                    first, invalid_component);
+            } catch (const std::runtime_error&) {
+                invalid_component_refused = true;
+            }
+            check(invalid_component_refused,
+                "directory-chain phase accepted a noncanonical component");
+        }
+        {
+            const auto wide_root = base / "wide-chain";
+            check(fs::create_directory(wide_root),
+                "wide directory-chain root creation failed");
+            std::vector<fs::path> levels;
+            std::vector<fs::path> side_files;
+            std::vector<std::wstring> components;
+            auto current = wide_root;
+            for (int depth = 0; depth < 12; ++depth) {
+                for (int side = 0; side < 64; ++side) {
+                    const auto sibling = current /
+                        ("side-" + std::to_string(depth) + "-" +
+                            std::to_string(side));
+                    write_payload(sibling, "x", 1);
+                    side_files.push_back(sibling);
+                }
+                const auto component = L"level-" + std::to_wstring(depth);
+                current /= component;
+                check(fs::create_directory(current),
+                    "wide directory-chain level creation failed");
+                components.push_back(component);
+                levels.push_back(current);
+            }
+            auto held_wide_root = open_directory(wide_root);
+            const auto observed = observe_publisher_directory_chain(
+                held_wide_root.get(), components);
+            check(observed.children.size() == components.size(),
+                "deep wide directory chain was not completely observed");
+            for (const auto& side_file : side_files) {
+                check(fs::remove(side_file), "wide-chain sibling cleanup failed");
+            }
+            for (auto level = levels.rbegin(); level != levels.rend(); ++level) {
+                check(fs::remove(*level), "wide-chain level cleanup failed");
+            }
+            check(fs::remove(wide_root), "wide-chain root cleanup failed");
+        }
         PublisherTreeObservation sealed_for_move{};
         {
             auto held_root = open_directory(root);

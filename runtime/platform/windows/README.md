@@ -63,6 +63,17 @@ creates a substitute at its old path; the wrapper still reopens the original
 visible child. This does not prove that the parent chain is protected from
 untrusted mutation or that the later publication state is durable.
 
+A read-only directory-chain observer now follows exact canonical components
+from one held boundary, reopens each listed child relative to its parent, and
+retains the parent handles through the walk. It rechecks each held handle on
+unwind and compares independently observed chain phases, including native
+parent/child paths, distinct volume-prefixed identities, and security facts.
+The selected entry is copied before recursion so sibling listings do not
+accumulate with depth. A 12-level fixture with 64 sibling files per level
+passed locally. The caller's boundary is not yet admitted as the dedicated
+protected volume root; sibling anchor roles, effective rights, service
+provenance, and hostile concurrent mutation remain unqualified.
+
 A necessary security-shape predicate checks the exact `SYSTEM` owner,
 protected DACL, and two ordered allow ACEs for a canonical service SID on the
 root and every descendant. The ordinary-user OS tree is rejected and a
