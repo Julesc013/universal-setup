@@ -65,8 +65,20 @@ class BundleAuthorTests(unittest.TestCase):
             (project_root / "project.json").write_text(json.dumps(definition), encoding="utf-8")
             output = root / "output"
             output.mkdir()
-            bundle = compile_bundle(project_root / "project.json", "neutral-local", output)
+            cli = Path(__file__).resolve().parents[1] / "tools" / "usk_bundle_author.py"
+            subprocess.run([sys.executable, str(cli), "build", "--source",
+                            str(project_root / "project.json"), "--target", "neutral-local",
+                            "--output-dir", str(output)], check=True, capture_output=True)
+            bundle = json.loads((output / "product.bundle.json").read_text(encoding="utf-8"))
             self.assertEqual(inspect_bundle(output / "product.bundle.json"), bundle)
+            inspected = subprocess.run([sys.executable, str(cli), "inspect", "--bundle",
+                                        str(output / "product.bundle.json")],
+                                       check=True, capture_output=True, text=True)
+            self.assertEqual(inspected.stdout.strip(), bundle["payload"]["sha256"])
+            resolved = subprocess.run([sys.executable, str(cli), "resolve", "--bundle",
+                                       str(output / "product.bundle.json")],
+                                      check=True, capture_output=True, text=True)
+            self.assertEqual(json.loads(resolved.stdout), ["core"])
             with zipfile.ZipFile(output / "payload.zip") as archive:
                 self.assertEqual(archive.read(f"bin/{executable}"),
                                  (final / executable).read_bytes())
