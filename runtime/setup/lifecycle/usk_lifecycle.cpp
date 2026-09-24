@@ -477,33 +477,7 @@ std::string installed_digest(const usk::state::InstalledState& state)
         {"transaction_id", Value(state.transaction_id)}}));
 }
 
-Value verification_payload(const usk::lifecycle::VerificationReport& report)
-{
-    Value::Array files;
-    for (const auto& file : report.files) {
-        Value::Object value{{"expected_sha256", Value(file.expected_sha256)},
-            {"relative_path", Value(file.relative_path)}, {"status", Value(file.status)}};
-        if (!file.actual_sha256.empty()) value.emplace("actual_sha256", Value(file.actual_sha256));
-        files.push_back(Value(std::move(value)));
-    }
-    Value::Array directories;
-    for (const auto& directory : report.directories) {
-        directories.push_back(Value(Value::Object{{"relative_path", Value(directory.relative_path)},
-                                                  {"status", Value(directory.status)}}));
-    }
-    Value::Array unknown;
-    for (const std::string& path : report.unknown_paths) unknown.push_back(Value(path));
-    return Value(Value::Object{
-        {"directories", Value(std::move(directories))}, {"files", Value(std::move(files))},
-        {"install_id", Value(report.install_id)}, {"installed_state_digest", Value(report.installed_state_digest)},
-        {"ownership_manifest_digest", Value(report.ownership_manifest_digest)},
-        {"report_id", Value(report.report_id)}, {"status", Value(report.status)},
-        {"summary", Value(Value::Object{{"missing_files", Value(report.missing_files)},
-            {"modified_files", Value(report.modified_files)},
-            {"unknown_paths", Value(static_cast<std::uint64_t>(report.unknown_paths.size()))},
-            {"owned_files", Value(static_cast<std::uint64_t>(report.files.size()))}})},
-        {"unknown_paths", Value(std::move(unknown))}, {"verified_at", Value(report.verified_at)}});
-}
+std::string verification_digest(const usk::lifecycle::VerificationReport& report);
 
 usk::lifecycle::VerificationReport verify_manifest(
     const usk::state::InstalledState& state,
@@ -572,7 +546,7 @@ usk::lifecycle::VerificationReport verify_manifest(
         report.status = (report.missing_files != 0 || report.modified_files != 0) ? "fail" :
             (report.unknown_paths.empty() ? "pass" : "warn");
     }
-    report.report_digest = usk::json::sha256_canonical(verification_payload(report));
+    report.report_digest = verification_digest(report);
     return report;
 }
 
@@ -719,6 +693,98 @@ std::string json_string(const std::string& value)
     return result;
 }
 
+std::string verification_digest(const usk::lifecycle::VerificationReport& report)
+{
+    // Keep the v1 canonical member order while hashing each member as it is
+    // visited. A second JSON tree and its serialized text needlessly retain
+    // the entire entry list alongside the ownership and verification reports.
+    usk::base::Sha256 hash;
+    const auto quoted = [&](const std::string& value) { hash_text(hash, json_string(value)); };
+    hash_text(hash, "{\"directories\":[");
+    for (std::size_t index = 0; index < report.directories.size(); ++index) {
+        if (index != 0) hash_text(hash, ",");
+        const auto& directory = report.directories[index];
+        hash_text(hash, "{\"relative_path\":");
+        quoted(directory.relative_path);
+        hash_text(hash, ",\"status\":");
+        quoted(directory.status);
+        hash_text(hash, "}");
+    }
+    hash_text(hash, "],\"files\":[");
+    for (std::size_t index = 0; index < report.files.size(); ++index) {
+        if (index != 0) hash_text(hash, ",");
+        const auto& file = report.files[index];
+        if (!file.actual_sha256.empty()) {
+            hash_text(hash, "{\"actual_sha256\":");
+            quoted(file.actual_sha256);
+            hash_text(hash, ",\"expected_sha256\":");
+        } else {
+            hash_text(hash, "{\"expected_sha256\":");
+        }
+        quoted(file.expected_sha256);
+        hash_text(hash, ",\"relative_path\":");
+        quoted(file.relative_path);
+        hash_text(hash, ",\"status\":");
+        quoted(file.status);
+        hash_text(hash, "}");
+    }
+    hash_text(hash, "],\"install_id\":");
+    quoted(report.install_id);
+    hash_text(hash, ",\"installed_state_digest\":");
+    quoted(report.installed_state_digest);
+    hash_text(hash, ",\"ownership_manifest_digest\":");
+    quoted(report.ownership_manifest_digest);
+    hash_text(hash, ",\"report_id\":");
+    quoted(report.report_id);
+    hash_text(hash, ",\"status\":");
+    quoted(report.status);
+    hash_text(hash, ",\"summary\":{\"missing_files\":");
+    hash_text(hash, std::to_string(report.missing_files));
+    hash_text(hash, ",\"modified_files\":");
+    hash_text(hash, std::to_string(report.modified_files));
+    hash_text(hash, ",\"owned_files\":");
+    hash_text(hash, std::to_string(report.files.size()));
+    hash_text(hash, ",\"unknown_paths\":");
+    hash_text(hash, std::to_string(report.unknown_paths.size()));
+    hash_text(hash, "},\"unknown_paths\":[");
+    for (std::size_t index = 0; index < report.unknown_paths.size(); ++index) {
+        if (index != 0) hash_text(hash, ",");
+        quoted(report.unknown_paths[index]);
+    }
+    hash_text(hash, "],\"verified_at\":");
+    quoted(report.verified_at);
+    hash_text(hash, "}");
+    return hash.finish();
+}
+
+void hash_verification_binding(usk::base::Sha256& hash,
+    const usk::lifecycle::VerificationReport& report)
+{
+    const auto quoted = [&](const std::string& value) { hash_text(hash, json_string(value)); };
+    hash_text(hash, "{\"files\":[");
+    for (std::size_t index = 0; index < report.files.size(); ++index) {
+        if (index != 0) hash_text(hash, ",");
+        const auto& file = report.files[index];
+        hash_text(hash, "{\"actual_sha256\":");
+        quoted(file.actual_sha256);
+        hash_text(hash, ",\"expected_sha256\":");
+        quoted(file.expected_sha256);
+        hash_text(hash, ",\"relative_path\":");
+        quoted(file.relative_path);
+        hash_text(hash, ",\"status\":");
+        quoted(file.status);
+        hash_text(hash, "}");
+    }
+    hash_text(hash, "],\"status\":");
+    quoted(report.status);
+    hash_text(hash, ",\"unknown_paths\":[");
+    for (std::size_t index = 0; index < report.unknown_paths.size(); ++index) {
+        if (index != 0) hash_text(hash, ",");
+        quoted(report.unknown_paths[index]);
+    }
+    hash_text(hash, "]}");
+}
+
 struct CanonicalPreimageEntry {
     std::string relative_path;
     std::string sha256;
@@ -806,16 +872,35 @@ Value update_plan_payload(const usk::lifecycle::UpdatePlan& plan)
         {"transition", Value(plan.transition)}});
 }
 
-Value uninstall_plan_payload(const usk::lifecycle::UninstallPlan& plan)
+std::string uninstall_plan_digest(const usk::lifecycle::UninstallPlan& plan)
 {
-    return Value(Value::Object{{"created_at", Value(plan.created_at)},
-        {"audit_root", Value(fs::absolute(plan.roots.audit_root).lexically_normal().generic_string())},
-        {"install_id", Value(plan.install_id)}, {"installed_state_digest", Value(plan.installed_state_digest)},
-        {"operation", Value("uninstall")}, {"ownership_manifest_digest", Value(plan.ownership_manifest_digest)},
-        {"policy_digest", Value(plan.policy_digest)},
-        {"plan_id", Value(plan.plan_id)}, {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())},
-        {"staging_parent", Value(fs::absolute(plan.roots.staging_parent).lexically_normal().generic_string())},
-        {"verification", verification_binding(plan.verification)}});
+    usk::base::Sha256 hash;
+    const auto quoted = [&](const std::string& value) { hash_text(hash, json_string(value)); };
+    const auto path = [&](const fs::path& value) {
+        quoted(fs::absolute(value).lexically_normal().generic_string());
+    };
+    hash_text(hash, "{\"audit_root\":");
+    path(plan.roots.audit_root);
+    hash_text(hash, ",\"created_at\":");
+    quoted(plan.created_at);
+    hash_text(hash, ",\"install_id\":");
+    quoted(plan.install_id);
+    hash_text(hash, ",\"installed_state_digest\":");
+    quoted(plan.installed_state_digest);
+    hash_text(hash, ",\"operation\":\"uninstall\",\"ownership_manifest_digest\":");
+    quoted(plan.ownership_manifest_digest);
+    hash_text(hash, ",\"plan_id\":");
+    quoted(plan.plan_id);
+    hash_text(hash, ",\"policy_digest\":");
+    quoted(plan.policy_digest);
+    hash_text(hash, ",\"staging_parent\":");
+    path(plan.roots.staging_parent);
+    hash_text(hash, ",\"state_root\":");
+    path(plan.roots.state_root);
+    hash_text(hash, ",\"verification\":");
+    hash_verification_binding(hash, plan.verification);
+    hash_text(hash, "}");
+    return hash.finish();
 }
 
 std::vector<usk::lifecycle::PreimageFile> read_complete_tree(
@@ -1746,7 +1831,7 @@ UninstallPlan plan_uninstall(
     plan.verification = verify_manifest(
         current.first, current.second, "verify." + plan.plan_id + ".before", plan.created_at);
     require_result_record_capacity(roots, install_id, {}, current.first.audit_chain_id, false);
-    plan.plan_digest = json::sha256_canonical(uninstall_plan_payload(plan));
+    plan.plan_digest = uninstall_plan_digest(plan);
     return plan;
 }
 
@@ -1758,7 +1843,7 @@ UninstallResult apply_uninstall(
     LifecycleFaultInjector fault_injector)
 {
     if (reviewed_plan_digest != plan.plan_digest ||
-        json::sha256_canonical(uninstall_plan_payload(plan)) != plan.plan_digest ||
+        uninstall_plan_digest(plan) != plan.plan_digest ||
         !record_io::valid_identifier(transaction_id) || !valid_timestamp(applied_at)) {
         throw std::runtime_error("reviewed uninstall plan is invalid or changed");
     }
@@ -1833,7 +1918,7 @@ UninstallResult apply_uninstall(
         final_verification.report_id = "verify." + transaction_id + ".uninstall";
         final_verification.verified_at = applied_at;
         final_verification.status = result.target_removed ? "pass" : "warn";
-        final_verification.report_digest = json::sha256_canonical(verification_payload(final_verification));
+        final_verification.report_digest = verification_digest(final_verification);
         state::InstalledState installed = current.first;
         installed.transaction_id = transaction_id;
         installed.created_at = applied_at;

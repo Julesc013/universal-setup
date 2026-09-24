@@ -5,6 +5,7 @@
 
 #include "usk_json.h"
 #include "usk_record_io.h"
+#include "usk_sha256.h"
 
 #include <algorithm>
 #include <cctype>
@@ -71,6 +72,46 @@ Value ownership_payload(const usk::state::OwnershipManifest& manifest)
         {"manifest_id", Value(manifest.manifest_id)},
         {"schema", Value("usk.ownership_manifest.v1")},
         {"target_root", Value(manifest.target_root)}});
+}
+
+std::string ownership_digest(const usk::state::OwnershipManifest& manifest)
+{
+    // The manifest is validated and sorted before this call. Hash the v1
+    // canonical payload one member at a time without retaining another tree.
+    usk::base::Sha256 hash;
+    const auto append = [&](const std::string& text) {
+        hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    };
+    const auto quoted = [&](const std::string& value) { append(usk::json::canonical(Value(value))); };
+    append("{\"created_by_transaction_id\":");
+    quoted(manifest.created_by_transaction_id);
+    append(",\"directories\":[");
+    for (std::size_t index = 0; index < manifest.directories.size(); ++index) {
+        if (index != 0) append(",");
+        append("{\"relative_path\":");
+        quoted(manifest.directories[index]);
+        append("}");
+    }
+    append("],\"files\":[");
+    for (std::size_t index = 0; index < manifest.files.size(); ++index) {
+        if (index != 0) append(",");
+        const auto& file = manifest.files[index];
+        append("{\"relative_path\":");
+        quoted(file.relative_path);
+        append(",\"sha256\":");
+        quoted(file.sha256);
+        append(",\"size_bytes\":");
+        append(std::to_string(file.size_bytes));
+        append("}");
+    }
+    append("],\"install_id\":");
+    quoted(manifest.install_id);
+    append(",\"manifest_id\":");
+    quoted(manifest.manifest_id);
+    append(",\"schema\":\"usk.ownership_manifest.v1\",\"target_root\":");
+    quoted(manifest.target_root);
+    append("}");
+    return hash.finish();
 }
 
 Value ownership_document(const usk::state::OwnershipManifest& manifest)
@@ -145,10 +186,6 @@ usk::state::OwnershipManifest parse_ownership(const Value& value)
         result.directories.push_back(item.at("relative_path").as_string());
     }
     validate_ownership(result);
-    if (!sha256(result.manifest_digest) ||
-        usk::json::sha256_canonical(ownership_payload(result)) != result.manifest_digest) {
-        throw std::runtime_error("ownership manifest digest does not match its canonical payload");
-    }
     return result;
 }
 
@@ -302,7 +339,7 @@ OwnershipManifest StateRepository::write_ownership(OwnershipManifest manifest) c
 {
     record_io::require_safe_directory(root_ / "ownership");
     validate_ownership(manifest);
-    manifest.manifest_digest = json::sha256_canonical(ownership_payload(manifest));
+    manifest.manifest_digest = ownership_digest(manifest);
     record_io::write_new_durable_text(
         root_ / "ownership" / (manifest.manifest_id + ".json"),
         json::canonical(ownership_document(manifest)) + "\n");
@@ -312,14 +349,23 @@ OwnershipManifest StateRepository::write_ownership(OwnershipManifest manifest) c
 OwnershipManifest StateRepository::read_ownership(const std::string& manifest_id) const
 {
     if (!record_io::valid_identifier(manifest_id)) throw std::runtime_error("ownership lookup id is invalid");
-    const std::string text = record_io::read_stable_text(root_ / "ownership" / (manifest_id + ".json"),
-                                                         16u * 1024u * 1024u);
-    const Value document = json::parse(text);
-    const std::string canonical = json::canonical(document);
-    if (canonical + "\n" != text && canonical + "\r\n" != text) {
-        throw std::runtime_error("ownership record is not canonical");
+    OwnershipManifest result;
+    {
+        const std::string text = record_io::read_stable_text(root_ / "ownership" / (manifest_id + ".json"),
+                                                             16u * 1024u * 1024u);
+        const Value document = json::parse(text);
+        const std::string canonical = json::canonical(document);
+        if (canonical + "\n" != text && canonical + "\r\n" != text) {
+            throw std::runtime_error("ownership record is not canonical");
+        }
+        result = parse_ownership(document);
     }
-    OwnershipManifest result = parse_ownership(document);
+    // Release the input text and parsed tree before checking the digest over
+    // the validated, sorted manifest representation.
+    if (!sha256(result.manifest_digest) ||
+        ownership_digest(result) != result.manifest_digest) {
+        throw std::runtime_error("ownership manifest digest does not match its canonical payload");
+    }
     if (result.manifest_id != manifest_id && result.install_id != manifest_id) {
         throw std::runtime_error("ownership lookup identity mismatch");
     }
