@@ -134,10 +134,11 @@ static int run_command(
     return 0;
 }
 
-int main(void)
+int main(int argc, char** argv)
 {
     static const char* expected_commands[] = {
         "command_graph.inspect",
+        "command_graph.inspect_v2",
         "policy.inspect",
         "package.verify",
         "package.audit",
@@ -166,6 +167,13 @@ int main(void)
         "audit.log",
         "diagnostics.report"
     };
+    static const char* expected_operations[] = {
+        "inspect", "inspect", "inspect", "verify", "audit", "inspect",
+        "install_local", "install_local", "inspect", "verify", "repair",
+        "repair", "update", "update", "move", "move", "uninstall",
+        "uninstall", "recovery", "recovery", 0, 0, "recovery", "audit",
+        "audit", "audit", "verify", "audit", "inspect"
+    };
     usk_context* context = 0;
     usk_command_request_v1 request;
     usk_command_response_v1 response;
@@ -182,6 +190,17 @@ int main(void)
     if (usk_context_create_v1(0, &context) != USK_STATUS_OK || context == 0) {
         return 10;
     }
+    if (argc == 2 && strcmp(argv[1], "--dump-v2") == 0) {
+        status = execute_status(context, "command_graph.inspect_v2", &response);
+        if (status != USK_STATUS_OK || response.status != USK_STATUS_OK ||
+            fwrite(response.json_payload.data, 1, (size_t)response.json_payload.size, stdout) !=
+                (size_t)response.json_payload.size) {
+            usk_context_destroy_v1(context);
+            return 42;
+        }
+        usk_context_destroy_v1(context);
+        return 0;
+    }
     if (usk_abi_version_v1() != ((USK_API_VERSION_MAJOR << 16) | USK_API_VERSION_MINOR)) {
         return 11;
     }
@@ -191,7 +210,9 @@ int main(void)
         response.json_payload.size == 0 || response.json_payload.size >= 64u * 1024u ||
         !contains(response.json_payload, "\"availability\":\"planned\"") ||
         !contains(response.json_payload, "\"mutating\":true") ||
-        !contains(response.json_payload, "\"executable\":false")) {
+        !contains(response.json_payload, "\"executable\":false") ||
+        contains(response.json_payload, "\"legacy_v1_operations\"") ||
+        contains(response.json_payload, "\"operation\":")) {
         return 12;
     }
     for (index = 0; index < (usk_size)(sizeof(expected_commands) / sizeof(expected_commands[0])); ++index) {
@@ -220,6 +241,54 @@ int main(void)
         return 16;
     }
     free(graph_copy);
+
+    status = execute_status(context, "command_graph.inspect_v2", &response);
+    if (status != USK_STATUS_OK || response.status != USK_STATUS_OK ||
+        !contains(response.json_payload, "\"schema\":\"usk.command_graph.v2\"") ||
+        !contains(response.json_payload, "\"legacy_v1_operations\":[\"install_local\",\"verify\",\"repair\",\"uninstall\",\"adopt\",\"audit\"]") ||
+        count_occurrences(response.json_payload, "\"operation\":\"move\"") != 2 ||
+        count_occurrences(response.json_payload, "\"operation\":\"update\"") != 2 ||
+        !contains(response.json_payload, "\"operation\":null")) {
+        return 35;
+    }
+    if (sizeof(expected_commands) / sizeof(expected_commands[0]) !=
+        sizeof(expected_operations) / sizeof(expected_operations[0])) {
+        return 36;
+    }
+    for (index = 0; index < (usk_size)(sizeof(expected_commands) / sizeof(expected_commands[0])); ++index) {
+        char command_marker[96];
+        char operation_marker[64];
+        const char* descriptor_start;
+        const char* descriptor_end;
+        const char* operation_start;
+        int marker_size = snprintf(command_marker, sizeof(command_marker),
+            "\"command\":\"%s\"", expected_commands[index]);
+        if (marker_size <= 0 || marker_size >= (int)sizeof(command_marker)) {
+            return 37;
+        }
+        descriptor_start = strstr(response.json_payload.data, command_marker);
+        descriptor_end = descriptor_start == 0 ? 0 : strchr(descriptor_start, '}');
+        if (descriptor_end == 0) {
+            return 38;
+        }
+        marker_size = expected_operations[index] == 0
+            ? snprintf(operation_marker, sizeof(operation_marker), "\"operation\":null")
+            : snprintf(operation_marker, sizeof(operation_marker),
+                "\"operation\":\"%s\"", expected_operations[index]);
+        if (marker_size <= 0 || marker_size >= (int)sizeof(operation_marker)) {
+            return 39;
+        }
+        operation_start = strstr(descriptor_start, operation_marker);
+        if (operation_start == 0 || operation_start >= descriptor_end) {
+            return 40;
+        }
+        if (strcmp(expected_commands[index], "verify.report") == 0) {
+            const char* executable = strstr(descriptor_start, "\"executable\":false");
+            if (executable == 0 || executable >= descriptor_end) {
+                return 41;
+            }
+        }
+    }
 
     for (index = 0; index < (usk_size)(sizeof(expected_commands) / sizeof(expected_commands[0])); ++index) {
         status = execute_status(context, expected_commands[index], &response);
