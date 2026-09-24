@@ -68,6 +68,17 @@ target_compile_features(usk_base_static PUBLIC cxx_std_17)
 target_include_directories(usk_base_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base")
 set_target_properties(usk_base_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(WIN32)
+  add_library(usk_publisher_windows_static STATIC
+    runtime/platform/windows/usk_publisher_handle_observation.cpp)
+  target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
+  target_include_directories(usk_publisher_windows_static PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
+  target_link_libraries(usk_publisher_windows_static PUBLIC advapi32)
+  set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
+  usk_enable_strict_warnings(usk_publisher_windows_static)
+endif()
+
 add_library(usk_verify_static STATIC runtime/setup/verify/usk_package_verify.cpp)
 target_compile_features(usk_verify_static PUBLIC cxx_std_17)
 target_include_directories(usk_verify_static PUBLIC
@@ -478,6 +489,18 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_commit_authority_smoke PRIVATE usk_transaction_static)
   add_test(NAME usk_commit_authority_smoke COMMAND usk_commit_authority_smoke)
   set_tests_properties(usk_commit_authority_smoke PROPERTIES TIMEOUT 30)
+
+  if(WIN32)
+    add_executable(usk_publisher_handle_observation_smoke
+      tests/native/usk_publisher_handle_observation_smoke.cpp)
+    target_compile_features(usk_publisher_handle_observation_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_handle_observation_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_handle_observation_smoke)
+    add_test(NAME usk_publisher_handle_observation_smoke
+      COMMAND usk_publisher_handle_observation_smoke)
+    set_tests_properties(usk_publisher_handle_observation_smoke PROPERTIES TIMEOUT 30)
+  endif()
 
   add_executable(usk_entry_restart_smoke tests/native/usk_entry_restart_smoke.cpp)
   target_compile_features(usk_entry_restart_smoke PRIVATE cxx_std_17)
