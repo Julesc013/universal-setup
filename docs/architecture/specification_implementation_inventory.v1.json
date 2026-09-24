@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T11:42:38Z",
+  "generated_at": "2026-09-24T11:47:56Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "d81803620234806b9c274f6c7bc6bf7c9fe5660f",
-  "repository_base_tree": "531eaa24d33b7b1b0dd667c905afdf1371981810",
+  "repository_base_commit": "60efbe0400c85f37b1935fc387801209f452932f",
+  "repository_base_tree": "18d520d159052d58e41b0e99419ec9d285d7fb85",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "d32bc04880100e4e3ae646eace2290e092db81ca2ad46245b761248190bdcb39",
   "source_hash_contract": "sha256-lf-text-v1",
   "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment source is committed WU-010 implementation d81803620234806b9c274f6c7bc6bf7c9fe5660f; WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-006 publisher qualification and wider lifecycle/authoring acceptance remain open. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial.",
+  "working_tree_note": "Assessment source is committed WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f; WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-006 publisher qualification and wider lifecycle/authoring acceptance remain open. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -2405,7 +2405,7 @@
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
-          "sha256": "d53bc0126cf1c10c9d1f1f898a3d60abfe5d44739fcc29a7c068797fdd020c6c"
+          "sha256": "244e66f78fccadb371c6593a4b0a551c6d5d37daf5a231d12ae541fbe8135597"
         },
         {
           "path": "apps/README.md",
@@ -2440,7 +2440,7 @@
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
-          "sha256": "d53bc0126cf1c10c9d1f1f898a3d60abfe5d44739fcc29a7c068797fdd020c6c"
+          "sha256": "244e66f78fccadb371c6593a4b0a551c6d5d37daf5a231d12ae541fbe8135597"
         },
         {
           "path": "apps/README.md",
@@ -2475,7 +2475,7 @@
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
-          "sha256": "d53bc0126cf1c10c9d1f1f898a3d60abfe5d44739fcc29a7c068797fdd020c6c"
+          "sha256": "244e66f78fccadb371c6593a4b0a551c6d5d37daf5a231d12ae541fbe8135597"
         },
         {
           "path": "apps/README.md",
