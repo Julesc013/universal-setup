@@ -146,7 +146,7 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int, mate
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
-    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery"])
+    parser.add_argument("operation", choices=["install", "verify", "repair", "move", "update", "recovery", "plan_install"])
     parser.add_argument("payload_bytes", type=int)
     parser.add_argument("entries", type=int)
     parser.add_argument("--materialized", action="store_true")
