@@ -74,11 +74,33 @@ try {
     }
     $receipt.disk_number = $disk.Number
     $receipt.disk_unique_id = $disk.UniqueId
+    $diskPath = $disk.Path
+    $diskNumber = $disk.Number
 
-    Initialize-Disk -Number $disk.Number -PartitionStyle GPT -ErrorAction Stop | Out-Null
-    $partition = New-Partition -DiskNumber $disk.Number -UseMaximumSize `
+    # Pass the observed CIM disk object to mutating cmdlets. A disk number is
+    # reusable if an image detaches, so it is never a sufficient mutation target.
+    $initialized = Initialize-Disk -InputObject $disk -PartitionStyle GPT `
+        -PassThru -ErrorAction Stop
+    $live = @(Get-DiskImage -ImagePath $vhd -ErrorAction Stop |
+        Get-Disk -ErrorAction Stop)
+    if ($live.Count -ne 1 -or $live[0].Number -ne $diskNumber -or
+        $live[0].Path -ne $diskPath -or $live[0].IsBoot -or $live[0].IsSystem -or
+        $live[0].PartitionStyle -ne 'GPT' -or
+        $initialized.Number -ne $live[0].Number -or
+        $initialized.Path -ne $live[0].Path) {
+        throw 'initialized disk no longer resolves to the new VHD'
+    }
+    $partition = New-Partition -InputObject $live[0] -UseMaximumSize `
         -AssignDriveLetter -ErrorAction Stop
-    if ($partition.DiskNumber -ne $disk.Number -or -not $partition.DriveLetter) {
+    $partitionDisk = @(Get-Disk -Partition $partition -ErrorAction Stop)
+    $live = @(Get-DiskImage -ImagePath $vhd -ErrorAction Stop |
+        Get-Disk -ErrorAction Stop)
+    if ($live.Count -ne 1 -or $partitionDisk.Count -ne 1 -or
+        $live[0].Number -ne $diskNumber -or $live[0].Path -ne $diskPath -or
+        $partitionDisk[0].Number -ne $live[0].Number -or
+        $partitionDisk[0].Path -ne $live[0].Path -or
+        $live[0].IsBoot -or $live[0].IsSystem -or
+        $partition.DiskNumber -ne $live[0].Number -or -not $partition.DriveLetter) {
         throw 'new partition is not bound to the disposable disk'
     }
     Format-Volume -Partition $partition -FileSystem NTFS -NewFileSystemLabel 'USK_WU006_LAB' `
