@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -16,7 +17,9 @@
 
 namespace fs = std::filesystem;
 using usk::platform::windows::create_directory_relative_with_descriptor;
+using usk::platform::windows::create_file_relative_with_descriptor;
 using usk::platform::windows::observe_publisher_directory_handle;
+using usk::platform::windows::observe_publisher_file_handle;
 
 namespace {
 class Handle {
@@ -59,6 +62,14 @@ bool refused(HANDLE parent, const std::wstring& name,
     } catch (const std::exception&) { return true; }
     return false;
 }
+
+bool file_refused(HANDLE parent, const std::wstring& name,
+    const std::vector<unsigned char>& descriptor) {
+    try {
+        Handle created(create_file_relative_with_descriptor(parent, name, descriptor));
+    } catch (const std::exception&) { return true; }
+    return false;
+}
 } // namespace
 
 int main() {
@@ -72,7 +83,8 @@ int main() {
         check(fs::create_directory(parent), "fixture parent creation failed");
         {
             Handle parent_handle(CreateFileW(parent.c_str(),
-                FILE_ADD_SUBDIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | READ_CONTROL,
+                FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_READ_ATTRIBUTES |
+                    FILE_TRAVERSE | READ_CONTROL,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             const auto descriptor = fixture_descriptor(parent_handle.get());
@@ -93,6 +105,62 @@ int main() {
                 refused(parent_handle.get(), L"..", descriptor) &&
                 refused(parent_handle.get(), L"bad/name", descriptor),
                 "collision or invalid component was accepted");
+            std::string file_id;
+            {
+                Handle file(create_file_relative_with_descriptor(
+                    parent_handle.get(), L"payload.bin", descriptor));
+                const char bytes[] = "staged-file";
+                DWORD written = 0;
+                DWORD flags = 0;
+                check(WriteFile(file.get(), bytes, sizeof(bytes) - 1, &written, nullptr) != FALSE &&
+                    written == sizeof(bytes) - 1 && FlushFileBuffers(file.get()) != FALSE,
+                    "parent-bound file write or flush failed");
+                const auto observed = observe_publisher_file_handle(file.get());
+                file_id = observed.file_id;
+                check(!file_id.empty() &&
+                    (observed.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
+                    GetHandleInformation(file.get(), &flags) != FALSE &&
+                    (flags & HANDLE_FLAG_INHERIT) == 0,
+                    "relative file create did not bind a non-inheritable regular file");
+            }
+            std::ifstream file_contents(parent / "payload.bin", std::ios::binary);
+            std::string observed_bytes;
+            std::getline(file_contents, observed_bytes);
+            file_contents.close();
+            check(observed_bytes == "staged-file" &&
+                file_refused(parent_handle.get(), L"payload.bin", descriptor) &&
+                file_refused(parent_handle.get(), L"first", descriptor) &&
+                file_refused(parent_handle.get(), L"CON", descriptor) &&
+                file_refused(parent_handle.get(), L"..", descriptor) &&
+                file_refused(parent_handle.get(), L"bad/name", descriptor) &&
+                file_refused(parent_handle.get(), L"Re\u0301sume\u0301.txt", descriptor) &&
+                file_refused(parent_handle.get(), L"empty", {}),
+                "file collision or invalid creation input was accepted");
+            {
+                Handle unchanged(CreateFileW((parent / "payload.bin").c_str(),
+                    FILE_READ_ATTRIBUTES | READ_CONTROL,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                check(observe_publisher_file_handle(unchanged.get()).file_id == file_id,
+                    "create-only collision changed the existing file identity");
+            }
+            {
+                std::ifstream unchanged_bytes(parent / "payload.bin", std::ios::binary);
+                std::string content;
+                std::getline(unchanged_bytes, content);
+                unchanged_bytes.close();
+                check(content == "staged-file", "create-only collision changed existing bytes");
+            }
+            const std::wstring unicode_name = L"R\u00e9sum\u00e9.txt";
+            const std::wstring long_name = std::wstring(129, L'a') + L".bin";
+            {
+                Handle unicode(create_file_relative_with_descriptor(
+                    parent_handle.get(), unicode_name, descriptor));
+                Handle long_file(create_file_relative_with_descriptor(
+                    parent_handle.get(), long_name, descriptor));
+                check(fs::exists(parent / unicode_name) && fs::exists(parent / long_name),
+                    "canonical Unicode or long staged-file component was refused");
+            }
             {
                 Handle unchanged(CreateFileW((parent / "first").c_str(),
                     FILE_READ_ATTRIBUTES | READ_CONTROL,
@@ -112,8 +180,18 @@ int main() {
                     !observe_publisher_directory_handle(bound.get()).file_id.empty(),
                     "parent path substitution redirected handle-relative creation");
             }
+            {
+                Handle bound(create_file_relative_with_descriptor(
+                    parent_handle.get(), L"bound.bin", descriptor));
+                check(fs::exists(moved / "bound.bin") && !fs::exists(parent / "bound.bin") &&
+                    !observe_publisher_file_handle(bound.get()).file_id.empty(),
+                    "parent path substitution redirected handle-relative file creation");
+            }
         }
         check(fs::remove(moved / "first") && fs::remove(moved / "bound") &&
+            fs::remove(moved / "payload.bin") && fs::remove(moved / "bound.bin") &&
+            fs::remove(moved / L"R\u00e9sum\u00e9.txt") &&
+            fs::remove(moved / (std::wstring(129, L'a') + L".bin")) &&
             fs::remove(moved) && fs::remove(parent) && fs::remove(root),
             "disposable fixture cleanup failed");
         std::cout << "Windows publisher parent-bound create-only anchor probe PASS\n";

@@ -64,3 +64,10 @@ After rename, the service independently opens the visible root relative to the s
 The deterministic reference model and explicit corpus exercise these rules but do not establish Windows behaviour. Required evidence still includes an implementation candidate, admitted disposable target, exact target/configuration receipt, independent attacker harness, crash/fault injection around rename, independent post-state observation, and independent technical/security review.
 
 OD-001 therefore remains open and blocks WU-006 qualification and production enablement. Candidate implementation and disposable probing can proceed to produce the missing evidence. WU-006 must not treat this profile document, the deterministic model, fixture data, or caller claims as target-bound evidence or a resolved platform-security decision.
+
+The parent-bound create-only candidate now covers regular files as well as
+directory anchors. A disposable ordinary-user C: NTFS probe writes and flushes
+a newly created file through its returned non-inheritable handle, refuses
+same-name collisions, and checks that replacing the parent's path does not
+redirect creation through the held parent handle. It does not establish a
+service-created protected staging tree or change the profile status above.
