@@ -6,6 +6,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -42,6 +45,32 @@ def write_project(root: Path, value: dict) -> Path:
 
 
 class BundleAuthorTests(unittest.TestCase):
+    def test_external_one_file_product_compiles_without_engine_edits(self) -> None:
+        compiler = shutil.which("cc") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("C compiler unavailable for optional external product probe")
+        fixture = Path(__file__).parent / "fixtures" / "authoring" / "neutral_one_file"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "external product"
+            shutil.copytree(fixture, project_root)
+            final = project_root / "final"
+            final.mkdir()
+            executable = "hello.exe" if os.name == "nt" else "hello"
+            subprocess.run([compiler, str(project_root / "hello.c"), "-o",
+                            str(final / executable)], check=True, capture_output=True)
+            definition = json.loads((project_root / "project.json").read_text(encoding="utf-8"))
+            definition["components"][0]["variants"][0]["files"][0] = {
+                "source": f"final/{executable}", "path": f"bin/{executable}"}
+            (project_root / "project.json").write_text(json.dumps(definition), encoding="utf-8")
+            output = root / "output"
+            output.mkdir()
+            bundle = compile_bundle(project_root / "project.json", "neutral-local", output)
+            self.assertEqual(inspect_bundle(output / "product.bundle.json"), bundle)
+            with zipfile.ZipFile(output / "payload.zip") as archive:
+                self.assertEqual(archive.read(f"bin/{executable}"),
+                                 (final / executable).read_bytes())
+
     def test_reproducible_bundle_and_reopened_exact_payload(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
