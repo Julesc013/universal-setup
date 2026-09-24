@@ -21,3 +21,11 @@ non-service SIDs, descriptor shape, collisions, and parent-path substitution.
 They do not bind an installed restricted service, dedicated volume, protected
 parent chain, durable journal, or complete descendant closure. None is linked
 to the strict production publisher.
+
+The read-only volume/stream candidate observes local NTFS volume facts through
+the held object handle, including the 64-bit file-ID volume prefix and the
+admitted remote-protocol query failure. Its bounded stream enumeration checks
+the candidate's exact shape: one unnamed data stream for a file and no data
+streams for a directory. Disposable fixtures exercise named streams on both
+types and the empty-directory query result. These per-handle facts do not
+qualify a dedicated volume or establish a closed protected tree.
