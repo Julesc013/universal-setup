@@ -11,6 +11,7 @@
 #include <sddl.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -32,6 +33,19 @@ public:
     HANDLE get() const { return value_; }
 private:
     HANDLE value_;
+};
+
+class ServiceHandle {
+public:
+    explicit ServiceHandle(SC_HANDLE value) : value_(value) {
+        if (!value_) throw std::runtime_error("publisher SCM handle is unavailable");
+    }
+    ~ServiceHandle() { CloseServiceHandle(value_); }
+    ServiceHandle(const ServiceHandle&) = delete;
+    ServiceHandle& operator=(const ServiceHandle&) = delete;
+    SC_HANDLE get() const { return value_; }
+private:
+    SC_HANDLE value_;
 };
 
 struct LocalFreeDeleter {
@@ -98,6 +112,40 @@ bool current_thread_impersonating() {
     }
     return false;
 }
+
+SERVICE_STATUS_PROCESS query_service_status(SC_HANDLE service) {
+    SERVICE_STATUS_PROCESS status{};
+    DWORD required = 0;
+    if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+            reinterpret_cast<LPBYTE>(&status), sizeof(status), &required)) {
+        throw std::runtime_error("publisher SCM process status is unavailable");
+    }
+    return status;
+}
+
+DWORD query_service_sid_type(SC_HANDLE service) {
+    SERVICE_SID_INFO info{};
+    DWORD required = 0;
+    if (!QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
+            reinterpret_cast<LPBYTE>(&info), sizeof(info), &required)) {
+        throw std::runtime_error("publisher SCM service SID configuration is unavailable");
+    }
+    return info.dwServiceSidType;
+}
+
+std::string service_sid_for_name(const std::wstring& name) {
+    const std::wstring account = L"NT SERVICE\\" + name;
+    std::array<unsigned char, SECURITY_MAX_SID_SIZE> sid{};
+    std::array<wchar_t, 256> domain{};
+    DWORD sid_size = static_cast<DWORD>(sid.size());
+    DWORD domain_size = static_cast<DWORD>(domain.size());
+    SID_NAME_USE use{};
+    if (!LookupAccountNameW(nullptr, account.c_str(), sid.data(), &sid_size,
+            domain.data(), &domain_size, &use)) {
+        throw std::runtime_error("publisher named service SID cannot be resolved");
+    }
+    return sid_text(sid.data());
+}
 } // namespace
 
 PublisherTokenObservation observe_current_publisher_token() {
@@ -138,6 +186,40 @@ bool has_restricted_publisher_token_facts(
             return group.sid == service_sid;
         });
     return enabled_group && restricted_group;
+}
+
+PublisherServiceObservation observe_current_restricted_publisher_service(
+    const std::wstring& service_name) {
+    if (service_name.empty() || service_name.size() > 256 ||
+        !std::all_of(service_name.begin(), service_name.end(), [](wchar_t ch) {
+            return ch >= 32 && ch != 127 && ch != L'\\' && ch != L'/';
+        })) {
+        throw std::runtime_error("publisher service name is invalid");
+    }
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    ServiceHandle service(OpenServiceW(manager.get(), service_name.c_str(),
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
+    const auto before = query_service_status(service.get());
+    const auto sid_type = query_service_sid_type(service.get());
+    const auto service_sid = service_sid_for_name(service_name);
+    const auto token = observe_current_publisher_token();
+    const auto after = query_service_status(service.get());
+    const auto sid_type_after = query_service_sid_type(service.get());
+    if (before.dwServiceType != SERVICE_WIN32_OWN_PROCESS ||
+        before.dwCurrentState != SERVICE_RUNNING ||
+        before.dwProcessId != GetCurrentProcessId() ||
+        before.dwServiceFlags != 0 ||
+        sid_type != SERVICE_SID_TYPE_RESTRICTED ||
+        sid_type_after != sid_type ||
+        before.dwServiceType != after.dwServiceType ||
+        before.dwCurrentState != after.dwCurrentState ||
+        before.dwProcessId != after.dwProcessId ||
+        before.dwServiceFlags != after.dwServiceFlags ||
+        !has_restricted_publisher_token_facts(token, service_sid)) {
+        throw std::runtime_error("publisher process is not the stable restricted SCM service");
+    }
+    return {service_name, service_sid, sid_type, before.dwServiceType,
+        before.dwCurrentState, before.dwProcessId, token};
 }
 
 } // namespace usk::platform::windows

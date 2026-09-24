@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -283,8 +284,13 @@ std::wstring descendant_native_name(const std::wstring& root,
 void walk_directory_chain(HANDLE parent, std::size_t index,
     const std::vector<std::wstring>& components,
     PublisherDirectoryChainObservation& result,
-    std::set<std::string>& seen_ids) {
-    if (index == components.size()) return;
+    std::set<std::string>& seen_ids,
+    const std::function<void(HANDLE,
+        const PublisherDirectoryChainObservation&)>& at_leaf) {
+    if (index == components.size()) {
+        if (at_leaf) at_leaf(parent, result);
+        return;
+    }
     const auto expected_parent = index == 0 ?
         result.boundary : result.children.back().object;
     const auto parent_before = observe_publisher_directory_handle(parent);
@@ -321,7 +327,8 @@ void walk_directory_chain(HANDLE parent, std::size_t index,
     }
     require_publisher_stream_shape(child.get());
     result.children.push_back({component, observed});
-    walk_directory_chain(child.get(), index + 1, components, result, seen_ids);
+    walk_directory_chain(child.get(), index + 1, components, result,
+        seen_ids, at_leaf);
     const auto child_after = observe_publisher_directory_handle(child.get());
     const auto parent_after = observe_publisher_directory_handle(parent);
     if (!same_handle_facts(observed, child_after) ||
@@ -496,8 +503,10 @@ PublisherTreeObservation observe_visible_publisher_tree_against_seal(
     return observed;
 }
 
-PublisherDirectoryChainObservation observe_publisher_directory_chain(
-    HANDLE boundary, const std::vector<std::wstring>& components) {
+static PublisherDirectoryChainObservation observe_directory_chain_with_leaf(
+    HANDLE boundary, const std::vector<std::wstring>& components,
+    const std::function<void(HANDLE,
+        const PublisherDirectoryChainObservation&)>& at_leaf) {
     if (!boundary || boundary == INVALID_HANDLE_VALUE || components.empty() ||
         components.size() > 128) {
         throw std::runtime_error("publisher directory chain requires a held boundary and bounded path");
@@ -512,9 +521,14 @@ PublisherDirectoryChainObservation observe_publisher_directory_chain(
     require_publisher_stream_shape(boundary);
     std::set<std::string> seen_ids{result.boundary.file_id};
     result.children.reserve(components.size());
-    walk_directory_chain(boundary, 0, components, result, seen_ids);
+    walk_directory_chain(boundary, 0, components, result, seen_ids, at_leaf);
     require_directory_chain_closed(result);
     return result;
+}
+
+PublisherDirectoryChainObservation observe_publisher_directory_chain(
+    HANDLE boundary, const std::vector<std::wstring>& components) {
+    return observe_directory_chain_with_leaf(boundary, components, {});
 }
 
 void require_publisher_directory_chain_phase_match(
@@ -547,6 +561,183 @@ void require_publisher_directory_chain_security_shape(
     require_protected_object_shape(chain.boundary, service_sid);
     for (const auto& child : chain.children) {
         require_protected_object_shape(child.object, service_sid);
+    }
+}
+
+static std::array<std::wstring, 4> anchor_components(
+    const PublisherAnchorNames& names) {
+    std::array<std::wstring, 4> result{
+        names.staging, names.destination_parent, names.state, names.journal};
+    for (std::size_t index = 0; index < result.size(); ++index) {
+        if (!is_publisher_canonical_component(result[index])) {
+            throw std::runtime_error("publisher anchor component is not canonical");
+        }
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            const int order = CompareStringOrdinal(result[index].data(),
+                    static_cast<int>(result[index].size()),
+                    result[previous].data(),
+                    static_cast<int>(result[previous].size()), TRUE);
+            if (order == 0 || order == CSTR_EQUAL) {
+                throw std::runtime_error("publisher anchor roles have colliding names");
+            }
+        }
+    }
+    return result;
+}
+
+static std::array<PublisherDirectoryChainLink*, 4> anchor_slots(
+    PublisherAnchorSetObservation& set) {
+    return {&set.staging, &set.destination_parent, &set.state, &set.journal};
+}
+
+static std::array<const PublisherDirectoryChainLink*, 4> anchor_slots(
+    const PublisherAnchorSetObservation& set) {
+    return {&set.staging, &set.destination_parent, &set.state, &set.journal};
+}
+
+static void require_anchor_set_closed(const PublisherAnchorSetObservation& set) {
+    require_directory_chain_closed(set.chain);
+    std::set<std::string> ids{set.chain.boundary.file_id};
+    for (const auto& child : set.chain.children) ids.insert(child.object.file_id);
+    const auto& parent = set.chain.children.back().object;
+    std::array<std::wstring, 4> names{};
+    const auto slots = anchor_slots(set);
+    for (std::size_t index = 0; index < slots.size(); ++index) {
+        const auto& anchor = *slots[index];
+        names[index] = anchor.component;
+        const auto& object = anchor.object;
+        if (object.file_id.size() != 49 ||
+            object.file_id.compare(0, 17, parent.file_id, 0, 17) != 0 ||
+            !std::all_of(object.file_id.begin() + 17, object.file_id.end(),
+                [](char ch) { return (ch >= '0' && ch <= '9') ||
+                    (ch >= 'a' && ch <= 'f'); }) ||
+            !ids.insert(object.file_id).second ||
+            (object.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+            (object.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+            object.reparse_tag != 0 || object.case_sensitive ||
+            object.link_count != 1 ||
+            object.native_name !=
+                descendant_native_name(parent.native_name, anchor.component)) {
+            throw std::runtime_error("publisher anchor role is disconnected or duplicated");
+        }
+    }
+    (void)anchor_components({names[0], names[1], names[2], names[3]});
+}
+
+PublisherAnchorSetObservation observe_publisher_anchor_set(
+    HANDLE boundary, const std::vector<std::wstring>& ancestor_components,
+    const PublisherAnchorNames& names) {
+    const auto requested = anchor_components(names);
+    PublisherAnchorSetObservation result{};
+    const auto observe_siblings = [&](HANDLE parent,
+        const PublisherDirectoryChainObservation& chain) {
+        const auto parent_before = observe_publisher_directory_handle(parent);
+        if (!same_handle_facts(chain.children.back().object, parent_before) ||
+            chain.children.back().object.native_name != parent_before.native_name ||
+            !same_volume_facts(chain.volume, observe_local_ntfs_volume_handle(parent))) {
+            throw std::runtime_error("publisher anchor parent drifted before sibling observation");
+        }
+        const auto selected = [&]() {
+            const auto listed = observe_publisher_directory_entries(parent);
+            std::array<PublisherDirectoryEntry, 4> entries{};
+            for (std::size_t index = 0; index < requested.size(); ++index) {
+                const auto found = std::find_if(listed.begin(), listed.end(),
+                    [&](const PublisherDirectoryEntry& child) {
+                        return child.name == requested[index];
+                    });
+                if (found == listed.end() ||
+                    (found->attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    throw std::runtime_error("publisher exact anchor sibling is unavailable");
+                }
+                entries[index] = *found;
+            }
+            return entries;
+        }();
+        std::set<std::string> seen_ids{chain.boundary.file_id};
+        for (const auto& child : chain.children) seen_ids.insert(child.object.file_id);
+        std::array<std::unique_ptr<OwnedHandle>, 4> held{};
+        const auto slots = anchor_slots(result);
+        for (std::size_t index = 0; index < requested.size(); ++index) {
+            held[index] = std::make_unique<OwnedHandle>(
+                open_publisher_listed_child(parent, selected[index]));
+            auto observed = observe_publisher_directory_handle(held[index]->get());
+            if (observed.native_name !=
+                    descendant_native_name(parent_before.native_name, requested[index]) ||
+                observed.case_sensitive || observed.link_count != 1 ||
+                (observed.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+                !seen_ids.insert(observed.file_id).second ||
+                !same_volume_facts(chain.volume,
+                    observe_local_ntfs_volume_handle(held[index]->get()))) {
+                throw std::runtime_error("publisher anchor sibling facts are inadmissible");
+            }
+            require_publisher_stream_shape(held[index]->get());
+            *slots[index] = {requested[index], std::move(observed)};
+        }
+        for (std::size_t index = 0; index < held.size(); ++index) {
+            const auto after = observe_publisher_directory_handle(held[index]->get());
+            if (!same_handle_facts(slots[index]->object, after) ||
+                slots[index]->object.native_name != after.native_name ||
+                !same_volume_facts(chain.volume,
+                    observe_local_ntfs_volume_handle(held[index]->get()))) {
+                throw std::runtime_error("publisher anchor sibling drifted during observation");
+            }
+        }
+        const auto listed_after = observe_publisher_directory_entries(parent);
+        for (std::size_t index = 0; index < requested.size(); ++index) {
+            const auto found = std::find_if(listed_after.begin(), listed_after.end(),
+                [&](const PublisherDirectoryEntry& child) {
+                    return child.name == requested[index];
+                });
+            if (found == listed_after.end() ||
+                (found->attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                throw std::runtime_error("publisher anchor sibling disappeared after observation");
+            }
+            OwnedHandle reopened(open_publisher_listed_child(parent, *found));
+            const auto observed_again = observe_publisher_directory_handle(reopened.get());
+            if (!same_handle_facts(slots[index]->object, observed_again) ||
+                slots[index]->object.native_name != observed_again.native_name ||
+                !same_volume_facts(chain.volume,
+                    observe_local_ntfs_volume_handle(reopened.get()))) {
+                throw std::runtime_error("publisher anchor sibling was replaced after observation");
+            }
+        }
+        const auto parent_after = observe_publisher_directory_handle(parent);
+        if (!same_handle_facts(parent_before, parent_after) ||
+            parent_before.native_name != parent_after.native_name ||
+            !same_volume_facts(chain.volume, observe_local_ntfs_volume_handle(parent))) {
+            throw std::runtime_error("publisher anchor parent drifted during sibling observation");
+        }
+    };
+    result.chain = observe_directory_chain_with_leaf(
+        boundary, ancestor_components, observe_siblings);
+    require_anchor_set_closed(result);
+    return result;
+}
+
+void require_publisher_anchor_set_phase_match(
+    const PublisherAnchorSetObservation& earlier,
+    const PublisherAnchorSetObservation& later) {
+    require_anchor_set_closed(earlier);
+    require_anchor_set_closed(later);
+    require_publisher_directory_chain_phase_match(earlier.chain, later.chain);
+    const auto before = anchor_slots(earlier);
+    const auto after = anchor_slots(later);
+    for (std::size_t index = 0; index < before.size(); ++index) {
+        if (before[index]->component != after[index]->component ||
+            !same_handle_facts(before[index]->object, after[index]->object) ||
+            before[index]->object.native_name != after[index]->object.native_name) {
+            throw std::runtime_error("publisher anchor role changed across phases");
+        }
+    }
+}
+
+void require_publisher_anchor_set_security_shape(
+    const PublisherAnchorSetObservation& set,
+    const std::string& service_sid) {
+    require_anchor_set_closed(set);
+    require_publisher_directory_chain_security_shape(set.chain, service_sid);
+    for (const auto* anchor : anchor_slots(set)) {
+        require_protected_object_shape(anchor->object, service_sid);
     }
 }
 

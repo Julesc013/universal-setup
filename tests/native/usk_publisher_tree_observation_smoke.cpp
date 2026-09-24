@@ -18,7 +18,11 @@
 namespace fs = std::filesystem;
 using usk::platform::windows::observe_publisher_tree;
 using usk::platform::windows::observe_publisher_directory_chain;
+using usk::platform::windows::observe_publisher_anchor_set;
 using usk::platform::windows::observe_visible_publisher_tree_against_seal;
+using usk::platform::windows::PublisherAnchorNames;
+using usk::platform::windows::require_publisher_anchor_set_phase_match;
+using usk::platform::windows::require_publisher_anchor_set_security_shape;
 using usk::platform::windows::require_publisher_directory_chain_phase_match;
 using usk::platform::windows::require_publisher_directory_chain_security_shape;
 using usk::platform::windows::PublisherTreeObservation;
@@ -178,6 +182,75 @@ int main() {
             }
             check(invalid_component_refused,
                 "directory-chain phase accepted a noncanonical component");
+        }
+        {
+            const auto anchor_parent = base / "anchor-chain";
+            check(fs::create_directory(anchor_parent),
+                "anchor parent fixture creation failed");
+            const PublisherAnchorNames names{
+                L"staging-anchor", L"destination-anchor",
+                L"state-anchor", L"journal-anchor"};
+            for (const auto& component : {
+                    names.staging, names.destination_parent,
+                    names.state, names.journal}) {
+                check(fs::create_directory(anchor_parent / component),
+                    "anchor sibling fixture creation failed");
+            }
+            auto held_boundary = open_directory(base);
+            const auto first = observe_publisher_anchor_set(
+                held_boundary.get(), {L"anchor-chain"}, names);
+            const auto second = observe_publisher_anchor_set(
+                held_boundary.get(), {L"anchor-chain"}, names);
+            require_publisher_anchor_set_phase_match(first, second);
+            bool ordinary_security_refused = false;
+            try {
+                require_publisher_anchor_set_security_shape(
+                    first, "S-1-5-80-1-2-3-4-5");
+            } catch (const std::runtime_error&) {
+                ordinary_security_refused = true;
+            }
+            check(ordinary_security_refused,
+                "ordinary-user anchor set passed protected security shape");
+            auto repeated = second;
+            repeated.journal.object.file_id = repeated.state.object.file_id;
+            bool repeated_refused = false;
+            try {
+                require_publisher_anchor_set_phase_match(first, repeated);
+            } catch (const std::runtime_error&) {
+                repeated_refused = true;
+            }
+            check(repeated_refused,
+                "anchor role comparison accepted a repeated identity");
+            auto changed = second;
+            changed.journal.object.dacl_protected =
+                !changed.journal.object.dacl_protected;
+            bool changed_refused = false;
+            try {
+                require_publisher_anchor_set_phase_match(first, changed);
+            } catch (const std::runtime_error&) {
+                changed_refused = true;
+            }
+            check(changed_refused,
+                "anchor role comparison accepted changed DACL facts");
+            bool colliding_names_refused = false;
+            try {
+                auto colliding = names;
+                colliding.journal = L"STATE-ANCHOR";
+                (void)observe_publisher_anchor_set(
+                    held_boundary.get(), {L"anchor-chain"}, colliding);
+            } catch (const std::runtime_error&) {
+                colliding_names_refused = true;
+            }
+            check(colliding_names_refused,
+                "anchor role observation accepted case-fold colliding names");
+            for (const auto& component : {
+                    names.staging, names.destination_parent,
+                    names.state, names.journal}) {
+                check(fs::remove(anchor_parent / component),
+                    "anchor sibling fixture cleanup failed");
+            }
+            check(fs::remove(anchor_parent),
+                "anchor parent fixture cleanup failed");
         }
         {
             const auto wide_root = base / "wide-chain";

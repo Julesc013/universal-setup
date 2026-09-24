@@ -11,6 +11,7 @@
 
 using usk::platform::windows::has_restricted_publisher_token_facts;
 using usk::platform::windows::observe_current_publisher_token;
+using usk::platform::windows::observe_current_restricted_publisher_service;
 
 namespace {
 void check(bool condition, const char* message) {
@@ -27,6 +28,23 @@ int main() {
             "S-1-5-80-3180180915-1861177297-4117424284-3321057921-2519428456";
         check(!has_restricted_publisher_token_facts(ordinary, service_sid),
             "ordinary login was admitted as a restricted publisher service");
+        bool absent_service_refused = false;
+        try {
+            (void)observe_current_restricted_publisher_service(
+                L"USK_Disposable_Publisher_Uninstalled_4f83c63b");
+        } catch (const std::runtime_error&) {
+            absent_service_refused = true;
+        }
+        check(absent_service_refused,
+            "uninstalled service was admitted as current restricted publisher");
+        bool malformed_service_refused = false;
+        try {
+            (void)observe_current_restricted_publisher_service(L"bad\\service");
+        } catch (const std::runtime_error&) {
+            malformed_service_refused = true;
+        }
+        check(malformed_service_refused,
+            "malformed service name was admitted");
         const usk::platform::windows::PublisherTokenObservation forged_system{
             "S-1-5-18", {{"S-1-1-0", SE_GROUP_ENABLED}}, {{"S-1-1-0", 0}}, false};
         check(!has_restricted_publisher_token_facts(forged_system, "S-1-1-0") &&
