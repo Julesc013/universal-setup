@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/transaction.v2.schema.json",
+  "title": "Setup Transaction, Version 2",
+  "type": "object",
+  "required": ["schema", "transaction_id", "plan_id", "operation", "status", "dry_run", "stage_root", "steps", "audit_log_ref", "rollback_ref"],
+  "properties": {
+    "schema": { "const": "usk.transaction.v2" },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "operation": {
+      "type": "string",
+      "enum": ["install_local", "verify", "repair", "uninstall", "adopt", "audit", "update", "move", "recovery"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["planned", "staged", "committed", "rolled_back", "refused", "failed"]
+    },
+    "dry_run": { "type": "boolean" },
+    "stage_root": { "type": "string", "minLength": 1 },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step_id", "status"],
+        "properties": {
+          "step_id": { "type": "string", "minLength": 1 },
+          "status": {
+            "type": "string",
+            "enum": ["planned", "staged", "committed", "rolled_back", "skipped", "failed"]
+          },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "audit_log_ref": { "type": "string", "minLength": 1 },
+    "rollback_ref": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}
