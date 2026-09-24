@@ -65,11 +65,11 @@ jobs:
       - run: cmake --build build/smoke --config Release --parallel
       - run: ctest --test-dir build/smoke -C Release --output-on-failure --parallel 4
       - name: Provision and identify disposable Windows NTFS publisher volume
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-lab-probe.json"
       - name: Retain disposable Windows volume receipt
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-disposable-volume-probe

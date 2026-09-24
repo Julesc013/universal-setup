@@ -3332,7 +3332,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "3cd8116a1ae3e8abebb319d2b18cc119d17fe8b3eaa59902078649e9435fb8cf"
+          "sha256": "c6effe438c442dffb1331bbd301a05a0f575edce7071a699b7791930a35b06d3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3368,7 +3368,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "3cd8116a1ae3e8abebb319d2b18cc119d17fe8b3eaa59902078649e9435fb8cf"
+          "sha256": "c6effe438c442dffb1331bbd301a05a0f575edce7071a699b7791930a35b06d3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3404,7 +3404,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "3cd8116a1ae3e8abebb319d2b18cc119d17fe8b3eaa59902078649e9435fb8cf"
+          "sha256": "c6effe438c442dffb1331bbd301a05a0f575edce7071a699b7791930a35b06d3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3747,7 +3747,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "c82232b6040d4ef2cb60747cf350ccb26cc5ebafbc403f7ef0a01aba286e2ba6"
+          "sha256": "27fbe229caf89c1276f9efbae5c1f6f36a5c65c7182e32fb7fe78809e30a6f2e"
         }
       ],
       "acceptance_ids": [

@@ -119,14 +119,19 @@ try {
     $receipt.status = 'failed'
 } finally {
     try {
+        $backingFileExisted = Test-Path -LiteralPath $vhd -PathType Leaf
         if ($mounted) {
             $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop
             if ($image.Attached) { Dismount-DiskImage -ImagePath $vhd -ErrorAction Stop }
         }
-        if (Test-Path -LiteralPath $vhd -PathType Leaf) {
+        if ($backingFileExisted) {
             Remove-Item -LiteralPath $vhd -Force -ErrorAction Stop
         }
-        $receipt.cleanup = 'exact VHD dismounted and backing file removed; runner VM disposes remaining lab directory'
+        $receipt.cleanup = if ($backingFileExisted) {
+            'owned VHD dismounted if attached and backing file removed; runner VM disposes remaining lab directory'
+        } else {
+            'no backing file was created; runner VM disposes remaining lab directory'
+        }
     } catch {
         $receipt.cleanup = 'failed: ' + $_.Exception.Message
         if (-not $failure) { $failure = 'disposable VHD cleanup failed' }
