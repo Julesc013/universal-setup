@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T11:06:52.177509Z",
+  "generated_at": "2026-09-24T11:23:57.166058Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "140b08b1f4d3a16515a34e848fb55a56cee35fe6",
-  "repository_base_tree": "1d2eea434652c6824bf422dbc85db7b8231e8a7d",
+  "repository_base_commit": "f92116907e3b7b7c4e946f96cfc024a989eb8d7f",
+  "repository_base_tree": "b15094f3c997c9c107e182ffdc06a384a960b2f7",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "d32bc04880100e4e3ae646eace2290e092db81ca2ad46245b761248190bdcb39",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source and retained-test inventory carried forward to WU-005 source. Affected lifecycle observations are refreshed; other classifications are inherited from the prior assessment. Windows Debug memory observations are separate evidence, not full product acceptance. Persisted legacy ownership verification remains outside the new-plan memory envelope.",
+  "assessment_scope": "Targeted source and retained-test inventory carried forward through the WU-005 integration and WU-006 predecessor receipt correction. Lifecycle classifications are inherited from the WU-005 assessment; only exact binding-tool source observations are refreshed here. Windows Debug memory observations remain separate evidence, not full product acceptance.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment source is WU-005 implementation commit 140b08b1f4d3a16515a34e848fb55a56cee35fe6; the 24-case Windows NTFS memory matrix is recorded after that commit. A 4,097-file prior-format ownership fixture preserves verification and uninstall planning. WU-005 remains partial against full STREAM-001 multi-gigabyte, ceiling-edge and legacy-report memory acceptance; WU-006 publication is still refused.",
+  "working_tree_note": "Assessment source is WU-005 implementation commit 140b08b1f4d3a16515a34e848fb55a56cee35fe6; the 24-case Windows NTFS memory matrix is recorded after that commit. A 4,097-file prior-format ownership fixture preserves verification and uninstall planning. WU-005 remains partial against full STREAM-001 multi-gigabyte, ceiling-edge and legacy-report memory acceptance; WU-006 publication is still refused. WU-004/005 integration receipts and the non-self-referential evidence binding were added after the WU-005 implementation; requirement classifications are unchanged.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -577,7 +577,7 @@
         },
         {
           "path": "tools/campaign_task_binding.py",
-          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
+          "sha256": "d8110d739028a87f11760a5f5af80c275f21f31d933941a55dab617aa57aee44"
         }
       ],
       "acceptance_ids": [
@@ -620,7 +620,7 @@
         },
         {
           "path": "tools/campaign_task_binding.py",
-          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
+          "sha256": "d8110d739028a87f11760a5f5af80c275f21f31d933941a55dab617aa57aee44"
         }
       ],
       "acceptance_ids": [
@@ -663,7 +663,7 @@
         },
         {
           "path": "tools/campaign_task_binding.py",
-          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
+          "sha256": "d8110d739028a87f11760a5f5af80c275f21f31d933941a55dab617aa57aee44"
         }
       ],
       "acceptance_ids": [
