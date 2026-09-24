@@ -608,8 +608,10 @@ int run()
 int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
     std::size_t entries, bool materialized)
 {
-    if (payload_bytes == 0 || payload_bytes > 128ull * 1024ull * 1024ull ||
-        entries == 0 || entries > 2048) {
+    const auto maximum_payload = materialized ?
+        128ull * 1024ull * 1024ull : 2ull * 1024ull * 1024ull * 1024ull;
+    if (payload_bytes == 0 || payload_bytes > maximum_payload ||
+        entries == 0 || entries > 4096) {
         throw std::runtime_error("memory scenario dimensions are invalid");
     }
     Fixture fixture;
@@ -656,6 +658,12 @@ int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
         "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
         target, fixture.roots, recipe(),
         make_files(materialized && (operation == "install" || operation == "recovery")));
+    if (operation == "plan_install") {
+        if (plan.files.size() != entries) return 58;
+        std::cout << "memory-scenario-pass plan_install streaming " <<
+            (bytes_per_entry * entries) << ' ' << entries << '\n';
+        return 0;
+    }
     if (operation == "recovery") {
         if (!refuses([&] {
                 (void)usk::lifecycle::apply_install(plan, plan.plan_digest,

@@ -65,6 +65,27 @@ records exact bytes and pass thresholds, and distinguishes source-kind and
 entry-count scaling. It does not extrapolate those observations into an OS
 peak claim at the 4,096-file ceiling or claim multi-gigabyte acceptance.
 
+The follow-up `m1_lifecycle_memory_ceiling_observations.v1.json` records four
+additional isolated Windows 10 build 19045, C: NTFS Debug child-process
+observations from source commit `2d899f434019dfbb90ee3eae7c542d42ce6268dd`.
+A streamed 2 GiB, one-file install and its verification completed with an
+11,411,456-byte peak working set. A plan-only 128-entry, 1 MiB case peaked at
+11,128,832 bytes; the same total payload spread across 4,096 entries peaked at
+42,246,144 bytes. At 4,096 entries, increasing the total declared and sourced
+payload from 1 MiB to 32 MiB changed the plan peak by 61,440 bytes. These
+observations separate payload size from entry-count metadata growth. Planning
+does not stage files or persist a transaction journal, so its 4,096-entry
+measurements do not establish a complete lifecycle memory ceiling.
+
+A full 4,096-entry install experiment did not complete. After 2,571 entries,
+the disposable fixture was deliberately made to fail its next exclusive file
+creation, allowing cleanup. The transaction currently persists a growing
+journal snapshot per staged file, making this shape slow; the failed run is
+diagnostic evidence, not a passing ceiling observation. A complete 4,096-entry
+install/verify/repair/move/update/recovery matrix and legacy-report peak remain
+open. The 2 GiB result establishes one multi-gigabyte install shape, not the
+full corpus or release acceptance.
+
 Move planning binds the source root's native identity. Move staging checks root
 identity and ancestor path safety before and after each source read and again
 before publication; the native test injects a root swap after moving the original
