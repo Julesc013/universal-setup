@@ -1,0 +1,21 @@
+{
+  "schema": "universal.workunit_evidence.v1",
+  "status": "accepted",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-004",
+  "kind": "integration",
+  "claim": "workunit:USK-WU-004:integration",
+  "source_commit": "3828b0f5a4efb964268714e1def1a59cb693d3bc",
+  "source_tree": "f779030e6029a940cf8e1ea2d744d62821d5e1ec",
+  "details": {
+    "pull_request": 63,
+    "merge_commit": "445cebcf133ec337dcef51c89bbbddf2266294ea",
+    "successful_ci_runs": [
+      35733317698,
+      35733323308
+    ],
+    "agent_review_comment_id": 5777463331,
+    "implemented_scope": "Windows NTFS publication threat/profile design and deterministic adversarial reference model",
+    "qualification": "Design/model integration only; native OS publisher remains unqualified and OD-001 open"
+  }
+}
