@@ -14,6 +14,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
@@ -129,7 +130,7 @@ class BundleAuthorTests(unittest.TestCase):
 
     def test_hostile_paths_and_collisions_refuse_before_output(self) -> None:
         for path in ("../escape", "/absolute", "C:/drive", "bin\\app", "bin/../app",
-                     "bin//app", "con.txt", "a./b", "unicode/é"):
+                     "bin//app", "con.txt", "a./b", "unicode/é", "a" * 256):
             value = project()
             value["components"][0]["variants"][0]["files"][0]["path"] = path
             with self.subTest(path=path), self.assertRaises(AuthoringError):
@@ -140,8 +141,33 @@ class BundleAuthorTests(unittest.TestCase):
         with self.assertRaisesRegex(AuthoringError, "duplicate bundle path"):
             validate_project(value, "windows-x64")
         value["components"][0]["variants"][0]["files"][1]["path"] = "bin/app.bin/child"
-        with self.assertRaisesRegex(AuthoringError, "colliding"):
+        with self.assertRaisesRegex(AuthoringError, "parent"):
             validate_project(value, "windows-x64")
+        value["components"][0]["variants"][0]["files"] = [
+            {"source": "final/app.bin", "path": "a" * 255}]
+        self.assertEqual(validate_project(value, "windows-x64")[0]["files"][0]["path"],
+                         "a" * 255)
+
+    def test_interposed_name_cannot_hide_file_parent_collision(self) -> None:
+        value = project()
+        files = value["components"][0]["variants"][0]["files"]
+        files[:] = [{"source": "final/app.bin", "path": path}
+                    for path in ("a", "a-", "a/b")]
+        with self.assertRaisesRegex(AuthoringError, "parent"):
+            validate_project(value, "windows-x64")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = write_project(root / "project", project())
+            output = root / "out"
+            output.mkdir()
+            bundle = compile_bundle(source, "windows-x64", output)
+            template = bundle["components"][0]["files"][0]
+            bundle["components"][0]["files"] = [dict(template, path=path)
+                                                for path in ("a", "a-", "a/b")]
+            sidecar = output / "product.bundle.json"
+            sidecar.write_text(json.dumps(bundle), encoding="utf-8")
+            with self.assertRaisesRegex(AuthoringError, "parent"):
+                inspect_bundle(sidecar)
 
     def test_missing_variant_and_unselected_cycle_refuse(self) -> None:
         value = project()
@@ -190,6 +216,23 @@ class BundleAuthorTests(unittest.TestCase):
                 stream.write(b"unexpected")
             with self.assertRaisesRegex(AuthoringError, "digest mismatch"):
                 inspect_bundle(output / "product.bundle.json")
+
+    def test_new_output_collision_preserves_the_other_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = write_project(root / "project", project())
+            output = root / "out"
+            output.mkdir()
+
+            def claim_path(path, mode, **_kwargs):
+                self.assertEqual(mode, "x")
+                Path(path).write_bytes(b"other writer")
+                raise FileExistsError(path)
+
+            with mock.patch("usk_bundle_author.zipfile.ZipFile", side_effect=claim_path):
+                with self.assertRaises(FileExistsError):
+                    compile_bundle(source, "windows-x64", output)
+            self.assertEqual((output / "payload.zip").read_bytes(), b"other writer")
 
 
 if __name__ == "__main__":

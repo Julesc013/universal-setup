@@ -77,7 +77,7 @@ def _path(value: Any, label: str) -> str:
         raise AuthoringError(f"invalid {label}")
     parts = value.split("/")
     if len(parts) > MAX_DEPTH or any(
-            not part or part in (".", "..") or part[-1] in (".", " ") or
+            not part or len(part) > 255 or part in (".", "..") or part[-1] in (".", " ") or
             part.split(".", 1)[0].lower() in RESERVED for part in parts):
         raise AuthoringError(f"unsafe {label}: {value}")
     return value
@@ -90,6 +90,17 @@ def _refs(value: Any, label: str) -> list[str]:
     if len(refs) != len(set(refs)):
         raise AuthoringError(f"duplicate {label}")
     return sorted(refs)
+
+
+def _check_file_paths(paths: list[str]) -> None:
+    folded = [path.lower() for path in paths]
+    members = set(folded)
+    if len(members) != len(folded):
+        raise AuthoringError("duplicate bundle path")
+    for path in folded:
+        parts = path.split("/")
+        if any("/".join(parts[:index]) in members for index in range(1, len(parts))):
+            raise AuthoringError(f"file is the parent of another bundle path: {path}")
 
 
 def validate_project(project: Any, target: str) -> list[dict[str, Any]]:
@@ -168,10 +179,7 @@ def validate_project(project: Any, target: str) -> list[dict[str, Any]]:
         resolve_component_ids(output)
     except ResolutionError as error:
         raise AuthoringError(str(error)) from error
-    occupied.sort()
-    for previous, current in zip(occupied, occupied[1:]):
-        if current == previous or current.startswith(previous + "/"):
-            raise AuthoringError(f"colliding bundle path: {current}")
+    _check_file_paths(occupied)
     return sorted(output, key=lambda item: item["id"])
 
 
@@ -229,8 +237,11 @@ def compile_bundle(source: Path, target: str, output_dir: Path) -> dict[str, Any
     inventory: dict[str, dict[str, Any]] = {}
     jobs = sorted(((file["path"], file["source"]) for component in components
                    for file in component["files"]), key=lambda item: item[0])
+    created_archive = False
+    created_sidecar = False
     try:
         with zipfile.ZipFile(archive_path, "x", allowZip64=True) as archive:
+            created_archive = True
             for destination, relative in jobs:
                 with _source_handle(root, relative) as opened:
                     stream, facts = opened
@@ -279,11 +290,14 @@ def compile_bundle(source: Path, target: str, output_dir: Path) -> dict[str, Any
         if len(serialized) > MAX_SOURCE_BYTES:
             raise AuthoringError("compiled bundle exceeds the metadata budget")
         with bundle_path.open("xb") as sidecar:
+            created_sidecar = True
             sidecar.write(serialized)
         return bundle
     except BaseException:
-        bundle_path.unlink(missing_ok=True)
-        archive_path.unlink(missing_ok=True)
+        if created_sidecar:
+            bundle_path.unlink(missing_ok=True)
+        if created_archive:
+            archive_path.unlink(missing_ok=True)
         raise
 
 
@@ -333,10 +347,9 @@ def inspect_bundle(path: Path) -> dict[str, Any]:
             paths[name.lower()] = item
     if names != sorted(set(names)):
         raise AuthoringError("components must be unique and sorted")
-    folded = sorted(paths)
-    if len(folded) > MAX_FILES or any(current.startswith(previous + "/")
-                                      for previous, current in zip(folded, folded[1:])):
-        raise AuthoringError("invalid or colliding inventory")
+    if len(paths) > MAX_FILES:
+        raise AuthoringError("inventory exceeds file budget")
+    _check_file_paths([item["path"] for item in paths.values()])
     try:
         resolve_component_ids(components)
     except ResolutionError as error:
