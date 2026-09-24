@@ -2,7 +2,7 @@
   "schema": "usk.spec.integrity/1",
   "algorithm": "sha256",
   "self_excluded": "integrity.json",
-  "aggregate_sha256": "d32bc04880100e4e3ae646eace2290e092db81ca2ad46245b761248190bdcb39",
+  "aggregate_sha256": "77eb7ad5478a54db4beec2d7aac7e492ddc265b50b98b0912e0db4f897d616a2",
   "files": [
     {
       "path": ".gitattributes",
@@ -82,7 +82,7 @@
     {
       "path": "derived/catalogue.json",
       "bytes": 234220,
-      "sha256": "5e700da243fff3ad4628085d46fdf56732ea90759ccf71d71794c4cb5708ce0b"
+      "sha256": "09eb62c891817b02d696c853ae9a505f2bd3a8068ff81361d2f7d458a4685716"
     },
     {
       "path": "derived/index.md",
@@ -296,8 +296,8 @@
     },
     {
       "path": "lifecycle/publication.md",
-      "bytes": 17211,
-      "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
+      "bytes": 17371,
+      "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
     },
     {
       "path": "lifecycle/state-machine.md",
@@ -671,8 +671,8 @@
     },
     {
       "path": "provenance/reconciliation.md",
-      "bytes": 8626,
-      "sha256": "c861f6cc88ea5aad5c5e83b704f0cf498b97f0210f2e48a6981dbac575360c43"
+      "bytes": 9758,
+      "sha256": "dd1a62b0a9f8a9b1aec520b0b6f5423e42f4b88af32a0cf0d58eb5327eac43fe"
     },
     {
       "path": "provenance/sources.json",
