@@ -258,6 +258,17 @@ bool same_handle_facts(const PublisherHandleObservation& left,
         same_aces(left.dacl_aces, right.dacl_aces);
 }
 
+bool same_volume_facts(const PublisherVolumeObservation& left,
+    const PublisherVolumeObservation& right) {
+    return left.volume_label == right.volume_label &&
+        left.volume_information_serial == right.volume_information_serial &&
+        left.file_id_volume_serial == right.file_id_volume_serial &&
+        left.filesystem_name == right.filesystem_name &&
+        left.maximum_component_length == right.maximum_component_length &&
+        left.filesystem_flags == right.filesystem_flags &&
+        left.remote_protocol_error == right.remote_protocol_error;
+}
+
 std::wstring descendant_native_name(const std::wstring& root,
     const std::wstring& relative) {
     if (root.empty() || relative.empty()) {
@@ -317,15 +328,7 @@ void require_publisher_tree_phase_match(
     const PublisherTreeObservation& sealed,
     const PublisherTreeObservation& observed,
     const std::wstring& visible_root_name) {
-    const auto& left = sealed.volume;
-    const auto& right = observed.volume;
-    if (left.volume_label != right.volume_label ||
-        left.volume_information_serial != right.volume_information_serial ||
-        left.file_id_volume_serial != right.file_id_volume_serial ||
-        left.filesystem_name != right.filesystem_name ||
-        left.maximum_component_length != right.maximum_component_length ||
-        left.filesystem_flags != right.filesystem_flags ||
-        left.remote_protocol_error != right.remote_protocol_error ||
+    if (!same_volume_facts(sealed.volume, observed.volume) ||
         !same_handle_facts(sealed.root, observed.root) ||
         sealed.descendants.size() != observed.descendants.size()) {
         throw std::runtime_error("publisher phase volume, root or closure count diverged");
@@ -357,6 +360,45 @@ void require_publisher_tree_security_shape(
     for (const auto& entry : tree.descendants) {
         require_protected_object_shape(entry.object, service_sid);
     }
+}
+
+PublisherTreeObservation observe_visible_publisher_tree_against_seal(
+    HANDLE destination_parent, const std::wstring& destination_component,
+    const PublisherTreeObservation& sealed) {
+    if (!destination_parent || destination_parent == INVALID_HANDLE_VALUE ||
+        destination_component.empty() || destination_component.size() > 255) {
+        throw std::runtime_error("publisher visible parent/component inputs are invalid");
+    }
+    const auto before = observe_publisher_directory_handle(destination_parent);
+    const auto before_volume = observe_local_ntfs_volume_handle(destination_parent);
+    if (before.case_sensitive || before.link_count != 1 ||
+        (before.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        before.file_id == sealed.root.file_id ||
+        !same_volume_facts(before_volume, sealed.volume)) {
+        throw std::runtime_error("publisher visible parent is outside the sealed boundary");
+    }
+    const auto children = observe_publisher_directory_entries(destination_parent);
+    const auto found = std::find_if(children.begin(), children.end(),
+        [&](const PublisherDirectoryEntry& child) {
+            return child.name == destination_component;
+        });
+    if (found == children.end() ||
+        (found->attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        throw std::runtime_error("publisher exact visible child is unavailable");
+    }
+    OwnedHandle visible(open_publisher_listed_child(destination_parent, *found));
+    const auto observed = observe_publisher_tree(visible.get());
+    const auto after = observe_publisher_directory_handle(destination_parent);
+    const auto after_volume = observe_local_ntfs_volume_handle(destination_parent);
+    if (!same_handle_facts(before, after) ||
+        before.native_name != after.native_name ||
+        !same_volume_facts(before_volume, after_volume)) {
+        throw std::runtime_error("publisher destination parent drifted during visible observation");
+    }
+    const std::wstring expected_name =
+        descendant_native_name(before.native_name, destination_component);
+    require_publisher_tree_phase_match(sealed, observed, expected_name);
+    return observed;
 }
 
 } // namespace usk::platform::windows

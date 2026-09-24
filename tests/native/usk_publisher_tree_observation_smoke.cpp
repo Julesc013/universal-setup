@@ -16,6 +16,7 @@
 
 namespace fs = std::filesystem;
 using usk::platform::windows::observe_publisher_tree;
+using usk::platform::windows::observe_visible_publisher_tree_against_seal;
 using usk::platform::windows::PublisherTreeObservation;
 using usk::platform::windows::require_publisher_tree_phase_match;
 using usk::platform::windows::require_publisher_tree_security_shape;
@@ -89,9 +90,11 @@ void check_security_refused(const PublisherTreeObservation& tree,
 
 int main() {
     try {
-        const auto root = fs::temp_directory_path() /
+        const auto base = fs::temp_directory_path() /
             ("usk-publisher-tree-" + std::to_string(
                 std::chrono::steady_clock::now().time_since_epoch().count()));
+        check(fs::create_directory(base), "fixture parent already exists");
+        const auto root = base / "staging";
         check(fs::create_directory(root), "fixture root already exists");
         const auto nested = root / "nested";
         check(fs::create_directory(nested), "fixture nested creation failed");
@@ -210,7 +213,8 @@ int main() {
             sealed_for_move = observe_publisher_tree(held_root.get());
             require_publisher_tree_phase_match(after, sealed_for_move);
         }
-        const auto visible = fs::path(root.wstring() + L"-visible");
+        const auto visible = base / "visible";
+        auto actual_parent = base;
         check(MoveFileExW(root.c_str(), visible.c_str(), MOVEFILE_WRITE_THROUGH) != FALSE,
             "disposable visible-root rename failed");
         {
@@ -227,8 +231,42 @@ int main() {
             check_phase_refused(sealed_for_move, visible_tree,
                 "visible rename was accepted without the expected path transition");
         }
-        check(fs::remove(visible / "nested" / "payload.bin") &&
-            fs::remove(visible / "nested") && fs::remove(visible),
+        {
+            auto held_parent = open_directory(base);
+            const auto bound_visible = observe_visible_publisher_tree_against_seal(
+                held_parent.get(), L"visible", sealed_for_move);
+            check(bound_visible.root.file_id == sealed_for_move.root.file_id,
+                "parent-bound reopen did not recover the sealed root identity");
+            bool wrong_case_refused = false;
+            try {
+                (void)observe_visible_publisher_tree_against_seal(
+                    held_parent.get(), L"VISIBLE", sealed_for_move);
+            } catch (const std::runtime_error&) {
+                wrong_case_refused = true;
+            }
+            check(wrong_case_refused,
+                "case-only destination assertion was accepted by the held parent");
+            const auto moved_parent = fs::path(base.wstring() + L"-moved");
+            check(MoveFileExW(base.c_str(), moved_parent.c_str(),
+                MOVEFILE_WRITE_THROUGH) != FALSE,
+                "held destination parent rename failed");
+            actual_parent = moved_parent;
+            check(fs::create_directory(base) &&
+                fs::create_directory(base / "visible"),
+                "substituted parent path fixture creation failed");
+            const auto rebound_after_substitution =
+                observe_visible_publisher_tree_against_seal(
+                    held_parent.get(), L"visible", sealed_for_move);
+            check(rebound_after_substitution.root.file_id ==
+                sealed_for_move.root.file_id,
+                "held parent was replaced by the substituted path");
+            check(fs::remove(base / "visible") && fs::remove(base),
+                "substituted parent fixture cleanup failed");
+        }
+        const auto actual_visible = actual_parent / "visible";
+        check(fs::remove(actual_visible / "nested" / "payload.bin") &&
+            fs::remove(actual_visible / "nested") &&
+            fs::remove(actual_visible) && fs::remove(actual_parent),
             "disposable closure cleanup failed");
         std::cout << "Windows publisher read-only closure observations PASS\n";
         return 0;

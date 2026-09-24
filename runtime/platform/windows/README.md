@@ -55,6 +55,14 @@ path still has to come from independently bound destination-parent evidence;
 the helper does not establish effective rights, protected service provenance,
 or crash-safe publication.
 
+The parent-bound wrapper now derives that expected visible path from a retained
+destination-parent handle, enumerates its exact child, reopens that child
+relative to the handle, observes the complete read-only tree again, and
+rechecks the parent. A disposable native test renames the held parent and
+creates a substitute at its old path; the wrapper still reopens the original
+visible child. This does not prove that the parent chain is protected from
+untrusted mutation or that the later publication state is durable.
+
 A necessary security-shape predicate checks the exact `SYSTEM` owner,
 protected DACL, and two ordered allow ACEs for a canonical service SID on the
 root and every descendant. The ordinary-user OS tree is rejected and a
