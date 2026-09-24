@@ -140,8 +140,11 @@ std::string read_bounded_request(std::istream& input, bool length_prefixed)
         }
         std::string body(length, '\0');
         input.read(body.data(), static_cast<std::streamsize>(length));
-        if (input.gcount() != static_cast<std::streamsize>(length) ||
-            input.peek() != std::char_traits<char>::eof()) {
+        if (input.gcount() != static_cast<std::streamsize>(length)) {
+            throw std::runtime_error("truncated frame or trailing bytes");
+        }
+        const int trailing = input.peek();
+        if (input.bad() || trailing != std::char_traits<char>::eof() || !input.eof()) {
             throw std::runtime_error("truncated frame or trailing bytes");
         }
         return body;
@@ -157,6 +160,7 @@ std::string read_bounded_request(std::istream& input, bool length_prefixed)
             }
             body.append(buffer.data(), static_cast<std::size_t>(count));
         }
+        if (input.bad()) throw std::runtime_error("input read failed");
         if (input.eof()) break;
         if (!input) throw std::runtime_error("input read failed");
     }
@@ -177,6 +181,7 @@ void write_result(std::ostream& output, const std::string& document, bool length
     } else {
         output << document << '\n';
     }
+    output.flush();
     if (!output) throw std::runtime_error("output write failed");
 }
 

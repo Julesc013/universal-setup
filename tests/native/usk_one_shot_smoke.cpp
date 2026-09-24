@@ -5,11 +5,42 @@
 #include "usk_json.h"
 
 #include <cstdint>
+#include <ios>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace {
+
+class BadAtEndBuffer final : public std::streambuf {
+public:
+    explicit BadAtEndBuffer(std::string bytes) : bytes_(std::move(bytes))
+    {
+        setg(bytes_.data(), bytes_.data(), bytes_.data() + bytes_.size());
+    }
+    void mark_bad_and_eof_on_end(std::istream& input) { owner_ = &input; }
+
+protected:
+    int_type underflow() override
+    {
+        if (gptr() != egptr()) return traits_type::to_int_type(*gptr());
+        if (owner_ != nullptr) {
+            owner_->setstate(std::ios::badbit | std::ios::eofbit);
+            return traits_type::eof();
+        }
+        throw std::ios_base::failure("injected read failure");
+    }
+
+private:
+    std::string bytes_;
+    std::istream* owner_ = nullptr;
+};
+
+class FailOnFlushBuffer final : public std::stringbuf {
+protected:
+    int sync() override { return -1; }
+};
 
 bool refused_with(const std::string& request, const std::string& code)
 {
@@ -79,5 +110,30 @@ int main()
     std::ostringstream plain;
     usk::command::write_result(plain, result.document, false);
     if (plain.str() != result.document + "\n") return 7;
+
+    const std::string framed_request =
+        std::string("\x00\x00\x00", 3) + static_cast<char>(request.size()) + request;
+    BadAtEndBuffer bad_frame(framed_request);
+    std::istream bad_frame_input(&bad_frame);
+    try {
+        (void)usk::command::read_bounded_request(bad_frame_input, true);
+        return 8;
+    } catch (const std::runtime_error&) {
+    }
+    BadAtEndBuffer bad_plain(request);
+    std::istream bad_plain_input(&bad_plain);
+    bad_plain.mark_bad_and_eof_on_end(bad_plain_input);
+    try {
+        (void)usk::command::read_bounded_request(bad_plain_input, false);
+        return 9;
+    } catch (const std::runtime_error&) {
+    }
+    FailOnFlushBuffer bad_output_buffer;
+    std::ostream bad_output(&bad_output_buffer);
+    try {
+        usk::command::write_result(bad_output, result.document, false);
+        return 10;
+    } catch (const std::runtime_error&) {
+    }
     return 0;
 }
