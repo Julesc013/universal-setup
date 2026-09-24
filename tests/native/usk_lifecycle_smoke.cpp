@@ -4,6 +4,7 @@
 #include "usk_audit_repository.h"
 #include "usk_install_restart.h"
 #include "usk_lifecycle.h"
+#include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_state_repository.h"
@@ -319,16 +320,75 @@ void prepare_legacy_ownership_fixture(const fs::path& root,
 int observe_legacy_ownership_fixture(const usk::lifecycle::LifecycleRoots& roots,
     std::size_t file_count, const std::string& operation)
 {
+    if (operation == "legacy_ownership_load") {
+        const usk::state::StateRepository repository(roots.state_root);
+        const auto ownership = repository.read_ownership("ownership.legacy");
+        if (ownership.files.size() != file_count) return 62;
+    }
     if (operation == "legacy_verify" || operation == "legacy_report") {
         const auto verified = usk::lifecycle::verify_installed(roots, "install.legacy",
             "verify.legacy.current", "2026-07-14T00:00:01Z");
         if (verified.status != "pass" || verified.files.size() != file_count) return 60;
+        if (operation == "legacy_report") {
+            using usk::json::Value;
+            Value::Array files;
+            for (const auto& file : verified.files) {
+                Value::Object item{{"expected_sha256", Value(file.expected_sha256)},
+                    {"relative_path", Value(file.relative_path)}, {"status", Value(file.status)}};
+                if (!file.actual_sha256.empty()) item.emplace("actual_sha256", Value(file.actual_sha256));
+                files.emplace_back(std::move(item));
+            }
+            Value::Array directories;
+            for (const auto& directory : verified.directories) {
+                directories.emplace_back(Value::Object{{"relative_path", Value(directory.relative_path)},
+                    {"status", Value(directory.status)}});
+            }
+            Value::Array unknown;
+            for (const auto& path : verified.unknown_paths) unknown.emplace_back(path);
+            const Value legacy_payload(Value::Object{
+                {"directories", Value(std::move(directories))}, {"files", Value(std::move(files))},
+                {"install_id", Value(verified.install_id)},
+                {"installed_state_digest", Value(verified.installed_state_digest)},
+                {"ownership_manifest_digest", Value(verified.ownership_manifest_digest)},
+                {"report_id", Value(verified.report_id)}, {"status", Value(verified.status)},
+                {"summary", Value(Value::Object{{"missing_files", Value(verified.missing_files)},
+                    {"modified_files", Value(verified.modified_files)},
+                    {"unknown_paths", Value(static_cast<std::uint64_t>(verified.unknown_paths.size()))},
+                    {"owned_files", Value(static_cast<std::uint64_t>(verified.files.size()))}})},
+                {"unknown_paths", Value(std::move(unknown))}, {"verified_at", Value(verified.verified_at)}});
+            if (verified.report_digest != usk::json::sha256_canonical(legacy_payload)) return 63;
+        }
     }
     if (operation == "legacy_uninstall_plan" || operation == "legacy_report") {
         const auto uninstall = usk::lifecycle::plan_uninstall(roots, "install.legacy",
             "plan.legacy.uninstall", "2026-07-14T00:00:02Z");
         if (uninstall.verification.status != "pass" ||
             uninstall.verification.files.size() != file_count || uninstall.plan_digest.size() != 64) return 61;
+        if (operation == "legacy_report") {
+            using usk::json::Value;
+            Value::Array files;
+            for (const auto& file : uninstall.verification.files) {
+                files.emplace_back(Value::Object{{"actual_sha256", Value(file.actual_sha256)},
+                    {"expected_sha256", Value(file.expected_sha256)},
+                    {"relative_path", Value(file.relative_path)}, {"status", Value(file.status)}});
+            }
+            Value::Array unknown;
+            for (const auto& path : uninstall.verification.unknown_paths) unknown.emplace_back(path);
+            const Value legacy_plan(Value::Object{
+                {"audit_root", Value(fs::absolute(roots.audit_root).lexically_normal().generic_string())},
+                {"created_at", Value(uninstall.created_at)},
+                {"install_id", Value(uninstall.install_id)},
+                {"installed_state_digest", Value(uninstall.installed_state_digest)},
+                {"operation", Value("uninstall")},
+                {"ownership_manifest_digest", Value(uninstall.ownership_manifest_digest)},
+                {"plan_id", Value(uninstall.plan_id)}, {"policy_digest", Value(uninstall.policy_digest)},
+                {"staging_parent", Value(fs::absolute(roots.staging_parent).lexically_normal().generic_string())},
+                {"state_root", Value(fs::absolute(roots.state_root).lexically_normal().generic_string())},
+                {"verification", Value(Value::Object{{"files", Value(std::move(files))},
+                    {"status", Value(uninstall.verification.status)},
+                    {"unknown_paths", Value(std::move(unknown))}})}});
+            if (uninstall.plan_digest != usk::json::sha256_canonical(legacy_plan)) return 64;
+        }
     }
     return 0;
 }
@@ -773,7 +833,8 @@ int main(int argc, char** argv)
         }
         if (argc == 5 && std::string(argv[1]) == "--observe-legacy-memory") {
             const std::string operation = argv[2];
-            if (operation != "legacy_verify" && operation != "legacy_uninstall_plan" &&
+            if (operation != "legacy_ownership_load" && operation != "legacy_verify" &&
+                operation != "legacy_uninstall_plan" &&
                 operation != "legacy_report") {
                 throw std::runtime_error("unknown legacy observation operation");
             }
