@@ -9,11 +9,13 @@ old-tree scan.
 ## Fixed limits and observations
 
 The scan uses `StableFile::sha256_hex`, which reads a single 64 KiB buffer from
-one stable native handle. It refuses a root with more than 100,000 files,
-200,000 total entries, a file over 4 GiB, more than 16 GiB logical file bytes,
-or a canonical snapshot index above 64 MiB. The index charge is explicit and
-overflow checked before allocation. Verification also refuses instead of
-retaining more than 10,000 unknown paths.
+one stable native handle. The current lifecycle profile refuses more than 4,096
+files, 8,192 directories, 1 MiB each of file and directory path text, a path above 1,024
+bytes, a file above 4 GiB, 16 GiB of logical file bytes, or a canonical
+snapshot index above 64 MiB. Materialized (non-reader) payloads have a separate
+64 MiB aggregate retained-byte ceiling. Verification limits owned and unknown
+path reports separately. These are refusal bounds, not proof that the allocator
+uses exactly the charged number of bytes; entry-count scaling is measured below.
 
 `MovePlan::resource_observation` reports the deterministic in-process bounds:
 `peak_payload_buffer=65536`, `peak_open_source_files=1`,
@@ -38,11 +40,22 @@ publication. Before a streaming intent, move attempts ordinary safe rollback;
 after intent, the transaction journal retains staging for an operator. After
 visibility, existing recovery-required handling remains in force.
 
-Portable evidence consists of the explicit `StableFile` checks and deterministic
-resource observation above. Native Windows x64 evidence is the targeted native
-CMake/CTest execution recorded with the work unit. No OS peak-memory
-child-process probe is claimed in this slice: it cannot be added as a separate
-target without changing the root CMake file, which is outside WU005 scope.
+`tests/lifecycle_memory_probe.py` launches an isolated mode of the existing
+`usk_lifecycle_smoke` target, so no root CMake change is needed. It records the
+OS child-process peak working set on Windows or child maximum RSS on POSIX,
+binary digest, source identity, filesystem profile, operation, source kind,
+entry count and payload bytes. Streaming and materialized-source cases distinguish
+fixed buffers from caller-retained payload. Each operation runs in its own process;
+install preparation is included in the peak for verify, repair, move and update.
+The native smoke independently checks output and refusal behavior. The exact
+Windows observations are recorded after the source commit is frozen.
+
+Move planning binds the source root's native identity. Move staging checks root
+identity and ancestor path safety before and after each source read and again
+before publication; the native test injects a same-file-identity root swap.
+These pathname checks reject observed substitutions but do not establish an
+atomic adversarial namespace guarantee on a concurrently writable POSIX root.
+That qualification belongs with the protected publisher and lease work.
 
 Whole-root update recovery/publication and the transaction snapshot helper
 remain WU006-owned. This document records implementation evidence only; it

@@ -163,6 +163,7 @@ struct MovePlan {
     std::string ownership_manifest_digest;
     std::string policy_digest;
     std::filesystem::path old_root;
+    std::string old_root_identity;
     std::filesystem::path new_root;
     std::filesystem::path staging_parent;
     LifecycleRoots roots;
