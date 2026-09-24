@@ -12,7 +12,8 @@ The current machine host accepts a bounded read-only command subset. It does
 not load this product bundle or perform setup. Neither envelope is a qualified
 installer, and the one-file carrier is not an executable. The manifest records
 `installation_mode=inspect_only` and an unqualified runtime dependency closure.
-No signing, native integration, launch, or user-state change occurs here.
+The builder does no signing, native integration, launch, or user-state change.
+The source probe launches the packaged host for its read-only inspect command.
 
 ## External product walkthrough
 
