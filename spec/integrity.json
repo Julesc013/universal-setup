@@ -2,7 +2,7 @@
   "schema": "usk.spec.integrity/1",
   "algorithm": "sha256",
   "self_excluded": "integrity.json",
-  "aggregate_sha256": "59c3a09cd9965aa841cd15ea494efc79d8993303a336c2d9d37c20d1259a3c6d",
+  "aggregate_sha256": "d32bc04880100e4e3ae646eace2290e092db81ca2ad46245b761248190bdcb39",
   "files": [
     {
       "path": ".gitattributes",
@@ -81,8 +81,8 @@
     },
     {
       "path": "derived/catalogue.json",
-      "bytes": 233783,
-      "sha256": "a2b43c10aa758fe457712e688f14d901d6dc6bf0708842f9b81aabe6fd540df3"
+      "bytes": 234220,
+      "sha256": "5e700da243fff3ad4628085d46fdf56732ea90759ccf71d71794c4cb5708ce0b"
     },
     {
       "path": "derived/index.md",
@@ -401,38 +401,38 @@
     },
     {
       "path": "plan/tasks/usk-wu-005.md",
-      "bytes": 5582,
-      "sha256": "95ea8d9491831a401b473e630f498f7151c234fe08d7bd30f338ef2b263ab68c"
+      "bytes": 5610,
+      "sha256": "8658f87f8af3ed15d91c461d573c126bc9d40160e6cef548dfd2136c6e097093"
     },
     {
       "path": "plan/tasks/usk-wu-006.md",
-      "bytes": 5540,
-      "sha256": "089431a7ff46b54f0b58568edc740ad35fc372808e64c409758498d3af780dfd"
+      "bytes": 5558,
+      "sha256": "5eae21fb7699a4c6b897aa2ef8f1ebcc340000ac78a2aebe4dd622a567687c3a"
     },
     {
       "path": "plan/tasks/usk-wu-007.md",
-      "bytes": 5462,
-      "sha256": "d5c8ddc3f0d755586d0cf2249dbd193062c0e65a09cecdd1ed67f031755a6af3"
+      "bytes": 5480,
+      "sha256": "f2900115203cb3c5405d45df5ed4195f0ae367fa141d811db39db988b92592e4"
     },
     {
       "path": "plan/tasks/usk-wu-008.md",
-      "bytes": 5608,
-      "sha256": "fa7bf1175b0d2ba6d3e5a08582892da2f8150fbcf8a2e9a88facdceeaa82b08d"
+      "bytes": 5626,
+      "sha256": "768fe75409d3cc583b744e0afcb4d62b2ef7b440bc8e54d786c95832e456f34d"
     },
     {
       "path": "plan/tasks/usk-wu-009.md",
-      "bytes": 5487,
-      "sha256": "aaf9c8803c09c1f08650e17268a78943498a8de4e410275f5a201ade725c1b4b"
+      "bytes": 5505,
+      "sha256": "05e63e368fc165581b3cafc94e4b6b0941c54796c59ee35edcc163d836f8e619"
     },
     {
       "path": "plan/tasks/usk-wu-010.md",
-      "bytes": 5496,
-      "sha256": "4b24fcdcff731bf3edfbaa5282febd46d40fe1f285813d2b71f90ea7709debfe"
+      "bytes": 5514,
+      "sha256": "38fe2e0d1add00aeb6ffcfb05b5f7de0de22585371a4099f2a90862bd92ab216"
     },
     {
       "path": "plan/tasks/usk-wu-011.md",
-      "bytes": 5587,
-      "sha256": "f1c28f2e1ae288935c971ac9e10c85be13b4e43dc0f1f5811737918914bc2d86"
+      "bytes": 5615,
+      "sha256": "5afc9db35e83e565ec8734149c4b9d8cda0c755995217b8f1bcc2c4941104b7d"
     },
     {
       "path": "plan/tasks/usk-wu-012.md",

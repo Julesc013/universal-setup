@@ -559,7 +559,7 @@
       "path": "plan/tasks/usk-wu-005.md",
       "title": "Bound preimage inventory and full lifecycle memory",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "95ea8d9491831a401b473e630f498f7151c234fe08d7bd30f338ef2b263ab68c",
+      "sha256": "8658f87f8af3ed15d91c461d573c126bc9d40160e6cef548dfd2136c6e097093",
       "depends_on": [
         "USK-S-STREAM",
         "USK-S-ARCHIVE"
@@ -570,7 +570,7 @@
       "path": "plan/tasks/usk-wu-006.md",
       "title": "Implement the qualified staged-child publisher",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "089431a7ff46b54f0b58568edc740ad35fc372808e64c409758498d3af780dfd",
+      "sha256": "5eae21fb7699a4c6b897aa2ef8f1ebcc340000ac78a2aebe4dd622a567687c3a",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-PLAT"
@@ -581,7 +581,7 @@
       "path": "plan/tasks/usk-wu-007.md",
       "title": "Add per-install leases and stale-worker fencing",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "d5c8ddc3f0d755586d0cf2249dbd193062c0e65a09cecdd1ed67f031755a6af3",
+      "sha256": "f2900115203cb3c5405d45df5ed4195f0ae367fa141d811db39db988b92592e4",
       "depends_on": [
         "USK-S-LEASE",
         "USK-S-POLICY"
@@ -592,7 +592,7 @@
       "path": "plan/tasks/usk-wu-008.md",
       "title": "Complete exact operation journals and recovery",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "fa7bf1175b0d2ba6d3e5a08582892da2f8150fbcf8a2e9a88facdceeaa82b08d",
+      "sha256": "768fe75409d3cc583b744e0afcb4d62b2ef7b440bc8e54d786c95832e456f34d",
       "depends_on": [
         "USK-S-TXN",
         "USK-S-REC",
@@ -604,7 +604,7 @@
       "path": "plan/tasks/usk-wu-009.md",
       "title": "Implement installed generations and collection plans",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "aaf9c8803c09c1f08650e17268a78943498a8de4e410275f5a201ade725c1b4b",
+      "sha256": "05e63e368fc165581b3cafc94e4b6b0941c54796c59ee35edcc163d836f8e619",
       "depends_on": [
         "USK-S-GEN",
         "USK-S-OPS"
@@ -615,7 +615,7 @@
       "path": "plan/tasks/usk-wu-010.md",
       "title": "Correct lifecycle schema and command compatibility",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "4b24fcdcff731bf3edfbaa5282febd46d40fe1f285813d2b71f90ea7709debfe",
+      "sha256": "38fe2e0d1add00aeb6ffcfb05b5f7de0de22585371a4099f2a90862bd92ab216",
       "depends_on": [
         "USK-S-ID",
         "USK-S-PLAN",
@@ -627,7 +627,7 @@
       "path": "plan/tasks/usk-wu-011.md",
       "title": "Deliver independent local lifecycle qualification",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "f1c28f2e1ae288935c971ac9e10c85be13b4e43dc0f1f5811737918914bc2d86",
+      "sha256": "5afc9db35e83e565ec8734149c4b9d8cda0c755995217b8f1bcc2c4941104b7d",
       "depends_on": [
         "USK-S-TEST",
         "USK-S-FAULT",
@@ -2966,7 +2966,8 @@
         "runtime/base/**",
         "runtime/setup/streaming/**",
         "tests/**",
-        "docs/testing/**"
+        "docs/testing/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
@@ -3086,12 +3087,12 @@
         "runtime/base/**",
         "runtime/setup/transaction/**",
         "runtime/platform/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3206,12 +3207,12 @@
         "runtime/setup/transaction/**",
         "runtime/setup/state/**",
         "runtime/platform/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3334,12 +3335,12 @@
         "runtime/setup/rollback/**",
         "runtime/setup/state/**",
         "runtime/setup/lifecycle/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3454,12 +3455,12 @@
         "runtime/setup/state/**",
         "runtime/setup/lifecycle/**",
         "runtime/setup/transaction/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3581,11 +3582,11 @@
         "contracts/**",
         "runtime/setup/kernel/**",
         "runtime/setup/lifecycle/**",
-        "tests/**"
+        "tests/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "release/**",
-        "docs/**",
         "spec/**"
       ],
       "forbidden_paths": [
@@ -3708,7 +3709,8 @@
         "tests/**",
         "tools/**",
         "docs/testing/**",
-        "release/index/**"
+        "release/index/**",
+        "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
         "contracts/**",
