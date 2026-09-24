@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T23:12:26Z",
+  "generated_at": "2026-09-24T23:28:56Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9e79bebbf1f1cf1ef1d3c70653ead94786d7c122",
   "repository_base_tree": "cd79a6d9b75366e567e2df3bc0d53545904d2b72",
@@ -3332,7 +3332,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
+          "sha256": "c6effe438c442dffb1331bbd301a05a0f575edce7071a699b7791930a35b06d3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3368,7 +3368,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
+          "sha256": "c6effe438c442dffb1331bbd301a05a0f575edce7071a699b7791930a35b06d3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3404,7 +3404,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
+          "sha256": "c6effe438c442dffb1331bbd301a05a0f575edce7071a699b7791930a35b06d3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3744,6 +3744,10 @@
         {
           "path": "tests/native/usk_publisher_handle_observation_smoke.cpp",
           "sha256": "422dfd83b69d6f6548cf6773e217fcb3b50768172a1169b169acb5560c2f5398"
+        },
+        {
+          "path": "tests/windows_publisher_lab_probe.ps1",
+          "sha256": "27fbe229caf89c1276f9efbae5c1f6f36a5c65c7182e32fb7fe78809e30a6f2e"
         }
       ],
       "acceptance_ids": [
