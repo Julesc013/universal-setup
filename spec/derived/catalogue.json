@@ -570,7 +570,7 @@
       "path": "plan/tasks/usk-wu-006.md",
       "title": "Implement the qualified staged-child publisher",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "5eae21fb7699a4c6b897aa2ef8f1ebcc340000ac78a2aebe4dd622a567687c3a",
+      "sha256": "6dd394074df96b3e5172afeaf751c3756c72ac7d604045e5e7a07a9385d45225",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-PLAT"
@@ -3084,10 +3084,18 @@
         "spec/**"
       ],
       "allowed_paths": [
+        "CMakeLists.txt",
+        "cmake/**",
+        "apps/daemon/**",
         "runtime/base/**",
+        "runtime/setup/kernel/**",
+        "runtime/setup/lifecycle/**",
+        "runtime/setup/policy/**",
         "runtime/setup/transaction/**",
         "runtime/platform/**",
         "tests/**",
+        "docs/security/windows_ntfs_publication_profile.md",
+        "docs/architecture/staged_child_commit_authority.md",
         "docs/architecture/specification_implementation_inventory.v1.json"
       ],
       "read_only_paths": [
