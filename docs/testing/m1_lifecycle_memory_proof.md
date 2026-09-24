@@ -47,8 +47,17 @@ binary digest, source identity, filesystem profile, operation, source kind,
 entry count and payload bytes. Streaming and materialized-source cases distinguish
 fixed buffers from caller-retained payload. Each operation runs in its own process;
 install preparation is included in the peak for verify, repair, move and update.
-The native smoke independently checks output and refusal behavior. The exact
-Windows observations are recorded after the source commit is frozen.
+The native smoke independently checks output and refusal behavior. The 24
+observations in `m1_lifecycle_memory_observations.v1.json` bind source commit
+`d1e4e506285a4d6eaca737123d69d4050ee358de`, its tree and the measured
+binary digest. On the measured Windows NTFS Debug fixture, six streaming
+operations at 1 MiB and 32 MiB each stayed at or below 11.1 MiB peak working
+set; the 128-entry, 1 MiB cases peaked at or below 14.2 MiB. The materialized
+install, repair and update-validation cases rose from about 11.5 MiB to about
+42.5 MiB as their retained payload rose from 1 MiB to 32 MiB. The matrix
+records exact bytes and pass thresholds, and distinguishes source-kind and
+entry-count scaling. It does not extrapolate those observations into an OS
+peak claim at the 4,096-file ceiling or claim multi-gigabyte acceptance.
 
 Move planning binds the source root's native identity. Move staging checks root
 identity and ancestor path safety before and after each source read and again
