@@ -97,10 +97,25 @@ they were 97,431,552 and 97,804,288 bytes. A combined 4,097-file sequence,
 with its first report released before planning, peaked at 53,776,384 bytes.
 Fixture construction and cleanup are outside the measured process. Its peak
 includes record parsing, reporting, and plan hashing, so it does not isolate
-allocator ownership by subsystem. The 8,192-file cases exceed a 64 MiB
-comparison threshold, and the current legacy reader has no aggregate report
-budget at that shape. Compatibility is preserved, but full lifecycle memory
+allocator ownership by subsystem. Those 8,192-file cases exceeded a 64 MiB
+comparison threshold, and the legacy reader had no aggregate report budget
+at that shape. Compatibility is preserved, but full lifecycle memory
 qualification remains open.
+
+The follow-up `m1_lifecycle_legacy_report_memory_observations.v2.json` binds
+source commit `9a8489a63621a075e98d6af6966afba3c4cd8a1e`, its tree and the
+measured Debug binary. The ownership reader releases the input JSON tree
+before retaining the validated manifest, and hashes that manifest without a
+second full tree. Verification and uninstall planning hash their v1 canonical
+reports directly from entries. Native tests rebuild the former JSON payloads
+and compare their digests with the new streaming results. Each 128, 4,097 and
+8,192-file reader, verify and uninstall-plan observation ran in a fresh Windows
+10 build 19045 C: NTFS child after separate fixture preparation. The 8,192-file
+peaks were 64,434,176, 64,520,192 and 64,630,784 bytes respectively, below the
+67,108,864-byte comparison ceiling. This measured improvement is not an
+enforced aggregate report allocation budget or a completed full 4,096-file
+lifecycle matrix. The new observations remain local ordinary-user Debug
+evidence; they do not qualify the protected publisher or release acceptance.
 
 Move planning binds the source root's native identity. Move staging checks root
 identity and ancestor path safety before and after each source read and again
