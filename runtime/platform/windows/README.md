@@ -29,3 +29,18 @@ the candidate's exact shape: one unnamed data stream for a file and no data
 streams for a directory. Disposable fixtures exercise named streams on both
 types and the empty-directory query result. These per-handle facts do not
 qualify a dedicated volume or establish a closed protected tree.
+
+The next read-only candidate enumerates `FileIdExtdDirectoryInfo` children from
+a retained directory handle, validates canonical names and a bounded listing,
+then reopens each child relative to that handle with no-follow native options.
+It compares the listed 128-bit ID to the reopened ID, checks the exact native
+parent/name relation, and refuses a reparse point or multiple links. Its tree
+walk uses bounded live listings and 64 KiB content reads to record a sorted
+descendant path/identity/digest set. Local ordinary-user fixtures include a
+640-file pagination case, case-only and forged-ID refusal, hard-link refusal,
+and alternate-stream refusal. A file's listing size was observed as stale
+while its writer handle remained open; content size comes from the reopened
+handle. `FILE_OPEN_NO_RECALL` returned `STATUS_INVALID_PARAMETER` with the
+candidate relative-open options on Windows 10 build 19045 and is not used.
+The tree candidate still lacks protected owner/DACL/effective-right evidence,
+anchor/ancestor admission, phase comparison, and durable publication/recovery.
