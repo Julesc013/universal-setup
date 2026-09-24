@@ -9,14 +9,19 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <cstddef>
+#include <cstring>
+#include <cwctype>
 #include <stdexcept>
 #include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #if !defined(NOMINMAX)
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <winternl.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -196,5 +201,237 @@ void rename_no_replace(const fs::path& source, const fs::path& target)
     throw std::runtime_error("platform lacks a proven no-replace move primitive");
 #endif
 }
+
+#if defined(_WIN32)
+namespace {
+class ProbeHandle {
+public:
+    explicit ProbeHandle(HANDLE value) : value_(value) {
+        if (value_ == INVALID_HANDLE_VALUE) {
+            throw std::system_error(static_cast<int>(GetLastError()), std::system_category(),
+                "cannot open handle for Windows rename probe");
+        }
+    }
+    ~ProbeHandle() { CloseHandle(value_); }
+    ProbeHandle(const ProbeHandle&) = delete;
+    ProbeHandle& operator=(const ProbeHandle&) = delete;
+    HANDLE get() const { return value_; }
+private:
+    HANDLE value_;
+};
+
+FILE_ID_INFO probe_file_id(HANDLE handle) {
+    FILE_ID_INFO id{};
+    if (!GetFileInformationByHandleEx(handle, FileIdInfo, &id, sizeof(id))) {
+        throw std::runtime_error("Windows rename probe cannot observe native file ID");
+    }
+    return id;
+}
+
+bool same_probe_file_id(const FILE_ID_INFO& first, const FILE_ID_INFO& second) {
+    return first.VolumeSerialNumber == second.VolumeSerialNumber &&
+        std::memcmp(first.FileId.Identifier, second.FileId.Identifier,
+            sizeof(first.FileId.Identifier)) == 0;
+}
+
+std::string probe_file_id_text(const FILE_ID_INFO& id) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string result(16 + 1 + sizeof(id.FileId.Identifier) * 2, '0');
+    for (unsigned index = 0; index < 8; ++index) {
+        const unsigned shift = (7u - index) * 8u;
+        const auto byte = static_cast<unsigned>((id.VolumeSerialNumber >> shift) & 0xffu);
+        result[index * 2] = digits[byte >> 4];
+        result[index * 2 + 1] = digits[byte & 15u];
+    }
+    result[16] = ':';
+    for (std::size_t index = 0; index < sizeof(id.FileId.Identifier); ++index) {
+        const auto byte = id.FileId.Identifier[index];
+        result[17 + index * 2] = digits[byte >> 4];
+        result[18 + index * 2] = digits[byte & 15u];
+    }
+    return result;
+}
+
+void require_probe_directory(HANDLE handle) {
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    FILE_STANDARD_INFO standard{};
+    if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &attributes, sizeof(attributes)) ||
+        !GetFileInformationByHandleEx(handle, FileStandardInfo, &standard, sizeof(standard)) ||
+        (attributes.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) !=
+            FILE_ATTRIBUTE_DIRECTORY || standard.NumberOfLinks != 1) {
+        throw std::runtime_error("Windows rename probe requires an unlinked single-link directory");
+    }
+}
+
+bool valid_probe_component(const std::wstring& name) {
+    if (name.empty() || name.size() > 128 || name.back() == L'.') return false;
+    for (const wchar_t ch : name) {
+        if (!((ch >= L'A' && ch <= L'Z') || (ch >= L'a' && ch <= L'z') ||
+              (ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'-' || ch == L'.')) return false;
+    }
+    std::wstring stem = name.substr(0, name.find(L'.'));
+    std::transform(stem.begin(), stem.end(), stem.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towupper(ch));
+    });
+    if (stem == L"CON" || stem == L"PRN" || stem == L"AUX" || stem == L"NUL" ||
+        (stem.size() == 4 && ((stem.compare(0, 3, L"COM") == 0) ||
+                            (stem.compare(0, 3, L"LPT") == 0)) &&
+         stem[3] >= L'1' && stem[3] <= L'9')) return false;
+    return true;
+}
+
+std::wstring probe_handle_name(HANDLE handle) {
+    std::vector<unsigned char> buffer(65536);
+    if (!GetFileInformationByHandleEx(handle, FileNameInfo, buffer.data(),
+            static_cast<DWORD>(buffer.size()))) {
+        throw std::runtime_error("rename may have applied but visible handle name is unobserved");
+    }
+    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(buffer.data());
+    if (info->FileNameLength % sizeof(WCHAR) != 0 ||
+        info->FileNameLength > buffer.size() - offsetof(FILE_NAME_INFO, FileName)) {
+        throw std::runtime_error("rename may have applied but visible handle name is malformed");
+    }
+    return {info->FileName, info->FileNameLength / sizeof(WCHAR)};
+}
+
+std::wstring probe_final_name(HANDLE handle) {
+    const std::wstring path = probe_handle_name(handle);
+    const auto separator = path.find_last_of(L"\\/");
+    return separator == std::wstring::npos ? path : path.substr(separator + 1);
+}
+
+NTSTATUS probe_open_relative_directory(HANDLE parent, const std::wstring& name, HANDLE& result) {
+    using NtOpenFileFn = NTSTATUS (NTAPI *)(
+        PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK, ULONG, ULONG);
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    auto* nt_open = ntdll ? reinterpret_cast<NtOpenFileFn>(
+        GetProcAddress(ntdll, "NtOpenFile")) : nullptr;
+    if (!nt_open) throw std::runtime_error("Windows relative directory open entry point is unavailable");
+    UNICODE_STRING object_name{};
+    object_name.Length = static_cast<USHORT>(name.size() * sizeof(WCHAR));
+    object_name.MaximumLength = static_cast<USHORT>((name.size() + 1) * sizeof(WCHAR));
+    object_name.Buffer = const_cast<PWSTR>(name.c_str());
+    OBJECT_ATTRIBUTES attributes{};
+    attributes.Length = sizeof(attributes);
+    attributes.RootDirectory = parent;
+    attributes.ObjectName = &object_name;
+    attributes.Attributes = OBJ_CASE_INSENSITIVE;
+    IO_STATUS_BLOCK status{};
+    result = INVALID_HANDLE_VALUE;
+    const NTSTATUS outcome = nt_open(&result, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &attributes, &status,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_OPEN_FOR_BACKUP_INTENT |
+            FILE_SYNCHRONOUS_IO_NONALERT);
+    if (outcome != 0 && result != INVALID_HANDLE_VALUE) {
+        CloseHandle(result);
+        result = INVALID_HANDLE_VALUE;
+    }
+    return outcome;
+}
+} // namespace
+
+WindowsBoundRenameProbeResult probe_windows_handle_relative_no_replace(
+    const fs::path& source, const fs::path& destination_parent,
+    const std::wstring& destination_name,
+    const std::function<void()>& before_preflight,
+    const std::function<void()>& after_absence_check)
+{
+    if (!valid_probe_component(destination_name)) {
+        throw std::runtime_error("Windows rename probe destination is not one bounded component");
+    }
+    require_safe_directory(source.parent_path());
+    require_safe_directory(source);
+    require_safe_directory(destination_parent);
+    base::require_native_path_capacity(source, base::NativePathKind::directory, "rename probe source");
+    base::require_native_path_capacity(destination_parent / destination_name,
+        base::NativePathKind::directory, "rename probe destination");
+    ProbeHandle source_handle(CreateFileW(source.c_str(), DELETE | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    ProbeHandle parent_handle(CreateFileW(destination_parent.c_str(),
+        FILE_READ_ATTRIBUTES | FILE_TRAVERSE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    require_probe_directory(source_handle.get());
+    require_probe_directory(parent_handle.get());
+    const auto source_id = probe_file_id(source_handle.get());
+    const auto parent_id = probe_file_id(parent_handle.get());
+    const auto parent_name = probe_handle_name(parent_handle.get());
+    if (source_id.VolumeSerialNumber != parent_id.VolumeSerialNumber) {
+        throw std::runtime_error("Windows rename probe refuses a cross-volume parent");
+    }
+    if (before_preflight) before_preflight();
+    if (!same_probe_file_id(parent_id, probe_file_id(parent_handle.get())) ||
+        probe_handle_name(parent_handle.get()) != parent_name) {
+        throw std::runtime_error("Windows rename probe destination parent changed before rename");
+    }
+    HANDLE preexisting = INVALID_HANDLE_VALUE;
+    const NTSTATUS absent_status = probe_open_relative_directory(
+        parent_handle.get(), destination_name, preexisting);
+    if (absent_status == 0) {
+        CloseHandle(preexisting);
+        throw std::runtime_error("Windows rename probe destination already exists");
+    }
+    constexpr NTSTATUS name_not_found = static_cast<NTSTATUS>(0xC0000034u);
+    if (absent_status != name_not_found) {
+        throw std::runtime_error("Windows rename probe cannot establish absent destination; NTSTATUS " +
+            std::to_string(static_cast<unsigned long>(absent_status)));
+    }
+    if (after_absence_check) after_absence_check();
+    const auto name_bytes = destination_name.size() * sizeof(WCHAR);
+    const std::size_t rename_bytes = offsetof(FILE_RENAME_INFO, FileName) + name_bytes + sizeof(WCHAR);
+    std::vector<std::max_align_t> buffer(
+        (rename_bytes + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
+    auto* rename_info = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
+    rename_info->ReplaceIfExists = FALSE;
+    rename_info->RootDirectory = parent_handle.get();
+    rename_info->FileNameLength = static_cast<DWORD>(name_bytes);
+    std::memcpy(rename_info->FileName, destination_name.data(), name_bytes);
+    rename_info->FileName[destination_name.size()] = L'\0';
+    using NtSetInformationFileFn = NTSTATUS (NTAPI *)(
+        HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, int);
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    auto* nt_set_information = ntdll ? reinterpret_cast<NtSetInformationFileFn>(
+        GetProcAddress(ntdll, "NtSetInformationFile")) : nullptr;
+    if (!nt_set_information) {
+        throw std::runtime_error("Windows handle-relative rename entry point is unavailable");
+    }
+    IO_STATUS_BLOCK status{};
+    const NTSTATUS result = nt_set_information(source_handle.get(), &status,
+        rename_info, static_cast<ULONG>(rename_bytes), 10 /* FileRenameInformation */);
+    if (result != 0) {
+        throw std::runtime_error("Windows native handle-relative no-replace rename failed; NTSTATUS " +
+            std::to_string(static_cast<unsigned long>(result)) + "; outcome requires observation");
+    }
+    // These are post-effect observations, not durable ownership proof. A failed
+    // observation must be retained for recovery by any future service caller.
+    if (!same_probe_file_id(source_id, probe_file_id(source_handle.get())) ||
+        !same_probe_file_id(parent_id, probe_file_id(parent_handle.get())) ||
+        probe_handle_name(parent_handle.get()) != parent_name) {
+        throw std::runtime_error("rename applied but source/parent handle identity changed");
+    }
+    auto actual_name = probe_final_name(source_handle.get());
+    if (actual_name.size() != destination_name.size() ||
+        !std::equal(actual_name.begin(), actual_name.end(), destination_name.begin(),
+            [](wchar_t a, wchar_t b) { return std::towlower(a) == std::towlower(b); })) {
+        throw std::runtime_error("rename applied but handle name is not the destination component");
+    }
+    HANDLE visible = INVALID_HANDLE_VALUE;
+    const NTSTATUS visible_status = probe_open_relative_directory(
+        parent_handle.get(), destination_name, visible);
+    if (visible_status != 0) {
+        throw std::runtime_error("rename applied but relative visible reopen failed; NTSTATUS " +
+            std::to_string(static_cast<unsigned long>(visible_status)));
+    }
+    ProbeHandle visible_handle(visible);
+    require_probe_directory(visible_handle.get());
+    const auto visible_id = probe_file_id(visible_handle.get());
+    if (!same_probe_file_id(source_id, visible_id)) {
+        throw std::runtime_error("rename applied but visible root is a different native object");
+    }
+    return {probe_file_id_text(source_id), probe_file_id_text(parent_id),
+        probe_file_id_text(visible_id)};
+}
+#endif
 
 } // namespace usk::record_io
