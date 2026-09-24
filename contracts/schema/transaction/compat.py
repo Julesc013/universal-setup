@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+
 """Lossless version tagging for the retained transaction contracts.
 
 This adapter does not authorize execution. Modern lifecycle mutation uses the
