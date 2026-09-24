@@ -7,6 +7,7 @@
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_state_repository.h"
+#include "usk_replacement_session.h"
 #include "usk_transaction_session.h"
 
 #include <algorithm>
@@ -267,11 +268,74 @@ void write_text(const fs::path& path, const std::string& text)
     output << text;
 }
 
+int legacy_ownership_compatibility_proof()
+{
+    Fixture fixture;
+    const fs::path target = fixture.root / "targets/legacy";
+    fs::create_directories(target);
+    const unsigned char byte = 'x';
+    usk::base::Sha256 hash;
+    hash.update(&byte, 1);
+    const std::string file_digest = hash.finish();
+
+    usk::state::OwnershipManifest ownership;
+    ownership.manifest_id = "ownership.legacy";
+    ownership.install_id = "install.legacy";
+    ownership.target_root = target.string();
+    ownership.created_by_transaction_id = "tx.legacy.install";
+    for (std::size_t index = 0; index < 4097; ++index) {
+        const std::string relative = "entry-" + std::to_string(index) + ".bin";
+        write_text(target / relative, "x");
+        ownership.files.push_back({relative, file_digest, 1});
+    }
+    usk::state::StateRepository repository(fixture.roots.state_root);
+    ownership = repository.write_ownership(std::move(ownership));
+
+    usk::state::InstalledState installed;
+    installed.install_id = ownership.install_id;
+    installed.product_id = "product.legacy";
+    installed.product_version = "1.0.0";
+    installed.recipe_digest = std::string(64, '1');
+    installed.source_archive_digest = std::string(64, '2');
+    installed.target_root = target.string();
+    installed.component_selection = {"core"};
+    installed.ownership_manifest_ref = "ownership/" + ownership.manifest_id + ".json";
+    installed.ownership_manifest_digest = ownership.manifest_digest;
+    installed.entrypoints = {{"application", "entry-0.bin", "application"}};
+    installed.provider_revision = "synthetic-provider-r1";
+    installed.transaction_id = "tx.legacy.install";
+    installed.created_at = "2026-07-14T00:00:00Z";
+    installed.last_verification = {"verify.legacy.old", std::string(64, '0'),
+        "pass", "2026-07-14T00:00:00Z"};
+    installed.audit_chain_id = "audit.legacy";
+    installed.lifecycle_status = "installed";
+    repository.write_installed(installed);
+
+    const auto verified = usk::lifecycle::verify_installed(fixture.roots, installed.install_id,
+        "verify.legacy.current", "2026-07-14T00:00:01Z");
+    if (verified.status != "pass" || verified.files.size() != 4097) return 60;
+    const auto uninstall = usk::lifecycle::plan_uninstall(fixture.roots, installed.install_id,
+        "plan.legacy.uninstall", "2026-07-14T00:00:02Z");
+    if (uninstall.verification.status != "pass" ||
+        uninstall.verification.files.size() != 4097 || uninstall.plan_digest.size() != 64) return 61;
+    return 0;
+}
+
 int run()
 {
     Fixture fixture;
     const fs::path target = fixture.root / "targets/portable";
     fs::create_directories(target.parent_path());
+    std::vector<usk::lifecycle::PayloadFile> too_many_files;
+    too_many_files.reserve(4097);
+    for (std::size_t index = 0; index < 4097; ++index) {
+        too_many_files.push_back({"app/data/entry-" + std::to_string(index) + ".bin", {'x'}});
+    }
+    if (!refuses([&] {
+            (void)usk::lifecycle::plan_install(
+                "plan.synthetic.too-many", "install.synthetic.too-many", "2026-07-14T00:09:59Z",
+                target, fixture.roots, recipe(), std::move(too_many_files));
+        }) || fs::exists(target)) return 59;
     const auto plan = usk::lifecycle::plan_install(
         "plan.synthetic.install", "install.synthetic", "2026-07-14T00:10:00Z",
         target, fixture.roots, recipe(), payload());
@@ -333,9 +397,72 @@ int run()
         return 7;
     }
 
+    auto next_recipe = recipe();
+    next_recipe.product_version = "2.0.0";
+    const auto update_plan = usk::lifecycle::plan_update(
+        fixture.roots, "install.synthetic", "plan.synthetic.update", "2026-07-14T00:10:07Z",
+        "upgrade", target, next_recipe, payload());
+    if (update_plan.old_snapshot_digest != usk::transaction::replacement_snapshot_digest(target) ||
+        update_plan.old_complete_files.empty() ||
+        update_plan.old_complete_files.front().sha256.empty() ||
+        update_plan.old_complete_files.front().resource.file_id.empty()) {
+        return 17;
+    }
+
     const fs::path moved_target = fixture.root / "targets/moved-portable";
-    const auto move_plan = usk::lifecycle::plan_move(
+    auto move_plan = usk::lifecycle::plan_move(
         fixture.roots, "install.synthetic", "plan.synthetic.move", "2026-07-14T00:10:08Z", moved_target);
+    if (move_plan.resource_observation.peak_payload_buffer != 64u * 1024u ||
+        move_plan.resource_observation.peak_open_source_files != 1u ||
+        move_plan.resource_observation.retained_payload != 0u ||
+        move_plan.resource_observation.complete_payload_retained) {
+        return 18;
+    }
+    const fs::path displaced_source = fixture.root / "targets/displaced-source";
+    bool same_resource_observed = true;
+    bool source_substitution_refused = refuses([&] {
+        (void)usk::lifecycle::apply_move(move_plan, move_plan.plan_digest,
+            "tx.synthetic.move.source-swap", "2026-07-14T00:10:09Z",
+            [&](const std::string&, const std::string& point) {
+                if (point != "transaction.staging.after_staging_create") return;
+                fs::rename(target, displaced_source);
+                fs::create_directory(target);
+                for (const auto& file : move_plan.complete_files) {
+                    const fs::path replacement = target / file.relative_path;
+                    fs::create_directories(replacement.parent_path());
+                    fs::rename(displaced_source / file.relative_path, replacement);
+                    const usk::base::StableFile moved(replacement);
+                    same_resource_observed = same_resource_observed &&
+                        moved.identity().volume_id == file.resource.volume_id &&
+                        moved.identity().file_id == file.resource.file_id &&
+                        moved.identity().link_count == file.resource.link_count;
+                }
+            });
+    });
+    if (!source_substitution_refused || !same_resource_observed || fs::exists(moved_target)) return 58;
+    for (const auto& file : move_plan.complete_files) {
+        fs::rename(target / file.relative_path, displaced_source / file.relative_path);
+    }
+    fs::remove_all(target);
+    fs::rename(displaced_source, target);
+
+    bool stream_fault_refused = false;
+    try {
+        (void)usk::lifecycle::apply_move(move_plan, move_plan.plan_digest,
+            "tx.synthetic.move.stream-fault", "2026-07-14T00:10:09Z",
+            [](const std::string&, const std::string& point) {
+                if (point == "transaction.staging.after_stream_intent") {
+                    throw std::runtime_error("injected move stream intent failure");
+                }
+            });
+    } catch (const std::exception& error) {
+        stream_fault_refused = true;
+        (void)error;
+    }
+    if (!stream_fault_refused || !fs::is_directory(target) || fs::exists(moved_target) ||
+        !fs::exists(moved_target.parent_path() / ".usk-stage-tx.synthetic.move.stream-fault")) {
+        return 19;
+    }
     const auto move_result = usk::lifecycle::apply_move(
         move_plan, move_plan.plan_digest, "tx.synthetic.move", "2026-07-14T00:10:09Z");
     if (move_result.verification.status != "warn" || !fs::is_directory(target) ||
@@ -478,13 +605,129 @@ int run()
     return 0;
 }
 
+int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
+    std::size_t entries, bool materialized)
+{
+    if (payload_bytes == 0 || payload_bytes > 128ull * 1024ull * 1024ull ||
+        entries == 0 || entries > 2048) {
+        throw std::runtime_error("memory scenario dimensions are invalid");
+    }
+    Fixture fixture;
+    const std::uint64_t bytes_per_entry = (payload_bytes + entries - 1u) / entries;
+    const fs::path source_path = fixture.root / "source.bin";
+    {
+        std::ofstream output(source_path, std::ios::binary);
+        if (!output) throw std::runtime_error("memory scenario source create failed");
+        const std::vector<char> chunk(64u * 1024u, 'x');
+        for (std::uint64_t offset = 0; offset < bytes_per_entry;) {
+            const auto count = static_cast<std::streamsize>(
+                std::min<std::uint64_t>(chunk.size(), bytes_per_entry - offset));
+            output.write(chunk.data(), count);
+            if (!output) throw std::runtime_error("memory scenario source write failed");
+            offset += static_cast<std::uint64_t>(count);
+        }
+    }
+    auto source = std::make_shared<usk::base::StableFile>(source_path);
+    const std::string source_digest = source->sha256_hex();
+    const auto make_files = [&](bool use_materialized) {
+        std::vector<usk::lifecycle::PayloadFile> files;
+        files.reserve(entries);
+        for (std::size_t index = 0; index < entries; ++index) {
+            const std::string relative = index == 0 ? "app/bin/program.exe" :
+                "app/data/entry-" + std::to_string(index) + ".bin";
+            if (use_materialized) {
+                files.push_back({relative, std::vector<unsigned char>(
+                    static_cast<std::size_t>(bytes_per_entry), 'x')});
+                continue;
+            }
+            files.push_back({relative, {}, source_digest, bytes_per_entry,
+                [source](std::uint64_t offset, unsigned char* output, std::size_t capacity) {
+                    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(
+                        capacity, source->identity().size_bytes - offset));
+                    if (count != 0) source->read_into(offset, output, count);
+                    return count;
+                }, 64u * 1024u});
+        }
+        return files;
+    };
+    const fs::path target = fixture.root / "targets/portable";
+    fs::create_directories(target.parent_path());
+    const auto plan = usk::lifecycle::plan_install(
+        "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
+        target, fixture.roots, recipe(),
+        make_files(materialized && (operation == "install" || operation == "recovery")));
+    if (operation == "recovery") {
+        if (!refuses([&] {
+                (void)usk::lifecycle::apply_install(plan, plan.plan_digest,
+                    "tx.memory.install", "2026-07-14T01:00:01Z",
+                    [](const std::string&, const std::string& point) {
+                        if (point == "after_target_commit")
+                            throw std::runtime_error("injected recovery boundary");
+                    });
+            })) return 51;
+        const auto result = usk::lifecycle::recover_install_finalization(
+            plan, "tx.memory.install", "2026-07-14T01:00:02Z");
+        if (result.verification.status != "pass") return 52;
+    } else {
+        const auto installed = usk::lifecycle::apply_install(
+            plan, plan.plan_digest, "tx.memory.install", "2026-07-14T01:00:01Z");
+        if (installed.verification.status != "pass") return 53;
+        if (operation == "verify") {
+            if (usk::lifecycle::verify_installed(fixture.roots, "install.memory",
+                    "verify.memory", "2026-07-14T01:00:02Z").status != "pass") return 54;
+        } else if (operation == "repair") {
+            {
+                std::ofstream damaged(target / "app/bin/program.exe", std::ios::binary | std::ios::trunc);
+                damaged.put('!');
+            }
+            const auto repair = usk::lifecycle::plan_repair(fixture.roots, "install.memory",
+                "plan.memory.repair", "2026-07-14T01:00:02Z", make_files(materialized));
+            const auto result = usk::lifecycle::apply_repair(repair, repair.plan_digest,
+                "tx.memory.repair", "2026-07-14T01:00:03Z");
+            if (result.after.status != "pass") return 55;
+        } else if (operation == "move") {
+            const fs::path destination = fixture.root / "targets/moved";
+            const auto move = usk::lifecycle::plan_move(fixture.roots, "install.memory",
+                "plan.memory.move", "2026-07-14T01:00:02Z", destination);
+            const auto result = usk::lifecycle::apply_move(move, move.plan_digest,
+                "tx.memory.move", "2026-07-14T01:00:03Z");
+            if (result.verification.status != "pass" || !fs::is_directory(destination)) return 56;
+        } else if (operation == "update") {
+            auto new_recipe = recipe();
+            new_recipe.product_version = "2.0.0";
+            const auto update = usk::lifecycle::plan_update(fixture.roots, "install.memory",
+                "plan.memory.update", "2026-07-14T01:00:02Z", "upgrade", target,
+                new_recipe, make_files(materialized));
+            if (!refuses([&] { (void)usk::lifecycle::apply_update(update, update.plan_digest,
+                    "tx.memory.update", "2026-07-14T01:00:03Z"); }) ||
+                !fs::is_directory(target)) return 57;
+        } else if (operation != "install") {
+            throw std::runtime_error("unknown memory scenario operation");
+        }
+    }
+    std::cout << "memory-scenario-pass " << operation << (materialized ? " materialized " : " streaming ") <<
+        (bytes_per_entry * entries) << ' ' << entries << '\n';
+    return 0;
+}
+
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
     try {
+        if ((argc == 5 || argc == 6) && std::string(argv[1]) == "--memory-scenario") {
+            const bool materialized = argc == 6 && std::string(argv[5]) == "materialized";
+            if (argc == 6 && !materialized)
+                throw std::runtime_error("unknown memory scenario source kind");
+            return memory_scenario(argv[2], std::stoull(argv[3]),
+                static_cast<std::size_t>(std::stoull(argv[4])), materialized);
+        }
+        if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
         if (const int streaming = streaming_install_and_fault_proof()) {
             return streaming;
+        }
+        if (const int legacy = legacy_ownership_compatibility_proof()) {
+            return legacy;
         }
         return run();
     } catch (const std::exception& error) {

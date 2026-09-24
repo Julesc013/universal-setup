@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-22T13:35:00Z",
+  "generated_at": "2026-09-24T11:06:52.177509Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "16a773ea964f5d3228647795d17ae4ff6dbbc20e",
-  "repository_base_tree": "fa579840055f6cfb1cf0e852f929d93e45605281",
+  "repository_base_commit": "140b08b1f4d3a16515a34e848fb55a56cee35fe6",
+  "repository_base_tree": "1d2eea434652c6824bf422dbc85db7b8231e8a7d",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "d32bc04880100e4e3ae646eace2290e092db81ca2ad46245b761248190bdcb39",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
+  "assessment_scope": "Targeted source and retained-test inventory carried forward to WU-005 source. Affected lifecycle observations are refreshed; other classifications are inherited from the prior assessment. Windows Debug memory observations are separate evidence, not full product acceptance. Persisted legacy ownership verification remains outside the new-plan memory envelope.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Source-level implementation assessment remains bound to dev@16a773ea964f5d3228647795d17ae4ff6dbbc20e and its exact tree. WU-005 through WU-011 task-scope corrections update the current specification seal but do not change the assessed implementation or claim runtime qualification.",
+  "working_tree_note": "Assessment source is WU-005 implementation commit 140b08b1f4d3a16515a34e848fb55a56cee35fe6; the 24-case Windows NTFS memory matrix is recorded after that commit. A 4,097-file prior-format ownership fixture preserves verification and uninstall planning. WU-005 remains partial against full STREAM-001 multi-gigabyte, ceiling-edge and legacy-report memory acceptance; WU-006 publication is still refused.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -21,7 +21,7 @@
     {
       "command": "python -m unittest discover -s tests -v",
       "result": "PASS",
-      "tests": 108,
+      "tests": 113,
       "scope": "repository Python/contract/policy tests; no native runtime execution"
     },
     {
@@ -1704,7 +1704,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "e48c957bed005835ae9f665180144f2aaa263878c94b72c97644089eb79f117c"
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
         }
       ],
       "acceptance_ids": [
@@ -1735,7 +1735,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "e48c957bed005835ae9f665180144f2aaa263878c94b72c97644089eb79f117c"
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
         }
       ],
       "acceptance_ids": [
@@ -1766,7 +1766,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "e48c957bed005835ae9f665180144f2aaa263878c94b72c97644089eb79f117c"
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
         }
       ],
       "acceptance_ids": [
@@ -2611,7 +2611,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "95081af4211321682745514cca4d10c6c36c09d60056f810f432bd926f61116e"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2645,7 +2645,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "95081af4211321682745514cca4d10c6c36c09d60056f810f432bd926f61116e"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2679,7 +2679,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "95081af4211321682745514cca4d10c6c36c09d60056f810f432bd926f61116e"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2717,7 +2717,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "e48c957bed005835ae9f665180144f2aaa263878c94b72c97644089eb79f117c"
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2752,7 +2752,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "e48c957bed005835ae9f665180144f2aaa263878c94b72c97644089eb79f117c"
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2787,7 +2787,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "e48c957bed005835ae9f665180144f2aaa263878c94b72c97644089eb79f117c"
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2822,7 +2822,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "e48c957bed005835ae9f665180144f2aaa263878c94b72c97644089eb79f117c"
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2857,7 +2857,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "95081af4211321682745514cca4d10c6c36c09d60056f810f432bd926f61116e"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -2893,7 +2893,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "95081af4211321682745514cca4d10c6c36c09d60056f810f432bd926f61116e"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -2929,7 +2929,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "95081af4211321682745514cca4d10c6c36c09d60056f810f432bd926f61116e"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -3987,7 +3987,7 @@
       "spec_id": "USK-S-STREAM",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "WU-005 bounds old-tree payload retention, new-plan materialized inputs and preimage metadata, with 24 Windows NTFS child-process peak observations. Persisted legacy ownership verification remains compatible but outside that measured envelope. The multi-gigabyte corpus, ceiling-edge metadata shape and adversarial namespace/profile qualification remain open; not release accepted.",
       "spec_source": {
         "path": "spec/io/streams.md",
         "sha256": "c5f960d0a6701cff8713aa159488cb82a4df93285281b8ebabe5c892612025bc"
@@ -4004,6 +4004,22 @@
         {
           "path": "tests/native/usk_streaming_source_target_smoke.cpp",
           "sha256": "25eec648134035b9b10d123cc3f56b2fe6b425730f03193504574f983181c86f"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
+          "sha256": "6e8f84eac18f61d87423f3f157166a2be396f9c02b0e2471718963d1f8e4ec43"
+        },
+        {
+          "path": "tests/native/usk_lifecycle_smoke.cpp",
+          "sha256": "c11acd964093741cfad0c4f0badc624f21d7d6f9dc8e71e61faa64cb038f3210"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_proof.md",
+          "sha256": "584162a56e63112f8396046f148407b8c16ba157f8702d20971269d4e5a15790"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_observations.v1.json",
+          "sha256": "d6d2a926b6e0d233a7dfb6c6c2bec03805564c91a98e1a9e37070ea973fbdbfa"
         }
       ],
       "acceptance_ids": [

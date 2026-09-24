@@ -15,8 +15,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <array>
+#include <limits>
 #include <map>
+#include <memory>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -25,6 +29,13 @@ namespace fs = std::filesystem;
 using usk::json::Value;
 
 namespace {
+
+constexpr std::size_t maximum_lifecycle_files = 4096;
+constexpr std::size_t maximum_lifecycle_directories = 8192;
+constexpr std::size_t maximum_relative_path_bytes = 1024;
+constexpr std::size_t maximum_total_path_bytes = 1024u * 1024u;
+constexpr std::size_t maximum_closure_path_bytes = 2u * maximum_total_path_bytes;
+constexpr std::uint64_t maximum_materialized_payload_bytes = 64ull * 1024ull * 1024ull;
 
 bool sha256(const std::string& value)
 {
@@ -100,6 +111,51 @@ void stage_payload_file(
     }
 }
 
+bool same_resource_observation(
+    const usk::base::StableFileIdentity& identity,
+    const usk::lifecycle::PreimageResourceObservation& observation)
+{
+    return identity.volume_id == observation.volume_id && identity.file_id == observation.file_id &&
+        identity.modified_time_ns == observation.modified_time_ns &&
+        identity.link_count == observation.link_count;
+}
+
+void stage_preimage_file(
+    usk::transaction::TransactionSession& transaction,
+    const fs::path& root,
+    const std::string& root_identity,
+    const usk::lifecycle::PreimageFile& preimage)
+{
+    if (usk::transaction::observe_directory_identity(root) != root_identity) {
+        throw std::runtime_error("move source root identity changed during staging");
+    }
+    usk::record_io::require_safe_directory((root / preimage.relative_path).parent_path());
+    auto source = std::make_shared<usk::base::StableFile>(root / preimage.relative_path);
+    if (source->identity().size_bytes != preimage.size_bytes ||
+        !same_resource_observation(source->identity(), preimage.resource)) {
+        throw std::runtime_error("move source resource changed after plan review");
+    }
+    std::uint64_t offset = 0;
+    const auto staged = transaction.stage_file_stream(preimage.relative_path, preimage.size_bytes,
+        preimage.sha256, usk::lifecycle::streaming_payload_buffer_bytes,
+        [source, &offset](unsigned char* output, std::size_t capacity) -> std::size_t {
+            const std::size_t count = static_cast<std::size_t>(std::min<std::uint64_t>(
+                capacity, source->identity().size_bytes - offset));
+            if (count != 0) source->read_into(offset, output, count);
+            offset += count;
+            return count;
+        });
+    if (staged.sha256 != preimage.sha256 || staged.size_bytes != preimage.size_bytes ||
+        offset != preimage.size_bytes) {
+        throw std::runtime_error("streamed move staging result changed");
+    }
+    source->verify_unchanged();
+    if (usk::transaction::observe_directory_identity(root) != root_identity) {
+        throw std::runtime_error("move source root identity changed during staging");
+    }
+    usk::record_io::require_safe_directory((root / preimage.relative_path).parent_path());
+}
+
 void rollback_before_visibility(
     usk::transaction::TransactionSession& transaction) noexcept
 {
@@ -160,10 +216,22 @@ bool valid_timestamp(const std::string& value)
 std::vector<std::string> directory_closure(const std::vector<usk::lifecycle::PayloadFile>& files)
 {
     std::set<std::string> result;
+    std::size_t path_bytes = 0;
     for (const auto& file : files) {
         fs::path parent = fs::path(file.relative_path).parent_path();
         while (!parent.empty()) {
-            result.insert(parent.generic_string());
+            const std::string relative = parent.generic_string();
+            const bool inserted = result.insert(relative).second;
+            if (inserted) {
+                if (relative.size() > maximum_relative_path_bytes ||
+                    relative.size() > maximum_total_path_bytes - path_bytes) {
+                    throw std::runtime_error("lifecycle directory path memory exceeds budget");
+                }
+                path_bytes += relative.size();
+            }
+            if (result.size() > maximum_lifecycle_directories) {
+                throw std::runtime_error("lifecycle directory closure exceeds budget");
+            }
             parent = parent.parent_path();
         }
     }
@@ -178,6 +246,17 @@ void require_payload_path_capacity(
     for (const auto& file : files) {
         usk::base::require_native_path_capacity(root / file.relative_path,
             usk::base::NativePathKind::file, "payload file");
+    }
+}
+
+void require_preimage_path_capacity(
+    const fs::path& root,
+    const std::vector<usk::lifecycle::PreimageFile>& files)
+{
+    usk::base::require_native_path_capacity(root, usk::base::NativePathKind::directory, "preimage root");
+    for (const auto& file : files) {
+        usk::base::require_native_path_capacity(root / file.relative_path,
+            usk::base::NativePathKind::file, "preimage file");
     }
 }
 
@@ -238,18 +317,40 @@ void validate_recipe(const usk::lifecycle::RecipeBinding& recipe)
     }
 }
 
-void normalize_files(std::vector<usk::lifecycle::PayloadFile>& files)
+void validate_normalized_files(const std::vector<usk::lifecycle::PayloadFile>& files)
 {
-    if (files.empty()) throw std::runtime_error("lifecycle payload is empty");
-    for (auto& file : files) bind_payload_identity(file);
-    std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
-        return left.relative_path < right.relative_path;
-    });
+    if (files.empty() || files.size() > maximum_lifecycle_files) {
+        throw std::runtime_error("lifecycle payload file count exceeds budget");
+    }
+    std::uint64_t retained_payload = 0;
+    std::size_t path_bytes = 0;
     std::set<std::string> folded;
     std::set<std::string> paths;
-    for (const auto& file : files) {
-        if (!safe_relative(file.relative_path) || !folded.insert(lowercase(file.relative_path)).second) {
-            throw std::runtime_error("lifecycle payload path is unsafe or case-colliding");
+    for (std::size_t index = 0; index < files.size(); ++index) {
+        const auto& file = files[index];
+        if (file.relative_path.size() > maximum_relative_path_bytes ||
+            file.relative_path.size() > maximum_total_path_bytes - path_bytes) {
+            throw std::runtime_error("lifecycle payload path memory exceeds budget");
+        }
+        path_bytes += file.relative_path.size();
+        if (!safe_relative(file.relative_path) ||
+            (index != 0 && files[index - 1].relative_path >= file.relative_path) ||
+            !folded.insert(lowercase(file.relative_path)).second) {
+            throw std::runtime_error("lifecycle payload path is unsafe, unordered, or case-colliding");
+        }
+        if (file.reader) {
+            if (!file.bytes.empty() || !sha256(file.sha256) ||
+                file.stream_buffer_bytes != usk::lifecycle::streaming_payload_buffer_bytes) {
+                throw std::runtime_error("streaming lifecycle payload identity is invalid");
+            }
+        } else {
+            if (file.bytes.size() > maximum_materialized_payload_bytes - retained_payload) {
+                throw std::runtime_error("materialized lifecycle payload exceeds retained-byte budget");
+            }
+            retained_payload += file.bytes.size();
+            if (file.size_bytes != file.bytes.size() || file.sha256 != hash_bytes(file.bytes)) {
+                throw std::runtime_error("materialized lifecycle payload identity changed");
+            }
         }
         paths.insert(file.relative_path);
     }
@@ -262,6 +363,27 @@ void normalize_files(std::vector<usk::lifecycle::PayloadFile>& files)
             parent = parent.parent_path();
         }
     }
+}
+
+void normalize_files(std::vector<usk::lifecycle::PayloadFile>& files)
+{
+    if (files.empty() || files.size() > maximum_lifecycle_files) {
+        throw std::runtime_error("lifecycle payload file count exceeds budget");
+    }
+    std::uint64_t retained_payload = 0;
+    for (auto& file : files) {
+        if (!file.reader) {
+            if (file.bytes.size() > maximum_materialized_payload_bytes - retained_payload) {
+                throw std::runtime_error("materialized lifecycle payload exceeds retained-byte budget");
+            }
+            retained_payload += file.bytes.size();
+        }
+        bind_payload_identity(file);
+    }
+    std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
+        return left.relative_path < right.relative_path;
+    });
+    validate_normalized_files(files);
 }
 
 Value plan_payload(const usk::lifecycle::InstallPlan& plan)
@@ -318,19 +440,7 @@ void validate_plan(const usk::lifecycle::InstallPlan& plan)
         !usk::record_io::valid_identifier(plan.install_id) || !valid_timestamp(plan.created_at) ||
         !sha256(plan.plan_digest)) throw std::runtime_error("install plan identity is invalid");
     validate_recipe(plan.recipe);
-    std::vector<usk::lifecycle::PayloadFile> files = plan.files;
-    normalize_files(files);
-    if (files.size() != plan.files.size()) throw std::runtime_error("install plan payload changed");
-    for (std::size_t index = 0; index < files.size(); ++index) {
-        if (files[index].relative_path != plan.files[index].relative_path ||
-            files[index].bytes != plan.files[index].bytes ||
-            files[index].sha256 != plan.files[index].sha256 ||
-            files[index].size_bytes != plan.files[index].size_bytes ||
-            static_cast<bool>(files[index].reader) !=
-                static_cast<bool>(plan.files[index].reader)) {
-            throw std::runtime_error("install plan payload is not deterministic");
-        }
-    }
+    validate_normalized_files(plan.files);
     std::set<std::string> owned;
     for (const auto& file : plan.files) owned.insert(file.relative_path);
     for (const auto& entrypoint : plan.recipe.entrypoints) {
@@ -497,6 +607,20 @@ Value payload_files_value(const std::vector<usk::lifecycle::PayloadFile>& files)
     return Value(std::move(result));
 }
 
+Value preimage_files_value(const std::vector<usk::lifecycle::PreimageFile>& files)
+{
+    Value::Array result;
+    for (const auto& file : files) {
+        result.push_back(Value(Value::Object{{"relative_path", Value(file.relative_path)},
+            {"resource", Value(Value::Object{{"file_id", Value(file.resource.file_id)},
+                {"link_count", Value(static_cast<std::uint64_t>(file.resource.link_count))},
+                {"modified_time_ns", Value(file.resource.modified_time_ns)},
+                {"volume_id", Value(file.resource.volume_id)}})},
+            {"sha256", Value(file.sha256)}, {"size_bytes", Value(file.size_bytes)}}));
+    }
+    return Value(std::move(result));
+}
+
 Value verification_binding(const usk::lifecycle::VerificationReport& report)
 {
     Value::Array files;
@@ -526,9 +650,10 @@ Value repair_plan_payload(const usk::lifecycle::RepairPlan& plan)
 Value move_plan_payload(const usk::lifecycle::MovePlan& plan)
 {
     return Value(Value::Object{{"audit_root", Value(fs::absolute(plan.roots.audit_root).lexically_normal().generic_string())},
-        {"complete_files", payload_files_value(plan.complete_files)},
+        {"complete_files", preimage_files_value(plan.complete_files)},
         {"created_at", Value(plan.created_at)}, {"install_id", Value(plan.install_id)},
         {"installed_state_digest", Value(plan.installed_state_digest)}, {"old_root", Value(plan.old_root.generic_string())},
+        {"old_root_identity", Value(plan.old_root_identity)},
         {"operation", Value("move")}, {"ownership_manifest_digest", Value(plan.ownership_manifest_digest)},
         {"policy_digest", Value(plan.policy_digest)},
         {"plan_id", Value(plan.plan_id)}, {"new_root", Value(plan.new_root.generic_string())},
@@ -561,6 +686,89 @@ std::string payload_snapshot_digest(const std::vector<usk::lifecycle::PayloadFil
         {"entries", Value(std::move(entries))}, {"schema", Value("usk.replacement_snapshot.v1")}}));
 }
 
+void hash_text(usk::base::Sha256& hash, const std::string& text)
+{
+    hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+}
+
+std::string json_string(const std::string& value)
+{
+    static const char hex[] = "0123456789abcdef";
+    std::string result;
+    result.push_back('"');
+    for (unsigned char ch : value) {
+        switch (ch) {
+        case '"': result += "\\\""; break;
+        case '\\': result += "\\\\"; break;
+        case '\b': result += "\\b"; break;
+        case '\f': result += "\\f"; break;
+        case '\n': result += "\\n"; break;
+        case '\r': result += "\\r"; break;
+        case '\t': result += "\\t"; break;
+        default:
+            if (ch < 0x20u) {
+                result += "\\u00";
+                result.push_back(hex[ch >> 4]);
+                result.push_back(hex[ch & 0x0fu]);
+            } else {
+                result.push_back(static_cast<char>(ch));
+            }
+        }
+    }
+    result.push_back('"');
+    return result;
+}
+
+struct CanonicalPreimageEntry {
+    std::string relative_path;
+    std::string sha256;
+    std::uint64_t size_bytes = 0;
+    bool directory = false;
+};
+
+constexpr std::uint64_t maximum_preimage_files = maximum_lifecycle_files;
+constexpr std::uint64_t maximum_preimage_entries =
+    maximum_lifecycle_files + maximum_lifecycle_directories;
+constexpr std::uint64_t maximum_preimage_file_bytes = 1ull << 32;
+constexpr std::uint64_t maximum_preimage_logical_bytes = 1ull << 34;
+constexpr std::uint64_t maximum_canonical_index_bytes = 64ull * 1024ull * 1024ull;
+
+void charge_canonical_index(std::uint64_t& used, const CanonicalPreimageEntry& entry)
+{
+    constexpr std::uint64_t entry_overhead = 128;
+    const std::uint64_t variable = static_cast<std::uint64_t>(entry.relative_path.size()) +
+        static_cast<std::uint64_t>(entry.sha256.size());
+    if (variable > std::numeric_limits<std::uint64_t>::max() - entry_overhead ||
+        used > maximum_canonical_index_bytes - (variable + entry_overhead)) {
+        throw std::runtime_error("managed installation exceeds canonical-index memory budget");
+    }
+    used += variable + entry_overhead;
+}
+
+std::string canonical_preimage_snapshot_digest(std::vector<CanonicalPreimageEntry> entries)
+{
+    std::sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
+        return left.relative_path < right.relative_path;
+    });
+    usk::base::Sha256 hash;
+    hash_text(hash, "{\"entries\":[");
+    bool first = true;
+    for (const auto& entry : entries) {
+        if (!first) hash_text(hash, ",");
+        first = false;
+        if (entry.directory) {
+            hash_text(hash, "{\"relative_path\":" + json_string(entry.relative_path) +
+                ",\"type\":\"directory\"}");
+        } else {
+            hash_text(hash, "{\"relative_path\":" + json_string(entry.relative_path) +
+                ",\"sha256\":" + json_string(entry.sha256) + ",\"size_bytes\":" +
+                std::to_string(entry.size_bytes) + ",\"type\":\"file\"}");
+        }
+    }
+    hash_text(hash, "],\"schema\":\"usk.replacement_snapshot.v1\"}");
+    return hash.finish();
+}
+
 Value update_plan_payload(const usk::lifecycle::UpdatePlan& plan)
 {
     Value::Array components;
@@ -584,7 +792,7 @@ Value update_plan_payload(const usk::lifecycle::UpdatePlan& plan)
         {"new_recipe_digest", Value(plan.recipe.recipe_digest)},
         {"new_snapshot_digest", Value(plan.new_snapshot_digest)},
         {"new_source_digest", Value(plan.recipe.source_archive_digest)},
-        {"old_files", payload_files_value(plan.old_complete_files)},
+        {"old_files", preimage_files_value(plan.old_complete_files)},
         {"old_root_identity", Value(plan.old_root_identity)},
         {"old_snapshot_digest", Value(plan.old_snapshot_digest)},
         {"operation", Value("update")},
@@ -610,44 +818,91 @@ Value uninstall_plan_payload(const usk::lifecycle::UninstallPlan& plan)
         {"verification", verification_binding(plan.verification)}});
 }
 
-std::vector<usk::lifecycle::PayloadFile> read_complete_tree(const fs::path& root)
+std::vector<usk::lifecycle::PreimageFile> read_complete_tree(
+    const fs::path& root,
+    std::string* snapshot_digest = nullptr,
+    usk::lifecycle::LifecycleResourceObservation* observation = nullptr)
 {
     if (!fs::is_directory(root) || fs::is_symlink(fs::symlink_status(root))) {
         throw std::runtime_error("managed installation root is unavailable or linked");
     }
-    std::vector<usk::lifecycle::PayloadFile> result;
+    std::vector<usk::lifecycle::PreimageFile> result;
+    std::vector<CanonicalPreimageEntry> index;
     std::uint64_t total = 0;
+    std::uint64_t index_bytes = 0;
+    std::size_t path_bytes = 0;
+    std::size_t directories = 0;
     for (const fs::directory_entry& entry : fs::recursive_directory_iterator(root)) {
+        if (index.size() >= maximum_preimage_entries) {
+            throw std::runtime_error("managed installation exceeds entry-count budget");
+        }
         if (entry.is_symlink()) throw std::runtime_error("managed installation contains a linked path");
-        if (entry.is_directory()) continue;
+        const std::string relative = entry.path().lexically_relative(root).generic_string();
+        if (!safe_relative(relative)) throw std::runtime_error("managed installation contains an unsafe path");
+        if (relative.size() > maximum_relative_path_bytes ||
+            relative.size() > maximum_closure_path_bytes - path_bytes) {
+            throw std::runtime_error("managed installation exceeds path memory budget");
+        }
+        path_bytes += relative.size();
+        if (entry.is_directory()) {
+            if (++directories > maximum_lifecycle_directories) {
+                throw std::runtime_error("managed installation exceeds directory-count budget");
+            }
+            CanonicalPreimageEntry directory{relative, {}, 0, true};
+            charge_canonical_index(index_bytes, directory);
+            index.push_back(std::move(directory));
+            continue;
+        }
         if (!entry.is_regular_file()) throw std::runtime_error("managed installation contains an unsupported file type");
-        if (result.size() >= 100000) throw std::runtime_error("managed installation exceeds file-count budget");
+        if (result.size() >= maximum_preimage_files) throw std::runtime_error("managed installation exceeds file-count budget");
         usk::base::StableFile file(entry.path());
-        if (file.identity().size_bytes > (1ull << 32) || total > (1ull << 34) - file.identity().size_bytes) {
+        if (file.identity().size_bytes > maximum_preimage_file_bytes ||
+            total > maximum_preimage_logical_bytes - file.identity().size_bytes) {
             throw std::runtime_error("managed installation exceeds fixture lifecycle byte budget");
         }
         total += file.identity().size_bytes;
-        auto bytes = file.read(0, static_cast<std::size_t>(file.identity().size_bytes));
+        const std::string digest = file.sha256_hex();
         file.verify_unchanged();
-        usk::lifecycle::PayloadFile payload;
-        payload.relative_path = entry.path().lexically_relative(root).generic_string();
-        payload.bytes = std::move(bytes);
-        result.push_back(std::move(payload));
+        const auto& identity = file.identity();
+        usk::lifecycle::PreimageFile preimage{relative, digest, identity.size_bytes,
+            {identity.volume_id, identity.file_id, identity.modified_time_ns, identity.link_count}};
+        CanonicalPreimageEntry canonical{relative, digest, identity.size_bytes, false};
+        charge_canonical_index(index_bytes, canonical);
+        index.push_back(std::move(canonical));
+        result.push_back(std::move(preimage));
     }
-    normalize_files(result);
+    std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+        return left.relative_path < right.relative_path;
+    });
+    for (std::size_t index_number = 1; index_number < result.size(); ++index_number) {
+        if (result[index_number - 1].relative_path == result[index_number].relative_path) {
+            throw std::runtime_error("managed installation contains duplicate file paths");
+        }
+    }
+    if (snapshot_digest != nullptr) *snapshot_digest = canonical_preimage_snapshot_digest(std::move(index));
+    if (observation != nullptr) {
+        observation->peak_payload_buffer = usk::lifecycle::streaming_payload_buffer_bytes;
+        observation->peak_open_source_files = result.empty() ? 0u : 1u;
+        observation->retained_payload = 0;
+        observation->complete_payload_retained = false;
+    }
     return result;
 }
 
-void ensure_same_payload(
-    const std::vector<usk::lifecycle::PayloadFile>& expected,
-    const std::vector<usk::lifecycle::PayloadFile>& actual,
+void ensure_same_preimage(
+    const std::vector<usk::lifecycle::PreimageFile>& expected,
+    const std::vector<usk::lifecycle::PreimageFile>& actual,
     const char* message)
 {
     if (expected.size() != actual.size()) throw std::runtime_error(message);
     for (std::size_t index = 0; index < expected.size(); ++index) {
         if (expected[index].relative_path != actual[index].relative_path ||
             expected[index].sha256 != actual[index].sha256 ||
-            expected[index].size_bytes != actual[index].size_bytes) {
+            expected[index].size_bytes != actual[index].size_bytes ||
+            expected[index].resource.volume_id != actual[index].resource.volume_id ||
+            expected[index].resource.file_id != actual[index].resource.file_id ||
+            expected[index].resource.modified_time_ns != actual[index].resource.modified_time_ns ||
+            expected[index].resource.link_count != actual[index].resource.link_count) {
             throw std::runtime_error(message);
         }
     }
@@ -1102,8 +1357,8 @@ RepairPlan plan_repair(
     plan.source_digest = source_digest.empty() ? std::string(64, '0') : std::move(source_digest);
     plan.policy_digest = policy_digest.empty() ? std::string(64, '0') : std::move(policy_digest);
     plan.roots = roots;
-    for (const PayloadFile& file : exact_source_files) {
-        if (affected.count(file.relative_path) != 0) plan.replacement_files.push_back(file);
+    for (PayloadFile& file : exact_source_files) {
+        if (affected.count(file.relative_path) != 0) plan.replacement_files.push_back(std::move(file));
     }
     require_result_record_capacity(roots, install_id, {}, current.first.audit_chain_id);
     require_payload_path_capacity(fs::path(current.first.target_root), plan.replacement_files);
@@ -1137,9 +1392,7 @@ RepairResult apply_repair(
         plan.replacement_files.empty()) {
         throw std::runtime_error("reviewed repair plan is invalid or changed");
     }
-    std::vector<PayloadFile> normalized = plan.replacement_files;
-    normalize_files(normalized);
-    ensure_same_payload(plan.replacement_files, normalized, "repair payload ordering or identity changed");
+    validate_normalized_files(plan.replacement_files);
     auto current = load_current(plan.roots, plan.install_id);
     if (installed_digest(current.first) != plan.installed_state_digest ||
         current.second.manifest_digest != plan.ownership_manifest_digest) {
@@ -1272,8 +1525,12 @@ MovePlan plan_move(
     if (plan.old_root == plan.new_root || fs::exists(plan.new_root)) {
         throw std::runtime_error("move destination is identical or already exists");
     }
-    plan.complete_files = read_complete_tree(plan.old_root);
-    require_payload_path_capacity(plan.new_root, plan.complete_files);
+    plan.old_root_identity = transaction::observe_directory_identity(plan.old_root);
+    plan.complete_files = read_complete_tree(plan.old_root, nullptr, &plan.resource_observation);
+    if (transaction::observe_directory_identity(plan.old_root) != plan.old_root_identity) {
+        throw std::runtime_error("move source root changed during planning");
+    }
+    require_preimage_path_capacity(plan.new_root, plan.complete_files);
     require_result_record_capacity(roots, install_id, {}, current.first.audit_chain_id);
     plan.plan_digest = json::sha256_canonical(move_plan_payload(plan));
     return plan;
@@ -1302,11 +1559,17 @@ MoveResult apply_move(
     if (applied_at <= current.first.created_at) {
         throw std::runtime_error("move result timestamp must advance immutable state");
     }
-    ensure_same_payload(plan.complete_files, read_complete_tree(plan.old_root),
+    if (transaction::observe_directory_identity(plan.old_root) != plan.old_root_identity) {
+        throw std::runtime_error("move source root changed after plan review");
+    }
+    ensure_same_preimage(plan.complete_files, read_complete_tree(plan.old_root),
                         "move source closure changed after plan review");
+    if (transaction::observe_directory_identity(plan.old_root) != plan.old_root_identity) {
+        throw std::runtime_error("move source root changed during revalidation");
+    }
     require_result_record_capacity(plan.roots, plan.install_id, transaction_id, current.first.audit_chain_id);
-    require_payload_path_capacity(plan.new_root, plan.complete_files);
-    require_payload_path_capacity(plan.staging_parent / (".usk-stage-" + transaction_id), plan.complete_files);
+    require_preimage_path_capacity(plan.new_root, plan.complete_files);
+    require_preimage_path_capacity(plan.staging_parent / (".usk-stage-" + transaction_id), plan.complete_files);
     transaction::TransactionSession transaction(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "move", plan.staging_parent,
         plan.new_root, plan.roots.state_root, plan.roots.audit_root},
@@ -1314,11 +1577,14 @@ MoveResult apply_move(
             if (fault_injector) fault_injector("move", "transaction." + state + "." + point);
         });
     try {
-        for (const PayloadFile& file : plan.complete_files) {
-            stage_payload_file(transaction, file.relative_path, file, {});
+        for (const PreimageFile& file : plan.complete_files) {
+            stage_preimage_file(transaction, plan.old_root, plan.old_root_identity, file);
         }
         transaction.mark_staged();
         transaction.mark_verified();
+        if (transaction::observe_directory_identity(plan.old_root) != plan.old_root_identity) {
+            throw std::runtime_error("move source root changed before publication");
+        }
         transaction.commit_effect();
         if (fault_injector) fault_injector("move", "after_destination_commit");
 
@@ -1354,6 +1620,11 @@ MoveResult apply_move(
     } catch (...) {
         if (transaction.current_state() == "committing" || transaction.current_state() == "committed") {
             try { transaction.mark_recovery_required(); } catch (...) {}
+        } else {
+            // Before a stream intent the session owns cleanup; once intent is
+            // durable TransactionSession deliberately retains staging for an
+            // operator rather than recovering pathname deletion authority.
+            rollback_before_visibility(transaction);
         }
         throw;
     }
@@ -1401,11 +1672,10 @@ UpdatePlan plan_update(
     plan.target_root = installed_root;
     plan.roots = roots;
     plan.recipe = std::move(new_recipe);
-    plan.old_complete_files = read_complete_tree(installed_root);
+    plan.old_complete_files = read_complete_tree(installed_root, &plan.old_snapshot_digest);
     plan.new_complete_files = std::move(new_complete_files);
     plan.validate_source = std::move(validate_source);
     plan.old_root_identity = transaction::observe_directory_identity(installed_root);
-    plan.old_snapshot_digest = transaction::replacement_snapshot_digest(installed_root);
     plan.new_snapshot_digest = payload_snapshot_digest(plan.new_complete_files);
     require_payload_path_capacity(plan.target_root, plan.new_complete_files);
     plan.plan_digest = json::sha256_canonical(update_plan_payload(plan));
@@ -1430,17 +1700,18 @@ UpdateResult apply_update(
     if (installed_digest(current.first) != plan.installed_state_digest ||
         current.second.manifest_digest != plan.ownership_manifest_digest ||
         fs::absolute(current.first.target_root).lexically_normal() != plan.target_root ||
-        transaction::observe_directory_identity(plan.target_root) != plan.old_root_identity ||
-        transaction::replacement_snapshot_digest(plan.target_root) != plan.old_snapshot_digest) {
+        transaction::observe_directory_identity(plan.target_root) != plan.old_root_identity) {
         throw std::runtime_error("installed state or whole-root preimage changed after update planning");
     }
-    ensure_same_payload(plan.old_complete_files, read_complete_tree(plan.target_root),
+    std::string current_snapshot_digest;
+    ensure_same_preimage(plan.old_complete_files,
+        read_complete_tree(plan.target_root, &current_snapshot_digest),
         "whole-root preimage changed after update planning");
-    std::vector<PayloadFile> new_files = plan.new_complete_files;
-    normalize_files(new_files);
-    ensure_same_payload(plan.new_complete_files, new_files,
-        "replacement closure changed after update planning");
-    if (payload_snapshot_digest(new_files) != plan.new_snapshot_digest ||
+    if (current_snapshot_digest != plan.old_snapshot_digest) {
+        throw std::runtime_error("whole-root snapshot changed after update planning");
+    }
+    validate_normalized_files(plan.new_complete_files);
+    if (payload_snapshot_digest(plan.new_complete_files) != plan.new_snapshot_digest ||
         applied_at <= current.first.created_at) {
         throw std::runtime_error("replacement closure or update timestamp is stale");
     }
