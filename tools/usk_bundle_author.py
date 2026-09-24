@@ -22,7 +22,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from usk_component_resolver import ResolutionError, resolve_component_ids
+if __package__:
+    from .usk_component_resolver import ResolutionError, resolve_component_ids
+else:
+    from usk_component_resolver import ResolutionError, resolve_component_ids
 
 
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
