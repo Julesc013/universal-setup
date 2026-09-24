@@ -30,11 +30,14 @@ namespace {
 struct Fixture {
     fs::path root;
     usk::lifecycle::LifecycleRoots roots;
+    bool cleanup = true;
 
-    Fixture()
+    explicit Fixture(const fs::path& selected_root = {}, bool remove_on_exit = true)
     {
         const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-        root = fs::temp_directory_path() / ("usk-lifecycle-" + std::to_string(nonce));
+        root = selected_root.empty() ?
+            fs::temp_directory_path() / ("usk-lifecycle-" + std::to_string(nonce)) : selected_root;
+        cleanup = remove_on_exit;
         roots.staging_parent = root / "staging";
         roots.state_root = root / "state";
         roots.audit_root = root / "audit";
@@ -48,6 +51,7 @@ struct Fixture {
 
     ~Fixture()
     {
+        if (!cleanup) return;
         std::error_code ignored;
         fs::remove_all(root, ignored);
     }
@@ -268,11 +272,10 @@ void write_text(const fs::path& path, const std::string& text)
     output << text;
 }
 
-int legacy_ownership_compatibility_proof(std::size_t file_count = 4097,
-    const std::string& operation = "legacy_report")
+void prepare_legacy_ownership_fixture(const fs::path& root,
+    const usk::lifecycle::LifecycleRoots& roots, std::size_t file_count)
 {
-    Fixture fixture;
-    const fs::path target = fixture.root / "targets/legacy";
+    const fs::path target = root / "targets/legacy";
     fs::create_directories(target);
     const unsigned char byte = 'x';
     usk::base::Sha256 hash;
@@ -289,7 +292,7 @@ int legacy_ownership_compatibility_proof(std::size_t file_count = 4097,
         write_text(target / relative, "x");
         ownership.files.push_back({relative, file_digest, 1});
     }
-    usk::state::StateRepository repository(fixture.roots.state_root);
+    usk::state::StateRepository repository(roots.state_root);
     ownership = repository.write_ownership(std::move(ownership));
 
     usk::state::InstalledState installed;
@@ -311,19 +314,51 @@ int legacy_ownership_compatibility_proof(std::size_t file_count = 4097,
     installed.audit_chain_id = "audit.legacy";
     installed.lifecycle_status = "installed";
     repository.write_installed(installed);
+}
 
-    if (operation != "legacy_uninstall_plan") {
-        const auto verified = usk::lifecycle::verify_installed(fixture.roots, installed.install_id,
+int observe_legacy_ownership_fixture(const usk::lifecycle::LifecycleRoots& roots,
+    std::size_t file_count, const std::string& operation)
+{
+    if (operation == "legacy_verify" || operation == "legacy_report") {
+        const auto verified = usk::lifecycle::verify_installed(roots, "install.legacy",
             "verify.legacy.current", "2026-07-14T00:00:01Z");
         if (verified.status != "pass" || verified.files.size() != file_count) return 60;
     }
-    if (operation != "legacy_verify") {
-        const auto uninstall = usk::lifecycle::plan_uninstall(fixture.roots, installed.install_id,
+    if (operation == "legacy_uninstall_plan" || operation == "legacy_report") {
+        const auto uninstall = usk::lifecycle::plan_uninstall(roots, "install.legacy",
             "plan.legacy.uninstall", "2026-07-14T00:00:02Z");
         if (uninstall.verification.status != "pass" ||
             uninstall.verification.files.size() != file_count || uninstall.plan_digest.size() != 64) return 61;
     }
     return 0;
+}
+
+int legacy_ownership_compatibility_proof()
+{
+    Fixture fixture;
+    prepare_legacy_ownership_fixture(fixture.root, fixture.roots, 4097);
+    return observe_legacy_ownership_fixture(fixture.roots, 4097, "legacy_report");
+}
+
+std::size_t legacy_probe_entries(const std::string& value)
+{
+    const auto parsed = std::stoull(value);
+    if (parsed != 128 && parsed != 4097 && parsed != 8192) {
+        throw std::runtime_error("legacy probe entry count is invalid");
+    }
+    return static_cast<std::size_t>(parsed);
+}
+
+fs::path legacy_probe_root(const std::string& value, bool require_empty)
+{
+    const fs::path root = fs::absolute(fs::path(value)).lexically_normal();
+    if (root.filename().string().rfind("usk-legacy-probe-", 0) != 0 ||
+        !fs::equivalent(root.parent_path(), fs::temp_directory_path()) ||
+        !fs::is_directory(root) || fs::is_symlink(fs::symlink_status(root)) ||
+        (require_empty && !fs::is_empty(root))) {
+        throw std::runtime_error("legacy probe root must be a disposable empty temporary directory");
+    }
+    return root;
 }
 
 int run()
@@ -613,17 +648,6 @@ int run()
 int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
     std::size_t entries, bool materialized)
 {
-    if (operation == "legacy_report" || operation == "legacy_verify" ||
-        operation == "legacy_uninstall_plan") {
-        if (materialized || (entries != 128 && entries != 4097 && entries != 8192) ||
-            payload_bytes != entries) {
-            throw std::runtime_error("legacy report scenario dimensions are invalid");
-        }
-        if (const int result = legacy_ownership_compatibility_proof(entries, operation)) return result;
-        std::cout << "memory-scenario-pass " << operation << " legacy_record " <<
-            payload_bytes << ' ' << entries << '\n';
-        return 0;
-    }
     const auto maximum_payload = materialized ?
         128ull * 1024ull * 1024ull : 2ull * 1024ull * 1024ull * 1024ull;
     if (payload_bytes == 0 || payload_bytes > maximum_payload ||
@@ -739,6 +763,29 @@ int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 4 && std::string(argv[1]) == "--prepare-legacy-memory") {
+            const auto root = legacy_probe_root(argv[2], true);
+            const auto entries = legacy_probe_entries(argv[3]);
+            Fixture fixture(root, false);
+            prepare_legacy_ownership_fixture(fixture.root, fixture.roots, entries);
+            std::cout << "legacy-fixture-prepared " << entries << '\n';
+            return 0;
+        }
+        if (argc == 5 && std::string(argv[1]) == "--observe-legacy-memory") {
+            const std::string operation = argv[2];
+            if (operation != "legacy_verify" && operation != "legacy_uninstall_plan" &&
+                operation != "legacy_report") {
+                throw std::runtime_error("unknown legacy observation operation");
+            }
+            const auto root = legacy_probe_root(argv[3], false);
+            const auto entries = legacy_probe_entries(argv[4]);
+            const usk::lifecycle::LifecycleRoots roots{
+                root / "staging", root / "state", root / "audit"};
+            if (const int result = observe_legacy_ownership_fixture(roots, entries, operation)) return result;
+            std::cout << "memory-scenario-pass " << operation << " legacy_record " <<
+                entries << ' ' << entries << '\n';
+            return 0;
+        }
         if ((argc == 5 || argc == 6) && std::string(argv[1]) == "--memory-scenario") {
             const bool materialized = argc == 6 && std::string(argv[5]) == "materialized";
             if (argc == 6 && !materialized)
