@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-24T12:41:10Z",
+  "generated_at": "2026-09-24T12:55:00Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "efe84789272e4709ddce4bbc0270d784a7b28eff",
-  "repository_base_tree": "e5737b2ff66ea433adc97179884c043e47b5933c",
+  "repository_base_commit": "fe109aad9fa000c8c76c8a0973109dbdca0a1e31",
+  "repository_base_tree": "947db60fc2fb8842fcc5180246ca90938abf9712",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "4b64638bca609774136b6fc2e447d9fb6547d86b0bfba706a3eedd2779f684f7",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. The WU-006 file-scope correction admits named service, build, lifecycle, policy and profile paths only; it adds no implementation or qualification.",
+  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. The candidate adds only a disposable Windows native rename primitive probe and leaves the qualified publisher absent.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment source is committed WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f; WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-006 publisher qualification and wider lifecycle/authoring acceptance remain open. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. The WU-004 erratum changes the candidate handle-relative call after a disposable probe; the WU-006 implementation and full target qualification are not included in this source assessment. WU-006 revision 4 widens only named file families needed for the restricted publisher; contracts, release records and other specification files remain read-only.",
+  "working_tree_note": "Assessment source is committed WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f; WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-006 publisher qualification and wider lifecycle/authoring acceptance remain open. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 multi-gigabyte, ceiling-edge, and legacy-report acceptance remain partial. The WU-004 erratum changes the candidate handle-relative call after a disposable probe; the WU-006 implementation and full target qualification are not included in this source assessment. WU-006 revision 4 widens only named file families needed for the restricted publisher; contracts, release records and other specification files remain read-only. The WU-006 candidate source is included in the bound commit; a local Windows 10 build 19045 C: NTFS probe passed no-replace and substitution cases. It has no dedicated-volume restricted-service or crash qualification.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -3487,7 +3487,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "absent",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "A disposable Windows NTFS native parent-bound no-replace rename candidate and adversarial probe exist, but no protected service, full descendant closure, durable publication/recovery, or qualified target-bound publisher is implemented. Strict production publication still refuses.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3503,7 +3503,11 @@
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
-          "sha256": "d4d8247fc91fe5998ac19a70da56c6123367f5f4219beebaeb267d5aae7deaef"
+          "sha256": "e4e4c1da29e1c2d52b233eb40b8d7d8126b1e764c6c50e2e75e13c0b1560f42e"
+        },
+        {
+          "path": "runtime/base/usk_record_io.cpp",
+          "sha256": "ae803bded024976400abf63efba4c09246f843a4f31bb5563e7c4698e159a56c"
         }
       ],
       "acceptance_ids": [
@@ -3539,7 +3543,7 @@
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
-          "sha256": "d4d8247fc91fe5998ac19a70da56c6123367f5f4219beebaeb267d5aae7deaef"
+          "sha256": "e4e4c1da29e1c2d52b233eb40b8d7d8126b1e764c6c50e2e75e13c0b1560f42e"
         }
       ],
       "acceptance_ids": [
@@ -3559,7 +3563,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "A disposable candidate records native root/parent/visible file IDs, but no durable publication receipt binds the full closure and protected service profile; target qualification remains absent.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3575,7 +3579,11 @@
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
-          "sha256": "d4d8247fc91fe5998ac19a70da56c6123367f5f4219beebaeb267d5aae7deaef"
+          "sha256": "e4e4c1da29e1c2d52b233eb40b8d7d8126b1e764c6c50e2e75e13c0b1560f42e"
+        },
+        {
+          "path": "runtime/base/usk_record_io.cpp",
+          "sha256": "ae803bded024976400abf63efba4c09246f843a4f31bb5563e7c4698e159a56c"
         }
       ],
       "acceptance_ids": [
