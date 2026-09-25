@@ -9,10 +9,12 @@ $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $vhd = [IO.Path]::GetFullPath($VhdPath)
+$output = [IO.Path]::GetFullPath($OutputPath)
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
     -not $vhd.StartsWith($runnerTemp + [IO.Path]::DirectorySeparatorChar,
         [StringComparison]::OrdinalIgnoreCase) -or
+    $output -ne (Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json') -or
     -not (Test-Path -LiteralPath $vhd -PathType Leaf)) {
     throw 'unprivileged access probe requires the owned hosted Windows VHD'
 }
@@ -157,6 +159,6 @@ try {
         $receipt.failure = $failure
     }
     $receipt | ConvertTo-Json -Depth 8 |
-        Set-Content -LiteralPath $OutputPath -Encoding utf8
+        Set-Content -LiteralPath $output -Encoding utf8
 }
 if ($failure) { throw $failure }
