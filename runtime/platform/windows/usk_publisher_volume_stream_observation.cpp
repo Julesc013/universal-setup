@@ -115,8 +115,13 @@ void require_publisher_stream_shape(HANDLE handle) {
             &attributes, sizeof(attributes))) {
         throw std::runtime_error("publisher stream profile cannot read object type");
     }
-    const auto streams = observe_publisher_handle_streams(handle);
-    if ((attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    require_publisher_stream_shape(observe_publisher_handle_streams(handle),
+        (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+}
+
+void require_publisher_stream_shape(
+    const std::vector<PublisherStreamObservation>& streams, bool directory) {
+    if (directory) {
         if (!streams.empty()) {
             throw std::runtime_error("publisher directory has a data stream");
         }

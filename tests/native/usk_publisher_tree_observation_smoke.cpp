@@ -294,6 +294,8 @@ int main() {
             const auto first = observe_publisher_tree(held_root.get());
             check(first.descendants.size() == 2 &&
                 first.volume.file_id_volume_serial != 0 &&
+                first.root_streams.empty() &&
+                first.descendants[0].streams.empty() &&
                 !first.root.owner_sid.empty() && !first.root.dacl_aces.empty(),
                 "nested closure entry count or volume binding diverged");
             const auto found = std::find_if(first.descendants.begin(),
@@ -305,6 +307,9 @@ int main() {
                 !found->object.owner_sid.empty() &&
                 !found->object.dacl_aces.empty() &&
                 found->size == 7 &&
+                found->streams.size() == 1 &&
+                found->streams[0].name == L"::$DATA" &&
+                found->streams[0].size == 7 &&
                 found->sha256 ==
                     "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5",
                 "held-handle file digest or size diverged");
@@ -313,6 +318,18 @@ int main() {
                 second.descendants[1].sha256 == first.descendants[1].sha256,
                 "fresh closure observation diverged without mutation");
             require_publisher_tree_phase_match(first, second);
+            auto stream_changed = second;
+            stream_changed.descendants.back().streams[0].size += 1;
+            check_phase_refused(first, stream_changed,
+                "changed exact stream size was accepted as an equal phase");
+            stream_changed = second;
+            stream_changed.descendants.back().streams[0].allocation_size += 1;
+            check_phase_refused(first, stream_changed,
+                "changed stream allocation was accepted as an equal phase");
+            stream_changed = second;
+            stream_changed.root_streams.push_back({L":unexpected:$DATA", 1, 1});
+            check_phase_refused(first, stream_changed,
+                "changed root stream set was accepted as an equal phase");
             constexpr const char* service_sid = "S-1-5-80-1-2-3-4-5";
             check_security_refused(first, service_sid,
                 "ordinary-user tree was accepted as protected security");

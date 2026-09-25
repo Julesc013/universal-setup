@@ -136,7 +136,8 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
         }
         const bool child_directory =
             (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        require_publisher_stream_shape(reopened.get());
+        const auto streams = observe_publisher_handle_streams(reopened.get());
+        require_publisher_stream_shape(streams, child_directory);
         const auto current_volume = observe_local_ntfs_volume_handle(reopened.get());
         if (current_volume.volume_label != volume.volume_label ||
             current_volume.volume_information_serial != volume.volume_information_serial ||
@@ -153,6 +154,10 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
         }
         const std::uint64_t size = child_directory ? 0 :
             static_cast<std::uint64_t>(standard.EndOfFile.QuadPart);
+        if (!child_directory &&
+            static_cast<std::uint64_t>(streams[0].size) != size) {
+            throw std::runtime_error("publisher file stream size differs from EOF");
+        }
         if (size > maximum_content_bytes - content_bytes) {
             throw std::runtime_error("publisher tree exceeds its content budget");
         }
@@ -170,6 +175,10 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
         std::size_t entry_bytes = sizeof(PublisherTreeEntry) +
             (path.size() + observed.native_name.size()) * sizeof(WCHAR) +
             observed.file_id.size() + observed.owner_sid.size() + 64;
+        for (const auto& stream : streams) {
+            entry_bytes += sizeof(PublisherStreamObservation) +
+                stream.name.size() * sizeof(WCHAR);
+        }
         for (const auto& ace : observed.dacl_aces) {
             entry_bytes += sizeof(ObservedAce) + ace.sid.size();
         }
@@ -179,7 +188,7 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
         evidence_bytes += entry_bytes;
         const std::string digest = child_directory ? std::string() :
             hash_file(reopened.get(), size);
-        result.descendants.push_back({path, observed, size, digest});
+        result.descendants.push_back({path, observed, size, digest, streams});
         if (child_directory) {
             walk(reopened.get(), path, depth + 1, volume, result, seen,
                 content_bytes, evidence_bytes, live_listing_bytes);
@@ -195,6 +204,19 @@ bool same_aces(const std::vector<ObservedAce>& left,
             left[index].flags != right[index].flags ||
             left[index].access_mask != right[index].access_mask ||
             left[index].sid != right[index].sid) return false;
+    }
+    return true;
+}
+
+bool same_streams(const std::vector<PublisherStreamObservation>& left,
+    const std::vector<PublisherStreamObservation>& right) {
+    if (left.size() != right.size()) return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        if (left[index].name != right[index].name ||
+            left[index].size != right[index].size ||
+            left[index].allocation_size != right[index].allocation_size) {
+            return false;
+        }
     }
     return true;
 }
@@ -400,6 +422,8 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root) {
     PublisherTreeObservation result{};
     result.volume = volume;
     result.root = observe_publisher_directory_handle(root);
+    result.root_streams = observe_publisher_handle_streams(root);
+    require_publisher_stream_shape(result.root_streams, true);
     if (result.root.case_sensitive) {
         throw std::runtime_error("publisher tree root has case sensitivity enabled");
     }
@@ -432,6 +456,7 @@ void require_publisher_tree_phase_match(
     const std::wstring& visible_root_name) {
     if (!same_volume_facts(sealed.volume, observed.volume) ||
         !same_handle_facts(sealed.root, observed.root) ||
+        !same_streams(sealed.root_streams, observed.root_streams) ||
         sealed.descendants.size() != observed.descendants.size()) {
         throw std::runtime_error("publisher phase volume, root or closure count diverged");
     }
@@ -446,6 +471,7 @@ void require_publisher_tree_phase_match(
         if (before.relative_path != after.relative_path ||
             !same_handle_facts(before.object, after.object) ||
             before.size != after.size || before.sha256 != after.sha256 ||
+            !same_streams(before.streams, after.streams) ||
             before.object.native_name != descendant_native_name(
                 sealed.root.native_name, before.relative_path) ||
             after.object.native_name != descendant_native_name(

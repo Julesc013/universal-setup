@@ -24,11 +24,13 @@ struct PublisherTreeEntry {
     PublisherHandleObservation object;
     std::uint64_t size;
     std::string sha256;
+    std::vector<PublisherStreamObservation> streams;
 };
 
 struct PublisherTreeObservation {
     PublisherVolumeObservation volume;
     PublisherHandleObservation root;
+    std::vector<PublisherStreamObservation> root_streams;
     std::vector<PublisherTreeEntry> descendants;
 };
 

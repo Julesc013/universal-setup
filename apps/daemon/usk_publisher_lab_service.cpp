@@ -215,6 +215,23 @@ std::string json_volume(
             std::to_string(volume.remote_protocol_error) + "}";
 }
 
+std::string json_streams(
+    const std::vector<usk::platform::windows::PublisherStreamObservation>& streams) {
+    std::string result = "[";
+    for (std::size_t index = 0; index < streams.size(); ++index) {
+        if (index) result.push_back(',');
+        const auto& stream = streams[index];
+        result += "{\"name\":" + json_quote(ascii(stream.name)) +
+            ",\"size\":" + std::to_string(stream.size) +
+            ",\"allocation_size\":" +
+            std::to_string(stream.allocation_size) + "}";
+        if (result.size() > lab_record_limit) {
+            throw std::runtime_error("publisher lab stream evidence exceeds byte budget");
+        }
+    }
+    return result + "]";
+}
+
 std::string json_tree(
     const usk::platform::windows::PublisherTreeObservation& tree) {
     std::string entries = "[";
@@ -225,13 +242,15 @@ std::string json_tree(
             json_quote(ascii(entry.relative_path)) +
             ",\"object\":" + json_protected_object(entry.object) +
             ",\"size\":" + std::to_string(entry.size) +
-            ",\"sha256\":" + json_quote(entry.sha256) + "}";
+            ",\"sha256\":" + json_quote(entry.sha256) +
+            ",\"streams\":" + json_streams(entry.streams) + "}";
         if (entries.size() > lab_record_limit) {
             throw std::runtime_error("publisher lab tree evidence exceeds byte budget");
         }
     }
     return "{\"volume\":" + json_volume(tree.volume) +
         ",\"root\":" + json_protected_object(tree.root) +
+        ",\"root_streams\":" + json_streams(tree.root_streams) +
         ",\"descendants\":" + entries + "]}";
 }
 

@@ -149,3 +149,19 @@ JSON receipt SHA-256:
 These are still lab phase records. They omit effective-rights and exact-stream
 evidence and have no crash replay. OD-001 and production publication remain
 unqualified.
+
+A dependent source candidate now retains exact root and descendant stream
+observations in the sealed and visible tree records and rejects a change in
+stream name, size, or allocation size across phases. Its local Windows Debug
+fixture passes. Hosted PR #104 run 36092385074 at source head
+8b45cc87608c3331c5b10dc80f21b5a24bf40509 passed all seven CI jobs.
+The disposable restricted service on Windows build 10.0.20348.0 recorded an
+empty root stream set and one unnamed 25-byte payload stream with equal
+allocation size in the prepared and visible records. The retained JSON receipt
+SHA-256 is
+3f8795fb7a8fe2d675ccad0b0580e2a4d15d08c77be98ef59f4994888ed3c3c4;
+it reports service stop/deletion request and VHD dismount/backing-file removal.
+The independent runner checked the recorded stream shape but did not query the
+OS stream allocation separately. Effective-rights facts, hostile-rights
+testing, crash replay and independent power-loss proof remain open. OD-001
+remains unresolved.
