@@ -1025,11 +1025,24 @@ Independent readback found the five preboot file hashes unchanged and 11
 postcompletion files, including installed-state completion SHA-256
 `8db19aec84df7995790484589f34eb24814021f19dfcd6e7856964816aa5380e`.
 A repeat returned `already_visible_bound`; all 11 hashes remained unchanged.
-A wrong envelope digest separately refused. The recovered VM state is retained
-in campaign checkpoint `d248d757-2a1f-45f6-bc64-618e5c1dae0a`.
+A wrong envelope digest separately refused. That earlier binary labeled the
+completed request mismatch `recovery_required`, which was misleading. A
+reviewed revision, binary SHA-256
+`48064fa2a54860acf94a8436743cc9d575b20179aa6e92ad757c383fc34a42ba`,
+returned `failed` for the stale envelope (receipt SHA-256
+`8e5509f0f6acc0b1b5d5bd7d1246878193b9a7aed1abc7dc2442c6047b54afaa`)
+and `already_visible_bound` for the original envelope (receipt SHA-256
+`d7f5f41d83a1ca80ff312fb2fca957ae71b6a18ae3259db05062ecf30faeb21a`).
+Independent backup-mode readback matched all 11 previously recorded file
+lengths and hashes before and after both calls. This revision was exercised
+against the retained completed state, not through a second forced VM power-off.
+The recovered VM state is retained in campaign checkpoint
+`d248d757-2a1f-45f6-bc64-618e5c1dae0a`.
 
 These observations establish this VM interruption window and reviewed-command
-reentry with source-independent recovery. They do not establish durable SCM
-command configuration, physical-host power-loss behavior, general-source
+reentry. The recovery code uses the durable snapshot and sealed payload;
+missing-source reentry was observed after completion, not during the
+postcrash forward replay. They do not establish durable SCM command
+configuration, physical-host power-loss behavior, general-source
 publication, hostile-rights qualification for this binary, lease fencing,
 or production enablement.

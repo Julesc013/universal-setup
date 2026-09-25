@@ -56,6 +56,12 @@ bool postjournal_gate = false;
 bool recover_prepared = false;
 bool recover_visible_bound = false;
 bool reviewed_install_reentry = false;
+
+class StaleReviewedInstallRequest final : public std::runtime_error {
+public:
+    StaleReviewedInstallRequest()
+        : std::runtime_error("reviewed install reentry differs from durable plan and source") {}
+};
 bool selected_archive_mode = false;
 std::wstring selected_archive_path;
 std::string selected_archive_sha256;
@@ -1300,6 +1306,9 @@ std::string observe_prepared_recovery(HANDLE volume,
                 expected_envelope_sha256 ||
             snapshot.at("archive_sha256").as_string() !=
                 expected_archive_sha256) {
+            if (has_completion_record) {
+                throw StaleReviewedInstallRequest();
+            }
             throw std::runtime_error("reviewed install reentry differs from durable plan and source");
         }
     }
@@ -2530,7 +2539,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         try {
             write_receipt("{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
-                json_quote(recover_visible_bound || reviewed_install_reentry ?
+                json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
+                    "failed" : recover_visible_bound || reviewed_install_reentry ?
                     "recovery_required" : "failed") +
                 ",\"error\":" + json_quote(error.what()) + "}\n");
         } catch (...) {}
