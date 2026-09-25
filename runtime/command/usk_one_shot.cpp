@@ -44,16 +44,65 @@ bool safe_id(const std::string& value)
     return true;
 }
 
+bool valid_context(const OneShotContextConfig& config)
+{
+    return !config.state_root.empty() && !config.authorized_acceptance_root.empty() &&
+        !config.target_policy_activation.empty() &&
+        config.state_root.find('\0') == std::string::npos &&
+        config.authorized_acceptance_root.find('\0') == std::string::npos &&
+        config.target_policy_activation.find('\0') == std::string::npos;
+}
+
 bool initial_command(const std::string& command)
 {
     return command == "command_graph.inspect" || command == "command_graph.inspect_v2" ||
         command == "policy.inspect" || command == "diagnostics.report" ||
-        command == "install_local.inspect";
+        command == "install_local.inspect" || command == "install_local.plan";
 }
 
 } // namespace
 
-OneShotResult run_one_shot(const std::string& request_json)
+OneShotContextConfig read_context_config(std::istream& input)
+{
+    constexpr std::size_t limit = 16384;
+    std::string document;
+    std::array<char, 4096> buffer{};
+    for (;;) {
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const auto count = input.gcount();
+        if (count > 0) {
+            if (document.size() + static_cast<std::size_t>(count) > limit) {
+                throw std::runtime_error("context configuration exceeds bound");
+            }
+            document.append(buffer.data(), static_cast<std::size_t>(count));
+        }
+        if (input.bad()) throw std::runtime_error("context configuration read failed");
+        if (input.eof()) break;
+        if (!input) throw std::runtime_error("context configuration read failed");
+    }
+    usk::json::ParseLimits limits;
+    limits.max_bytes = limit;
+    limits.max_string_bytes = 8192;
+    const Value parsed = usk::json::parse(document, limits);
+    const auto& fields = parsed.as_object();
+    if (fields.size() != 4 || !parsed.contains("schema") ||
+        !parsed.contains("state_root") || !parsed.contains("authorized_acceptance_root") ||
+        !parsed.contains("target_policy_activation") ||
+        parsed.at("schema").as_string() != "usk.oneshot_context.v1") {
+        throw std::runtime_error("invalid context configuration");
+    }
+    OneShotContextConfig result{
+        parsed.at("state_root").as_string(),
+        parsed.at("authorized_acceptance_root").as_string(),
+        parsed.at("target_policy_activation").as_string()};
+    if (!valid_context(result)) {
+        throw std::runtime_error("invalid context configuration");
+    }
+    return result;
+}
+
+OneShotResult run_one_shot(const std::string& request_json,
+                           const OneShotContextConfig* context_config)
 {
     std::string request_id;
     try {
@@ -75,9 +124,32 @@ OneShotResult run_one_shot(const std::string& request_json)
             input.at("payload").type() != Value::Type::object) {
             return failure(request_id, "invalid_request");
         }
+        if ((command == "install_local.plan") != (context_config != nullptr)) {
+            return failure(request_id, "context_mismatch");
+        }
+        if (context_config != nullptr && !valid_context(*context_config)) {
+            return failure(request_id, "invalid_context");
+        }
+        if (command == "install_local.plan" &&
+            (!input.at("payload").contains("required_commit_authority") ||
+             input.at("payload").at("required_commit_authority").as_string() !=
+                 "staged_child_bound_v1")) {
+            return failure(request_id, "protected_authority_required");
+        }
         const std::string payload = usk::json::canonical(input.at("payload"));
         usk_context* raw = nullptr;
-        if (usk_context_create_v1(nullptr, &raw) != USK_STATUS_OK || raw == nullptr) {
+        usk_config_v1 config{};
+        const usk_config_v1* config_ptr = nullptr;
+        if (context_config != nullptr) {
+            config.struct_size = sizeof(config);
+            config.state_root = context_config->state_root.c_str();
+            config.authorized_acceptance_root =
+                context_config->authorized_acceptance_root.c_str();
+            config.target_policy_activation =
+                context_config->target_policy_activation.c_str();
+            config_ptr = &config;
+        }
+        if (usk_context_create_v1(config_ptr, &raw) != USK_STATUS_OK || raw == nullptr) {
             return failure(request_id, "context_unavailable");
         }
         std::unique_ptr<usk_context, decltype(&usk_context_destroy_v1)> context(
@@ -121,6 +193,11 @@ OneShotResult run_one_shot(const std::string& request_json)
 OneShotResult invalid_frame_result()
 {
     return failure("", "invalid_frame");
+}
+
+OneShotResult invalid_context_result()
+{
+    return failure("", "invalid_context");
 }
 
 std::string read_bounded_request(std::istream& input, bool length_prefixed)

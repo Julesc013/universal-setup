@@ -15,9 +15,10 @@ import zipfile
 from pathlib import Path
 
 
-def run(executable: str, mode: str, payload: bytes) -> subprocess.CompletedProcess[bytes]:
+def run(executable: str, mode: str, payload: bytes,
+        *options: str) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        [executable, mode], input=payload, capture_output=True, timeout=20, check=False
+        [executable, mode, *options], input=payload, capture_output=True, timeout=20, check=False
     )
 
 
@@ -86,6 +87,84 @@ def main() -> int:
         assert inspection["totals"]["file_count"] == 1
         assert inspection["entries"][0]["normalized_path"] == "hello.txt"
         assert inspection["problems"] == []
+
+        # A machine plan is an observation against caller supplied acceptance
+        # roots. It must request the protected publisher and leave both roots
+        # absent; applying the plan remains outside this process interface.
+        planned_archive = Path(temporary) / "planned.zip"
+        with zipfile.ZipFile(planned_archive, "w", compression=zipfile.ZIP_STORED) as writer:
+            writer.writestr("product/bin/probe.txt", b"planned payload\n")
+        setup_root = Path(temporary) / "setup-owned"
+        target_root = Path(temporary) / "planned-target"
+        plan_payload = {
+            "schema": "usk.install_local_plan_request.v1",
+            "request_id": "machine-plan-1",
+            "created_at": "2026-09-25T00:00:00Z",
+            "install_id": "machine.probe.1",
+            "archive": {
+                "path": str(planned_archive.resolve()), "format": "zip",
+                "expected_sha256": hashlib.sha256(planned_archive.read_bytes()).hexdigest(),
+                "strip_prefix": "product",
+                "budgets": {"max_entries": 8, "max_uncompressed_bytes": 4096,
+                            "max_entry_bytes": 4096, "max_depth": 4,
+                            "max_ratio": 100, "max_elapsed_ms": 20000},
+            },
+            "target": {"root": str(target_root.resolve()),
+                       "class": "operator_acceptance"},
+            "recipe": {
+                "product_id": "machine.probe", "product_version": "1.0.0",
+                "recipe_digest": "a" * 64, "provider_revision": "machine.probe.1",
+                "components": ["base"],
+                "entrypoints": [{"entrypoint_id": "probe", "kind": "tool",
+                                 "relative_path": "bin/probe.txt"}],
+            },
+            "required_commit_authority": "staged_child_bound_v1",
+        }
+        plan_request = {"schema": "usk.oneshot_request.v1", "request_id": "process-plan",
+                        "command": "install_local.plan", "payload": plan_payload,
+                        "dry_run": True}
+        plan_bytes = json.dumps(plan_request, separators=(",", ":")).encode("utf-8")
+        without_context = run(executable, "--machine", plan_bytes)
+        assert without_context.returncode != 0
+        assert json.loads(without_context.stdout)["error"]["code"] == "context_mismatch"
+        context_file = Path(temporary) / "machine-context.json"
+        context_file.write_text(json.dumps({
+            "schema": "usk.oneshot_context.v1",
+            "state_root": str(setup_root.resolve()),
+            "authorized_acceptance_root": str(Path(temporary).resolve()),
+            "target_policy_activation": "operator_acceptance_candidate",
+        }), encoding="utf-8")
+        legacy_request = json.loads(plan_bytes)
+        del legacy_request["payload"]["required_commit_authority"]
+        legacy = run(executable, "--machine", json.dumps(legacy_request).encode(),
+                     "--context-file", str(context_file))
+        assert legacy.returncode != 0
+        assert json.loads(legacy.stdout)["error"]["code"] == "protected_authority_required"
+        invalid_context = Path(temporary) / "invalid-context.json"
+        invalid_context.write_text('{"schema":"usk.oneshot_context.v1","schema":"duplicate"}',
+                                   encoding="utf-8")
+        malformed_context = run(executable, "--machine", plan_bytes,
+                                "--context-file", str(invalid_context))
+        assert malformed_context.returncode != 0
+        assert json.loads(malformed_context.stdout)["error"]["code"] == "invalid_context"
+        for field in ("state_root", "authorized_acceptance_root",
+                      "target_policy_activation"):
+            nul_context = json.loads(context_file.read_text(encoding="utf-8"))
+            nul_context[field] += "\x00ignored-suffix"
+            invalid_context.write_text(json.dumps(nul_context), encoding="utf-8")
+            nul_result = run(executable, "--machine", plan_bytes,
+                             "--context-file", str(invalid_context))
+            assert nul_result.returncode != 0
+            assert json.loads(nul_result.stdout)["error"]["code"] == "invalid_context"
+        planned = run(executable, "--machine", plan_bytes,
+                      "--context-file", str(context_file))
+        assert planned.returncode == 0, planned.stderr + planned.stdout
+        planned_document = json.loads(planned.stdout)
+        assert planned_document["status"] == "ok", planned_document
+        assert planned_document["result"]["status"] == "ok"
+        assert planned_document["result"]["payload"]["required_commit_authority"] == \
+            "staged_child_bound_v1"
+        assert not setup_root.exists() and not target_root.exists()
 
         source = Path(temporary) / "request.json"
         source.write_bytes(encoded)

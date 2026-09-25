@@ -18,9 +18,18 @@ struct OneShotResult {
     int exit_code = 2;
 };
 
-// These first commands are read-only and have no state-root or endpoint effect.
-OneShotResult run_one_shot(const std::string& request_json);
+struct OneShotContextConfig {
+    std::string state_root;
+    std::string authorized_acceptance_root;
+    std::string target_policy_activation;
+};
+
+// Planning inspects an explicitly accepted target and source but makes no changes.
+OneShotResult run_one_shot(const std::string& request_json,
+                           const OneShotContextConfig* context_config = nullptr);
+OneShotContextConfig read_context_config(std::istream& input);
 OneShotResult invalid_frame_result();
+OneShotResult invalid_context_result();
 std::string read_bounded_request(std::istream& input, bool length_prefixed);
 void write_result(std::ostream& output, const std::string& document, bool length_prefixed);
 
