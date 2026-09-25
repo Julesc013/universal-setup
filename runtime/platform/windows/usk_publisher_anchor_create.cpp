@@ -66,6 +66,7 @@ static HANDLE create_relative_with_descriptor(
     constexpr ULONG create_only = 2; // FILE_CREATE: existing names collide.
     const ACCESS_MASK access = directory
         ? FILE_READ_ATTRIBUTES | FILE_TRAVERSE | FILE_LIST_DIRECTORY |
+            FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | DELETE |
             READ_CONTROL | SYNCHRONIZE
         : FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES |
             FILE_WRITE_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;

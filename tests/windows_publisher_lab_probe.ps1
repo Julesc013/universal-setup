@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$OutputPath,
-    [string]$ServiceBinary = ''
+    [string]$ServiceBinary = '',
+    [string]$DeviceAclBinary = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -118,16 +119,18 @@ try {
     $receipt.filesystem = $volume.FileSystem
     $receipt.status = 'volume_provisioned'
     if ($ServiceBinary) {
+        if (-not $DeviceAclBinary) { throw 'owned VHD device ACL helper is required' }
         $serviceOutput = Join-Path $lab 'service-probe.json'
         & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
             -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
-            -ServiceBinary $ServiceBinary -OutputPath $serviceOutput
+            -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
+            -OutputPath $serviceOutput
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
-        if ($receipt.service_observation.status -ne 'restricted_service_observed') {
-            throw 'restricted service probe did not pass'
+        if ($receipt.service_observation.status -ne 'protected_anchors_observed') {
+            throw 'protected anchor service probe did not pass'
         }
-        $receipt.status = 'volume_and_restricted_service_observed'
+        $receipt.status = 'volume_and_protected_anchors_observed'
     }
 } catch {
     $failure = $_.Exception.Message

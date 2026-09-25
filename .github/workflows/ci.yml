@@ -5,6 +5,7 @@ name: ci
 
 on:
   push:
+    branches: [dev, main]
   pull_request:
 
 jobs:
@@ -63,11 +64,10 @@ jobs:
       - run: python tools/adversarial_coverage_check.py
       - run: cmake -S . -B build/smoke -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - run: cmake --build build/smoke --config Release --parallel
-      - run: ctest --test-dir build/smoke -C Release --output-on-failure --parallel 4
       - name: Observe disposable Windows NTFS volume and restricted service
         if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
         shell: pwsh
-        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-lab-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe"
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-lab-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe"
       - name: Retain disposable Windows publisher lab receipt
         if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
         uses: actions/upload-artifact@v4
@@ -75,6 +75,7 @@ jobs:
           name: usk-wu006-disposable-volume-probe
           path: ${{ runner.temp }}\usk-wu006-lab-probe.json
           if-no-files-found: warn
+      - run: ctest --test-dir build/smoke -C Release --output-on-failure --parallel 4
       - run: python tools/strict_check.py
       - name: Static analysis
         if: runner.os == 'Linux'
