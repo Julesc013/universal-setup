@@ -904,3 +904,46 @@ exclude concurrent drive remapping or namespace substitution during the
 write. The ordinary strict commit gate remains unavailable. Hostile-rights
 and race qualification, general-source publication, lease fencing, full
 recovery and generation behavior, and OD-001 remain open.
+
+## Volume-bound public records in the controlled lab (2026-09-26)
+
+A follow-up private Windows finalizer addresses the drive-letter dependency
+found in the public-state review. It derives public target, state, and audit
+paths from the observed held volume GUID root. Record I/O accepts that exact
+Windows volume-root spelling and checks each existing directory component for
+links. Manifest verification reads payloads through the volume GUID path while
+the installed record and report digest retain the reviewed target identity.
+The public ABI and strict production gate are unchanged.
+
+On the owned Windows Server build `10.0.20348.0` VM, the candidate service
+binary SHA-256 was
+`deaf4eaac0f34ba8672c728b5d458e572843e6778b33a7e06c6c2ccb6c0e9ca8`.
+The fresh 1 GiB file-backed NTFS VHDX had disk unique ID
+`600224807A574611915AE2B616811A3F` and volume root
+`\\?\Volume{5443136d-ac74-4a50-8f56-e1b4dc66dc75}\`.
+The own-process restricted service SID was
+`S-1-5-80-815698695-2694003840-1793858512-4124452609-4213351229`.
+The two-file selected ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`,
+and its reviewed plan digest was
+`c54f05eec690f6d21d3ed5f6471daf9cab820d7dee87d68fec8f51061b20281d`.
+The clean service result SHA-256 was
+`7c9cba29259873ecebfa4aa545ae5e0349240ac9d2d1ae89f339907d37aaa3e1`.
+Independent backup-mode readback found both payloads, the prepared/snapshot/
+visible/completion records, installed state, ownership, and two ordered audit
+events. The public installed inspect and verify calls passed in the service.
+
+A repeat with the same binary returned `already_visible_bound` and the same
+completion record SHA-256
+`f2829b29f882a28fd10bae13ad27cfcdc314161d47ce41935fb2f12e5ac977c1`.
+Its receipt SHA-256 was
+`6e6843d5fda59d66dd354afe33273e9ec37f2f021397b11f8f328409babbb23d`.
+Independent readback found all 11 relative file names and hashes unchanged.
+The VM state is retained in campaign checkpoint
+`7ca90541-077f-475c-a6ed-dedc07431783`.
+
+This is a clean lab install and idempotent replay of the candidate binary.
+The source is not yet qualified against drive remapping during finalization,
+same-volume namespace substitution, hostile concurrent rights, lease fencing,
+general sources, physical-host power loss, or OD-001. The ordinary strict
+publisher remains unavailable and no release claim follows from this test.

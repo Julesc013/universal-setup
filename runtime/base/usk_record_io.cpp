@@ -91,6 +91,44 @@ void require_safe_directory(const fs::path& input)
     if (error || !fs::is_directory(path) || linked(path)) {
         throw std::runtime_error("record root is not an existing safe directory");
     }
+#if defined(_WIN32)
+    // MSVC decomposes \\?\Volume{GUID}\ as \\?\ plus a relative Volume{GUID}
+    // component. That synthetic \\?\ root is not a directory. Begin the
+    // ancestor walk at the complete volume root instead, after validating
+    // its exact spelling.
+    const std::wstring& native = path.native();
+    const std::wstring prefix = L"\\\\?\\Volume{";
+    if (native.rfind(prefix, 0) == 0) {
+        const std::size_t guid_end = prefix.size() + 36u;
+        if (native.size() < guid_end + 2u || native[guid_end] != L'}' ||
+            native[guid_end + 1u] != L'\\') {
+            throw std::runtime_error("record volume GUID path is malformed");
+        }
+        for (std::size_t index = prefix.size(); index < guid_end; ++index) {
+            const bool hyphen = index == prefix.size() + 8u ||
+                index == prefix.size() + 13u || index == prefix.size() + 18u ||
+                index == prefix.size() + 23u;
+            const wchar_t ch = native[index];
+            if (hyphen ? ch != L'-' :
+                !((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f') ||
+                    (ch >= L'A' && ch <= L'F'))) {
+                throw std::runtime_error("record volume GUID path is malformed");
+            }
+        }
+        fs::path current(native.substr(0, guid_end + 2u));
+        if (!fs::is_directory(current) || linked(current)) {
+            throw std::runtime_error("record volume root is not a safe directory");
+        }
+        for (const fs::path& component : fs::path(native.substr(guid_end + 2u))) {
+            current /= component;
+            if (!fs::is_directory(current) || linked(current)) {
+                throw std::runtime_error(
+                    "record root crosses a linked or non-directory component");
+            }
+        }
+        return;
+    }
+#endif
     fs::path current = path.root_path();
     for (const fs::path& component : path.relative_path()) {
         current /= component;
