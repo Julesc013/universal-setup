@@ -181,7 +181,8 @@ int wmain(int argc, wchar_t** argv) {
         type.VendorId = VIRTUAL_STORAGE_TYPE_VENDOR_MICROSOFT;
         HANDLE raw_vhd = nullptr;
         const DWORD open_error = OpenVirtualDisk(&type, vhd.c_str(),
-            VIRTUAL_DISK_ACCESS_GET_INFO, OPEN_VIRTUAL_DISK_FLAG_NONE,
+            VIRTUAL_DISK_ACCESS_GET_INFO | VIRTUAL_DISK_ACCESS_DETACH,
+            OPEN_VIRTUAL_DISK_FLAG_NONE,
             nullptr, &raw_vhd);
         if (open_error != ERROR_SUCCESS || !raw_vhd ||
             raw_vhd == INVALID_HANDLE_VALUE) {

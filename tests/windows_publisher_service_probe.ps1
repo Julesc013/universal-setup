@@ -144,8 +144,11 @@ try {
     # token must pass that check as well as the NTFS root/child DACLs. This
     # helper mutates only the independently rebound, single-disk VHD device.
     $deviceAclOutput = & $deviceAclBinary --owned-vhd-volume $VolumeRoot `
-        $serviceName $disk[0].Number $vhd
-    if ($LASTEXITCODE -ne 0) { throw 'owned VHD device ACL provisioning failed' }
+        $serviceName $disk[0].Number $vhd 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ('owned VHD device ACL provisioning failed: ' +
+            ($deviceAclOutput -join '; '))
+    }
     $receipt['device_acl_observation'] = $deviceAclOutput | ConvertFrom-Json
     if ($receipt.device_acl_observation.service_sid -ne $sid -or
         $receipt.device_acl_observation.vhd_disk_number -ne $disk[0].Number) {
