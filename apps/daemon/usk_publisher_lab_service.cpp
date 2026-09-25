@@ -1041,6 +1041,12 @@ std::string observe_prepared_recovery(HANDLE volume,
             final_destination.front().name != L"visible") {
             throw std::runtime_error("forward recovery namespace changed after journal write");
         }
+        if (selected_source &&
+            complete_selected_lab_state(state.get(), prepared, prepared_digest,
+                forward_record, anchors, forward_visible, service_sid, false) !=
+                completion_digest) {
+            throw std::runtime_error("forward recovery completion changed after closure check");
+        }
         return "{\"decision\":\"visible_bound_forward\",\"prepared_sha256\":" +
             json_quote(prepared_digest) +
             ",\"source_file_id\":" + json_quote(forward_visible.root.file_id) +
@@ -1057,7 +1063,36 @@ std::string observe_prepared_recovery(HANDLE volume,
         if (selected_source) {
             completion_digest = complete_selected_lab_state(state.get(), prepared,
                 prepared_digest, stored_visible, anchors, observed_tree,
-                service_sid, true);
+                service_sid, !completion_was_present);
+            if (completion_digest.empty()) {
+                throw std::runtime_error("recovery completion disappeared during repeat");
+            }
+        }
+        require_publisher_tree_phase_match(observed_tree,
+            observe_publisher_tree(root.get()));
+        require_publisher_tree_phase_match(journal_tree,
+            observe_publisher_tree(journal.get()));
+        require_publisher_anchor_set_phase_match(anchors,
+            observe_publisher_anchor_set(volume, {L"publication"}, names));
+        if (!recovery_journal_has_visible_record(journal.get()) ||
+            read_phase_record(journal.get(), L"lab-prepared-evidence.json") != stored ||
+            read_phase_record(journal.get(), L"lab-visible-evidence.json") !=
+                stored_visible) {
+            throw std::runtime_error("recovery journal changed after completion");
+        }
+        const auto final_staging = observe_publisher_directory_entries(staging.get());
+        const auto final_destination =
+            observe_publisher_directory_entries(destination.get());
+        if (!final_staging.empty() || final_destination.size() != 1 ||
+            final_destination.front().name != L"visible" ||
+            observe_publisher_directory_entries(publication.get()).size() != 4) {
+            throw std::runtime_error("recovery namespace changed after completion");
+        }
+        if (selected_source &&
+            complete_selected_lab_state(state.get(), prepared, prepared_digest,
+                stored_visible, anchors, observed_tree, service_sid, false) !=
+                completion_digest) {
+            throw std::runtime_error("recovery completion changed after closure check");
         }
         return "{\"decision\":" + json_quote(
             selected_source && !completion_was_present ?
@@ -1376,6 +1411,28 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         completion_digest = complete_selected_lab_state(state.get(),
             usk::json::parse(prepared), prepared_digest, bound, after, visible,
             service_sid, true);
+        OwnedHandle visible_root(open_exact_lab_child(
+            destination.get(), L"visible"));
+        require_publisher_tree_phase_match(visible,
+            observe_publisher_tree(visible_root.get()));
+        require_publisher_tree_phase_match(journal_tree,
+            observe_publisher_tree(journal.get()));
+        require_publisher_anchor_set_phase_match(first,
+            observe_publisher_anchor_set(volume, {L"publication"}, names));
+        const auto final_destination =
+            observe_publisher_directory_entries(destination.get());
+        if (read_phase_record(journal.get(), L"lab-prepared-evidence.json") !=
+                prepared ||
+            read_phase_record(journal.get(), L"lab-visible-evidence.json") != bound ||
+            !observe_publisher_directory_entries(staging.get()).empty() ||
+            final_destination.size() != 1 ||
+            final_destination.front().name != L"visible" ||
+            observe_publisher_directory_entries(publication.get()).size() != 4 ||
+            complete_selected_lab_state(state.get(), usk::json::parse(prepared),
+                prepared_digest, bound, after, visible, service_sid, false) !=
+                completion_digest) {
+            throw std::runtime_error("selected lab closure changed after completion");
+        }
     }
     return "{\"boundary_file_id\":" + json_quote(first.chain.boundary.file_id) +
         ",\"publication_file_id\":" +
