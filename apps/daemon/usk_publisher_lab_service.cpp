@@ -253,13 +253,15 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     require_publisher_anchor_set_phase_match(first, second);
     OwnedHandle candidate(create_directory_relative_with_descriptor(
         staging.get(), L"candidate", descriptor));
-    OwnedHandle payload(create_file_relative_with_descriptor(
-        candidate.get(), L"payload.bin", descriptor));
     static constexpr char bytes[] = "protected staged payload\n";
-    DWORD written = 0;
-    if (!WriteFile(payload.get(), bytes, sizeof(bytes) - 1, &written, nullptr) ||
-        written != sizeof(bytes) - 1 || !FlushFileBuffers(payload.get())) {
-        throw std::runtime_error("protected lab payload write or flush failed");
+    {
+        OwnedHandle payload(create_file_relative_with_descriptor(
+            candidate.get(), L"payload.bin", descriptor));
+        DWORD written = 0;
+        if (!WriteFile(payload.get(), bytes, sizeof(bytes) - 1, &written, nullptr) ||
+            written != sizeof(bytes) - 1 || !FlushFileBuffers(payload.get())) {
+            throw std::runtime_error("protected lab payload write or flush failed");
+        }
     }
     const auto sealed = observe_publisher_tree(candidate.get());
     require_publisher_tree_security_shape(sealed, service_sid);
