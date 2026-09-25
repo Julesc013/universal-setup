@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from usk_bundle_author import compile_bundle, inspect_bundle
+from usk_component_resolver import resolve_component_ids
 from usk_prefab_envelope import build_envelope, inspect_envelope
 
 
@@ -60,14 +61,30 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
         application = final / "hello.exe"
         subprocess.run([compiler, str(program), "-o", str(application)],
                        check=True, capture_output=True)
+        for name in ("addon", "alternative", "library"):
+            (final / f"{name}.txt").write_text(name + "\n", encoding="utf-8")
         project = {
             "schema": "usk.authoring_project.v1", "product_id": "org.example.hello",
             "publisher_id": "org.example", "product_version": "1.0.0",
             "allowed_scopes": ["portable"],
-            "components": [{"id": "core", "required": True, "default_selected": True,
-                            "requires": [], "conflicts": [], "variants": [{
-                                "target": "windows-x64", "files": [{
-                                    "source": "final/hello.exe", "path": "bin/hello.exe"}]}]}],
+            "components": [
+                {"id": "core", "required": True, "default_selected": True,
+                 "requires": [], "conflicts": [], "variants": [{
+                     "target": "windows-x64", "files": [{
+                         "source": "final/hello.exe", "path": "bin/hello.exe"}]}]},
+                {"id": "library", "required": False, "default_selected": False,
+                 "requires": [], "conflicts": [], "variants": [{
+                     "target": "windows-x64", "files": [{
+                         "source": "final/library.txt", "path": "docs/library.txt"}]}]},
+                {"id": "addon", "required": False, "default_selected": False,
+                 "requires": ["library"], "conflicts": ["alternative"], "variants": [{
+                     "target": "windows-x64", "files": [{
+                         "source": "final/addon.txt", "path": "docs/addon.txt"}]}]},
+                {"id": "alternative", "required": False, "default_selected": False,
+                 "requires": [], "conflicts": [], "variants": [{
+                     "target": "windows-x64", "files": [{
+                         "source": "final/alternative.txt", "path": "docs/alternative.txt"}]}]},
+            ],
         }
         definition = product / "project.json"
         definition.write_text(json.dumps(project), encoding="utf-8")
@@ -112,11 +129,48 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
                     info.get("installation_mode") != "inspect_only" or
                     info.get("product_id") != bundle["product_id"] or
                     info.get("prefab_profile") != profile or
-                    info.get("component_ids") != ["core"] or
+                    info.get("component_ids") != ["addon", "alternative", "core", "library"] or
                     info.get("bundle_sha256") != _sha256(product_path / "product.bundle.json") or
                     info.get("payload_sha256") != bundle["payload"]["sha256"] or
-                    info.get("file_count") != 1):
+                    info.get("file_count") != 4):
                 raise RuntimeError(f"packaged host product inventory differs in {profile}")
+            selected = subprocess.run(
+                [str(host), "--product-select",
+                 str(product_path / "product.bundle.json"), "--select", "addon"],
+                capture_output=True, timeout=30)
+            if selected.returncode or selected.stderr:
+                raise RuntimeError(f"packaged host could not resolve selection in {profile}")
+            selection = json.loads(selected.stdout)
+            if (selection.get("schema") != "usk.product_selection.v1" or
+                    selection.get("status") != "verified_read_only" or
+                    selection.get("installation_mode") != "inspect_only" or
+                    selection.get("requested_component_ids") != ["addon"] or
+                    selection.get("selected_component_ids") !=
+                    list(resolve_component_ids(bundle["components"], ["addon"])) or
+                    selection.get("bundle_sha256") != info["bundle_sha256"] or
+                    selection.get("payload_sha256") != info["payload_sha256"]):
+                raise RuntimeError(f"native and authoring selection differ in {profile}")
+            default = subprocess.run(
+                [str(host), "--product-select",
+                 str(product_path / "product.bundle.json")],
+                capture_output=True, timeout=30)
+            if (default.returncode or default.stderr or
+                    json.loads(default.stdout).get("selected_component_ids") !=
+                    list(resolve_component_ids(bundle["components"]))):
+                raise RuntimeError(f"default native selection differs in {profile}")
+            conflict = subprocess.run(
+                [str(host), "--product-select",
+                 str(product_path / "product.bundle.json"),
+                 "--select", "addon", "--select", "alternative"],
+                capture_output=True, timeout=30)
+            if conflict.returncode != 2 or conflict.stdout:
+                raise RuntimeError(f"packaged host accepted conflicting selection in {profile}")
+            unknown = subprocess.run(
+                [str(host), "--product-select",
+                 str(product_path / "product.bundle.json"), "--select", "missing"],
+                capture_output=True, timeout=30)
+            if unknown.returncode != 2 or unknown.stdout:
+                raise RuntimeError(f"packaged host accepted unknown selection in {profile}")
             tampered = base / f"{profile}-tampered"
             tampered.mkdir()
             shutil.copy2(product_path / "product.bundle.json", tampered)
@@ -130,6 +184,12 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
                 capture_output=True, timeout=30)
             if refused.returncode != 2 or refused.stdout:
                 raise RuntimeError(f"packaged host accepted altered payload in {profile}")
+            refused_selection = subprocess.run(
+                [str(host), "--product-select",
+                 str(tampered / "product.bundle.json"), "--select", "addon"],
+                capture_output=True, timeout=30)
+            if refused_selection.returncode != 2 or refused_selection.stdout:
+                raise RuntimeError(f"packaged host selected altered payload in {profile}")
             observations.append({
                 "profile": profile,
                 "manifest": manifest,
@@ -139,6 +199,11 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
                 "host_exit_code": result.returncode,
                 "product_info_response_sha256": hashlib.sha256(product_info.stdout).hexdigest(),
                 "product_info_status": info["status"],
+                "native_selection_sha256": hashlib.sha256(selected.stdout).hexdigest(),
+                "native_selection_matches_authoring": True,
+                "conflicting_selection_refused": True,
+                "unknown_selection_refused": True,
+                "altered_payload_selection_refused": True,
                 "payload_tamper_refused": True,
                 "extracted_product_reinspection": profile == "one_file_carrier",
             })
