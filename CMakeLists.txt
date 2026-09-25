@@ -539,7 +539,7 @@ if(USK_BUILD_TESTS)
         apps/daemon/usk_publisher_lab_service.cpp)
       target_compile_features(usk_publisher_lab_service PRIVATE cxx_std_17)
       target_link_libraries(usk_publisher_lab_service PRIVATE
-        usk_publisher_windows_static usk_archive_static)
+        usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
       usk_enable_strict_warnings(usk_publisher_lab_service)
 
       add_executable(usk_publisher_lab_device_acl

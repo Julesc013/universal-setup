@@ -8,6 +8,8 @@
 #include "usk_archive_payload.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
+#include "usk_stable_file.h"
+#include "usk_public_lifecycle.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -24,6 +26,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <set>
@@ -51,6 +54,14 @@ bool recover_visible_bound = false;
 bool selected_archive_mode = false;
 std::wstring selected_archive_path;
 std::string selected_archive_sha256;
+std::wstring reviewed_plan_envelope_path;
+std::string reviewed_plan_envelope_sha256;
+struct ReviewedPlanBinding {
+    std::string plan_digest;
+    std::string envelope_sha256;
+    std::string selected_file_set_digest;
+    usk::archive::StreamingStoredArchivePayload selected_payload;
+};
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
@@ -128,6 +139,23 @@ bool campaign_selected_receipt_path(const std::wstring& path) {
 bool campaign_selected_archive_path(const std::wstring& path) {
     const std::wstring prefix = L"C:\\USK-Lab\\selected-";
     const std::wstring suffix = L".zip";
+    if (path.size() <= prefix.size() + suffix.size() ||
+        path.compare(0, prefix.size(), prefix) != 0 ||
+        path.compare(path.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return false;
+    }
+    for (std::size_t index = prefix.size();
+            index < path.size() - suffix.size(); ++index) {
+        const wchar_t ch = path[index];
+        if (!((ch >= L'a' && ch <= L'z') ||
+                (ch >= L'0' && ch <= L'9') || ch == L'-')) return false;
+    }
+    return true;
+}
+
+bool campaign_reviewed_plan_envelope_path(const std::wstring& path) {
+    const std::wstring prefix = L"C:\\USK-Lab\\plan-";
+    const std::wstring suffix = L".json";
     if (path.size() <= prefix.size() + suffix.size() ||
         path.compare(0, prefix.size(), prefix) != 0 ||
         path.compare(path.size() - suffix.size(), suffix.size(), suffix) != 0) {
@@ -931,10 +959,15 @@ std::string observe_prepared_recovery(HANDLE volume,
     }
     if (prepared.contains("source_binding")) {
         const auto& binding = prepared.at("source_binding");
-        if (binding.as_object().size() != 3 ||
+        const bool reviewed = binding.contains("reviewed_plan_digest");
+        if (binding.as_object().size() != (reviewed ? 5u : 3u) ||
             !lower_sha256_ascii(binding.at("archive_sha256").as_string()) ||
             !lower_sha256_ascii(binding.at("archive_identity_digest").as_string()) ||
-            !lower_sha256_ascii(binding.at("entry_set_digest").as_string())) {
+            !lower_sha256_ascii(binding.at("entry_set_digest").as_string()) ||
+            (reviewed && (!lower_sha256_ascii(
+                binding.at("reviewed_plan_digest").as_string()) ||
+                !lower_sha256_ascii(
+                    binding.at("plan_envelope_sha256").as_string())))) {
             throw std::runtime_error("recovery selected source binding is malformed");
         }
     }
@@ -1410,7 +1443,151 @@ stage_selected_archive_files(HANDLE candidate,
     return expected;
 }
 
-std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid) {
+usk::archive::StreamingStoredArchivePayload inspect_selected_lab_archive() {
+    const auto source_path = std::filesystem::path(selected_archive_path).u8string();
+    const std::string request =
+        "{\"schema\":\"usk.archive_inspect_request.v1\","
+        "\"archive_path\":" + json_quote(source_path) +
+        ",\"archive_format\":\"zip\",\"budgets\":{"
+        "\"max_entries\":4096,\"max_entry_bytes\":16777216,"
+        "\"max_uncompressed_bytes\":268435456,\"max_depth\":128,"
+        "\"max_ratio\":100,\"max_elapsed_ms\":300000}}";
+    auto payload = usk::archive::inspect_streaming_payload(request, "");
+    if (payload.source_sha256 != selected_archive_sha256 ||
+        !lower_sha256_ascii(payload.source_identity_digest) ||
+        !lower_sha256_ascii(payload.entry_set_digest) ||
+        payload.files.empty() || payload.files.size() > 4096) {
+        throw std::runtime_error("selected lab archive identity or closure differs");
+    }
+    return payload;
+}
+
+ReviewedPlanBinding require_reviewed_selected_plan() {
+    using namespace usk::platform::windows;
+    if (reviewed_plan_envelope_path.empty() ||
+        !lower_sha256_ascii(reviewed_plan_envelope_sha256)) {
+        throw std::runtime_error("selected publisher has no reviewed plan envelope");
+    }
+    usk::base::StableFile file{std::filesystem::path(reviewed_plan_envelope_path)};
+    if (file.identity().size_bytes == 0 ||
+        file.identity().size_bytes > 1024u * 1024u ||
+        file.sha256_hex() != reviewed_plan_envelope_sha256) {
+        throw std::runtime_error("reviewed plan envelope identity differs");
+    }
+    const auto bytes = file.read(0,
+        static_cast<std::size_t>(file.identity().size_bytes));
+    file.verify_unchanged();
+    const auto envelope = usk::json::parse(
+        std::string(bytes.begin(), bytes.end()));
+    if (envelope.as_object().size() != 6 ||
+        envelope.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_envelope.v1" ||
+        envelope.at("activation").as_string() !=
+            "operator_acceptance_candidate") {
+        throw std::runtime_error("reviewed plan envelope schema or activation differs");
+    }
+    const auto normalized = [](const std::string& path) {
+        return std::filesystem::path(path).lexically_normal().generic_u8string();
+    };
+    const std::string acceptance = envelope.at("acceptance_root").as_string();
+    const std::string state_root = envelope.at("state_root").as_string();
+    const std::wstring acceptance_native =
+        std::filesystem::path(acceptance).wstring();
+    wchar_t mapped_volume[128]{};
+    if (acceptance_native.size() != 3 ||
+        !((acceptance_native[0] >= L'A' && acceptance_native[0] <= L'Z') ||
+            (acceptance_native[0] >= L'a' && acceptance_native[0] <= L'z')) ||
+        acceptance_native[1] != L':' || acceptance_native[2] != L'\\' ||
+        !GetVolumeNameForVolumeMountPointW(acceptance_native.c_str(),
+            mapped_volume, static_cast<DWORD>(std::size(mapped_volume))) ||
+        CompareStringOrdinal(mapped_volume, -1, volume_root.c_str(), -1,
+            TRUE) != CSTR_EQUAL) {
+        throw std::runtime_error("reviewed plan drive root is not the held volume");
+    }
+    const std::string expected_root =
+        std::filesystem::path(acceptance).lexically_normal().generic_u8string();
+    const std::string expected_target =
+        (std::filesystem::path(acceptance) / L"publication" /
+            L"destination" / L"visible").lexically_normal().generic_u8string();
+    const std::string plan_digest =
+        envelope.at("reviewed_plan_digest").as_string();
+    const auto& request = envelope.at("plan_request");
+    if (normalized(acceptance) != expected_root ||
+        !lower_sha256_ascii(plan_digest) ||
+        request.at("schema").as_string() !=
+            "usk.install_local_plan_request.v1" ||
+        request.at("required_commit_authority").as_string() !=
+            "staged_child_bound_v1" ||
+        normalized(request.at("archive").at("path").as_string()) !=
+            normalized(std::filesystem::path(selected_archive_path).u8string()) ||
+        request.at("archive").at("expected_sha256").as_string() !=
+            selected_archive_sha256 ||
+        normalized(request.at("target").at("root").as_string()) !=
+            expected_target) {
+        throw std::runtime_error("reviewed plan does not bind selected source and target");
+    }
+    const std::string canonical_request = usk::json::canonical(request);
+    int status = -1;
+    char* raw = usk_public_lifecycle_command_json("install_local.plan",
+        canonical_request.data(), canonical_request.size(), state_root.c_str(),
+        acceptance.c_str(), "operator_acceptance_candidate", &status);
+    if (!raw) throw std::runtime_error("native reviewed plan response is unavailable");
+    std::string response(raw);
+    usk_public_lifecycle_command_free(raw);
+    const auto& result = usk::json::parse(response);
+    if (status != 0 || result.at("status").as_string() != "ok") {
+        throw std::runtime_error("native reviewed plan revalidation refused");
+    }
+    const auto& plan = result.at("payload");
+    if (plan.at("schema").as_string() != "usk.install_plan.v1" ||
+        plan.at("plan_digest").as_string() != plan_digest ||
+        plan.at("plan_id").as_string() !=
+            request.at("request_id").as_string() ||
+        plan.at("required_commit_authority").as_string() !=
+            "staged_child_bound_v1" ||
+        plan.at("commit_authority_available").as_boolean() ||
+        normalized(plan.at("target").at("root").as_string()) !=
+            expected_target ||
+        normalized(plan.at("source").at("path").as_string()) !=
+            normalized(std::filesystem::path(selected_archive_path).u8string()) ||
+        plan.at("source").at("sha256").as_string() !=
+            selected_archive_sha256) {
+        throw std::runtime_error("native reviewed plan identity differs");
+    }
+    auto selected_payload = inspect_selected_lab_archive();
+    if (plan.at("source").at("filesystem_identity_digest").as_string() !=
+            selected_payload.source_identity_digest ||
+        plan.at("source").at("size_bytes").as_unsigned() !=
+            selected_payload.archive_size_bytes) {
+        throw std::runtime_error("selected archive filesystem identity differs from reviewed plan");
+    }
+    std::vector<PublisherExpectedFile> expected_files;
+    for (const auto& entry : plan.at("planned_entries").as_array()) {
+        if (entry.at("entry_type").as_string() == "file") {
+            expected_files.push_back({
+                selected_utf8_path(entry.at("relative_path").as_string()),
+                entry.at("size_bytes").as_unsigned(),
+                entry.at("sha256").as_string()});
+        } else if (entry.at("entry_type").as_string() != "directory") {
+            throw std::runtime_error("native reviewed plan has an unsupported entry");
+        }
+    }
+    std::vector<PublisherExpectedFile> selected_files;
+    for (const auto& selected_entry : selected_payload.files) {
+        selected_files.push_back({selected_utf8_path(selected_entry.relative_path),
+            selected_entry.size_bytes, selected_entry.sha256});
+    }
+    const std::string planned_set = selected_file_set_digest(std::move(expected_files));
+    if (selected_file_set_digest(std::move(selected_files)) != planned_set) {
+        throw std::runtime_error("selected source differs from reviewed native plan");
+    }
+    selected_payload.validate_source();
+    return {plan_digest, reviewed_plan_envelope_sha256,
+        planned_set, std::move(selected_payload)};
+}
+
+std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid,
+    const std::optional<ReviewedPlanBinding>& reviewed_plan) {
     using namespace usk::platform::windows;
     const std::wstring sid(service_sid.begin(), service_sid.end());
     const auto descriptor = make_publisher_directory_security_descriptor(sid);
@@ -1482,23 +1659,11 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     std::optional<usk::archive::StreamingStoredArchivePayload> selected_payload;
     bool selected_v2 = false;
     if (selected_archive_mode) {
-        const auto source_path = std::filesystem::path(selected_archive_path).u8string();
-        const std::string request =
-            "{\"schema\":\"usk.archive_inspect_request.v1\","
-            "\"archive_path\":" + json_quote(source_path) +
-            ",\"archive_format\":\"zip\",\"budgets\":{"
-            "\"max_entries\":4096,\"max_entry_bytes\":16777216,"
-            "\"max_uncompressed_bytes\":268435456,\"max_depth\":128,"
-            "\"max_ratio\":100,\"max_elapsed_ms\":300000}}";
-        selected_payload = usk::archive::inspect_streaming_payload(request, "");
-        if (selected_payload->source_sha256 != selected_archive_sha256 ||
-            !lower_sha256_ascii(selected_payload->source_identity_digest) ||
-            !lower_sha256_ascii(selected_payload->entry_set_digest) ||
-            selected_payload->files.empty() ||
-            selected_payload->files.size() > 4096) {
-            throw std::runtime_error("selected lab archive identity or closure differs");
-        }
-        selected_v2 = selected_payload->files.size() != 1 ||
+        selected_payload = reviewed_plan ?
+            reviewed_plan->selected_payload : inspect_selected_lab_archive();
+        selected_payload->validate_source();
+        selected_v2 = reviewed_plan.has_value() ||
+            selected_payload->files.size() != 1 ||
             selected_payload->files.front().relative_path != "payload.bin";
     }
     OwnedHandle candidate(create_directory_relative_with_descriptor(
@@ -1581,7 +1746,13 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
                 ",\"archive_identity_digest\":" +
                 json_quote(selected_payload->source_identity_digest) +
                 ",\"entry_set_digest\":" +
-                json_quote(selected_payload->entry_set_digest) + "}" :
+                json_quote(selected_payload->entry_set_digest) +
+                (reviewed_plan ?
+                    ",\"reviewed_plan_digest\":" +
+                        json_quote(reviewed_plan->plan_digest) +
+                    ",\"plan_envelope_sha256\":" +
+                        json_quote(reviewed_plan->envelope_sha256) :
+                    std::string{}) + "}" :
             std::string{}) +
         ",\"protected_anchors\":" + json_anchor_set(third) +
         ",\"sealed_tree\":" + json_tree(sealed) + "}");
@@ -1743,6 +1914,10 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         report_status(SERVICE_RUNNING, SERVICE_ACCEPT_STOP);
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
+        const std::optional<ReviewedPlanBinding> reviewed_plan =
+            reviewed_plan_envelope_path.empty() ?
+                std::optional<ReviewedPlanBinding>{} :
+                std::optional<ReviewedPlanBinding>{require_reviewed_selected_plan()};
         const DWORD root_access = recover_prepared ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
@@ -1883,7 +2058,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             anchors = recover_prepared ?
                 observe_prepared_recovery(volume, observed.service_sid,
                     recover_visible_bound) :
-                observe_protected_anchors(volume, observed.service_sid);
+                observe_protected_anchors(volume, observed.service_sid,
+                    reviewed_plan);
         } catch (...) {
             CloseHandle(volume);
             throw;
@@ -1980,28 +2156,46 @@ int wmain(int argc, wchar_t** argv) {
         (argc == 10 || std::wstring(argv[10]) == L"--prepublish-gate" ||
             std::wstring(argv[10]) == L"--postrename-gate" ||
             std::wstring(argv[10]) == L"--postjournal-gate");
+    const bool campaign_vm_selected_plan = (argc == 13 || argc == 14) &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_selected_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--selected-zip" &&
+        campaign_selected_archive_path(argv[6]) &&
+        lower_sha256(argv[7]) &&
+        std::wstring(argv[8]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[9]) &&
+        std::wstring(argv[10]) == L"--reviewed-plan-envelope" &&
+        campaign_reviewed_plan_envelope_path(argv[11]) &&
+        lower_sha256(argv[12]) &&
+        (argc == 13 || std::wstring(argv[13]) == L"--prepublish-gate" ||
+            std::wstring(argv[13]) == L"--postrename-gate" ||
+            std::wstring(argv[13]) == L"--postjournal-gate");
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
-        !campaign_vm_selected) return 2;
+        !campaign_vm_selected && !campaign_vm_selected_plan) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
+    const std::wstring selected_gate =
+        campaign_vm_selected && argc == 11 ? argv[10] :
+        campaign_vm_selected_plan && argc == 14 ? argv[13] : L"";
     prepublish_gate = argc == 6 || campaign_vm ||
-        (campaign_vm_selected && argc == 11 &&
-            std::wstring(argv[10]) == L"--prepublish-gate");
+        selected_gate == L"--prepublish-gate";
     postrename_gate = campaign_vm_postrename ||
-        (campaign_vm_selected && argc == 11 &&
-            std::wstring(argv[10]) == L"--postrename-gate");
+        selected_gate == L"--postrename-gate";
     postjournal_gate = campaign_vm_postjournal ||
-        (campaign_vm_selected && argc == 11 &&
-            std::wstring(argv[10]) == L"--postjournal-gate");
+        selected_gate == L"--postjournal-gate";
     recover_prepared = campaign_vm_recovery || campaign_vm_replay;
     recover_visible_bound = campaign_vm_replay;
-    selected_archive_mode = campaign_vm_selected;
+    selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan;
     if (selected_archive_mode) {
         selected_archive_path = argv[6];
         selected_archive_sha256 = ascii(argv[7]);
+    }
+    if (campaign_vm_selected_plan) {
+        reviewed_plan_envelope_path = argv[11];
+        reviewed_plan_envelope_sha256 = ascii(argv[12]);
     }
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
