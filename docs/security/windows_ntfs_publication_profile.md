@@ -246,3 +246,35 @@ retained outside the repository. This is a forced VM power-off observation of
 one prepared state, not a physical host power-loss test. It does not implement
 or qualify journal replay, completed recovery, hostile race exclusion, OD-001
 resolution or production publication.
+
+The next lab-only service mode classifies that retained prepared state after
+restart. It opens the volume and listed descendants through read-only held
+handles, checks the exact canonical prepared journal bytes, compares the
+protected anchors and sealed staged tree with fresh OS observations, and
+requires the destination and state directories to be empty. It writes only a
+receipt outside the protected volume and returns `recovery_required`; it does
+not replay the journal or make the candidate visible. On the campaign VM, the
+restricted service independently matched the surviving 4,543-byte prepared
+record SHA-256
+`c1450d0eca0c548839da69b7aacfd0741da4b28311f7d7001ee73d5d58825b40`
+and staged payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The externally captured positive observation SHA-256 is
+`4d436bad94217c0c87d3c9d6d73779d6c6d13ac60afbe3af6dfdc84e37042e73`.
+A checkpoint of only the campaign VM then permitted a backup-mode overwrite
+of the staged payload. The service refused that altered tree with
+`recovery staged closure differs from prepared record`; the external negative
+observation SHA-256 is
+`a45ecaaf13f8d48d0079fe4d4291684c72649a5481040203e15adbac308c289a`.
+The VM was restored to the recorded checkpoint, and a separate backup-mode
+read confirmed the original staged payload digest. This checks one persisted
+prepared state and one staged-content mismatch. It does not qualify complete
+replay, interrupted visible-phase recovery, power-loss durability, race
+exclusion, OD-001 resolution, or production publication.
+After adding a second journal and empty-role observation, exact publication
+anchor count, and a receipt-path restriction to the classifier, the restored
+VM passed a fresh positive run. The final lab service executable
+SHA-256 is
+`e8eb2666bef29dc3b773a95acf2f02a5087c932ba55ad0df727746f767e5f01f`;
+the final external observation SHA-256 is
+`9e502f7778931c2b3cb5b5d91685c3306f5c21beb1fd251036061ccfc617842c`.
