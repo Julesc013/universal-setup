@@ -83,3 +83,19 @@ service and VHD. The retained JSON artifact SHA-256 is
 3ced569d8f1a0ee8b07b3e4f88b41a70435c5025e82ff155ff2c553ccdd51111.
 This qualifies the disposable service and volume observation only. It does not
 establish protected anchors, publication, recovery, or OD-001 resolution.
+
+The hosted PR #98 observation at source head
+6d3a73910df3f672efcde13e6d3f7e40c0c6097b and CI run 36083054549
+used Windows build 10.0.20348.0 and a fresh file-backed NTFS VHD. The lab
+bound the VHD backing file, attached device, sole volume extent and observed
+disk number before adding only the generated service SID to that disposable
+volume device's DACL. The restricted own-process service created the protected
+volume boundary, publication root, staging root, destination parent, state and
+journal anchors. Independent receipt checks found six distinct file IDs,
+SYSTEM ownership, exact protected SYSTEM/service-SID DACLs, no reparse points,
+and unchanged second-phase observations. The service was stopped and deletion
+requested, and the VHD was dismounted and removed. The retained JSON receipt
+SHA-256 is
+862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8.
+This establishes the disposable protected-anchor laboratory step only. It does
+not qualify staged publication, hostile rights, crash recovery or OD-001.
