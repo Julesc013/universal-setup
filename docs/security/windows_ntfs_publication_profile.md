@@ -753,3 +753,45 @@ reviewed public plan, enable the general production publisher, establish the
 public installed-state/ownership/audit records, qualify hostile concurrency,
 leases, arbitrary sources or the 4,096-file bound, or resolve OD-001. A VM
 turn-off is not physical-host power-loss proof.
+
+## Reviewed native plan binding in the restricted-service lab (2026-09-26)
+
+The restricted service now accepts an exact-hash reviewed-plan envelope only
+for the campaign VM. Before opening publication anchors, it recomputes
+`install_local.plan` through the native lifecycle, checks the selected archive,
+held NTFS volume, target, plan digest, and selected file-set digest, and then
+records the plan and envelope hashes in the protected prepared and completion
+records. The public strict commit gate continues to report unavailable.
+
+On Windows build `10.0.20348.0`, the authored two-file ZIP above produced native
+plan digest `6496dac218900456e98c235135639e82ca7d401a0f9c20d56b91336482b48192`
+(response receipt SHA-256 `c9f57e1054d834ee887893312d99c4fac965e60137c4ba9eb09cc000acc0ec88`).
+Envelope SHA-256 was `ad5902418ced08b5c24e08538d2334625003763d256ba27904e1a643cc1159e6`.
+Candidate service binary SHA-256 `f25ec24633e8f36d3e2ccea20b5ec6e4e585ffc121a72e315f7ccd3db0f4268d`
+paused after the flushed visible journal on a newly created 1 GiB NTFS VHDX.
+Independent readback found the two selected files, prepared SHA-256
+`251b4efcf905f2dc40d7445615373d8c42ac63e6304e6c86bfa824e7fd2f6607`,
+visible SHA-256 `8e311842b1a9c4bb813752d0ddad6d66195b4e3d4a16a46b30f22c9b793cd19b`,
+and no completion (receipt SHA-256
+`18773d5e15efb7ab720ebc70640c9b248ad26b216a7beeb3a70ce62394866e39`).
+The host forcibly turned off only this campaign VM (receipt SHA-256
+`8383cd7337adf7f3dde6e8d7684dec3366ea4ba4f71b6ea86a320c2b6bc2e2c6`).
+After restart, exact-VHD reattachment and fresh backup-mode reads matched the
+journal and files and found no completion (receipt SHA-256
+`d9f48de567226c983a235eed57b41d8e739057fbb1ee83fc7e3e7c5460bcb466`).
+Restricted-service recovery returned `installed_state_completed_forward` and
+wrote completion SHA-256 `21ff5ca1948587709eebc52e01761650fd1f4188945c34233038ab28b6ea2c5a`
+with the same reviewed plan and envelope hashes (receipt SHA-256
+`bcaf304964f292723e4baf048165c65c6ef2c7d6f1e26952a22ad7fba9a723c2`).
+A repeat returned `already_visible_bound` with the same completion hash
+(receipt SHA-256 `af1868123d399cac99947e044a369af99367a926180302ed3c51d3e2a4103111`).
+Recovered evidence remains in snapshot `8a3072fc-d73d-4e5e-adb3-02f7bd17ceab`;
+the working VM was restored to the pretest snapshot.
+
+This is an exact candidate-binary lab observation. A later source-only change
+allows reviewed single-file `payload.bin` selections to use the same v2 record;
+that path has not been rerun in the VM. The journal does not yet become the
+public installed-state, ownership, or audit record. The drive-letter mapping
+and selected source remain laboratory constraints, and hostile concurrent
+substitution, lease fencing, general sources, production enablement, OD-001,
+and physical-host power-loss qualification remain open.
