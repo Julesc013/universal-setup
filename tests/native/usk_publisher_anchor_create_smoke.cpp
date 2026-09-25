@@ -20,6 +20,7 @@
 
 namespace fs = std::filesystem;
 using usk::platform::windows::create_directory_relative_with_descriptor;
+using usk::platform::windows::create_staged_directory_relative_with_descriptor;
 using usk::platform::windows::create_file_relative_with_descriptor;
 using usk::platform::windows::observe_publisher_directory_handle;
 using usk::platform::windows::observe_publisher_file_handle;
@@ -212,8 +213,19 @@ int main() {
             check(refused(parent_handle.get(), L"first", descriptor) &&
                 refused(parent_handle.get(), L"CON", descriptor) &&
                 refused(parent_handle.get(), L"..", descriptor) &&
-                refused(parent_handle.get(), L"bad/name", descriptor),
+                refused(parent_handle.get(), L"bad/name", descriptor) &&
+                refused(parent_handle.get(), L"my dir", descriptor) &&
+                refused(parent_handle.get(), std::wstring(129, L'a'), descriptor),
                 "collision or invalid component was accepted");
+            {
+                Handle spaced(create_staged_directory_relative_with_descriptor(
+                    parent_handle.get(), L"my dir", descriptor));
+                Handle long_directory(create_staged_directory_relative_with_descriptor(
+                    parent_handle.get(), std::wstring(129, L'a'), descriptor));
+                check(fs::is_directory(parent / L"my dir") &&
+                    fs::is_directory(parent / std::wstring(129, L'a')),
+                    "canonical selected directory was refused");
+            }
             std::string file_id;
             {
                 Handle file(create_file_relative_with_descriptor(
@@ -314,6 +326,8 @@ int main() {
             fs::remove(moved / "bad-digest.bin") &&
             fs::remove(source_path) &&
             fs::remove(moved / "first") && fs::remove(moved / "bound") &&
+            fs::remove(moved / L"my dir") &&
+            fs::remove(moved / std::wstring(129, L'a')) &&
             fs::remove(moved / "payload.bin") && fs::remove(moved / "bound.bin") &&
             fs::remove(moved / L"R\u00e9sum\u00e9.txt") &&
             fs::remove(moved / (std::wstring(129, L'a') + L".bin")) &&

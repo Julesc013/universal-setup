@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -448,6 +449,98 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root) {
             return order == CSTR_LESS_THAN;
         });
     return result;
+}
+
+void require_publisher_tree_exact_file_closure(
+    const PublisherTreeObservation& tree,
+    const std::vector<PublisherExpectedFile>& files) {
+    if (files.empty() || files.size() > 200000) {
+        throw std::runtime_error("publisher source closure file count is invalid");
+    }
+    struct OrdinalInsensitive {
+        bool operator()(const std::wstring& left,
+            const std::wstring& right) const {
+            const int order = CompareStringOrdinal(left.data(),
+                static_cast<int>(left.size()), right.data(),
+                static_cast<int>(right.size()), TRUE);
+            if (order == 0) {
+                throw std::runtime_error("publisher source path comparison failed");
+            }
+            return order == CSTR_LESS_THAN;
+        }
+    };
+    struct ExpectedEntry {
+        bool directory;
+        std::uint64_t size;
+        std::string sha256;
+    };
+    std::map<std::wstring, ExpectedEntry, OrdinalInsensitive> expected;
+    constexpr std::size_t maximum_path_bytes = 64u * 1024u * 1024u;
+    std::size_t path_bytes = 0;
+    const auto account_path = [&](const std::wstring& path) {
+        if (path.size() > (maximum_path_bytes - path_bytes) / sizeof(wchar_t)) {
+            throw std::runtime_error("publisher source closure path budget exceeded");
+        }
+        path_bytes += path.size() * sizeof(wchar_t);
+    };
+    for (const auto& file : files) {
+        if (file.relative_path.empty() || file.relative_path.size() > 32767 ||
+            file.sha256.size() != 64 ||
+            !std::all_of(file.sha256.begin(), file.sha256.end(),
+                [](char ch) { return (ch >= '0' && ch <= '9') ||
+                    (ch >= 'a' && ch <= 'f'); })) {
+            throw std::runtime_error("publisher source file path or digest is invalid");
+        }
+        std::size_t start = 0;
+        std::size_t depth = 0;
+        while (true) {
+            const auto slash = file.relative_path.find(L'/', start);
+            const auto component = file.relative_path.substr(start,
+                slash == std::wstring::npos ? std::wstring::npos : slash - start);
+            if (++depth > 128 || !is_publisher_canonical_component(component)) {
+                throw std::runtime_error("publisher source file component is invalid");
+            }
+            if (slash == std::wstring::npos) break;
+            const auto directory = file.relative_path.substr(0, slash);
+            const auto inserted = expected.emplace(directory,
+                ExpectedEntry{true, 0, {}});
+            if (!inserted.second && (!inserted.first->second.directory ||
+                    inserted.first->first != directory)) {
+                throw std::runtime_error("publisher source directory collides");
+            }
+            if (inserted.second) {
+                account_path(directory);
+            }
+            if (expected.size() > 200000) {
+                throw std::runtime_error("publisher source closure entry budget exceeded");
+            }
+            start = slash + 1;
+        }
+        if (!expected.emplace(file.relative_path,
+                ExpectedEntry{false, file.size, file.sha256}).second) {
+            throw std::runtime_error("publisher source file collides");
+        }
+        account_path(file.relative_path);
+        if (expected.size() > 200000) {
+            throw std::runtime_error("publisher source closure entry budget exceeded");
+        }
+    }
+    if (tree.descendants.size() != expected.size()) {
+        throw std::runtime_error("publisher observed closure count differs from source");
+    }
+    for (const auto& entry : tree.descendants) {
+        const auto found = expected.find(entry.relative_path);
+        if (found == expected.end() || found->first != entry.relative_path) {
+            throw std::runtime_error("publisher observed closure path differs from source");
+        }
+        const auto& wanted = found->second;
+        const bool directory =
+            (entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        if (directory != wanted.directory || entry.size != wanted.size ||
+            entry.sha256 != wanted.sha256) {
+            throw std::runtime_error("publisher observed closure bytes or type differ from source");
+        }
+    }
 }
 
 void require_publisher_tree_phase_match(

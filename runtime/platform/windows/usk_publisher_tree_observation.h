@@ -34,6 +34,18 @@ struct PublisherTreeObservation {
     std::vector<PublisherTreeEntry> descendants;
 };
 
+struct PublisherExpectedFile {
+    std::wstring relative_path;
+    std::uint64_t size;
+    std::string sha256;
+};
+
+// Bind a verified source's complete file set and implied directories to a
+// freshly observed tree. Refuses extra, missing, aliased, or changed entries.
+void require_publisher_tree_exact_file_closure(
+    const PublisherTreeObservation& tree,
+    const std::vector<PublisherExpectedFile>& files);
+
 struct PublisherDirectoryChainLink {
     std::wstring component;
     PublisherHandleObservation object;

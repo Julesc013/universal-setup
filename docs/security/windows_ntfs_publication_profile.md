@@ -227,6 +227,7 @@ checks are not an atomic held-volume observation. Crash replay, power-loss
 survival, continuous hostile-race exclusion, OD-001 and production publication
 remain open.
 
+
 A separate campaign-owned Hyper-V VM experiment used VM ID
 `6a23c3f9-272c-4711-b846-152f82bf93d2` and Windows Server build
 10.0.20348.0. A newly created 1 GiB VHDX inside that guest was independently
@@ -696,3 +697,59 @@ invocation rather than an authenticated reviewed plan. General source closure,
 installed-state/ownership/audit integration, leases, hostile-rights attacks,
 physical-host power-loss qualification, production enablement and OD-001
 remain open.
+
+## Multi-file selected-source laboratory replay (2026-09-26)
+
+A source candidate now streams every selected file from an authored stored ZIP
+through held protected directory handles. It preflights canonical path
+components and case aliases, creates nested directories with the same protected
+descriptor as staged files, and checks the exact selected file and implied
+directory closure before publication. The laboratory permits at most 4,096
+selected files and uses v2 prepared, visible and completion records that bind
+the selected path, size and digest set. The earlier one-file v1 records remain
+readable. This is a laboratory record format, not the public installed-state
+contract.
+
+The owned Windows build `10.0.20348.0` VM executed static binary SHA-256
+`0b89920f5a263f7a9cc85a350373667fb6269a2c30e8176458b99258de21b104`
+on a new 1 GiB NTFS VHDX. The authored selected ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`.
+It contained `bin/addon.bin` (24 bytes, SHA-256
+`e9a876456998b6fe8b464395cef235bacd5bcc5fec9fffc9d0729bce619bf2d8`)
+and `bin/app.bin` (36 bytes, SHA-256
+`39e3dd1699f11604f4b4855897e0d56ca18cf56f661b18c7840b0423d8a47a9e`).
+The file-set digest was
+`941e11529bd2195ee968445b501701d091027436e4dab9eb8743acc55f12ffbd`.
+The hosted service paused after the visible journal and before completion;
+independent backup-mode readback found both selected files, prepared SHA-256
+`638e649c19321b39bf5a098a83003b6a4a59cdcc73a2ce576873d987bf8664e2`,
+visible SHA-256 `7c9226536adbbed28846836d993dac09ce136afe53915ff4c7c26d1cbd471ea0`,
+and no completion file (receipt SHA-256
+`607d310a77dc84204b762ba2e0dd453377ca3e014fea23853ef63cb49fa0e21f`).
+
+The host forcibly turned off this exact campaign VM (receipt SHA-256
+`331e7b27500c53d85b8a28202c26989ea8b0f796eec9ab1c72a908269329f76f`),
+then restarted it. The newly created SCM service registration was absent after
+this reboot; a prior otherwise similar crash left its registration stopped.
+The recovery harness recorded the actual SCM state and created or reconfigured
+only that campaign service. After exact owned-VHD reattachment, fresh readback
+matched both journal records and files and found no completion (receipt SHA-256
+`cffa965f759f57b5b9fe29f065b75f935f78fc8cf0e0047bed50d58e87c0acce`).
+Restricted-service recovery returned `installed_state_completed_forward` and
+wrote completion SHA-256
+`085ebead8ed34ba7d56bfdbd3ee15cd02effe853c69627268ceaac33b48ae632`
+(receipt SHA-256
+`ff5984925f2c084d0871a77451c55fad6a51888044f44030f913e4ced65eb90f`).
+A repeat returned `already_visible_bound` with the same independently read
+completion hash (receipt SHA-256
+`39aea2ae1f6d83a9e38fcc8a305d5b44d60de2807a42f1f5c74f987ccd29f5b0`).
+The recovered VM state is retained in snapshot
+`5a12c2ba-badc-4104-95cc-3766cca0b8f7`; the working VM was restored to
+pretest snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`.
+
+The authored selection reaches protected laboratory publication and
+crash-window completion for these two files. It does not authenticate a
+reviewed public plan, enable the general production publisher, establish the
+public installed-state/ownership/audit records, qualify hostile concurrency,
+leases, arbitrary sources or the 4,096-file bound, or resolve OD-001. A VM
+turn-off is not physical-host power-loss proof.
