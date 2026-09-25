@@ -117,6 +117,26 @@ try {
     $receipt['bootstrap_root_sddl'] = (Get-Acl -LiteralPath $VolumeRoot).Sddl
 
     Assert-OwnedVolume
+    $diagnosticChild = $VolumeRoot + 'diagnostic-child'
+    if (Test-Path -LiteralPath $diagnosticChild) {
+        throw 'fresh VHD unexpectedly contains the diagnostic child'
+    }
+    [IO.Directory]::CreateDirectory($diagnosticChild) | Out-Null
+    $childAcl = Get-Acl -LiteralPath $diagnosticChild
+    $childAcl.SetAccessRuleProtection($true, $false)
+    $systemAccount = New-Object Security.Principal.NTAccount('SYSTEM')
+    foreach ($principalAccount in @($systemAccount, $account)) {
+        $childRule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $principalAccount, [Security.AccessControl.FileSystemRights]::FullControl,
+            [Security.AccessControl.InheritanceFlags]::None,
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow)
+        $childAcl.AddAccessRule($childRule)
+    }
+    Set-Acl -LiteralPath $diagnosticChild -AclObject $childAcl
+    $receipt['diagnostic_child_sddl'] = (Get-Acl -LiteralPath $diagnosticChild).Sddl
+    Assert-OwnedVolume
+
     Start-Service -Name $serviceName -ErrorAction Stop
     for ($attempt = 0; $attempt -lt 30 -and
         -not (Test-Path -LiteralPath $serviceReceipt -PathType Leaf); ++$attempt) {

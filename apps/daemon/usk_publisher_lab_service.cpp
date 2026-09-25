@@ -264,6 +264,24 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             } catch (const std::exception& failure) {
                 relative_create = failure.what();
             }
+            const std::wstring child_path = volume_root + L"diagnostic-child";
+            const auto child_probe = [&](DWORD access) {
+                HANDLE trial = CreateFileW(child_path.c_str(), access,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS |
+                        FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                const DWORD outcome = trial == INVALID_HANDLE_VALUE ?
+                    GetLastError() : ERROR_SUCCESS;
+                if (trial != INVALID_HANDLE_VALUE) CloseHandle(trial);
+                return outcome;
+            };
+            const DWORD child_read = child_probe(FILE_READ_ATTRIBUTES);
+            const DWORD child_add = child_probe(
+                FILE_READ_ATTRIBUTES | FILE_ADD_SUBDIRECTORY | SYNCHRONIZE);
+            const DWORD child_dac = child_probe(
+                FILE_READ_ATTRIBUTES | WRITE_DAC | SYNCHRONIZE);
+            const DWORD child_owner = child_probe(
+                FILE_READ_ATTRIBUTES | WRITE_OWNER | SYNCHRONIZE);
             throw std::runtime_error("restricted service cannot open disposable volume root; Win32 " +
                 std::to_string(error) + "; read-reparse=" +
                 std::to_string(read_reparse) + "; full-backup=" +
@@ -275,7 +293,11 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 std::to_string(add_backup) + "; dac-backup=" +
                 std::to_string(dac_backup) + "; owner-backup=" +
                 std::to_string(owner_backup) + "; relative-create=" +
-                relative_create);
+                relative_create + "; child-read=" +
+                std::to_string(child_read) + "; child-add=" +
+                std::to_string(child_add) + "; child-dac=" +
+                std::to_string(child_dac) + "; child-owner=" +
+                std::to_string(child_owner));
         }
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
