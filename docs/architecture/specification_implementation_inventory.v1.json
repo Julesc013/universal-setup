@@ -738,7 +738,7 @@
         },
         {
           "path": "tests/test_bundle_selection.py",
-          "sha256": "b7de8fe9413bf1c726963b2c236f5da8a11a6cf4d8bd154b09e19c8aca1a28d4"
+          "sha256": "249921264e57e85063a4c2498c6d78bd217dd67fcc8d56cfd0f89a745eeb72bc"
         },
         {
           "path": "tests/test_prefab_envelope.py",
@@ -758,7 +758,7 @@
         },
         {
           "path": "tools/usk_bundle_selection.py",
-          "sha256": "ccbdd45e5a4c23364bdfd4e71423f528e3e18fb5f06455d926c5724cf7df1d02"
+          "sha256": "482fc97ebb743b0629492bf130579d9c8a184ed90a28152ebdfba3b0d3da6f3a"
         },
         {
           "path": "tools/usk_prefab_envelope.py",
@@ -822,7 +822,7 @@
         },
         {
           "path": "tests/test_bundle_selection.py",
-          "sha256": "b7de8fe9413bf1c726963b2c236f5da8a11a6cf4d8bd154b09e19c8aca1a28d4"
+          "sha256": "249921264e57e85063a4c2498c6d78bd217dd67fcc8d56cfd0f89a745eeb72bc"
         },
         {
           "path": "tests/test_prefab_envelope.py",
@@ -838,7 +838,7 @@
         },
         {
           "path": "tools/usk_bundle_selection.py",
-          "sha256": "ccbdd45e5a4c23364bdfd4e71423f528e3e18fb5f06455d926c5724cf7df1d02"
+          "sha256": "482fc97ebb743b0629492bf130579d9c8a184ed90a28152ebdfba3b0d3da6f3a"
         },
         {
           "path": "tools/usk_prefab_envelope.py",
@@ -922,7 +922,7 @@
         },
         {
           "path": "tests/test_bundle_selection.py",
-          "sha256": "b7de8fe9413bf1c726963b2c236f5da8a11a6cf4d8bd154b09e19c8aca1a28d4"
+          "sha256": "249921264e57e85063a4c2498c6d78bd217dd67fcc8d56cfd0f89a745eeb72bc"
         },
         {
           "path": "tests/test_prefab_envelope.py",
@@ -942,7 +942,7 @@
         },
         {
           "path": "tools/usk_bundle_selection.py",
-          "sha256": "ccbdd45e5a4c23364bdfd4e71423f528e3e18fb5f06455d926c5724cf7df1d02"
+          "sha256": "482fc97ebb743b0629492bf130579d9c8a184ed90a28152ebdfba3b0d3da6f3a"
         },
         {
           "path": "tools/usk_prefab_envelope.py",

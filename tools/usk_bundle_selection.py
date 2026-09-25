@@ -49,6 +49,13 @@ def _selected_bundle(source: dict[str, Any], selected: tuple[str, ...]) -> dict[
     result = copy.deepcopy(source)
     result["components"] = [entry for entry in result["components"]
                             if entry["id"] in included]
+    for entry in result["components"]:
+        if any(dependency not in included for dependency in entry["requires"]):
+            raise SelectionError("selected component closure omits a dependency")
+        # The finalized package contains only selected components. A conflict
+        # with an excluded alternative remains in the source receipt but is
+        # no longer a reference inside this smaller, closed bundle graph.
+        entry["conflicts"] = [name for name in entry["conflicts"] if name in included]
     return result
 
 

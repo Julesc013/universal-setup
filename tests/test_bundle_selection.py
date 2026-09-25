@@ -25,12 +25,19 @@ class BundleSelectionTests(unittest.TestCase):
         value = project()
         value["components"].append({
             "id": "addon", "required": False, "default_selected": False,
-            "requires": ["core"], "conflicts": [],
+            "requires": ["core"], "conflicts": ["alternative"],
             "variants": [{"target": "windows-x64", "files": [
                 {"source": "final/addon.bin", "path": "bin/addon.bin"}]}],
         })
+        value["components"].append({
+            "id": "alternative", "required": False, "default_selected": False,
+            "requires": [], "conflicts": [],
+            "variants": [{"target": "windows-x64", "files": [
+                {"source": "final/alternative.bin", "path": "bin/alternative.bin"}]}],
+        })
         source = write_project(root / "external-product", value)
         (source.parent / "final" / "addon.bin").write_bytes(b"optional addon\n")
+        (source.parent / "final" / "alternative.bin").write_bytes(b"alternative\n")
         compiled = root / "compiled"
         compiled.mkdir()
         compile_bundle(source, "windows-x64", compiled)
