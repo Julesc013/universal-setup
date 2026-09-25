@@ -36,9 +36,10 @@ bool valid_component(const std::wstring& name) {
 
 static HANDLE create_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
-    const std::vector<unsigned char>& security_descriptor, bool directory) {
+    const std::vector<unsigned char>& security_descriptor, bool directory,
+    bool generated_anchor) {
     if (!parent || parent == INVALID_HANDLE_VALUE ||
-        !(directory ? valid_component(name) : is_publisher_canonical_component(name)) ||
+        !(generated_anchor ? valid_component(name) : is_publisher_canonical_component(name)) ||
         security_descriptor.empty() ||
         !IsValidSecurityDescriptor(const_cast<unsigned char*>(security_descriptor.data()))) {
         throw std::runtime_error("publisher anchor creation has invalid bound inputs");
@@ -96,13 +97,19 @@ static HANDLE create_relative_with_descriptor(
 HANDLE create_directory_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
     const std::vector<unsigned char>& security_descriptor) {
-    return create_relative_with_descriptor(parent, name, security_descriptor, true);
+    return create_relative_with_descriptor(parent, name, security_descriptor, true, true);
+}
+
+HANDLE create_staged_directory_relative_with_descriptor(
+    HANDLE parent, const std::wstring& name,
+    const std::vector<unsigned char>& security_descriptor) {
+    return create_relative_with_descriptor(parent, name, security_descriptor, true, false);
 }
 
 HANDLE create_file_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
     const std::vector<unsigned char>& security_descriptor) {
-    return create_relative_with_descriptor(parent, name, security_descriptor, false);
+    return create_relative_with_descriptor(parent, name, security_descriptor, false, false);
 }
 
 } // namespace usk::platform::windows

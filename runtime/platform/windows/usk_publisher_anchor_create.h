@@ -25,6 +25,12 @@ HANDLE create_directory_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
     const std::vector<unsigned char>& security_descriptor);
 
+// A selected payload's directory may use the full canonical component
+// grammar. Keep the narrower generated-anchor grammar on the API above.
+HANDLE create_staged_directory_relative_with_descriptor(
+    HANDLE parent, const std::wstring& name,
+    const std::vector<unsigned char>& security_descriptor);
+
 // Create a regular staged file with the same parent-bound, create-only and
 // creation-time descriptor rules. The returned non-inheritable handle permits
 // writing and must be closed by the caller. This primitive does not establish

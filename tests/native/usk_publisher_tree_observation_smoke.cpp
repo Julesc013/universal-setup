@@ -26,6 +26,8 @@ using usk::platform::windows::require_publisher_anchor_set_security_shape;
 using usk::platform::windows::require_publisher_directory_chain_phase_match;
 using usk::platform::windows::require_publisher_directory_chain_security_shape;
 using usk::platform::windows::PublisherTreeObservation;
+using usk::platform::windows::PublisherExpectedFile;
+using usk::platform::windows::require_publisher_tree_exact_file_closure;
 using usk::platform::windows::require_publisher_tree_phase_match;
 using usk::platform::windows::require_publisher_tree_security_shape;
 
@@ -89,6 +91,16 @@ void check_security_refused(const PublisherTreeObservation& tree,
     const std::string& sid, const char* message) {
     try {
         require_publisher_tree_security_shape(tree, sid);
+    } catch (const std::runtime_error&) {
+        return;
+    }
+    throw std::runtime_error(message);
+}
+
+void check_closure_refused(const PublisherTreeObservation& tree,
+    const std::vector<PublisherExpectedFile>& files, const char* message) {
+    try {
+        require_publisher_tree_exact_file_closure(tree, files);
     } catch (const std::runtime_error&) {
         return;
     }
@@ -287,6 +299,35 @@ int main() {
                 check(fs::remove(*level), "wide-chain level cleanup failed");
             }
             check(fs::remove(wide_root), "wide-chain root cleanup failed");
+        }
+        {
+            const auto second_file = root / "config.ini";
+            write_payload(second_file, "x", 1);
+            auto held = open_directory(root);
+            const auto tree = observe_publisher_tree(held.get());
+            const std::vector<PublisherExpectedFile> expected{
+                {L"nested/payload.bin", 7,
+                    "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"},
+                {L"config.ini", 1,
+                    "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"}};
+            require_publisher_tree_exact_file_closure(tree, expected);
+            auto missing = expected;
+            missing.pop_back();
+            check_closure_refused(tree, missing,
+                "selected source omitted an observed file");
+            auto wrong_size = expected;
+            wrong_size[0].size += 1;
+            check_closure_refused(tree, wrong_size,
+                "selected source accepted changed file size");
+            auto aliased = expected;
+            aliased[0].relative_path = L"NESTED/payload.bin";
+            check_closure_refused(tree, aliased,
+                "selected source accepted a case-only path alias");
+            auto duplicate = expected;
+            duplicate.push_back({L"CONFIG.ini", 1, expected[1].sha256});
+            check_closure_refused(tree, duplicate,
+                "selected source accepted duplicate case-fold file names");
+            check(fs::remove(second_file), "source-closure fixture cleanup failed");
         }
         PublisherTreeObservation sealed_for_move{};
         {

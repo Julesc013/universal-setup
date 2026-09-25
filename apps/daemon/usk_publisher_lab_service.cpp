@@ -22,8 +22,11 @@
 #include <sddl.h>
 
 #include <stdexcept>
+#include <algorithm>
 #include <filesystem>
+#include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -578,6 +581,46 @@ std::string record_sha256(const std::string& record) {
     return hash.finish();
 }
 
+std::string selected_file_set_digest(
+    std::vector<usk::platform::windows::PublisherExpectedFile> files) {
+    if (files.empty() || files.size() > 4096) {
+        throw std::runtime_error("selected file set count is invalid");
+    }
+    std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
+        const int order = CompareStringOrdinal(left.relative_path.data(),
+            static_cast<int>(left.relative_path.size()), right.relative_path.data(),
+            static_cast<int>(right.relative_path.size()), TRUE);
+        if (order == 0 || order == CSTR_EQUAL) {
+            throw std::runtime_error("selected file set has an alias");
+        }
+        return order == CSTR_LESS_THAN;
+    });
+    std::string document =
+        "{\"schema\":\"usk.publisher.lab_selected_file_set.v1\",\"files\":[";
+    for (std::size_t index = 0; index < files.size(); ++index) {
+        const auto& file = files[index];
+        if (index) document.push_back(',');
+        document += "{\"relative_path\":" + json_quote(ascii(file.relative_path)) +
+            ",\"size\":" + std::to_string(file.size) +
+            ",\"sha256\":" + json_quote(file.sha256) + "}";
+        if (document.size() > lab_record_limit) {
+            throw std::runtime_error("selected file set exceeds lab record budget");
+        }
+    }
+    return record_sha256(canonical_record(document + "]}"));
+}
+
+std::string selected_file_set_digest(
+    const usk::platform::windows::PublisherTreeObservation& tree) {
+    std::vector<usk::platform::windows::PublisherExpectedFile> files;
+    for (const auto& entry : tree.descendants) {
+        if ((entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            files.push_back({entry.relative_path, entry.size, entry.sha256});
+        }
+    }
+    return selected_file_set_digest(std::move(files));
+}
+
 void write_journal_phase(HANDLE journal, const std::wstring& name,
     const std::vector<unsigned char>& descriptor, const std::string& record) {
     if (record != canonical_record(record)) {
@@ -719,19 +762,28 @@ std::string lab_visible_record(
     const std::string& destination_parent_file_id,
     const std::string& prepared_digest,
     const usk::platform::windows::PublisherAnchorSetObservation& anchors,
-    const usk::platform::windows::PublisherTreeObservation& visible) {
-    if (visible.descendants.size() != 1 ||
-        visible.descendants.front().relative_path != L"payload.bin") {
+    const usk::platform::windows::PublisherTreeObservation& visible,
+    const std::string& selected_digest = {}) {
+    if (selected_digest.empty() && (visible.descendants.size() != 1 ||
+        visible.descendants.front().relative_path != L"payload.bin")) {
         throw std::runtime_error("visible lab payload closure differs");
     }
+    if (!selected_digest.empty() &&
+        selected_file_set_digest(visible) != selected_digest) {
+        throw std::runtime_error("visible selected file set differs");
+    }
     return canonical_record(
-        "{\"schema\":\"usk.publisher.lab_phase_evidence.v1\","
-        "\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
+        std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
+        (selected_digest.empty() ? "v1" : "v2") +
+        "\",\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
         json_quote(source_file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(destination_parent_file_id) +
-        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
-        json_quote(visible.descendants.front().sha256) +
+        ",\"destination_name\":\"visible\"," +
+        (selected_digest.empty() ?
+            "\"payload_sha256\":" +
+                json_quote(visible.descendants.front().sha256) :
+            "\"selected_file_set_digest\":" + json_quote(selected_digest)) +
         ",\"prepared_record_sha256\":" + json_quote(prepared_digest) +
         ",\"protected_anchors\":" + json_anchor_set(anchors) +
         ",\"visible_tree\":" + json_tree(visible) + "}");
@@ -742,15 +794,19 @@ std::string lab_selected_installed_record(
     const std::string& visible_digest,
     const usk::platform::windows::PublisherAnchorSetObservation& anchors,
     const usk::platform::windows::PublisherTreeObservation& visible,
-    const std::string& service_sid) {
+    const std::string& service_sid,
+    const std::string& selected_digest = {}) {
     if (!prepared.contains("source_binding") ||
-        visible.descendants.size() != 1 ||
-        visible.descendants.front().relative_path != L"payload.bin") {
+        (selected_digest.empty() && (visible.descendants.size() != 1 ||
+            visible.descendants.front().relative_path != L"payload.bin")) ||
+        (!selected_digest.empty() &&
+            selected_file_set_digest(visible) != selected_digest)) {
         throw std::runtime_error("selected lab state has no exact source or visible payload");
     }
     return canonical_record(
-        "{\"schema\":\"usk.publisher.lab_installed_state.v1\","
-        "\"phase\":\"lab_installed_state\",\"service_sid\":" +
+        std::string("{\"schema\":\"usk.publisher.lab_installed_state.") +
+        (selected_digest.empty() ? "v1" : "v2") +
+        "\",\"phase\":\"lab_installed_state\",\"service_sid\":" +
         json_quote(service_sid) +
         ",\"volume_serial\":" +
         std::to_string(visible.volume.file_id_volume_serial) +
@@ -761,8 +817,11 @@ std::string lab_selected_installed_record(
         ",\"visible_root_file_id\":" + json_quote(visible.root.file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(anchors.destination_parent.object.file_id) +
-        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
-        json_quote(visible.descendants.front().sha256) + "}");
+        ",\"destination_name\":\"visible\"," +
+        (selected_digest.empty() ?
+            "\"payload_sha256\":" +
+                json_quote(visible.descendants.front().sha256) :
+            "\"selected_file_set_digest\":" + json_quote(selected_digest)) + "}");
 }
 
 std::string complete_selected_lab_state(HANDLE state,
@@ -770,10 +829,12 @@ std::string complete_selected_lab_state(HANDLE state,
     const std::string& visible_record,
     const usk::platform::windows::PublisherAnchorSetObservation& anchors,
     const usk::platform::windows::PublisherTreeObservation& visible,
-    const std::string& service_sid, bool may_write) {
+    const std::string& service_sid, bool may_write,
+    const std::string& selected_digest = {}) {
     using namespace usk::platform::windows;
     const std::string expected = lab_selected_installed_record(prepared,
-        prepared_digest, record_sha256(visible_record), anchors, visible, service_sid);
+        prepared_digest, record_sha256(visible_record), anchors, visible,
+        service_sid, selected_digest);
     if (!recovery_state_has_completion_record(state)) {
         if (!may_write) return {};
         const auto descriptor = make_publisher_directory_security_descriptor(
@@ -852,8 +913,11 @@ std::string observe_prepared_recovery(HANDLE volume,
         }
     }
     const auto prepared = usk::json::parse(stored);
-    if (prepared.at("schema").as_string() !=
-            "usk.publisher.lab_phase_evidence.v1" ||
+    const std::string prepared_schema = prepared.at("schema").as_string();
+    const bool selected_v2 = prepared_schema ==
+        "usk.publisher.lab_phase_evidence.v2";
+    if ((!selected_v2 && prepared_schema !=
+            "usk.publisher.lab_phase_evidence.v1") ||
         prepared.at("phase").as_string() != "lab_prepared_evidence" ||
         prepared.at("service_sid").as_string() != service_sid ||
         prepared.at("destination_name").as_string() != "visible" ||
@@ -875,6 +939,12 @@ std::string observe_prepared_recovery(HANDLE volume,
         }
     }
     const bool selected_source = prepared.contains("source_binding");
+    const std::string selected_digest = selected_v2 ?
+        prepared.at("selected_file_set_digest").as_string() : std::string{};
+    if (selected_v2 && (!selected_source ||
+        !lower_sha256_ascii(selected_digest))) {
+        throw std::runtime_error("recovery selected file set binding is invalid");
+    }
     if (has_completion_record && (!selected_source || !has_visible_record)) {
         throw std::runtime_error("recovery state has no selected visible source");
     }
@@ -898,6 +968,16 @@ std::string observe_prepared_recovery(HANDLE volume,
         bind_visible_forward && staged));
     const auto observed_tree = observe_publisher_tree(root.get());
     require_publisher_tree_security_shape(observed_tree, service_sid);
+    if (selected_v2) {
+        if (selected_file_set_digest(observed_tree) != selected_digest) {
+            throw std::runtime_error("recovery selected file set differs from prepared");
+        }
+    } else {
+        require_publisher_tree_exact_file_closure(observed_tree,
+            {{L"payload.bin", prepared.at("sealed_tree").at("descendants")
+                .as_array().at(0).at("size").as_unsigned(),
+                prepared.at("payload_sha256").as_string()}});
+    }
     const std::string staged_name =
         ascii(anchors.staging.object.native_name) + "\\candidate";
     const std::string visible_name =
@@ -906,11 +986,9 @@ std::string observe_prepared_recovery(HANDLE volume,
         usk::json::canonical(prepared.at("sealed_tree")) :
         prepared_tree_at_visible_name(
             prepared.at("sealed_tree"), staged_name, visible_name);
-    if (observed_tree.descendants.size() != 1 ||
-        observed_tree.descendants.front().relative_path != L"payload.bin" ||
-        prepared.at("source_file_id").as_string() != observed_tree.root.file_id ||
-        prepared.at("payload_sha256").as_string() !=
-            observed_tree.descendants.front().sha256 ||
+    if (prepared.at("source_file_id").as_string() != observed_tree.root.file_id ||
+        (!selected_v2 && prepared.at("payload_sha256").as_string() !=
+            observed_tree.descendants.front().sha256) ||
         expected_tree !=
             usk::json::canonical(usk::json::parse(json_tree(observed_tree)))) {
         throw std::runtime_error("recovery closure differs from prepared record");
@@ -918,16 +996,18 @@ std::string observe_prepared_recovery(HANDLE volume,
     if (has_visible_record) {
         const auto bound = usk::json::parse(stored_visible);
         if (bound.as_object().size() != 9 ||
-            bound.at("schema").as_string() !=
-                "usk.publisher.lab_phase_evidence.v1" ||
+            bound.at("schema").as_string() != prepared_schema ||
             bound.at("phase").as_string() != "lab_visible_evidence" ||
             bound.at("source_file_id").as_string() !=
                 observed_tree.root.file_id ||
             bound.at("destination_parent_file_id").as_string() !=
                 anchors.destination_parent.object.file_id ||
             bound.at("destination_name").as_string() != "visible" ||
-            bound.at("payload_sha256").as_string() !=
-                observed_tree.descendants.front().sha256 ||
+            (selected_v2 ?
+                bound.at("selected_file_set_digest").as_string() !=
+                    selected_digest :
+                bound.at("payload_sha256").as_string() !=
+                    observed_tree.descendants.front().sha256) ||
             bound.at("prepared_record_sha256").as_string() !=
                 prepared_digest ||
             usk::json::canonical(bound.at("protected_anchors")) !=
@@ -941,7 +1021,7 @@ std::string observe_prepared_recovery(HANDLE volume,
     if (selected_source && has_visible_record) {
         completion_digest = complete_selected_lab_state(state.get(), prepared,
             prepared_digest, stored_visible, anchors, observed_tree,
-            service_sid, false);
+            service_sid, false, selected_digest);
     }
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
@@ -999,7 +1079,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         const std::string forward_record = lab_visible_record(
             forward_visible.root.file_id,
             anchors.destination_parent.object.file_id, prepared_digest,
-            anchors, forward_visible);
+            anchors, forward_visible, selected_digest);
         write_journal_phase(journal.get(), L"lab-visible-evidence.json",
             descriptor, forward_record);
         if (read_phase_record(journal.get(), L"lab-visible-evidence.json") !=
@@ -1010,7 +1090,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         if (selected_source) {
             completion_digest = complete_selected_lab_state(state.get(), prepared,
                 prepared_digest, forward_record, anchors, forward_visible,
-                service_sid, true);
+                service_sid, true, selected_digest);
         }
         usk::base::Sha256 visible_hasher;
         visible_hasher.update(
@@ -1043,7 +1123,8 @@ std::string observe_prepared_recovery(HANDLE volume,
         }
         if (selected_source &&
             complete_selected_lab_state(state.get(), prepared, prepared_digest,
-                forward_record, anchors, forward_visible, service_sid, false) !=
+                forward_record, anchors, forward_visible, service_sid, false,
+                selected_digest) !=
                 completion_digest) {
             throw std::runtime_error("forward recovery completion changed after closure check");
         }
@@ -1051,7 +1132,10 @@ std::string observe_prepared_recovery(HANDLE volume,
             json_quote(prepared_digest) +
             ",\"source_file_id\":" + json_quote(forward_visible.root.file_id) +
             ",\"payload_sha256\":" +
-            json_quote(forward_visible.descendants.front().sha256) +
+            (selected_v2 ? "null" :
+                json_quote(forward_visible.descendants.front().sha256)) +
+            (selected_v2 ? ",\"selected_file_set_digest\":" +
+                json_quote(selected_digest) : std::string{}) +
             ",\"completion_record_sha256\":" +
             (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
             ",\"observed_location\":\"visible_with_visible_record\","
@@ -1063,7 +1147,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         if (selected_source) {
             completion_digest = complete_selected_lab_state(state.get(), prepared,
                 prepared_digest, stored_visible, anchors, observed_tree,
-                service_sid, !completion_was_present);
+                service_sid, !completion_was_present, selected_digest);
             if (completion_digest.empty()) {
                 throw std::runtime_error("recovery completion disappeared during repeat");
             }
@@ -1090,7 +1174,8 @@ std::string observe_prepared_recovery(HANDLE volume,
         }
         if (selected_source &&
             complete_selected_lab_state(state.get(), prepared, prepared_digest,
-                stored_visible, anchors, observed_tree, service_sid, false) !=
+                stored_visible, anchors, observed_tree, service_sid, false,
+                selected_digest) !=
                 completion_digest) {
             throw std::runtime_error("recovery completion changed after closure check");
         }
@@ -1101,7 +1186,10 @@ std::string observe_prepared_recovery(HANDLE volume,
             json_quote(prepared_digest) +
             ",\"source_file_id\":" + json_quote(observed_tree.root.file_id) +
             ",\"payload_sha256\":" +
-            json_quote(observed_tree.descendants.front().sha256) +
+            (selected_v2 ? "null" :
+                json_quote(observed_tree.descendants.front().sha256)) +
+            (selected_v2 ? ",\"selected_file_set_digest\":" +
+                json_quote(selected_digest) : std::string{}) +
             ",\"completion_record_sha256\":" +
             (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
             ",\"observed_location\":\"visible_with_visible_record\","
@@ -1113,7 +1201,10 @@ std::string observe_prepared_recovery(HANDLE volume,
         ",\"prepared_bytes\":" + std::to_string(stored.size()) +
         ",\"source_file_id\":" + json_quote(observed_tree.root.file_id) +
         ",\"payload_sha256\":" +
-        json_quote(observed_tree.descendants.front().sha256) +
+        (selected_v2 ? "null" :
+            json_quote(observed_tree.descendants.front().sha256)) +
+        (selected_v2 ? ",\"selected_file_set_digest\":" +
+            json_quote(selected_digest) : std::string{}) +
         ",\"completion_record_sha256\":" +
         (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
         ",\"observed_location\":" +
@@ -1191,6 +1282,134 @@ std::string diagnose_bound_rename_on_disposable_volume(
         "; empty-win32-absolute-diagnostic=" + win32;
 }
 
+struct CaseInsensitiveNativePath {
+    bool operator()(const std::wstring& left, const std::wstring& right) const {
+        const int order = CompareStringOrdinal(left.data(),
+            static_cast<int>(left.size()), right.data(),
+            static_cast<int>(right.size()), TRUE);
+        if (order == 0) {
+            throw std::runtime_error("selected source path comparison failed");
+        }
+        return order == CSTR_LESS_THAN;
+    }
+};
+
+std::wstring selected_utf8_path(const std::string& path) {
+    if (path.empty() || path.size() > 32767 ||
+        path.find('\0') != std::string::npos) {
+        throw std::runtime_error("selected source path is invalid");
+    }
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+        path.data(), static_cast<int>(path.size()), nullptr, 0);
+    if (count <= 0) {
+        throw std::runtime_error("selected source path is not UTF-8");
+    }
+    std::wstring result(static_cast<std::size_t>(count), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+            path.data(), static_cast<int>(path.size()), result.data(), count) !=
+            count) {
+        throw std::runtime_error("selected source path conversion changed");
+    }
+    // This laboratory record format still serializes native names as ASCII.
+    (void)ascii(result);
+    return result;
+}
+
+std::vector<usk::platform::windows::PublisherExpectedFile>
+stage_selected_archive_files(HANDLE candidate,
+    const std::vector<unsigned char>& descriptor,
+    const usk::archive::StreamingStoredArchivePayload& payload) {
+    using namespace usk::platform::windows;
+    if (payload.files.empty() || payload.files.size() > 4096) {
+        throw std::runtime_error("selected source file count is outside lab budget");
+    }
+    struct SourceEntry {
+        const usk::archive::StreamingPayloadFile* file;
+        std::vector<std::wstring> components;
+    };
+    std::vector<SourceEntry> sources;
+    std::vector<PublisherExpectedFile> expected;
+    std::set<std::wstring, CaseInsensitiveNativePath> file_paths;
+    std::set<std::wstring, CaseInsensitiveNativePath> directory_paths;
+    sources.reserve(payload.files.size());
+    expected.reserve(payload.files.size());
+    for (const auto& file : payload.files) {
+        const std::wstring path = selected_utf8_path(file.relative_path);
+        std::vector<std::wstring> components;
+        std::size_t start = 0;
+        while (true) {
+            const auto slash = path.find(L'/', start);
+            const auto component = path.substr(start,
+                slash == std::wstring::npos ? std::wstring::npos : slash - start);
+            if (components.size() >= 128 ||
+                !is_publisher_canonical_component(component)) {
+                throw std::runtime_error("selected source component is not canonical");
+            }
+            components.push_back(component);
+            if (slash == std::wstring::npos) break;
+            const std::wstring directory = path.substr(0, slash);
+            const auto inserted = directory_paths.insert(directory);
+            if (!inserted.second && *inserted.first != directory) {
+                throw std::runtime_error("selected source directory has a case alias");
+            }
+            start = slash + 1;
+        }
+        if (!file_paths.insert(path).second ||
+            !lower_sha256_ascii(file.sha256)) {
+            throw std::runtime_error("selected source file collides or has no digest");
+        }
+        sources.push_back({&file, std::move(components)});
+        expected.push_back({path, file.size_bytes, file.sha256});
+    }
+    for (const auto& directory : directory_paths) {
+        if (file_paths.find(directory) != file_paths.end()) {
+            throw std::runtime_error("selected source file is an ancestor of another file");
+        }
+    }
+    (void)selected_file_set_digest(expected);
+    for (const auto& source : sources) {
+        HANDLE parent = candidate;
+        std::vector<std::unique_ptr<OwnedHandle>> held_parents;
+        for (std::size_t index = 0; index + 1 < source.components.size(); ++index) {
+            const auto& component = source.components[index];
+            const auto listed = observe_publisher_directory_entries(parent);
+            const auto found = std::find_if(listed.begin(), listed.end(),
+                [&](const PublisherDirectoryEntry& entry) {
+                    const int order = CompareStringOrdinal(entry.name.c_str(), -1,
+                        component.c_str(), -1, TRUE);
+                    if (order == 0) {
+                        throw std::runtime_error("selected source parent comparison failed");
+                    }
+                    return order == CSTR_EQUAL;
+                });
+            HANDLE child = INVALID_HANDLE_VALUE;
+            if (found == listed.end()) {
+                child = create_staged_directory_relative_with_descriptor(
+                    parent, component, descriptor);
+            } else {
+                if (found->name != component ||
+                    (found->attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    throw std::runtime_error("selected source parent alias or type differs");
+                }
+                child = open_publisher_listed_child(parent, *found,
+                    true, false, true);
+            }
+            held_parents.push_back(std::make_unique<OwnedHandle>(child));
+            parent = child;
+        }
+        const auto& file = *source.file;
+        const auto streamed = stream_verified_reader_to_staged_file(
+            parent, source.components.back(), descriptor, file.size_bytes,
+            file.sha256, file.reader, payload.validate_source);
+        OwnedHandle staged(streamed.file);
+        if (streamed.bytes_written != file.size_bytes ||
+            streamed.sha256 != file.sha256) {
+            throw std::runtime_error("selected source staged bytes differ");
+        }
+    }
+    return expected;
+}
+
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid) {
     using namespace usk::platform::windows;
     const std::wstring sid(service_sid.begin(), service_sid.end());
@@ -1261,41 +1480,39 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, second);
     std::optional<usk::archive::StreamingStoredArchivePayload> selected_payload;
+    bool selected_v2 = false;
     if (selected_archive_mode) {
         const auto source_path = std::filesystem::path(selected_archive_path).u8string();
         const std::string request =
             "{\"schema\":\"usk.archive_inspect_request.v1\","
             "\"archive_path\":" + json_quote(source_path) +
             ",\"archive_format\":\"zip\",\"budgets\":{"
-            "\"max_entries\":1,\"max_entry_bytes\":16777216,"
-            "\"max_uncompressed_bytes\":16777216,\"max_depth\":1,"
+            "\"max_entries\":4096,\"max_entry_bytes\":16777216,"
+            "\"max_uncompressed_bytes\":268435456,\"max_depth\":128,"
             "\"max_ratio\":100,\"max_elapsed_ms\":300000}}";
         selected_payload = usk::archive::inspect_streaming_payload(request, "");
         if (selected_payload->source_sha256 != selected_archive_sha256 ||
             !lower_sha256_ascii(selected_payload->source_identity_digest) ||
             !lower_sha256_ascii(selected_payload->entry_set_digest) ||
-            selected_payload->files.size() != 1 ||
-            selected_payload->files.front().relative_path != "payload.bin") {
+            selected_payload->files.empty() ||
+            selected_payload->files.size() > 4096) {
             throw std::runtime_error("selected lab archive identity or closure differs");
         }
+        selected_v2 = selected_payload->files.size() != 1 ||
+            selected_payload->files.front().relative_path != "payload.bin";
     }
     OwnedHandle candidate(create_directory_relative_with_descriptor(
         staging.get(), L"candidate", descriptor));
     static constexpr char bytes[] = "protected staged payload\n";
     std::uint64_t expected_payload_size = sizeof(bytes) - 1;
     std::string expected_source_digest;
+    std::vector<PublisherExpectedFile> expected_files;
     if (selected_payload) {
         const auto& file = selected_payload->files.front();
         expected_payload_size = file.size_bytes;
         expected_source_digest = file.sha256;
-        const auto streamed = stream_verified_reader_to_staged_file(
-            candidate.get(), L"payload.bin", descriptor, file.size_bytes,
-            file.sha256, file.reader, selected_payload->validate_source);
-        OwnedHandle payload(streamed.file);
-        if (streamed.bytes_written != file.size_bytes ||
-            streamed.sha256 != file.sha256) {
-            throw std::runtime_error("selected lab archive stream differs");
-        }
+        expected_files = stage_selected_archive_files(
+            candidate.get(), descriptor, *selected_payload);
     } else {
         usk::base::Sha256 source_digest;
         source_digest.update(reinterpret_cast<const unsigned char*>(bytes),
@@ -1318,6 +1535,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             streamed.sha256 != expected_source_digest) {
             throw std::runtime_error("protected lab source stream differs");
         }
+        expected_files.push_back(
+            {L"payload.bin", expected_payload_size, expected_source_digest});
         FILE_DISPOSITION_INFO disposition{};
         disposition.DeleteFile = TRUE;
         if (!SetFileInformationByHandle(source.get(), FileDispositionInfo,
@@ -1330,11 +1549,11 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     }
     const auto sealed = observe_publisher_tree(candidate.get());
     require_publisher_tree_security_shape(sealed, service_sid);
-    if (sealed.descendants.size() != 1 ||
-        sealed.descendants.front().relative_path != L"payload.bin" ||
-        sealed.descendants.front().size != expected_payload_size ||
-        sealed.descendants.front().sha256 != expected_source_digest) {
-        throw std::runtime_error("protected lab staged closure is not exact");
+    require_publisher_tree_exact_file_closure(sealed, expected_files);
+    const std::string selected_digest = selected_v2 ?
+        selected_file_set_digest(expected_files) : std::string{};
+    if (selected_v2 && selected_file_set_digest(sealed) != selected_digest) {
+        throw std::runtime_error("selected lab staged file set differs from source");
     }
     const auto resealed = observe_publisher_tree(candidate.get());
     require_publisher_tree_phase_match(sealed, resealed);
@@ -1342,7 +1561,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, third);
     const std::string prepared = canonical_record(
-        "{\"schema\":\"usk.publisher.lab_phase_evidence.v1\","
+        std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
+        (selected_v2 ? "v2" : "v1") + "\","
         "\"phase\":\"lab_prepared_evidence\",\"service_sid\":" +
         json_quote(service_sid) +
         ",\"volume_serial\":" +
@@ -1350,8 +1570,11 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         ",\"source_file_id\":" + json_quote(sealed.root.file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(first.destination_parent.object.file_id) +
-        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
-        json_quote(sealed.descendants.front().sha256) +
+        ",\"destination_name\":\"visible\"," +
+        (selected_v2 ?
+            "\"selected_file_set_digest\":" + json_quote(selected_digest) :
+            "\"payload_sha256\":" +
+                json_quote(sealed.descendants.front().sha256)) +
         (selected_payload ?
             ",\"source_binding\":{\"archive_sha256\":" +
                 json_quote(selected_payload->source_sha256) +
@@ -1393,7 +1616,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     require_publisher_anchor_set_phase_match(first, after);
     const std::string bound = lab_visible_record(
         renamed.root_file_id, first.destination_parent.object.file_id,
-        prepared_digest, after, visible);
+        prepared_digest, after, visible, selected_digest);
     write_journal_phase(journal.get(), L"lab-visible-evidence.json", descriptor, bound);
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
@@ -1410,7 +1633,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     if (selected_payload) {
         completion_digest = complete_selected_lab_state(state.get(),
             usk::json::parse(prepared), prepared_digest, bound, after, visible,
-            service_sid, true);
+            service_sid, true, selected_digest);
         OwnedHandle visible_root(open_exact_lab_child(
             destination.get(), L"visible"));
         require_publisher_tree_phase_match(visible,
@@ -1429,7 +1652,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             final_destination.front().name != L"visible" ||
             observe_publisher_directory_entries(publication.get()).size() != 4 ||
             complete_selected_lab_state(state.get(), usk::json::parse(prepared),
-                prepared_digest, bound, after, visible, service_sid, false) !=
+                prepared_digest, bound, after, visible, service_sid, false,
+                selected_digest) !=
                 completion_digest) {
             throw std::runtime_error("selected lab closure changed after completion");
         }
@@ -1451,20 +1675,26 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             json_protected_object(first.destination_parent.object) +
         ",\"state\":" + json_protected_object(first.state.object) +
         ",\"journal\":" + json_protected_object(first.journal.object) +
-        "},\"staged_tree\":{\"root\":" + json_protected_object(sealed.root) +
-        ",\"file\":" + json_protected_object(sealed.descendants.front().object) +
-        ",\"relative_path\":\"payload.bin\",\"size\":" +
-            std::to_string(sealed.descendants.front().size) +
-        ",\"sha256\":" + json_quote(sealed.descendants.front().sha256) +
-        "},\"publication_probe\":{\"source_file_id\":" +
+        "},\"staged_tree\":" + (selected_v2 ? json_tree(sealed) :
+            "{\"root\":" + json_protected_object(sealed.root) +
+            ",\"file\":" +
+                json_protected_object(sealed.descendants.front().object) +
+            ",\"relative_path\":\"payload.bin\",\"size\":" +
+                std::to_string(sealed.descendants.front().size) +
+            ",\"sha256\":" +
+                json_quote(sealed.descendants.front().sha256) + "}") +
+        ",\"publication_probe\":{\"source_file_id\":" +
         json_quote(renamed.root_file_id) +
         ",\"former_name\":" + json_quote(ascii(renamed.former_name)) +
         ",\"visible_name\":" + json_quote(ascii(renamed.visible_name)) +
         ",\"visible_root\":" + json_protected_object(visible.root) +
-        ",\"visible_file\":" +
-        json_protected_object(visible.descendants.front().object) +
-        ",\"visible_payload_sha256\":" +
-        json_quote(visible.descendants.front().sha256) +
+        ",\"visible_file\":" + (selected_v2 ? "null" :
+            json_protected_object(visible.descendants.front().object)) +
+        ",\"visible_payload_sha256\":" + (selected_v2 ? "null" :
+            json_quote(visible.descendants.front().sha256)) +
+        (selected_v2 ? ",\"visible_tree\":" + json_tree(visible) +
+            ",\"selected_file_set_digest\":" + json_quote(selected_digest) :
+            std::string{}) +
         ",\"journal_root\":" + json_protected_object(journal_tree.root) +
         ",\"prepared_file\":" +
         json_protected_object(journal_tree.descendants[0].object) +
