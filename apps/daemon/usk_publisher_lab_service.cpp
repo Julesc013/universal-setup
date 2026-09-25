@@ -82,6 +82,46 @@ std::string json_groups(
     return result + "]";
 }
 
+std::string check_directory_dacl(HANDLE directory, DWORD desired_access) {
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD security_error = GetSecurityInfo(directory, SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
+            DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, nullptr, nullptr, &descriptor);
+    if (security_error != ERROR_SUCCESS) {
+        return "security-info=" + std::to_string(security_error);
+    }
+    HANDLE process_token = nullptr;
+    HANDLE check_token = nullptr;
+    std::string result;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE,
+            &process_token) ||
+        !DuplicateToken(process_token, SecurityImpersonation, &check_token)) {
+        result = "token=" + std::to_string(GetLastError());
+    } else {
+        GENERIC_MAPPING mapping{FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+            FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS};
+        DWORD requested = desired_access;
+        MapGenericMask(&requested, &mapping);
+        std::vector<unsigned char> privileges(4096);
+        DWORD privilege_bytes = static_cast<DWORD>(privileges.size());
+        DWORD granted = 0;
+        BOOL allowed = FALSE;
+        if (!AccessCheck(descriptor, check_token, requested, &mapping,
+                reinterpret_cast<PPRIVILEGE_SET>(privileges.data()),
+                &privilege_bytes, &granted, &allowed)) {
+            result = "api=" + std::to_string(GetLastError());
+        } else {
+            result = std::string(allowed ? "allowed" : "denied") +
+                ",granted=" + std::to_string(granted);
+        }
+    }
+    if (check_token) CloseHandle(check_token);
+    if (process_token) CloseHandle(process_token);
+    LocalFree(descriptor);
+    return result;
+}
+
 std::string json_protected_object(
     const usk::platform::windows::PublisherHandleObservation& object) {
     std::string aces = "[";
@@ -282,6 +322,19 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 FILE_READ_ATTRIBUTES | WRITE_DAC | SYNCHRONIZE);
             const DWORD child_owner = child_probe(
                 FILE_READ_ATTRIBUTES | WRITE_OWNER | SYNCHRONIZE);
+            std::string child_dacl_add = "not_run";
+            std::string child_dacl_dac = "not_run";
+            OwnedHandle child_read_handle(CreateFileW(child_path.c_str(),
+                FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS |
+                    FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+            if (child_read_handle.get() != INVALID_HANDLE_VALUE) {
+                child_dacl_add = check_directory_dacl(child_read_handle.get(),
+                    FILE_READ_ATTRIBUTES | FILE_ADD_SUBDIRECTORY | SYNCHRONIZE);
+                child_dacl_dac = check_directory_dacl(child_read_handle.get(),
+                    FILE_READ_ATTRIBUTES | WRITE_DAC | SYNCHRONIZE);
+            }
             throw std::runtime_error("restricted service cannot open disposable volume root; Win32 " +
                 std::to_string(error) + "; read-reparse=" +
                 std::to_string(read_reparse) + "; full-backup=" +
@@ -297,7 +350,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 std::to_string(child_read) + "; child-add=" +
                 std::to_string(child_add) + "; child-dac=" +
                 std::to_string(child_dac) + "; child-owner=" +
-                std::to_string(child_owner));
+                std::to_string(child_owner) + "; child-dacl-add=" +
+                child_dacl_add + "; child-dacl-dac=" + child_dacl_dac);
         }
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
