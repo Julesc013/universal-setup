@@ -947,3 +947,39 @@ The source is not yet qualified against drive remapping during finalization,
 same-volume namespace substitution, hostile concurrent rights, lease fencing,
 general sources, physical-host power loss, or OD-001. The ordinary strict
 publisher remains unavailable and no release claim follows from this test.
+
+## VM turn-off replay and cooperative volume guard (2026-09-26)
+
+The volume-bound candidate above was also interrupted by an actual forced
+power-off of the owned Hyper-V VM after its visible journal had been flushed
+and before completion. The VM was restarted, its recorded non-system VHDX was
+reattached, and an independent backup-mode readback found both selected
+payloads and the prepared, snapshot, and visible records intact; completion
+was absent. The same restricted-service binary then completed the installed
+state forward. A repeat returned `already_visible_bound` and left all 11
+observed files unchanged. This qualifies the observed VM interruption and
+forward replay window only; it is not physical-host power-loss proof.
+
+The private lab service now takes a cooperative, volume-wide named mutex
+before opening the observed volume or creating protected anchors, and holds
+it through its terminal receipt. The name is derived from the exact volume
+GUID root, with GUID hex case normalized. Acquisition is immediate; a busy,
+inaccessible, or wrong-type name fails closed. A native test covers thread
+contention, release, abandoned ownership, malformed roots, and a conflicting
+object type. This is not a per-install lease or stale-worker revision fence.
+
+On the same owned VM, binary SHA-256
+`20117fd4072fb27344a8d90453722f206bb58a18b198054c202774c97bbe9409`
+replayed the retained install successfully. While that own-process restricted
+service held the guard, a second own-process restricted service with its own
+SID returned `recovery_required` before volume access: it could not open the
+first service's named mutex. Its receipt SHA-256 was
+`570be97e924dec51b7fb1757d68b51d55c9f19e3c95e7466f65b7aa4ec617ced`.
+After the first service exited, the second reached protected profile checking
+and refused because its different SID was absent from the protected DACL;
+receipt SHA-256 was
+`cbb78cd83202f8b07d40343ad584f235371f1199520b678bac089532729f1729`.
+The second service was removed. These observations establish fail-closed
+overlap and guard release, not successful concurrent service handoff. The
+source still lacks a qualified hostile-rights case for this exact binary,
+general-source publication, lease fencing, and production enablement.
