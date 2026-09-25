@@ -251,18 +251,28 @@ try {
             $prepared.protected_anchors.volume.file_id_volume_serial -eq
                 $native.volume_file_id_serial -and
             $prepared.sealed_tree.root.file_id -eq $staged.root.file_id -and
+            @($prepared.sealed_tree.root_streams).Count -eq 0 -and
             @($prepared.sealed_tree.descendants).Count -eq 1 -and
             $prepared.sealed_tree.descendants[0].relative_path -eq 'payload.bin' -and
             $prepared.sealed_tree.descendants[0].object.file_id -eq
                 $staged.file.file_id -and
             $prepared.sealed_tree.descendants[0].size -eq 25 -and
             $prepared.sealed_tree.descendants[0].sha256 -eq $staged.sha256 -and
+            @($prepared.sealed_tree.descendants[0].streams).Count -eq 1 -and
+            $prepared.sealed_tree.descendants[0].streams[0].name -eq '::$DATA' -and
+            $prepared.sealed_tree.descendants[0].streams[0].size -eq 25 -and
             $bound.visible_tree.root.file_id -eq $publication.visible_root.file_id -and
+            @($bound.visible_tree.root_streams).Count -eq 0 -and
             @($bound.visible_tree.descendants).Count -eq 1 -and
             $bound.visible_tree.descendants[0].relative_path -eq 'payload.bin' -and
             $bound.visible_tree.descendants[0].object.file_id -eq
                 $publication.visible_file.file_id -and
             $bound.visible_tree.descendants[0].sha256 -eq $staged.sha256 -and
+            @($bound.visible_tree.descendants[0].streams).Count -eq 1 -and
+            $bound.visible_tree.descendants[0].streams[0].name -eq '::$DATA' -and
+            $bound.visible_tree.descendants[0].streams[0].size -eq 25 -and
+            $bound.visible_tree.descendants[0].streams[0].allocation_size -eq
+                $prepared.sealed_tree.descendants[0].streams[0].allocation_size -and
             ($prepared.protected_anchors | ConvertTo-Json -Depth 20 -Compress) -eq
                 ($bound.protected_anchors | ConvertTo-Json -Depth 20 -Compress)
         $publicationFactsValid =

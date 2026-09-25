@@ -45,6 +45,10 @@ std::vector<PublisherStreamObservation> observe_publisher_handle_streams(HANDLE 
 // replace complete closure enumeration or the other publisher predicates.
 void require_publisher_stream_shape(HANDLE handle);
 
+// Validate a retained observation without silently querying a later phase.
+void require_publisher_stream_shape(
+    const std::vector<PublisherStreamObservation>& streams, bool directory);
+
 } // namespace usk::platform::windows
 #endif
 
