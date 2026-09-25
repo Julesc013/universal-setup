@@ -1,0 +1,62 @@
+{
+  "schema": "usk.compatibility_canary.v1",
+  "workunit": "USK-WU-027",
+  "claim": "one exact Windows 10 x64 host executed a read-only public command; this is not a supported-platform or release claim",
+  "source_commit": "26925ecb55b1a8fabdc5d66b77d535bb98bd04d2",
+  "source_tree": "3c2eb664e6c4f72abbc5beab24754d0c803cda4c",
+  "target": {
+    "edition": "Windows 10 Enterprise",
+    "build": "10.0.19045",
+    "architecture": "AMD64",
+    "filesystem_effects": "none requested"
+  },
+  "toolchain": {
+    "generator": "Visual Studio 18 2026",
+    "compiler": "MSVC 19.51.36252.0",
+    "windows_sdk": "10.0.26100.0",
+    "configuration": "Release x64"
+  },
+  "binary": {
+    "name": "usk_machine.exe",
+    "sha256": "e5ab89f90dc0b078158b5feb896ccba2b076f557171e3386bdf3aaa1d6b6a8cd",
+    "size_bytes": 1309696,
+    "pe_machine": "x64",
+    "pe_subsystem": "Windows CUI",
+    "pe_os_version": "6.00",
+    "pe_subsystem_version": "6.00",
+    "direct_import_dlls": [
+      "KERNEL32.dll",
+      "MSVCP140.dll",
+      "VCRUNTIME140.dll",
+      "VCRUNTIME140_1.dll",
+      "api-ms-win-crt-stdio-l1-1-0.dll",
+      "api-ms-win-crt-filesystem-l1-1-0.dll",
+      "api-ms-win-crt-string-l1-1-0.dll",
+      "api-ms-win-crt-heap-l1-1-0.dll",
+      "api-ms-win-crt-time-l1-1-0.dll",
+      "api-ms-win-crt-environment-l1-1-0.dll",
+      "api-ms-win-crt-locale-l1-1-0.dll",
+      "api-ms-win-crt-runtime-l1-1-0.dll",
+      "api-ms-win-crt-math-l1-1-0.dll"
+    ]
+  },
+  "observed_process_cases": {
+    "command_graph.inspect": "exit 0, response status ok",
+    "install_local.apply": "exit 2, response status refused, code command_unavailable",
+    "machine_process_probe": "passed",
+    "abi_layout_smoke": "passed"
+  },
+  "evidence_sha256": {
+    "process_receipt": "8a1af1b7dab8029793e0439acbbd9892832c477b56085749f8e6c6f8671a7d9a",
+    "dumpbin_imports": "19e6e69e321b9b4de9db17b3fa60c754d277f3b6ff27e2f369eea18e880754f2",
+    "smoke_checks": "2963550b677701f763a7c476c722f462bb2d78562550ac97020f976265849b3a"
+  },
+  "unqualified": [
+    "earlier Windows builds",
+    "bundled C and C++ runtime closure",
+    "machine-wide supported ISA floor",
+    "mutation and recovery on this target",
+    "packaged consumer behavior"
+  ],
+  "mutation_profile": "unavailable through this one-shot host"
+}
