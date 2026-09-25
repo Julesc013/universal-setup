@@ -1088,3 +1088,60 @@ and protected completion SHA-256
 `7c15c601cfc601302e1b68f45f0b7311c893f9154dcb0221e027391c8f2c4f66`.
 This demonstrates clean installation in this owned laboratory profile, not
 live remap resistance, general-source publication, or production enablement.
+
+## Snapshot-only staged replay after VM turn-off (2026-09-26)
+
+The private selected-source service now flushes its reviewed plan snapshot
+before it stages payloads. For an exact snapshot-only journal, replay restores
+the original reviewed plan, checks the protected anchor and staged-file
+closure against that snapshot, and continues through prepared evidence,
+publication, installed state, ownership, and audit. It does not replan against
+the changed target ancestor. The replay path does not reopen the source ZIP;
+the request still supplies its original reviewed archive and envelope digests.
+An earlier failed VHDX without a durable snapshot remains ambiguous and is
+retained; this path does not adopt that historical state.
+
+On the campaign-owned Windows Server build `10.0.20348.0` VM, a newly created
+1 GiB NTFS VHDX (disk ID `60022480D5C0FC977ADA44F9BE783A38`, volume GUID
+`\\?\Volume{2513ed16-f572-47b6-864d-585a5de2bfaf}\`) received reviewed
+plan digest
+`258b6407cf9f25155c1244cf7b6ad9516c496902e33252b5f4acba34a4f7b7f5`.
+The campaign-only poststage gate flushed a marker and held the service before
+prepared intent. Hyper-V then forcibly powered off the VM. After restart,
+the host Hyper-V Worker Admin log was read retrospectively: event 18502,
+record 14131, records the owned VM turning off at
+`2026-09-25T21:16:23.8415149Z`; event 18500, record 14136, records its
+restart at `2026-09-25T21:16:39.9514215Z`. This is event-log corroboration,
+not a contemporaneous command receipt. After restart,
+independent backup-mode readback found exactly the two staged files and the
+3,136-byte protected snapshot, with no prepared, visible, completion, or
+public installed-state record. The source ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`;
+the snapshot SHA-256 was
+`06739a3f6b6751f4793d816c99cc13ac416f55c748aeb39a7cf0b934b3cf8a61`.
+
+The corrected static service binary SHA-256
+`1eb6f823c745b8c8f06f24d18b842325471958f8e0d7f50b82f3c3db7e1ebaed`
+replayed the retained VHDX and returned `pass` in receipt SHA-256
+`67bdf9472a6c93c4790ba70b16b454fc34e967ca394212162c56b1ddfeff7781`.
+Independent publication readback found both payloads at the visible target
+with their original digests, the snapshot unchanged, prepared and visible
+evidence, and an installed-state completion record. A separate backup-mode
+readback of the GUID-root `setup-state` found the owned-root marker, installed
+state, ownership, and two audit events. A bound repeat returned
+`already_visible_bound` in receipt SHA-256
+`e3a66a650234398355807288aaceda19563ba28bc153c2a281e23576c7cff35d`.
+These host receipts and the VHDX remain in the campaign lab. The first replay
+candidate failed closed on a Windows target-path spelling difference before
+effects; the corrected binary compared normalized path objects. The replay
+runner issued the recorded reviewed request without the crash-test gate and
+checked that the original ZIP and envelope bytes remained present. A later
+source change exempts snapshot-only reentry from the crash-test gate; that
+change is not covered by the forced-off binary observation above.
+
+This is one controlled Hyper-V interruption window and one positive
+snapshot-only forward replay. It does not prove physical-host power-loss
+durability, a general-source publisher, independent recovery without a
+reviewed request, source-file absence during replay, hostile-rights exclusion,
+per-install lease fencing, or
+OD-001. The ordinary strict publisher remains unavailable.

@@ -51,6 +51,7 @@ std::wstring service_name;
 std::wstring receipt_path;
 std::wstring volume_root;
 bool prepublish_gate = false;
+bool poststage_gate = false;
 bool postrename_gate = false;
 bool postjournal_gate = false;
 bool recover_prepared = false;
@@ -278,6 +279,29 @@ void wait_for_prepublish_gate() {
         }
     }
     throw std::runtime_error("prepublish gate timed out");
+}
+
+void wait_for_poststage_gate() {
+    const std::wstring ready = gate_sibling(L"poststage-ready.txt");
+    static constexpr char ready_bytes[] =
+        "usk.publisher.lab_snapshot_and_stage_sealed.v1\n";
+    {
+        OwnedHandle marker(CreateFileW(ready.c_str(), GENERIC_WRITE, 0, nullptr,
+            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (marker.get() == INVALID_HANDLE_VALUE) {
+            throw std::runtime_error("cannot create poststage readiness marker");
+        }
+        DWORD written = 0;
+        if (!WriteFile(marker.get(), ready_bytes, sizeof(ready_bytes) - 1,
+                &written, nullptr) || written != sizeof(ready_bytes) - 1 ||
+            !FlushFileBuffers(marker.get())) {
+            throw std::runtime_error("cannot flush poststage readiness marker");
+        }
+    }
+    if (WaitForSingleObject(stop_event, 120000) != WAIT_TIMEOUT) {
+        throw std::runtime_error("poststage gate stopped before forced VM poweroff");
+    }
+    throw std::runtime_error("poststage gate timed out without VM poweroff");
 }
 
 void wait_for_postrename_gate() {
@@ -763,6 +787,23 @@ bool recovery_journal_has_visible_record(HANDLE parent) {
     throw std::runtime_error("recovery journal has unexpected children");
 }
 
+bool recovery_journal_has_snapshot_only(HANDLE volume,
+    const std::string& service_sid) {
+    using namespace usk::platform::windows;
+    const PublisherAnchorNames names{
+        L"staging", L"destination", L"state", L"journal"};
+    const auto anchors = observe_publisher_anchor_set(
+        volume, {L"publication"}, names);
+    require_publisher_anchor_set_security_shape(anchors, service_sid);
+    OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
+    if (observe_publisher_directory_entries(publication.get()).size() != 4) {
+        throw std::runtime_error("recovery publication has unexpected anchors");
+    }
+    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+    const auto listed = observe_publisher_directory_entries(journal.get());
+    return listed.size() == 1 && listed.front().name == L"lab-reviewed-plan.json";
+}
+
 bool recovery_state_has_completion_record(HANDLE parent) {
     const auto listed =
         usk::platform::windows::observe_publisher_directory_entries(parent);
@@ -909,6 +950,82 @@ usk::lifecycle::InstallPlan restore_reviewed_install_plan(
         throw std::runtime_error("restored protected install plan digest differs");
     }
     return plan;
+}
+
+ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
+    const std::string& service_sid) {
+    using namespace usk::platform::windows;
+    const PublisherAnchorNames names{
+        L"staging", L"destination", L"state", L"journal"};
+    const auto anchors = observe_publisher_anchor_set(
+        volume, {L"publication"}, names);
+    require_publisher_anchor_set_security_shape(anchors, service_sid);
+    OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
+    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+    if (!recovery_journal_has_snapshot_only(volume, service_sid)) {
+        throw std::runtime_error("recovery snapshot-only journal changed");
+    }
+    const std::string record = read_phase_record(
+        journal.get(), L"lab-reviewed-plan.json");
+    const auto snapshot = usk::json::parse(record);
+    if (snapshot.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_snapshot.v2" ||
+        snapshot.as_object().size() != 15 ||
+        snapshot.at("plan_envelope_sha256").as_string() !=
+            reviewed_plan_envelope_sha256 ||
+        snapshot.at("archive_sha256").as_string() != selected_archive_sha256 ||
+        snapshot.at("plan_request").at("archive")
+            .at("expected_sha256").as_string() != selected_archive_sha256 ||
+        snapshot.at("plan_request").at("required_commit_authority")
+            .as_string() != "staged_child_bound_v1" ||
+        std::filesystem::path(snapshot.at("plan_request").at("target")
+            .at("root").as_string()).lexically_normal() !=
+        std::filesystem::path(snapshot.at("target_root").as_string())
+            .lexically_normal()) {
+        throw StaleReviewedInstallRequest();
+    }
+    auto plan = restore_reviewed_install_plan(record);
+    usk::archive::StreamingStoredArchivePayload payload;
+    payload.source_sha256 = snapshot.at("archive_sha256").as_string();
+    payload.source_identity_digest =
+        snapshot.at("archive_identity_digest").as_string();
+    payload.entry_set_digest = snapshot.at("entry_set_digest").as_string();
+    std::vector<PublisherExpectedFile> expected;
+    for (const auto& entry : snapshot.at("planned_entries").as_array()) {
+        const std::string kind = entry.at("entry_type").as_string();
+        if (kind == "directory") continue;
+        if (kind != "file") {
+            throw std::runtime_error("snapshot-only plan has unsupported entry");
+        }
+        const std::string path = entry.at("relative_path").as_string();
+        const std::uint64_t size = entry.at("size_bytes").as_unsigned();
+        const std::string sha = entry.at("sha256").as_string();
+        expected.push_back({selected_utf8_path(path), size, sha});
+        payload.files.push_back({path, sha, 0, size,
+            [](std::uint64_t, unsigned char*, std::size_t) -> std::size_t {
+                throw std::runtime_error("snapshot-only replay may not reopen source");
+            }, "stored"});
+    }
+    if (selected_file_set_digest(std::move(expected)) !=
+            snapshot.at("selected_file_set_digest").as_string()) {
+        throw std::runtime_error("snapshot-only selected file set differs");
+    }
+    payload.validate_source = [] {};
+    const std::string setup_root = snapshot.at("setup_root").as_string();
+    const std::string acceptance_root =
+        std::filesystem::path(setup_root).root_path().u8string();
+    if (acceptance_root.empty() ||
+        std::filesystem::path(setup_root).lexically_normal() !=
+            std::filesystem::path(acceptance_root) / "setup-state") {
+        throw std::runtime_error("snapshot-only setup root is outside lab profile");
+    }
+    return {snapshot.at("plan_digest").as_string(),
+        snapshot.at("plan_envelope_sha256").as_string(),
+        snapshot.at("selected_file_set_digest").as_string(), record,
+        setup_root, acceptance_root,
+        snapshot.at("transaction_id").as_string(),
+        snapshot.at("applied_at").as_string(), std::move(plan),
+        std::move(payload)};
 }
 
 void require_public_mount_mapping(HANDLE volume, const std::string& setup_root,
@@ -1896,8 +2013,10 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
         throw std::runtime_error("native reviewed plan revalidation refused");
     }
     const auto& plan = result.at("payload");
+    if (plan.at("plan_digest").as_string() != plan_digest) {
+        throw std::runtime_error("native reviewed plan digest differs after revalidation");
+    }
     if (plan.at("schema").as_string() != "usk.install_plan.v1" ||
-        plan.at("plan_digest").as_string() != plan_digest ||
         plan.at("plan_id").as_string() !=
             request.at("request_id").as_string() ||
         plan.at("required_commit_authority").as_string() !=
@@ -1970,7 +2089,8 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
 }
 
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid,
-    const std::optional<ReviewedPlanBinding>& reviewed_plan) {
+    const std::optional<ReviewedPlanBinding>& reviewed_plan,
+    bool staged_only_reentry = false) {
     using namespace usk::platform::windows;
     const std::wstring sid(service_sid.begin(), service_sid.end());
     const auto descriptor = make_publisher_directory_security_descriptor(sid);
@@ -1986,29 +2106,43 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         !owner || !dacl_present || !dacl || owner_defaulted || dacl_defaulted) {
         throw std::runtime_error("protected lab descriptor is malformed");
     }
-    const DWORD applied = SetSecurityInfo(volume, SE_FILE_OBJECT,
-        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
-            PROTECTED_DACL_SECURITY_INFORMATION,
-        owner, nullptr, dacl, nullptr);
-    if (applied != ERROR_SUCCESS) {
-        throw std::runtime_error("cannot protect disposable volume root; Win32 " +
-            std::to_string(applied));
+    if (!staged_only_reentry) {
+        const DWORD applied = SetSecurityInfo(volume, SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+                PROTECTED_DACL_SECURITY_INFORMATION,
+            owner, nullptr, dacl, nullptr);
+        if (applied != ERROR_SUCCESS) {
+            throw std::runtime_error("cannot protect disposable volume root; Win32 " +
+                std::to_string(applied));
+        }
     }
-    OwnedHandle publication(create_directory_relative_with_descriptor(
-        volume, L"publication", descriptor));
-    OwnedHandle staging(create_directory_relative_with_descriptor(
-        publication.get(), L"staging", descriptor));
+    if (staged_only_reentry && (!reviewed_plan || !selected_archive_mode)) {
+        throw std::runtime_error("staged-only reentry requires a reviewed selected source");
+    }
+    OwnedHandle publication(staged_only_reentry ?
+        open_exact_lab_child(volume, L"publication") :
+        create_directory_relative_with_descriptor(volume, L"publication", descriptor));
+    OwnedHandle staging(staged_only_reentry ?
+        open_exact_lab_child(publication.get(), L"staging") :
+        create_directory_relative_with_descriptor(
+            publication.get(), L"staging", descriptor));
     std::string created_destination_id;
     {
-        OwnedHandle created(create_directory_relative_with_descriptor(
-            publication.get(), L"destination", descriptor));
+        OwnedHandle created(staged_only_reentry ?
+            open_exact_lab_child(publication.get(), L"destination", true) :
+            create_directory_relative_with_descriptor(
+                publication.get(), L"destination", descriptor));
         created_destination_id = observe_publisher_directory_handle(
             created.get()).file_id;
     }
-    OwnedHandle state(create_directory_relative_with_descriptor(
-        publication.get(), L"state", descriptor));
-    OwnedHandle journal(create_directory_relative_with_descriptor(
-        publication.get(), L"journal", descriptor));
+    OwnedHandle state(staged_only_reentry ?
+        open_exact_lab_child(publication.get(), L"state", false, false, true) :
+        create_directory_relative_with_descriptor(
+            publication.get(), L"state", descriptor));
+    OwnedHandle journal(staged_only_reentry ?
+        open_exact_lab_child(publication.get(), L"journal", false, false, true) :
+        create_directory_relative_with_descriptor(
+            publication.get(), L"journal", descriptor));
     const PublisherAnchorNames names{
         L"staging", L"destination", L"state", L"journal"};
     const auto first = observe_publisher_anchor_set(
@@ -2032,6 +2166,15 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         throw std::runtime_error("created destination anchor not listed");
     }
     OwnedHandle destination(reopened_destination);
+    if (staged_only_reentry &&
+        (observe_publisher_directory_entries(publication.get()).size() != 4 ||
+         !observe_publisher_directory_entries(destination.get()).empty() ||
+         !observe_publisher_directory_entries(state.get()).empty() ||
+         observe_publisher_directory_entries(journal.get()).size() != 1 ||
+         observe_publisher_directory_entries(journal.get()).front().name !=
+             L"lab-reviewed-plan.json")) {
+        throw std::runtime_error("staged-only reentry has unexpected protected children");
+    }
     if (observe_publisher_directory_handle(destination.get()).file_id !=
             created_destination_id) {
         throw std::runtime_error("reopened destination anchor identity changed");
@@ -2039,18 +2182,33 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, second);
+    if (reviewed_plan && !staged_only_reentry) {
+        require_public_mount_mapping(volume, reviewed_plan->setup_root,
+            reviewed_plan->install_plan.target_root.u8string());
+        write_journal_phase(journal.get(), L"lab-reviewed-plan.json",
+            descriptor, reviewed_plan->durable_snapshot);
+    }
     std::optional<usk::archive::StreamingStoredArchivePayload> selected_payload;
     bool selected_v2 = false;
     if (selected_archive_mode) {
         selected_payload = reviewed_plan ?
             reviewed_plan->selected_payload : inspect_selected_lab_archive();
-        selected_payload->validate_source();
+        if (!staged_only_reentry) selected_payload->validate_source();
         selected_v2 = reviewed_plan.has_value() ||
             selected_payload->files.size() != 1 ||
             selected_payload->files.front().relative_path != "payload.bin";
     }
-    OwnedHandle candidate(create_directory_relative_with_descriptor(
-        staging.get(), L"candidate", descriptor));
+    if (staged_only_reentry) {
+        const auto staged_children = observe_publisher_directory_entries(staging.get());
+        if (staged_children.size() != 1 ||
+            staged_children.front().name != L"candidate") {
+            throw std::runtime_error("staged-only reentry has unexpected staging children");
+        }
+    }
+    OwnedHandle candidate(staged_only_reentry ?
+        open_exact_lab_child(staging.get(), L"candidate", false, true) :
+        create_directory_relative_with_descriptor(
+            staging.get(), L"candidate", descriptor));
     static constexpr char bytes[] = "protected staged payload\n";
     std::uint64_t expected_payload_size = sizeof(bytes) - 1;
     std::string expected_source_digest;
@@ -2059,8 +2217,20 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         const auto& file = selected_payload->files.front();
         expected_payload_size = file.size_bytes;
         expected_source_digest = file.sha256;
-        expected_files = stage_selected_archive_files(
-            candidate.get(), descriptor, *selected_payload);
+        if (staged_only_reentry) {
+            for (const auto& selected_file : selected_payload->files) {
+                expected_files.push_back({
+                    selected_utf8_path(selected_file.relative_path),
+                    selected_file.size_bytes, selected_file.sha256});
+            }
+            if (selected_file_set_digest(expected_files) !=
+                    reviewed_plan->selected_file_set_digest) {
+                throw std::runtime_error("staged-only source differs from reviewed file set");
+            }
+        } else {
+            expected_files = stage_selected_archive_files(
+                candidate.get(), descriptor, *selected_payload);
+        }
     } else {
         usk::base::Sha256 source_digest;
         source_digest.update(reinterpret_cast<const unsigned char*>(bytes),
@@ -2108,6 +2278,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto third = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, third);
+    if (poststage_gate && !staged_only_reentry) wait_for_poststage_gate();
     const std::string reviewed_snapshot_digest = reviewed_plan ?
         record_sha256(reviewed_plan->durable_snapshot) : std::string{};
     if (reviewed_plan) {
@@ -2116,8 +2287,10 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         usk::lifecycle::initialize_setup_root_for_publisher(
             reviewed_plan->setup_root, reviewed_plan->acceptance_root,
             "operator_acceptance_candidate", volume, volume_root);
-        write_journal_phase(journal.get(), L"lab-reviewed-plan.json",
-            descriptor, reviewed_plan->durable_snapshot);
+        if (read_phase_record(journal.get(), L"lab-reviewed-plan.json") !=
+                reviewed_plan->durable_snapshot) {
+            throw std::runtime_error("reviewed plan snapshot changed before prepared phase");
+        }
     }
     const std::string prepared = canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
@@ -2482,10 +2655,21 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                     }
                 }
                 if (publication_present && !reviewed_plan_envelope_path.empty()) {
-                    reviewed_install_reentry = true;
-                    anchors = observe_prepared_recovery(volume, observed.service_sid,
-                        true, reviewed_plan_envelope_sha256,
-                        selected_archive_sha256);
+                    publication_effects_may_exist = true;
+                    if (recovery_journal_has_snapshot_only(volume,
+                            observed.service_sid)) {
+                        const ReviewedPlanBinding reviewed_plan =
+                            reviewed_plan_from_snapshot_only(
+                                volume, observed.service_sid);
+                        anchors = observe_protected_anchors(volume,
+                            observed.service_sid, reviewed_plan, true);
+                    } else {
+                        reviewed_install_reentry = true;
+                        anchors = observe_prepared_recovery(volume,
+                            observed.service_sid, true,
+                            reviewed_plan_envelope_sha256,
+                            selected_archive_sha256);
+                    }
                 } else {
                     const std::optional<ReviewedPlanBinding> reviewed_plan =
                         reviewed_plan_envelope_path.empty() ?
@@ -2610,7 +2794,8 @@ int wmain(int argc, wchar_t** argv) {
         lower_sha256(argv[12]) &&
         (argc == 13 || std::wstring(argv[13]) == L"--prepublish-gate" ||
             std::wstring(argv[13]) == L"--postrename-gate" ||
-            std::wstring(argv[13]) == L"--postjournal-gate");
+            std::wstring(argv[13]) == L"--postjournal-gate" ||
+            std::wstring(argv[13]) == L"--poststage-gate");
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
@@ -2623,6 +2808,7 @@ int wmain(int argc, wchar_t** argv) {
         campaign_vm_selected_plan && argc == 14 ? argv[13] : L"";
     prepublish_gate = argc == 6 || campaign_vm ||
         selected_gate == L"--prepublish-gate";
+    poststage_gate = selected_gate == L"--poststage-gate";
     postrename_gate = campaign_vm_postrename ||
         selected_gate == L"--postrename-gate";
     postjournal_gate = campaign_vm_postjournal ||
