@@ -23,9 +23,11 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
-    from .usk_component_resolver import ResolutionError, resolve_component_ids
+    from .usk_component_resolver import (ResolutionError, resolve_component_ids,
+                                         resolve_transition_component_ids)
 else:
-    from usk_component_resolver import ResolutionError, resolve_component_ids
+    from usk_component_resolver import (ResolutionError, resolve_component_ids,
+                                        resolve_transition_component_ids)
 
 
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
@@ -391,6 +393,13 @@ def main(argv: list[str] | None = None) -> int:
     resolve = sub.add_parser("resolve", help="show component closure; no machine plan is emitted")
     resolve.add_argument("--bundle", required=True, type=Path)
     resolve.add_argument("--select", action="append", default=[])
+    transition = sub.add_parser("resolve-transition",
+                                help="preserve an accepted selection across verified bundles")
+    transition.add_argument("--previous-bundle", required=True, type=Path)
+    transition.add_argument("--candidate-bundle", required=True, type=Path)
+    transition.add_argument("--selected", action="append", default=[])
+    transition.add_argument("--scope", required=True,
+                            choices=("portable", "per_user", "machine"))
     inspect = sub.add_parser("inspect", help="verify the compiled bundle and exact payload")
     inspect.add_argument("--bundle", required=True, type=Path)
     args = parser.parse_args(argv)
@@ -401,6 +410,17 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "resolve":
             bundle = inspect_bundle(args.bundle)
             print(json.dumps(resolve_component_ids(bundle["components"], args.select)))
+        elif args.command == "resolve-transition":
+            previous = inspect_bundle(args.previous_bundle)
+            candidate = inspect_bundle(args.candidate_bundle)
+            if any(previous[field] != candidate[field] for field in
+                   ("product_id", "publisher_id", "target")):
+                raise AuthoringError("incompatible product or target identity")
+            if (args.scope not in previous["allowed_scopes"] or
+                    args.scope not in candidate["allowed_scopes"]):
+                raise AuthoringError("installation scope is not supported by both bundles")
+            print(json.dumps(resolve_transition_component_ids(
+                previous["components"], args.selected, candidate["components"])))
         else:
             bundle = inspect_bundle(args.bundle)
             print(bundle["payload"]["sha256"])

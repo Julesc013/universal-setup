@@ -128,6 +128,59 @@ class BundleAuthorTests(unittest.TestCase):
             with zipfile.ZipFile(output / "payload.zip") as archive:
                 self.assertEqual(archive.namelist(), ["bin/addon.bin", "bin/app.bin"])
 
+    def test_cli_transition_preserves_selected_components_across_verified_bundles(self) -> None:
+        def add_component(value: dict, name: str, *, required: bool = False,
+                          default_selected: bool = False) -> None:
+            value["components"].append({
+                "id": name, "required": required,
+                "default_selected": default_selected, "requires": ["core"],
+                "conflicts": [], "variants": [{"target": "windows-x64", "files": [{
+                    "source": f"final/{name}.bin", "path": f"bin/{name}.bin"}]}]})
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            previous_project = project()
+            add_component(previous_project, "addon")
+            previous_source = write_project(root / "previous", previous_project)
+            (previous_source.parent / "final" / "addon.bin").write_bytes(b"addon-v1")
+            previous_out = root / "previous-out"
+            previous_out.mkdir()
+            compile_bundle(previous_source, "windows-x64", previous_out)
+
+            candidate_project = copy.deepcopy(previous_project)
+            candidate_project["product_version"] = "1.2.4"
+            add_component(candidate_project, "new_default", default_selected=True)
+            add_component(candidate_project, "new_required", required=True)
+            candidate_source = write_project(root / "candidate", candidate_project)
+            for name in ("addon", "new_default", "new_required"):
+                (candidate_source.parent / "final" / f"{name}.bin").write_bytes(
+                    name.encode("ascii") + b"-v2")
+            candidate_out = root / "candidate-out"
+            candidate_out.mkdir()
+            compile_bundle(candidate_source, "windows-x64", candidate_out)
+
+            cli = Path(__file__).resolve().parents[1] / "tools" / "usk_bundle_author.py"
+            command = [sys.executable, str(cli), "resolve-transition",
+                       "--previous-bundle", str(previous_out / "product.bundle.json"),
+                       "--candidate-bundle", str(candidate_out / "product.bundle.json"),
+                       "--selected", "core", "--selected", "addon",
+                       "--scope", "portable"]
+            result = subprocess.run(command, check=True, capture_output=True, text=True)
+            self.assertEqual(json.loads(result.stdout),
+                             ["core", "addon", "new_required"])
+
+            refused_scope = subprocess.run(command[:-1] + ["machine"],
+                                           capture_output=True, text=True)
+            self.assertEqual(refused_scope.returncode, 1)
+            self.assertIn("installation scope is not supported", refused_scope.stderr)
+
+            changed = json.loads((candidate_out / "product.bundle.json").read_text())
+            changed["product_id"] = "org.example.other"
+            (candidate_out / "product.bundle.json").write_text(json.dumps(changed))
+            refused = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(refused.returncode, 1)
+            self.assertIn("incompatible product or target identity", refused.stderr)
+
     def test_hostile_paths_and_collisions_refuse_before_output(self) -> None:
         for path in ("../escape", "/absolute", "C:/drive", "bin\\app", "bin/../app",
                      "bin//app", "con.txt", "a./b", "unicode/é", "a" * 256):
