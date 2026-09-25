@@ -637,3 +637,62 @@ binding's shape and the sealed protected payload/tree; it does not reacquire
 or revalidate the original ZIP after restart. General selected closure,
 installed-state completion, lease fencing, hostile-rights qualification,
 production enablement and OD-001 remain open.
+
+## Selected-source lab completion after visibility (2026-09-26)
+
+The restricted service now writes a protected, canonical
+`usk.publisher.lab_installed_state.v1` record after the visible journal phase
+for its one-file selected-source mode. It binds the selected archive/source/
+entry-set digests, prepared and visible journal SHA-256 values, observed
+volume, destination parent and visible root identities, service SID and payload
+SHA-256. Recovery checks the exact existing record or, when a verified visible
+journal and sealed tree exist without it, writes and reopens that record. A
+repeat returns `already_visible_bound` without changing its bytes.
+
+The first candidate binary used the dynamic MSVC runtime and the campaign
+service failed to start before a native receipt; the failed attempt is retained
+at receipt SHA-256
+`93e9ba81c14a16a146dadc549c3d69eb6c57f766c9cae4412aeff1326d579c2c`.
+The exact startup cause was not established. A static CRT rebuild (binary
+SHA-256 `a521bf553ffaae8cf49200561269c63e971cf104baaa00a67f573b913036d5fa`)
+then ran on a second new 1 GiB NTFS VHDX in the owned Windows build
+`10.0.20348.0` VM. Independent backup-mode reads matched the 491,525-byte
+payload, both journal records and completion record SHA-256
+`f29b9e6ff3438ee155818d2033b0c3d45abd8c56dc36414f0a88f900d6324e6d`.
+The live observation receipt SHA-256 is
+`9eeb351e821b053907ad13cb75d6876f94ce4d4f6199e3955345f1fd646cd9b4`;
+a second service invocation returned `already_visible_bound` and independently
+read the same completion SHA-256 (receipt
+`36efc0cc6254a82bc62e20e51e5206949a38701ba23f7103e56f89263d7baa76`).
+
+A third newly created 1 GiB NTFS VHDX exercised the interruption between
+the flushed visible journal and completion state. Static binary SHA-256
+`2749c09c6d92fe424881c8d5eabc682088d799205bcfc5096606c78ed6f14767`
+paused at that gate. Independent pre-crash backup reads matched prepared
+SHA-256 `60cfaef1a43501e392d83a049e6275395e09b3c6d0b73e07d69004acf5e4c460`,
+visible SHA-256 `d26f76bcc55dc9e0cc255d829a64f1eccbbef53af3950101948719786acf7ce8`
+and payload SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`;
+the completion file was absent (observation receipt
+`c06f6cf9e59b62e7d690cf1aa7b04a1851d35ab4befa19bd0a025eb705811d05`).
+The host recorded exact-VM `Off` before restart (receipt
+`230394b85698252af86700cb1287837ce5f136b3276c2b74bc7d551a88f00bf6`)
+and a separate running-state receipt
+`3f1b949e31f8bc758d51ada161fcfd016733caef26b07bee9c5d9e7766f6205d`.
+After exact owned-VHD reattachment, fresh independent reads still matched
+both journal records and payload and found completion absent (receipt
+`354082f1342aea8b0586b0a983d14571bc20fccf774b65b652caeb4e5a6bb2ee`).
+Recovery returned `installed_state_completed_forward` and wrote completion
+SHA-256 `2d94dfe0c98b9d149302a1f98998a0e126629be38f9433d38eddbe64a709cc6f`
+(receipt `ff68c921c4ed3870c396f8bb9e37b103ad715b01da568f5ec3ac774daf20b034`).
+Another invocation returned `already_visible_bound` with the same independently
+read completion digest (receipt
+`1c4c189a31966670d3df83efb741fbe7134c08b144355d647b63c067a25e17fd`).
+
+This is a laboratory completion record, not the public
+`usk.installed_state.v1` or a successful packaged setup installation. The
+source is still one selected entry, and its binding originates from the lab
+invocation rather than an authenticated reviewed plan. General source closure,
+installed-state/ownership/audit integration, leases, hostile-rights attacks,
+physical-host power-loss qualification, production enablement and OD-001
+remain open.

@@ -572,6 +572,12 @@ std::string canonical_record(const std::string& record) {
     return canonical;
 }
 
+std::string record_sha256(const std::string& record) {
+    usk::base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(record.data()), record.size());
+    return hash.finish();
+}
+
 void write_journal_phase(HANDLE journal, const std::wstring& name,
     const std::vector<unsigned char>& descriptor, const std::string& record) {
     if (record != canonical_record(record)) {
@@ -654,9 +660,20 @@ bool recovery_journal_has_visible_record(HANDLE parent) {
     throw std::runtime_error("recovery journal has unexpected children");
 }
 
+bool recovery_state_has_completion_record(HANDLE parent) {
+    const auto listed =
+        usk::platform::windows::observe_publisher_directory_entries(parent);
+    if (listed.empty()) return false;
+    if (listed.size() == 1 && listed.front().name == L"lab-installed-state.json") {
+        return true;
+    }
+    throw std::runtime_error("recovery state has unexpected children");
+}
+
 std::string read_phase_record(HANDLE journal, const std::wstring& name) {
     if (name != L"lab-prepared-evidence.json" &&
-        name != L"lab-visible-evidence.json") {
+        name != L"lab-visible-evidence.json" &&
+        name != L"lab-installed-state.json") {
         throw std::runtime_error("invalid recovery phase record name");
     }
     OwnedHandle file(open_exact_lab_child(journal, name));
@@ -720,6 +737,65 @@ std::string lab_visible_record(
         ",\"visible_tree\":" + json_tree(visible) + "}");
 }
 
+std::string lab_selected_installed_record(
+    const usk::json::Value& prepared, const std::string& prepared_digest,
+    const std::string& visible_digest,
+    const usk::platform::windows::PublisherAnchorSetObservation& anchors,
+    const usk::platform::windows::PublisherTreeObservation& visible,
+    const std::string& service_sid) {
+    if (!prepared.contains("source_binding") ||
+        visible.descendants.size() != 1 ||
+        visible.descendants.front().relative_path != L"payload.bin") {
+        throw std::runtime_error("selected lab state has no exact source or visible payload");
+    }
+    return canonical_record(
+        "{\"schema\":\"usk.publisher.lab_installed_state.v1\","
+        "\"phase\":\"lab_installed_state\",\"service_sid\":" +
+        json_quote(service_sid) +
+        ",\"volume_serial\":" +
+        std::to_string(visible.volume.file_id_volume_serial) +
+        ",\"source_binding\":" +
+        usk::json::canonical(prepared.at("source_binding")) +
+        ",\"prepared_record_sha256\":" + json_quote(prepared_digest) +
+        ",\"visible_record_sha256\":" + json_quote(visible_digest) +
+        ",\"visible_root_file_id\":" + json_quote(visible.root.file_id) +
+        ",\"destination_parent_file_id\":" +
+        json_quote(anchors.destination_parent.object.file_id) +
+        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
+        json_quote(visible.descendants.front().sha256) + "}");
+}
+
+std::string complete_selected_lab_state(HANDLE state,
+    const usk::json::Value& prepared, const std::string& prepared_digest,
+    const std::string& visible_record,
+    const usk::platform::windows::PublisherAnchorSetObservation& anchors,
+    const usk::platform::windows::PublisherTreeObservation& visible,
+    const std::string& service_sid, bool may_write) {
+    using namespace usk::platform::windows;
+    const std::string expected = lab_selected_installed_record(prepared,
+        prepared_digest, record_sha256(visible_record), anchors, visible, service_sid);
+    if (!recovery_state_has_completion_record(state)) {
+        if (!may_write) return {};
+        const auto descriptor = make_publisher_directory_security_descriptor(
+            std::wstring(service_sid.begin(), service_sid.end()));
+        write_journal_phase(state, L"lab-installed-state.json", descriptor, expected);
+    }
+    if (read_phase_record(state, L"lab-installed-state.json") != expected) {
+        throw std::runtime_error("selected lab installed state differs from visible closure");
+    }
+    const auto state_tree = observe_publisher_tree(state);
+    require_publisher_tree_security_shape(state_tree, service_sid);
+    if (state_tree.root.file_id != anchors.state.object.file_id ||
+        state_tree.descendants.size() != 1 ||
+        state_tree.descendants.front().relative_path != L"lab-installed-state.json" ||
+        state_tree.descendants.front().size != expected.size() ||
+        state_tree.descendants.front().sha256 != record_sha256(expected)) {
+        throw std::runtime_error("selected lab installed state identity differs");
+    }
+    require_publisher_tree_phase_match(state_tree, observe_publisher_tree(state));
+    return record_sha256(expected);
+}
+
 std::string observe_prepared_recovery(HANDLE volume,
     const std::string& service_sid, bool bind_visible_forward) {
     using namespace usk::platform::windows;
@@ -735,12 +811,12 @@ std::string observe_prepared_recovery(HANDLE volume,
     OwnedHandle staging(open_exact_lab_child(publication.get(), L"staging"));
     OwnedHandle destination(open_exact_lab_child(
         publication.get(), L"destination", bind_visible_forward));
-    OwnedHandle state(open_exact_lab_child(publication.get(), L"state"));
+    OwnedHandle state(open_exact_lab_child(publication.get(), L"state",
+        false, false, bind_visible_forward));
     OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal",
         false, false, bind_visible_forward));
-    if (!observe_publisher_directory_entries(state.get()).empty()) {
-        throw std::runtime_error("recovery state is not empty");
-    }
+    const bool has_completion_record =
+        recovery_state_has_completion_record(state.get());
     const bool has_visible_record =
         recovery_journal_has_visible_record(journal.get());
     const std::string stored = read_phase_record(
@@ -797,6 +873,10 @@ std::string observe_prepared_recovery(HANDLE volume,
             !lower_sha256_ascii(binding.at("entry_set_digest").as_string())) {
             throw std::runtime_error("recovery selected source binding is malformed");
         }
+    }
+    const bool selected_source = prepared.contains("source_binding");
+    if (has_completion_record && (!selected_source || !has_visible_record)) {
+        throw std::runtime_error("recovery state has no selected visible source");
     }
     const auto staged_entries = observe_publisher_directory_entries(staging.get());
     const auto destination_entries =
@@ -857,6 +937,12 @@ std::string observe_prepared_recovery(HANDLE volume,
             throw std::runtime_error("recovery visible record differs from held observations");
         }
     }
+    std::string completion_digest;
+    if (selected_source && has_visible_record) {
+        completion_digest = complete_selected_lab_state(state.get(), prepared,
+            prepared_digest, stored_visible, anchors, observed_tree,
+            service_sid, false);
+    }
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(anchors, second);
@@ -868,7 +954,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         read_phase_record(journal.get(), L"lab-prepared-evidence.json") != stored ||
         (has_visible_record && read_phase_record(
             journal.get(), L"lab-visible-evidence.json") != stored_visible) ||
-        !observe_publisher_directory_entries(state.get()).empty()) {
+        recovery_state_has_completion_record(state.get()) != has_completion_record) {
         throw std::runtime_error("recovery journal or state changed during observation");
     }
     const auto staged_after = observe_publisher_directory_entries(staging.get());
@@ -921,6 +1007,11 @@ std::string observe_prepared_recovery(HANDLE volume,
             recovery_journal_has_visible_record(journal.get()) != true) {
             throw std::runtime_error("forward recovery visible record did not persist");
         }
+        if (selected_source) {
+            completion_digest = complete_selected_lab_state(state.get(), prepared,
+                prepared_digest, forward_record, anchors, forward_visible,
+                service_sid, true);
+        }
         usk::base::Sha256 visible_hasher;
         visible_hasher.update(
             reinterpret_cast<const unsigned char*>(forward_record.data()),
@@ -950,22 +1041,72 @@ std::string observe_prepared_recovery(HANDLE volume,
             final_destination.front().name != L"visible") {
             throw std::runtime_error("forward recovery namespace changed after journal write");
         }
+        if (selected_source &&
+            complete_selected_lab_state(state.get(), prepared, prepared_digest,
+                forward_record, anchors, forward_visible, service_sid, false) !=
+                completion_digest) {
+            throw std::runtime_error("forward recovery completion changed after closure check");
+        }
         return "{\"decision\":\"visible_bound_forward\",\"prepared_sha256\":" +
             json_quote(prepared_digest) +
             ",\"source_file_id\":" + json_quote(forward_visible.root.file_id) +
             ",\"payload_sha256\":" +
             json_quote(forward_visible.descendants.front().sha256) +
+            ",\"completion_record_sha256\":" +
+            (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
             ",\"observed_location\":\"visible_with_visible_record\","
-            "\"destination_empty\":false,\"state_empty\":true}";
+            "\"destination_empty\":false,\"state_empty\":" +
+            (completion_digest.empty() ? "true" : "false") + "}";
     }
     if (bind_visible_forward && has_visible_record) {
-        return "{\"decision\":\"already_visible_bound\",\"prepared_sha256\":" +
+        const bool completion_was_present = !completion_digest.empty();
+        if (selected_source) {
+            completion_digest = complete_selected_lab_state(state.get(), prepared,
+                prepared_digest, stored_visible, anchors, observed_tree,
+                service_sid, !completion_was_present);
+            if (completion_digest.empty()) {
+                throw std::runtime_error("recovery completion disappeared during repeat");
+            }
+        }
+        require_publisher_tree_phase_match(observed_tree,
+            observe_publisher_tree(root.get()));
+        require_publisher_tree_phase_match(journal_tree,
+            observe_publisher_tree(journal.get()));
+        require_publisher_anchor_set_phase_match(anchors,
+            observe_publisher_anchor_set(volume, {L"publication"}, names));
+        if (!recovery_journal_has_visible_record(journal.get()) ||
+            read_phase_record(journal.get(), L"lab-prepared-evidence.json") != stored ||
+            read_phase_record(journal.get(), L"lab-visible-evidence.json") !=
+                stored_visible) {
+            throw std::runtime_error("recovery journal changed after completion");
+        }
+        const auto final_staging = observe_publisher_directory_entries(staging.get());
+        const auto final_destination =
+            observe_publisher_directory_entries(destination.get());
+        if (!final_staging.empty() || final_destination.size() != 1 ||
+            final_destination.front().name != L"visible" ||
+            observe_publisher_directory_entries(publication.get()).size() != 4) {
+            throw std::runtime_error("recovery namespace changed after completion");
+        }
+        if (selected_source &&
+            complete_selected_lab_state(state.get(), prepared, prepared_digest,
+                stored_visible, anchors, observed_tree, service_sid, false) !=
+                completion_digest) {
+            throw std::runtime_error("recovery completion changed after closure check");
+        }
+        return "{\"decision\":" + json_quote(
+            selected_source && !completion_was_present ?
+                "installed_state_completed_forward" : "already_visible_bound") +
+            ",\"prepared_sha256\":" +
             json_quote(prepared_digest) +
             ",\"source_file_id\":" + json_quote(observed_tree.root.file_id) +
             ",\"payload_sha256\":" +
             json_quote(observed_tree.descendants.front().sha256) +
+            ",\"completion_record_sha256\":" +
+            (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
             ",\"observed_location\":\"visible_with_visible_record\","
-            "\"destination_empty\":false,\"state_empty\":true}";
+            "\"destination_empty\":false,\"state_empty\":" +
+            (completion_digest.empty() ? "true" : "false") + "}";
     }
     return "{\"decision\":\"recovery_required\",\"prepared_sha256\":" +
         json_quote(prepared_digest) +
@@ -973,6 +1114,8 @@ std::string observe_prepared_recovery(HANDLE volume,
         ",\"source_file_id\":" + json_quote(observed_tree.root.file_id) +
         ",\"payload_sha256\":" +
         json_quote(observed_tree.descendants.front().sha256) +
+        ",\"completion_record_sha256\":" +
+        (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
         ",\"observed_location\":" +
         json_quote(staged ? "staging_prepared" :
             (has_visible_record ? "visible_with_visible_record" :
@@ -980,7 +1123,8 @@ std::string observe_prepared_recovery(HANDLE volume,
         (has_visible_record ? ",\"visible_record_sha256\":" +
             json_quote(visible_digest) : std::string{}) +
         ",\"destination_empty\":" + (staged ? "true" : "false") +
-        ",\"state_empty\":true}";
+        ",\"state_empty\":" +
+        (completion_digest.empty() ? "true" : "false") + "}";
 }
 
 std::string diagnose_bound_rename_on_disposable_volume(
@@ -1262,6 +1406,34 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         throw std::runtime_error("publisher lab journal phase closure is not exact");
     }
     if (postjournal_gate) wait_for_postjournal_gate();
+    std::string completion_digest;
+    if (selected_payload) {
+        completion_digest = complete_selected_lab_state(state.get(),
+            usk::json::parse(prepared), prepared_digest, bound, after, visible,
+            service_sid, true);
+        OwnedHandle visible_root(open_exact_lab_child(
+            destination.get(), L"visible"));
+        require_publisher_tree_phase_match(visible,
+            observe_publisher_tree(visible_root.get()));
+        require_publisher_tree_phase_match(journal_tree,
+            observe_publisher_tree(journal.get()));
+        require_publisher_anchor_set_phase_match(first,
+            observe_publisher_anchor_set(volume, {L"publication"}, names));
+        const auto final_destination =
+            observe_publisher_directory_entries(destination.get());
+        if (read_phase_record(journal.get(), L"lab-prepared-evidence.json") !=
+                prepared ||
+            read_phase_record(journal.get(), L"lab-visible-evidence.json") != bound ||
+            !observe_publisher_directory_entries(staging.get()).empty() ||
+            final_destination.size() != 1 ||
+            final_destination.front().name != L"visible" ||
+            observe_publisher_directory_entries(publication.get()).size() != 4 ||
+            complete_selected_lab_state(state.get(), usk::json::parse(prepared),
+                prepared_digest, bound, after, visible, service_sid, false) !=
+                completion_digest) {
+            throw std::runtime_error("selected lab closure changed after completion");
+        }
+    }
     return "{\"boundary_file_id\":" + json_quote(first.chain.boundary.file_id) +
         ",\"publication_file_id\":" +
         json_quote(first.chain.children.front().object.file_id) +
@@ -1303,7 +1475,10 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         json_quote(journal_tree.descendants[0].sha256) +
         ",\"bound_record\":" + json_quote(bound) +
         ",\"bound_sha256\":" +
-        json_quote(journal_tree.descendants[1].sha256) + "}}";
+        json_quote(journal_tree.descendants[1].sha256) +
+        ",\"completion_record_sha256\":" +
+        (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
+        "}}";
 }
 
 void write_receipt(const std::string& data) {
