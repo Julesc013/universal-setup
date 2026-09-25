@@ -410,13 +410,15 @@ if(USK_BUILD_APPS)
 
   add_executable(usk_machine
     apps/cli/usk_machine.cpp
+    apps/cli/usk_product_info.cpp
     runtime/command/usk_one_shot.cpp)
   target_compile_features(usk_machine PRIVATE cxx_std_17)
   target_include_directories(usk_machine PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
-  target_link_libraries(usk_machine PRIVATE usk_static usk_base_static)
+  target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
   usk_enable_strict_warnings(usk_machine)
 endif()
 

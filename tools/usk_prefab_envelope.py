@@ -3,9 +3,10 @@
 
 """Compose and verify an unsigned, inspect-only Windows bundle envelope.
 
-The supplied machine host is copied byte for byte. It does not yet consume the
-product bundle or perform an installation. The ZIP carrier is one physical
-file that requires extraction; it is not a single-file executable setup.
+The supplied machine host is copied byte for byte. The current USK host can
+inspect the adjacent compiled bundle and payload read-only; it cannot perform
+an installation. The ZIP carrier is one physical file that requires extraction;
+it is not a single-file executable setup.
 """
 
 from __future__ import annotations

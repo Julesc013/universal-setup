@@ -100,6 +100,36 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
             response = json.loads(result.stdout)
             if response.get("request_id") != "external-probe":
                 raise RuntimeError("packaged host response does not bind request")
+            product_path = (extracted if profile == "one_file_carrier" else carrier)
+            product_info = subprocess.run(
+                [str(host), "--product-info", str(product_path / "product.bundle.json")],
+                capture_output=True, timeout=30)
+            if product_info.returncode or product_info.stderr:
+                raise RuntimeError(f"packaged host did not inspect product in {profile}")
+            info = json.loads(product_info.stdout)
+            if (info.get("schema") != "usk.product_info.v1" or
+                    info.get("status") != "verified_read_only" or
+                    info.get("installation_mode") != "inspect_only" or
+                    info.get("product_id") != bundle["product_id"] or
+                    info.get("prefab_profile") != profile or
+                    info.get("component_ids") != ["core"] or
+                    info.get("bundle_sha256") != _sha256(product_path / "product.bundle.json") or
+                    info.get("payload_sha256") != bundle["payload"]["sha256"] or
+                    info.get("file_count") != 1):
+                raise RuntimeError(f"packaged host product inventory differs in {profile}")
+            tampered = base / f"{profile}-tampered"
+            tampered.mkdir()
+            shutil.copy2(product_path / "product.bundle.json", tampered)
+            shutil.copy2(product_path / "prefab.manifest.json", tampered)
+            shutil.copy2(product_path / "usk_machine.exe", tampered)
+            changed = bytearray((product_path / "payload.zip").read_bytes())
+            changed[0] ^= 1
+            (tampered / "payload.zip").write_bytes(changed)
+            refused = subprocess.run(
+                [str(host), "--product-info", str(tampered / "product.bundle.json")],
+                capture_output=True, timeout=30)
+            if refused.returncode != 2 or refused.stdout:
+                raise RuntimeError(f"packaged host accepted altered payload in {profile}")
             observations.append({
                 "profile": profile,
                 "manifest": manifest,
@@ -107,6 +137,9 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
                 "host_binary_sha256": _sha256(host),
                 "host_response_sha256": hashlib.sha256(result.stdout).hexdigest(),
                 "host_exit_code": result.returncode,
+                "product_info_response_sha256": hashlib.sha256(product_info.stdout).hexdigest(),
+                "product_info_status": info["status"],
+                "payload_tamper_refused": True,
                 "extracted_product_reinspection": profile == "one_file_carrier",
             })
     return {
@@ -120,10 +153,12 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
             "declared_source_tree": runtime_source_tree,
             "cmake_cache_sha256": _sha256(runtime_cmake_cache),
             "binary_sha256": _sha256(runtime),
-            "configuration": "Debug",
+            "configuration": (runtime.parent.name if runtime.parent.name in
+                              {"Debug", "Release", "RelWithDebInfo", "MinSizeRel"}
+                              else "unverified"),
         },
         "product": "external single-file C program, compiled outside the USK source tree",
-        "qualification": "inspect-only envelope and machine-host startup; no installation or release acceptance",
+        "qualification": "inspect-only envelope, native bundle byte inventory and machine-host startup; no installation or release acceptance",
         "observations": observations,
     }
 
