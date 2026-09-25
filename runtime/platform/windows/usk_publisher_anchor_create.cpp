@@ -69,7 +69,7 @@ static HANDLE create_relative_with_descriptor(
             FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | DELETE |
             READ_CONTROL | SYNCHRONIZE
         : FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES |
-            FILE_WRITE_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
+            FILE_WRITE_ATTRIBUTES | DELETE | READ_CONTROL | SYNCHRONIZE;
     // The restricted service cannot assume administrative volume-flush access.
     // Use write-through for regular payload/journal files. The destination
     // creation handle is closed before a separately verified parent handle

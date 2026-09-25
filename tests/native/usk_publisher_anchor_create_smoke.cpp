@@ -201,6 +201,17 @@ int main() {
                 file_refused(parent_handle.get(), L"empty", {}),
                 "file collision or invalid creation input was accepted");
             {
+                Handle temporary(create_file_relative_with_descriptor(
+                    parent_handle.get(), L"temporary.bin", descriptor));
+                FILE_DISPOSITION_INFO disposition{};
+                disposition.DeleteFile = TRUE;
+                check(SetFileInformationByHandle(temporary.get(),
+                    FileDispositionInfo, &disposition, sizeof(disposition)) != FALSE,
+                    "protected temporary file cannot be marked for deletion");
+            }
+            check(!fs::exists(parent / "temporary.bin"),
+                "protected temporary file remained after handle close");
+            {
                 Handle unchanged(CreateFileW((parent / "payload.bin").c_str(),
                     FILE_READ_ATTRIBUTES | READ_CONTROL,
                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,

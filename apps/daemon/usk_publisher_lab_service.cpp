@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_anchor_create.h"
+#include "usk_publisher_staged_stream.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_json.h"
@@ -930,14 +931,37 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     OwnedHandle candidate(create_directory_relative_with_descriptor(
         staging.get(), L"candidate", descriptor));
     static constexpr char bytes[] = "protected staged payload\n";
+    usk::base::Sha256 source_digest;
+    source_digest.update(reinterpret_cast<const unsigned char*>(bytes),
+        sizeof(bytes) - 1);
+    const std::string expected_source_digest = source_digest.finish();
     {
-        OwnedHandle payload(create_file_relative_with_descriptor(
-            candidate.get(), L"payload.bin", descriptor));
+        // This source is a disposable service-owned fixture. The primitive
+        // also needs separate source provenance before production use.
+        OwnedHandle source(create_file_relative_with_descriptor(
+            state.get(), L"lab-source.bin", descriptor));
         DWORD written = 0;
-        if (!WriteFile(payload.get(), bytes, sizeof(bytes) - 1, &written, nullptr) ||
-            written != sizeof(bytes) - 1 || !FlushFileBuffers(payload.get())) {
-            throw std::runtime_error("protected lab payload write or flush failed");
+        if (!WriteFile(source.get(), bytes, sizeof(bytes) - 1, &written, nullptr) ||
+            written != sizeof(bytes) - 1 || !FlushFileBuffers(source.get())) {
+            throw std::runtime_error("protected lab source write or flush failed");
         }
+        const auto streamed = stream_verified_source_to_staged_file(
+            candidate.get(), L"payload.bin", descriptor, source.get(),
+            sizeof(bytes) - 1, expected_source_digest);
+        OwnedHandle payload(streamed.file);
+        if (streamed.bytes_written != sizeof(bytes) - 1 ||
+            streamed.sha256 != expected_source_digest) {
+            throw std::runtime_error("protected lab source stream differs");
+        }
+        FILE_DISPOSITION_INFO disposition{};
+        disposition.DeleteFile = TRUE;
+        if (!SetFileInformationByHandle(source.get(), FileDispositionInfo,
+                &disposition, sizeof(disposition))) {
+            throw std::runtime_error("protected lab source cleanup failed");
+        }
+    }
+    if (!observe_publisher_directory_entries(state.get()).empty()) {
+        throw std::runtime_error("protected lab source remains in state");
     }
     const auto sealed = observe_publisher_tree(candidate.get());
     require_publisher_tree_security_shape(sealed, service_sid);
