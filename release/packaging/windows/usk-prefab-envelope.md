@@ -14,8 +14,14 @@ bundle and prefab manifest, checks the three packaged member sizes and hashes,
 streams the stored ZIP payload through the native archive inspector, and
 compares every file's size and SHA-256 against the authoring inventory. These
 unsigned hashes establish package byte consistency, not publisher authenticity.
-It reports product identity, component IDs and byte totals. It does not resolve
-a requested component selection, plan, or perform setup. Neither envelope is a
+It reports product identity, component IDs and byte totals. The native
+`--product-select <path>/product.bundle.json [--select ID ...]` command runs
+the same complete packaged-byte check, then resolves required/default choices,
+requested components, dependency closure and directional conflicts. It checks
+the entire dependency graph for cycles, including unselected components, and
+returns a stable dependency-first list with the bundle and payload hashes.
+This is a read-only selection, not a machine plan or setup operation. Neither
+envelope is a
 qualified installer, and the one-file carrier is not an executable. The manifest records
 `installation_mode=inspect_only` and an unqualified runtime dependency closure.
 The builder does no signing, native integration, launch, or user-state change.
@@ -40,6 +46,7 @@ into a separately created empty output directory:
 python tools/usk_prefab_envelope.py build --bundle <bundle-output>/product.bundle.json --runtime <build>/usk_machine.exe --profile sidecar --output-dir <empty-envelope-output>
 python tools/usk_prefab_envelope.py inspect --path <envelope-output>
 <empty-envelope-output>/usk_machine.exe --product-info <empty-envelope-output>/product.bundle.json
+<empty-envelope-output>/usk_machine.exe --product-select <empty-envelope-output>/product.bundle.json --select <component-id>
 ```
 
 For the carrier profile, use `--profile one_file_carrier`, inspect

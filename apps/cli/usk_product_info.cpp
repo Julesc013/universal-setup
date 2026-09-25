@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace usk::command {
 namespace {
@@ -100,9 +101,84 @@ Value::Array ids(const Value& input, const std::set<std::string>* known = nullpt
     return output;
 }
 
+struct ComponentNode {
+    bool required;
+    bool default_selected;
+    std::vector<std::string> dependencies;
+    std::vector<std::string> conflicts;
+};
+
+using ComponentGraph = std::map<std::string, ComponentNode>;
+
+Value::Array resolve_selection(const ComponentGraph& graph,
+    const std::vector<std::string>& requested)
+{
+    if (requested.size() > 4096) {
+        throw std::runtime_error("too many requested components");
+    }
+    std::map<std::string, int> state;
+    std::vector<std::string> dependency_first;
+    for (const auto& [start, node] : graph) {
+        (void)node;
+        if (state[start] == 2) continue;
+        state[start] = 1;
+        std::vector<std::pair<std::string, std::size_t>> stack{{start, 0}};
+        while (!stack.empty()) {
+            auto& frame = stack.back();
+            const auto& dependencies = graph.at(frame.first).dependencies;
+            if (frame.second == dependencies.size()) {
+                state[frame.first] = 2;
+                dependency_first.push_back(frame.first);
+                stack.pop_back();
+                continue;
+            }
+            const std::string dependency = dependencies[frame.second++];
+            if (state[dependency] == 1) {
+                throw std::runtime_error("component dependency cycle");
+            }
+            if (state[dependency] != 2) {
+                state[dependency] = 1;
+                stack.emplace_back(dependency, 0);
+            }
+        }
+    }
+    std::set<std::string> selected;
+    std::vector<std::string> pending;
+    for (const auto& [name, node] : graph) {
+        if (node.required || node.default_selected) pending.push_back(name);
+    }
+    for (const auto& name : requested) {
+        require_id(name);
+        if (graph.count(name) == 0) {
+            throw std::runtime_error("unknown requested component");
+        }
+        pending.push_back(name);
+    }
+    while (!pending.empty()) {
+        const std::string name = pending.back();
+        pending.pop_back();
+        if (!selected.insert(name).second) continue;
+        const auto& dependencies = graph.at(name).dependencies;
+        pending.insert(pending.end(), dependencies.begin(), dependencies.end());
+    }
+    for (const auto& name : selected) {
+        for (const auto& conflict : graph.at(name).conflicts) {
+            if (selected.count(conflict) != 0) {
+                throw std::runtime_error("selected components conflict");
+            }
+        }
+    }
+    Value::Array result;
+    for (const auto& name : dependency_first) {
+        if (selected.count(name) != 0) result.emplace_back(name);
+    }
+    return result;
+}
+
 } // namespace
 
-std::string inspect_product_info(const std::filesystem::path& supplied)
+std::string inspect_product(const std::filesystem::path& supplied,
+    const std::vector<std::string>* requested)
 {
     if (supplied.filename() != "product.bundle.json") {
         throw std::runtime_error("product bundle sidecar name is invalid");
@@ -167,17 +243,31 @@ std::string inspect_product_info(const std::filesystem::path& supplied)
         previous_component = name;
     }
     Value::Array component_ids;
+    ComponentGraph graph;
+    std::size_t relation_count = 0;
     std::map<std::string, std::pair<std::uint64_t, std::string>> expected;
     std::uint64_t total = 0;
     for (const auto& component : components) {
         const std::string& name = component.at("id").as_string();
-        for (const char* relation : {"requires", "conflicts"}) {
-            for (const auto& reference : ids(component.at(relation), &component_names)) {
-                if (reference.as_string() == name) {
-                    throw std::runtime_error("self-referential component");
-                }
+        ComponentNode node{component.at("required").as_boolean(),
+            component.at("default_selected").as_boolean(), {}, {}};
+        for (const auto& reference : ids(component.at("requires"), &component_names)) {
+            if (reference.as_string() == name) {
+                throw std::runtime_error("self-referential component");
             }
+            node.dependencies.push_back(reference.as_string());
         }
+        for (const auto& reference : ids(component.at("conflicts"), &component_names)) {
+            if (reference.as_string() == name) {
+                throw std::runtime_error("self-referential component");
+            }
+            node.conflicts.push_back(reference.as_string());
+        }
+        relation_count += node.dependencies.size() + node.conflicts.size();
+        if (relation_count > 65536) {
+            throw std::runtime_error("component relation budget exceeded");
+        }
+        graph.emplace(name, std::move(node));
         component_ids.emplace_back(name);
         const auto& files = component.at("files").as_array();
         if (files.empty() || files.size() > 65536) {
@@ -298,6 +388,24 @@ std::string inspect_product_info(const std::filesystem::path& supplied)
         usk::base::sha256_hex_file(runtime_path) != runtime_sha256) {
         throw std::runtime_error("product bundle changed during inspection");
     }
+    const Value::Array selected_ids = resolve_selection(graph,
+        requested == nullptr ? std::vector<std::string>{} : *requested);
+    if (requested != nullptr) {
+        Value::Array requested_ids;
+        for (const auto& name : *requested) requested_ids.emplace_back(name);
+        const Value result(Value::Object{
+            {"schema", Value("usk.product_selection.v1")},
+            {"status", Value("verified_read_only")},
+            {"installation_mode", Value("inspect_only")},
+            {"product_id", bundle.at("product_id")},
+            {"product_version", bundle.at("product_version")},
+            {"target", bundle.at("target")},
+            {"requested_component_ids", Value(std::move(requested_ids))},
+            {"selected_component_ids", Value(selected_ids)},
+            {"bundle_sha256", Value(bundle_sha256)},
+            {"payload_sha256", Value(inspected.source_sha256)}});
+        return usk::json::canonical(result);
+    }
     const Value result(Value::Object{
         {"schema", Value("usk.product_info.v1")},
         {"status", Value("verified_read_only")},
@@ -314,6 +422,17 @@ std::string inspect_product_info(const std::filesystem::path& supplied)
         {"file_count", Value(static_cast<std::uint64_t>(inspected.files.size()))},
         {"uncompressed_bytes", Value(inspected.uncompressed_bytes)}});
     return usk::json::canonical(result);
+}
+
+std::string inspect_product_info(const std::filesystem::path& bundle_path)
+{
+    return inspect_product(bundle_path, nullptr);
+}
+
+std::string inspect_product_selection(const std::filesystem::path& bundle_path,
+    const std::vector<std::string>& requested)
+{
+    return inspect_product(bundle_path, &requested);
 }
 
 } // namespace usk::command

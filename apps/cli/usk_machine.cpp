@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #ifdef _WIN32
 #include <cstdio>
 #include <fcntl.h>
@@ -27,11 +28,32 @@ int main(int argc, char** argv)
             return 2;
         }
     }
+    if (argc >= 3 && std::string(argv[1]) == "--product-select" && argv[2][0] != '\0') {
+        try {
+            if ((argc - 3) % 2 != 0 || argc > 8195) {
+                throw std::runtime_error("invalid component selection arguments");
+            }
+            std::vector<std::string> requested;
+            for (int index = 3; index < argc; index += 2) {
+                if (std::string(argv[index]) != "--select" || argv[index + 1][0] == '\0') {
+                    throw std::runtime_error("invalid component selection arguments");
+                }
+                requested.emplace_back(argv[index + 1]);
+            }
+            std::cout << usk::command::inspect_product_selection(
+                std::filesystem::path(argv[2]), requested) << '\n';
+            return 0;
+        } catch (const std::exception&) {
+            std::cerr << "usk_machine: product selection refused\n";
+            return 2;
+        }
+    }
     if ((argc != 2 && argc != 4) ||
         (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed") ||
         (argc == 4 && (std::string(argv[2]) != "--request-file" || argv[3][0] == '\0'))) {
         std::cerr << "usage: usk_machine --machine|--framed [--request-file path]"
-            " | --product-info product.bundle.json\n";
+            " | --product-info product.bundle.json"
+            " | --product-select product.bundle.json [--select ID ...]\n";
         return 2;
     }
     const bool framed = std::string(argv[1]) == "--framed";
