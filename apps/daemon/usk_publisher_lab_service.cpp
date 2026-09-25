@@ -38,6 +38,7 @@ std::wstring receipt_path;
 std::wstring volume_root;
 bool prepublish_gate = false;
 bool postrename_gate = false;
+bool postjournal_gate = false;
 bool recover_prepared = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
@@ -201,6 +202,60 @@ void wait_for_postrename_gate() {
         }
     }
     throw std::runtime_error("postrename gate timed out");
+}
+
+void wait_for_postjournal_gate() {
+    const std::wstring ready = gate_sibling(L"postjournal-ready.txt");
+    const std::wstring ready_temp = gate_sibling(L"postjournal-ready.tmp");
+    const std::wstring release = gate_sibling(L"postjournal-release.txt");
+    static constexpr char ready_bytes[] =
+        "usk.publisher.lab_visible_recorded.v1\n";
+    static constexpr char release_bytes[] =
+        "usk.publisher.lab_continue_after_visible_record.v1\n";
+    if (GetFileAttributesW(ready.c_str()) != INVALID_FILE_ATTRIBUTES ||
+        GetFileAttributesW(release.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        throw std::runtime_error("postjournal gate markers existed before closure");
+    }
+    {
+        OwnedHandle marker(CreateFileW(ready_temp.c_str(), GENERIC_WRITE, 0,
+            nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (marker.get() == INVALID_HANDLE_VALUE) {
+            throw std::runtime_error("cannot create postjournal readiness marker");
+        }
+        DWORD written = 0;
+        if (!WriteFile(marker.get(), ready_bytes, sizeof(ready_bytes) - 1,
+                &written, nullptr) || written != sizeof(ready_bytes) - 1 ||
+            !FlushFileBuffers(marker.get())) {
+            throw std::runtime_error("cannot flush postjournal readiness marker");
+        }
+    }
+    if (!MoveFileExW(ready_temp.c_str(), ready.c_str(),
+            MOVEFILE_WRITE_THROUGH)) {
+        throw std::runtime_error("cannot expose flushed postjournal readiness marker");
+    }
+    for (unsigned attempt = 0; attempt != 1200; ++attempt) {
+        OwnedHandle signal(CreateFileW(release.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (signal.get() != INVALID_HANDLE_VALUE) {
+            char bytes[sizeof(release_bytes)]{};
+            DWORD read = 0;
+            if (!ReadFile(signal.get(), bytes, sizeof(bytes), &read, nullptr) ||
+                read != sizeof(release_bytes) - 1 ||
+                std::string(bytes, read) !=
+                    std::string(release_bytes, sizeof(release_bytes) - 1)) {
+                throw std::runtime_error("postjournal release marker is invalid");
+            }
+            return;
+        }
+        if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+            throw std::runtime_error("cannot inspect postjournal release marker");
+        }
+        if (WaitForSingleObject(stop_event, 100) != WAIT_TIMEOUT) {
+            throw std::runtime_error("postjournal gate interrupted");
+        }
+    }
+    throw std::runtime_error("postjournal gate timed out");
 }
 
 void report_status(DWORD state, DWORD accepted = 0, DWORD error = ERROR_SUCCESS) {
@@ -960,6 +1015,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         journal_tree.descendants[1].size != bound.size()) {
         throw std::runtime_error("publisher lab journal phase closure is not exact");
     }
+    if (postjournal_gate) wait_for_postjournal_gate();
     return "{\"boundary_file_id\":" + json_quote(first.chain.boundary.file_id) +
         ",\"publication_file_id\":" +
         json_quote(first.chain.children.front().object.file_id) +
@@ -1244,13 +1300,19 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--postrename-gate" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
+    const bool campaign_vm_postjournal = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        std::wstring(argv[5]) == L"--postjournal-gate" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
-        !campaign_vm_postrename) return 2;
+        !campaign_vm_postrename && !campaign_vm_postjournal) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
     prepublish_gate = argc == 6 || campaign_vm;
     postrename_gate = campaign_vm_postrename;
+    postjournal_gate = campaign_vm_postjournal;
     recover_prepared = campaign_vm_recovery;
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;

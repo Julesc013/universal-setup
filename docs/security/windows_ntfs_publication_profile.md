@@ -397,3 +397,34 @@ The separate external resource manifest SHA-256 is
 This normal completion and ACL-negative experiment does not prove an
 interrupted state after the visible record, power-loss durability, actual
 replay, hostile-race exclusion, or production readiness.
+
+A separate VM-only postjournal gate now pauses the restricted lab service
+after its visible-phase record has been written, flushed, read back, and
+observed in the protected journal tree, but before any final service receipt.
+On a fourth new campaign-owned 1 GiB NTFS VHDX (disk unique ID
+`6002248089F547088289F8F076DA613B`, volume GUID
+`\\?\Volume{d988827f-ff51-4de0-8e78-b53124ebfdae}\`), an independent
+backup-mode observer saw both journal records and the visible payload while
+service `USK_VM_e5137a9935104c9e84a79560c9b131de` was paused. The
+pre-poweroff receipt SHA-256 is
+`5b24b41081a48cd998105585486aba467db23ccd3c6ceabce122bfcf03c7a7d4`.
+The host forcibly powered off only campaign VM
+`6a23c3f9-272c-4711-b846-152f82bf93d2` (event receipt SHA-256
+`5e1e06b52a2ce2507c5eda261098fb45ea68620d9630cbe78dc0c5776e87c9c9`).
+After restart and exact VHDX reattachment, independent guest inspection found
+the same NTFS volume identity, prepared record SHA-256
+`cc525757c228fb486e5e4cbe063400098f0a0c2c013ec1f61d278ce41cb7fd11`,
+visible record SHA-256
+`99f5c5ea185e2e4b55b6dc9bedbf0ca75537489322787cb960c12377a89cea50`,
+and payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The service was stopped and had neither a release marker nor final receipt;
+post-poweroff observation SHA-256 is
+`e77151b842039216c9b4578dfdf8c65bf4a949adafd8632b3b9d5389b7477bec`.
+The restricted classifier then returned `recovery_required` with
+`visible_with_visible_record` (external receipt SHA-256
+`20690f3d3c9df0b67271548c42ca0582a2a4fc0b71420a56df1f2e6fa0e07d97`).
+The external owned-resource manifest SHA-256 is
+`3ce3ee46ad1d473d399e0b42d6cb95e0e716d2e601dbe0235d9aaa518ecf1b1a`.
+This is one forced VM poweroff window, not physical host power-loss proof or
+journal replay. It does not resolve OD-001 or qualify production publication.
