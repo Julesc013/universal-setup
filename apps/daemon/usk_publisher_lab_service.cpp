@@ -55,6 +55,7 @@ bool poststage_gate = false;
 bool postrename_gate = false;
 bool postjournal_gate = false;
 bool recover_prepared = false;
+bool recover_snapshot_only = false;
 bool recover_visible_bound = false;
 bool reviewed_install_reentry = false;
 
@@ -953,7 +954,7 @@ usk::lifecycle::InstallPlan restore_reviewed_install_plan(
 }
 
 ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
-    const std::string& service_sid) {
+    const std::string& service_sid, bool require_request_binding = true) {
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{
         L"staging", L"destination", L"state", L"journal"};
@@ -965,23 +966,45 @@ ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
     if (!recovery_journal_has_snapshot_only(volume, service_sid)) {
         throw std::runtime_error("recovery snapshot-only journal changed");
     }
+    const auto journal_tree = observe_publisher_tree(journal.get());
+    require_publisher_tree_security_shape(journal_tree, service_sid);
+    if (journal_tree.root.file_id != anchors.journal.object.file_id ||
+        journal_tree.descendants.size() != 1 ||
+        journal_tree.descendants.front().relative_path !=
+            L"lab-reviewed-plan.json") {
+        throw std::runtime_error("recovery snapshot file identity or security differs");
+    }
     const std::string record = read_phase_record(
         journal.get(), L"lab-reviewed-plan.json");
+    if (journal_tree.descendants.front().size != record.size() ||
+        journal_tree.descendants.front().sha256 != record_sha256(record)) {
+        throw std::runtime_error("recovery snapshot bytes changed during observation");
+    }
+    const auto journal_reobserved = observe_publisher_tree(journal.get());
+    require_publisher_tree_security_shape(journal_reobserved, service_sid);
+    require_publisher_tree_phase_match(journal_tree, journal_reobserved);
     const auto snapshot = usk::json::parse(record);
     if (snapshot.at("schema").as_string() !=
             "usk.publisher.lab_reviewed_plan_snapshot.v2" ||
         snapshot.as_object().size() != 15 ||
-        snapshot.at("plan_envelope_sha256").as_string() !=
-            reviewed_plan_envelope_sha256 ||
-        snapshot.at("archive_sha256").as_string() != selected_archive_sha256 ||
+        !lower_sha256_ascii(snapshot.at("plan_envelope_sha256").as_string()) ||
+        !lower_sha256_ascii(snapshot.at("archive_sha256").as_string()) ||
         snapshot.at("plan_request").at("archive")
-            .at("expected_sha256").as_string() != selected_archive_sha256 ||
+            .at("expected_sha256").as_string() !=
+                snapshot.at("archive_sha256").as_string() ||
         snapshot.at("plan_request").at("required_commit_authority")
             .as_string() != "staged_child_bound_v1" ||
         std::filesystem::path(snapshot.at("plan_request").at("target")
             .at("root").as_string()).lexically_normal() !=
         std::filesystem::path(snapshot.at("target_root").as_string())
             .lexically_normal()) {
+        throw std::runtime_error("recovery protected snapshot identity differs");
+    }
+    if (require_request_binding &&
+        (snapshot.at("plan_envelope_sha256").as_string() !=
+            reviewed_plan_envelope_sha256 ||
+         snapshot.at("archive_sha256").as_string() !=
+            selected_archive_sha256)) {
         throw StaleReviewedInstallRequest();
     }
     auto plan = restore_reviewed_install_plan(record);
@@ -2654,7 +2677,23 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                         publication_present = true;
                     }
                 }
-                if (publication_present && !reviewed_plan_envelope_path.empty()) {
+                if (recover_snapshot_only) {
+                    publication_effects_may_exist = publication_present;
+                    if (!publication_present ||
+                        !recovery_journal_has_snapshot_only(volume,
+                            observed.service_sid)) {
+                        throw std::runtime_error(
+                            "independent recovery requires an exact snapshot-only state");
+                    }
+                    const ReviewedPlanBinding reviewed_plan =
+                        reviewed_plan_from_snapshot_only(
+                            volume, observed.service_sid, false);
+                    selected_archive_sha256 =
+                        reviewed_plan.selected_payload.source_sha256;
+                    reviewed_plan_envelope_sha256 = reviewed_plan.envelope_sha256;
+                    anchors = observe_protected_anchors(volume,
+                        observed.service_sid, reviewed_plan, true);
+                } else if (publication_present && !reviewed_plan_envelope_path.empty()) {
                     publication_effects_may_exist = true;
                     if (recovery_journal_has_snapshot_only(volume,
                             observed.service_sid)) {
@@ -2760,6 +2799,12 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--recover-visible-bound" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
+    const bool campaign_vm_snapshot_recovery = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_recovery_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--recover-snapshot-only" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
     const bool campaign_vm_postrename = argc == 8 &&
         generated_service_name(name, L"USK_VM_") &&
         std::wstring(argv[5]) == L"--postrename-gate" &&
@@ -2798,6 +2843,7 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[13]) == L"--poststage-gate");
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
+        !campaign_vm_snapshot_recovery &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
         !campaign_vm_selected && !campaign_vm_selected_plan) return 2;
     service_name = argv[2];
@@ -2814,9 +2860,11 @@ int wmain(int argc, wchar_t** argv) {
     postjournal_gate = campaign_vm_postjournal ||
         selected_gate == L"--postjournal-gate";
     recover_prepared = campaign_vm_recovery || campaign_vm_replay;
+    recover_snapshot_only = campaign_vm_snapshot_recovery;
     recover_visible_bound = campaign_vm_replay;
-    selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan;
-    if (selected_archive_mode) {
+    selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
+        campaign_vm_snapshot_recovery;
+    if (campaign_vm_selected || campaign_vm_selected_plan) {
         selected_archive_path = argv[6];
         selected_archive_sha256 = ascii(argv[7]);
     }

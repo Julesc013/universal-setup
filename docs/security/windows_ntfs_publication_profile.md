@@ -1145,3 +1145,57 @@ durability, a general-source publisher, independent recovery without a
 reviewed request, source-file absence during replay, hostile-rights exclusion,
 per-install lease fencing, or
 OD-001. The ordinary strict publisher remains unavailable.
+
+## Independent sealed-snapshot recovery in the owned VM (2026-09-26)
+
+The private restricted-service laboratory now accepts a campaign-VM-only
+`--recover-snapshot-only` command with the service name, receipt path and held
+NTFS volume. It requires the exact snapshot-only protected journal and sealed
+candidate. It reads no selected ZIP or reviewed-envelope path from the command.
+Before trusting the protected snapshot, it checks the journal file's security,
+exact closure and identity across two full tree observations surrounding the
+canonical read. It restores the reviewed plan from those bytes, checks the
+staged file set, then uses the same prepared, visible and installed-state path
+as ordinary selected-source publication. A malformed protected snapshot is
+reported as retained `recovery_required`; only a mismatched supplied request
+is classified as stale.
+
+An independently created 1 GiB NTFS VHDX in the campaign-owned Windows Server
+build `10.0.20348.0` VM had disk ID
+`6002248092FFFCBB11823762A4A88EEC`, GUID
+`\\?\Volume{6b7a9184-b539-4a5b-9bcc-38f0e8ddebd7}\`, and reviewed plan
+digest `7a51e1de017300b4b3c1023636957f0c2e6955a493bfdd399a7b57f994410f24`.
+Its static service binary SHA-256
+`4b54944dfb49891c5e80284e5b1b736b646b0439dbf351dc5335d28482d87caa`
+flushed a poststage gate before prepared intent. The host checked the running
+service, exact disk ID and marker hash, then recorded `Stop-VM -TurnOff -Force`
+at `2026-09-25T21:52:41Z` and the owned VM in `Off` state. After restart,
+independent backup-mode readback found exactly two staged payloads and the
+3,142-byte protected snapshot SHA-256
+`55bae456f856d1f88863bb561df78920fa86daf878f4ab37c441d74104496b67`;
+prepared, visible and completion records were absent.
+
+The run's own selected ZIP and plan envelope were moved to distinct retained
+`.withheld` paths, leaving both original paths absent. Their retained hashes
+still matched the reviewed plan. Static recovery binary SHA-256
+`48e05ca336a1473a4a4b67ac480efa96c7fa5fb5974568323f43433c89b4eba4`
+then returned `pass` in receipt SHA-256
+`fa28a5a48509b8df49c56cd996f8cb34387b6f92606f7d2d4b42d76346d9d0dc`.
+Independent readback found both payloads at the visible destination with
+unchanged hashes, the same snapshot, prepared/visible/completion records, and
+five public setup-state files covering the owned-root marker, installed state,
+ownership and two audit events. The full host receipts and VHDX remain in the
+campaign lab.
+
+An initial dynamically linked binary did not launch in this guest. Its imported
+VC runtime DLLs were absent there, which is the likely cause; the tested
+static binary imports only system DLLs. The guest's PowerShell storage cmdlets refused VHDX reattachment after
+the forced restart, while DiskPart attached that exact owned VHDX and the
+subsequent disk ID and GUID checks passed. These are lab tooling observations,
+not product behavior.
+
+This demonstrates one source-free forward completion from a sealed
+snapshot-only state after forced VM turn-off. It does not qualify general
+sources, source-free replay of later journal phases, physical-host power-loss
+durability, hostile concurrent rights, per-install leases, OD-001 or the
+ordinary strict publisher.
