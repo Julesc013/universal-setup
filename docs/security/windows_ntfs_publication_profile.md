@@ -802,8 +802,8 @@ and physical-host power-loss qualification remain open.
 
 The restricted service now persists a bounded, canonical reviewed-plan
 snapshot under the protected journal before writing its prepared record. The
-snapshot retains the reviewed request, selected entry inventory, source and
-target identities, plan digest, and envelope digest. The prepared and
+snapshot retains the reviewed request, selected entry inventory, source
+identity, target path, plan digest, and envelope digest. The prepared and
 completion records bind its SHA-256. Recovery checks the snapshot's exact
 file-set digest against the protected visible tree before it may complete
 forward. Existing one-file and earlier selected-source journal records remain
@@ -852,7 +852,8 @@ and independently read completion SHA-256 was
 `e15be3bfe90b21af35a48bad4db2d8d9c3081fbcb446874c565bf520657fa1ab`).
 
 This makes the reviewed metadata durable across the tested VM crash window.
-It does not create the public ownership, installed-state, transaction, or
-audit records, nor does it qualify hostile races, leases, general-source
+It does not independently revalidate the native plan's target-identity facts
+after the crash. It does not create the public ownership, installed-state,
+transaction, or audit records, nor does it qualify hostile races, leases, general-source
 publication, physical-host power loss, or OD-001. The public strict commit
 gate remains unavailable.
