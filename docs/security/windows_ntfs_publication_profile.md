@@ -797,3 +797,63 @@ become the public installed-state, ownership, or audit record. The drive-letter 
 and selected source remain laboratory constraints, and hostile concurrent
 substitution, lease fencing, general sources, production enablement, OD-001,
 and physical-host power-loss qualification remain open.
+
+## Durable reviewed-plan snapshot in the selected-source lab (2026-09-26)
+
+The restricted service now persists a bounded, canonical reviewed-plan
+snapshot under the protected journal before writing its prepared record. The
+snapshot retains the reviewed request, selected entry inventory, source
+identity, target path, plan digest, and envelope digest. The prepared and
+completion records bind its SHA-256. Recovery checks the snapshot's exact
+file-set digest against the protected visible tree before it may complete
+forward. Existing one-file and earlier selected-source journal records remain
+readable; their missing snapshot is not treated as equivalent evidence.
+
+On owned Windows build `10.0.20348.0`, a two-file selected ZIP with SHA-256
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`
+was planned as digest
+`3f9c5400599f44563b257607664212d243689ba114e02bcb18eda8c494064bf4`.
+The service paused after the visible journal. Independent backup-mode reads
+found snapshot SHA-256
+`32c8762006d71eb9e3d715cc2fe09bcfbe16ddbdb91202512d24c6d0693d3103`,
+prepared SHA-256
+`ee8e74c4a1b0203a5a0f56c41875c1b0dd6d821945aee7133df0aca4a4efc667`,
+visible SHA-256
+`fdafe7287fddbd0cc7530157938a62ddd1f0eab056510c2e289d93c12b3ad6bd`,
+both selected payload hashes, and no completion. The host then forced this
+campaign VM off. After reboot, the same owned VHD identity was reattached;
+fresh independent reads matched all three journal hashes and both payloads,
+with completion still absent. The first recovery binary refused because it
+compared the native plan's `E:/...` spelling with the reviewed request's
+`E:\...` spelling as raw strings. That validation was corrected to lexical
+path normalization without changing the persisted records. The corrected
+binary SHA-256
+`0279bb90ef0c0c73fddc77f41ac3f677b2dc5281586a2ac34fbd569aca660c18`
+then returned `installed_state_completed_forward`, wrote completion SHA-256
+`701e7daba772bc4b92cee06472a4155d8634c978784cc9f1954ca01f1f111ba4`,
+and a repeat returned `already_visible_bound` with that same completion hash.
+External campaign receipts for the power-off, postboot inspection, recovery,
+and repeat have SHA-256 respectively
+`73a595fdef966130f1183737eea0d516c23088047fb20c62d47b4d1b2d8f348a`,
+`cad31f580023853594710b6d99cea88b18d3366c53ab435e8fb34a21168a27da`,
+`3a4005b9a69b00776000ffd95731cb9d2cc6a8cce5ceb4e339e955f22205d8d9`,
+and `0375a9f508713061668d33de342106b84c3a6e1605c5e97f571b6722be3d356e`.
+The recovered VM state is retained in snapshot
+`e441f2b2-963b-48b9-a857-cde0bffb51ba`.
+
+A second fresh owned VHD exercised the corrected binary from initial
+publication through clean completion. Its reviewed plan digest was
+`869d57fddf032203426d25265de62828c4ff03861f4b63af8f7ecb1ecc42a7e9`,
+snapshot SHA-256 was
+`c43e7e2aa525aa33cb238bb1f4fafc7a66f33bb93f0bb3e2942e6984b9d875ae`,
+and independently read completion SHA-256 was
+`0a00e4f6ea8559afaad794f14bf8ed87e7e517dcbf41227d8d6b012b15e93551`
+(external receipt SHA-256
+`e15be3bfe90b21af35a48bad4db2d8d9c3081fbcb446874c565bf520657fa1ab`).
+
+This makes the reviewed metadata durable across the tested VM crash window.
+It does not independently revalidate the native plan's target-identity facts
+after the crash. It does not create the public ownership, installed-state,
+transaction, or audit records, nor does it qualify hostile races, leases, general-source
+publication, physical-host power loss, or OD-001. The public strict commit
+gate remains unavailable.

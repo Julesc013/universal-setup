@@ -60,8 +60,10 @@ struct ReviewedPlanBinding {
     std::string plan_digest;
     std::string envelope_sha256;
     std::string selected_file_set_digest;
+    std::string durable_snapshot;
     usk::archive::StreamingStoredArchivePayload selected_payload;
 };
+std::wstring selected_utf8_path(const std::string& path);
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
@@ -721,13 +723,16 @@ bool recovery_journal_has_visible_record(HANDLE parent) {
     const auto listed =
         usk::platform::windows::observe_publisher_directory_entries(parent);
     bool prepared = false;
+    bool reviewed = false;
     bool visible = false;
     for (const auto& entry : listed) {
         if (entry.name == L"lab-prepared-evidence.json") prepared = true;
+        else if (entry.name == L"lab-reviewed-plan.json") reviewed = true;
         else if (entry.name == L"lab-visible-evidence.json") visible = true;
         else throw std::runtime_error("recovery journal has unexpected children");
     }
-    if (prepared && listed.size() == (visible ? 2u : 1u)) return visible;
+    if (prepared && listed.size() == 1u + (reviewed ? 1u : 0u) +
+            (visible ? 1u : 0u)) return visible;
     throw std::runtime_error("recovery journal has unexpected children");
 }
 
@@ -743,6 +748,7 @@ bool recovery_state_has_completion_record(HANDLE parent) {
 
 std::string read_phase_record(HANDLE journal, const std::wstring& name) {
     if (name != L"lab-prepared-evidence.json" &&
+        name != L"lab-reviewed-plan.json" &&
         name != L"lab-visible-evidence.json" &&
         name != L"lab-installed-state.json") {
         throw std::runtime_error("invalid recovery phase record name");
@@ -761,6 +767,53 @@ std::string read_phase_record(HANDLE journal, const std::wstring& name) {
         throw std::runtime_error("recovery phase record is not canonical");
     }
     return stored;
+}
+
+void require_reviewed_plan_snapshot(const std::string& record,
+    const usk::json::Value& prepared, const std::string& selected_digest) {
+    const auto snapshot = usk::json::parse(record);
+    const auto& binding = prepared.at("source_binding");
+    if (snapshot.as_object().size() != 10 ||
+        snapshot.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_snapshot.v1" ||
+        record_sha256(record) !=
+            binding.at("reviewed_plan_snapshot_sha256").as_string() ||
+        snapshot.at("plan_digest").as_string() !=
+            binding.at("reviewed_plan_digest").as_string() ||
+        snapshot.at("plan_envelope_sha256").as_string() !=
+            binding.at("plan_envelope_sha256").as_string() ||
+        snapshot.at("archive_sha256").as_string() !=
+            binding.at("archive_sha256").as_string() ||
+        snapshot.at("archive_identity_digest").as_string() !=
+            binding.at("archive_identity_digest").as_string() ||
+        snapshot.at("entry_set_digest").as_string() !=
+            binding.at("entry_set_digest").as_string() ||
+        snapshot.at("selected_file_set_digest").as_string() != selected_digest ||
+        std::filesystem::path(snapshot.at("target_root").as_string())
+            .lexically_normal().generic_u8string() !=
+        std::filesystem::path(snapshot.at("plan_request").at("target")
+            .at("root").as_string()).lexically_normal().generic_u8string() ||
+        snapshot.at("archive_sha256").as_string() !=
+            snapshot.at("plan_request").at("archive")
+                .at("expected_sha256").as_string() ||
+        snapshot.at("plan_request").at("required_commit_authority")
+            .as_string() != "staged_child_bound_v1") {
+        throw std::runtime_error("recovery reviewed plan snapshot identity differs");
+    }
+    std::vector<usk::platform::windows::PublisherExpectedFile> files;
+    for (const auto& entry : snapshot.at("planned_entries").as_array()) {
+        const std::string kind = entry.at("entry_type").as_string();
+        if (kind == "file") {
+            files.push_back({selected_utf8_path(entry.at("relative_path").as_string()),
+                entry.at("size_bytes").as_unsigned(),
+                entry.at("sha256").as_string()});
+        } else if (kind != "directory") {
+            throw std::runtime_error("recovery reviewed plan has an unsupported entry");
+        }
+    }
+    if (selected_file_set_digest(std::move(files)) != selected_digest) {
+        throw std::runtime_error("recovery reviewed plan file closure differs");
+    }
 }
 
 std::string prepared_tree_at_visible_name(const usk::json::Value& sealed,
@@ -908,8 +961,16 @@ std::string observe_prepared_recovery(HANDLE volume,
         recovery_state_has_completion_record(state.get());
     const bool has_visible_record =
         recovery_journal_has_visible_record(journal.get());
+    const auto listed_journal = observe_publisher_directory_entries(journal.get());
+    const bool has_reviewed_snapshot = std::any_of(listed_journal.begin(),
+        listed_journal.end(), [](const auto& entry) {
+            return entry.name == L"lab-reviewed-plan.json";
+        });
     const std::string stored = read_phase_record(
         journal.get(), L"lab-prepared-evidence.json");
+    const std::string stored_snapshot = has_reviewed_snapshot ?
+        read_phase_record(journal.get(), L"lab-reviewed-plan.json") :
+        std::string{};
     const std::string stored_visible = has_visible_record ?
         read_phase_record(journal.get(), L"lab-visible-evidence.json") :
         std::string{};
@@ -919,10 +980,16 @@ std::string observe_prepared_recovery(HANDLE volume,
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
     if (journal_tree.root.file_id != anchors.journal.object.file_id ||
-        journal_tree.descendants.size() != (has_visible_record ? 2u : 1u) ||
+        journal_tree.descendants.size() != 1u +
+            (has_reviewed_snapshot ? 1u : 0u) +
+            (has_visible_record ? 1u : 0u) ||
         journal_tree.descendants.front().relative_path != L"lab-prepared-evidence.json" ||
         journal_tree.descendants.front().size != stored.size() ||
         journal_tree.descendants.front().sha256 != prepared_digest ||
+        (has_reviewed_snapshot &&
+            (journal_tree.descendants[1].relative_path != L"lab-reviewed-plan.json" ||
+            journal_tree.descendants[1].size != stored_snapshot.size() ||
+            journal_tree.descendants[1].sha256 != record_sha256(stored_snapshot))) ||
         (has_visible_record &&
             (journal_tree.descendants.back().relative_path !=
                 L"lab-visible-evidence.json" ||
@@ -960,15 +1027,21 @@ std::string observe_prepared_recovery(HANDLE volume,
     if (prepared.contains("source_binding")) {
         const auto& binding = prepared.at("source_binding");
         const bool reviewed = binding.contains("reviewed_plan_digest");
-        if (binding.as_object().size() != (reviewed ? 5u : 3u) ||
+        const bool snapshotted = binding.contains("reviewed_plan_snapshot_sha256");
+        if (binding.as_object().size() != (snapshotted ? 6u : reviewed ? 5u : 3u) ||
             !lower_sha256_ascii(binding.at("archive_sha256").as_string()) ||
             !lower_sha256_ascii(binding.at("archive_identity_digest").as_string()) ||
             !lower_sha256_ascii(binding.at("entry_set_digest").as_string()) ||
             (reviewed && (!lower_sha256_ascii(
                 binding.at("reviewed_plan_digest").as_string()) ||
                 !lower_sha256_ascii(
-                    binding.at("plan_envelope_sha256").as_string())))) {
+                    binding.at("plan_envelope_sha256").as_string()))) ||
+            (snapshotted && (!reviewed || !lower_sha256_ascii(
+                binding.at("reviewed_plan_snapshot_sha256").as_string())))) {
             throw std::runtime_error("recovery selected source binding is malformed");
+        }
+        if (has_reviewed_snapshot != snapshotted) {
+            throw std::runtime_error("recovery reviewed snapshot presence differs from prepared");
         }
     }
     const bool selected_source = prepared.contains("source_binding");
@@ -977,6 +1050,12 @@ std::string observe_prepared_recovery(HANDLE volume,
     if (selected_v2 && (!selected_source ||
         !lower_sha256_ascii(selected_digest))) {
         throw std::runtime_error("recovery selected file set binding is invalid");
+    }
+    if (has_reviewed_snapshot) {
+        if (!selected_v2) {
+            throw std::runtime_error("recovery reviewed snapshot requires selected v2 closure");
+        }
+        require_reviewed_plan_snapshot(stored_snapshot, prepared, selected_digest);
     }
     if (has_completion_record && (!selected_source || !has_visible_record)) {
         throw std::runtime_error("recovery state has no selected visible source");
@@ -1065,6 +1144,8 @@ std::string observe_prepared_recovery(HANDLE volume,
         observe_publisher_tree(journal.get()));
     if (recovery_journal_has_visible_record(journal.get()) != has_visible_record ||
         read_phase_record(journal.get(), L"lab-prepared-evidence.json") != stored ||
+        (has_reviewed_snapshot && read_phase_record(
+            journal.get(), L"lab-reviewed-plan.json") != stored_snapshot) ||
         (has_visible_record && read_phase_record(
             journal.get(), L"lab-visible-evidence.json") != stored_visible) ||
         recovery_state_has_completion_record(state.get()) != has_completion_record) {
@@ -1132,13 +1213,19 @@ std::string observe_prepared_recovery(HANDLE volume,
         const auto forward_journal = observe_publisher_tree(journal.get());
         require_publisher_tree_security_shape(forward_journal, service_sid);
         if (forward_journal.root.file_id != anchors.journal.object.file_id ||
-            forward_journal.descendants.size() != 2 ||
+            forward_journal.descendants.size() !=
+                (has_reviewed_snapshot ? 3u : 2u) ||
             forward_journal.descendants[0].relative_path !=
                 L"lab-prepared-evidence.json" ||
             forward_journal.descendants[0].sha256 != prepared_digest ||
-            forward_journal.descendants[1].relative_path !=
+            (has_reviewed_snapshot &&
+                (forward_journal.descendants[1].relative_path !=
+                    L"lab-reviewed-plan.json" ||
+                forward_journal.descendants[1].sha256 !=
+                    record_sha256(stored_snapshot))) ||
+            forward_journal.descendants.back().relative_path !=
                 L"lab-visible-evidence.json" ||
-            forward_journal.descendants[1].sha256 != visible_hasher.finish()) {
+            forward_journal.descendants.back().sha256 != visible_hasher.finish()) {
             throw std::runtime_error("forward recovery journal closure differs");
         }
         require_publisher_tree_phase_match(forward_visible,
@@ -1193,6 +1280,8 @@ std::string observe_prepared_recovery(HANDLE volume,
             observe_publisher_anchor_set(volume, {L"publication"}, names));
         if (!recovery_journal_has_visible_record(journal.get()) ||
             read_phase_record(journal.get(), L"lab-prepared-evidence.json") != stored ||
+            (has_reviewed_snapshot && read_phase_record(
+                journal.get(), L"lab-reviewed-plan.json") != stored_snapshot) ||
             read_phase_record(journal.get(), L"lab-visible-evidence.json") !=
                 stored_visible) {
             throw std::runtime_error("recovery journal changed after completion");
@@ -1582,8 +1671,20 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
         throw std::runtime_error("selected source differs from reviewed native plan");
     }
     selected_payload.validate_source();
+    const std::string snapshot = canonical_record(usk::json::canonical(
+        usk::json::Value(usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.publisher.lab_reviewed_plan_snapshot.v1")},
+            {"plan_digest", usk::json::Value(plan_digest)},
+            {"plan_envelope_sha256", usk::json::Value(reviewed_plan_envelope_sha256)},
+            {"archive_sha256", usk::json::Value(selected_payload.source_sha256)},
+            {"archive_identity_digest", usk::json::Value(selected_payload.source_identity_digest)},
+            {"entry_set_digest", usk::json::Value(selected_payload.entry_set_digest)},
+            {"selected_file_set_digest", usk::json::Value(planned_set)},
+            {"target_root", plan.at("target").at("root")},
+            {"plan_request", request},
+            {"planned_entries", plan.at("planned_entries")}})));
     return {plan_digest, reviewed_plan_envelope_sha256,
-        planned_set, std::move(selected_payload)};
+        planned_set, snapshot, std::move(selected_payload)};
 }
 
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid,
@@ -1725,6 +1826,12 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto third = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, third);
+    const std::string reviewed_snapshot_digest = reviewed_plan ?
+        record_sha256(reviewed_plan->durable_snapshot) : std::string{};
+    if (reviewed_plan) {
+        write_journal_phase(journal.get(), L"lab-reviewed-plan.json",
+            descriptor, reviewed_plan->durable_snapshot);
+    }
     const std::string prepared = canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
         (selected_v2 ? "v2" : "v1") + "\","
@@ -1751,11 +1858,17 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
                     ",\"reviewed_plan_digest\":" +
                         json_quote(reviewed_plan->plan_digest) +
                     ",\"plan_envelope_sha256\":" +
-                        json_quote(reviewed_plan->envelope_sha256) :
+                        json_quote(reviewed_plan->envelope_sha256) +
+                    ",\"reviewed_plan_snapshot_sha256\":" +
+                        json_quote(reviewed_snapshot_digest) :
                     std::string{}) + "}" :
             std::string{}) +
         ",\"protected_anchors\":" + json_anchor_set(third) +
         ",\"sealed_tree\":" + json_tree(sealed) + "}");
+    if (reviewed_plan) {
+        require_reviewed_plan_snapshot(reviewed_plan->durable_snapshot,
+            usk::json::parse(prepared), selected_digest);
+    }
     write_journal_phase(journal.get(), L"lab-prepared-evidence.json",
         descriptor, prepared);
     usk::base::Sha256 prepared_hasher;
@@ -1792,11 +1905,15 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
     if (journal_tree.root.file_id != first.journal.object.file_id ||
-        journal_tree.descendants.size() != 2 ||
+        journal_tree.descendants.size() != (reviewed_plan ? 3u : 2u) ||
         journal_tree.descendants[0].relative_path != L"lab-prepared-evidence.json" ||
         journal_tree.descendants[0].size != prepared.size() ||
-        journal_tree.descendants[1].relative_path != L"lab-visible-evidence.json" ||
-        journal_tree.descendants[1].size != bound.size()) {
+        (reviewed_plan &&
+            (journal_tree.descendants[1].relative_path != L"lab-reviewed-plan.json" ||
+            journal_tree.descendants[1].size != reviewed_plan->durable_snapshot.size() ||
+            journal_tree.descendants[1].sha256 != reviewed_snapshot_digest)) ||
+        journal_tree.descendants.back().relative_path != L"lab-visible-evidence.json" ||
+        journal_tree.descendants.back().size != bound.size()) {
         throw std::runtime_error("publisher lab journal phase closure is not exact");
     }
     if (postjournal_gate) wait_for_postjournal_gate();
@@ -1817,6 +1934,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             observe_publisher_directory_entries(destination.get());
         if (read_phase_record(journal.get(), L"lab-prepared-evidence.json") !=
                 prepared ||
+            (reviewed_plan && read_phase_record(journal.get(),
+                L"lab-reviewed-plan.json") != reviewed_plan->durable_snapshot) ||
             read_phase_record(journal.get(), L"lab-visible-evidence.json") != bound ||
             !observe_publisher_directory_entries(staging.get()).empty() ||
             final_destination.size() != 1 ||
@@ -1870,13 +1989,15 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         ",\"prepared_file\":" +
         json_protected_object(journal_tree.descendants[0].object) +
         ",\"bound_file\":" +
-        json_protected_object(journal_tree.descendants[1].object) +
+        json_protected_object(journal_tree.descendants.back().object) +
         ",\"prepared_record\":" + json_quote(prepared) +
         ",\"prepared_sha256\":" +
         json_quote(journal_tree.descendants[0].sha256) +
         ",\"bound_record\":" + json_quote(bound) +
         ",\"bound_sha256\":" +
-        json_quote(journal_tree.descendants[1].sha256) +
+        json_quote(journal_tree.descendants.back().sha256) +
+        ",\"reviewed_plan_snapshot_sha256\":" +
+        (reviewed_plan ? json_quote(reviewed_snapshot_digest) : "null") +
         ",\"completion_record_sha256\":" +
         (completion_digest.empty() ? "null" : json_quote(completion_digest)) +
         "}}";
