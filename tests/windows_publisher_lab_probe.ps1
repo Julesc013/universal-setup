@@ -1,4 +1,8 @@
-param([Parameter(Mandatory = $true)][string]$OutputPath)
+param(
+    [Parameter(Mandatory = $true)][string]$OutputPath,
+    [string]$ServiceBinary = '',
+    [string]$DeviceAclBinary = ''
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -37,6 +41,7 @@ $receipt = [ordered]@{
     volume_root = $null
     volume_unique_id = $null
     filesystem = $null
+    service_observation = $null
     cleanup = 'not_run'
     failure = $null
 }
@@ -113,10 +118,31 @@ try {
     $receipt.volume_unique_id = $volume.UniqueId
     $receipt.filesystem = $volume.FileSystem
     $receipt.status = 'volume_provisioned'
+    if ($ServiceBinary) {
+        if (-not $DeviceAclBinary) { throw 'owned VHD device ACL helper is required' }
+        $serviceOutput = Join-Path $lab 'service-probe.json'
+        & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
+            -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
+            -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
+            -OutputPath $serviceOutput
+        $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
+            ConvertFrom-Json
+        if ($receipt.service_observation.status -ne 'protected_anchors_observed') {
+            throw 'protected anchor service probe did not pass'
+        }
+        $receipt.status = 'volume_and_protected_anchors_observed'
+    }
 } catch {
     $failure = $_.Exception.Message
     $receipt.failure = $failure
     $receipt.status = 'failed'
+    if ($ServiceBinary -and $serviceOutput -and
+        (Test-Path -LiteralPath $serviceOutput -PathType Leaf)) {
+        try {
+            $receipt.service_observation = Get-Content -LiteralPath $serviceOutput -Raw |
+                ConvertFrom-Json
+        } catch {}
+    }
 } finally {
     try {
         $backingFileExisted = Test-Path -LiteralPath $vhd -PathType Leaf
@@ -137,7 +163,7 @@ try {
         if (-not $failure) { $failure = 'disposable VHD cleanup failed' }
     }
     $receipt['completed_utc'] = [DateTime]::UtcNow.ToString('o')
-    $receipt | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $out -Encoding UTF8
+    $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
 }
 
 if ($failure) { throw $failure }

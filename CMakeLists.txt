@@ -526,6 +526,21 @@ if(USK_BUILD_TESTS)
   set_tests_properties(usk_commit_authority_smoke PROPERTIES TIMEOUT 30)
 
   if(WIN32)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      add_executable(usk_publisher_lab_service
+        apps/daemon/usk_publisher_lab_service.cpp)
+      target_compile_features(usk_publisher_lab_service PRIVATE cxx_std_17)
+      target_link_libraries(usk_publisher_lab_service PRIVATE
+        usk_publisher_windows_static)
+      usk_enable_strict_warnings(usk_publisher_lab_service)
+
+      add_executable(usk_publisher_lab_device_acl
+        tests/native/usk_publisher_lab_device_acl.cpp)
+      target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
+      target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
+      usk_enable_strict_warnings(usk_publisher_lab_device_acl)
+    endif()
+
     add_executable(usk_publisher_handle_observation_smoke
       tests/native/usk_publisher_handle_observation_smoke.cpp)
     target_compile_features(usk_publisher_handle_observation_smoke PRIVATE cxx_std_17)
