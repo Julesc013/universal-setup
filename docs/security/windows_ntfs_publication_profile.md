@@ -439,3 +439,54 @@ digest failure retention, pre-creation size refusal and collision refusal.
 It does not establish a trusted source, protected-parent provenance, complete
 tree closure, service execution, publisher durability, recovery or production
 availability.
+
+## Restricted-service forward recovery candidate (2026-09-25)
+
+The campaign VM-only service now has a separate `--recover-visible-bound`
+mode. It reopens the exact protected anchors and prepared journal through held
+parent handles, checks the recorded staged/visible closure, and either performs
+one no-replace parent-bound rename from the prepared stage or accepts the
+already-visible root. It writes the missing create-only visible-phase record,
+reads it back, and reobserves the protected journal, visible tree, anchors and
+staging/destination names. A second run on an already-bound record returns
+`already_visible_bound` without another rename. Replay errors report
+`recovery_required` with a nonzero service exit; retained material is not
+removed.
+
+The statically linked x64 candidate binary SHA-256
+`00dd1365346b7d41154b88e3a749a269e3b9ffc78916690fd8d5455b630e99e2`
+ran in campaign VM `6a23c3f9-272c-4711-b846-152f82bf93d2` on Windows
+build `10.0.20348.0`. From the retained prepared-stage snapshot, service
+`USK_VM_92fb97d0fc9141f9b527a8d70f967d4c` returned
+`visible_bound_forward`; independent guest backup-mode reads matched the
+prepared record SHA-256
+`c1450d0eca0c548839da69b7aacfd0741da4b28311f7d7001ee73d5d58825b40`,
+visible record SHA-256
+`bf557f838c5eb1fa76b35b7157ddfddf6f9ba7e6b8d746c9090209151920ff7d`,
+and 25-byte payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The external service and independent receipts have SHA-256
+`842105a0b977dfa1ae522768d9594c6e5ce7ff1859292a02a1ae76a0272d6c78`
+and `55fa6ec80fea708ede456414025681ac35bd4f9279254d10e4ca7deb77ab065b`.
+
+From the retained post-rename, pre-visible-record snapshot, the same binary
+under service `USK_VM_520904d4080540099d7370bd83a472d7` returned
+`visible_bound_forward`. Independent reads matched prepared SHA-256
+`41464b826d3a8c39d8f84ba429891ba0c04731b22e37b1d79bb124643baf34f7`,
+visible record SHA-256
+`0923736859b0419aad70499bf7a57860fb177dad8d4da7c25c02936d3ec1535d`,
+and the same payload digest. A repeated service run returned
+`already_visible_bound` with the same visible record hash. The external
+service, independent, and repeat receipt SHA-256 values are respectively
+`d6ac9533fac1e533b805405d231e1651ee3f2e50c4662038aa88f6c3ccbe0cc3`,
+`b8cefc77ffd75e7a760a8f854da493f8a559b1cd33128fb676fdf0eead24e083`,
+and `3d617dbcc256e91a776b5b589ba3c677fbe90955179faebe3d644c0f74d860a2`.
+The VM was restored to its pre-test campaign checkpoint; the two successful
+end states remain in separate owned snapshots.
+
+These observations cover a single fixed service-owned 25-byte lab payload and
+two retained VM crash windows. They do not provide a general source or
+selected-payload publisher, installed-state completion, lease fencing,
+hostile-race qualification, physical-host power-loss proof, or production
+availability. A crash during visible-record creation can leave an incomplete
+record that this replay conservatively refuses. OD-001 remains open.

@@ -41,6 +41,7 @@ bool prepublish_gate = false;
 bool postrename_gate = false;
 bool postjournal_gate = false;
 bool recover_prepared = false;
+bool recover_visible_bound = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
@@ -553,7 +554,9 @@ void write_journal_phase(HANDLE journal, const std::wstring& name,
     }
 }
 
-HANDLE open_exact_lab_child(HANDLE parent, const std::wstring& name) {
+HANDLE open_exact_lab_child(HANDLE parent, const std::wstring& name,
+    bool require_add_subdirectory = false, bool require_delete = false,
+    bool require_add_file = false) {
     HANDLE result = INVALID_HANDLE_VALUE;
     for (const auto& listed :
             usk::platform::windows::observe_publisher_directory_entries(parent)) {
@@ -562,7 +565,9 @@ HANDLE open_exact_lab_child(HANDLE parent, const std::wstring& name) {
             CloseHandle(result);
             throw std::runtime_error("duplicate recovery child listing");
         }
-        result = usk::platform::windows::open_publisher_listed_child(parent, listed);
+        result = usk::platform::windows::open_publisher_listed_child(
+            parent, listed, require_add_subdirectory, require_delete,
+            require_add_file);
     }
     if (result == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("required recovery child is absent");
@@ -627,8 +632,31 @@ std::string prepared_tree_at_visible_name(const usk::json::Value& sealed,
     return usk::json::canonical(expected);
 }
 
+std::string lab_visible_record(
+    const std::string& source_file_id,
+    const std::string& destination_parent_file_id,
+    const std::string& prepared_digest,
+    const usk::platform::windows::PublisherAnchorSetObservation& anchors,
+    const usk::platform::windows::PublisherTreeObservation& visible) {
+    if (visible.descendants.size() != 1 ||
+        visible.descendants.front().relative_path != L"payload.bin") {
+        throw std::runtime_error("visible lab payload closure differs");
+    }
+    return canonical_record(
+        "{\"schema\":\"usk.publisher.lab_phase_evidence.v1\","
+        "\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
+        json_quote(source_file_id) +
+        ",\"destination_parent_file_id\":" +
+        json_quote(destination_parent_file_id) +
+        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
+        json_quote(visible.descendants.front().sha256) +
+        ",\"prepared_record_sha256\":" + json_quote(prepared_digest) +
+        ",\"protected_anchors\":" + json_anchor_set(anchors) +
+        ",\"visible_tree\":" + json_tree(visible) + "}");
+}
+
 std::string observe_prepared_recovery(HANDLE volume,
-    const std::string& service_sid) {
+    const std::string& service_sid, bool bind_visible_forward) {
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{
         L"staging", L"destination", L"state", L"journal"};
@@ -640,9 +668,11 @@ std::string observe_prepared_recovery(HANDLE volume,
         throw std::runtime_error("recovery publication has unexpected anchors");
     }
     OwnedHandle staging(open_exact_lab_child(publication.get(), L"staging"));
-    OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
+    OwnedHandle destination(open_exact_lab_child(
+        publication.get(), L"destination", bind_visible_forward));
     OwnedHandle state(open_exact_lab_child(publication.get(), L"state"));
-    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal",
+        false, false, bind_visible_forward));
     if (!observe_publisher_directory_entries(state.get()).empty()) {
         throw std::runtime_error("recovery state is not empty");
     }
@@ -710,7 +740,8 @@ std::string observe_prepared_recovery(HANDLE volume,
     }
     OwnedHandle root(open_exact_lab_child(
         staged ? staging.get() : destination.get(),
-        staged ? L"candidate" : L"visible"));
+        staged ? L"candidate" : L"visible", false,
+        bind_visible_forward && staged));
     const auto observed_tree = observe_publisher_tree(root.get());
     require_publisher_tree_security_shape(observed_tree, service_sid);
     const std::string staged_name =
@@ -778,6 +809,89 @@ std::string observe_prepared_recovery(HANDLE volume,
     }
     if (observe_publisher_directory_entries(publication.get()).size() != 4) {
         throw std::runtime_error("recovery publication anchor set changed");
+    }
+    if (bind_visible_forward && !has_visible_record) {
+        PublisherTreeObservation forward_visible = observed_tree;
+        if (staged) {
+            // A recovered worker uses the same protected handles, exact
+            // prepared closure and no-replace rename as the initial worker.
+            // There is no retry after a rename with an uncertain outcome.
+            require_publisher_anchor_set_phase_match(anchors,
+                observe_publisher_anchor_set(volume, {L"publication"}, names));
+            require_publisher_tree_phase_match(observed_tree,
+                observe_publisher_tree(root.get()));
+            (void)probe_publisher_bound_rename_no_replace(root.get(),
+                destination.get(), L"visible", observed_tree.root,
+                anchors.destination_parent.object);
+            forward_visible = observe_visible_publisher_tree_against_seal(
+                destination.get(), L"visible", observed_tree);
+        }
+        require_publisher_tree_security_shape(forward_visible, service_sid);
+        require_publisher_anchor_set_phase_match(anchors,
+            observe_publisher_anchor_set(volume, {L"publication"}, names));
+        if (prepared_tree_at_visible_name(prepared.at("sealed_tree"),
+                staged_name, visible_name) !=
+            usk::json::canonical(usk::json::parse(json_tree(forward_visible)))) {
+            throw std::runtime_error("forward recovery visible closure differs from prepared");
+        }
+        const auto descriptor = make_publisher_directory_security_descriptor(
+            std::wstring(service_sid.begin(), service_sid.end()));
+        const std::string forward_record = lab_visible_record(
+            forward_visible.root.file_id,
+            anchors.destination_parent.object.file_id, prepared_digest,
+            anchors, forward_visible);
+        write_journal_phase(journal.get(), L"lab-visible-evidence.json",
+            descriptor, forward_record);
+        if (read_phase_record(journal.get(), L"lab-visible-evidence.json") !=
+                forward_record ||
+            recovery_journal_has_visible_record(journal.get()) != true) {
+            throw std::runtime_error("forward recovery visible record did not persist");
+        }
+        usk::base::Sha256 visible_hasher;
+        visible_hasher.update(
+            reinterpret_cast<const unsigned char*>(forward_record.data()),
+            forward_record.size());
+        const auto forward_journal = observe_publisher_tree(journal.get());
+        require_publisher_tree_security_shape(forward_journal, service_sid);
+        if (forward_journal.root.file_id != anchors.journal.object.file_id ||
+            forward_journal.descendants.size() != 2 ||
+            forward_journal.descendants[0].relative_path !=
+                L"lab-prepared-evidence.json" ||
+            forward_journal.descendants[0].sha256 != prepared_digest ||
+            forward_journal.descendants[1].relative_path !=
+                L"lab-visible-evidence.json" ||
+            forward_journal.descendants[1].sha256 != visible_hasher.finish()) {
+            throw std::runtime_error("forward recovery journal closure differs");
+        }
+        require_publisher_tree_phase_match(forward_visible,
+            observe_publisher_tree(root.get()));
+        require_publisher_tree_phase_match(forward_journal,
+            observe_publisher_tree(journal.get()));
+        require_publisher_anchor_set_phase_match(anchors,
+            observe_publisher_anchor_set(volume, {L"publication"}, names));
+        const auto final_staging = observe_publisher_directory_entries(staging.get());
+        const auto final_destination =
+            observe_publisher_directory_entries(destination.get());
+        if (!final_staging.empty() || final_destination.size() != 1 ||
+            final_destination.front().name != L"visible") {
+            throw std::runtime_error("forward recovery namespace changed after journal write");
+        }
+        return "{\"decision\":\"visible_bound_forward\",\"prepared_sha256\":" +
+            json_quote(prepared_digest) +
+            ",\"source_file_id\":" + json_quote(forward_visible.root.file_id) +
+            ",\"payload_sha256\":" +
+            json_quote(forward_visible.descendants.front().sha256) +
+            ",\"observed_location\":\"visible_with_visible_record\","
+            "\"destination_empty\":false,\"state_empty\":true}";
+    }
+    if (bind_visible_forward && has_visible_record) {
+        return "{\"decision\":\"already_visible_bound\",\"prepared_sha256\":" +
+            json_quote(prepared_digest) +
+            ",\"source_file_id\":" + json_quote(observed_tree.root.file_id) +
+            ",\"payload_sha256\":" +
+            json_quote(observed_tree.descendants.front().sha256) +
+            ",\"observed_location\":\"visible_with_visible_record\","
+            "\"destination_empty\":false,\"state_empty\":true}";
     }
     return "{\"decision\":\"recovery_required\",\"prepared_sha256\":" +
         json_quote(prepared_digest) +
@@ -1017,17 +1131,9 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto after = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, after);
-    const std::string bound = canonical_record(
-        "{\"schema\":\"usk.publisher.lab_phase_evidence.v1\","
-        "\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
-        json_quote(renamed.root_file_id) +
-        ",\"destination_parent_file_id\":" +
-        json_quote(first.destination_parent.object.file_id) +
-        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
-        json_quote(visible.descendants.front().sha256) +
-        ",\"prepared_record_sha256\":" + json_quote(prepared_digest) +
-        ",\"protected_anchors\":" + json_anchor_set(after) +
-        ",\"visible_tree\":" + json_tree(visible) + "}");
+    const std::string bound = lab_visible_record(
+        renamed.root_file_id, first.destination_parent.object.file_id,
+        prepared_digest, after, visible);
     write_journal_phase(journal.get(), L"lab-visible-evidence.json", descriptor, bound);
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
@@ -1254,7 +1360,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
             anchors = recover_prepared ?
-                observe_prepared_recovery(volume, observed.service_sid) :
+                observe_prepared_recovery(volume, observed.service_sid,
+                    recover_visible_bound) :
                 observe_protected_anchors(volume, observed.service_sid);
         } catch (...) {
             CloseHandle(volume);
@@ -1263,7 +1370,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         CloseHandle(volume);
         const std::string data =
             "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
-            json_quote(recover_prepared ? "recovery_required" : "pass") + ","
+            json_quote(recover_prepared && !recover_visible_bound ?
+                "recovery_required" : "pass") + ","
             "\"service_name\":" + json_quote(ascii(service_name)) +
             ",\"service_sid\":" + json_quote(observed.service_sid) +
             ",\"service_sid_type\":" + std::to_string(observed.service_sid_type) +
@@ -1294,7 +1402,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         service_exit_code = ERROR_SERVICE_SPECIFIC_ERROR;
         try {
             write_receipt("{\"schema\":\"usk.publisher_lab_service_observation.v1\","
-                "\"status\":\"failed\",\"error\":" + json_quote(error.what()) + "}\n");
+                "\"status\":" +
+                json_quote(recover_visible_bound ? "recovery_required" : "failed") +
+                ",\"error\":" + json_quote(error.what()) + "}\n");
         } catch (...) {}
     }
     if (stop_event) CloseHandle(stop_event);
@@ -1319,6 +1429,12 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--recover-prepared" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
+    const bool campaign_vm_replay = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_recovery_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--recover-visible-bound" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
     const bool campaign_vm_postrename = argc == 8 &&
         generated_service_name(name, L"USK_VM_") &&
         std::wstring(argv[5]) == L"--postrename-gate" &&
@@ -1330,6 +1446,7 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
+        !campaign_vm_replay &&
         !campaign_vm_postrename && !campaign_vm_postjournal) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
@@ -1337,7 +1454,8 @@ int wmain(int argc, wchar_t** argv) {
     prepublish_gate = argc == 6 || campaign_vm;
     postrename_gate = campaign_vm_postrename;
     postjournal_gate = campaign_vm_postjournal;
-    recover_prepared = campaign_vm_recovery;
+    recover_prepared = campaign_vm_recovery || campaign_vm_replay;
+    recover_visible_bound = campaign_vm_replay;
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
     return service_exit_code == ERROR_SUCCESS ? 0 : 4;
