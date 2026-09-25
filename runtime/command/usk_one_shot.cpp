@@ -47,7 +47,8 @@ bool safe_id(const std::string& value)
 bool initial_command(const std::string& command)
 {
     return command == "command_graph.inspect" || command == "command_graph.inspect_v2" ||
-        command == "policy.inspect" || command == "diagnostics.report";
+        command == "policy.inspect" || command == "diagnostics.report" ||
+        command == "install_local.inspect";
 }
 
 } // namespace

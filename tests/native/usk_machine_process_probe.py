@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import struct
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 
@@ -48,6 +50,43 @@ def main() -> int:
     assert json.loads(framed.stdout[4:]) == document
 
     with tempfile.TemporaryDirectory(prefix="usk-machine-process-") as temporary:
+        archive = Path(temporary) / "neutral.zip"
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as writer:
+            writer.writestr("hello.txt", b"external archive bytes\n")
+        inspect_request = {
+            "schema": "usk.oneshot_request.v1",
+            "request_id": "archive-probe",
+            "command": "install_local.inspect",
+            "payload": {
+                "schema": "usk.archive_inspect_request.v1",
+                "archive_path": str(archive.resolve()),
+                "archive_format": "zip",
+                "budgets": {
+                    "max_entries": 8,
+                    "max_uncompressed_bytes": 4096,
+                    "max_entry_bytes": 4096,
+                    "max_depth": 4,
+                    "max_ratio": 100,
+                    "max_elapsed_ms": 20000,
+                },
+            },
+            "dry_run": True,
+        }
+        inspected = run(executable, "--machine",
+                        json.dumps(inspect_request, separators=(",", ":")).encode("utf-8"))
+        assert inspected.returncode == 0 and not inspected.stderr, inspected.stderr
+        inspected_document = json.loads(inspected.stdout)
+        assert inspected_document["request_id"] == "archive-probe"
+        assert inspected_document["status"] == "ok"
+        assert inspected_document["result"]["schema"] == "usk.command_response.v1"
+        assert inspected_document["result"]["status"] == "ok"
+        inspection = inspected_document["result"]["payload"]
+        assert inspection["schema"] == "usk.archive_inspection.v1"
+        assert inspection["source"]["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
+        assert inspection["totals"]["file_count"] == 1
+        assert inspection["entries"][0]["normalized_path"] == "hello.txt"
+        assert inspection["problems"] == []
+
         source = Path(temporary) / "request.json"
         source.write_bytes(encoded)
         from_file = subprocess.run(
