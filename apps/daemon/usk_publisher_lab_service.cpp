@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_anchor_create.h"
+#include "usk_publisher_bound_rename.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -195,6 +196,35 @@ std::string json_protected_object(
         ",\"dacl_aces\":" + aces + "]}";
 }
 
+void flush_owned_volume(const std::wstring& root) {
+    if (root.size() < 2 || root.back() != L'\\') {
+        throw std::runtime_error("publisher lab volume root is malformed");
+    }
+    const std::wstring device = root.substr(0, root.size() - 1);
+    OwnedHandle volume(CreateFileW(device.c_str(), GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, 0, nullptr));
+    if (volume.get() == INVALID_HANDLE_VALUE ||
+        !FlushFileBuffers(volume.get())) {
+        throw std::runtime_error("publisher lab volume flush failed; Win32 " +
+            std::to_string(GetLastError()));
+    }
+}
+
+void write_journal_phase(HANDLE journal, const std::wstring& name,
+    const std::vector<unsigned char>& descriptor, const std::string& record) {
+    OwnedHandle file(usk::platform::windows::create_file_relative_with_descriptor(
+        journal, name, descriptor));
+    DWORD written = 0;
+    if (record.size() > MAXDWORD ||
+        !WriteFile(file.get(), record.data(), static_cast<DWORD>(record.size()),
+            &written, nullptr) || written != record.size() ||
+        !FlushFileBuffers(file.get())) {
+        throw std::runtime_error("publisher lab journal phase write or flush failed");
+    }
+    flush_owned_volume(volume_root);
+}
+
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid) {
     using namespace usk::platform::windows;
     const std::wstring sid(service_sid.begin(), service_sid.end());
@@ -259,6 +289,47 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto third = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, third);
+    const std::string prepared =
+        "{\"phase\":\"publish_prepared\",\"service_sid\":" +
+        json_quote(service_sid) +
+        ",\"volume_serial\":" +
+        std::to_string(sealed.volume.file_id_volume_serial) +
+        ",\"source_file_id\":" + json_quote(sealed.root.file_id) +
+        ",\"destination_parent_file_id\":" +
+        json_quote(first.destination_parent.object.file_id) +
+        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
+        json_quote(sealed.descendants.front().sha256) + "}\n";
+    write_journal_phase(journal.get(), L"publish-prepared.json",
+        descriptor, prepared);
+    require_publisher_tree_phase_match(sealed, observe_publisher_tree(candidate.get()));
+    require_publisher_anchor_set_phase_match(first,
+        observe_publisher_anchor_set(volume, {L"publication"}, names));
+    const auto renamed = probe_publisher_bound_rename_no_replace(candidate.get(),
+        destination.get(), L"visible", sealed.root,
+        first.destination_parent.object);
+    const auto visible = observe_visible_publisher_tree_against_seal(
+        destination.get(), L"visible", sealed);
+    require_publisher_tree_security_shape(visible, service_sid);
+    require_publisher_anchor_set_phase_match(first,
+        observe_publisher_anchor_set(volume, {L"publication"}, names));
+    const std::string bound =
+        "{\"phase\":\"visible_bound\",\"source_file_id\":" +
+        json_quote(renamed.root_file_id) +
+        ",\"destination_parent_file_id\":" +
+        json_quote(first.destination_parent.object.file_id) +
+        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
+        json_quote(visible.descendants.front().sha256) + "}\n";
+    write_journal_phase(journal.get(), L"visible-bound.json", descriptor, bound);
+    const auto journal_tree = observe_publisher_tree(journal.get());
+    require_publisher_tree_security_shape(journal_tree, service_sid);
+    if (journal_tree.root.file_id != first.journal.object.file_id ||
+        journal_tree.descendants.size() != 2 ||
+        journal_tree.descendants[0].relative_path != L"publish-prepared.json" ||
+        journal_tree.descendants[0].size != prepared.size() ||
+        journal_tree.descendants[1].relative_path != L"visible-bound.json" ||
+        journal_tree.descendants[1].size != bound.size()) {
+        throw std::runtime_error("publisher lab journal phase closure is not exact");
+    }
     return "{\"boundary_file_id\":" + json_quote(first.chain.boundary.file_id) +
         ",\"publication_file_id\":" +
         json_quote(first.chain.children.front().object.file_id) +
@@ -280,7 +351,27 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         ",\"file\":" + json_protected_object(sealed.descendants.front().object) +
         ",\"relative_path\":\"payload.bin\",\"size\":" +
             std::to_string(sealed.descendants.front().size) +
-        ",\"sha256\":" + json_quote(sealed.descendants.front().sha256) + "}}";
+        ",\"sha256\":" + json_quote(sealed.descendants.front().sha256) +
+        "},\"publication_probe\":{\"source_file_id\":" +
+        json_quote(renamed.root_file_id) +
+        ",\"former_name\":" + json_quote(ascii(renamed.former_name)) +
+        ",\"visible_name\":" + json_quote(ascii(renamed.visible_name)) +
+        ",\"visible_root\":" + json_protected_object(visible.root) +
+        ",\"visible_file\":" +
+        json_protected_object(visible.descendants.front().object) +
+        ",\"visible_payload_sha256\":" +
+        json_quote(visible.descendants.front().sha256) +
+        ",\"journal_root\":" + json_protected_object(journal_tree.root) +
+        ",\"prepared_file\":" +
+        json_protected_object(journal_tree.descendants[0].object) +
+        ",\"bound_file\":" +
+        json_protected_object(journal_tree.descendants[1].object) +
+        ",\"prepared_record\":" + json_quote(prepared) +
+        ",\"prepared_sha256\":" +
+        json_quote(journal_tree.descendants[0].sha256) +
+        ",\"bound_record\":" + json_quote(bound) +
+        ",\"bound_sha256\":" +
+        json_quote(journal_tree.descendants[1].sha256) + "}}";
 }
 
 void write_receipt(const std::string& data) {

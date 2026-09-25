@@ -71,6 +71,7 @@ set_target_properties(usk_base_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(WIN32)
   add_library(usk_publisher_windows_static STATIC
     runtime/platform/windows/usk_publisher_anchor_create.cpp
+    runtime/platform/windows/usk_publisher_bound_rename.cpp
     runtime/platform/windows/usk_publisher_directory_entries.cpp
     runtime/platform/windows/usk_publisher_handle_observation.cpp
     runtime/platform/windows/usk_publisher_security_descriptor.cpp
@@ -610,6 +611,16 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_tree_observation_smoke
       COMMAND usk_publisher_tree_observation_smoke)
     set_tests_properties(usk_publisher_tree_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_bound_rename_smoke
+      tests/native/usk_publisher_bound_rename_smoke.cpp)
+    target_compile_features(usk_publisher_bound_rename_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_bound_rename_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_bound_rename_smoke)
+    add_test(NAME usk_publisher_bound_rename_smoke
+      COMMAND usk_publisher_bound_rename_smoke)
+    set_tests_properties(usk_publisher_bound_rename_smoke PROPERTIES TIMEOUT 30)
   endif()
 
   add_executable(usk_entry_restart_smoke tests/native/usk_entry_restart_smoke.cpp)
