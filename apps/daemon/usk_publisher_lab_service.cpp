@@ -3,6 +3,7 @@
 
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_staged_stream.h"
+#include "usk_publisher_volume_operation_guard.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_archive_payload.h"
@@ -2304,6 +2305,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             reviewed_plan_envelope_path.empty() ?
                 std::optional<ReviewedPlanBinding>{} :
                 std::optional<ReviewedPlanBinding>{require_reviewed_selected_plan()};
+        const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root);
         const DWORD root_access = recover_prepared ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
@@ -2468,6 +2470,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             ",\"process_restricted_sids\":" +
             json_groups(observed.token.process_restricted_sids) +
             ",\"volume_root\":" + json_quote(ascii(volume_root)) +
+            ",\"volume_operation_guard_abandoned\":" +
+            std::string(operation_guard.previous_owner_abandoned() ? "true" : "false") +
             ",\"volume_filesystem\":" +
             json_quote(ascii(volume_observation.filesystem_name)) +
             ",\"volume_serial\":" +
