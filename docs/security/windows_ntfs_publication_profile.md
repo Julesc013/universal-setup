@@ -1199,3 +1199,44 @@ snapshot-only state after forced VM turn-off. It does not qualify general
 sources, source-free replay of later journal phases, physical-host power-loss
 durability, hostile concurrent rights, per-install leases, OD-001 or the
 ordinary strict publisher.
+
+## Source-free visible-journal completion in the owned VM (2026-09-26)
+
+The private restricted-service `--recover-sealed-journal` command accepts a
+protected prepared or visible journal only when it contains a durable reviewed
+plan snapshot. It checks the snapshot against the prepared record and restores
+the exact v2 native install plan before any forward effect. It then uses the
+existing held-handle, no-replace publication and public finalization path; it
+receives no source ZIP or envelope path. Earlier read-only v1 recovery modes
+retain their existing behavior.
+
+An independently created 1 GiB NTFS VHDX in the owned Windows Server build
+`10.0.20348.0` VM had disk ID `60022480AA9F52186BB84A6EC34AC4F7` and
+volume GUID `\\?\Volume{0f23ad44-1250-4efb-b168-8161a0b26375}\`.
+The candidate service flushed a visible-journal gate with no terminal receipt.
+The host verified the running service, volume identity and exact marker bytes,
+then issued `Stop-VM -TurnOff -Force` at `2026-09-25T22:17:59Z` and observed
+the owned VM `Off`. The forced-off host receipt SHA-256 is
+`e1b8670f703c25e4230b49e1cc60ec265daf262ac82679aea77b0cb8b101c9ad`.
+
+After restart and exact VHDX reattachment, independent backup-mode readback
+found two visible payloads plus the protected reviewed snapshot, prepared and
+visible records, with no protected completion record. The original selected
+ZIP and reviewed envelope paths were moved to distinct retained `.withheld`
+paths after their hashes were checked. Static recovery binary SHA-256
+`c656fb6d51d443828cf13a1622683c0dcb17241d8d9442cf3b0324a212ce423d`
+then returned `pass` and `installed_state_completed_forward` without those
+original paths; host receipt SHA-256 is
+`eb55c57fbc847cf7e5859a9dea8390d2d86a54cde3cfa7edd665a61179f6f486`.
+Independent readback found the same two visible payload hashes, the new
+protected completion record and five public setup-state files: marker,
+installed state, ownership and two audit events. A source-free repeat returned
+`already_visible_bound`; all six protected and five public file size/hash pairs
+matched the first completed readback. The full receipts and VHDX remain in the
+campaign lab.
+
+This demonstrates forward installed-state completion from one visible-journal
+window after forced VM turn-off, plus an idempotent repeat. It does not prove
+the prepared-only window with this command, physical-host power-loss
+durability, general sources, hostile concurrent rights, per-install lease
+fencing, OD-001 closure or ordinary production publisher qualification.
