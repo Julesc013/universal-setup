@@ -196,6 +196,32 @@ try {
             $anchorFactsValid = $false
         }
     }
+    $staged = $anchors.staged_tree
+    $stageObjects = @($staged.root, $staged.file)
+    $stageFactsValid = $staged.relative_path -eq 'payload.bin' -and
+        $staged.size -eq 25 -and
+        $staged.sha256 -eq '92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f' -and
+        $staged.root.native_name -eq ($anchors.objects.staging.native_name + '\candidate') -and
+        $staged.file.native_name -eq ($staged.root.native_name + '\payload.bin') -and
+        @($anchorIds + @($staged.root.file_id, $staged.file.file_id) |
+            Where-Object { -not $_ }).Count -eq 0 -and
+        @($anchorIds + @($staged.root.file_id, $staged.file.file_id) |
+            Sort-Object -Unique).Count -eq 8
+    for ($index = 0; $index -lt $stageObjects.Count; ++$index) {
+        $object = $stageObjects[$index]
+        $aces = @($object.dacl_aces)
+        if (-not $object -or $object.owner_sid -ne 'S-1-5-18' -or
+            -not $object.dacl_protected -or $object.link_count -ne 1 -or
+            ($object.attributes -band 1024) -ne 0 -or $object.reparse_tag -ne 0 -or
+            (($object.attributes -band 16) -ne 0) -ne ($index -eq 0) -or
+            $aces.Count -ne 2 -or $aces[0].type -ne 0 -or
+            $aces[0].flags -ne 0 -or $aces[0].sid -ne 'S-1-5-18' -or
+            $aces[1].type -ne 0 -or $aces[1].flags -ne 0 -or
+            $aces[1].sid -ne $sid -or $aces[0].access_mask -le 0 -or
+            $aces[0].access_mask -ne $aces[1].access_mask) {
+            $stageFactsValid = $false
+        }
+    }
     if ($native.status -ne 'pass' -or $native.service_sid -ne $sid -or
         $native.service_sid_type -ne 3 -or $native.service_type -ne 16 -or
         $native.process_user_sid -ne 'S-1-5-18' -or
@@ -203,7 +229,7 @@ try {
         $native.volume_root -ne $VolumeRoot -or
         $native.volume_filesystem -ne 'NTFS' -or
         $enabled.Count -ne 1 -or $restricting.Count -ne 1 -or
-        -not $anchorFactsValid -or
+        -not $anchorFactsValid -or -not $stageFactsValid -or
         @($anchorIds | Where-Object { -not $_ }).Count -ne 0 -or
         @($anchorIds | Sort-Object -Unique).Count -ne 6 -or
         -not $scm -or $scm.ServiceType -ne 'Own Process' -or
@@ -213,7 +239,7 @@ try {
     }
     $receipt.service_process_id = $scm.ProcessId
     $receipt.native_observation = $native
-    $receipt.status = 'protected_anchors_observed'
+    $receipt.status = 'protected_stage_observed'
 } catch {
     $failure = $_.Exception.Message
     $receipt.failure = $failure

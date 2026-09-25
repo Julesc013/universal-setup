@@ -237,6 +237,28 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, second);
+    OwnedHandle candidate(create_directory_relative_with_descriptor(
+        staging.get(), L"candidate", descriptor));
+    OwnedHandle payload(create_file_relative_with_descriptor(
+        candidate.get(), L"payload.bin", descriptor));
+    static constexpr char bytes[] = "protected staged payload\n";
+    DWORD written = 0;
+    if (!WriteFile(payload.get(), bytes, sizeof(bytes) - 1, &written, nullptr) ||
+        written != sizeof(bytes) - 1 || !FlushFileBuffers(payload.get())) {
+        throw std::runtime_error("protected lab payload write or flush failed");
+    }
+    const auto sealed = observe_publisher_tree(candidate.get());
+    require_publisher_tree_security_shape(sealed, service_sid);
+    if (sealed.descendants.size() != 1 ||
+        sealed.descendants.front().relative_path != L"payload.bin" ||
+        sealed.descendants.front().size != sizeof(bytes) - 1) {
+        throw std::runtime_error("protected lab staged closure is not exact");
+    }
+    const auto resealed = observe_publisher_tree(candidate.get());
+    require_publisher_tree_phase_match(sealed, resealed);
+    const auto third = observe_publisher_anchor_set(
+        volume, {L"publication"}, names);
+    require_publisher_anchor_set_phase_match(first, third);
     return "{\"boundary_file_id\":" + json_quote(first.chain.boundary.file_id) +
         ",\"publication_file_id\":" +
         json_quote(first.chain.children.front().object.file_id) +
@@ -253,7 +275,12 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         ",\"destination\":" +
             json_protected_object(first.destination_parent.object) +
         ",\"state\":" + json_protected_object(first.state.object) +
-        ",\"journal\":" + json_protected_object(first.journal.object) + "}}";
+        ",\"journal\":" + json_protected_object(first.journal.object) +
+        "},\"staged_tree\":{\"root\":" + json_protected_object(sealed.root) +
+        ",\"file\":" + json_protected_object(sealed.descendants.front().object) +
+        ",\"relative_path\":\"payload.bin\",\"size\":" +
+            std::to_string(sealed.descendants.front().size) +
+        ",\"sha256\":" + json_quote(sealed.descendants.front().sha256) + "}}";
 }
 
 void write_receipt(const std::string& data) {
