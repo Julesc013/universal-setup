@@ -37,6 +37,7 @@ std::wstring service_name;
 std::wstring receipt_path;
 std::wstring volume_root;
 bool prepublish_gate = false;
+bool recover_prepared = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
@@ -73,6 +74,23 @@ bool generated_service_name(const std::wstring& name,
         if (!((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f'))) {
             return false;
         }
+    }
+    return true;
+}
+
+bool campaign_recovery_receipt_path(const std::wstring& path) {
+    const std::wstring prefix = L"C:\\USK-Lab\\vm-recovery-";
+    const std::wstring suffix = L".json";
+    if (path.size() <= prefix.size() + suffix.size() ||
+        path.compare(0, prefix.size(), prefix) != 0 ||
+        path.compare(path.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return false;
+    }
+    for (std::size_t index = prefix.size();
+            index < path.size() - suffix.size(); ++index) {
+        const wchar_t ch = path[index];
+        if (!((ch >= L'a' && ch <= L'z') ||
+                (ch >= L'0' && ch <= L'9') || ch == L'-')) return false;
     }
     return true;
 }
@@ -427,6 +445,122 @@ void write_journal_phase(HANDLE journal, const std::wstring& name,
     }
 }
 
+HANDLE open_exact_lab_child(HANDLE parent, const std::wstring& name) {
+    HANDLE result = INVALID_HANDLE_VALUE;
+    for (const auto& listed :
+            usk::platform::windows::observe_publisher_directory_entries(parent)) {
+        if (listed.name != name) continue;
+        if (result != INVALID_HANDLE_VALUE) {
+            CloseHandle(result);
+            throw std::runtime_error("duplicate recovery child listing");
+        }
+        result = usk::platform::windows::open_publisher_listed_child(parent, listed);
+    }
+    if (result == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("required recovery child is absent");
+    }
+    return result;
+}
+
+void require_only_child(HANDLE parent, const std::wstring& expected) {
+    const auto listed =
+        usk::platform::windows::observe_publisher_directory_entries(parent);
+    if (listed.size() != 1 || listed.front().name != expected) {
+        throw std::runtime_error("recovery parent has unexpected children");
+    }
+}
+
+std::string read_prepared_record(HANDLE journal) {
+    require_only_child(journal, L"lab-prepared-evidence.json");
+    OwnedHandle file(open_exact_lab_child(journal, L"lab-prepared-evidence.json"));
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file.get(), &size) || size.QuadPart <= 0 ||
+        static_cast<unsigned long long>(size.QuadPart) > lab_record_limit) {
+        throw std::runtime_error("recovery prepared record exceeds byte budget");
+    }
+    std::string stored(static_cast<std::size_t>(size.QuadPart), '\0');
+    DWORD read = 0;
+    if (!ReadFile(file.get(), stored.data(), static_cast<DWORD>(stored.size()),
+            &read, nullptr) || read != stored.size() ||
+        stored != canonical_record(stored)) {
+        throw std::runtime_error("recovery prepared record is not canonical");
+    }
+    return stored;
+}
+
+std::string observe_prepared_recovery(HANDLE volume,
+    const std::string& service_sid) {
+    using namespace usk::platform::windows;
+    const PublisherAnchorNames names{
+        L"staging", L"destination", L"state", L"journal"};
+    const auto anchors = observe_publisher_anchor_set(
+        volume, {L"publication"}, names);
+    require_publisher_anchor_set_security_shape(anchors, service_sid);
+    OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
+    if (observe_publisher_directory_entries(publication.get()).size() != 4) {
+        throw std::runtime_error("recovery publication has unexpected anchors");
+    }
+    OwnedHandle staging(open_exact_lab_child(publication.get(), L"staging"));
+    OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
+    OwnedHandle state(open_exact_lab_child(publication.get(), L"state"));
+    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+    if (!observe_publisher_directory_entries(destination.get()).empty() ||
+        !observe_publisher_directory_entries(state.get()).empty()) {
+        throw std::runtime_error("recovery destination or state is not empty");
+    }
+    require_only_child(staging.get(), L"candidate");
+    OwnedHandle candidate(open_exact_lab_child(staging.get(), L"candidate"));
+    const std::string stored = read_prepared_record(journal.get());
+    const auto prepared = usk::json::parse(stored);
+    if (prepared.at("schema").as_string() !=
+            "usk.publisher.lab_phase_evidence.v1" ||
+        prepared.at("phase").as_string() != "lab_prepared_evidence" ||
+        prepared.at("service_sid").as_string() != service_sid ||
+        prepared.at("destination_name").as_string() != "visible" ||
+        prepared.at("destination_parent_file_id").as_string() !=
+            anchors.destination_parent.object.file_id ||
+        prepared.at("volume_serial").as_unsigned() !=
+            anchors.chain.volume.file_id_volume_serial ||
+        usk::json::canonical(prepared.at("protected_anchors")) !=
+            usk::json::canonical(usk::json::parse(json_anchor_set(anchors)))) {
+        throw std::runtime_error("recovery prepared anchors differ from held observations");
+    }
+    const auto sealed = observe_publisher_tree(candidate.get());
+    require_publisher_tree_security_shape(sealed, service_sid);
+    if (sealed.descendants.size() != 1 ||
+        sealed.descendants.front().relative_path != L"payload.bin" ||
+        prepared.at("source_file_id").as_string() != sealed.root.file_id ||
+        prepared.at("payload_sha256").as_string() !=
+            sealed.descendants.front().sha256 ||
+        usk::json::canonical(prepared.at("sealed_tree")) !=
+            usk::json::canonical(usk::json::parse(json_tree(sealed)))) {
+        throw std::runtime_error("recovery staged closure differs from prepared record");
+    }
+    const auto second = observe_publisher_anchor_set(
+        volume, {L"publication"}, names);
+    require_publisher_anchor_set_phase_match(anchors, second);
+    require_publisher_tree_phase_match(sealed,
+        observe_publisher_tree(candidate.get()));
+    if (read_prepared_record(journal.get()) != stored ||
+        !observe_publisher_directory_entries(destination.get()).empty() ||
+        !observe_publisher_directory_entries(state.get()).empty()) {
+        throw std::runtime_error("recovery journal or empty roles changed during observation");
+    }
+    require_only_child(staging.get(), L"candidate");
+    if (observe_publisher_directory_entries(publication.get()).size() != 4) {
+        throw std::runtime_error("recovery publication anchor set changed");
+    }
+    usk::base::Sha256 digest;
+    digest.update(reinterpret_cast<const unsigned char*>(stored.data()), stored.size());
+    return "{\"decision\":\"recovery_required\",\"prepared_sha256\":" +
+        json_quote(digest.finish()) +
+        ",\"prepared_bytes\":" + std::to_string(stored.size()) +
+        ",\"source_file_id\":" + json_quote(sealed.root.file_id) +
+        ",\"payload_sha256\":" +
+        json_quote(sealed.descendants.front().sha256) +
+        ",\"destination_empty\":true,\"state_empty\":true}";
+}
+
 std::string diagnose_bound_rename_on_disposable_volume(
     HANDLE staging, HANDLE destination,
     const std::vector<unsigned char>& descriptor) {
@@ -723,14 +857,19 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         report_status(SERVICE_RUNNING, SERVICE_ACCEPT_STOP);
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
-        const DWORD root_access =
-            FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
-                READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE;
+        const DWORD root_access = recover_prepared ?
+            (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
+            (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
+                READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE);
         HANDLE volume = CreateFileW(volume_root.c_str(), root_access,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (volume == INVALID_HANDLE_VALUE) {
             const DWORD error = GetLastError();
+            if (recover_prepared) {
+                throw std::runtime_error("recovery cannot open held volume root; Win32 " +
+                    std::to_string(error));
+            }
             const auto probe = [&](DWORD access, DWORD flags) {
                 HANDLE trial = CreateFileW(volume_root.c_str(), access,
                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
@@ -855,14 +994,17 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         std::string anchors;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
-            anchors = observe_protected_anchors(volume, observed.service_sid);
+            anchors = recover_prepared ?
+                observe_prepared_recovery(volume, observed.service_sid) :
+                observe_protected_anchors(volume, observed.service_sid);
         } catch (...) {
             CloseHandle(volume);
             throw;
         }
         CloseHandle(volume);
         const std::string data =
-            "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":\"pass\","
+            "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
+            json_quote(recover_prepared ? "recovery_required" : "pass") + ","
             "\"service_name\":" + json_quote(ascii(service_name)) +
             ",\"service_sid\":" + json_quote(observed.service_sid) +
             ",\"service_sid_type\":" + std::to_string(observed.service_sid_type) +
@@ -883,8 +1025,10 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             ",\"volume_file_id_serial\":" +
             std::to_string(volume_observation.file_id_volume_serial) +
             ",\"prepublish_gate\":" +
-            json_quote(prepublish_gate ? "released" : "disabled") +
-            ",\"protected_anchors\":" + anchors + "}\n";
+            json_quote(recover_prepared ? "not_applicable" :
+                (prepublish_gate ? "released" : "disabled")) +
+            (recover_prepared ? ",\"recovery_observation\":" :
+                ",\"protected_anchors\":") + anchors + "}\n";
         write_receipt(data);
         WaitForSingleObject(stop_event, 120000);
     } catch (const std::exception& error) {
@@ -910,11 +1054,18 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--prepublish-gate" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
-    if (!hosted && !campaign_vm) return 2;
+    const bool campaign_vm_recovery = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_recovery_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--recover-prepared" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
+    if (!hosted && !campaign_vm && !campaign_vm_recovery) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
     prepublish_gate = argc == 6 || campaign_vm;
+    recover_prepared = campaign_vm_recovery;
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
     return service_exit_code == ERROR_SUCCESS ? 0 : 4;

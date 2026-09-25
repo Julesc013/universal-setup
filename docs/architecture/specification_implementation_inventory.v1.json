@@ -3751,7 +3751,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "5a98c4245dd20382ff6966d88f52c978bb7df2659edd8e1c010f3ca5535dc476"
+          "sha256": "346bd98385fdc07b24803a81abfacb6d1e8152317b27f35b4c02f0dc5da2a2b9"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
@@ -3923,7 +3923,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "5a98c4245dd20382ff6966d88f52c978bb7df2659edd8e1c010f3ca5535dc476"
+          "sha256": "346bd98385fdc07b24803a81abfacb6d1e8152317b27f35b4c02f0dc5da2a2b9"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
