@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$VhdPath,
     [Parameter(Mandatory = $true)][string]$VolumeRoot,
     [Parameter(Mandatory = $true)][string]$ServiceBinary,
+    [Parameter(Mandatory = $true)][string]$DeviceAclBinary,
     [Parameter(Mandatory = $true)][string]$OutputPath
 )
 
@@ -13,12 +14,14 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hoste
 }
 $vhd = [IO.Path]::GetFullPath($VhdPath)
 $binary = [IO.Path]::GetFullPath($ServiceBinary)
+$deviceAclBinary = [IO.Path]::GetFullPath($DeviceAclBinary)
 $out = [IO.Path]::GetFullPath($OutputPath)
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 if (-not $vhd.StartsWith($runnerTemp + [IO.Path]::DirectorySeparatorChar,
         [StringComparison]::OrdinalIgnoreCase) -or
     -not (Test-Path -LiteralPath $vhd -PathType Leaf) -or
-    -not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+    -not (Test-Path -LiteralPath $binary -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $deviceAclBinary -PathType Leaf)) {
     throw 'service probe inputs are not the owned VHD and executable'
 }
 $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop
@@ -135,6 +138,19 @@ try {
     }
     Set-Acl -LiteralPath $diagnosticChild -AclObject $childAcl
     $receipt['diagnostic_child_sddl'] = (Get-Acl -LiteralPath $diagnosticChild).Sddl
+    Assert-OwnedVolume
+
+    # The fresh VHD volume device has its own DACL. The restricted service
+    # token must pass that check as well as the NTFS root/child DACLs. This
+    # helper mutates only the independently rebound, single-disk VHD device.
+    $deviceAclOutput = & $deviceAclBinary --owned-vhd-volume $VolumeRoot `
+        $serviceName $disk[0].Number $vhd
+    if ($LASTEXITCODE -ne 0) { throw 'owned VHD device ACL provisioning failed' }
+    $receipt['device_acl_observation'] = $deviceAclOutput | ConvertFrom-Json
+    if ($receipt.device_acl_observation.service_sid -ne $sid -or
+        $receipt.device_acl_observation.vhd_disk_number -ne $disk[0].Number) {
+        throw 'device ACL helper did not bind the expected VHD and dedicated service SID'
+    }
     Assert-OwnedVolume
 
     Start-Service -Name $serviceName -ErrorAction Stop

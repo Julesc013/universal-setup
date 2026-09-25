@@ -2553,7 +2553,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "583ef8810aa659782082b0bd29e90b3418d7932f260b1dca4d6a9aac337af886"
+          "sha256": "da1baeba7c86d82dfd95d2ab64cde19888165ee72d6e4ee6db06126c8a5fbd73"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2588,7 +2588,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "583ef8810aa659782082b0bd29e90b3418d7932f260b1dca4d6a9aac337af886"
+          "sha256": "da1baeba7c86d82dfd95d2ab64cde19888165ee72d6e4ee6db06126c8a5fbd73"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2623,7 +2623,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "583ef8810aa659782082b0bd29e90b3418d7932f260b1dca4d6a9aac337af886"
+          "sha256": "da1baeba7c86d82dfd95d2ab64cde19888165ee72d6e4ee6db06126c8a5fbd73"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -3332,7 +3332,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "89dee65fb0187aee2c62349d9950b206abd77da1d97447e87e7aae5d10d0f262"
+          "sha256": "e23f2bad7222e647667e6e57b8732bd959a70fa730a6e379074c4a0be824dcf8"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3340,7 +3340,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "583ef8810aa659782082b0bd29e90b3418d7932f260b1dca4d6a9aac337af886"
+          "sha256": "da1baeba7c86d82dfd95d2ab64cde19888165ee72d6e4ee6db06126c8a5fbd73"
         }
       ],
       "acceptance_ids": [
@@ -3368,7 +3368,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "89dee65fb0187aee2c62349d9950b206abd77da1d97447e87e7aae5d10d0f262"
+          "sha256": "e23f2bad7222e647667e6e57b8732bd959a70fa730a6e379074c4a0be824dcf8"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3376,7 +3376,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "583ef8810aa659782082b0bd29e90b3418d7932f260b1dca4d6a9aac337af886"
+          "sha256": "da1baeba7c86d82dfd95d2ab64cde19888165ee72d6e4ee6db06126c8a5fbd73"
         }
       ],
       "acceptance_ids": [
@@ -3404,7 +3404,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "89dee65fb0187aee2c62349d9950b206abd77da1d97447e87e7aae5d10d0f262"
+          "sha256": "e23f2bad7222e647667e6e57b8732bd959a70fa730a6e379074c4a0be824dcf8"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3412,7 +3412,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "583ef8810aa659782082b0bd29e90b3418d7932f260b1dca4d6a9aac337af886"
+          "sha256": "da1baeba7c86d82dfd95d2ab64cde19888165ee72d6e4ee6db06126c8a5fbd73"
         }
       ],
       "acceptance_ids": [
@@ -3747,7 +3747,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "9fa92476f6705842b02d3416a673d5b94ee3a8e7579926e407d2690dc17e7ce1"
+          "sha256": "8bfb25e82ccd709d86a1c1430a7084e070ebc6d9d72e93e6f4af7e35a144ce27"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -3755,7 +3755,11 @@
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "b20ebc4331fa86ef6ab13cabd36c9e703741ac192a1bbfe1ef34c70540dfc650"
+          "sha256": "257b2ebac04146b0491a1dcea26192888735ca956baeaf3893c5f9d142fa57d4"
+        },
+        {
+          "path": "tests/native/usk_publisher_lab_device_acl.cpp",
+          "sha256": "8d00b69ffd979910f295ef8f3a2799e556eee9b65618d08663b07386e6b035f9"
         }
       ],
       "acceptance_ids": [
@@ -3903,7 +3907,11 @@
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "b20ebc4331fa86ef6ab13cabd36c9e703741ac192a1bbfe1ef34c70540dfc650"
+          "sha256": "257b2ebac04146b0491a1dcea26192888735ca956baeaf3893c5f9d142fa57d4"
+        },
+        {
+          "path": "tests/native/usk_publisher_lab_device_acl.cpp",
+          "sha256": "8d00b69ffd979910f295ef8f3a2799e556eee9b65618d08663b07386e6b035f9"
         }
       ],
       "acceptance_ids": [
