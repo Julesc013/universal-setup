@@ -327,3 +327,35 @@ with regression receipt SHA-256
 These are two forced VM power-off windows and bounded lab classifications,
 not physical host power-loss proof, complete replay, continuous hostile-race
 exclusion, OD-001 resolution, or production publication.
+
+The recovery classifier now also observes the prepared journal as a complete
+protected tree. It requires the held journal root's file identity to match the
+anchor, exactly one named record with the readback size and SHA-256, the
+service-only protected security shape on both objects, and an unchanged second
+tree observation. This closes a lab classifier gap where canonical bytes alone
+could be accepted after the record file's ACL changed.
+
+On the campaign VM, the new statically linked Release service binary SHA-256
+`831ed678201e471302192660ad3f2f25ddf5733c27ca48a4f7c0bec304221b5e`
+classified both retained states as `recovery_required`: visible observation
+receipt SHA-256
+`de8013910f32bf7efd0c9cee3e447d8503f76d4481795426eae381a94defc257`
+and staged observation receipt SHA-256
+`2c3dbc216b0c1af1702e1211b57d2cb63480e05a5ddc0a15c81f9281f58c2b3a`.
+After an exact campaign VM checkpoint, a temporary SYSTEM scheduled task
+widened only the prepared journal file's ACL on the recorded second VHDX;
+the journal bytes retained SHA-256
+`41464b826d3a8c39d8f84ba429891ba0c04731b22e37b1d79bb124643baf34f7`.
+The preceding classifier binary still returned `recovery_required` (receipt
+SHA-256 `80ccbe38255ed5f707ed858e9d87cabc705749d1074bdc559e60e15df84a3924`),
+whereas the new binary refused the altered protected-object shape (receipt
+SHA-256 `fa7ab4749c76edd5ea9e67fb9a38217b36f97c367778bc1aa1b83f48dd7cdaa1`).
+The task was removed and the exact VM snapshot restored; the mutated guest
+receipts were absent and the new classifier again observed the original visible
+state (receipt SHA-256
+`1e6bacdc3c9807516f50f82fbaff65dd0fe9ae94a5e153d0309a215c5436d572`).
+The external lab manifest SHA-256 is
+`75471bd32c1be5f786878d8e4039707b22f88b4d1ed5dd14550a2b1d515abb80`.
+This is a disposable VM ACL-negative proof, not journal replay, physical
+power-loss durability, hostile-race qualification, OD-001 resolution, or
+production publication.

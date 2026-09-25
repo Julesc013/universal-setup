@@ -582,6 +582,18 @@ std::string observe_prepared_recovery(HANDLE volume,
         throw std::runtime_error("recovery state is not empty");
     }
     const std::string stored = read_prepared_record(journal.get());
+    usk::base::Sha256 digest;
+    digest.update(reinterpret_cast<const unsigned char*>(stored.data()), stored.size());
+    const std::string prepared_digest = digest.finish();
+    const auto journal_tree = observe_publisher_tree(journal.get());
+    require_publisher_tree_security_shape(journal_tree, service_sid);
+    if (journal_tree.root.file_id != anchors.journal.object.file_id ||
+        journal_tree.descendants.size() != 1 ||
+        journal_tree.descendants.front().relative_path != L"lab-prepared-evidence.json" ||
+        journal_tree.descendants.front().size != stored.size() ||
+        journal_tree.descendants.front().sha256 != prepared_digest) {
+        throw std::runtime_error("recovery prepared journal identity or security differs");
+    }
     const auto prepared = usk::json::parse(stored);
     if (prepared.at("schema").as_string() !=
             "usk.publisher.lab_phase_evidence.v1" ||
@@ -634,6 +646,8 @@ std::string observe_prepared_recovery(HANDLE volume,
     require_publisher_anchor_set_phase_match(anchors, second);
     require_publisher_tree_phase_match(observed_tree,
         observe_publisher_tree(root.get()));
+    require_publisher_tree_phase_match(journal_tree,
+        observe_publisher_tree(journal.get()));
     if (read_prepared_record(journal.get()) != stored ||
         !observe_publisher_directory_entries(state.get()).empty()) {
         throw std::runtime_error("recovery journal or state changed during observation");
@@ -651,10 +665,8 @@ std::string observe_prepared_recovery(HANDLE volume,
     if (observe_publisher_directory_entries(publication.get()).size() != 4) {
         throw std::runtime_error("recovery publication anchor set changed");
     }
-    usk::base::Sha256 digest;
-    digest.update(reinterpret_cast<const unsigned char*>(stored.data()), stored.size());
     return "{\"decision\":\"recovery_required\",\"prepared_sha256\":" +
-        json_quote(digest.finish()) +
+        json_quote(prepared_digest) +
         ",\"prepared_bytes\":" + std::to_string(stored.size()) +
         ",\"source_file_id\":" + json_quote(observed_tree.root.file_id) +
         ",\"payload_sha256\":" +
