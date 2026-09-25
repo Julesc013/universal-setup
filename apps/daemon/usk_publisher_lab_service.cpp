@@ -514,28 +514,37 @@ HANDLE open_exact_lab_child(HANDLE parent, const std::wstring& name) {
     return result;
 }
 
-void require_only_child(HANDLE parent, const std::wstring& expected) {
+bool recovery_journal_has_visible_record(HANDLE parent) {
     const auto listed =
         usk::platform::windows::observe_publisher_directory_entries(parent);
-    if (listed.size() != 1 || listed.front().name != expected) {
-        throw std::runtime_error("recovery parent has unexpected children");
+    bool prepared = false;
+    bool visible = false;
+    for (const auto& entry : listed) {
+        if (entry.name == L"lab-prepared-evidence.json") prepared = true;
+        else if (entry.name == L"lab-visible-evidence.json") visible = true;
+        else throw std::runtime_error("recovery journal has unexpected children");
     }
+    if (prepared && listed.size() == (visible ? 2u : 1u)) return visible;
+    throw std::runtime_error("recovery journal has unexpected children");
 }
 
-std::string read_prepared_record(HANDLE journal) {
-    require_only_child(journal, L"lab-prepared-evidence.json");
-    OwnedHandle file(open_exact_lab_child(journal, L"lab-prepared-evidence.json"));
+std::string read_phase_record(HANDLE journal, const std::wstring& name) {
+    if (name != L"lab-prepared-evidence.json" &&
+        name != L"lab-visible-evidence.json") {
+        throw std::runtime_error("invalid recovery phase record name");
+    }
+    OwnedHandle file(open_exact_lab_child(journal, name));
     LARGE_INTEGER size{};
     if (!GetFileSizeEx(file.get(), &size) || size.QuadPart <= 0 ||
         static_cast<unsigned long long>(size.QuadPart) > lab_record_limit) {
-        throw std::runtime_error("recovery prepared record exceeds byte budget");
+        throw std::runtime_error("recovery phase record exceeds byte budget");
     }
     std::string stored(static_cast<std::size_t>(size.QuadPart), '\0');
     DWORD read = 0;
     if (!ReadFile(file.get(), stored.data(), static_cast<DWORD>(stored.size()),
             &read, nullptr) || read != stored.size() ||
         stored != canonical_record(stored)) {
-        throw std::runtime_error("recovery prepared record is not canonical");
+        throw std::runtime_error("recovery phase record is not canonical");
     }
     return stored;
 }
@@ -581,18 +590,39 @@ std::string observe_prepared_recovery(HANDLE volume,
     if (!observe_publisher_directory_entries(state.get()).empty()) {
         throw std::runtime_error("recovery state is not empty");
     }
-    const std::string stored = read_prepared_record(journal.get());
+    const bool has_visible_record =
+        recovery_journal_has_visible_record(journal.get());
+    const std::string stored = read_phase_record(
+        journal.get(), L"lab-prepared-evidence.json");
+    const std::string stored_visible = has_visible_record ?
+        read_phase_record(journal.get(), L"lab-visible-evidence.json") :
+        std::string{};
     usk::base::Sha256 digest;
     digest.update(reinterpret_cast<const unsigned char*>(stored.data()), stored.size());
     const std::string prepared_digest = digest.finish();
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
     if (journal_tree.root.file_id != anchors.journal.object.file_id ||
-        journal_tree.descendants.size() != 1 ||
+        journal_tree.descendants.size() != (has_visible_record ? 2u : 1u) ||
         journal_tree.descendants.front().relative_path != L"lab-prepared-evidence.json" ||
         journal_tree.descendants.front().size != stored.size() ||
-        journal_tree.descendants.front().sha256 != prepared_digest) {
+        journal_tree.descendants.front().sha256 != prepared_digest ||
+        (has_visible_record &&
+            (journal_tree.descendants.back().relative_path !=
+                L"lab-visible-evidence.json" ||
+            journal_tree.descendants.back().size != stored_visible.size()))) {
         throw std::runtime_error("recovery prepared journal identity or security differs");
+    }
+    std::string visible_digest;
+    if (has_visible_record) {
+        usk::base::Sha256 visible_hasher;
+        visible_hasher.update(
+            reinterpret_cast<const unsigned char*>(stored_visible.data()),
+            stored_visible.size());
+        visible_digest = visible_hasher.finish();
+        if (journal_tree.descendants.back().sha256 != visible_digest) {
+            throw std::runtime_error("recovery visible record identity differs");
+        }
     }
     const auto prepared = usk::json::parse(stored);
     if (prepared.at("schema").as_string() !=
@@ -619,6 +649,9 @@ std::string observe_prepared_recovery(HANDLE volume,
     if (!staged && !visible) {
         throw std::runtime_error("recovery namespace is neither prepared nor visible");
     }
+    if (has_visible_record && !visible) {
+        throw std::runtime_error("recovery visible record has no visible namespace");
+    }
     OwnedHandle root(open_exact_lab_child(
         staged ? staging.get() : destination.get(),
         staged ? L"candidate" : L"visible"));
@@ -641,6 +674,28 @@ std::string observe_prepared_recovery(HANDLE volume,
             usk::json::canonical(usk::json::parse(json_tree(observed_tree)))) {
         throw std::runtime_error("recovery closure differs from prepared record");
     }
+    if (has_visible_record) {
+        const auto bound = usk::json::parse(stored_visible);
+        if (bound.as_object().size() != 9 ||
+            bound.at("schema").as_string() !=
+                "usk.publisher.lab_phase_evidence.v1" ||
+            bound.at("phase").as_string() != "lab_visible_evidence" ||
+            bound.at("source_file_id").as_string() !=
+                observed_tree.root.file_id ||
+            bound.at("destination_parent_file_id").as_string() !=
+                anchors.destination_parent.object.file_id ||
+            bound.at("destination_name").as_string() != "visible" ||
+            bound.at("payload_sha256").as_string() !=
+                observed_tree.descendants.front().sha256 ||
+            bound.at("prepared_record_sha256").as_string() !=
+                prepared_digest ||
+            usk::json::canonical(bound.at("protected_anchors")) !=
+                usk::json::canonical(usk::json::parse(json_anchor_set(anchors))) ||
+            usk::json::canonical(bound.at("visible_tree")) !=
+                usk::json::canonical(usk::json::parse(json_tree(observed_tree)))) {
+            throw std::runtime_error("recovery visible record differs from held observations");
+        }
+    }
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(anchors, second);
@@ -648,7 +703,10 @@ std::string observe_prepared_recovery(HANDLE volume,
         observe_publisher_tree(root.get()));
     require_publisher_tree_phase_match(journal_tree,
         observe_publisher_tree(journal.get()));
-    if (read_prepared_record(journal.get()) != stored ||
+    if (recovery_journal_has_visible_record(journal.get()) != has_visible_record ||
+        read_phase_record(journal.get(), L"lab-prepared-evidence.json") != stored ||
+        (has_visible_record && read_phase_record(
+            journal.get(), L"lab-visible-evidence.json") != stored_visible) ||
         !observe_publisher_directory_entries(state.get()).empty()) {
         throw std::runtime_error("recovery journal or state changed during observation");
     }
@@ -672,7 +730,11 @@ std::string observe_prepared_recovery(HANDLE volume,
         ",\"payload_sha256\":" +
         json_quote(observed_tree.descendants.front().sha256) +
         ",\"observed_location\":" +
-        json_quote(staged ? "staging_prepared" : "visible_without_visible_record") +
+        json_quote(staged ? "staging_prepared" :
+            (has_visible_record ? "visible_with_visible_record" :
+                "visible_without_visible_record")) +
+        (has_visible_record ? ",\"visible_record_sha256\":" +
+            json_quote(visible_digest) : std::string{}) +
         ",\"destination_empty\":" + (staged ? "true" : "false") +
         ",\"state_empty\":true}";
 }
