@@ -13,6 +13,13 @@
 #include <stdexcept>
 #include <string>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 
@@ -77,6 +84,21 @@ int native_path_capacity_proof(const fs::path& root)
     if (!refused_path_capacity([&] {
             require_native_path_capacity(unnormalized, NativePathKind::file, "unshortened native spelling");
         })) return 27;
+    return 0;
+}
+
+int volume_guid_record_io_proof(const fs::path& root)
+{
+    wchar_t volume_root[64]{};
+    if (!GetVolumeNameForVolumeMountPointW(root.root_path().c_str(),
+            volume_root, static_cast<DWORD>(std::size(volume_root)))) return 30;
+    const fs::path alias(std::wstring(volume_root) + root.relative_path().wstring());
+    usk::record_io::require_safe_directory(alias);
+    usk::record_io::write_new_durable_text(alias / "volume-bound.txt", "bound");
+    if (usk::record_io::read_stable_text(root / "volume-bound.txt", 16) != "bound" ||
+        usk::record_io::read_stable_text(alias / "volume-bound.txt", 16) != "bound") {
+        return 31;
+    }
     return 0;
 }
 #endif
@@ -171,6 +193,7 @@ int main()
 
 #if defined(_WIN32)
     if (const int capacity = native_path_capacity_proof(root)) return capacity;
+    if (const int volume_bound = volume_guid_record_io_proof(root)) return volume_bound;
 #endif
     fs::remove_all(root, error);
     return error ? 8 : 0;

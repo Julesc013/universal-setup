@@ -491,7 +491,8 @@ usk::lifecycle::VerificationReport verify_manifest(
     const usk::state::InstalledState& state,
     const usk::state::OwnershipManifest& ownership,
     const std::string& report_id,
-    const std::string& verified_at)
+    const std::string& verified_at,
+    const fs::path& observed_root = {})
 {
     usk::lifecycle::VerificationReport report;
     report.report_id = report_id;
@@ -499,7 +500,7 @@ usk::lifecycle::VerificationReport verify_manifest(
     report.installed_state_digest = installed_digest(state);
     report.ownership_manifest_digest = ownership.manifest_digest;
     report.verified_at = verified_at;
-    const fs::path root(state.target_root);
+    const fs::path root = observed_root.empty() ? fs::path(state.target_root) : observed_root;
     std::set<std::string> expected;
     std::size_t report_entries = 0;
     std::size_t report_path_bytes = 0;
@@ -515,7 +516,7 @@ usk::lifecycle::VerificationReport verify_manifest(
         charge_report_path(file.relative_path);
         expected.insert(file.relative_path);
         usk::lifecycle::FileVerification item{file.relative_path, {}, file.sha256, {}};
-        const fs::path path = root / fs::path(file.relative_path);
+        const fs::path path = (root / fs::path(file.relative_path)).make_preferred();
         std::error_code error;
         if (!fs::exists(path, error)) {
             item.status = "missing";
@@ -545,7 +546,7 @@ usk::lifecycle::VerificationReport verify_manifest(
         charge_report_path(directory);
         expected.insert(directory);
         std::error_code error;
-        const fs::path path = root / fs::path(directory);
+        const fs::path path = (root / fs::path(directory)).make_preferred();
         std::string status;
         if (!fs::exists(path, error)) status = "missing";
         else if (!fs::is_directory(path, error) || fs::is_symlink(fs::symlink_status(path, error))) status = "wrong_type";
@@ -1407,6 +1408,28 @@ InstallResult recover_install_finalization(
 }
 
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+static fs::path publisher_volume_bound_path(const fs::path& reviewed_path,
+    const std::wstring& volume_guid_root)
+{
+    const std::wstring drive = reviewed_path.root_name().wstring();
+    if (!reviewed_path.is_absolute() || drive.size() != 2 || drive[1] != L':' ||
+        reviewed_path.root_directory().empty() ||
+        reviewed_path.relative_path().empty() ||
+        volume_guid_root.rfind(L"\\\\?\\Volume{", 0) != 0 ||
+        volume_guid_root.back() != L'\\') {
+        throw std::runtime_error("protected public path or volume root is invalid");
+    }
+    for (const fs::path& component : reviewed_path.relative_path()) {
+        if (component.empty() || component == L"." || component == L".." ||
+            component.native().find(L':') != std::wstring::npos) {
+            throw std::runtime_error("protected public path has an unsafe component");
+        }
+    }
+    std::wstring relative = reviewed_path.relative_path().wstring();
+    std::replace(relative.begin(), relative.end(), L'/', L'\\');
+    return fs::path(volume_guid_root + relative);
+}
+
 static std::string protected_record_sha256(const std::string& record)
 {
     if (record.empty() || record.size() > 4u * 1024u * 1024u ||
@@ -1526,11 +1549,17 @@ InstallResult finalize_protected_visible_install(
         throw std::runtime_error("protected install finalization identity is invalid");
     }
     require_install_path_capacity(plan, transaction_id);
-    record_io::require_safe_directory(plan.target_root);
-    state::StateRepository repository(plan.roots.state_root);
-    audit::AuditRepository audit_repository(plan.roots.audit_root);
+    const fs::path bound_target = publisher_volume_bound_path(
+        plan.target_root, evidence.volume_guid_root);
+    const fs::path bound_state = publisher_volume_bound_path(
+        plan.roots.state_root, evidence.volume_guid_root);
+    const fs::path bound_audit = publisher_volume_bound_path(
+        plan.roots.audit_root, evidence.volume_guid_root);
+    record_io::require_safe_directory(bound_target);
+    state::StateRepository repository(bound_state);
+    audit::AuditRepository audit_repository(bound_audit);
     const std::string chain_id = install_audit_chain_id(plan.install_id, transaction_id, false);
-    audit::require_chain_path_capacity(plan.roots.audit_root, chain_id);
+    audit::require_chain_path_capacity(bound_audit, chain_id);
 
     bool has_current = false;
     state::InstalledState current;
@@ -1549,8 +1578,8 @@ InstallResult finalize_protected_visible_install(
         throw std::runtime_error("protected finalization conflicts with existing install");
     }
 
-    const fs::path chain_path = plan.roots.audit_root / "chains" / chain_id;
-    const fs::path ownership_path = plan.roots.state_root / "ownership" /
+    const fs::path chain_path = bound_audit / "chains" / chain_id;
+    const fs::path ownership_path = bound_state / "ownership" /
         ("ownership." + plan.install_id + "." + transaction_id + ".json");
     const bool has_chain = fs::exists(chain_path);
     const bool has_ownership = fs::exists(ownership_path);
@@ -1635,10 +1664,23 @@ InstallResult finalize_protected_visible_install(
     installed.lifecycle_status = "installed";
     installed.last_verification = {"verify." + transaction_id,
         std::string(64, '0'), "fail", applied_at};
+    for (const PayloadFile& file : plan.files) {
+        const fs::path bound_file =
+            (bound_target / fs::u8path(file.relative_path)).make_preferred();
+        std::error_code address_error;
+        if (!fs::exists(bound_file, address_error)) {
+            throw std::runtime_error("protected bound payload path is unavailable: " +
+                bound_file.u8string() + ": " + address_error.message());
+        }
+    }
     VerificationReport verification = verify_manifest(
-        installed, ownership, installed.last_verification.report_id, applied_at);
+        installed, ownership, installed.last_verification.report_id, applied_at,
+        bound_target);
     if (verification.status != "pass") {
-        throw std::runtime_error("protected visible install failed independent manifest verification");
+        throw std::runtime_error("protected visible install failed independent manifest verification: " +
+            verification.status + ", missing=" + std::to_string(verification.missing_files) +
+            ", modified=" + std::to_string(verification.modified_files) +
+            ", unknown=" + std::to_string(verification.unknown_paths.size()));
     }
     installed.last_verification = {
         verification.report_id, verification.report_digest, verification.status, applied_at};
