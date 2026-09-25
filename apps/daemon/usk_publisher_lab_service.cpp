@@ -5,6 +5,7 @@
 #include "usk_publisher_staged_stream.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
+#include "usk_archive_payload.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_publisher_security_descriptor.h"
@@ -21,6 +22,8 @@
 #include <sddl.h>
 
 #include <stdexcept>
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -42,6 +45,9 @@ bool postrename_gate = false;
 bool postjournal_gate = false;
 bool recover_prepared = false;
 bool recover_visible_bound = false;
+bool selected_archive_mode = false;
+std::wstring selected_archive_path;
+std::string selected_archive_sha256;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
@@ -95,6 +101,49 @@ bool campaign_recovery_receipt_path(const std::wstring& path) {
         const wchar_t ch = path[index];
         if (!((ch >= L'a' && ch <= L'z') ||
                 (ch >= L'0' && ch <= L'9') || ch == L'-')) return false;
+    }
+    return true;
+}
+
+bool campaign_selected_receipt_path(const std::wstring& path) {
+    const std::wstring prefix = L"C:\\USK-Lab\\vm-selected-";
+    const std::wstring suffix = L".json";
+    if (path.size() <= prefix.size() + suffix.size() ||
+        path.compare(0, prefix.size(), prefix) != 0 ||
+        path.compare(path.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return false;
+    }
+    for (std::size_t index = prefix.size();
+            index < path.size() - suffix.size(); ++index) {
+        const wchar_t ch = path[index];
+        if (!((ch >= L'a' && ch <= L'z') ||
+                (ch >= L'0' && ch <= L'9') || ch == L'-')) return false;
+    }
+    return true;
+}
+
+bool campaign_selected_archive_path(const std::wstring& path) {
+    const std::wstring prefix = L"C:\\USK-Lab\\selected-";
+    const std::wstring suffix = L".zip";
+    if (path.size() <= prefix.size() + suffix.size() ||
+        path.compare(0, prefix.size(), prefix) != 0 ||
+        path.compare(path.size() - suffix.size(), suffix.size(), suffix) != 0) {
+        return false;
+    }
+    for (std::size_t index = prefix.size();
+            index < path.size() - suffix.size(); ++index) {
+        const wchar_t ch = path[index];
+        if (!((ch >= L'a' && ch <= L'z') ||
+                (ch >= L'0' && ch <= L'9') || ch == L'-')) return false;
+    }
+    return true;
+}
+
+bool lower_sha256(const std::wstring& value) {
+    if (value.size() != 64) return false;
+    for (const wchar_t ch : value) {
+        if (!((ch >= L'0' && ch <= L'9') ||
+                (ch >= L'a' && ch <= L'f'))) return false;
     }
     return true;
 }
@@ -1042,14 +1091,45 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, second);
+    std::optional<usk::archive::StreamingStoredArchivePayload> selected_payload;
+    if (selected_archive_mode) {
+        const auto source_path = std::filesystem::path(selected_archive_path).u8string();
+        const std::string request =
+            "{\"schema\":\"usk.archive_inspect_request.v1\","
+            "\"archive_path\":" + json_quote(source_path) +
+            ",\"archive_format\":\"zip\",\"budgets\":{"
+            "\"max_entries\":1,\"max_entry_bytes\":16777216,"
+            "\"max_uncompressed_bytes\":16777216,\"max_depth\":1,"
+            "\"max_ratio\":100,\"max_elapsed_ms\":300000}}";
+        selected_payload = usk::archive::inspect_streaming_payload(request, "");
+        if (selected_payload->source_sha256 != selected_archive_sha256 ||
+            selected_payload->files.size() != 1 ||
+            selected_payload->files.front().relative_path != "payload.bin") {
+            throw std::runtime_error("selected lab archive identity or closure differs");
+        }
+    }
     OwnedHandle candidate(create_directory_relative_with_descriptor(
         staging.get(), L"candidate", descriptor));
     static constexpr char bytes[] = "protected staged payload\n";
-    usk::base::Sha256 source_digest;
-    source_digest.update(reinterpret_cast<const unsigned char*>(bytes),
-        sizeof(bytes) - 1);
-    const std::string expected_source_digest = source_digest.finish();
-    {
+    std::uint64_t expected_payload_size = sizeof(bytes) - 1;
+    std::string expected_source_digest;
+    if (selected_payload) {
+        const auto& file = selected_payload->files.front();
+        expected_payload_size = file.size_bytes;
+        expected_source_digest = file.sha256;
+        const auto streamed = stream_verified_reader_to_staged_file(
+            candidate.get(), L"payload.bin", descriptor, file.size_bytes,
+            file.sha256, file.reader, selected_payload->validate_source);
+        OwnedHandle payload(streamed.file);
+        if (streamed.bytes_written != file.size_bytes ||
+            streamed.sha256 != file.sha256) {
+            throw std::runtime_error("selected lab archive stream differs");
+        }
+    } else {
+        usk::base::Sha256 source_digest;
+        source_digest.update(reinterpret_cast<const unsigned char*>(bytes),
+            sizeof(bytes) - 1);
+        expected_source_digest = source_digest.finish();
         // This source is a disposable service-owned fixture. The primitive
         // also needs separate source provenance before production use.
         OwnedHandle source(create_file_relative_with_descriptor(
@@ -1081,7 +1161,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     require_publisher_tree_security_shape(sealed, service_sid);
     if (sealed.descendants.size() != 1 ||
         sealed.descendants.front().relative_path != L"payload.bin" ||
-        sealed.descendants.front().size != sizeof(bytes) - 1) {
+        sealed.descendants.front().size != expected_payload_size ||
+        sealed.descendants.front().sha256 != expected_source_digest) {
         throw std::runtime_error("protected lab staged closure is not exact");
     }
     const auto resealed = observe_publisher_tree(candidate.get());
@@ -1391,6 +1472,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             std::to_string(volume_observation.volume_information_serial) +
             ",\"volume_file_id_serial\":" +
             std::to_string(volume_observation.file_id_volume_serial) +
+            (selected_archive_mode ?
+                ",\"selected_archive_sha256\":" + json_quote(selected_archive_sha256) :
+                std::string{}) +
             ",\"prepublish_gate\":" +
             json_quote(recover_prepared ? "not_applicable" :
                 (prepublish_gate ? "released" : "disabled")) +
@@ -1445,9 +1529,18 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--postjournal-gate" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
+    const bool campaign_vm_selected = argc == 10 &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_selected_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--selected-zip" &&
+        campaign_selected_archive_path(argv[6]) &&
+        lower_sha256(argv[7]) &&
+        std::wstring(argv[8]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[9]);
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
-        !campaign_vm_postrename && !campaign_vm_postjournal) return 2;
+        !campaign_vm_postrename && !campaign_vm_postjournal &&
+        !campaign_vm_selected) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
@@ -1456,6 +1549,11 @@ int wmain(int argc, wchar_t** argv) {
     postjournal_gate = campaign_vm_postjournal;
     recover_prepared = campaign_vm_recovery || campaign_vm_replay;
     recover_visible_bound = campaign_vm_replay;
+    selected_archive_mode = campaign_vm_selected;
+    if (selected_archive_mode) {
+        selected_archive_path = argv[6];
+        selected_archive_sha256 = ascii(argv[7]);
+    }
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
     return service_exit_code == ERROR_SUCCESS ? 0 : 4;

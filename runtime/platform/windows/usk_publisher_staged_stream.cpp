@@ -139,5 +139,68 @@ PublisherStagedStream stream_verified_source_to_staged_file(
     }
 }
 
+PublisherStagedStream stream_verified_reader_to_staged_file(
+    HANDLE protected_parent, const std::wstring& canonical_name,
+    const std::vector<unsigned char>& creation_descriptor,
+    std::uint64_t expected_size, const std::string& expected_sha256,
+    const PublisherPayloadReader& reader,
+    const std::function<void()>& validate_source)
+{
+    constexpr std::uint64_t max_content_bytes = 16ull << 40;
+    if (!reader || !validate_source || expected_size > max_content_bytes ||
+        !valid_sha256(expected_sha256)) {
+        throw std::runtime_error("staged reader declaration is invalid");
+    }
+    validate_source();
+    HANDLE target = create_file_relative_with_descriptor(
+        protected_parent, canonical_name, creation_descriptor);
+    try {
+        std::array<unsigned char, 65536> buffer{};
+        usk::base::Sha256 digest;
+        std::uint64_t offset = 0;
+        while (offset != expected_size) {
+            const auto ask = static_cast<std::size_t>(std::min<std::uint64_t>(
+                expected_size - offset, buffer.size()));
+            const auto count = reader(offset, buffer.data(), ask);
+            if (count == 0 || count > ask) {
+                throw std::runtime_error("staged reader shortened or exceeded its bound");
+            }
+            std::size_t written_total = 0;
+            while (written_total != count) {
+                DWORD written = 0;
+                if (!WriteFile(target, buffer.data() + written_total,
+                        static_cast<DWORD>(count - written_total), &written,
+                        nullptr) || written == 0) {
+                    throw std::runtime_error("protected staged reader write failed");
+                }
+                written_total += written;
+            }
+            digest.update(buffer.data(), count);
+            offset += count;
+        }
+        unsigned char extra = 0;
+        if (reader(expected_size, &extra, 1u) != 0u) {
+            throw std::runtime_error("staged reader exceeds the reviewed size");
+        }
+        if (!FlushFileBuffers(target)) {
+            throw std::runtime_error("protected staged reader flush failed");
+        }
+        LARGE_INTEGER staged_size{};
+        if (!GetFileSizeEx(target, &staged_size) || staged_size.QuadPart < 0 ||
+            static_cast<std::uint64_t>(staged_size.QuadPart) != expected_size) {
+            throw std::runtime_error("protected staged reader size differs");
+        }
+        validate_source();
+        const std::string actual_sha256 = digest.finish();
+        if (actual_sha256 != expected_sha256) {
+            throw std::runtime_error("protected staged reader digest differs");
+        }
+        return {target, expected_size, actual_sha256};
+    } catch (...) {
+        CloseHandle(target);
+        throw;
+    }
+}
+
 } // namespace usk::platform::windows
 #endif
