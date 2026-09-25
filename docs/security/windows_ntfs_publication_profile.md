@@ -115,3 +115,20 @@ b344d102c4ae5139b7eeb0095fbd91eead4a262dc61151cf308cf4cfd66d28e0.
 This qualifies protected staging in the disposable lab only. It does not
 establish a durable publish intent, no-replace rename, visible closure,
 hostile-rights resistance, crash recovery or production publication.
+
+The PR #102 disposable run 36088974062 at source head
+ef95390e61f3b42e1796caf9375b4a3b02820a90 used a fresh file-backed NTFS
+VHD on Windows build 10.0.20348.0 with a generated own-process restricted
+service. Its service closed the destination parent's create-only handle,
+reopened the exact listed directory through the retained publication parent,
+and observed a successful handle-relative no-replace rename. The source root
+and visible root had the same composite file ID; the independently reopened
+visible payload retained SHA-256
+92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f.
+Two file-flushed lab summary markers were checked by the runner, and the
+service and VHD were cleaned up. The retained JSON receipt SHA-256 is
+1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1.
+These markers are not full `publish_prepared` and `visible_bound` records;
+they omit complete durable closure evidence and replay. The run does not
+qualify hostile-rights resistance, crash recovery, production enablement or
+OD-001.
