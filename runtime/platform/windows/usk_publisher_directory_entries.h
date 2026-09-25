@@ -39,11 +39,13 @@ std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
 // Open one listed child relative to the retained parent handle without
 // following a reparse point. The caller owns and must CloseHandle the result.
 // Listing size is provisional; the returned handle must supply content facts.
-// Publication parents may request FILE_ADD_SUBDIRECTORY while retaining the
-// same no-follow, parent-relative identity check.
+// Publication parents may request FILE_ADD_SUBDIRECTORY. A recovery worker
+// may request DELETE on the staged directory it must publish. Both retain
+// the same no-follow, parent-relative identity check.
 HANDLE open_publisher_listed_child(HANDLE parent,
     const PublisherDirectoryEntry& listed,
-    bool require_add_subdirectory = false);
+    bool require_add_subdirectory = false, bool require_delete = false,
+    bool require_add_file = false);
 
 } // namespace usk::platform::windows
 #endif
