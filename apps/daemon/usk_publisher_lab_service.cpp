@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_anchor_create.h"
+#include "usk_publisher_bound_rename.h"
+#include "usk_publisher_directory_entries.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -195,6 +197,83 @@ std::string json_protected_object(
         ",\"dacl_aces\":" + aces + "]}";
 }
 
+void write_journal_phase(HANDLE journal, const std::wstring& name,
+    const std::vector<unsigned char>& descriptor, const std::string& record) {
+    OwnedHandle file(usk::platform::windows::create_file_relative_with_descriptor(
+        journal, name, descriptor));
+    DWORD written = 0;
+    if (record.size() > MAXDWORD ||
+        !WriteFile(file.get(), record.data(), static_cast<DWORD>(record.size()),
+            &written, nullptr) || written != record.size() ||
+        !FlushFileBuffers(file.get())) {
+        throw std::runtime_error("publisher lab journal phase write or flush failed");
+    }
+}
+
+std::string diagnose_bound_rename_on_disposable_volume(
+    HANDLE staging, HANDLE destination,
+    const std::vector<unsigned char>& descriptor) {
+    using namespace usk::platform::windows;
+    const auto parent = observe_publisher_directory_handle(destination);
+    const auto attempt = [&](const std::wstring& source_name,
+        const std::wstring& target_name, bool reopen_source) {
+        try {
+            HANDLE source = INVALID_HANDLE_VALUE;
+            {
+                OwnedHandle created(create_directory_relative_with_descriptor(
+                    staging, source_name, descriptor));
+                if (!reopen_source) {
+                    source = created.get();
+                    const auto observed = observe_publisher_directory_handle(source);
+                    (void)probe_publisher_bound_rename_no_replace(source,
+                        destination, target_name, observed, parent);
+                    return std::string("success");
+                }
+            }
+            const std::wstring path = volume_root + L"publication\\staging\\" + source_name;
+            OwnedHandle reopened(CreateFileW(path.c_str(),
+                DELETE | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY |
+                    READ_CONTROL | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                nullptr));
+            if (reopened.get() == INVALID_HANDLE_VALUE) {
+                return std::string("reopen-win32-") + std::to_string(GetLastError());
+            }
+            const auto observed = observe_publisher_directory_handle(reopened.get());
+            (void)probe_publisher_bound_rename_no_replace(reopened.get(),
+                destination, target_name, observed, parent);
+            return std::string("success");
+        } catch (const std::exception& failure) {
+            return std::string(failure.what());
+        }
+    };
+    const auto held = attempt(L"diagnostic-held", L"diagnostic-held-visible", false);
+    const auto reopened = attempt(
+        L"diagnostic-reopened", L"diagnostic-reopened-visible", true);
+    std::string win32;
+    try {
+        {
+            OwnedHandle created(create_directory_relative_with_descriptor(
+                staging, L"diagnostic-win32", descriptor));
+        }
+        const std::wstring source = volume_root +
+            L"publication\\staging\\diagnostic-win32";
+        const std::wstring target = volume_root +
+            L"publication\\destination\\diagnostic-win32-visible";
+        if (MoveFileExW(source.c_str(), target.c_str(), 0)) {
+            win32 = "success";
+        } else {
+            win32 = "win32-" + std::to_string(GetLastError());
+        }
+    } catch (const std::exception& failure) {
+        win32 = failure.what();
+    }
+    return "empty-held=" + held + "; empty-reopened=" + reopened +
+        "; empty-win32-absolute-diagnostic=" + win32;
+}
+
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid) {
     using namespace usk::platform::windows;
     const std::wstring sid(service_sid.begin(), service_sid.end());
@@ -223,8 +302,13 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         volume, L"publication", descriptor));
     OwnedHandle staging(create_directory_relative_with_descriptor(
         publication.get(), L"staging", descriptor));
-    OwnedHandle destination(create_directory_relative_with_descriptor(
-        publication.get(), L"destination", descriptor));
+    std::string created_destination_id;
+    {
+        OwnedHandle created(create_directory_relative_with_descriptor(
+            publication.get(), L"destination", descriptor));
+        created_destination_id = observe_publisher_directory_handle(
+            created.get()).file_id;
+    }
     OwnedHandle state(create_directory_relative_with_descriptor(
         publication.get(), L"state", descriptor));
     OwnedHandle journal(create_directory_relative_with_descriptor(
@@ -234,18 +318,42 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto first = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_security_shape(first, service_sid);
+    if (first.destination_parent.object.file_id != created_destination_id) {
+        throw std::runtime_error("created destination anchor identity changed");
+    }
+    HANDLE reopened_destination = INVALID_HANDLE_VALUE;
+    for (const auto& listed : observe_publisher_directory_entries(publication.get())) {
+        if (listed.name == L"destination") {
+            if (reopened_destination != INVALID_HANDLE_VALUE) {
+                CloseHandle(reopened_destination);
+                throw std::runtime_error("duplicate destination anchor listing");
+            }
+            reopened_destination = open_publisher_listed_child(
+                publication.get(), listed, true);
+        }
+    }
+    if (reopened_destination == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("created destination anchor not listed");
+    }
+    OwnedHandle destination(reopened_destination);
+    if (observe_publisher_directory_handle(destination.get()).file_id !=
+            created_destination_id) {
+        throw std::runtime_error("reopened destination anchor identity changed");
+    }
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, second);
     OwnedHandle candidate(create_directory_relative_with_descriptor(
         staging.get(), L"candidate", descriptor));
-    OwnedHandle payload(create_file_relative_with_descriptor(
-        candidate.get(), L"payload.bin", descriptor));
     static constexpr char bytes[] = "protected staged payload\n";
-    DWORD written = 0;
-    if (!WriteFile(payload.get(), bytes, sizeof(bytes) - 1, &written, nullptr) ||
-        written != sizeof(bytes) - 1 || !FlushFileBuffers(payload.get())) {
-        throw std::runtime_error("protected lab payload write or flush failed");
+    {
+        OwnedHandle payload(create_file_relative_with_descriptor(
+            candidate.get(), L"payload.bin", descriptor));
+        DWORD written = 0;
+        if (!WriteFile(payload.get(), bytes, sizeof(bytes) - 1, &written, nullptr) ||
+            written != sizeof(bytes) - 1 || !FlushFileBuffers(payload.get())) {
+            throw std::runtime_error("protected lab payload write or flush failed");
+        }
     }
     const auto sealed = observe_publisher_tree(candidate.get());
     require_publisher_tree_security_shape(sealed, service_sid);
@@ -259,6 +367,56 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto third = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, third);
+    const std::string prepared =
+        "{\"phase\":\"lab_prepared_summary\",\"service_sid\":" +
+        json_quote(service_sid) +
+        ",\"volume_serial\":" +
+        std::to_string(sealed.volume.file_id_volume_serial) +
+        ",\"source_file_id\":" + json_quote(sealed.root.file_id) +
+        ",\"destination_parent_file_id\":" +
+        json_quote(first.destination_parent.object.file_id) +
+        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
+        json_quote(sealed.descendants.front().sha256) + "}\n";
+    write_journal_phase(journal.get(), L"lab-prepared-summary.json",
+        descriptor, prepared);
+    require_publisher_tree_phase_match(sealed, observe_publisher_tree(candidate.get()));
+    require_publisher_anchor_set_phase_match(first,
+        observe_publisher_anchor_set(volume, {L"publication"}, names));
+    PublisherBoundRenameObservation renamed;
+    try {
+        renamed = probe_publisher_bound_rename_no_replace(candidate.get(),
+            destination.get(), L"visible", sealed.root,
+            first.destination_parent.object);
+    } catch (const PublisherRenameUnconfirmed& failure) {
+        // Every comparison uses a fresh sibling on the newly created VHD.
+        // A failed or ambiguous rename is never retried on the same object.
+        throw std::runtime_error(std::string(failure.what()) + "; diagnostics: " +
+            diagnose_bound_rename_on_disposable_volume(
+                staging.get(), destination.get(), descriptor));
+    }
+    const auto visible = observe_visible_publisher_tree_against_seal(
+        destination.get(), L"visible", sealed);
+    require_publisher_tree_security_shape(visible, service_sid);
+    require_publisher_anchor_set_phase_match(first,
+        observe_publisher_anchor_set(volume, {L"publication"}, names));
+    const std::string bound =
+        "{\"phase\":\"lab_visible_summary\",\"source_file_id\":" +
+        json_quote(renamed.root_file_id) +
+        ",\"destination_parent_file_id\":" +
+        json_quote(first.destination_parent.object.file_id) +
+        ",\"destination_name\":\"visible\",\"payload_sha256\":" +
+        json_quote(visible.descendants.front().sha256) + "}\n";
+    write_journal_phase(journal.get(), L"lab-visible-summary.json", descriptor, bound);
+    const auto journal_tree = observe_publisher_tree(journal.get());
+    require_publisher_tree_security_shape(journal_tree, service_sid);
+    if (journal_tree.root.file_id != first.journal.object.file_id ||
+        journal_tree.descendants.size() != 2 ||
+        journal_tree.descendants[0].relative_path != L"lab-prepared-summary.json" ||
+        journal_tree.descendants[0].size != prepared.size() ||
+        journal_tree.descendants[1].relative_path != L"lab-visible-summary.json" ||
+        journal_tree.descendants[1].size != bound.size()) {
+        throw std::runtime_error("publisher lab journal phase closure is not exact");
+    }
     return "{\"boundary_file_id\":" + json_quote(first.chain.boundary.file_id) +
         ",\"publication_file_id\":" +
         json_quote(first.chain.children.front().object.file_id) +
@@ -280,7 +438,27 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         ",\"file\":" + json_protected_object(sealed.descendants.front().object) +
         ",\"relative_path\":\"payload.bin\",\"size\":" +
             std::to_string(sealed.descendants.front().size) +
-        ",\"sha256\":" + json_quote(sealed.descendants.front().sha256) + "}}";
+        ",\"sha256\":" + json_quote(sealed.descendants.front().sha256) +
+        "},\"publication_probe\":{\"source_file_id\":" +
+        json_quote(renamed.root_file_id) +
+        ",\"former_name\":" + json_quote(ascii(renamed.former_name)) +
+        ",\"visible_name\":" + json_quote(ascii(renamed.visible_name)) +
+        ",\"visible_root\":" + json_protected_object(visible.root) +
+        ",\"visible_file\":" +
+        json_protected_object(visible.descendants.front().object) +
+        ",\"visible_payload_sha256\":" +
+        json_quote(visible.descendants.front().sha256) +
+        ",\"journal_root\":" + json_protected_object(journal_tree.root) +
+        ",\"prepared_file\":" +
+        json_protected_object(journal_tree.descendants[0].object) +
+        ",\"bound_file\":" +
+        json_protected_object(journal_tree.descendants[1].object) +
+        ",\"prepared_record\":" + json_quote(prepared) +
+        ",\"prepared_sha256\":" +
+        json_quote(journal_tree.descendants[0].sha256) +
+        ",\"bound_record\":" + json_quote(bound) +
+        ",\"bound_sha256\":" +
+        json_quote(journal_tree.descendants[1].sha256) + "}}";
 }
 
 void write_receipt(const std::string& data) {

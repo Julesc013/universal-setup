@@ -222,6 +222,72 @@ try {
             $stageFactsValid = $false
         }
     }
+    $publication = $anchors.publication_probe
+    $publicationFactsValid = $false
+    if ($publication -and $publication.prepared_record -and
+        $publication.bound_record) {
+        $prepared = $publication.prepared_record | ConvertFrom-Json
+        $bound = $publication.bound_record | ConvertFrom-Json
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $preparedHash = [BitConverter]::ToString($sha.ComputeHash(
+                [Text.Encoding]::UTF8.GetBytes($publication.prepared_record))).
+                Replace('-', '').ToLowerInvariant()
+            $boundHash = [BitConverter]::ToString($sha.ComputeHash(
+                [Text.Encoding]::UTF8.GetBytes($publication.bound_record))).
+                Replace('-', '').ToLowerInvariant()
+        } finally { $sha.Dispose() }
+        $publicationFactsValid =
+            $publication.source_file_id -eq $staged.root.file_id -and
+            $publication.former_name -eq $staged.root.native_name -and
+            $publication.visible_name -eq
+                ($anchors.objects.destination.native_name + '\visible') -and
+            $publication.visible_root.file_id -eq $staged.root.file_id -and
+            $publication.visible_root.native_name -eq $publication.visible_name -and
+            $publication.visible_file.file_id -eq $staged.file.file_id -and
+            $publication.visible_file.native_name -eq
+                ($publication.visible_name + '\payload.bin') -and
+            $publication.visible_payload_sha256 -eq $staged.sha256 -and
+            $prepared.phase -eq 'lab_prepared_summary' -and
+            $prepared.service_sid -eq $sid -and
+            $prepared.source_file_id -eq $staged.root.file_id -and
+            $prepared.volume_serial -eq $native.volume_file_id_serial -and
+            $prepared.destination_parent_file_id -eq $anchors.destination_file_id -and
+            $prepared.destination_name -eq 'visible' -and
+            $prepared.payload_sha256 -eq $staged.sha256 -and
+            $bound.phase -eq 'lab_visible_summary' -and
+            $bound.source_file_id -eq $staged.root.file_id -and
+            $bound.destination_parent_file_id -eq $anchors.destination_file_id -and
+            $bound.destination_name -eq 'visible' -and
+            $bound.payload_sha256 -eq $staged.sha256 -and
+            $publication.prepared_sha256 -eq $preparedHash -and
+            $publication.bound_sha256 -eq $boundHash -and
+            $publication.journal_root.file_id -eq $anchors.journal_file_id -and
+            $publication.journal_root.native_name -eq
+                $anchors.objects.journal.native_name -and
+            $publication.prepared_file.native_name -eq
+                ($publication.journal_root.native_name + '\lab-prepared-summary.json') -and
+            $publication.bound_file.native_name -eq
+                ($publication.journal_root.native_name + '\lab-visible-summary.json') -and
+            @($anchorIds + @($staged.root.file_id, $staged.file.file_id,
+                $publication.prepared_file.file_id, $publication.bound_file.file_id) |
+                Sort-Object -Unique).Count -eq 10
+        foreach ($object in @($publication.visible_root, $publication.visible_file,
+                $publication.journal_root, $publication.prepared_file,
+                $publication.bound_file)) {
+            $aces = @($object.dacl_aces)
+            if (-not $object -or $object.owner_sid -ne 'S-1-5-18' -or
+                -not $object.dacl_protected -or $object.link_count -ne 1 -or
+                ($object.attributes -band 1024) -ne 0 -or $object.reparse_tag -ne 0 -or
+                $aces.Count -ne 2 -or $aces[0].type -ne 0 -or
+                $aces[0].flags -ne 0 -or $aces[0].sid -ne 'S-1-5-18' -or
+                $aces[1].type -ne 0 -or $aces[1].flags -ne 0 -or
+                $aces[1].sid -ne $sid -or $aces[0].access_mask -le 0 -or
+                $aces[0].access_mask -ne $aces[1].access_mask) {
+                $publicationFactsValid = $false
+            }
+        }
+    }
     if ($native.status -ne 'pass' -or $native.service_sid -ne $sid -or
         $native.service_sid_type -ne 3 -or $native.service_type -ne 16 -or
         $native.process_user_sid -ne 'S-1-5-18' -or
@@ -230,6 +296,7 @@ try {
         $native.volume_filesystem -ne 'NTFS' -or
         $enabled.Count -ne 1 -or $restricting.Count -ne 1 -or
         -not $anchorFactsValid -or -not $stageFactsValid -or
+        -not $publicationFactsValid -or
         @($anchorIds | Where-Object { -not $_ }).Count -ne 0 -or
         @($anchorIds | Sort-Object -Unique).Count -ne 6 -or
         -not $scm -or $scm.ServiceType -ne 'Own Process' -or
@@ -239,7 +306,7 @@ try {
     }
     $receipt.service_process_id = $scm.ProcessId
     $receipt.native_observation = $native
-    $receipt.status = 'protected_stage_observed'
+    $receipt.status = 'protected_publish_observed'
 } catch {
     $failure = $_.Exception.Message
     $receipt.failure = $failure
