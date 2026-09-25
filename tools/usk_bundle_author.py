@@ -53,9 +53,11 @@ def _object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _read_json(path: Path) -> Any:
-    if path.stat().st_size > MAX_SOURCE_BYTES:
+    with path.open("rb") as source:
+        raw = source.read(MAX_SOURCE_BYTES + 1)
+    if len(raw) > MAX_SOURCE_BYTES:
         raise AuthoringError("JSON exceeds the input budget")
-    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_object_pairs,
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=_object_pairs,
                       parse_constant=lambda value: (_ for _ in ()).throw(
                           AuthoringError(f"invalid JSON constant: {value}")))
 

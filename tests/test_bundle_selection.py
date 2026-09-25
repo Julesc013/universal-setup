@@ -12,11 +12,13 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from usk_bundle_author import AuthoringError, compile_bundle, inspect_bundle
 from usk_bundle_selection import SelectionError, finalize_selection, inspect_selection
+import usk_bundle_selection
 from tests.test_bundle_author import project, write_project, PAYLOAD
 
 
@@ -135,6 +137,59 @@ class BundleSelectionTests(unittest.TestCase):
             self.assertEqual(json.loads(inspected.stdout), json.loads(built.stdout))
             self.assertEqual(hashlib.sha256((selected / "payload.zip").read_bytes()).hexdigest(),
                              json.loads(built.stdout)["final_payload_sha256"])
+
+    def test_late_failure_cleans_only_its_files_and_preserves_a_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self._source(root)
+            output = root / "late-failure"
+            output.mkdir()
+            real_hash = usk_bundle_selection._hash
+            source_reads = 0
+
+            def drift_on_recheck(path: Path) -> str:
+                nonlocal source_reads
+                if path == source:
+                    source_reads += 1
+                    if source_reads == 2:
+                        raise SelectionError("injected late source drift")
+                return real_hash(path)
+
+            with mock.patch.object(usk_bundle_selection, "_hash", drift_on_recheck):
+                with self.assertRaisesRegex(SelectionError, "late source drift"):
+                    finalize_selection(source, [], output)
+            self.assertEqual(list(output.iterdir()), [])
+            self.assertEqual(inspect_bundle(source)["product_id"], "org.example.hello")
+
+            def receipt_collision(*arguments):
+                (output / "selection.receipt.json").write_bytes(b"external writer")
+                return {"schema": "not relevant"}
+
+            with mock.patch.object(usk_bundle_selection, "_receipt", receipt_collision):
+                with self.assertRaises(FileExistsError):
+                    finalize_selection(source, [], output)
+            self.assertEqual([item.name for item in output.iterdir()],
+                             ["selection.receipt.json"])
+            self.assertEqual((output / "selection.receipt.json").read_bytes(),
+                             b"external writer")
+
+    def test_oversized_receipt_and_extra_entry_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self._source(root)
+            output = root / "selected"
+            output.mkdir()
+            finalize_selection(source, [], output)
+            receipt_path = output / "selection.receipt.json"
+            original = receipt_path.read_bytes()
+            receipt_path.write_bytes(b"x" * (usk_bundle_selection.MAX_RECEIPT + 1))
+            with self.assertRaisesRegex(SelectionError, "byte budget"):
+                inspect_selection(source, output)
+            receipt_path.write_bytes(original)
+            (output / "foreign.txt").write_bytes(b"retain")
+            with self.assertRaisesRegex(SelectionError, "extra entries"):
+                inspect_selection(source, output)
+            self.assertEqual((output / "foreign.txt").read_bytes(), b"retain")
 
 
 if __name__ == "__main__":

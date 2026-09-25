@@ -14,6 +14,8 @@ import argparse
 import copy
 import hashlib
 import json
+import os
+import stat
 import sys
 import tempfile
 import zipfile
@@ -25,6 +27,8 @@ from usk_component_resolver import ResolutionError, resolve_component_ids
 
 BUFFER = 65536
 RECEIPT_NAME = "selection.receipt.json"
+MAX_RECEIPT = 1024 * 1024
+MAX_BUNDLE = 8 * 1024 * 1024
 
 
 class SelectionError(ValueError):
@@ -37,6 +41,27 @@ def _hash(path: Path) -> str:
         for block in iter(lambda: stream.read(BUFFER), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _bounded_bytes(path: Path, limit: int) -> bytes:
+    with path.open("rb") as stream:
+        result = stream.read(limit + 1)
+    if len(result) > limit:
+        raise SelectionError("selection metadata exceeds its byte budget")
+    return result
+
+
+def _remove_owned(created: list[tuple[Path, int, int]]) -> None:
+    for path, device, inode in reversed(created):
+        try:
+            current = path.lstat()
+            if (stat.S_ISREG(current.st_mode) and
+                    (current.st_dev, current.st_ino) == (device, inode)):
+                path.unlink()
+        except OSError:
+            # Preserve the original failure; a changed or inaccessible path
+            # must remain for inspection rather than risk deleting another file.
+            pass
 
 
 def _canonical(value: Any) -> bytes:
@@ -96,17 +121,20 @@ def _receipt(source: dict[str, Any], source_path: Path, selected: tuple[str, ...
 
 def inspect_selection(source_path: Path, output_dir: Path) -> dict[str, Any]:
     """Verify source and derived bytes, exact selection, and receipt closure."""
-    if {item.name for item in output_dir.iterdir()} != {
+    names: set[str] = set()
+    for item in output_dir.iterdir():
+        if len(names) == 3:
+            raise SelectionError("finalized output has extra entries")
+        names.add(item.name)
+    if names != {
             "product.bundle.json", "payload.zip", RECEIPT_NAME}:
         raise SelectionError("finalized output closure is not exact")
     source = inspect_bundle(source_path)
     final_path = output_dir / "product.bundle.json"
     final = inspect_bundle(final_path)
-    if final_path.read_bytes() != _canonical(final):
+    if _bounded_bytes(final_path, MAX_BUNDLE) != _canonical(final):
         raise SelectionError("finalized bundle is not canonical")
-    raw = (output_dir / RECEIPT_NAME).read_bytes()
-    if len(raw) > 1024 * 1024:
-        raise SelectionError("selection receipt exceeds its bound")
+    raw = _bounded_bytes(output_dir / RECEIPT_NAME, MAX_RECEIPT)
     try:
         receipt = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(
             SelectionError(f"invalid receipt constant: {value}")))
@@ -171,22 +199,34 @@ def finalize_selection(source_path: Path, requested: list[str],
         raise SelectionError("selected components contain no files")
     source_archive = source_path.parent / "payload.zip"
     final_archive = output_dir / "payload.zip"
-    with final_archive.open("xb") as output:
-        _emit_archive(source_archive, files, output)
-    final["payload"] = {"file": "payload.zip", "size_bytes": final_archive.stat().st_size,
-                        "sha256": _hash(final_archive)}
     final_path = output_dir / "product.bundle.json"
-    with final_path.open("xb") as stream:
-        stream.write(_canonical(final))
-    if _hash(source_path) != source_bundle_hash or \
-            inspect_bundle(source_path) != source:
-        raise SelectionError("source bundle changed during finalization")
-    receipt = _receipt(source, source_path, selected, requested, final, final_path)
-    with (output_dir / RECEIPT_NAME).open("xb") as stream:
-        stream.write(_canonical(receipt))
-    if inspect_selection(source_path, output_dir) != receipt:
-        raise SelectionError("finalized selection failed reopening")
-    return receipt
+    receipt_path = output_dir / RECEIPT_NAME
+    created: list[tuple[Path, int, int]] = []
+    try:
+        with final_archive.open("xb") as output:
+            facts = os.fstat(output.fileno())
+            created.append((final_archive, facts.st_dev, facts.st_ino))
+            _emit_archive(source_archive, files, output)
+        final["payload"] = {"file": "payload.zip", "size_bytes": final_archive.stat().st_size,
+                            "sha256": _hash(final_archive)}
+        with final_path.open("xb") as stream:
+            facts = os.fstat(stream.fileno())
+            created.append((final_path, facts.st_dev, facts.st_ino))
+            stream.write(_canonical(final))
+        if _hash(source_path) != source_bundle_hash or \
+                inspect_bundle(source_path) != source:
+            raise SelectionError("source bundle changed during finalization")
+        receipt = _receipt(source, source_path, selected, requested, final, final_path)
+        with receipt_path.open("xb") as stream:
+            facts = os.fstat(stream.fileno())
+            created.append((receipt_path, facts.st_dev, facts.st_ino))
+            stream.write(_canonical(receipt))
+        if inspect_selection(source_path, output_dir) != receipt:
+            raise SelectionError("finalized selection failed reopening")
+        return receipt
+    except BaseException:
+        _remove_owned(created)
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:
