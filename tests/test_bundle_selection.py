@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from usk_bundle_author import AuthoringError, compile_bundle, inspect_bundle
 from usk_bundle_selection import SelectionError, finalize_selection, inspect_selection
+from usk_component_resolver import resolve_component_ids
 import usk_bundle_selection
 from tests.test_bundle_author import project, write_project, PAYLOAD
 
@@ -58,6 +59,7 @@ class BundleSelectionTests(unittest.TestCase):
                 self.assertEqual(inspect_selection(source, selected), receipt)
                 bundle = inspect_bundle(selected / "product.bundle.json")
                 self.assertEqual([entry["id"] for entry in bundle["components"]], ["core"])
+                self.assertEqual(set(resolve_component_ids(bundle["components"])), {"core"})
                 self.assertEqual(receipt["selected_components"], ["core"])
                 self.assertEqual(receipt["source_payload_sha256"],
                                  source_bundle["payload"]["sha256"])
@@ -78,6 +80,9 @@ class BundleSelectionTests(unittest.TestCase):
             selected.mkdir()
             receipt = finalize_selection(source, ["addon"], selected)
             self.assertEqual(receipt["selected_components"], ["core", "addon"])
+            self.assertEqual(set(resolve_component_ids(
+                inspect_bundle(selected / "product.bundle.json")["components"])),
+                {"core", "addon"})
             with zipfile.ZipFile(selected / "payload.zip") as archive:
                 self.assertEqual(archive.namelist(), ["bin/addon.bin", "bin/app.bin"])
                 self.assertEqual(archive.read("bin/addon.bin"), b"optional addon\n")

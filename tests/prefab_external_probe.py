@@ -128,12 +128,22 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
                 native_selected_info.get("payload_sha256") !=
                 selected_bundle["payload"]["sha256"]):
             raise RuntimeError("packaged native selection differs from finalized bytes")
+        selected_default = subprocess.run(
+            [str(selected_host), "--product-select",
+             str(selected_envelope / "product.bundle.json")],
+            capture_output=True, timeout=30)
+        if (selected_default.returncode or selected_default.stderr or
+                set(json.loads(selected_default.stdout).get("selected_component_ids", [])) !=
+                {"addon", "core", "library"}):
+            raise RuntimeError("packaged native default selection lost finalized components")
         finalized_observation = {
             "requested_components": ["addon"],
             "selected_components": selection_receipt["selected_components"],
             "receipt_sha256": _sha256(selected_root / "selection.receipt.json"),
             "payload_sha256": selected_bundle["payload"]["sha256"],
             "packaged_native_info_sha256": hashlib.sha256(selected_info.stdout).hexdigest(),
+            "packaged_native_default_selection_sha256":
+                hashlib.sha256(selected_default.stdout).hexdigest(),
             "unselected_payload_excluded": True,
         }
         for profile in ("sidecar", "one_file_carrier"):

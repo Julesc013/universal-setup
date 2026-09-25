@@ -81,6 +81,10 @@ def _selected_bundle(source: dict[str, Any], selected: tuple[str, ...]) -> dict[
         # with an excluded alternative remains in the source receipt but is
         # no longer a reference inside this smaller, closed bundle graph.
         entry["conflicts"] = [name for name in entry["conflicts"] if name in included]
+        # The derived artifact is a finalized choice, so a consumer with no
+        # separate selection receipt still selects every retained component.
+        if not entry["required"]:
+            entry["default_selected"] = True
     return result
 
 
