@@ -788,10 +788,12 @@ A repeat returned `already_visible_bound` with the same completion hash
 Recovered evidence remains in snapshot `8a3072fc-d73d-4e5e-adb3-02f7bd17ceab`;
 the working VM was restored to the pretest snapshot.
 
-This is an exact candidate-binary lab observation. A later source-only change
-allows reviewed single-file `payload.bin` selections to use the same v2 record;
-that path has not been rerun in the VM. The journal does not yet become the
-public installed-state, ownership, or audit record. The drive-letter mapping
+This is an exact candidate-binary lab observation. Later source-only changes
+allow reviewed single-file `payload.bin` selections to use the same v2 record
+and retain the selected ZIP handle after comparing its filesystem identity,
+size and complete selected set to the recomputed native plan, before changing
+the VHD. Those changes have not been rerun in the VM. The journal does not yet
+become the public installed-state, ownership, or audit record. The drive-letter mapping
 and selected source remain laboratory constraints, and hostile concurrent
 substitution, lease fencing, general sources, production enablement, OD-001,
 and physical-host power-loss qualification remain open.
