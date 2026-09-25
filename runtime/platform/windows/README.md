@@ -112,6 +112,6 @@ The next disposable-host candidate provisions a fresh local standard account
 on the hosted Windows runner and launches a separate process to attempt four
 operations against the published tree on the same fresh VHD. The test binds its
 observed SID and process ID, requires access-denied results, and verifies
-cleanup of the generated account and output folder. No hosted result has yet
-been recorded;
-the test does not replace effective-rights closure or concurrent attack proof.
+cleanup of the generated account and output folder. A hosted Windows Server
+20348 run observed all four access-denied results and reported cleanup. The
+test does not replace effective-rights closure or concurrent attack proof.
