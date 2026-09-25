@@ -147,6 +147,15 @@ def main() -> int:
                                 "--context-file", str(invalid_context))
         assert malformed_context.returncode != 0
         assert json.loads(malformed_context.stdout)["error"]["code"] == "invalid_context"
+        for field in ("state_root", "authorized_acceptance_root",
+                      "target_policy_activation"):
+            nul_context = json.loads(context_file.read_text(encoding="utf-8"))
+            nul_context[field] += "\x00ignored-suffix"
+            invalid_context.write_text(json.dumps(nul_context), encoding="utf-8")
+            nul_result = run(executable, "--machine", plan_bytes,
+                             "--context-file", str(invalid_context))
+            assert nul_result.returncode != 0
+            assert json.loads(nul_result.stdout)["error"]["code"] == "invalid_context"
         planned = run(executable, "--machine", plan_bytes,
                       "--context-file", str(context_file))
         assert planned.returncode == 0, planned.stderr + planned.stdout

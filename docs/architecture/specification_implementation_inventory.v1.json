@@ -357,11 +357,11 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "04cfd44d8525893f90600969a6e9de6ee221860bb23e472fbd63c82cba8ce204"
+          "sha256": "e330b4134d529f0150252a37068f16239460e5560865756d5e0000504c5099ad"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
-          "sha256": "7015f06d1e1cae2120774c2bde69718f2c241f5d86312299570bf1892833017c"
+          "sha256": "fd25abe8265e5e58385aad762fa0d9ca7a5b91b3a8f12ff8d8b6075f2a4af2d0"
         }
       ],
       "acceptance_ids": [
@@ -1374,7 +1374,7 @@
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "9925e8e72ad9ba7ed8975003e4ed362d6c1c3c3d499238adf096bdd6c1a7b2b5"
+          "sha256": "428a9a6103f56047198847ee0a3f01a290ecf1027d827a17fc1ffdd3ed11346d"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
@@ -5296,11 +5296,11 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "04cfd44d8525893f90600969a6e9de6ee221860bb23e472fbd63c82cba8ce204"
+          "sha256": "e330b4134d529f0150252a37068f16239460e5560865756d5e0000504c5099ad"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "9925e8e72ad9ba7ed8975003e4ed362d6c1c3c3d499238adf096bdd6c1a7b2b5"
+          "sha256": "428a9a6103f56047198847ee0a3f01a290ecf1027d827a17fc1ffdd3ed11346d"
         }
       ],
       "acceptance_ids": [
@@ -5368,11 +5368,11 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "04cfd44d8525893f90600969a6e9de6ee221860bb23e472fbd63c82cba8ce204"
+          "sha256": "e330b4134d529f0150252a37068f16239460e5560865756d5e0000504c5099ad"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "9925e8e72ad9ba7ed8975003e4ed362d6c1c3c3d499238adf096bdd6c1a7b2b5"
+          "sha256": "428a9a6103f56047198847ee0a3f01a290ecf1027d827a17fc1ffdd3ed11346d"
         }
       ],
       "acceptance_ids": [

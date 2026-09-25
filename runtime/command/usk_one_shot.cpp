@@ -44,6 +44,15 @@ bool safe_id(const std::string& value)
     return true;
 }
 
+bool valid_context(const OneShotContextConfig& config)
+{
+    return !config.state_root.empty() && !config.authorized_acceptance_root.empty() &&
+        !config.target_policy_activation.empty() &&
+        config.state_root.find('\0') == std::string::npos &&
+        config.authorized_acceptance_root.find('\0') == std::string::npos &&
+        config.target_policy_activation.find('\0') == std::string::npos;
+}
+
 bool initial_command(const std::string& command)
 {
     return command == "command_graph.inspect" || command == "command_graph.inspect_v2" ||
@@ -86,9 +95,8 @@ OneShotContextConfig read_context_config(std::istream& input)
         parsed.at("state_root").as_string(),
         parsed.at("authorized_acceptance_root").as_string(),
         parsed.at("target_policy_activation").as_string()};
-    if (result.state_root.empty() || result.authorized_acceptance_root.empty() ||
-        result.target_policy_activation.empty()) {
-        throw std::runtime_error("incomplete context configuration");
+    if (!valid_context(result)) {
+        throw std::runtime_error("invalid context configuration");
     }
     return result;
 }
@@ -118,6 +126,9 @@ OneShotResult run_one_shot(const std::string& request_json,
         }
         if ((command == "install_local.plan") != (context_config != nullptr)) {
             return failure(request_id, "context_mismatch");
+        }
+        if (context_config != nullptr && !valid_context(*context_config)) {
+            return failure(request_id, "invalid_context");
         }
         if (command == "install_local.plan" &&
             (!input.at("payload").contains("required_commit_authority") ||

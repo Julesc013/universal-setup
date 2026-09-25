@@ -107,6 +107,16 @@ int main()
     if (legacy.exit_code == 0 ||
         usk::json::parse(legacy.document).at("error").at("code").as_string() !=
             "protected_authority_required") return 12;
+    for (int field = 0; field < 3; ++field) {
+        auto invalid = configured;
+        if (field == 0) invalid.state_root += std::string(1, '\0') + "other";
+        if (field == 1) invalid.authorized_acceptance_root += std::string(1, '\0') + "other";
+        if (field == 2) invalid.target_policy_activation += std::string(1, '\0') + "other";
+        const auto denied = usk::command::run_one_shot(plan_request, &invalid);
+        if (denied.exit_code == 0 ||
+            usk::json::parse(denied.document).at("error").at("code").as_string() !=
+                "invalid_context") return 14;
+    }
     try {
         std::istringstream malformed(
             "{\"schema\":\"usk.oneshot_context.v1\",\"state_root\":\"C:/setup\","
