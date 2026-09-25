@@ -125,8 +125,9 @@ and observed a successful handle-relative no-replace rename. The source root
 and visible root had the same composite file ID; the independently reopened
 visible payload retained SHA-256
 92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f.
-Two file-flushed lab summary markers were checked by the runner, and the
-service and VHD were cleaned up. The retained JSON receipt SHA-256 is
+Two file-flushed lab summary markers were checked by the runner. The receipt
+reports that the service was stopped with deletion requested, the VHD was
+dismounted, and its backing file was removed. The retained JSON receipt SHA-256 is
 1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1.
 These markers are not full `publish_prepared` and `visible_bound` records;
 they omit complete durable closure evidence and replay. The run does not
