@@ -48,15 +48,32 @@ int main(int argc, char** argv)
             return 2;
         }
     }
-    if ((argc != 2 && argc != 4) ||
-        (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed") ||
-        (argc == 4 && (std::string(argv[2]) != "--request-file" || argv[3][0] == '\0'))) {
+    if (argc < 2 ||
+        (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed")) {
         std::cerr << "usage: usk_machine --machine|--framed [--request-file path]"
+            " [--context-file path]"
             " | --product-info product.bundle.json"
             " | --product-select product.bundle.json [--select ID ...]\n";
         return 2;
     }
     const bool framed = std::string(argv[1]) == "--framed";
+    const char* request_file = nullptr;
+    const char* context_file = nullptr;
+    for (int index = 2; index < argc; index += 2) {
+        if (index + 1 >= argc || argv[index + 1][0] == '\0') {
+            std::cerr << "usk_machine: invalid options\n";
+            return 2;
+        }
+        const std::string option(argv[index]);
+        if (option == "--request-file" && request_file == nullptr) {
+            request_file = argv[index + 1];
+        } else if (option == "--context-file" && context_file == nullptr) {
+            context_file = argv[index + 1];
+        } else {
+            std::cerr << "usk_machine: invalid options\n";
+            return 2;
+        }
+    }
 #ifdef _WIN32
     // A frame is bytes, not CRT text: Ctrl+Z and newline translation corrupt it.
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
@@ -69,13 +86,27 @@ int main(int argc, char** argv)
     try {
         std::ifstream file;
         std::istream* source = &std::cin;
-        if (argc == 4) {
-            file.open(argv[3], std::ios::binary);
+        if (request_file != nullptr) {
+            file.open(request_file, std::ios::binary);
             if (!file) throw std::runtime_error("request file unavailable");
             source = &file;
         }
         const std::string request = usk::command::read_bounded_request(*source, framed);
-        result = usk::command::run_one_shot(request);
+        usk::command::OneShotContextConfig context;
+        const usk::command::OneShotContextConfig* configured = nullptr;
+        if (context_file != nullptr) {
+            try {
+                std::ifstream context_input(context_file, std::ios::binary);
+                if (!context_input) throw std::runtime_error("context file unavailable");
+                context = usk::command::read_context_config(context_input);
+                configured = &context;
+            } catch (const std::exception&) {
+                result = usk::command::invalid_context_result();
+            }
+        }
+        if (context_file == nullptr || configured != nullptr) {
+            result = usk::command::run_one_shot(request, configured);
+        }
     } catch (const std::exception&) {
         result = usk::command::invalid_frame_result();
     }

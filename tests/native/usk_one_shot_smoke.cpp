@@ -93,6 +93,31 @@ int main()
             "\"command\":\"policy.inspect\",\"payload\":{\"a\":1,\"a\":2},"
             "\"dry_run\":true}", "invalid_request")) return 3;
 
+    const std::string plan_request =
+        "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"plan-1\","
+        "\"command\":\"install_local.plan\",\"payload\":{},\"dry_run\":true}";
+    if (!refused_with(plan_request, "context_mismatch")) return 11;
+    std::istringstream configuration(
+        "{\"schema\":\"usk.oneshot_context.v1\",\"state_root\":\"C:/setup\","
+        "\"authorized_acceptance_root\":\"C:/\","
+        "\"target_policy_activation\":\"operator_acceptance_candidate\"}");
+    const auto configured = usk::command::read_context_config(configuration);
+    if (configured.state_root != "C:/setup") return 12;
+    const auto legacy = usk::command::run_one_shot(plan_request, &configured);
+    if (legacy.exit_code == 0 ||
+        usk::json::parse(legacy.document).at("error").at("code").as_string() !=
+            "protected_authority_required") return 12;
+    try {
+        std::istringstream malformed(
+            "{\"schema\":\"usk.oneshot_context.v1\",\"state_root\":\"C:/setup\","
+            "\"authorized_acceptance_root\":\"C:/\","
+            "\"target_policy_activation\":\"operator_acceptance_candidate\","
+            "\"extra\":\"refuse\"}");
+        (void)usk::command::read_context_config(malformed);
+        return 13;
+    } catch (const std::exception&) {
+    }
+
     std::ostringstream frame;
     usk::command::write_result(frame, request, true);
     std::istringstream frame_input(frame.str());
