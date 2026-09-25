@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 
+#include "usk_publisher_anchor_create.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_tree_observation.h"
 
@@ -11,6 +12,10 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
+
+#include <aclapi.h>
+#include <cstring>
 
 namespace fs = std::filesystem;
 using namespace usk::platform::windows;
@@ -119,6 +124,44 @@ int main() {
                 visible.descendants.size() == 1 &&
                 fs::exists(destination / "visible" / "payload.bin") &&
                 !fs::exists(candidate), "visible closure did not bind");
+        }
+        {
+            auto staging_parent = open_directory(staging, false);
+            auto target_parent = open_directory(destination, false);
+            PSECURITY_DESCRIPTOR raw = nullptr;
+            if (GetSecurityInfo(staging_parent.get(), SE_FILE_OBJECT,
+                    OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                    nullptr, nullptr, nullptr, nullptr, &raw) != ERROR_SUCCESS ||
+                !raw) {
+                throw std::runtime_error("write-through fixture security descriptor unavailable");
+            }
+            const DWORD length = GetSecurityDescriptorLength(raw);
+            std::vector<unsigned char> descriptor(length);
+            std::memcpy(descriptor.data(), raw, length);
+            LocalFree(raw);
+            OwnedHandle source(create_directory_relative_with_descriptor(
+                staging_parent.get(), L"write-through-candidate", descriptor));
+            {
+                OwnedHandle file(create_file_relative_with_descriptor(
+                    source.get(), L"payload.bin", descriptor));
+                static constexpr char bytes[] = "write-through fixture\n";
+                DWORD written = 0;
+                check(WriteFile(file.get(), bytes, sizeof(bytes) - 1,
+                    &written, nullptr) && written == sizeof(bytes) - 1 &&
+                    FlushFileBuffers(file.get()), "write-through fixture write failed");
+            }
+            const auto sealed = observe_publisher_tree(source.get());
+            const auto observed_source = observe_publisher_directory_handle(source.get());
+            const auto observed_target = observe_publisher_directory_handle(target_parent.get());
+            const auto result = probe_publisher_bound_rename_no_replace(
+                source.get(), target_parent.get(), L"visible-write-through",
+                observed_source, observed_target);
+            const auto visible = observe_visible_publisher_tree_against_seal(
+                target_parent.get(), L"visible-write-through", sealed);
+            check(result.root_file_id == visible.root.file_id &&
+                visible.descendants.size() == 1 &&
+                fs::exists(destination / "visible-write-through" / "payload.bin"),
+                "write-through created source did not rebind visibly");
         }
         fs::remove_all(root);
         std::cout << "publisher-bound-rename-smoke-pass\n";

@@ -209,6 +209,70 @@ void write_journal_phase(HANDLE journal, const std::wstring& name,
     }
 }
 
+std::string diagnose_bound_rename_on_disposable_volume(
+    HANDLE staging, HANDLE destination,
+    const std::vector<unsigned char>& descriptor) {
+    using namespace usk::platform::windows;
+    const auto parent = observe_publisher_directory_handle(destination);
+    const auto attempt = [&](const std::wstring& source_name,
+        const std::wstring& target_name, bool reopen_source) {
+        try {
+            HANDLE source = INVALID_HANDLE_VALUE;
+            {
+                OwnedHandle created(create_directory_relative_with_descriptor(
+                    staging, source_name, descriptor));
+                if (!reopen_source) {
+                    source = created.get();
+                    const auto observed = observe_publisher_directory_handle(source);
+                    (void)probe_publisher_bound_rename_no_replace(source,
+                        destination, target_name, observed, parent);
+                    return std::string("success");
+                }
+            }
+            const std::wstring path = volume_root + L"publication\\staging\\" + source_name;
+            OwnedHandle reopened(CreateFileW(path.c_str(),
+                DELETE | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY |
+                    READ_CONTROL | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                nullptr));
+            if (reopened.get() == INVALID_HANDLE_VALUE) {
+                return std::string("reopen-win32-") + std::to_string(GetLastError());
+            }
+            const auto observed = observe_publisher_directory_handle(reopened.get());
+            (void)probe_publisher_bound_rename_no_replace(reopened.get(),
+                destination, target_name, observed, parent);
+            return std::string("success");
+        } catch (const std::exception& failure) {
+            return std::string(failure.what());
+        }
+    };
+    const auto held = attempt(L"diagnostic-held", L"diagnostic-held-visible", false);
+    const auto reopened = attempt(
+        L"diagnostic-reopened", L"diagnostic-reopened-visible", true);
+    std::string win32;
+    try {
+        {
+            OwnedHandle created(create_directory_relative_with_descriptor(
+                staging, L"diagnostic-win32", descriptor));
+        }
+        const std::wstring source = volume_root +
+            L"publication\\staging\\diagnostic-win32";
+        const std::wstring target = volume_root +
+            L"publication\\destination\\diagnostic-win32-visible";
+        if (MoveFileExW(source.c_str(), target.c_str(), 0)) {
+            win32 = "success";
+        } else {
+            win32 = "win32-" + std::to_string(GetLastError());
+        }
+    } catch (const std::exception& failure) {
+        win32 = failure.what();
+    }
+    return "empty-held=" + held + "; empty-reopened=" + reopened +
+        "; empty-win32-absolute-diagnostic=" + win32;
+}
+
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid) {
     using namespace usk::platform::windows;
     const std::wstring sid(service_sid.begin(), service_sid.end());
@@ -290,9 +354,18 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     require_publisher_tree_phase_match(sealed, observe_publisher_tree(candidate.get()));
     require_publisher_anchor_set_phase_match(first,
         observe_publisher_anchor_set(volume, {L"publication"}, names));
-    const auto renamed = probe_publisher_bound_rename_no_replace(candidate.get(),
-        destination.get(), L"visible", sealed.root,
-        first.destination_parent.object);
+    PublisherBoundRenameObservation renamed;
+    try {
+        renamed = probe_publisher_bound_rename_no_replace(candidate.get(),
+            destination.get(), L"visible", sealed.root,
+            first.destination_parent.object);
+    } catch (const PublisherRenameUnconfirmed& failure) {
+        // Every comparison uses a fresh sibling on the newly created VHD.
+        // A failed or ambiguous rename is never retried on the same object.
+        throw std::runtime_error(std::string(failure.what()) + "; diagnostics: " +
+            diagnose_bound_rename_on_disposable_volume(
+                staging.get(), destination.get(), descriptor));
+    }
     const auto visible = observe_visible_publisher_tree_against_seal(
         destination.get(), L"visible", sealed);
     require_publisher_tree_security_shape(visible, service_sid);
