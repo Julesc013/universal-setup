@@ -237,6 +237,33 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             const DWORD owner_backup = probe(
                 FILE_READ_ATTRIBUTES | WRITE_OWNER | SYNCHRONIZE,
                 FILE_FLAG_BACKUP_SEMANTICS);
+            std::string relative_create = "not_run";
+            try {
+                OwnedHandle boundary(CreateFileW(volume_root.c_str(),
+                    FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    nullptr));
+                if (boundary.get() == INVALID_HANDLE_VALUE) {
+                    throw std::runtime_error("read-only boundary handle unavailable");
+                }
+                (void)usk::platform::windows::observe_local_ntfs_volume_handle(boundary.get());
+                const auto root = usk::platform::windows::observe_publisher_directory_handle(
+                    boundary.get());
+                if ((root.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+                    root.reparse_tag != 0 || root.case_sensitive || root.link_count != 1) {
+                    throw std::runtime_error("read-only boundary shape is inadmissible");
+                }
+                const std::wstring sid(observed.service_sid.begin(), observed.service_sid.end());
+                const auto descriptor =
+                    usk::platform::windows::make_publisher_directory_security_descriptor(sid);
+                OwnedHandle created(
+                    usk::platform::windows::create_directory_relative_with_descriptor(
+                        boundary.get(), L"relative_probe", descriptor));
+                relative_create = "created";
+            } catch (const std::exception& failure) {
+                relative_create = failure.what();
+            }
             throw std::runtime_error("restricted service cannot open disposable volume root; Win32 " +
                 std::to_string(error) + "; read-reparse=" +
                 std::to_string(read_reparse) + "; full-backup=" +
@@ -247,7 +274,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 std::to_string(control_backup) + "; add-backup=" +
                 std::to_string(add_backup) + "; dac-backup=" +
                 std::to_string(dac_backup) + "; owner-backup=" +
-                std::to_string(owner_backup));
+                std::to_string(owner_backup) + "; relative-create=" +
+                relative_create);
         }
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
