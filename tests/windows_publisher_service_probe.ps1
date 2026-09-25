@@ -361,9 +361,12 @@ try {
     $attack = Get-Content -LiteralPath $attackOutput -Raw | ConvertFrom-Json
     $receipt.unprivileged_attack = $attack
     Assert-OwnedVolume
+    $scmAfterAttack = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if ($attack.status -ne 'unprivileged_access_denied_observed' -or
         $attack.account_sid -eq $sid -or
-        $attack.observation.volume_root -ne $VolumeRoot) {
+        $attack.observation.volume_root -ne $VolumeRoot -or
+        -not $scmAfterAttack -or $scmAfterAttack.State -ne 'Running' -or
+        $scmAfterAttack.ProcessId -ne $scm.ProcessId) {
         throw 'separate-login access denial evidence is incomplete'
     }
     $receipt.status = 'protected_publish_observed'
