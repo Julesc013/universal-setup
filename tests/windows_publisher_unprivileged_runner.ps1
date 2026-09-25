@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$VhdPath,
     [Parameter(Mandatory = $true)][string]$VolumeRoot,
     [Parameter(Mandatory = $true)][string]$ServiceSid,
-    [Parameter(Mandatory = $true)][string]$OutputPath
+    [Parameter(Mandatory = $true)][string]$OutputPath,
+    [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,11 +11,14 @@ $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIde
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $vhd = [IO.Path]::GetFullPath($VhdPath)
 $output = [IO.Path]::GetFullPath($OutputPath)
+$expectedOutput = if ($Stage -eq 'Prepublish') {
+    'unprivileged-prepublish.json'
+} else { 'unprivileged-attack.json' }
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
     -not $vhd.StartsWith($runnerTemp + [IO.Path]::DirectorySeparatorChar,
         [StringComparison]::OrdinalIgnoreCase) -or
-    $output -ne (Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json') -or
+    $output -ne (Join-Path (Split-Path -Parent $vhd) $expectedOutput) -or
     -not (Test-Path -LiteralPath $vhd -PathType Leaf)) {
     throw 'unprivileged access probe requires the owned hosted Windows VHD'
 }
@@ -36,6 +40,7 @@ $receipt = [ordered]@{
     status = 'not_run'
     account_name = $accountName
     account_sid = $null
+    stage = $Stage
     volume_root = $VolumeRoot
     vhd_disk_number = $disk[0].Number
     process_exit_code = $null
@@ -79,7 +84,7 @@ try {
         $script + '" -VolumeRoot "' + $VolumeRoot.TrimEnd('\') +
         '" -ExpectedUserSid "' + $receipt.account_sid +
         '" -ServiceSid "' + $ServiceSid +
-        '" -OutputPath "' + $childOutput + '"'
+        '" -OutputPath "' + $childOutput + '" -Stage ' + $Stage
     $process = Start-Process -FilePath (Get-Command pwsh).Source `
         -ArgumentList $arguments -Credential $credential -PassThru `
         -WindowStyle Hidden -WorkingDirectory $attackFolder -ErrorAction Stop
@@ -96,19 +101,23 @@ try {
     }
     $observation = Get-Content -LiteralPath $childOutput -Raw | ConvertFrom-Json
     $receipt.observation = $observation
+    $expectedAttempts = if ($Stage -eq 'Prepublish') {
+        'staged_read,staged_write,staged_insert,destination_precreate'
+    } else { 'visible_read,visible_write,destination_create,visible_delete' }
     if ($process.ExitCode -ne 0 -or
         $observation.schema -ne 'usk.publisher.unprivileged_access_probe.v1' -or
         $observation.status -ne 'access_denied_observed' -or
         $observation.user_sid -ne $receipt.account_sid -or
         $observation.administrator -or $observation.service_sid_present -or
         $observation.volume_root -ne $VolumeRoot -or
+        $observation.stage -ne $Stage -or
         $observation.process_id -ne $process.Id -or
         @($observation.attempts).Count -ne 4 -or
         @($observation.attempts | Where-Object {
             $_.outcome -ne 'access_denied' -or $_.hresult -ne -2147024891
         }).Count -ne 0 -or
         (@($observation.attempts.name) -join ',') -ne
-            'visible_read,visible_write,destination_create,visible_delete') {
+            $expectedAttempts) {
         throw 'unprivileged process did not independently observe four access denials'
     }
     $receipt.status = 'unprivileged_access_denied_observed'
