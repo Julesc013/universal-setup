@@ -104,7 +104,7 @@ struct RecoveryBundle {
 
 void ensure_directory(const fs::path& parent, const std::string& name);
 void initialize_setup_root_at(const PublicConfig& config,
-    const fs::path& physical_setup_root);
+    const fs::path& physical_setup_root, const fs::path& physical_parent);
 void initialize_setup_root(const PublicConfig& config);
 
 void exact_members(const Value& value, std::initializer_list<const char*> names)
@@ -1713,7 +1713,7 @@ void ensure_directory(const fs::path& parent, const std::string& name)
 }
 
 void initialize_setup_root_at(const PublicConfig& config,
-    const fs::path& physical_setup_root)
+    const fs::path& physical_setup_root, const fs::path& physical_parent)
 {
     usk::base::require_native_path_capacity(physical_setup_root / ".usk-owned-root.v1.json",
         usk::base::NativePathKind::file, "setup ownership marker");
@@ -1727,8 +1727,8 @@ void initialize_setup_root_at(const PublicConfig& config,
     std::error_code error;
     if (!fs::exists(physical_setup_root, error)) {
         if (error) throw PublicError("setup_state_root_unsafe", "cannot inspect setup-state root");
-        usk::record_io::require_safe_directory(physical_setup_root.parent_path());
-        usk::record_io::create_directory_exclusive(physical_setup_root.parent_path(),
+        usk::record_io::require_safe_directory(physical_parent);
+        usk::record_io::create_directory_exclusive(physical_parent,
             physical_setup_root.filename().string());
         usk::record_io::write_new_durable_text(
             physical_setup_root / ".usk-owned-root.v1.json", marker);
@@ -1749,7 +1749,8 @@ void initialize_setup_root_at(const PublicConfig& config,
 
 void initialize_setup_root(const PublicConfig& config)
 {
-    initialize_setup_root_at(config, config.setup_root);
+    initialize_setup_root_at(config, config.setup_root,
+        config.setup_root.parent_path());
 }
 
 Value execute_command(const std::string& command, const Value& request, const PublicConfig& config,
@@ -2023,7 +2024,11 @@ void usk::lifecycle::initialize_setup_root_for_publisher(
     }
     std::wstring relative = config.setup_root.relative_path().wstring();
     std::replace(relative.begin(), relative.end(), L'/', L'\\');
-    initialize_setup_root_at(config, fs::path(volume_guid_root + relative));
+    const fs::path physical_setup_root(volume_guid_root + relative);
+    const fs::path physical_parent =
+        config.setup_root.relative_path().parent_path().empty() ?
+            fs::path(volume_guid_root) : physical_setup_root.parent_path();
+    initialize_setup_root_at(config, physical_setup_root, physical_parent);
 }
 #endif
 

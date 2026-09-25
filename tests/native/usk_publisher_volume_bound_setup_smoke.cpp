@@ -83,6 +83,20 @@ int main() {
                 L"\\\\?\\Volume{00000000-0000-0000-0000-000000000000}\\"),
             "nonexistent volume alias was accepted");
         check(!fs::exists(physical), "invalid alias created a setup root");
+        HANDLE wrong_held = CreateFileW(temp.c_str(),
+            FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            nullptr);
+        check(wrong_held != INVALID_HANDLE_VALUE,
+            "cannot open same-volume non-root directory for identity refusal");
+        const bool wrong_identity_refused = refused(reviewed_text, acceptance,
+            wrong_held, alias);
+        CloseHandle(wrong_held);
+        check(wrong_identity_refused,
+            "existing alias with different held root identity was accepted");
+        check(!fs::exists(physical),
+            "different held root identity created a setup root");
         usk::lifecycle::initialize_setup_root_for_publisher(reviewed_text,
             acceptance, "operator_acceptance_candidate", held, alias);
         const fs::path marker = physical / ".usk-owned-root.v1.json";

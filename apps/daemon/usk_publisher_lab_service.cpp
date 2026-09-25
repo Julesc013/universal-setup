@@ -2320,6 +2320,7 @@ DWORD WINAPI control_handler(DWORD control, DWORD, LPVOID, LPVOID) {
 VOID WINAPI service_main(DWORD, LPWSTR*) {
     status_handle = RegisterServiceCtrlHandlerExW(service_name.c_str(), control_handler, nullptr);
     if (!status_handle) return;
+    bool publication_effects_may_exist = false;
     try {
         report_status(SERVICE_START_PENDING);
         stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -2490,6 +2491,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                         reviewed_plan_envelope_path.empty() ?
                             std::optional<ReviewedPlanBinding>{} :
                             std::optional<ReviewedPlanBinding>{require_reviewed_selected_plan()};
+                    publication_effects_may_exist = true;
                     anchors = observe_protected_anchors(volume, observed.service_sid,
                         reviewed_plan);
                 }
@@ -2540,7 +2542,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             write_receipt("{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
                 json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
-                    "failed" : recover_visible_bound || reviewed_install_reentry ?
+                    "failed" : recover_visible_bound || reviewed_install_reentry ||
+                    publication_effects_may_exist ?
                     "recovery_required" : "failed") +
                 ",\"error\":" + json_quote(error.what()) + "}\n");
         } catch (...) {}
