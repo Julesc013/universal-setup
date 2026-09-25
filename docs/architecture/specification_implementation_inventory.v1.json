@@ -746,11 +746,11 @@
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         }
       ],
       "acceptance_ids": [
@@ -818,7 +818,7 @@
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         }
       ],
       "acceptance_ids": [
@@ -898,11 +898,11 @@
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -1378,11 +1378,11 @@
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         }
       ],
       "acceptance_ids": [
@@ -3512,11 +3512,11 @@
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
-          "sha256": "b16087e9f6605cec6832dfa6b8df44a657097fca2ae7e9e980b1679b0ccfedd0"
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         }
       ],
       "acceptance_ids": [

@@ -104,7 +104,7 @@ Value::Array ids(const Value& input, const std::set<std::string>* known = nullpt
 struct ComponentNode {
     bool required;
     bool default_selected;
-    std::vector<std::string> requires;
+    std::vector<std::string> dependencies;
     std::vector<std::string> conflicts;
 };
 
@@ -125,7 +125,7 @@ Value::Array resolve_selection(const ComponentGraph& graph,
         std::vector<std::pair<std::string, std::size_t>> stack{{start, 0}};
         while (!stack.empty()) {
             auto& frame = stack.back();
-            const auto& dependencies = graph.at(frame.first).requires;
+            const auto& dependencies = graph.at(frame.first).dependencies;
             if (frame.second == dependencies.size()) {
                 state[frame.first] = 2;
                 dependency_first.push_back(frame.first);
@@ -158,7 +158,7 @@ Value::Array resolve_selection(const ComponentGraph& graph,
         const std::string name = pending.back();
         pending.pop_back();
         if (!selected.insert(name).second) continue;
-        const auto& dependencies = graph.at(name).requires;
+        const auto& dependencies = graph.at(name).dependencies;
         pending.insert(pending.end(), dependencies.begin(), dependencies.end());
     }
     for (const auto& name : selected) {
@@ -255,7 +255,7 @@ std::string inspect_product(const std::filesystem::path& supplied,
             if (reference.as_string() == name) {
                 throw std::runtime_error("self-referential component");
             }
-            node.requires.push_back(reference.as_string());
+            node.dependencies.push_back(reference.as_string());
         }
         for (const auto& reference : ids(component.at("conflicts"), &component_names)) {
             if (reference.as_string() == name) {
@@ -263,7 +263,7 @@ std::string inspect_product(const std::filesystem::path& supplied,
             }
             node.conflicts.push_back(reference.as_string());
         }
-        relation_count += node.requires.size() + node.conflicts.size();
+        relation_count += node.dependencies.size() + node.conflicts.size();
         if (relation_count > 65536) {
             throw std::runtime_error("component relation budget exceeded");
         }
