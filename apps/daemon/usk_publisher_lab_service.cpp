@@ -953,6 +953,15 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             streamed.sha256 != expected_source_digest) {
             throw std::runtime_error("protected lab source stream differs");
         }
+        FILE_DISPOSITION_INFO disposition{};
+        disposition.DeleteFile = TRUE;
+        if (!SetFileInformationByHandle(source.get(), FileDispositionInfo,
+                &disposition, sizeof(disposition))) {
+            throw std::runtime_error("protected lab source cleanup failed");
+        }
+    }
+    if (!observe_publisher_directory_entries(state.get()).empty()) {
+        throw std::runtime_error("protected lab source remains in state");
     }
     const auto sealed = observe_publisher_tree(candidate.get());
     require_publisher_tree_security_shape(sealed, service_sid);
