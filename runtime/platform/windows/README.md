@@ -102,7 +102,8 @@ The later disposable restricted-service lab candidate retains the exact
 observed stream set on the root and each descendant, compares name, size and
 allocation size between sealed and visible observations, and serializes those
 facts in its bounded phase records. The one-file native fixture checks that a
-forged stream change fails phase equality. The hosted VHD probe must still
-confirm the serialized facts; effective-rights evidence, crash replay and
-hostile-principal observations remain separate qualifications. Production
-publication continues to refuse.
+forged stream change fails phase equality. A hosted fresh-VHD restricted-service
+probe observed an empty root stream set and the same single unnamed 25-byte
+payload stream and allocation size in both lab phase records. Effective-rights
+evidence, crash replay and hostile-principal observations remain separate
+qualifications. Production publication continues to refuse.
