@@ -983,3 +983,66 @@ The second service was removed. These observations establish fail-closed
 overlap and guard release, not successful concurrent service handoff. The
 source still lacks a qualified hostile-rights case for this exact binary,
 general-source publication, lease fencing, and production enablement.
+
+## Reviewed install reentry through protected recovery (2026-09-26)
+
+The restricted-service laboratory now routes a repeated reviewed selected-ZIP
+install request to the existing protected recovery path when the exact
+`publication` anchor already exists. It compares the supplied envelope and
+archive digests with the protected durable plan snapshot before forward
+effects. Recovery uses the stored snapshot and sealed payload; the source ZIP
+can be unavailable after the original publication. A different source or
+envelope digest refuses. A case alias of the publication anchor refuses.
+The service still requires the campaign-owned VM and its selected NTFS profile;
+the public strict publisher remains unavailable.
+
+Binary SHA-256
+`baa490b3c22e8c41a68512b5b108b62d34abd61dfcbecee06599deaf705c38a4`
+ran in the owned Windows Server build `10.0.20348.0` VM. On the prior
+completed VHD, the same reviewed request returned `already_visible_bound`;
+a wrong archive digest refused, and a nonexistent source path with the
+original digest still returned `already_visible_bound`. Independent
+backup-mode readback found the same 11 names and hashes as before reentry.
+
+A fresh campaign-owned 1 GiB NTFS VHDX, disk unique ID
+`6002248088595F375AFADF09DC2571B9` and volume root
+`\\?\Volume{69196821-fabe-40d4-a9a8-70b749fb0ead}\`, received a new
+native reviewed plan digest
+`6ee18ce35424b0e8d805a48683d6e7ef4332606d24a80cd5bed577777ca5315b`.
+Reusing an older plan on this VHD refused before publication; the target
+identity changed. The new plan reached a flushed post-journal marker (SHA-256
+`40d6c4fa744077f51845e74246cd93322cb33589d218ef5dd28c3b17ee8896a8`)
+with no terminal receipt. The VM was forcibly turned off and restarted.
+Postboot backup-mode readback found two source-matching payloads and linked
+prepared, plan-snapshot and visible records; the completion record was absent.
+
+After restart, the service configuration contained an older envelope path.
+The runner reissued the recorded reviewed command and reapplied the owned
+VHD's service device ACL. The exact candidate binary returned
+`installed_state_completed_forward` in receipt SHA-256
+`814103ab494bfa01774600c5991c7917a8a94b29f664bdba99ce77ac0bb96148`.
+Independent readback found the five preboot file hashes unchanged and 11
+postcompletion files, including installed-state completion SHA-256
+`8db19aec84df7995790484589f34eb24814021f19dfcd6e7856964816aa5380e`.
+A repeat returned `already_visible_bound`; all 11 hashes remained unchanged.
+A wrong envelope digest separately refused. That earlier binary labeled the
+completed request mismatch `recovery_required`, which was misleading. A
+reviewed revision, binary SHA-256
+`48064fa2a54860acf94a8436743cc9d575b20179aa6e92ad757c383fc34a42ba`,
+returned `failed` for the stale envelope (receipt SHA-256
+`8e5509f0f6acc0b1b5d5bd7d1246878193b9a7aed1abc7dc2442c6047b54afaa`)
+and `already_visible_bound` for the original envelope (receipt SHA-256
+`d7f5f41d83a1ca80ff312fb2fca957ae71b6a18ae3259db05062ecf30faeb21a`).
+Independent backup-mode readback matched all 11 previously recorded file
+lengths and hashes before and after both calls. This revision was exercised
+against the retained completed state, not through a second forced VM power-off.
+The recovered VM state is retained in campaign checkpoint
+`d248d757-2a1f-45f6-bc64-618e5c1dae0a`.
+
+These observations establish this VM interruption window and reviewed-command
+reentry. The recovery code uses the durable snapshot and sealed payload;
+missing-source reentry was observed after completion, not during the
+postcrash forward replay. They do not establish durable SCM command
+configuration, physical-host power-loss behavior, general-source
+publication, hostile-rights qualification for this binary, lease fencing,
+or production enablement.
