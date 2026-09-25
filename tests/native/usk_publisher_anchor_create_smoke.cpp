@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -23,6 +24,7 @@ using usk::platform::windows::create_file_relative_with_descriptor;
 using usk::platform::windows::observe_publisher_directory_handle;
 using usk::platform::windows::observe_publisher_file_handle;
 using usk::platform::windows::stream_verified_source_to_staged_file;
+using usk::platform::windows::stream_verified_reader_to_staged_file;
 
 namespace {
 class Handle {
@@ -122,6 +124,49 @@ int main() {
             }
             check(usk::base::sha256_hex_file(parent / "streamed.bin") ==
                 source_sha256, "protected staged bytes differ");
+            const auto reader = [&](std::uint64_t offset, unsigned char* output,
+                std::size_t capacity) -> std::size_t {
+                if (offset >= source_bytes.size()) return 0;
+                const auto count = std::min(capacity,
+                    source_bytes.size() - static_cast<std::size_t>(offset));
+                std::copy_n(source_bytes.data() + offset, count, output);
+                return count;
+            };
+            int source_validations = 0;
+            {
+                const auto streamed = stream_verified_reader_to_staged_file(
+                    parent_handle.get(), L"reader.bin", descriptor,
+                    source_bytes.size(), source_sha256, reader,
+                    [&] { ++source_validations; });
+                Handle staged(streamed.file);
+                check(streamed.bytes_written == source_bytes.size() &&
+                    streamed.sha256 == source_sha256 && source_validations == 2,
+                    "bounded reader stream was not validated twice");
+            }
+            check(usk::base::sha256_hex_file(parent / "reader.bin") ==
+                source_sha256, "protected reader bytes differ");
+            bool reader_preflight_refused = false;
+            try {
+                auto bad = stream_verified_reader_to_staged_file(
+                    parent_handle.get(), L"reader-preflight.bin", descriptor,
+                    source_bytes.size(), source_sha256, reader,
+                    [] { throw std::runtime_error("source identity changed"); });
+                CloseHandle(bad.file);
+            } catch (const std::exception&) { reader_preflight_refused = true; }
+            check(reader_preflight_refused &&
+                !fs::exists(parent / "reader-preflight.bin"),
+                "reader preflight failure created a staged file");
+            bool reader_digest_refused = false;
+            try {
+                auto bad = stream_verified_reader_to_staged_file(
+                    parent_handle.get(), L"reader-digest.bin", descriptor,
+                    source_bytes.size(), std::string(64, '0'), reader, [] {});
+                CloseHandle(bad.file);
+            } catch (const std::exception&) { reader_digest_refused = true; }
+            check(reader_digest_refused &&
+                fs::exists(parent / "reader-digest.bin") &&
+                usk::base::sha256_hex_file(parent / "reader-digest.bin") ==
+                    source_sha256, "reader digest failure did not retain bytes");
             bool retained_digest_failure = false;
             try {
                 auto bad = stream_verified_source_to_staged_file(
@@ -264,6 +309,8 @@ int main() {
             }
         }
         check(fs::remove(moved / "streamed.bin") &&
+            fs::remove(moved / "reader.bin") &&
+            fs::remove(moved / "reader-digest.bin") &&
             fs::remove(moved / "bad-digest.bin") &&
             fs::remove(source_path) &&
             fs::remove(moved / "first") && fs::remove(moved / "bound") &&

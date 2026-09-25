@@ -490,3 +490,83 @@ selected-payload publisher, installed-state completion, lease fencing,
 hostile-race qualification, physical-host power-loss proof, or production
 availability. A crash during visible-record creation can leave an incomplete
 record that this replay conservatively refuses. OD-001 remains open.
+
+## Selected archive entry through the restricted service (2026-09-25)
+
+The next VM-only candidate accepts one `payload.bin` entry from a local ZIP.
+It inspects the archive with the existing bounded streaming reader, checks its
+complete SHA-256 against the service invocation, revalidates the held archive
+source before and after a 64 KiB buffered stream, and creates the staged file
+relative to the protected candidate handle. The existing protected tree,
+prepared journal, parent-bound no-replace rename and visible journal checks
+then run on those streamed bytes. A failed source check before creation leaves
+no file; a failure after creation retains the staged child. The focused Windows
+test covers a multi-buffer reader, preflight refusal and retained digest
+failure.
+
+An external-style authoring fixture finalized a required `core` component and
+left an optional `addon` unselected. Its selection receipt SHA-256 is
+`54b53d7c7fd6bd256a3a0a14ceb8f1854e4c4e53c08de75b077701270cf6e137`;
+the selected bundle manifest SHA-256 is
+`081d689da9daac528691228a48a4b011a14374a4dea058e477828afb5f129d06`.
+The selected archive SHA-256 is
+`4bf00b6da426e2728f0560f683f0a72ccdeaee51f8cdce324623b774353f0e94`.
+The source fixture receipt SHA-256 is
+`bde9296bb4db2ce1cfc8a793c07ce18a047dffe69f38803adae7ed3629430458`.
+
+Statically linked service binary SHA-256
+`49c3fdd442b3f8177b41635abe83edc27cdb757102ddb9dbbad9137a7c0c9470`
+ran on campaign VM `6a23c3f9-272c-4711-b846-152f82bf93d2`, Windows build
+`10.0.20348.0`, through restricted own-process service
+`USK_VM_73186aa540864d648480f3428c01c2ea` and a newly created 1 GiB
+file-backed NTFS VHDX, disk 2, volume
+`\\?\Volume{83d0d45e-ae4a-4d10-9d29-01787fe20367}\`. The VHDX identity
+receipt SHA-256 is
+`f31cab79908646b59741a3ac28514e0ed4946b05c2ae1c5b4892f2b2d48ce967`.
+The service reported success. A separate guest backup-mode read of the visible
+file measured 491,525 bytes and SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`.
+Independent reads of the prepared and visible journal records measured SHA-256
+`3b73dca766aa165fb4d613aa02125764284e83f209a0dc56873c3d30582c8e1f`
+and `881cdd3adbecca89245a780931ae09446cb53bd7eb8ec5690481ae92ba3fd685`.
+The native service receipt SHA-256 is
+`913164ef3eea1b1e86ca6602349026306e3b10f7570ac51efd609b77f17cd162`;
+the external independent-observation receipt SHA-256 is
+`f68b7fe5f0d4a2aeecc602f5f48d69d7ec9dbde9cf8f01a5417d5608f9d235a8`.
+The successful guest state is retained as campaign snapshot
+`149ea46c-685e-4b6b-b1e5-9316f5f05c7a`, and the working VM was restored
+to pre-test snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`.
+
+This observation connects actual authored selected archive bytes to protected
+service publication. The service invocation still supplies the archive path
+and expected hash; it does not authenticate a reviewed public plan or bind the
+bundle manifest to an installed-state transaction. The prepared journal seals
+the published payload and tree, but it does not retain the selected archive
+hash or source identity. Recovery therefore cannot independently establish
+which selected archive supplied those bytes after a crash. This one-root-file lab
+profile has no general selected closure, lease fencing, concurrent attacker
+test, crash replay of this source, production enablement or release
+qualification. The public strict lifecycle remains unavailable and OD-001
+remains open. The first attempt to run the guest device-ACL helper used a
+dynamic-runtime binary and returned NTSTATUS `0xC0000135`; the existing
+static helper then succeeded on the same owned VHDX.
+
+The rebuilt static binary SHA-256
+`1125752e6345ba8387adea2264b89e5ce8f2ebd8969bea08bfc53fef79152564`
+was rerun on the same campaign VM in restricted service
+`USK_VM_a779ef15d08d41ffbd3a2698f2ccd16e`, using a second newly created
+1 GiB file-backed NTFS VHDX, disk 2, volume
+`\\?\Volume{60d4ff85-e1ba-4fe7-bb48-9632a449b0bb}\`. The selected ZIP SHA-256
+remained `4bf00b6da426e2728f0560f683f0a72ccdeaee51f8cdce324623b774353f0e94`.
+The service returned `pass`; separate backup-mode reads found the 491,525-byte
+visible payload SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`
+and matched both prepared and visible journal hashes. The native receipt SHA-256
+is `9e9208f2e4e8ee3f9d20f0c24ebbbc44790c7f10ed8ee07e1bcb0604979105c0`;
+the independent exact-candidate observation SHA-256 is
+`8407c6b42ded6d22a1faf1fa616542f6f8c62ccd6bbc5af3c96ccce1f220e1e0`.
+The successful state is preserved in campaign snapshot
+`1e65483a-9d96-4da1-8e24-d93b7896df11`; the working VM was restored to
+pre-test snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`. This confirms
+the rebuilt binary's one-file lab path only; it does not change the production
+and recovery limitations above.
