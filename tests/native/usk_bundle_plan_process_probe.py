@@ -60,8 +60,8 @@ def main(executable: str) -> None:
         context = root / "context.json"
         context.write_text(json.dumps({
             "schema": "usk.oneshot_context.v1",
-            "state_root": str(root / "setup-state"),
-            "authorized_acceptance_root": str(root),
+            "state_root": str((root / "setup-state").resolve(strict=False)),
+            "authorized_acceptance_root": str(root.resolve(strict=True)),
             "target_policy_activation": "operator_acceptance_candidate",
         }), encoding="utf-8")
         planned = subprocess.run([executable, "--machine", "--request-file",
