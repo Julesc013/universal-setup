@@ -42,6 +42,41 @@ HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
 constexpr std::size_t lab_record_limit = 4u * 1024u * 1024u;
 
+bool campaign_vm_id_matches(const std::wstring& expected) {
+    if (expected.size() != 36) return false;
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        const wchar_t ch = expected[index];
+        if (index == 8 || index == 13 || index == 18 || index == 23) {
+            if (ch != L'-') return false;
+        } else if (!((ch >= L'0' && ch <= L'9') ||
+                (ch >= L'a' && ch <= L'f') ||
+                (ch >= L'A' && ch <= L'F'))) {
+            return false;
+        }
+    }
+    wchar_t observed[64]{};
+    DWORD bytes = sizeof(observed);
+    const LONG result = RegGetValueW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\Virtual Machine\\Guest\\Parameters",
+        L"VirtualMachineId", RRF_RT_REG_SZ, nullptr, observed, &bytes);
+    return result == ERROR_SUCCESS &&
+        CompareStringOrdinal(expected.c_str(), -1, observed, -1,
+            TRUE) == CSTR_EQUAL;
+}
+
+bool generated_service_name(const std::wstring& name,
+    const std::wstring& prefix) {
+    if (name.size() != prefix.size() + 32 ||
+        name.compare(0, prefix.size(), prefix) != 0) return false;
+    for (std::size_t index = prefix.size(); index < name.size(); ++index) {
+        const wchar_t ch = name[index];
+        if (!((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::wstring gate_sibling(const wchar_t* name) {
     const auto slash = receipt_path.find_last_of(L"\\/");
     if (slash == std::wstring::npos) {
@@ -865,13 +900,21 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
-    if ((argc != 5 && argc != 6) || std::wstring(argv[1]) != L"--service" ||
-        (argc == 6 && std::wstring(argv[5]) != L"--prepublish-gate") ||
-        std::wstring(argv[2]).rfind(L"USK_WU006_", 0) != 0) return 2;
+    if (argc < 5 || std::wstring(argv[1]) != L"--service") return 2;
+    const std::wstring name(argv[2]);
+    const bool hosted = (argc == 5 || argc == 6) &&
+        generated_service_name(name, L"USK_WU006_") &&
+        (argc != 6 || std::wstring(argv[5]) == L"--prepublish-gate");
+    const bool campaign_vm = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        std::wstring(argv[5]) == L"--prepublish-gate" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
+    if (!hosted && !campaign_vm) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
-    prepublish_gate = argc == 6;
+    prepublish_gate = argc == 6 || campaign_vm;
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
     return service_exit_code == ERROR_SUCCESS ? 0 : 4;

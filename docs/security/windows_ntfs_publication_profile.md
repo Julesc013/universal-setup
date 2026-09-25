@@ -203,3 +203,46 @@ dismount/backing-file removal. This is one paused laboratory interval. The
 readiness signal came from the service, so it is not independent prepared-record
 readback. ACL-layer attribution, complete effective rights, continuous race
 exclusion, crash replay, power loss and production publication remain unproved.
+The final PR #106 head `4ed57ec95a8147cc459d1d75ff6adce5a6c43c2b`
+also passed all seven CI jobs in run 36095889169. Its retained probe JSON
+SHA-256 is
+`fca2275098672c3e59121b25f0060440875ea11e96223c4361562711298c642c`;
+the same lab-only limits apply.
+
+The dependent PR #107 final source head
+`cdfc71e0d290d67913c8b3a89442b632d8a8d465` passed all seven hosted CI
+jobs in run 36098013393 on Windows build 10.0.20348.0. While the restricted
+service was paused after its prepared lab record, a separate elevated runner
+process used backup-mode copying to read the protected journal file from the
+fresh VHD, parsed and hashed its 4,563 bytes, then required the later native
+record to have the same SHA-256, length, source identity and destination-parent
+identity. The readback SHA-256 was
+`d6459696c37aaa1a27bf3c93f817cdd39fef899814ebc1695820d20a7cb75094`;
+the retained probe JSON SHA-256 is
+`89151606829ced2ef99827178e8cfd0c09a1e1da97a8183eedec0d3e0476de11`.
+The run reports service stop/deletion request and VHD dismount/backing-file
+removal. This is one paused lab readback. Backup-mode success does not isolate
+which privilege granted access; the drive-letter read and before/after VHD
+checks are not an atomic held-volume observation. Crash replay, power-loss
+survival, continuous hostile-race exclusion, OD-001 and production publication
+remain open.
+
+A separate campaign-owned Hyper-V VM experiment used VM ID
+`6a23c3f9-272c-4711-b846-152f82bf93d2` and Windows Server build
+10.0.20348.0. A newly created 1 GiB VHDX inside that guest was independently
+bound to non-system disk 1 and an NTFS volume GUID. The candidate lab helper
+refused a wrong Hyper-V guest ID before changing the volume device ACL, then
+accepted the exact guest ID, VHDX backing file, disk extent and generated
+restricted-service SID. A statically linked lab service paused after flushing
+its prepared record; a separate backup-mode read found 4,543 bytes with
+SHA-256 `c1450d0eca0c548839da69b7aacfd0741da4b28311f7d7001ee73d5d58825b40`.
+The host forcibly turned off only this VM at 2026-09-25T05:39:08Z, then
+restarted it. Windows had detached the guest VHDX; after reattaching that
+exact backing file, the observer found the same non-system disk and volume
+identity and the same prepared-record bytes. The service was stopped, the
+release marker and visible destination were absent, and no final native
+receipt existed. The host-held observations and owned-resource manifest are
+retained outside the repository. This is a forced VM power-off observation of
+one prepared state, not a physical host power-loss test. It does not implement
+or qualify journal replay, completed recovery, hostile race exclusion, OD-001
+resolution or production publication.
