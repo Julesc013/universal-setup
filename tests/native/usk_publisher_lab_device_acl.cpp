@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 
-// Hosted-lab provisioning only. The caller independently binds this GUID
+// Disposable-lab provisioning only. The caller independently binds this GUID
 // volume to a newly created VHD before invoking this executable.
 #if !defined(NOMINMAX)
 #define NOMINMAX
@@ -95,6 +95,48 @@ bool owned_vhd_path(const std::wstring& value) {
     return true;
 }
 
+bool generated_suffix(const std::wstring& value, const std::wstring& prefix,
+    const std::wstring& suffix) {
+    if (value.size() != prefix.size() + 32 + suffix.size() ||
+        value.compare(0, prefix.size(), prefix) != 0 ||
+        value.compare(prefix.size() + 32, suffix.size(), suffix) != 0) return false;
+    for (std::size_t index = prefix.size(); index < prefix.size() + 32; ++index) {
+        const wchar_t ch = value[index];
+        if (!((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool guest_vm_guid(const std::wstring& value) {
+    if (value.size() != 36) return false;
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        const wchar_t ch = value[index];
+        if (index == 8 || index == 13 || index == 18 || index == 23) {
+            if (ch != L'-') return false;
+        } else if (!((ch >= L'0' && ch <= L'9') ||
+                (ch >= L'a' && ch <= L'f') ||
+                (ch >= L'A' && ch <= L'F'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool admitted_campaign_vm(const std::wstring& expected_id) {
+    if (!guest_vm_guid(expected_id)) return false;
+    std::array<wchar_t, 64> observed{};
+    DWORD bytes = static_cast<DWORD>(observed.size() * sizeof(wchar_t));
+    const LONG result = RegGetValueW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\Virtual Machine\\Guest\\Parameters",
+        L"VirtualMachineId", RRF_RT_REG_SZ, nullptr, observed.data(), &bytes);
+    return result == ERROR_SUCCESS &&
+        guest_vm_guid(std::wstring(observed.data())) &&
+        CompareStringOrdinal(expected_id.c_str(), -1, observed.data(), -1,
+            TRUE) == CSTR_EQUAL;
+}
+
 DWORD attached_vhd_disk_number(HANDLE disk) {
     std::array<wchar_t, 128> physical{};
     ULONG bytes = static_cast<ULONG>(physical.size() * sizeof(wchar_t));
@@ -147,34 +189,40 @@ std::string quote(const std::string& value) {
 
 int wmain(int argc, wchar_t** argv) {
     try {
-        if (argc != 6 || std::wstring(argv[1]) != L"--owned-vhd-volume") {
-            throw std::runtime_error("expected owned VHD volume, service name, disk number and backing file");
+        if (argc < 2) {
+            throw std::runtime_error("disposable lab admission mode is required");
         }
-        wchar_t actions[8]{};
-        wchar_t environment[32]{};
-        if (GetEnvironmentVariableW(L"GITHUB_ACTIONS", actions, 8) == 0 ||
-            std::wstring(actions) != L"true" ||
-            GetEnvironmentVariableW(L"RUNNER_ENVIRONMENT", environment, 32) == 0 ||
-            std::wstring(environment) != L"github-hosted") {
-            throw std::runtime_error("device ACL provisioning requires a hosted disposable runner");
+        const bool hosted = argc == 6 &&
+            std::wstring(argv[1]) == L"--owned-vhd-volume";
+        const bool campaign_vm = argc == 7 &&
+            std::wstring(argv[1]) == L"--owned-vm-vhd-volume";
+        if (!hosted && !campaign_vm) {
+            throw std::runtime_error("expected a supported disposable-lab admission mode");
+        }
+        if (hosted) {
+            wchar_t actions[8]{};
+            wchar_t environment[32]{};
+            if (GetEnvironmentVariableW(L"GITHUB_ACTIONS", actions, 8) == 0 ||
+                std::wstring(actions) != L"true" ||
+                GetEnvironmentVariableW(L"RUNNER_ENVIRONMENT", environment, 32) == 0 ||
+                std::wstring(environment) != L"github-hosted") {
+                throw std::runtime_error("device ACL provisioning requires a hosted disposable runner");
+            }
+        } else if (!admitted_campaign_vm(argv[6])) {
+            throw std::runtime_error("current Hyper-V guest ID does not match the campaign VM");
         }
         const std::wstring root(argv[2]);
         if (!guid_root(root)) throw std::runtime_error("invalid volume GUID root");
         const std::wstring service_name(argv[3]);
-        if (service_name.size() != 42 || service_name.compare(0, 10,
-                L"USK_WU006_") != 0) {
+        const std::wstring prefix = hosted ? L"USK_WU006_" : L"USK_VM_";
+        if (!generated_suffix(service_name, prefix, L"")) {
             throw std::runtime_error("invalid campaign service name");
         }
-        for (std::size_t index = 10; index < service_name.size(); ++index) {
-            const wchar_t ch = service_name[index];
-            if (!((ch >= L'0' && ch <= L'9') ||
-                    (ch >= L'a' && ch <= L'f'))) {
-                throw std::runtime_error("campaign service name is not a generated identity");
-            }
-        }
         const std::wstring vhd(argv[5]);
-        if (!owned_vhd_path(vhd)) {
-            throw std::runtime_error("backing file is not under the campaign runner lab");
+        const bool owned_path = hosted ? owned_vhd_path(vhd) :
+            generated_suffix(vhd, L"C:\\USK-Lab\\publisher-test-", L".vhdx");
+        if (!owned_path) {
+            throw std::runtime_error("backing file is outside the admitted disposable lab");
         }
         VIRTUAL_STORAGE_TYPE type{};
         type.DeviceId = VIRTUAL_STORAGE_TYPE_DEVICE_VHDX;
@@ -262,7 +310,8 @@ int wmain(int argc, wchar_t** argv) {
         if (after.find(ascii(sid_text)) == std::string::npos) {
             throw std::runtime_error("dedicated service ACE was not observed after update");
         }
-        std::cout << "{\"before_dacl\":" << quote(before) <<
+        std::cout << "{\"admission\":" << quote(hosted ? "hosted_runner" : "campaign_vm") <<
+            ",\"before_dacl\":" << quote(before) <<
             ",\"after_dacl\":" << quote(after) <<
             ",\"service_sid\":" << quote(ascii(sid_text)) <<
             ",\"vhd_disk_number\":" << vhd_disk_number << "}\n";
