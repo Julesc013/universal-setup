@@ -857,3 +857,50 @@ after the crash. It does not create the public ownership, installed-state,
 transaction, or audit records, nor does it qualify hostile races, leases, general-source
 publication, physical-host power loss, or OD-001. The public strict commit
 gate remains unavailable.
+
+## Public installed state from a protected lab publication (2026-09-26)
+
+A controlled Windows Server build `10.0.20348.0` VM ran a newly built
+restricted own-process service against a newly created 1 GiB NTFS VHDX. The
+service held the volume and protected publication handles, validated a native
+reviewed install plan for the authored two-file ZIP, streamed both selected
+files into protected staging, wrote its durable prepared and visible records,
+published the child, and completed the shared lifecycle ownership, installed
+state and audit records. It then called the public `installed.inspect` and
+`installed.verify` commands; both reported pass. This is a successful
+laboratory install operation, not a production-authority qualification.
+
+The clean service binary SHA-256 was
+`90746f4bae9c5c92d6a5ecbc4ce7b520b3f00e42720df564b8995060b399e875`;
+the source ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`.
+The reviewed native plan digest was
+`0aa28b310a64b4a17a0198805439b571b5a51c2ca074d95345d01d2a96c77cb8`.
+The exact service result at
+`C:\USK-Lab\vm-selected-d189b861fb844d69b173e3aafcf0d892.json`
+has SHA-256
+`7150fe10584478670bc6825c097d343c2ad65f11acff40b39e9c8276169ece93`.
+Independent backup-mode readback found the two selected payload hashes,
+prepared/visible/completion hashes, one ownership manifest, one installed
+record, and two ordered audit events. The VM state is retained in campaign
+checkpoint `70f2b81c-36e3-4572-a523-d39c60e17d6e`.
+
+The same binary and restricted service then executed visible-bound recovery
+against the completed install. It returned `already_visible_bound`; receipt
+SHA-256 was
+`c47683c81999eb2f29bacf0003ba280c99248a700048721f454a3db3e70737a1`.
+A fresh independent backup-mode readback found all ten previously recorded
+payload, journal, ownership, installed-state and audit file hashes unchanged.
+This is an idempotent replay observation, not an interruption or power-loss
+test of this exact binary.
+
+The private Windows finalizer requires the live restricted service identity,
+held local NTFS volume and publication handles, exact durable record hashes,
+visible closure, and a bounded audit-prefix state. It is absent from the
+public C ABI and SDK libraries. Independent source review found no remaining
+blocker for this controlled VM candidate. Public state writes still use path
+names; checking the held setup and target before and after a write does not
+exclude concurrent drive remapping or namespace substitution during the
+write. The ordinary strict commit gate remains unavailable. Hostile-rights
+and race qualification, general-source publication, lease fencing, full
+recovery and generation behavior, and OD-001 remain open.

@@ -30,6 +30,15 @@ namespace usk::lifecycle {
 char* public_command_json(const char* command_name, const char* request_json, size_t request_size,
     const char* state_root, const char* authorized_acceptance_root, const char* target_policy_activation,
     int* out_command_status, const LifecycleFaultInjector& fault_injector);
+
+// Internal publisher seam: capture the complete, source-validated plan while
+// the original source and target evidence are still available.
+InstallPlan reviewed_install_plan_for_publisher(const std::string& request_json,
+    const std::string& state_root, const std::string& authorized_acceptance_root,
+    const std::string& target_policy_activation);
+void initialize_setup_root_for_publisher(const std::string& state_root,
+    const std::string& authorized_acceptance_root,
+    const std::string& target_policy_activation);
 }
 #endif
 

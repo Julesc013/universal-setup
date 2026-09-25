@@ -10,6 +10,7 @@
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_public_lifecycle.h"
+#include "usk_protected_publisher_finalization_internal.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -25,7 +26,9 @@
 
 #include <stdexcept>
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -61,6 +64,11 @@ struct ReviewedPlanBinding {
     std::string envelope_sha256;
     std::string selected_file_set_digest;
     std::string durable_snapshot;
+    std::string setup_root;
+    std::string acceptance_root;
+    std::string transaction_id;
+    std::string applied_at;
+    usk::lifecycle::InstallPlan install_plan;
     usk::archive::StreamingStoredArchivePayload selected_payload;
 };
 std::wstring selected_utf8_path(const std::string& path);
@@ -68,6 +76,17 @@ SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
 constexpr std::size_t lab_record_limit = 4u * 1024u * 1024u;
+
+std::string current_utc_timestamp() {
+    SYSTEMTIME now{};
+    GetSystemTime(&now);
+    char result[21]{};
+    const int written = std::snprintf(result, sizeof(result),
+        "%04u-%02u-%02uT%02u:%02u:%02uZ", now.wYear, now.wMonth,
+        now.wDay, now.wHour, now.wMinute, now.wSecond);
+    if (written != 20) throw std::runtime_error("publisher UTC timestamp is unavailable");
+    return result;
+}
 
 bool campaign_vm_id_matches(const std::wstring& expected) {
     if (expected.size() != 36) return false;
@@ -773,9 +792,12 @@ void require_reviewed_plan_snapshot(const std::string& record,
     const usk::json::Value& prepared, const std::string& selected_digest) {
     const auto snapshot = usk::json::parse(record);
     const auto& binding = prepared.at("source_binding");
-    if (snapshot.as_object().size() != 10 ||
-        snapshot.at("schema").as_string() !=
-            "usk.publisher.lab_reviewed_plan_snapshot.v1" ||
+    const std::string schema = snapshot.at("schema").as_string();
+    const bool finalization_context =
+        schema == "usk.publisher.lab_reviewed_plan_snapshot.v2";
+    if ((!finalization_context && schema !=
+            "usk.publisher.lab_reviewed_plan_snapshot.v1") ||
+        snapshot.as_object().size() != (finalization_context ? 15u : 10u) ||
         record_sha256(record) !=
             binding.at("reviewed_plan_snapshot_sha256").as_string() ||
         snapshot.at("plan_digest").as_string() !=
@@ -800,6 +822,18 @@ void require_reviewed_plan_snapshot(const std::string& record,
             .as_string() != "staged_child_bound_v1") {
         throw std::runtime_error("recovery reviewed plan snapshot identity differs");
     }
+    if (finalization_context) {
+        const auto context = usk::json::parse(
+            snapshot.at("restart_policy_context").as_string());
+        if (snapshot.at("setup_root").as_string().empty() ||
+            snapshot.at("transaction_id").as_string() !=
+                "labpub." + snapshot.at("plan_digest").as_string().substr(0, 32) ||
+            snapshot.at("applied_at").as_string().empty() ||
+            snapshot.at("policy_digest").as_string() !=
+                usk::json::sha256_canonical(context.at("policy"))) {
+            throw std::runtime_error("recovery finalization policy context differs");
+        }
+    }
     std::vector<usk::platform::windows::PublisherExpectedFile> files;
     for (const auto& entry : snapshot.at("planned_entries").as_array()) {
         const std::string kind = entry.at("entry_type").as_string();
@@ -814,6 +848,200 @@ void require_reviewed_plan_snapshot(const std::string& record,
     if (selected_file_set_digest(std::move(files)) != selected_digest) {
         throw std::runtime_error("recovery reviewed plan file closure differs");
     }
+}
+
+usk::lifecycle::InstallPlan restore_reviewed_install_plan(
+    const std::string& record) {
+    const auto snapshot = usk::json::parse(record);
+    if (snapshot.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_snapshot.v2") {
+        throw std::runtime_error("protected public finalization requires a v2 plan snapshot");
+    }
+    const auto& request = snapshot.at("plan_request");
+    const auto& recipe = request.at("recipe");
+    const std::filesystem::path setup_root(snapshot.at("setup_root").as_string());
+    usk::lifecycle::RecipeBinding binding;
+    binding.product_id = recipe.at("product_id").as_string();
+    binding.product_version = recipe.at("product_version").as_string();
+    binding.recipe_digest = recipe.at("recipe_digest").as_string();
+    binding.source_archive_digest = snapshot.at("archive_sha256").as_string();
+    binding.source_identity_digest = snapshot.at("archive_identity_digest").as_string();
+    binding.entry_set_digest = snapshot.at("entry_set_digest").as_string();
+    binding.policy_digest = snapshot.at("policy_digest").as_string();
+    binding.restart_policy_context =
+        snapshot.at("restart_policy_context").as_string();
+    binding.provider_revision = recipe.at("provider_revision").as_string();
+    for (const auto& component : recipe.at("components").as_array()) {
+        binding.components.push_back(component.as_string());
+    }
+    for (const auto& entry : recipe.at("entrypoints").as_array()) {
+        binding.entrypoints.push_back({entry.at("entrypoint_id").as_string(),
+            entry.at("relative_path").as_string(), entry.at("kind").as_string()});
+    }
+    std::vector<usk::lifecycle::PayloadFile> files;
+    for (const auto& entry : snapshot.at("planned_entries").as_array()) {
+        if (entry.at("entry_type").as_string() != "file") continue;
+        usk::lifecycle::PayloadFile file;
+        file.relative_path = entry.at("relative_path").as_string();
+        file.size_bytes = entry.at("size_bytes").as_unsigned();
+        file.sha256 = entry.at("sha256").as_string();
+        file.reader = [](std::uint64_t, unsigned char*, std::size_t) -> std::size_t {
+            throw std::runtime_error("protected finalization may not reopen payload source");
+        };
+        files.push_back(std::move(file));
+    }
+    auto plan = usk::lifecycle::plan_install(request.at("request_id").as_string(),
+        request.at("install_id").as_string(), request.at("created_at").as_string(),
+        snapshot.at("target_root").as_string(),
+        {setup_root / "staging", setup_root / "state", setup_root / "audit"},
+        std::move(binding), std::move(files), [] {
+            throw std::runtime_error("protected finalization has no source replay authority");
+        }, usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1);
+    if (plan.plan_digest != snapshot.at("plan_digest").as_string()) {
+        throw std::runtime_error("restored protected install plan digest differs");
+    }
+    return plan;
+}
+
+void require_public_mount_mapping(HANDLE volume, const std::string& setup_root,
+    const std::string& target_root) {
+    FILE_ID_INFO held{};
+    if (!GetFileInformationByHandleEx(volume, FileIdInfo, &held, sizeof(held))) {
+        throw std::runtime_error("held publisher volume identity is unavailable");
+    }
+    for (const std::string& path : {setup_root, target_root}) {
+        const std::wstring drive =
+            std::filesystem::path(path).root_name().wstring() + L"\\";
+        wchar_t mapped[128]{};
+        if (drive.size() != 3 || drive[1] != L':' ||
+            !GetVolumeNameForVolumeMountPointW(drive.c_str(), mapped,
+                static_cast<DWORD>(std::size(mapped))) ||
+            CompareStringOrdinal(mapped, -1, volume_root.c_str(), -1,
+                TRUE) != CSTR_EQUAL) {
+            throw std::runtime_error("public install path is not mapped to held publisher volume");
+        }
+    }
+}
+
+void with_public_roots_bound(HANDLE volume, const usk::lifecycle::InstallPlan& plan,
+    const std::string& expected_target_file_id, const std::function<void()>& action) {
+    using namespace usk::platform::windows;
+    const std::string setup_root = plan.roots.state_root.parent_path().u8string();
+    const std::string target_root = plan.target_root.u8string();
+    require_public_mount_mapping(volume, setup_root, target_root);
+    const auto open_directory = [](const std::filesystem::path& path) {
+        return OwnedHandle(CreateFileW(path.wstring().c_str(),
+            FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS |
+                FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    };
+    OwnedHandle setup(open_directory(plan.roots.state_root.parent_path()));
+    OwnedHandle target(open_directory(plan.target_root));
+    if (setup.get() == INVALID_HANDLE_VALUE || target.get() == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("public install root handle is unavailable");
+    }
+    FILE_ID_INFO held{}, setup_id{}, target_id{};
+    if (!GetFileInformationByHandleEx(volume, FileIdInfo, &held, sizeof(held)) ||
+        !GetFileInformationByHandleEx(setup.get(), FileIdInfo, &setup_id, sizeof(setup_id)) ||
+        !GetFileInformationByHandleEx(target.get(), FileIdInfo, &target_id, sizeof(target_id)) ||
+        setup_id.VolumeSerialNumber != held.VolumeSerialNumber ||
+        target_id.VolumeSerialNumber != held.VolumeSerialNumber) {
+        throw std::runtime_error("public install root is not on held publisher volume");
+    }
+    const auto before_setup = observe_publisher_directory_handle(setup.get());
+    const auto before_target = observe_publisher_directory_handle(target.get());
+    if (before_setup.reparse_tag != 0 || before_target.reparse_tag != 0 ||
+        (before_setup.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        (before_target.attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        before_setup.link_count != 1 || before_target.link_count != 1 ||
+        before_setup.case_sensitive || before_target.case_sensitive ||
+        before_target.file_id != expected_target_file_id) {
+        throw std::runtime_error("public install root identity or shape differs");
+    }
+    action();
+    require_public_mount_mapping(volume, setup_root, target_root);
+    const auto after_setup = observe_publisher_directory_handle(setup.get());
+    const auto after_target = observe_publisher_directory_handle(target.get());
+    if (after_setup.file_id != before_setup.file_id ||
+        after_target.file_id != before_target.file_id ||
+        after_setup.native_name != before_setup.native_name ||
+        after_target.native_name != before_target.native_name) {
+        throw std::runtime_error("public install root identity changed during finalization");
+    }
+}
+
+void finalize_reviewed_public_state(const std::string& snapshot_record,
+    const std::string& protected_completion_sha256, HANDLE volume,
+    HANDLE journal, HANDLE state, HANDLE visible_root,
+    const std::string& visible_root_file_id) {
+    const auto snapshot = usk::json::parse(snapshot_record);
+    if (snapshot.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_snapshot.v2") return;
+    const auto plan = restore_reviewed_install_plan(snapshot_record);
+    usk::lifecycle::ProtectedPublisherEvidence evidence{
+        volume, journal, state, visible_root, volume_root, service_name,
+        read_phase_record(journal, L"lab-prepared-evidence.json"),
+        read_phase_record(journal, L"lab-visible-evidence.json"),
+        snapshot_record,
+        read_phase_record(state, L"lab-installed-state.json")};
+    if (record_sha256(evidence.completion_record) != protected_completion_sha256) {
+        throw std::runtime_error("public finalization completion identity differs");
+    }
+    with_public_roots_bound(volume, plan, visible_root_file_id, [&] {
+    const auto result = usk::lifecycle::finalize_protected_visible_install(plan,
+        snapshot.at("transaction_id").as_string(),
+        snapshot.at("applied_at").as_string(), evidence);
+    if (result.verification.status != "pass") {
+        throw std::runtime_error("protected public installed state did not verify");
+    }
+    const std::string setup_root = snapshot.at("setup_root").as_string();
+    const std::string acceptance_root =
+        std::filesystem::path(setup_root).root_path().u8string();
+    const auto public_command = [&](const char* command,
+        const usk::json::Value& request) -> usk::json::Value {
+        const std::string input = usk::json::canonical(request);
+        int status = -1;
+        char* raw = usk_public_lifecycle_command_json(command, input.data(), input.size(),
+            setup_root.c_str(), acceptance_root.c_str(),
+            "operator_acceptance_candidate", &status);
+        if (!raw) throw std::runtime_error("publisher public lifecycle response is absent");
+        const std::string output(raw);
+        usk_public_lifecycle_command_free(raw);
+        const auto response = usk::json::parse(output);
+        if (status != 0 || response.at("status").as_string() != "ok") {
+            throw std::runtime_error("publisher public lifecycle readback refused");
+        }
+        return response.at("payload");
+    };
+    const auto installed = public_command("installed.inspect", usk::json::Value(
+        usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.installed_inspect_request.v1")},
+            {"request_id", usk::json::Value("inspect." + result.installed_state.transaction_id)},
+            {"install_id", usk::json::Value(plan.install_id)}}));
+    if (installed.at("schema").as_string() != "usk.installed_state.v1" ||
+        installed.at("transaction_id").as_string() != result.installed_state.transaction_id ||
+        installed.at("ownership_manifest_digest").as_string() !=
+            result.ownership.manifest_digest ||
+        installed.at("last_verification").at("report_digest").as_string() !=
+            result.verification.report_digest) {
+        throw std::runtime_error("publisher public installed inspection differs");
+    }
+    const auto verification = public_command("installed.verify", usk::json::Value(
+        usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.installed_verify_request.v1")},
+            {"request_id", usk::json::Value("verify." + result.installed_state.transaction_id)},
+            {"install_id", usk::json::Value(plan.install_id)},
+            {"report_id", usk::json::Value("verify." + result.installed_state.transaction_id + ".public")},
+            {"verified_at", usk::json::Value(current_utc_timestamp())}}));
+    if (verification.at("schema").as_string() != "usk.verification_report.v1" ||
+        verification.at("status").as_string() != "pass" ||
+        verification.at("ownership_manifest_digest").as_string() !=
+            result.ownership.manifest_digest ||
+        verification.at("files").as_array().size() != plan.files.size()) {
+        throw std::runtime_error("publisher public installed verification differs");
+    }
+    });
 }
 
 std::string prepared_tree_at_visible_name(const usk::json::Value& sealed,
@@ -1248,6 +1476,11 @@ std::string observe_prepared_recovery(HANDLE volume,
                 completion_digest) {
             throw std::runtime_error("forward recovery completion changed after closure check");
         }
+        if (has_reviewed_snapshot && !completion_digest.empty()) {
+            finalize_reviewed_public_state(stored_snapshot, completion_digest,
+                volume, journal.get(), state.get(), root.get(),
+                forward_visible.root.file_id);
+        }
         return "{\"decision\":\"visible_bound_forward\",\"prepared_sha256\":" +
             json_quote(prepared_digest) +
             ",\"source_file_id\":" + json_quote(forward_visible.root.file_id) +
@@ -1300,6 +1533,11 @@ std::string observe_prepared_recovery(HANDLE volume,
                 selected_digest) !=
                 completion_digest) {
             throw std::runtime_error("recovery completion changed after closure check");
+        }
+        if (has_reviewed_snapshot && !completion_digest.empty()) {
+            finalize_reviewed_public_state(stored_snapshot, completion_digest,
+                volume, journal.get(), state.get(), root.get(),
+                observed_tree.root.file_id);
         }
         return "{\"decision\":" + json_quote(
             selected_source && !completion_was_present ?
@@ -1616,6 +1854,9 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
         throw std::runtime_error("reviewed plan does not bind selected source and target");
     }
     const std::string canonical_request = usk::json::canonical(request);
+    auto internal_plan = usk::lifecycle::reviewed_install_plan_for_publisher(
+        canonical_request, state_root, acceptance,
+        "operator_acceptance_candidate");
     int status = -1;
     char* raw = usk_public_lifecycle_command_json("install_local.plan",
         canonical_request.data(), canonical_request.size(), state_root.c_str(),
@@ -1647,7 +1888,11 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
     if (plan.at("source").at("filesystem_identity_digest").as_string() !=
             selected_payload.source_identity_digest ||
         plan.at("source").at("size_bytes").as_unsigned() !=
-            selected_payload.archive_size_bytes) {
+            selected_payload.archive_size_bytes ||
+        internal_plan.plan_digest != plan_digest ||
+        internal_plan.recipe.source_identity_digest !=
+            selected_payload.source_identity_digest ||
+        internal_plan.recipe.entry_set_digest != selected_payload.entry_set_digest) {
         throw std::runtime_error("selected archive filesystem identity differs from reviewed plan");
     }
     std::vector<PublisherExpectedFile> expected_files;
@@ -1671,9 +1916,11 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
         throw std::runtime_error("selected source differs from reviewed native plan");
     }
     selected_payload.validate_source();
+    const std::string transaction_id = "labpub." + plan_digest.substr(0, 32);
+    const std::string applied_at = current_utc_timestamp();
     const std::string snapshot = canonical_record(usk::json::canonical(
         usk::json::Value(usk::json::Value::Object{
-            {"schema", usk::json::Value("usk.publisher.lab_reviewed_plan_snapshot.v1")},
+            {"schema", usk::json::Value("usk.publisher.lab_reviewed_plan_snapshot.v2")},
             {"plan_digest", usk::json::Value(plan_digest)},
             {"plan_envelope_sha256", usk::json::Value(reviewed_plan_envelope_sha256)},
             {"archive_sha256", usk::json::Value(selected_payload.source_sha256)},
@@ -1681,10 +1928,18 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
             {"entry_set_digest", usk::json::Value(selected_payload.entry_set_digest)},
             {"selected_file_set_digest", usk::json::Value(planned_set)},
             {"target_root", plan.at("target").at("root")},
+            {"setup_root", usk::json::Value(state_root)},
+            {"transaction_id", usk::json::Value(transaction_id)},
+            {"applied_at", usk::json::Value(applied_at)},
+            {"policy_digest", usk::json::Value(internal_plan.recipe.policy_digest)},
+            {"restart_policy_context", usk::json::Value(
+                internal_plan.recipe.restart_policy_context)},
             {"plan_request", request},
             {"planned_entries", plan.at("planned_entries")}})));
     return {plan_digest, reviewed_plan_envelope_sha256,
-        planned_set, snapshot, std::move(selected_payload)};
+        planned_set, snapshot, state_root, acceptance,
+        transaction_id, applied_at, std::move(internal_plan),
+        std::move(selected_payload)};
 }
 
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid,
@@ -1829,6 +2084,11 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const std::string reviewed_snapshot_digest = reviewed_plan ?
         record_sha256(reviewed_plan->durable_snapshot) : std::string{};
     if (reviewed_plan) {
+        require_public_mount_mapping(volume, reviewed_plan->setup_root,
+            reviewed_plan->install_plan.target_root.u8string());
+        usk::lifecycle::initialize_setup_root_for_publisher(
+            reviewed_plan->setup_root, reviewed_plan->acceptance_root,
+            "operator_acceptance_candidate");
         write_journal_phase(journal.get(), L"lab-reviewed-plan.json",
             descriptor, reviewed_plan->durable_snapshot);
     }
@@ -1946,6 +2206,11 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
                 selected_digest) !=
                 completion_digest) {
             throw std::runtime_error("selected lab closure changed after completion");
+        }
+        if (reviewed_plan) {
+            finalize_reviewed_public_state(reviewed_plan->durable_snapshot,
+                completion_digest, volume, journal.get(), state.get(),
+                visible_root.get(), visible.root.file_id);
         }
     }
     return "{\"boundary_file_id\":" + json_quote(first.chain.boundary.file_id) +
