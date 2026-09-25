@@ -56,6 +56,7 @@ bool postrename_gate = false;
 bool postjournal_gate = false;
 bool recover_prepared = false;
 bool recover_snapshot_only = false;
+bool recover_sealed_journal = false;
 bool recover_visible_bound = false;
 bool reviewed_install_reentry = false;
 
@@ -1317,7 +1318,8 @@ std::string complete_selected_lab_state(HANDLE state,
 std::string observe_prepared_recovery(HANDLE volume,
     const std::string& service_sid, bool bind_visible_forward,
     const std::string& expected_envelope_sha256 = {},
-    const std::string& expected_archive_sha256 = {}) {
+    const std::string& expected_archive_sha256 = {},
+    bool require_reviewed_snapshot = false) {
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{
         L"staging", L"destination", L"state", L"journal"};
@@ -1344,6 +1346,10 @@ std::string observe_prepared_recovery(HANDLE volume,
         listed_journal.end(), [](const auto& entry) {
             return entry.name == L"lab-reviewed-plan.json";
         });
+    if (require_reviewed_snapshot && !has_reviewed_snapshot) {
+        throw std::runtime_error(
+            "independent recovery requires a durable reviewed-plan snapshot");
+    }
     const std::string stored = read_phase_record(
         journal.get(), L"lab-prepared-evidence.json");
     const std::string stored_snapshot = has_reviewed_snapshot ?
@@ -1434,6 +1440,12 @@ std::string observe_prepared_recovery(HANDLE volume,
             throw std::runtime_error("recovery reviewed snapshot requires selected v2 closure");
         }
         require_reviewed_plan_snapshot(stored_snapshot, prepared, selected_digest);
+        if (require_reviewed_snapshot) {
+            // A source-free forward replay must prove that the durable v2
+            // snapshot can restore the exact public plan before any effect.
+            // Earlier read-only recovery modes retain their v1 compatibility.
+            (void)restore_reviewed_install_plan(stored_snapshot);
+        }
     }
     if (!expected_envelope_sha256.empty() || !expected_archive_sha256.empty()) {
         if (!has_reviewed_snapshot || !selected_v2 ||
@@ -2664,7 +2676,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
             if (recover_prepared) {
                 anchors = observe_prepared_recovery(volume, observed.service_sid,
-                    recover_visible_bound);
+                    recover_visible_bound, {}, {}, recover_sealed_journal);
             } else {
                 bool publication_present = false;
                 for (const auto& entry :
@@ -2805,6 +2817,12 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--recover-snapshot-only" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
+    const bool campaign_vm_sealed_journal = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_recovery_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--recover-sealed-journal" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
     const bool campaign_vm_postrename = argc == 8 &&
         generated_service_name(name, L"USK_VM_") &&
         std::wstring(argv[5]) == L"--postrename-gate" &&
@@ -2844,6 +2862,7 @@ int wmain(int argc, wchar_t** argv) {
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_snapshot_recovery &&
+        !campaign_vm_sealed_journal &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
         !campaign_vm_selected && !campaign_vm_selected_plan) return 2;
     service_name = argv[2];
@@ -2859,9 +2878,11 @@ int wmain(int argc, wchar_t** argv) {
         selected_gate == L"--postrename-gate";
     postjournal_gate = campaign_vm_postjournal ||
         selected_gate == L"--postjournal-gate";
-    recover_prepared = campaign_vm_recovery || campaign_vm_replay;
+    recover_prepared = campaign_vm_recovery || campaign_vm_replay ||
+        campaign_vm_sealed_journal;
     recover_snapshot_only = campaign_vm_snapshot_recovery;
-    recover_visible_bound = campaign_vm_replay;
+    recover_sealed_journal = campaign_vm_sealed_journal;
+    recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
         campaign_vm_snapshot_recovery;
     if (campaign_vm_selected || campaign_vm_selected_plan) {
