@@ -10,6 +10,9 @@
 #include "usk_state_repository.h"
 #include "usk_replacement_session.h"
 #include "usk_transaction_session.h"
+#if defined(_WIN32)
+#include "usk_protected_publisher_finalization_internal.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -857,6 +860,52 @@ int report_budget_scenario()
     return 0;
 }
 
+int protected_visible_finalization_proof()
+{
+#if defined(_WIN32)
+    Fixture fixture;
+    const fs::path target = fixture.root / "targets/protected";
+    fs::create_directories(target / "app/bin");
+    const std::vector<unsigned char> program{'p', 'r', 'o', 'g', 'r', 'a', 'm'};
+    const std::vector<unsigned char> readme{'r', 'e', 'a', 'd', 'm', 'e'};
+    {
+        std::ofstream output(target / "app/bin/program.exe", std::ios::binary);
+        output.write(reinterpret_cast<const char*>(program.data()),
+            static_cast<std::streamsize>(program.size()));
+    }
+    {
+        std::ofstream output(target / "app/readme.txt", std::ios::binary);
+        output.write(reinterpret_cast<const char*>(readme.data()),
+            static_cast<std::streamsize>(readme.size()));
+    }
+    const auto no_source = [](std::uint64_t, unsigned char*, std::size_t) -> std::size_t {
+        throw std::runtime_error("visible finalization reopened its absent source");
+    };
+    const auto digest_bytes = [](const std::vector<unsigned char>& bytes) {
+        usk::base::Sha256 hash;
+        hash.update(bytes.data(), bytes.size());
+        return hash.finish();
+    };
+    std::vector<usk::lifecycle::PayloadFile> files{
+        {"app/bin/program.exe", {}, digest_bytes(program),
+            program.size(), no_source},
+        {"app/readme.txt", {}, digest_bytes(readme),
+            readme.size(), no_source}};
+    const auto plan = usk::lifecycle::plan_install(
+        "plan.protected.final", "install.protected.final", "2026-09-25T00:00:00Z",
+        target, fixture.roots, recipe(), std::move(files), {},
+        usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1);
+    const usk::lifecycle::ProtectedPublisherEvidence no_witness{};
+    if (!refuses([&] { (void)usk::lifecycle::finalize_protected_visible_install(plan,
+            "tx.protected.final", "2026-09-25T00:00:01Z", no_witness); }) ||
+        fs::exists(fixture.roots.state_root / "installed" /
+            "install.protected.final.tx.protected.final.json") ||
+        fs::exists(fixture.roots.audit_root / "chains" /
+            "audit.install.protected.final")) return 64;
+#endif
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -897,6 +946,9 @@ int main(int argc, char** argv)
             return report_budget_scenario();
         }
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
+        if (const int protected_visible = protected_visible_finalization_proof()) {
+            return protected_visible;
+        }
         if (const int streaming = streaming_install_and_fault_proof()) {
             return streaming;
         }

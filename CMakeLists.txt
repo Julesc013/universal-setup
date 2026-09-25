@@ -177,6 +177,11 @@ target_link_libraries(usk_lifecycle_static PUBLIC
   usk_state_static
   usk_transaction_static
 )
+if(WIN32)
+  target_compile_definitions(usk_lifecycle_static PRIVATE
+    USK_INTERNAL_PUBLISHER_FINALIZATION)
+  target_link_libraries(usk_lifecycle_static PRIVATE usk_publisher_windows_static)
+endif()
 set_target_properties(usk_lifecycle_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(NOT USK_BUILD_APPS AND NOT USK_BUILD_TESTS AND NOT USK_BUILD_FUZZERS)

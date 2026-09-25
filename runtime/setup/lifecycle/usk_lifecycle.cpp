@@ -12,6 +12,12 @@
 #include "usk_stable_file.h"
 #include "usk_transaction_session.h"
 #include "usk_utf8_path.h"
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+#include "usk_protected_publisher_finalization_internal.h"
+#include "usk_publisher_token_observation.h"
+#include "usk_publisher_tree_observation.h"
+#include "usk_publisher_volume_stream_observation.h"
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -1399,6 +1405,276 @@ InstallResult recover_install_finalization(
     if (transaction->current_state() == "committed") transaction->mark_completed();
     return {installed, ownership, verification, transaction->journal_path()};
 }
+
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+static std::string protected_record_sha256(const std::string& record)
+{
+    if (record.empty() || record.size() > 4u * 1024u * 1024u ||
+        json::canonical(json::parse(record)) + "\n" != record) {
+        throw std::runtime_error("protected publication record is not bounded canonical data");
+    }
+    base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(record.data()), record.size());
+    return hash.finish();
+}
+
+static std::string require_held_publisher_evidence(
+    const InstallPlan& plan, const ProtectedPublisherEvidence& evidence)
+{
+    using namespace platform::windows;
+    if (evidence.volume == nullptr || evidence.journal == nullptr ||
+        evidence.state == nullptr || evidence.visible_root == nullptr ||
+        evidence.service_name.empty() || evidence.volume_guid_root.empty()) {
+        throw std::runtime_error("protected publisher held evidence is absent");
+    }
+    const auto service = observe_current_restricted_publisher_service(
+        evidence.service_name);
+    const auto volume = observe_local_ntfs_volume_handle(evidence.volume);
+    const auto journal = observe_publisher_tree(evidence.journal);
+    const auto state = observe_publisher_tree(evidence.state);
+    const auto visible = observe_publisher_tree(evidence.visible_root);
+    require_publisher_tree_security_shape(journal, service.service_sid);
+    require_publisher_tree_security_shape(state, service.service_sid);
+    require_publisher_tree_security_shape(visible, service.service_sid);
+    if (journal.volume.file_id_volume_serial != volume.file_id_volume_serial ||
+        state.volume.file_id_volume_serial != volume.file_id_volume_serial ||
+        visible.volume.file_id_volume_serial != volume.file_id_volume_serial) {
+        throw std::runtime_error("protected publication objects are not on held volume");
+    }
+    for (const fs::path& path : {plan.target_root,
+            plan.roots.state_root.parent_path()}) {
+        const std::wstring drive = path.root_name().wstring() + L"\\";
+        wchar_t mapped[128]{};
+        if (drive.size() != 3 || drive[1] != L':' ||
+            !GetVolumeNameForVolumeMountPointW(drive.c_str(), mapped,
+                static_cast<DWORD>(std::size(mapped))) ||
+            CompareStringOrdinal(mapped, -1, evidence.volume_guid_root.c_str(),
+                -1, TRUE) != CSTR_EQUAL) {
+            throw std::runtime_error("protected public state path left the held volume");
+        }
+    }
+    const std::string prepared_sha = protected_record_sha256(evidence.prepared_record);
+    const std::string visible_sha = protected_record_sha256(evidence.visible_record);
+    const std::string snapshot_sha = protected_record_sha256(evidence.reviewed_snapshot_record);
+    const std::string completion_sha = protected_record_sha256(evidence.completion_record);
+    if (journal.descendants.size() != 3 ||
+        journal.descendants[0].relative_path != L"lab-prepared-evidence.json" ||
+        journal.descendants[0].sha256 != prepared_sha ||
+        journal.descendants[1].relative_path != L"lab-reviewed-plan.json" ||
+        journal.descendants[1].sha256 != snapshot_sha ||
+        journal.descendants[2].relative_path != L"lab-visible-evidence.json" ||
+        journal.descendants[2].sha256 != visible_sha ||
+        state.descendants.size() != 1 ||
+        state.descendants.front().relative_path != L"lab-installed-state.json" ||
+        state.descendants.front().sha256 != completion_sha) {
+        throw std::runtime_error("held protected journal or completion closure differs");
+    }
+    std::vector<PublisherExpectedFile> expected;
+    for (const auto& file : plan.files) {
+        expected.push_back({fs::u8path(file.relative_path).wstring(),
+            file.size_bytes, file.sha256});
+    }
+    require_publisher_tree_exact_file_closure(visible, expected);
+    const auto prepared = json::parse(evidence.prepared_record);
+    const auto bound = json::parse(evidence.visible_record);
+    const auto snapshot = json::parse(evidence.reviewed_snapshot_record);
+    const auto completion = json::parse(evidence.completion_record);
+    const auto& binding = prepared.at("source_binding");
+    if (prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
+        bound.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
+        snapshot.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_snapshot.v2" ||
+        completion.at("schema").as_string() !=
+            "usk.publisher.lab_installed_state.v2" ||
+        prepared.at("service_sid").as_string() != service.service_sid ||
+        completion.at("service_sid").as_string() != service.service_sid ||
+        prepared.at("volume_serial").as_unsigned() != volume.file_id_volume_serial ||
+        completion.at("volume_serial").as_unsigned() != volume.file_id_volume_serial ||
+        binding.at("reviewed_plan_digest").as_string() != plan.plan_digest ||
+        binding.at("reviewed_plan_snapshot_sha256").as_string() != snapshot_sha ||
+        snapshot.at("plan_digest").as_string() != plan.plan_digest ||
+        snapshot.at("setup_root").as_string() !=
+            plan.roots.state_root.parent_path().u8string() ||
+        fs::path(snapshot.at("target_root").as_string()).lexically_normal() !=
+            plan.target_root.lexically_normal() ||
+        json::canonical(completion.at("source_binding")) != json::canonical(binding) ||
+        bound.at("prepared_record_sha256").as_string() != prepared_sha ||
+        bound.at("source_file_id").as_string() != visible.root.file_id ||
+        completion.at("prepared_record_sha256").as_string() != prepared_sha ||
+        completion.at("visible_record_sha256").as_string() != visible_sha ||
+        completion.at("visible_root_file_id").as_string() != visible.root.file_id ||
+        completion.at("selected_file_set_digest").as_string() !=
+            prepared.at("selected_file_set_digest").as_string() ||
+        bound.at("selected_file_set_digest").as_string() !=
+            prepared.at("selected_file_set_digest").as_string()) {
+        throw std::runtime_error("protected publisher evidence does not bind reviewed visible install");
+    }
+    return completion_sha;
+}
+
+InstallResult finalize_protected_visible_install(
+    const InstallPlan& plan, const std::string& transaction_id,
+    const std::string& applied_at, const ProtectedPublisherEvidence& evidence)
+{
+    validate_plan(plan);
+    const std::string protected_completion_sha256 =
+        require_held_publisher_evidence(plan, evidence);
+    if (plan.required_commit_authority !=
+            transaction::CommitAuthorityRequirement::staged_child_bound_v1 ||
+        !record_io::valid_identifier(transaction_id) ||
+        !valid_timestamp(applied_at) || !sha256(protected_completion_sha256)) {
+        throw std::runtime_error("protected install finalization identity is invalid");
+    }
+    require_install_path_capacity(plan, transaction_id);
+    record_io::require_safe_directory(plan.target_root);
+    state::StateRepository repository(plan.roots.state_root);
+    audit::AuditRepository audit_repository(plan.roots.audit_root);
+    const std::string chain_id = install_audit_chain_id(plan.install_id, transaction_id, false);
+    audit::require_chain_path_capacity(plan.roots.audit_root, chain_id);
+
+    bool has_current = false;
+    state::InstalledState current;
+    try {
+        current = repository.read_installed(plan.install_id);
+        has_current = true;
+    } catch (const std::runtime_error& error) {
+        if (std::string(error.what()) != "installed-state record does not exist") throw;
+    }
+    if (has_current && (current.transaction_id != transaction_id ||
+            current.audit_chain_id != chain_id ||
+            current.lifecycle_status != "installed" ||
+            current.target_root != plan.target_root.string() ||
+            current.recipe_digest != plan.recipe.recipe_digest ||
+            current.source_archive_digest != plan.recipe.source_archive_digest)) {
+        throw std::runtime_error("protected finalization conflicts with existing install");
+    }
+
+    const fs::path chain_path = plan.roots.audit_root / "chains" / chain_id;
+    const fs::path ownership_path = plan.roots.state_root / "ownership" /
+        ("ownership." + plan.install_id + "." + transaction_id + ".json");
+    const bool has_chain = fs::exists(chain_path);
+    const bool has_ownership = fs::exists(ownership_path);
+    if (has_current && (!has_chain || !has_ownership)) {
+        throw std::runtime_error("protected installed state lost an audit or ownership predecessor");
+    }
+    if (!has_chain) {
+        if (has_ownership) throw std::runtime_error("protected ownership has no audit predecessor");
+        audit_repository.initialize_chain(chain_id);
+    }
+    auto chain = audit_repository.read_and_validate_chain(chain_id);
+    if (chain.size() > 2 || (has_current && chain.empty()) ||
+        (!has_current && chain.size() == 2) ||
+        (has_ownership && chain.empty())) {
+        throw std::runtime_error("protected install audit and ownership prefix is incompatible");
+    }
+    if (chain.empty()) {
+        audit_repository.append(chain_id, audit::AuditInput{
+            applied_at, "install_local", "validated", "pass", "journal",
+            plan.plan_id, protected_completion_sha256, transaction_id, plan.plan_id,
+            "held-handle protected publication closure verified"});
+        chain = audit_repository.read_and_validate_chain(chain_id);
+    }
+    const auto& validated = chain.front();
+    if (validated.created_at != applied_at || validated.operation != "install_local" ||
+        validated.phase != "validated" || validated.status != "pass" ||
+        validated.subject_type != "journal" || validated.subject_id != plan.plan_id ||
+        validated.details_digest != protected_completion_sha256 ||
+        validated.transaction_id != transaction_id || validated.plan_id != plan.plan_id ||
+        validated.message != "held-handle protected publication closure verified") {
+        throw std::runtime_error("protected install audit proof differs");
+    }
+
+    state::OwnershipManifest expected;
+    expected.manifest_id = "ownership." + plan.install_id + "." + transaction_id;
+    expected.install_id = plan.install_id;
+    expected.target_root = plan.target_root.string();
+    expected.created_by_transaction_id = transaction_id;
+    expected.directories = directory_closure(plan.files);
+    for (const PayloadFile& file : plan.files) {
+        expected.files.push_back({file.relative_path, file.sha256, file.size_bytes});
+    }
+    state::OwnershipManifest ownership;
+    if (has_ownership) {
+        ownership = repository.read_ownership(expected.manifest_id);
+        if (ownership.install_id != expected.install_id ||
+            ownership.target_root != expected.target_root ||
+            ownership.created_by_transaction_id != expected.created_by_transaction_id ||
+            ownership.directories != expected.directories ||
+            ownership.files.size() != expected.files.size()) {
+            throw std::runtime_error("protected install ownership conflicts with reviewed closure");
+        }
+        for (std::size_t index = 0; index < ownership.files.size(); ++index) {
+            if (std::tie(ownership.files[index].relative_path, ownership.files[index].sha256,
+                    ownership.files[index].size_bytes) !=
+                std::tie(expected.files[index].relative_path, expected.files[index].sha256,
+                    expected.files[index].size_bytes)) {
+                throw std::runtime_error("protected install ownership file differs");
+            }
+        }
+    } else {
+        ownership = repository.write_ownership(std::move(expected));
+    }
+
+    state::InstalledState installed;
+    installed.install_id = plan.install_id;
+    installed.product_id = plan.recipe.product_id;
+    installed.product_version = plan.recipe.product_version;
+    installed.recipe_digest = plan.recipe.recipe_digest;
+    installed.source_archive_digest = plan.recipe.source_archive_digest;
+    installed.target_root = plan.target_root.string();
+    installed.component_selection = plan.recipe.components;
+    installed.ownership_manifest_ref = "ownership/" + ownership.manifest_id + ".json";
+    installed.ownership_manifest_digest = ownership.manifest_digest;
+    installed.entrypoints = plan.recipe.entrypoints;
+    installed.setup_abi_major = 1;
+    installed.setup_abi_minor = 0;
+    installed.provider_revision = plan.recipe.provider_revision;
+    installed.transaction_id = transaction_id;
+    installed.created_at = applied_at;
+    installed.audit_chain_id = chain_id;
+    installed.lifecycle_status = "installed";
+    installed.last_verification = {"verify." + transaction_id,
+        std::string(64, '0'), "fail", applied_at};
+    VerificationReport verification = verify_manifest(
+        installed, ownership, installed.last_verification.report_id, applied_at);
+    if (verification.status != "pass") {
+        throw std::runtime_error("protected visible install failed independent manifest verification");
+    }
+    installed.last_verification = {
+        verification.report_id, verification.report_digest, verification.status, applied_at};
+    if (has_current) {
+        if (installed_digest(current) != installed_digest(installed) ||
+            current.last_verification.report_id != installed.last_verification.report_id ||
+            current.last_verification.report_digest != installed.last_verification.report_digest ||
+            current.last_verification.status != installed.last_verification.status ||
+            current.last_verification.verified_at != installed.last_verification.verified_at) {
+            throw std::runtime_error("protected install state conflicts with current verification");
+        }
+        installed = current;
+    } else {
+        repository.write_installed(installed);
+    }
+    if (chain.size() == 1) {
+        audit_repository.append(chain_id, audit::AuditInput{
+            applied_at, "install_local", "completed", "pass", "installation",
+            plan.install_id, verification.report_digest, transaction_id, plan.plan_id,
+            "protected managed install completed"});
+    } else if (chain[1].created_at != applied_at ||
+        chain[1].operation != "install_local" || chain[1].phase != "completed" ||
+        chain[1].status != "pass" || chain[1].subject_type != "installation" ||
+        chain[1].subject_id != plan.install_id ||
+        chain[1].details_digest != verification.report_digest ||
+        chain[1].transaction_id != transaction_id ||
+        chain[1].plan_id != plan.plan_id ||
+        chain[1].message != "protected managed install completed") {
+        throw std::runtime_error("protected install audit completion differs");
+    }
+    if (require_held_publisher_evidence(plan, evidence) != protected_completion_sha256) {
+        throw std::runtime_error("protected publisher evidence changed during finalization");
+    }
+    return {installed, ownership, verification, {}};
+}
+#endif
 
 VerificationReport verify_installed(
     const LifecycleRoots& roots,

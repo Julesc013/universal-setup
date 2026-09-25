@@ -1948,6 +1948,36 @@ Value execute_command(const std::string& command, const Value& request, const Pu
 
 } // namespace
 
+usk::lifecycle::InstallPlan usk::lifecycle::reviewed_install_plan_for_publisher(
+    const std::string& request_json, const std::string& state_root,
+    const std::string& authorized_acceptance_root,
+    const std::string& target_policy_activation)
+{
+    if (request_json.empty() || request_json.size() > max_request_bytes) {
+        throw std::runtime_error("publisher reviewed plan request exceeds byte budget");
+    }
+    const PublicConfig config = parse_config(state_root.c_str(),
+        authorized_acceptance_root.c_str(), target_policy_activation.c_str());
+    auto plan = build_install_plan(usk::json::parse(request_json), config).plan;
+    if (plan.required_commit_authority !=
+        usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1 ||
+        plan.recipe.restart_policy_context.empty() ||
+        plan.recipe.source_identity_digest.empty()) {
+        throw std::runtime_error("publisher requires a strict source-bound reviewed plan");
+    }
+    plan.validate_source();
+    return plan;
+}
+
+void usk::lifecycle::initialize_setup_root_for_publisher(
+    const std::string& state_root, const std::string& authorized_acceptance_root,
+    const std::string& target_policy_activation)
+{
+    const PublicConfig config = parse_config(state_root.c_str(),
+        authorized_acceptance_root.c_str(), target_policy_activation.c_str());
+    initialize_setup_root(config);
+}
+
 char* usk::lifecycle::public_command_json(
     const char* command_name,
     const char* request_json,
