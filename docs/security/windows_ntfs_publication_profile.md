@@ -185,3 +185,21 @@ This covers four path operations at one post-publication instant; it does not
 identify which ACL layer denied access or establish all effective rights,
 every ancestor/descendant, a concurrent race, crash replay or power loss.
 OD-001 and production enablement remain open.
+
+The dependent PR #106 native Windows step in run 36095483920 at source head
+`c40bb197ff722585da50bb3c7f054645a1bff182` passed on build
+10.0.20348.0. After the service flushed its prepared lab record on a new
+file-backed NTFS VHD, it exposed a flushed readiness marker and waited. A
+generated standard-account child then received `0x80070005` for staged
+payload read, staged payload write, staged-child insertion and destination
+precreation. The runner observed the same running service PID before and after
+the attack, then released the service through a flushed marker. The service
+re-observed its tree and anchors before the held-parent no-replace rename; the
+postpublication four-operation probe also passed. The retained JSON receipt
+SHA-256 is
+`5f18072e30560427a70a05322a0f65280b56fb277f9663f95bb3225c8bd3b3d5`;
+it reports account/output cleanup, service stop/deletion request, and VHD
+dismount/backing-file removal. This is one paused laboratory interval. The
+readiness signal came from the service, so it is not independent prepared-record
+readback. ACL-layer attribution, complete effective rights, continuous race
+exclusion, crash replay, power loss and production publication remain unproved.
