@@ -70,8 +70,12 @@ static HANDLE create_relative_with_descriptor(
             READ_CONTROL | SYNCHRONIZE
         : FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES |
             FILE_WRITE_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
+    // The restricted service cannot assume administrative volume-flush access.
+    // Keep the create-only handle write-through for its later data/rename I/O;
+    // file flush and crash tests remain separate qualification requirements.
+    constexpr ULONG write_through = 0x00000002; // FILE_WRITE_THROUGH
     const ULONG options = (directory ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) |
-        FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT;
+        FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT | write_through;
     const NTSTATUS outcome = nt_create(&created, access,
         &attributes, &io, nullptr,
         directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL,

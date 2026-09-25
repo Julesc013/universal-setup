@@ -248,14 +248,14 @@ try {
             $publication.visible_file.native_name -eq
                 ($publication.visible_name + '\payload.bin') -and
             $publication.visible_payload_sha256 -eq $staged.sha256 -and
-            $prepared.phase -eq 'publish_prepared' -and
+            $prepared.phase -eq 'lab_prepared_summary' -and
             $prepared.service_sid -eq $sid -and
             $prepared.source_file_id -eq $staged.root.file_id -and
             $prepared.volume_serial -eq $native.volume_file_id_serial -and
             $prepared.destination_parent_file_id -eq $anchors.destination_file_id -and
             $prepared.destination_name -eq 'visible' -and
             $prepared.payload_sha256 -eq $staged.sha256 -and
-            $bound.phase -eq 'visible_bound' -and
+            $bound.phase -eq 'lab_visible_summary' -and
             $bound.source_file_id -eq $staged.root.file_id -and
             $bound.destination_parent_file_id -eq $anchors.destination_file_id -and
             $bound.destination_name -eq 'visible' -and
@@ -266,9 +266,9 @@ try {
             $publication.journal_root.native_name -eq
                 $anchors.objects.journal.native_name -and
             $publication.prepared_file.native_name -eq
-                ($publication.journal_root.native_name + '\publish-prepared.json') -and
+                ($publication.journal_root.native_name + '\lab-prepared-summary.json') -and
             $publication.bound_file.native_name -eq
-                ($publication.journal_root.native_name + '\visible-bound.json') -and
+                ($publication.journal_root.native_name + '\lab-visible-summary.json') -and
             @($anchorIds + @($staged.root.file_id, $staged.file.file_id,
                 $publication.prepared_file.file_id, $publication.bound_file.file_id) |
                 Sort-Object -Unique).Count -eq 10

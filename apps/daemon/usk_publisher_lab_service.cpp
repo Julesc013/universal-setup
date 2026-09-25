@@ -196,21 +196,6 @@ std::string json_protected_object(
         ",\"dacl_aces\":" + aces + "]}";
 }
 
-void flush_owned_volume(const std::wstring& root) {
-    if (root.size() < 2 || root.back() != L'\\') {
-        throw std::runtime_error("publisher lab volume root is malformed");
-    }
-    const std::wstring device = root.substr(0, root.size() - 1);
-    OwnedHandle volume(CreateFileW(device.c_str(), GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, 0, nullptr));
-    if (volume.get() == INVALID_HANDLE_VALUE ||
-        !FlushFileBuffers(volume.get())) {
-        throw std::runtime_error("publisher lab volume flush failed; Win32 " +
-            std::to_string(GetLastError()));
-    }
-}
-
 void write_journal_phase(HANDLE journal, const std::wstring& name,
     const std::vector<unsigned char>& descriptor, const std::string& record) {
     OwnedHandle file(usk::platform::windows::create_file_relative_with_descriptor(
@@ -222,7 +207,6 @@ void write_journal_phase(HANDLE journal, const std::wstring& name,
         !FlushFileBuffers(file.get())) {
         throw std::runtime_error("publisher lab journal phase write or flush failed");
     }
-    flush_owned_volume(volume_root);
 }
 
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid) {
@@ -290,7 +274,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, third);
     const std::string prepared =
-        "{\"phase\":\"publish_prepared\",\"service_sid\":" +
+        "{\"phase\":\"lab_prepared_summary\",\"service_sid\":" +
         json_quote(service_sid) +
         ",\"volume_serial\":" +
         std::to_string(sealed.volume.file_id_volume_serial) +
@@ -299,7 +283,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         json_quote(first.destination_parent.object.file_id) +
         ",\"destination_name\":\"visible\",\"payload_sha256\":" +
         json_quote(sealed.descendants.front().sha256) + "}\n";
-    write_journal_phase(journal.get(), L"publish-prepared.json",
+    write_journal_phase(journal.get(), L"lab-prepared-summary.json",
         descriptor, prepared);
     require_publisher_tree_phase_match(sealed, observe_publisher_tree(candidate.get()));
     require_publisher_anchor_set_phase_match(first,
@@ -313,20 +297,20 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     require_publisher_anchor_set_phase_match(first,
         observe_publisher_anchor_set(volume, {L"publication"}, names));
     const std::string bound =
-        "{\"phase\":\"visible_bound\",\"source_file_id\":" +
+        "{\"phase\":\"lab_visible_summary\",\"source_file_id\":" +
         json_quote(renamed.root_file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(first.destination_parent.object.file_id) +
         ",\"destination_name\":\"visible\",\"payload_sha256\":" +
         json_quote(visible.descendants.front().sha256) + "}\n";
-    write_journal_phase(journal.get(), L"visible-bound.json", descriptor, bound);
+    write_journal_phase(journal.get(), L"lab-visible-summary.json", descriptor, bound);
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
     if (journal_tree.root.file_id != first.journal.object.file_id ||
         journal_tree.descendants.size() != 2 ||
-        journal_tree.descendants[0].relative_path != L"publish-prepared.json" ||
+        journal_tree.descendants[0].relative_path != L"lab-prepared-summary.json" ||
         journal_tree.descendants[0].size != prepared.size() ||
-        journal_tree.descendants[1].relative_path != L"visible-bound.json" ||
+        journal_tree.descendants[1].relative_path != L"lab-visible-summary.json" ||
         journal_tree.descendants[1].size != bound.size()) {
         throw std::runtime_error("publisher lab journal phase closure is not exact");
     }
