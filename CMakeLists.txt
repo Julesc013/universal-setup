@@ -71,6 +71,7 @@ set_target_properties(usk_base_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(WIN32)
   add_library(usk_publisher_windows_static STATIC
     runtime/platform/windows/usk_publisher_anchor_create.cpp
+    runtime/platform/windows/usk_publisher_staged_stream.cpp
     runtime/platform/windows/usk_publisher_bound_rename.cpp
     runtime/platform/windows/usk_publisher_directory_entries.cpp
     runtime/platform/windows/usk_publisher_handle_observation.cpp

@@ -3,6 +3,8 @@
 
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_handle_observation.h"
+#include "usk_publisher_staged_stream.h"
+#include "usk_sha256.h"
 
 #include <aclapi.h>
 #include <windows.h>
@@ -20,6 +22,7 @@ using usk::platform::windows::create_directory_relative_with_descriptor;
 using usk::platform::windows::create_file_relative_with_descriptor;
 using usk::platform::windows::observe_publisher_directory_handle;
 using usk::platform::windows::observe_publisher_file_handle;
+using usk::platform::windows::stream_verified_source_to_staged_file;
 
 namespace {
 class Handle {
@@ -80,6 +83,20 @@ int main() {
         check(fs::create_directory(root), "fixture root already exists");
         const auto parent = root / "parent";
         const auto moved = root / "moved";
+        const auto source_path = root / "source.bin";
+        std::vector<unsigned char> source_bytes(2u * 1024u * 1024u);
+        for (std::size_t index = 0; index < source_bytes.size(); ++index) {
+            source_bytes[index] = static_cast<unsigned char>(index % 251u);
+        }
+        {
+            std::ofstream source_output(source_path, std::ios::binary);
+            source_output.write(reinterpret_cast<const char*>(source_bytes.data()),
+                static_cast<std::streamsize>(source_bytes.size()));
+            check(source_output.good(), "fixture source write failed");
+        }
+        usk::base::Sha256 source_hasher;
+        source_hasher.update(source_bytes.data(), source_bytes.size());
+        const std::string source_sha256 = source_hasher.finish();
         check(fs::create_directory(parent), "fixture parent creation failed");
         {
             Handle parent_handle(CreateFileW(parent.c_str(),
@@ -89,6 +106,53 @@ int main() {
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             const auto descriptor = fixture_descriptor(parent_handle.get());
             const auto parent_id = observe_publisher_directory_handle(parent_handle.get()).file_id;
+            Handle source_handle(CreateFileW(source_path.c_str(),
+                GENERIC_READ | FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+            {
+                const auto streamed = stream_verified_source_to_staged_file(
+                    parent_handle.get(), L"streamed.bin", descriptor,
+                    source_handle.get(), source_bytes.size(), source_sha256);
+                Handle staged(streamed.file);
+                check(streamed.bytes_written == source_bytes.size() &&
+                    streamed.sha256 == source_sha256 &&
+                    !observe_publisher_file_handle(staged.get()).file_id.empty(),
+                    "bounded staged source stream differs");
+            }
+            check(usk::base::sha256_hex_file(parent / "streamed.bin") ==
+                source_sha256, "protected staged bytes differ");
+            bool retained_digest_failure = false;
+            try {
+                auto bad = stream_verified_source_to_staged_file(
+                    parent_handle.get(), L"bad-digest.bin", descriptor,
+                    source_handle.get(), source_bytes.size(), std::string(64, '0'));
+                CloseHandle(bad.file);
+            } catch (const std::exception&) { retained_digest_failure = true; }
+            check(retained_digest_failure &&
+                fs::exists(parent / "bad-digest.bin") &&
+                usk::base::sha256_hex_file(parent / "bad-digest.bin") ==
+                    source_sha256,
+                "digest refusal removed or changed staged bytes");
+            bool size_refused = false;
+            try {
+                auto bad = stream_verified_source_to_staged_file(
+                    parent_handle.get(), L"bad-size.bin", descriptor,
+                    source_handle.get(), source_bytes.size() + 1, source_sha256);
+                CloseHandle(bad.file);
+            } catch (const std::exception&) { size_refused = true; }
+            check(size_refused && !fs::exists(parent / "bad-size.bin"),
+                "source size mismatch created a staged file");
+            bool collision_refused = false;
+            try {
+                auto bad = stream_verified_source_to_staged_file(
+                    parent_handle.get(), L"streamed.bin", descriptor,
+                    source_handle.get(), source_bytes.size(), source_sha256);
+                CloseHandle(bad.file);
+            } catch (const std::exception&) { collision_refused = true; }
+            check(collision_refused &&
+                usk::base::sha256_hex_file(parent / "streamed.bin") ==
+                    source_sha256, "create-only stream collision changed bytes");
             std::string first_id;
             {
                 Handle first(create_directory_relative_with_descriptor(
@@ -188,7 +252,10 @@ int main() {
                     "parent path substitution redirected handle-relative file creation");
             }
         }
-        check(fs::remove(moved / "first") && fs::remove(moved / "bound") &&
+        check(fs::remove(moved / "streamed.bin") &&
+            fs::remove(moved / "bad-digest.bin") &&
+            fs::remove(source_path) &&
+            fs::remove(moved / "first") && fs::remove(moved / "bound") &&
             fs::remove(moved / "payload.bin") && fs::remove(moved / "bound.bin") &&
             fs::remove(moved / L"R\u00e9sum\u00e9.txt") &&
             fs::remove(moved / (std::wstring(129, L'a') + L".bin")) &&
