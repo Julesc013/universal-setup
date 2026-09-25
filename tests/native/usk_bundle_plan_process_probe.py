@@ -24,7 +24,9 @@ from usk_bundle_selection import finalize_selection
 
 def main(executable: str) -> None:
     with tempfile.TemporaryDirectory(prefix="usk-authored-plan-") as directory:
-        root = Path(directory)
+        # Windows temporary roots can have a lexical alias that the planner
+        # resolves. Construct every child from one canonical root.
+        root = Path(directory).resolve(strict=True)
         definition = project()
         definition["components"][0]["variants"][0]["target"] = host_target()
         for name in ("addon", "alternative"):
@@ -81,8 +83,15 @@ def main(executable: str) -> None:
         assert plan["source"]["sha256"] == final_bundle["payload"]["sha256"], plan
         assert plan["component_selection"] == request["payload"]["recipe"]["components"], plan
         assert set(plan["component_selection"]) == {"core", "addon"}, plan
-        assert plan["target"]["root"].replace("\\", "/") == \
-            str(target).replace("\\", "/"), plan
+        expected_target = str(target).replace("\\", "/")
+        requested_target = request["payload"]["target"]["root"].replace("\\", "/")
+        actual_target = plan["target"]["root"].replace("\\", "/")
+        assert requested_target == expected_target, (
+            f"composed target mismatch: expected={expected_target!r}, "
+            f"requested={requested_target!r}")
+        assert actual_target == expected_target, (
+            f"native target mismatch: expected={expected_target!r}, "
+            f"actual={actual_target!r}")
         identity = plan["input_identity"]
         recipe = request["payload"]["recipe"]
         assert identity["provider_revision"] == recipe["provider_revision"], plan
