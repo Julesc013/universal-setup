@@ -107,3 +107,11 @@ probe observed an empty root stream set and the same single unnamed 25-byte
 payload stream and allocation size in both lab phase records. Effective-rights
 evidence, crash replay and hostile-principal observations remain separate
 qualifications. Production publication continues to refuse.
+
+The next disposable-host candidate provisions a fresh local standard account
+on the hosted Windows runner and launches a separate process to attempt four
+operations against the published tree on the same fresh VHD. The test binds its
+observed SID and process ID, requires access-denied results, and verifies
+cleanup of the generated account and output folder. No hosted result has yet
+been recorded;
+the test does not replace effective-rights closure or concurrent attack proof.

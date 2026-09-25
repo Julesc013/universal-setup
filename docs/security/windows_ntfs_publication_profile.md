@@ -165,3 +165,16 @@ The independent runner checked the recorded stream shape but did not query the
 OS stream allocation separately. Effective-rights facts, hostile-rights
 testing, crash replay and independent power-loss proof remain open. OD-001
 remains unresolved.
+
+A further disposable-lab candidate creates a generated local login on the
+hosted Windows runner after the protected visible tree is observed. A separate
+process under that login attempts direct read, write, child creation and delete
+against the freshly created VHD tree; the runner checks the account SID,
+non-administrator token, absence of the publisher service SID, four explicit
+access-denied results and the unchanged running service PID. It then attempts
+to remove the generated account and its separate temporary output folder, and
+fails the run if cleanup is unconfirmed. This source
+candidate has not yet produced a hosted result. Even a passing run would cover
+those four path operations at one post-publication instant, not all effective
+rights, every ancestor/descendant, a concurrent race, crash replay or power
+loss. OD-001 and production enablement remain open.

@@ -83,7 +83,10 @@ try {
         -WindowStyle Hidden -WorkingDirectory $attackFolder -ErrorAction Stop
     if (-not $process.WaitForExit(45000)) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        throw 'unprivileged access process timed out'
+        if (-not $process.WaitForExit(5000)) {
+            throw 'unprivileged access process remained after termination request'
+        }
+        throw 'unprivileged access process timed out and was terminated'
     }
     $receipt.process_exit_code = $process.ExitCode
     if (-not (Test-Path -LiteralPath $childOutput -PathType Leaf)) {
@@ -112,11 +115,17 @@ try {
     $receipt.status = 'failed'
     $receipt.failure = $failure
 } finally {
+    $cleanupParts = @()
+    $processStopped = $true
     if ($process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        $processStopped = $process.WaitForExit(5000)
+        if (-not $processStopped) {
+            $cleanupParts += 'generated process remained after termination request'
+            if (-not $failure) { $failure = 'generated process cleanup failed' }
+        }
     }
-    $cleanupParts = @()
-    if ($accountCreated) {
+    if ($accountCreated -and $processStopped) {
         try {
             Remove-LocalUser -Name $accountName -ErrorAction Stop
             $cleanupParts += 'generated local account deleted'
@@ -125,7 +134,7 @@ try {
             if (-not $failure) { $failure = 'generated local account cleanup failed' }
         }
     }
-    if ($folderCreated) {
+    if ($folderCreated -and $processStopped) {
         try {
             $fullFolder = [IO.Path]::GetFullPath($attackFolder)
             if (-not $fullFolder.StartsWith(
