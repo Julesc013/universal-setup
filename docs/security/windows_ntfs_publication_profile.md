@@ -165,3 +165,23 @@ The independent runner checked the recorded stream shape but did not query the
 OS stream allocation separately. Effective-rights facts, hostile-rights
 testing, crash replay and independent power-loss proof remain open. OD-001
 remains unresolved.
+
+A further disposable-lab candidate creates a generated local login on the
+hosted Windows runner after the protected visible tree is observed. A separate
+process under that login attempts direct read, write, child creation and delete
+against the freshly created VHD tree; the runner checks the account SID,
+non-administrator token, absence of the publisher service SID, four explicit
+access-denied results and the unchanged running service PID. It then attempts
+to remove the generated account and its separate temporary output folder, and
+fails the run if cleanup is unconfirmed. Hosted PR #105 native Windows step
+passed at source head 02a7512a1216e6103f1c2f47e50711e0f0fe5ca1 in run
+36093907801 on Windows build 10.0.20348.0. The generated standard account's
+separate process returned access-denied HRESULT `0x80070005` for all four
+attempts. The receipt reports the generated account and output folder deleted,
+the restricted service stopped with deletion requested, and the VHD dismounted
+with its backing file removed. Retained JSON receipt SHA-256:
+0336a4f0879182e7ff2e2bb585165a4c362b1567b8504df8c7a86a565c7cec17.
+This covers four path operations at one post-publication instant; it does not
+identify which ACL layer denied access or establish all effective rights,
+every ancestor/descendant, a concurrent race, crash replay or power loss.
+OD-001 and production enablement remain open.
