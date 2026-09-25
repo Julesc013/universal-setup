@@ -37,6 +37,7 @@ std::wstring service_name;
 std::wstring receipt_path;
 std::wstring volume_root;
 bool prepublish_gate = false;
+bool postrename_gate = false;
 bool recover_prepared = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
@@ -149,6 +150,57 @@ void wait_for_prepublish_gate() {
         }
     }
     throw std::runtime_error("prepublish gate timed out");
+}
+
+void wait_for_postrename_gate() {
+    const std::wstring ready = gate_sibling(L"postrename-ready.txt");
+    const std::wstring ready_temp = gate_sibling(L"postrename-ready.tmp");
+    const std::wstring release = gate_sibling(L"postrename-release.txt");
+    static constexpr char ready_bytes[] = "usk.publisher.lab_renamed_unconfirmed.v1\n";
+    static constexpr char release_bytes[] = "usk.publisher.lab_continue_after_rename.v1\n";
+    if (GetFileAttributesW(ready.c_str()) != INVALID_FILE_ATTRIBUTES ||
+        GetFileAttributesW(release.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        throw std::runtime_error("postrename gate markers existed before rename");
+    }
+    {
+        OwnedHandle marker(CreateFileW(ready_temp.c_str(), GENERIC_WRITE, 0, nullptr,
+            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (marker.get() == INVALID_HANDLE_VALUE) {
+            throw std::runtime_error("cannot create postrename readiness marker");
+        }
+        DWORD written = 0;
+        if (!WriteFile(marker.get(), ready_bytes, sizeof(ready_bytes) - 1,
+                &written, nullptr) || written != sizeof(ready_bytes) - 1 ||
+            !FlushFileBuffers(marker.get())) {
+            throw std::runtime_error("cannot flush postrename readiness marker");
+        }
+    }
+    if (!MoveFileExW(ready_temp.c_str(), ready.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        throw std::runtime_error("cannot expose flushed postrename readiness marker");
+    }
+    for (unsigned attempt = 0; attempt != 1200; ++attempt) {
+        OwnedHandle signal(CreateFileW(release.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (signal.get() != INVALID_HANDLE_VALUE) {
+            char bytes[sizeof(release_bytes)]{};
+            DWORD read = 0;
+            if (!ReadFile(signal.get(), bytes, sizeof(bytes), &read, nullptr) ||
+                read != sizeof(release_bytes) - 1 ||
+                std::string(bytes, read) !=
+                    std::string(release_bytes, sizeof(release_bytes) - 1)) {
+                throw std::runtime_error("postrename release marker is invalid");
+            }
+            return;
+        }
+        if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+            throw std::runtime_error("cannot inspect postrename release marker");
+        }
+        if (WaitForSingleObject(stop_event, 100) != WAIT_TIMEOUT) {
+            throw std::runtime_error("postrename gate interrupted");
+        }
+    }
+    throw std::runtime_error("postrename gate timed out");
 }
 
 void report_status(DWORD state, DWORD accepted = 0, DWORD error = ERROR_SUCCESS) {
@@ -488,6 +540,28 @@ std::string read_prepared_record(HANDLE journal) {
     return stored;
 }
 
+std::string prepared_tree_at_visible_name(const usk::json::Value& sealed,
+    const std::string& staged_name, const std::string& visible_name) {
+    usk::json::Value expected = sealed;
+    auto& root_name = expected.as_object().at("root").as_object().at("native_name");
+    if (root_name.as_string() != staged_name) {
+        throw std::runtime_error("recovery sealed root name is not under staging");
+    }
+    root_name = usk::json::Value(visible_name);
+    for (auto& entry : expected.as_object().at("descendants").as_array()) {
+        auto& native_name = entry.as_object().at("object").as_object().at("native_name");
+        const std::string original = native_name.as_string();
+        if (original.size() <= staged_name.size() ||
+            original.compare(0, staged_name.size(), staged_name) != 0 ||
+            original[staged_name.size()] != '\\') {
+            throw std::runtime_error("recovery sealed descendant name escaped staging");
+        }
+        native_name = usk::json::Value(
+            visible_name + original.substr(staged_name.size()));
+    }
+    return usk::json::canonical(expected);
+}
+
 std::string observe_prepared_recovery(HANDLE volume,
     const std::string& service_sid) {
     using namespace usk::platform::windows;
@@ -504,12 +578,9 @@ std::string observe_prepared_recovery(HANDLE volume,
     OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
     OwnedHandle state(open_exact_lab_child(publication.get(), L"state"));
     OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
-    if (!observe_publisher_directory_entries(destination.get()).empty() ||
-        !observe_publisher_directory_entries(state.get()).empty()) {
-        throw std::runtime_error("recovery destination or state is not empty");
+    if (!observe_publisher_directory_entries(state.get()).empty()) {
+        throw std::runtime_error("recovery state is not empty");
     }
-    require_only_child(staging.get(), L"candidate");
-    OwnedHandle candidate(open_exact_lab_child(staging.get(), L"candidate"));
     const std::string stored = read_prepared_record(journal.get());
     const auto prepared = usk::json::parse(stored);
     if (prepared.at("schema").as_string() !=
@@ -525,28 +596,58 @@ std::string observe_prepared_recovery(HANDLE volume,
             usk::json::canonical(usk::json::parse(json_anchor_set(anchors)))) {
         throw std::runtime_error("recovery prepared anchors differ from held observations");
     }
-    const auto sealed = observe_publisher_tree(candidate.get());
-    require_publisher_tree_security_shape(sealed, service_sid);
-    if (sealed.descendants.size() != 1 ||
-        sealed.descendants.front().relative_path != L"payload.bin" ||
-        prepared.at("source_file_id").as_string() != sealed.root.file_id ||
+    const auto staged_entries = observe_publisher_directory_entries(staging.get());
+    const auto destination_entries =
+        observe_publisher_directory_entries(destination.get());
+    const bool staged = staged_entries.size() == 1 &&
+        staged_entries.front().name == L"candidate" && destination_entries.empty();
+    const bool visible = staged_entries.empty() &&
+        destination_entries.size() == 1 &&
+        destination_entries.front().name == L"visible";
+    if (!staged && !visible) {
+        throw std::runtime_error("recovery namespace is neither prepared nor visible");
+    }
+    OwnedHandle root(open_exact_lab_child(
+        staged ? staging.get() : destination.get(),
+        staged ? L"candidate" : L"visible"));
+    const auto observed_tree = observe_publisher_tree(root.get());
+    require_publisher_tree_security_shape(observed_tree, service_sid);
+    const std::string staged_name =
+        ascii(anchors.staging.object.native_name) + "\\candidate";
+    const std::string visible_name =
+        ascii(anchors.destination_parent.object.native_name) + "\\visible";
+    const std::string expected_tree = staged ?
+        usk::json::canonical(prepared.at("sealed_tree")) :
+        prepared_tree_at_visible_name(
+            prepared.at("sealed_tree"), staged_name, visible_name);
+    if (observed_tree.descendants.size() != 1 ||
+        observed_tree.descendants.front().relative_path != L"payload.bin" ||
+        prepared.at("source_file_id").as_string() != observed_tree.root.file_id ||
         prepared.at("payload_sha256").as_string() !=
-            sealed.descendants.front().sha256 ||
-        usk::json::canonical(prepared.at("sealed_tree")) !=
-            usk::json::canonical(usk::json::parse(json_tree(sealed)))) {
-        throw std::runtime_error("recovery staged closure differs from prepared record");
+            observed_tree.descendants.front().sha256 ||
+        expected_tree !=
+            usk::json::canonical(usk::json::parse(json_tree(observed_tree)))) {
+        throw std::runtime_error("recovery closure differs from prepared record");
     }
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(anchors, second);
-    require_publisher_tree_phase_match(sealed,
-        observe_publisher_tree(candidate.get()));
+    require_publisher_tree_phase_match(observed_tree,
+        observe_publisher_tree(root.get()));
     if (read_prepared_record(journal.get()) != stored ||
-        !observe_publisher_directory_entries(destination.get()).empty() ||
         !observe_publisher_directory_entries(state.get()).empty()) {
-        throw std::runtime_error("recovery journal or empty roles changed during observation");
+        throw std::runtime_error("recovery journal or state changed during observation");
     }
-    require_only_child(staging.get(), L"candidate");
+    const auto staged_after = observe_publisher_directory_entries(staging.get());
+    const auto destination_after =
+        observe_publisher_directory_entries(destination.get());
+    if (staged ?
+            (staged_after.size() != 1 || staged_after.front().name != L"candidate" ||
+                !destination_after.empty()) :
+            (!staged_after.empty() || destination_after.size() != 1 ||
+                destination_after.front().name != L"visible")) {
+        throw std::runtime_error("recovery namespace changed during observation");
+    }
     if (observe_publisher_directory_entries(publication.get()).size() != 4) {
         throw std::runtime_error("recovery publication anchor set changed");
     }
@@ -555,10 +656,13 @@ std::string observe_prepared_recovery(HANDLE volume,
     return "{\"decision\":\"recovery_required\",\"prepared_sha256\":" +
         json_quote(digest.finish()) +
         ",\"prepared_bytes\":" + std::to_string(stored.size()) +
-        ",\"source_file_id\":" + json_quote(sealed.root.file_id) +
+        ",\"source_file_id\":" + json_quote(observed_tree.root.file_id) +
         ",\"payload_sha256\":" +
-        json_quote(sealed.descendants.front().sha256) +
-        ",\"destination_empty\":true,\"state_empty\":true}";
+        json_quote(observed_tree.descendants.front().sha256) +
+        ",\"observed_location\":" +
+        json_quote(staged ? "staging_prepared" : "visible_without_visible_record") +
+        ",\"destination_empty\":" + (staged ? "true" : "false") +
+        ",\"state_empty\":true}";
 }
 
 std::string diagnose_bound_rename_on_disposable_volume(
@@ -753,6 +857,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             diagnose_bound_rename_on_disposable_volume(
                 staging.get(), destination.get(), descriptor));
     }
+    if (postrename_gate) wait_for_postrename_gate();
     const auto visible = observe_visible_publisher_tree_against_seal(
         destination.get(), L"visible", sealed);
     require_publisher_tree_security_shape(visible, service_sid);
@@ -1060,11 +1165,18 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--recover-prepared" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
-    if (!hosted && !campaign_vm && !campaign_vm_recovery) return 2;
+    const bool campaign_vm_postrename = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        std::wstring(argv[5]) == L"--postrename-gate" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
+    if (!hosted && !campaign_vm && !campaign_vm_recovery &&
+        !campaign_vm_postrename) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
     prepublish_gate = argc == 6 || campaign_vm;
+    postrename_gate = campaign_vm_postrename;
     recover_prepared = campaign_vm_recovery;
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;

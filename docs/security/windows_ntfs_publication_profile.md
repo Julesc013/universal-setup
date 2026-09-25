@@ -277,6 +277,7 @@ This checks one persisted prepared state and one staged-content mismatch. It
 does not qualify complete replay, interrupted visible-phase recovery,
 power-loss durability, race exclusion, OD-001 resolution, or production
 publication.
+
 After adding a second journal and empty-role observation, exact publication
 anchor count, and a receipt-path restriction to the classifier, the restored
 VM passed a fresh positive run. The final lab service executable
@@ -284,3 +285,45 @@ SHA-256 is
 `e8eb2666bef29dc3b773a95acf2f02a5087c932ba55ad0df727746f767e5f01f`;
 the final external observation SHA-256 is
 `9e502f7778931c2b3cb5b5d91685c3306f5c21beb1fd251036061ccfc617842c`.
+
+A second new 1 GiB VHDX inside the same campaign VM exercised the gap after
+the native no-replace rename and before the visible-phase journal record. A
+separate postrename gate emitted a flushed marker only after the native call
+returned; an elevated backup-mode observer found the visible 25-byte payload,
+the prepared journal record, and no visible-phase record while the restricted
+service was still paused. The pre-power-off observation SHA-256 is
+`b894c787c4eba5ab45123a64a3b9153c16436b3772b6df548086ba4040383f8b`.
+The host forcibly powered off only the recorded campaign VM. After restart,
+Windows had detached the guest VHDX; the observer reattached the exact file
+and found the same non-system disk unique ID, NTFS volume GUID, prepared
+record SHA-256
+`41464b826d3a8c39d8f84ba429891ba0c04731b22e37b1d79bb124643baf34f7`,
+and visible payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The restricted service was stopped, with no release marker, visible journal
+record, or final publication receipt. The post-power-off observation SHA-256
+is `1a387130a6d384939d26d7ad668f65d0dac2680dd07a20e016efe990a3b4c9ca`.
+
+The read-only classifier now recognizes exactly this prepared-journal,
+visible-tree shape. It requires staging to be empty, the destination to
+contain only `visible`, and the observed visible tree to match every sealed
+field after rebasing native names from `staging/candidate` to
+`destination/visible`. It rechecks the journal, protected anchors, tree and
+namespace before reporting `recovery_required` with
+`visible_without_visible_record`; it does not write a visible record or
+resume publication. The VM classifier observation SHA-256 is
+`fba33c6103dd4d3df27a89228dc879fcb9adb19efa870e31f5f90c8c0a6beaca`.
+A checkpoint of that visible state allowed a backup-mode payload overwrite;
+the independent mutation receipt SHA-256 is
+`fee5977bfb361abcf5c06e9f275b8b8e5c9267e36bc3b28096963f9aeed2a790`.
+The same classifier binary refused the changed visible tree; refusal receipt
+SHA-256 is `2d0c6d6fcbf9eb26a2d5dabae676affd0b6a6e9f6f96b7c73fb0ba5b848b0461`.
+After exact VM snapshot restoration, a separate backup-mode read found the
+original visible payload digest again; restore receipt SHA-256 is
+`ddd11fa00dd3f3ec024ecdcd1f624c2f24aee888712196302640295f12f17c75`.
+The same binary also reclassified the first, still-staged prepared state,
+with regression receipt SHA-256
+`78f1bae1e98aa8fd3a80a52c56623ea92db6ae6f4690b58ee792d9e1245b43e0`.
+These are two forced VM power-off windows and bounded lab classifications,
+not physical host power-loss proof, complete replay, continuous hostile-race
+exclusion, OD-001 resolution, or production publication.
