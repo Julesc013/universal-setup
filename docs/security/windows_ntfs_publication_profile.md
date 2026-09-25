@@ -570,3 +570,70 @@ The successful state is preserved in campaign snapshot
 pre-test snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`. This confirms
 the rebuilt binary's one-file lab path only; it does not change the production
 and recovery limitations above.
+
+## Selected source recovery after VM power-off (2026-09-25)
+
+A subsequent VM-only candidate writes the inspected selected ZIP's complete
+SHA-256, held source-identity digest and entry-set digest into its protected
+`publish_prepared` record. Selected runs give their pause markers a unique
+receipt-derived name; an earlier probe was refused by a historical lab marker
+collision, whose receipt SHA-256 is
+`49729eadb2d0e2479044d09f7fefef3b801486143a5fac622a15a05008404ea0`.
+The collision changed no visible target and is not counted as a crash proof.
+
+Static service binary SHA-256
+`8453b627663258af3a46f8667d1e87af40b64072d3fb1c8c22f77eb26fed37c8`
+was exercised in the same owned Windows VM on two further newly created 1 GiB
+NTFS VHDXs. At the prepared-before-rename gate, independent backup-mode reads
+matched prepared record SHA-256
+`da1106a31715123ae252173acec11a445cd0c017777af1bb1bc64b5b1bb01765`
+and the 491,525-byte selected payload SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`.
+The host Hyper-V Worker event log records that this exact VM was turned off
+(event 18502, record 13404 at 13:09:02 UTC) and started again (event 18500,
+record 13409 at 13:09:08 UTC). Those original host records were read back
+retrospectively in receipt SHA-256
+`5ae51c086785aac986a17c418a376e205408f056bb0b66d36d8e979e9974e6dd`;
+they are not a contemporaneous command transcript. After this observed
+turn-off and guest restart, the newly created VHD had detached
+and the newly registered service had not persisted. The test reattached only
+the recorded VHD, checked its disk unique ID and volume GUID, recreated the
+same restricted service name/SID, and reapplied its device ACL. Fresh reads
+matched the prepared record and staged payload. Recovery returned
+`visible_bound_forward`; a repeat returned `already_visible_bound`. The
+pre-crash, post-crash, recovery and repeat observation SHA-256 values are
+`124bec8c93feae0c0582d91382b04dfee937d4cec1ad0ffe87a882c0200fba41`,
+`0ad6eef542161aa363ee646f3a4009d1e7689b84f18aa7e169de9f248c7d8ffc`,
+`e9ece812d1e2babf73c71289ecb898b8222018506c8086622df5979a3af9c7bb`
+and `b4496af65a62e61d648f392fb0f7406489126fddace478acd2836574cb95ad85`.
+The recovered state is retained in snapshot
+`8cb5c857-1cd3-4aad-9586-7e21717787e9`.
+
+At the post-rename-before-visible-record gate, the same binary published the
+selected bytes and paused. The host forced the owned VM to `Off` using
+`Stop-VM -TurnOff -Force` (host receipt SHA-256
+`20575eaf3641adf8543a3536f02d824e7f7c705b6d5c574be8355c85c96eb71e`).
+After restart and exact VHD reattachment, a fresh backup-mode read matched
+prepared SHA-256
+`7c67a9038bbdff34806a0a0049813e8ec9a32bc85a11ac24434f77d6d49a4625`
+and the visible payload; no visible journal record existed. Recreating the
+same restricted service identity and running recovery returned
+`visible_bound_forward` without another rename, then independent readback
+matched the payload and visible-record SHA-256
+`7152408629ec1c0cba093ecc5a42ac3edc894b9f74aa14852d0d279901fb5c88`.
+The post-crash and recovery observation SHA-256 values are respectively
+`b1a0c33299d6ceca9b352266c72b702548d90524ce6ee7911e629fbe32b6590d`
+and `94f53417dab206d258da37b697331f06ae7b362081b89b88026d9170651d9384`.
+The recovered state is retained in snapshot
+`f230c4ec-c144-467b-805e-53a05d3ae48f`; the working VM was restored to
+pre-test snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`.
+
+These are VM turn-off and restart observations, not physical-host power-loss
+proof. The second window also has a contemporaneous forced turn-off receipt.
+The protected prepared record now retains selected archive identity, but that
+identity originates from the lab invocation and is not authenticated against
+a reviewed public plan or selection manifest. Recovery validates the stored
+binding's shape and the sealed protected payload/tree; it does not reacquire
+or revalidate the original ZIP after restart. General selected closure,
+installed-state completion, lease fencing, hostile-rights qualification,
+production enablement and OD-001 remain open.
