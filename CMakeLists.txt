@@ -575,6 +575,17 @@ if(USK_BUILD_TESTS)
       COMMAND usk_publisher_volume_operation_guard_smoke)
     set_tests_properties(usk_publisher_volume_operation_guard_smoke PROPERTIES TIMEOUT 30)
 
+    add_executable(usk_publisher_volume_bound_setup_smoke
+      tests/native/usk_publisher_volume_bound_setup_smoke.cpp)
+    target_compile_features(usk_publisher_volume_bound_setup_smoke PRIVATE cxx_std_17)
+    target_include_directories(usk_publisher_volume_bound_setup_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
+    target_link_libraries(usk_publisher_volume_bound_setup_smoke PRIVATE
+      usk_static usk_base_static)
+    usk_enable_strict_warnings(usk_publisher_volume_bound_setup_smoke)
+    add_test(NAME usk_publisher_volume_bound_setup_smoke
+      COMMAND usk_publisher_volume_bound_setup_smoke)
+    set_tests_properties(usk_publisher_volume_bound_setup_smoke PROPERTIES TIMEOUT 30)
+
     add_executable(usk_publisher_token_observation_smoke
       tests/native/usk_publisher_token_observation_smoke.cpp)
     target_compile_features(usk_publisher_token_observation_smoke PRIVATE cxx_std_17)

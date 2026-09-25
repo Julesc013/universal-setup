@@ -2115,7 +2115,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             reviewed_plan->install_plan.target_root.u8string());
         usk::lifecycle::initialize_setup_root_for_publisher(
             reviewed_plan->setup_root, reviewed_plan->acceptance_root,
-            "operator_acceptance_candidate");
+            "operator_acceptance_candidate", volume, volume_root);
         write_journal_phase(journal.get(), L"lab-reviewed-plan.json",
             descriptor, reviewed_plan->durable_snapshot);
     }
