@@ -442,6 +442,10 @@ if(USK_BUILD_TESTS)
       COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_machine_process_probe.py"
         "$<TARGET_FILE:usk_machine>")
+    add_test(NAME usk_bundle_plan_process_smoke
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_bundle_plan_process_probe.py"
+        "$<TARGET_FILE:usk_machine>")
   endif()
 
   add_executable(usk_abi_layout_smoke tests/native/usk_abi_layout_smoke.c)
