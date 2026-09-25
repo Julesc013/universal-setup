@@ -730,7 +730,7 @@
         },
         {
           "path": "tests/prefab_external_probe.py",
-          "sha256": "c54259438037aa133493c6c25cd64981e696da92f31e179512877cec8ab0209a"
+          "sha256": "a4b5329d52891b26fcfeeca38807172215e7b8bc1076a4785a855118dd54ca0b"
         },
         {
           "path": "tests/test_bundle_author.py",
@@ -818,7 +818,7 @@
         },
         {
           "path": "tests/prefab_external_probe.py",
-          "sha256": "c54259438037aa133493c6c25cd64981e696da92f31e179512877cec8ab0209a"
+          "sha256": "a4b5329d52891b26fcfeeca38807172215e7b8bc1076a4785a855118dd54ca0b"
         },
         {
           "path": "tests/test_bundle_selection.py",
@@ -914,7 +914,7 @@
         },
         {
           "path": "tests/prefab_external_probe.py",
-          "sha256": "c54259438037aa133493c6c25cd64981e696da92f31e179512877cec8ab0209a"
+          "sha256": "a4b5329d52891b26fcfeeca38807172215e7b8bc1076a4785a855118dd54ca0b"
         },
         {
           "path": "tests/test_bundle_author.py",
@@ -3536,7 +3536,7 @@
         },
         {
           "path": "tests/prefab_external_probe.py",
-          "sha256": "c54259438037aa133493c6c25cd64981e696da92f31e179512877cec8ab0209a"
+          "sha256": "a4b5329d52891b26fcfeeca38807172215e7b8bc1076a4785a855118dd54ca0b"
         },
         {
           "path": "tests/test_prefab_envelope.py",

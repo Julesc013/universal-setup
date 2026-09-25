@@ -104,7 +104,8 @@ def run(runtime: Path, runtime_source_commit: str, runtime_cmake_cache: Path) ->
         selected_bundle = inspect_bundle(selected_root / "product.bundle.json")
         if ([entry["id"] for entry in selected_bundle["components"]] !=
                 ["addon", "core", "library"] or
-                selection_receipt["selected_components"] != ["core", "library", "addon"]):
+                selection_receipt["selected_components"] !=
+                list(resolve_component_ids(bundle["components"], ["addon"]))):
             raise RuntimeError("external selected component closure changed")
         with zipfile.ZipFile(selected_root / "payload.zip") as selected_archive:
             if selected_archive.namelist() != [
