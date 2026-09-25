@@ -114,6 +114,7 @@ try {
     $volumeAcl.AddAccessRule($volumeRule)
     Assert-OwnedVolume
     Set-Acl -LiteralPath $VolumeRoot -AclObject $volumeAcl
+    $receipt['bootstrap_root_sddl'] = (Get-Acl -LiteralPath $VolumeRoot).Sddl
 
     Assert-OwnedVolume
     Start-Service -Name $serviceName -ErrorAction Stop

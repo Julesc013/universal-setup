@@ -64,7 +64,6 @@ jobs:
       - run: python tools/adversarial_coverage_check.py
       - run: cmake -S . -B build/smoke -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - run: cmake --build build/smoke --config Release --parallel
-      - run: ctest --test-dir build/smoke -C Release --output-on-failure --parallel 4
       - name: Observe disposable Windows NTFS volume and restricted service
         if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
         shell: pwsh
@@ -76,6 +75,7 @@ jobs:
           name: usk-wu006-disposable-volume-probe
           path: ${{ runner.temp }}\usk-wu006-lab-probe.json
           if-no-files-found: warn
+      - run: ctest --test-dir build/smoke -C Release --output-on-failure --parallel 4
       - run: python tools/strict_check.py
       - name: Static analysis
         if: runner.os == 'Linux'

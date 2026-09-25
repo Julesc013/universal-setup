@@ -3332,7 +3332,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a21404820779bacaa03fa671c77508b477f7885913dcab99edeaff4556ac3b81"
+          "sha256": "89dee65fb0187aee2c62349d9950b206abd77da1d97447e87e7aae5d10d0f262"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3368,7 +3368,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a21404820779bacaa03fa671c77508b477f7885913dcab99edeaff4556ac3b81"
+          "sha256": "89dee65fb0187aee2c62349d9950b206abd77da1d97447e87e7aae5d10d0f262"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3404,7 +3404,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a21404820779bacaa03fa671c77508b477f7885913dcab99edeaff4556ac3b81"
+          "sha256": "89dee65fb0187aee2c62349d9950b206abd77da1d97447e87e7aae5d10d0f262"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3751,11 +3751,11 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "7880cec49910e74edc377bed8d300cbb4a589cb4d6ab359a4841f9e17527ff1f"
+          "sha256": "eb81d17c598681774f95da66140854aec9aec88b242c635d4e71a945d42e5036"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "f1cab4bbd6c020504bc2ea2f5655730ef7ebca5033da4d4991d83c8b1a47c307"
+          "sha256": "899f037e65c67d92ff4300657873697fe3b8be829bba6d311658cdb19a7c7293"
         }
       ],
       "acceptance_ids": [
@@ -3899,11 +3899,11 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "7880cec49910e74edc377bed8d300cbb4a589cb4d6ab359a4841f9e17527ff1f"
+          "sha256": "eb81d17c598681774f95da66140854aec9aec88b242c635d4e71a945d42e5036"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "f1cab4bbd6c020504bc2ea2f5655730ef7ebca5033da4d4991d83c8b1a47c307"
+          "sha256": "899f037e65c67d92ff4300657873697fe3b8be829bba6d311658cdb19a7c7293"
         }
       ],
       "acceptance_ids": [

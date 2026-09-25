@@ -205,7 +205,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (volume == INVALID_HANDLE_VALUE) {
-            throw std::runtime_error("restricted service cannot open disposable volume root");
+            const DWORD error = GetLastError();
+            throw std::runtime_error("restricted service cannot open disposable volume root; Win32 " +
+                std::to_string(error));
         }
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
