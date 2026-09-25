@@ -4,6 +4,8 @@
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
+#include "usk_json.h"
+#include "usk_sha256.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -37,6 +39,7 @@ std::wstring volume_root;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
+constexpr std::size_t lab_record_limit = 4u * 1024u * 1024u;
 
 void report_status(DWORD state, DWORD accepted = 0, DWORD error = ERROR_SUCCESS) {
     SERVICE_STATUS status{};
@@ -197,16 +200,119 @@ std::string json_protected_object(
         ",\"dacl_aces\":" + aces + "]}";
 }
 
+std::string json_volume(
+    const usk::platform::windows::PublisherVolumeObservation& volume) {
+    return "{\"volume_label\":" + json_quote(ascii(volume.volume_label)) +
+        ",\"volume_information_serial\":" +
+            std::to_string(volume.volume_information_serial) +
+        ",\"file_id_volume_serial\":" +
+            std::to_string(volume.file_id_volume_serial) +
+        ",\"filesystem_name\":" + json_quote(ascii(volume.filesystem_name)) +
+        ",\"maximum_component_length\":" +
+            std::to_string(volume.maximum_component_length) +
+        ",\"filesystem_flags\":" + std::to_string(volume.filesystem_flags) +
+        ",\"remote_protocol_error\":" +
+            std::to_string(volume.remote_protocol_error) + "}";
+}
+
+std::string json_tree(
+    const usk::platform::windows::PublisherTreeObservation& tree) {
+    std::string entries = "[";
+    for (std::size_t index = 0; index < tree.descendants.size(); ++index) {
+        const auto& entry = tree.descendants[index];
+        if (index) entries.push_back(',');
+        entries += "{\"relative_path\":" +
+            json_quote(ascii(entry.relative_path)) +
+            ",\"object\":" + json_protected_object(entry.object) +
+            ",\"size\":" + std::to_string(entry.size) +
+            ",\"sha256\":" + json_quote(entry.sha256) + "}";
+        if (entries.size() > lab_record_limit) {
+            throw std::runtime_error("publisher lab tree evidence exceeds byte budget");
+        }
+    }
+    return "{\"volume\":" + json_volume(tree.volume) +
+        ",\"root\":" + json_protected_object(tree.root) +
+        ",\"descendants\":" + entries + "]}";
+}
+
+std::string json_anchor_set(
+    const usk::platform::windows::PublisherAnchorSetObservation& set) {
+    std::string chain = "[";
+    for (std::size_t index = 0; index < set.chain.children.size(); ++index) {
+        const auto& link = set.chain.children[index];
+        if (index) chain.push_back(',');
+        chain += "{\"component\":" + json_quote(ascii(link.component)) +
+            ",\"object\":" + json_protected_object(link.object) + "}";
+        if (chain.size() > lab_record_limit) {
+            throw std::runtime_error("publisher lab anchor evidence exceeds byte budget");
+        }
+    }
+    return "{\"volume\":" + json_volume(set.chain.volume) +
+        ",\"boundary\":" + json_protected_object(set.chain.boundary) +
+        ",\"chain\":" + chain + "]" +
+        ",\"staging\":" + json_protected_object(set.staging.object) +
+        ",\"destination_parent\":" +
+            json_protected_object(set.destination_parent.object) +
+        ",\"state\":" + json_protected_object(set.state.object) +
+        ",\"journal\":" + json_protected_object(set.journal.object) + "}";
+}
+
+std::string canonical_record(const std::string& record) {
+    if (record.size() > lab_record_limit) {
+        throw std::runtime_error("publisher lab phase evidence exceeds byte budget");
+    }
+    const std::string canonical =
+        usk::json::canonical(usk::json::parse(record)) + "\n";
+    if (canonical.size() > lab_record_limit) {
+        throw std::runtime_error("canonical publisher lab phase exceeds byte budget");
+    }
+    return canonical;
+}
+
 void write_journal_phase(HANDLE journal, const std::wstring& name,
     const std::vector<unsigned char>& descriptor, const std::string& record) {
-    OwnedHandle file(usk::platform::windows::create_file_relative_with_descriptor(
-        journal, name, descriptor));
-    DWORD written = 0;
-    if (record.size() > MAXDWORD ||
-        !WriteFile(file.get(), record.data(), static_cast<DWORD>(record.size()),
-            &written, nullptr) || written != record.size() ||
-        !FlushFileBuffers(file.get())) {
-        throw std::runtime_error("publisher lab journal phase write or flush failed");
+    if (record != canonical_record(record)) {
+        throw std::runtime_error("publisher lab phase record is not canonical");
+    }
+    {
+        OwnedHandle file(usk::platform::windows::create_file_relative_with_descriptor(
+            journal, name, descriptor));
+        DWORD written = 0;
+        if (record.size() > MAXDWORD ||
+            !WriteFile(file.get(), record.data(), static_cast<DWORD>(record.size()),
+                &written, nullptr) || written != record.size() ||
+            !FlushFileBuffers(file.get())) {
+            throw std::runtime_error("publisher lab journal phase write or flush failed");
+        }
+    }
+    HANDLE reopened = INVALID_HANDLE_VALUE;
+    for (const auto& listed :
+            usk::platform::windows::observe_publisher_directory_entries(journal)) {
+        if (listed.name == name) {
+            if (reopened != INVALID_HANDLE_VALUE) {
+                CloseHandle(reopened);
+                throw std::runtime_error("duplicate publisher lab phase record");
+            }
+            reopened = usk::platform::windows::open_publisher_listed_child(
+                journal, listed);
+        }
+    }
+    if (reopened == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("publisher lab phase record not listed after flush");
+    }
+    OwnedHandle readback(reopened);
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(readback.get(), &size) || size.QuadPart < 0 ||
+        static_cast<unsigned long long>(size.QuadPart) != record.size()) {
+        throw std::runtime_error("publisher lab phase record size changed");
+    }
+    std::string stored(record.size(), '\0');
+    DWORD read = 0;
+    if (!ReadFile(readback.get(), stored.data(),
+            static_cast<DWORD>(stored.size()), &read, nullptr) ||
+        read != stored.size() || stored != record ||
+        stored != canonical_record(stored)) {
+        throw std::runtime_error("publisher lab phase record readback differs");
     }
 }
 
@@ -367,8 +473,9 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto third = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, third);
-    const std::string prepared =
-        "{\"phase\":\"lab_prepared_summary\",\"service_sid\":" +
+    const std::string prepared = canonical_record(
+        "{\"schema\":\"usk.publisher.lab_phase_evidence.v1\","
+        "\"phase\":\"lab_prepared_evidence\",\"service_sid\":" +
         json_quote(service_sid) +
         ",\"volume_serial\":" +
         std::to_string(sealed.volume.file_id_volume_serial) +
@@ -376,9 +483,15 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         ",\"destination_parent_file_id\":" +
         json_quote(first.destination_parent.object.file_id) +
         ",\"destination_name\":\"visible\",\"payload_sha256\":" +
-        json_quote(sealed.descendants.front().sha256) + "}\n";
-    write_journal_phase(journal.get(), L"lab-prepared-summary.json",
+        json_quote(sealed.descendants.front().sha256) +
+        ",\"protected_anchors\":" + json_anchor_set(third) +
+        ",\"sealed_tree\":" + json_tree(sealed) + "}");
+    write_journal_phase(journal.get(), L"lab-prepared-evidence.json",
         descriptor, prepared);
+    usk::base::Sha256 prepared_hasher;
+    prepared_hasher.update(
+        reinterpret_cast<const unsigned char*>(prepared.data()), prepared.size());
+    const std::string prepared_digest = prepared_hasher.finish();
     require_publisher_tree_phase_match(sealed, observe_publisher_tree(candidate.get()));
     require_publisher_anchor_set_phase_match(first,
         observe_publisher_anchor_set(volume, {L"publication"}, names));
@@ -397,23 +510,28 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto visible = observe_visible_publisher_tree_against_seal(
         destination.get(), L"visible", sealed);
     require_publisher_tree_security_shape(visible, service_sid);
-    require_publisher_anchor_set_phase_match(first,
-        observe_publisher_anchor_set(volume, {L"publication"}, names));
-    const std::string bound =
-        "{\"phase\":\"lab_visible_summary\",\"source_file_id\":" +
+    const auto after = observe_publisher_anchor_set(
+        volume, {L"publication"}, names);
+    require_publisher_anchor_set_phase_match(first, after);
+    const std::string bound = canonical_record(
+        "{\"schema\":\"usk.publisher.lab_phase_evidence.v1\","
+        "\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
         json_quote(renamed.root_file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(first.destination_parent.object.file_id) +
         ",\"destination_name\":\"visible\",\"payload_sha256\":" +
-        json_quote(visible.descendants.front().sha256) + "}\n";
-    write_journal_phase(journal.get(), L"lab-visible-summary.json", descriptor, bound);
+        json_quote(visible.descendants.front().sha256) +
+        ",\"prepared_record_sha256\":" + json_quote(prepared_digest) +
+        ",\"protected_anchors\":" + json_anchor_set(after) +
+        ",\"visible_tree\":" + json_tree(visible) + "}");
+    write_journal_phase(journal.get(), L"lab-visible-evidence.json", descriptor, bound);
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
     if (journal_tree.root.file_id != first.journal.object.file_id ||
         journal_tree.descendants.size() != 2 ||
-        journal_tree.descendants[0].relative_path != L"lab-prepared-summary.json" ||
+        journal_tree.descendants[0].relative_path != L"lab-prepared-evidence.json" ||
         journal_tree.descendants[0].size != prepared.size() ||
-        journal_tree.descendants[1].relative_path != L"lab-visible-summary.json" ||
+        journal_tree.descendants[1].relative_path != L"lab-visible-evidence.json" ||
         journal_tree.descendants[1].size != bound.size()) {
         throw std::runtime_error("publisher lab journal phase closure is not exact");
     }

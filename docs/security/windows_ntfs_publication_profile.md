@@ -133,3 +133,19 @@ These markers are not full `publish_prepared` and `visible_bound` records;
 they omit complete durable closure evidence and replay. The run does not
 qualify hostile-rights resistance, crash recovery, production enablement or
 OD-001.
+
+The dependent PR #103 source head 7540aef110078fcfc89adb38dc31c11da31961c2
+passed its disposable restricted-service probe in hosted run 36090975621 on
+Windows build 10.0.20348.0. On a fresh NTFS VHD, the service wrote and
+file-flushed schema-tagged prepared and visible lab records, closed each file,
+reopened it relative to the held journal, and compared the exact stored bytes.
+The records were 4,491 and 4,471 bytes; the visible record contains the
+prepared record's SHA-256. The independent runner checked the recorded anchor
+roles, volume, root and descendant identities, path, size, payload digest and
+linkage. The receipt reports that the service was stopped with deletion
+requested, the VHD was dismounted, and its backing file was removed. Retained
+JSON receipt SHA-256:
+4a0caac176a15b28723ea17048dedb2f4196523ad6b64b8c4db31eb8103b9782.
+These are still lab phase records. They omit effective-rights and exact-stream
+evidence and have no crash replay. OD-001 and production publication remain
+unqualified.

@@ -237,7 +237,36 @@ try {
                 [Text.Encoding]::UTF8.GetBytes($publication.bound_record))).
                 Replace('-', '').ToLowerInvariant()
         } finally { $sha.Dispose() }
+        $phaseEvidenceValid =
+            $prepared.protected_anchors.boundary.file_id -eq $anchors.boundary_file_id -and
+            @($prepared.protected_anchors.chain).Count -eq 1 -and
+            $prepared.protected_anchors.chain[0].component -eq 'publication' -and
+            $prepared.protected_anchors.chain[0].object.file_id -eq
+                $anchors.publication_file_id -and
+            $prepared.protected_anchors.staging.file_id -eq $anchors.staging_file_id -and
+            $prepared.protected_anchors.destination_parent.file_id -eq
+                $anchors.destination_file_id -and
+            $prepared.protected_anchors.state.file_id -eq $anchors.state_file_id -and
+            $prepared.protected_anchors.journal.file_id -eq $anchors.journal_file_id -and
+            $prepared.protected_anchors.volume.file_id_volume_serial -eq
+                $native.volume_file_id_serial -and
+            $prepared.sealed_tree.root.file_id -eq $staged.root.file_id -and
+            @($prepared.sealed_tree.descendants).Count -eq 1 -and
+            $prepared.sealed_tree.descendants[0].relative_path -eq 'payload.bin' -and
+            $prepared.sealed_tree.descendants[0].object.file_id -eq
+                $staged.file.file_id -and
+            $prepared.sealed_tree.descendants[0].size -eq 25 -and
+            $prepared.sealed_tree.descendants[0].sha256 -eq $staged.sha256 -and
+            $bound.visible_tree.root.file_id -eq $publication.visible_root.file_id -and
+            @($bound.visible_tree.descendants).Count -eq 1 -and
+            $bound.visible_tree.descendants[0].relative_path -eq 'payload.bin' -and
+            $bound.visible_tree.descendants[0].object.file_id -eq
+                $publication.visible_file.file_id -and
+            $bound.visible_tree.descendants[0].sha256 -eq $staged.sha256 -and
+            ($prepared.protected_anchors | ConvertTo-Json -Depth 20 -Compress) -eq
+                ($bound.protected_anchors | ConvertTo-Json -Depth 20 -Compress)
         $publicationFactsValid =
+            $phaseEvidenceValid -and
             $publication.source_file_id -eq $staged.root.file_id -and
             $publication.former_name -eq $staged.root.native_name -and
             $publication.visible_name -eq
@@ -248,27 +277,30 @@ try {
             $publication.visible_file.native_name -eq
                 ($publication.visible_name + '\payload.bin') -and
             $publication.visible_payload_sha256 -eq $staged.sha256 -and
-            $prepared.phase -eq 'lab_prepared_summary' -and
+            $prepared.schema -eq 'usk.publisher.lab_phase_evidence.v1' -and
+            $prepared.phase -eq 'lab_prepared_evidence' -and
             $prepared.service_sid -eq $sid -and
             $prepared.source_file_id -eq $staged.root.file_id -and
             $prepared.volume_serial -eq $native.volume_file_id_serial -and
             $prepared.destination_parent_file_id -eq $anchors.destination_file_id -and
             $prepared.destination_name -eq 'visible' -and
             $prepared.payload_sha256 -eq $staged.sha256 -and
-            $bound.phase -eq 'lab_visible_summary' -and
+            $bound.schema -eq 'usk.publisher.lab_phase_evidence.v1' -and
+            $bound.phase -eq 'lab_visible_evidence' -and
             $bound.source_file_id -eq $staged.root.file_id -and
             $bound.destination_parent_file_id -eq $anchors.destination_file_id -and
             $bound.destination_name -eq 'visible' -and
             $bound.payload_sha256 -eq $staged.sha256 -and
+            $bound.prepared_record_sha256 -eq $preparedHash -and
             $publication.prepared_sha256 -eq $preparedHash -and
             $publication.bound_sha256 -eq $boundHash -and
             $publication.journal_root.file_id -eq $anchors.journal_file_id -and
             $publication.journal_root.native_name -eq
                 $anchors.objects.journal.native_name -and
             $publication.prepared_file.native_name -eq
-                ($publication.journal_root.native_name + '\lab-prepared-summary.json') -and
+                ($publication.journal_root.native_name + '\lab-prepared-evidence.json') -and
             $publication.bound_file.native_name -eq
-                ($publication.journal_root.native_name + '\lab-visible-summary.json') -and
+                ($publication.journal_root.native_name + '\lab-visible-evidence.json') -and
             @($anchorIds + @($staged.root.file_id, $staged.file.file_id,
                 $publication.prepared_file.file_id, $publication.bound_file.file_id) |
                 Sort-Object -Unique).Count -eq 10
