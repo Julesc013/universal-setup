@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_one_shot.h"
+#include "usk_product_info.h"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -15,10 +17,21 @@
 
 int main(int argc, char** argv)
 {
+    if (argc == 3 && std::string(argv[1]) == "--product-info" && argv[2][0] != '\0') {
+        try {
+            std::cout << usk::command::inspect_product_info(
+                std::filesystem::path(argv[2])) << '\n';
+            return 0;
+        } catch (const std::exception&) {
+            std::cerr << "usk_machine: product bundle inspection refused\n";
+            return 2;
+        }
+    }
     if ((argc != 2 && argc != 4) ||
         (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed") ||
         (argc == 4 && (std::string(argv[2]) != "--request-file" || argv[3][0] == '\0'))) {
-        std::cerr << "usage: usk_machine --machine|--framed [--request-file path]\n";
+        std::cerr << "usage: usk_machine --machine|--framed [--request-file path]"
+            " | --product-info product.bundle.json\n";
         return 2;
     }
     const bool framed = std::string(argv[1]) == "--framed";

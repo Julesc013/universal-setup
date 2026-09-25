@@ -1,0 +1,18 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
+#ifndef USK_PRODUCT_INFO_H
+#define USK_PRODUCT_INFO_H
+
+#include <filesystem>
+#include <string>
+
+namespace usk::command {
+
+// Reopen the compiled sidecar and stream its complete stored ZIP payload.
+// This is read-only product inspection, not plan or install authority.
+std::string inspect_product_info(const std::filesystem::path& bundle_path);
+
+} // namespace usk::command
+
+#endif

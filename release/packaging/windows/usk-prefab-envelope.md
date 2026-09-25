@@ -8,12 +8,19 @@ exact `payload.zip`, and a supplied `usk_machine.exe` into either:
 - `one_file_carrier`: one deterministic `setup.carrier.zip`; no direct
   entrypoint, extraction required before using its contents.
 
-The current machine host accepts a bounded read-only command subset. It does
-not load this product bundle or perform setup. Neither envelope is a qualified
-installer, and the one-file carrier is not an executable. The manifest records
+The machine host accepts a bounded read-only command subset. Its
+`--product-info <path>/product.bundle.json` mode now opens an adjacent compiled
+bundle and prefab manifest, checks the three packaged member sizes and hashes,
+streams the stored ZIP payload through the native archive inspector, and
+compares every file's size and SHA-256 against the authoring inventory. These
+unsigned hashes establish package byte consistency, not publisher authenticity.
+It reports product identity, component IDs and byte totals. It does not resolve
+a requested component selection, plan, or perform setup. Neither envelope is a
+qualified installer, and the one-file carrier is not an executable. The manifest records
 `installation_mode=inspect_only` and an unqualified runtime dependency closure.
 The builder does no signing, native integration, launch, or user-state change.
-The source probe launches the packaged host for its read-only inspect command.
+The source probe launches the packaged host for its read-only command and
+product-byte inspection, and checks refusal after a payload-byte mutation.
 
 ## External product walkthrough
 
@@ -32,10 +39,13 @@ into a separately created empty output directory:
 ```text
 python tools/usk_prefab_envelope.py build --bundle <bundle-output>/product.bundle.json --runtime <build>/usk_machine.exe --profile sidecar --output-dir <empty-envelope-output>
 python tools/usk_prefab_envelope.py inspect --path <envelope-output>
+<empty-envelope-output>/usk_machine.exe --product-info <empty-envelope-output>/product.bundle.json
 ```
 
-For the carrier profile, use `--profile one_file_carrier` and inspect
-`<envelope-output>/setup.carrier.zip`. The builder validates the compiled
+For the carrier profile, use `--profile one_file_carrier`, inspect
+`<envelope-output>/setup.carrier.zip`, extract it to a new directory, and run
+the extracted `usk_machine.exe --product-info <extracted>/product.bundle.json`.
+The builder validates the compiled
 bundle before and after composition, streams the supplied runtime and payload
 without changing their bytes, and reopens the emitted closure. The reopened
 manifest must match the manifest derived from the reviewed inputs, so a valid
