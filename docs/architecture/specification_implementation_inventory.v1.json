@@ -3755,7 +3755,7 @@
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "8a74cc6602fbe60c7fa44e00e2ed3f61059ccdfb5eee008e50e784d19e86a735"
+          "sha256": "abd00c0ba65140f50d52e42e29048095421acae806aa1532a010aafe58dd804d"
         },
         {
           "path": "tests/native/usk_publisher_lab_device_acl.cpp",
@@ -3927,7 +3927,7 @@
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "8a74cc6602fbe60c7fa44e00e2ed3f61059ccdfb5eee008e50e784d19e86a735"
+          "sha256": "abd00c0ba65140f50d52e42e29048095421acae806aa1532a010aafe58dd804d"
         },
         {
           "path": "tests/native/usk_publisher_lab_device_acl.cpp",

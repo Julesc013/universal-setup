@@ -70,6 +70,7 @@ $receipt = [ordered]@{
     volume_root = $VolumeRoot
     volume_disk_number = $disk[0].Number
     service_process_id = $null
+    prepublish_prepared_readback = $null
     prepublish_attack = $null
     native_observation = $null
     unprivileged_attack = $null
@@ -182,6 +183,49 @@ try {
         $scmReady.ProcessId -le 0) {
         throw 'restricted service is not running at the prepared phase'
     }
+    # Read the protected journal from a separate elevated process while the
+    # service is paused. Backup mode reads the existing file without changing
+    # its DACL or granting the unprivileged attacker access to the volume.
+    $preparedSource = Join-Path "$($partitions[0].DriveLetter):\" `
+        'publication\journal'
+    $readbackDir = Join-Path $labRoot 'prepared-readback'
+    New-Item -ItemType Directory -Path $readbackDir -ErrorAction Stop | Out-Null
+    $readbackName = 'lab-prepared-evidence.json'
+    $readbackPath = Join-Path $readbackDir $readbackName
+    $backupOutput = & robocopy.exe $preparedSource $readbackDir $readbackName `
+        /B /R:0 /W:0 /COPY:DAT /DCOPY:DA /NP /NFL /NDL /NJH /NJS 2>&1
+    $backupExit = $LASTEXITCODE
+    if ($backupExit -ge 8 -or
+        -not (Test-Path -LiteralPath $readbackPath -PathType Leaf)) {
+        throw ('independent prepared-record backup read failed: exit=' +
+            $backupExit + '; output=' + ($backupOutput -join '; '))
+    }
+    $readbackBytes = [IO.File]::ReadAllBytes($readbackPath)
+    $readbackText = [Text.UTF8Encoding]::new($false, $true).
+        GetString($readbackBytes)
+    $readbackRecord = $readbackText | ConvertFrom-Json
+    $readbackHash = (Get-FileHash -LiteralPath $readbackPath -Algorithm SHA256).
+        Hash.ToLowerInvariant()
+    if ($readbackRecord.schema -ne 'usk.publisher.lab_phase_evidence.v1' -or
+        $readbackRecord.phase -ne 'lab_prepared_evidence' -or
+        $readbackRecord.service_sid -ne $sid -or
+        $readbackRecord.destination_name -ne 'visible' -or
+        -not $readbackRecord.source_file_id -or
+        -not $readbackRecord.destination_parent_file_id) {
+        throw 'independent prepared-record readback has invalid binding facts'
+    }
+    $receipt.prepublish_prepared_readback = [ordered]@{
+        method = 'separate_process_backup_mode_copy'
+        observed_while_service_paused = $true
+        service_process_id = $scmReady.ProcessId
+        source_volume_unique_id = $VolumeRoot
+        sha256 = $readbackHash
+        byte_count = $readbackBytes.Length
+        phase = $readbackRecord.phase
+        source_file_id = $readbackRecord.source_file_id
+        destination_parent_file_id = $readbackRecord.destination_parent_file_id
+    }
+    Assert-OwnedVolume
     $preAttackOutput = Join-Path $labRoot 'unprivileged-prepublish.json'
     & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') `
         -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid `
@@ -353,6 +397,13 @@ try {
             $bound.payload_sha256 -eq $staged.sha256 -and
             $bound.prepared_record_sha256 -eq $preparedHash -and
             $publication.prepared_sha256 -eq $preparedHash -and
+            $receipt.prepublish_prepared_readback.sha256 -eq $preparedHash -and
+            $receipt.prepublish_prepared_readback.byte_count -eq
+                [Text.Encoding]::UTF8.GetByteCount($publication.prepared_record) -and
+            $receipt.prepublish_prepared_readback.source_file_id -eq
+                $staged.root.file_id -and
+            $receipt.prepublish_prepared_readback.destination_parent_file_id -eq
+                $anchors.destination_file_id -and
             $publication.bound_sha256 -eq $boundHash -and
             $publication.journal_root.file_id -eq $anchors.journal_file_id -and
             $publication.journal_root.native_name -eq
