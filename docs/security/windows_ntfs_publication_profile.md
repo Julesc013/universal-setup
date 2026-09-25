@@ -428,3 +428,14 @@ The external owned-resource manifest SHA-256 is
 `3ce3ee46ad1d473d399e0b42d6cb95e0e716d2e601dbe0235d9aaa518ecf1b1a`.
 This is one forced VM poweroff window, not physical host power-loss proof or
 journal replay. It does not resolve OD-001 or qualify production publication.
+
+A separate source-level candidate now streams a dedicated regular-file source
+through a fixed 64 KiB buffer into a create-only child under a held parent,
+using the supplied creation-time descriptor. It requires a declared source size
+and SHA-256, checks source identity and metadata before and after streaming,
+flushes the child, and retains the created file on post-creation refusal.
+The ordinary-user Windows smoke covers a multi-buffer source, exact bytes,
+digest failure retention, pre-creation size refusal and collision refusal.
+It does not establish a trusted source, protected-parent provenance, complete
+tree closure, service execution, publisher durability, recovery or production
+availability.
