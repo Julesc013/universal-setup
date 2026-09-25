@@ -4299,7 +4299,7 @@
       "spec_id": "USK-S-STREAM",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "WU-005 bounds old-tree payload retention, new-plan materialized inputs and preimage metadata. The 24-case Windows NTFS process matrix is supplemented by one completed 2 GiB streamed install/verify (11,411,456-byte peak) and planning-only 4,096-entry observations (42,246,144-byte peak at 1 MiB total payload). Full 4,096-entry lifecycle operations, a wider multi-gigabyte corpus, legacy-report peak and adversarial namespace/profile qualification remain open; not release accepted. A separate legacy-record matrix observes verify and uninstall planning in fresh Windows children at 128, 4,097 and 8,192 one-byte files after external fixture preparation; 8,192-file verify peaked at 97,431,552 bytes, so an aggregate legacy-report budget is not established.",
+      "note": "WU-005 bounds old-tree payload retention, new-plan materialized inputs, preimage metadata and verification report entry/path text. The source-bound R4 Windows 10 NTFS Debug matrix at clean commit 40f2abb has separate OS peak-working-set receipts for complete 4,096-entry install, verify, repair, move and install-finalization recovery; their peaks range from 91,951,104 to 107,925,504 bytes. The 4,096-entry update case peaks at 130,809,856 bytes but only plans an update before required strict apply refusal. Matched 128/4,096-entry and 1/32 MiB plan cases plus 128-entry full installs distinguish entry-count and payload-size trends. Separate prior-format 8,192-entry operations peak about 65 MiB, while a combined report case reaches 123,404,288 bytes. The older 2 GiB streamed install/verify remains historical source-bound evidence. Full update publication, hostile namespace/profile qualification, larger payload/corpus combinations and release acceptance remain open; the completed corpus exposes multi-hour transaction-journal throughput.",
       "spec_source": {
         "path": "spec/io/streams.md",
         "sha256": "c5f960d0a6701cff8713aa159488cb82a4df93285281b8ebabe5c892612025bc"
@@ -4327,7 +4327,7 @@
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
-          "sha256": "95f180387a850b0554c307b7efb58f2b05bc448020ab65714f1cc51a69a88854"
+          "sha256": "d84389dc8a7e2108bbbb4d29e473f943ac64355a52246830500ffa8d4b8b5ecd"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_observations.v1.json",
@@ -4348,6 +4348,10 @@
         {
           "path": "docs/testing/m1_lifecycle_memory_4096_install_r4.v1.json",
           "sha256": "0c649b5b05781dc43bb30f0a54135eb22eed2979d0ba151b94fb2fde6498bc59"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_4096_matrix_r4.v1.json",
+          "sha256": "25365824096cfd507983304ae358dee9de966045dad879771c5750cd8851df6f"
         }
       ],
       "acceptance_ids": [
