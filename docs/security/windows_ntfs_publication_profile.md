@@ -263,14 +263,20 @@ The externally captured positive observation SHA-256 is
 `4d436bad94217c0c87d3c9d6d73779d6c6d13ac60afbe3af6dfdc84e37042e73`.
 A checkpoint of only the campaign VM then permitted a backup-mode overwrite
 of the staged payload. The service refused that altered tree with
-`recovery staged closure differs from prepared record`; the external negative
-observation SHA-256 is
-`a45ecaaf13f8d48d0079fe4d4291684c72649a5481040203e15adbac308c289a`.
-The VM was restored to the recorded checkpoint, and a separate backup-mode
-read confirmed the original staged payload digest. This checks one persisted
-prepared state and one staged-content mismatch. It does not qualify complete
-replay, interrupted visible-phase recovery, power-loss durability, race
-exclusion, OD-001 resolution, or production publication.
+`recovery staged closure differs from prepared record`. A later test of the
+final binary repeated this refusal: the external negative observation SHA-256
+is `51edb22f8f655d430999d544d93b23fe9a0998a4d9805c5434b2552e4dcbc8e9`.
+A separate backup-mode read bound the changed 25-byte staged file to digest
+`e9855c73d9e98b99e2ee84cdd4ca50114c1d3849ee7d6e394ae54a7a44aad763`;
+its external observation SHA-256 is
+`f2d6a5a3dfa269b87734c45a4da5fc86849d959e54adcd63418a59e2b5b5f70a`.
+The VM was restored to the recorded checkpoint, and another backup-mode read
+confirmed the original staged payload digest. Its external observation
+SHA-256 is `311195cedd750f0735369c47d4703f9f03197fba1865548aa651aa40d60eba9b`.
+This checks one persisted prepared state and one staged-content mismatch. It
+does not qualify complete replay, interrupted visible-phase recovery,
+power-loss durability, race exclusion, OD-001 resolution, or production
+publication.
 After adding a second journal and empty-role observation, exact publication
 anchor count, and a receipt-path restriction to the classifier, the restored
 VM passed a fresh positive run. The final lab service executable
