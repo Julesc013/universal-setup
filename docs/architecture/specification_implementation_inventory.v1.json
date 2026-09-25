@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-25T10:10:10Z",
+  "generated_at": "2026-09-25T10:23:00Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9e79bebbf1f1cf1ef1d3c70653ead94786d7c122",
   "repository_base_tree": "cd79a6d9b75366e567e2df3bc0d53545904d2b72",
@@ -738,7 +738,7 @@
         },
         {
           "path": "tests/test_bundle_selection.py",
-          "sha256": "3b29ee69bc968896eb4463863f2ecaca728888abada64ef3152839ca628aa81a"
+          "sha256": "20433bb8b935588bbfceb36ef4012382f292b6fe079bccf62d44baadfe90d7c8"
         },
         {
           "path": "tests/test_prefab_envelope.py",
@@ -822,7 +822,7 @@
         },
         {
           "path": "tests/test_bundle_selection.py",
-          "sha256": "3b29ee69bc968896eb4463863f2ecaca728888abada64ef3152839ca628aa81a"
+          "sha256": "20433bb8b935588bbfceb36ef4012382f292b6fe079bccf62d44baadfe90d7c8"
         },
         {
           "path": "tests/test_prefab_envelope.py",
@@ -922,7 +922,7 @@
         },
         {
           "path": "tests/test_bundle_selection.py",
-          "sha256": "3b29ee69bc968896eb4463863f2ecaca728888abada64ef3152839ca628aa81a"
+          "sha256": "20433bb8b935588bbfceb36ef4012382f292b6fe079bccf62d44baadfe90d7c8"
         },
         {
           "path": "tests/test_prefab_envelope.py",

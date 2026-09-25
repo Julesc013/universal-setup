@@ -150,11 +150,12 @@ class BundleSelectionTests(unittest.TestCase):
             output = root / "late-failure"
             output.mkdir()
             real_hash = usk_bundle_selection._hash
+            source_resolved = source.resolve(strict=True)
             source_reads = 0
 
             def drift_on_recheck(path: Path) -> str:
                 nonlocal source_reads
-                if path == source:
+                if path == source_resolved:
                     source_reads += 1
                     if source_reads == 2:
                         raise SelectionError("injected late source drift")
