@@ -359,3 +359,41 @@ The external lab manifest SHA-256 is
 This is a disposable VM ACL-negative proof, not journal replay, physical
 power-loss durability, hostile-race qualification, OD-001 resolution, or
 production publication.
+
+The read-only recovery classifier also distinguishes a visible tree with both
+canonical journal records from the earlier prepared-only crash states. It
+requires the visible record to bind the prepared SHA-256, protected anchors,
+destination parent, source file ID, payload SHA-256 and complete visible tree;
+it repeats the journal and namespace observations before reporting
+`recovery_required` with `visible_with_visible_record`. It still performs no
+replay, cleanup or production publication.
+
+On a third campaign-created 1 GiB NTFS VHDX in VM
+`6a23c3f9-272c-4711-b846-152f82bf93d2` (Windows build `10.0.20348.0`),
+the restricted service completed the lab publication and an independent
+backup-mode read found exactly two journal records. The prepared record
+SHA-256 was `2c632d1374cdeee591c3b75bf13a8438f55fe0a7315c7f73d85e7feb0f3a25a1`;
+the visible record SHA-256 was
+`1fb901825a379a8784bc98d23059397a8a00000bcf563bc9e7ca86060ecf8f74`.
+The new service binary SHA-256
+`a073c1a10b31d9ce835fb24e6c0f3194c4d906cf796bb3426a31a508ab13c1fd`
+classified this state as `visible_with_visible_record` (external receipt
+SHA-256 `9c20ae293525193ba09cddab0d784e6a74c963f2333dc6b0f1b7c6084f164f75`).
+After exact VM checkpoint `dec7d56f-c474-4fa3-849f-fb6a0162bc2a`, a temporary
+SYSTEM task widened only the visible journal record ACL while its bytes stayed
+unchanged. The classifier refused the altered protected-object shape (external
+receipt SHA-256 `6109c8a69bbb17f23dafe443398744bcacd25583abc7f8f1614e90c635ee55f8`).
+The task was unregistered and the exact checkpoint restored. Independent
+backup-mode hashes again matched both original records, the mutation receipts
+were absent, and a fresh classifier run returned
+`visible_with_visible_record` (external receipt SHA-256
+`d708c50cc17493c851fee60ef35e2c7499b20eb54b8bd698cc6fa93409cf87ec`).
+A rebuilt static service binary SHA-256
+`9fddced4ccaed007f76f75c35ffcc9d56f1c5e03c8a3b5b67d47dca785fdf8ad`
+also classified the restored bytes identically (external receipt SHA-256
+`c049c7987446267275d4701b9137b3477082cd6022830b25e419a49e3cbe1718`).
+The separate external resource manifest SHA-256 is
+`98bbdd8410eee4b9cde12e167c8111cd27da42c290f0afbcb55b63904ba45917`.
+This normal completion and ACL-negative experiment does not prove an
+interrupted state after the visible record, power-loss durability, actual
+replay, hostile-race exclusion, or production readiness.
