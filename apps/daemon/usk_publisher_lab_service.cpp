@@ -13,6 +13,7 @@
 #endif
 #include <windows.h>
 #include <aclapi.h>
+#include <sddl.h>
 
 #include <stdexcept>
 #include <string>
@@ -119,6 +120,54 @@ std::string check_directory_dacl(HANDLE directory, DWORD desired_access) {
     if (check_token) CloseHandle(check_token);
     if (process_token) CloseHandle(process_token);
     LocalFree(descriptor);
+    return result;
+}
+
+std::string observed_dacl_sddl(HANDLE object) {
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD error = GetSecurityInfo(object, SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr,
+        &descriptor);
+    if (error != ERROR_SUCCESS) return "security-info=" + std::to_string(error);
+    LPWSTR sddl = nullptr;
+    std::string result;
+    if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor,
+            SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &sddl, nullptr)) {
+        result = "sddl=" + std::to_string(GetLastError());
+    } else {
+        result = ascii(sddl);
+    }
+    if (sddl) LocalFree(sddl);
+    LocalFree(descriptor);
+    return result;
+}
+
+std::string observed_token_integrity_sid() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        return "token=" + std::to_string(GetLastError());
+    }
+    DWORD size = 0;
+    (void)GetTokenInformation(token, TokenIntegrityLevel, nullptr, 0, &size);
+    std::string result;
+    if (size < sizeof(TOKEN_MANDATORY_LABEL) || size > 4096) {
+        result = "size=" + std::to_string(size);
+    } else {
+        std::vector<unsigned char> buffer(size);
+        if (!GetTokenInformation(token, TokenIntegrityLevel, buffer.data(), size, &size)) {
+            result = "integrity=" + std::to_string(GetLastError());
+        } else {
+            LPWSTR sid = nullptr;
+            const auto* label = reinterpret_cast<const TOKEN_MANDATORY_LABEL*>(buffer.data());
+            if (!ConvertSidToStringSidW(label->Label.Sid, &sid)) {
+                result = "sid=" + std::to_string(GetLastError());
+            } else {
+                result = ascii(sid);
+                LocalFree(sid);
+            }
+        }
+    }
+    CloseHandle(token);
     return result;
 }
 
@@ -335,6 +384,18 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 child_dacl_dac = check_directory_dacl(child_read_handle.get(),
                     FILE_READ_ATTRIBUTES | WRITE_DAC | SYNCHRONIZE);
             }
+            std::string volume_device_dacl = "not_run";
+            const std::wstring volume_device_name =
+                volume_root.substr(0, volume_root.size() - 1);
+            OwnedHandle volume_device(CreateFileW(volume_device_name.c_str(),
+                READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, OPEN_EXISTING, 0, nullptr));
+            if (volume_device.get() == INVALID_HANDLE_VALUE) {
+                volume_device_dacl = "open=" + std::to_string(GetLastError());
+            } else {
+                volume_device_dacl = observed_dacl_sddl(volume_device.get());
+            }
+            const std::string token_integrity = observed_token_integrity_sid();
             throw std::runtime_error("restricted service cannot open disposable volume root; Win32 " +
                 std::to_string(error) + "; read-reparse=" +
                 std::to_string(read_reparse) + "; full-backup=" +
@@ -351,7 +412,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 std::to_string(child_add) + "; child-dac=" +
                 std::to_string(child_dac) + "; child-owner=" +
                 std::to_string(child_owner) + "; child-dacl-add=" +
-                child_dacl_add + "; child-dacl-dac=" + child_dacl_dac);
+                child_dacl_add + "; child-dacl-dac=" + child_dacl_dac +
+                "; volume-device-dacl=" + volume_device_dacl +
+                "; token-integrity=" + token_integrity);
         }
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
