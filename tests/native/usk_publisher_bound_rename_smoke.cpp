@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_anchor_create.h"
+#include "usk_publisher_directory_entries.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_tree_observation.h"
 
@@ -127,7 +128,7 @@ int main() {
         }
         {
             auto staging_parent = open_directory(staging, false);
-            auto target_parent = open_directory(destination, false);
+            auto root_parent = open_directory(root, false);
             PSECURITY_DESCRIPTOR raw = nullptr;
             if (GetSecurityInfo(staging_parent.get(), SE_FILE_OBJECT,
                     OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
@@ -139,8 +140,24 @@ int main() {
             std::vector<unsigned char> descriptor(length);
             std::memcpy(descriptor.data(), raw, length);
             LocalFree(raw);
+            {
+                OwnedHandle created(create_directory_relative_with_descriptor(
+                    root_parent.get(), L"destination-created-anchor", descriptor));
+            }
+            HANDLE reopened_target = INVALID_HANDLE_VALUE;
+            for (const auto& listed : observe_publisher_directory_entries(root_parent.get())) {
+                if (listed.name == L"destination-created-anchor") {
+                    check(reopened_target == INVALID_HANDLE_VALUE,
+                        "duplicate created destination anchor");
+                    reopened_target = open_publisher_listed_child(
+                        root_parent.get(), listed, true);
+                }
+            }
+            check(reopened_target != INVALID_HANDLE_VALUE,
+                "created destination anchor was not found through held parent");
+            OwnedHandle target_parent(reopened_target);
             OwnedHandle source(create_directory_relative_with_descriptor(
-                staging_parent.get(), L"write-through-candidate", descriptor));
+                staging_parent.get(), L"created-candidate", descriptor));
             {
                 OwnedHandle file(create_file_relative_with_descriptor(
                     source.get(), L"payload.bin", descriptor));
@@ -154,14 +171,15 @@ int main() {
             const auto observed_source = observe_publisher_directory_handle(source.get());
             const auto observed_target = observe_publisher_directory_handle(target_parent.get());
             const auto result = probe_publisher_bound_rename_no_replace(
-                source.get(), target_parent.get(), L"visible-write-through",
+                source.get(), target_parent.get(), L"visible-created",
                 observed_source, observed_target);
             const auto visible = observe_visible_publisher_tree_against_seal(
-                target_parent.get(), L"visible-write-through", sealed);
+                target_parent.get(), L"visible-created", sealed);
             check(result.root_file_id == visible.root.file_id &&
                 visible.descendants.size() == 1 &&
-                fs::exists(destination / "visible-write-through" / "payload.bin"),
-                "write-through created source did not rebind visibly");
+                fs::exists(root / "destination-created-anchor" /
+                    "visible-created" / "payload.bin"),
+                "created anchor source did not rebind visibly");
         }
         fs::remove_all(root);
         std::cout << "publisher-bound-rename-smoke-pass\n";

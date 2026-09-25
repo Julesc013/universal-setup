@@ -171,7 +171,8 @@ std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
 }
 
 HANDLE open_publisher_listed_child(HANDLE parent,
-    const PublisherDirectoryEntry& listed) {
+    const PublisherDirectoryEntry& listed,
+    bool require_add_subdirectory) {
     if (!parent || parent == INVALID_HANDLE_VALUE ||
         !valid_component(listed.name)) {
         throw std::runtime_error("publisher relative child open has invalid inputs");
@@ -193,8 +194,12 @@ HANDLE open_publisher_listed_child(HANDLE parent,
     attributes.ObjectName = &object_name;
     attributes.Attributes = OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE;
     const bool directory = (listed.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (require_add_subdirectory && !directory) {
+        throw std::runtime_error("publisher publication parent must be a directory");
+    }
     const ACCESS_MASK access = FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE |
-        (directory ? (FILE_LIST_DIRECTORY | FILE_TRAVERSE) : FILE_READ_DATA);
+        (directory ? (FILE_LIST_DIRECTORY | FILE_TRAVERSE |
+            (require_add_subdirectory ? FILE_ADD_SUBDIRECTORY : 0)) : FILE_READ_DATA);
     constexpr ULONG open_existing = 1; // FILE_OPEN
     constexpr ULONG no_follow = 0x00200000; // FILE_OPEN_REPARSE_POINT
     constexpr ULONG synchronous = 0x00000020; // FILE_SYNCHRONOUS_IO_NONALERT

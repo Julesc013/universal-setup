@@ -3,6 +3,7 @@
 
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_bound_rename.h"
+#include "usk_publisher_directory_entries.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -301,8 +302,13 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         volume, L"publication", descriptor));
     OwnedHandle staging(create_directory_relative_with_descriptor(
         publication.get(), L"staging", descriptor));
-    OwnedHandle destination(create_directory_relative_with_descriptor(
-        publication.get(), L"destination", descriptor));
+    std::string created_destination_id;
+    {
+        OwnedHandle created(create_directory_relative_with_descriptor(
+            publication.get(), L"destination", descriptor));
+        created_destination_id = observe_publisher_directory_handle(
+            created.get()).file_id;
+    }
     OwnedHandle state(create_directory_relative_with_descriptor(
         publication.get(), L"state", descriptor));
     OwnedHandle journal(create_directory_relative_with_descriptor(
@@ -312,6 +318,28 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const auto first = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_security_shape(first, service_sid);
+    if (first.destination_parent.object.file_id != created_destination_id) {
+        throw std::runtime_error("created destination anchor identity changed");
+    }
+    HANDLE reopened_destination = INVALID_HANDLE_VALUE;
+    for (const auto& listed : observe_publisher_directory_entries(publication.get())) {
+        if (listed.name == L"destination") {
+            if (reopened_destination != INVALID_HANDLE_VALUE) {
+                CloseHandle(reopened_destination);
+                throw std::runtime_error("duplicate destination anchor listing");
+            }
+            reopened_destination = open_publisher_listed_child(
+                publication.get(), listed, true);
+        }
+    }
+    if (reopened_destination == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("created destination anchor not listed");
+    }
+    OwnedHandle destination(reopened_destination);
+    if (observe_publisher_directory_handle(destination.get()).file_id !=
+            created_destination_id) {
+        throw std::runtime_error("reopened destination anchor identity changed");
+    }
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, second);
