@@ -71,3 +71,15 @@ a newly created file through its returned non-inheritable handle, refuses
 same-name collisions, and checks that replacing the parent's path does not
 redirect creation through the held parent handle. It does not establish a
 service-created protected staging tree or change the profile status above.
+
+The hosted PR #97 observation at source head
+faf457919fcfb416c127b7db4f7e6e20434d6012 and CI run 36076348039
+created a fresh file-backed NTFS VHD on Windows build 10.0.20348.0. Its
+generated own-process LocalSystem service had SERVICE_SID_TYPE_RESTRICTED;
+the service SID appeared as an enabled process group and a restricting SID,
+and independent SCM and native process IDs matched. The native service opened
+the VHD's volume GUID root, observed local NTFS, and the lab removed the
+service and VHD. The retained JSON artifact SHA-256 is
+3ced569d8f1a0ee8b07b3e4f88b41a70435c5025e82ff155ff2c553ccdd51111.
+This qualifies the disposable service and volume observation only. It does not
+establish protected anchors, publication, recovery, or OD-001 resolution.

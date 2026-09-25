@@ -3332,7 +3332,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "3e6580e563a79c775ccc7f26e36979047ab4e7f8722a0afb163b2b502ab8df1f"
+          "sha256": "a21404820779bacaa03fa671c77508b477f7885913dcab99edeaff4556ac3b81"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3368,7 +3368,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "3e6580e563a79c775ccc7f26e36979047ab4e7f8722a0afb163b2b502ab8df1f"
+          "sha256": "a21404820779bacaa03fa671c77508b477f7885913dcab99edeaff4556ac3b81"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3404,7 +3404,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "3e6580e563a79c775ccc7f26e36979047ab4e7f8722a0afb163b2b502ab8df1f"
+          "sha256": "a21404820779bacaa03fa671c77508b477f7885913dcab99edeaff4556ac3b81"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3659,7 +3659,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "absent",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Disposable Windows NTFS native parent-bound no-replace rename, same-handle observation, restricted-token facts, protected descriptor construction and parent-bound create-only candidates exist, but no installed protected service, full descendant closure, durable publication/recovery, or qualified target-bound publisher is implemented. Strict production publication still refuses. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification. Structured same-handle security facts and phase comparison remain candidate evidence; exact service, effective rights, and durable publication are missing. Held-handle directory-chain observation is a further read-only candidate, without admitted protected root/anchor roles or service-bound rights. Read-only four-anchor and named restricted-service observation candidates exist, without protected target or positive installed-service evidence. A create-only regular-file candidate extends the held-parent primitive, without service-created protected staging or publisher authority. A test-only restricted own-process SCM service and disposable-VHD probe are source candidates; positive hosted service observation and protected publisher qualification are pending.",
+      "note": "Disposable Windows NTFS native parent-bound no-replace rename, same-handle observation, restricted-token facts, protected descriptor construction and parent-bound create-only candidates exist, but no installed protected service, full descendant closure, durable publication/recovery, or qualified target-bound publisher is implemented. Strict production publication still refuses. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification. Structured same-handle security facts and phase comparison remain candidate evidence; exact service, effective rights, and durable publication are missing. Held-handle directory-chain observation is a further read-only candidate, without admitted protected root/anchor roles or service-bound rights. Read-only four-anchor and named restricted-service observation candidates exist, without protected target or positive installed-service evidence. A create-only regular-file candidate extends the held-parent primitive, without service-created protected staging or publisher authority. A test-only restricted own-process SCM service and disposable-VHD probe are source candidates; positive hosted service observation and protected publisher qualification are pending. A held-handle protected-volume-root and four-anchor service lab candidate is implemented in source; hosted observation, independent rights proof, publication and recovery remain pending.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3695,7 +3695,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_anchor_create.cpp",
-          "sha256": "6394f58906333f6b8f7f54e3d2533484d589d23465864d56d2a49e60ef13ee7d"
+          "sha256": "81f332420f46b76eb948feb656592ec724b50411deb482d33e0d91b8833c74a3"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_stream_observation.cpp",
@@ -3747,15 +3747,15 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "67a972beb17b1b9d2b71f11d91dd474691375b7ab059244f77e10a6204a538b2"
+          "sha256": "9fa92476f6705842b02d3416a673d5b94ee3a8e7579926e407d2690dc17e7ce1"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "9122ddb40d3fb245445e3ceca0ddccb89816480e340be054081fa8ef65df58f7"
+          "sha256": "7880cec49910e74edc377bed8d300cbb4a589cb4d6ab359a4841f9e17527ff1f"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "f1e02527f83af6c8428fb82a1a6fc27670687e1ffcde4d307ee83b8496ff1f2b"
+          "sha256": "f1cab4bbd6c020504bc2ea2f5655730ef7ebca5033da4d4991d83c8b1a47c307"
         }
       ],
       "acceptance_ids": [
@@ -3811,7 +3811,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Disposable candidates record native root/parent/visible file IDs, same-handle owner/DACL and token facts, and parent-bound anchor creation, but no durable publication receipt binds the full closure and protected service profile; target qualification remains absent. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification. Structured same-handle security facts and phase comparison remain candidate evidence; exact service, effective rights, and durable publication are missing. Held-handle directory-chain observation is a further read-only candidate, without admitted protected root/anchor roles or service-bound rights. Read-only four-anchor and named restricted-service observation candidates exist, without protected target or positive installed-service evidence. A create-only regular-file candidate extends the held-parent primitive, without service-created protected staging or publisher authority. A test-only restricted own-process SCM service and disposable-VHD probe are source candidates; positive hosted service observation and protected publisher qualification are pending.",
+      "note": "Disposable candidates record native root/parent/visible file IDs, same-handle owner/DACL and token facts, and parent-bound anchor creation, but no durable publication receipt binds the full closure and protected service profile; target qualification remains absent. The held-handle local NTFS and stream-shape probe adds only disposable read-only evidence. A read-only descendant identity/content closure candidate exists, without protected security, multi-phase binding, or durable publisher qualification. Structured same-handle security facts and phase comparison remain candidate evidence; exact service, effective rights, and durable publication are missing. Held-handle directory-chain observation is a further read-only candidate, without admitted protected root/anchor roles or service-bound rights. Read-only four-anchor and named restricted-service observation candidates exist, without protected target or positive installed-service evidence. A create-only regular-file candidate extends the held-parent primitive, without service-created protected staging or publisher authority. A test-only restricted own-process SCM service and disposable-VHD probe are source candidates; positive hosted service observation and protected publisher qualification are pending. A held-handle protected-volume-root and four-anchor service lab candidate is implemented in source; hosted observation, independent rights proof, publication and recovery remain pending.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -3899,11 +3899,11 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "9122ddb40d3fb245445e3ceca0ddccb89816480e340be054081fa8ef65df58f7"
+          "sha256": "7880cec49910e74edc377bed8d300cbb4a589cb4d6ab359a4841f9e17527ff1f"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
-          "sha256": "f1e02527f83af6c8428fb82a1a6fc27670687e1ffcde4d307ee83b8496ff1f2b"
+          "sha256": "f1cab4bbd6c020504bc2ea2f5655730ef7ebca5033da4d4991d83c8b1a47c307"
         }
       ],
       "acceptance_ids": [
