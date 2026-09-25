@@ -25,6 +25,12 @@ void usk_public_lifecycle_command_free(char* value);
 }
 
 #include "usk_lifecycle.h"
+#if defined(_WIN32)
+#if !defined(NOMINMAX)
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 namespace usk::lifecycle {
 // Private dispatcher seam for deterministic crash qualification; never a public C ABI hook.
 char* public_command_json(const char* command_name, const char* request_json, size_t request_size,
@@ -36,9 +42,12 @@ char* public_command_json(const char* command_name, const char* request_json, si
 InstallPlan reviewed_install_plan_for_publisher(const std::string& request_json,
     const std::string& state_root, const std::string& authorized_acceptance_root,
     const std::string& target_policy_activation);
+#if defined(_WIN32)
 void initialize_setup_root_for_publisher(const std::string& state_root,
     const std::string& authorized_acceptance_root,
-    const std::string& target_policy_activation);
+    const std::string& target_policy_activation, HANDLE held_volume,
+    const std::wstring& volume_guid_root);
+#endif
 }
 #endif
 

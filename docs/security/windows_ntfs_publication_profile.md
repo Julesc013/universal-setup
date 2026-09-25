@@ -1046,3 +1046,45 @@ postcrash forward replay. They do not establish durable SCM command
 configuration, physical-host power-loss behavior, general-source
 publication, hostile-rights qualification for this binary, lease fencing,
 or production enablement.
+
+## Held-volume setup-state initialization (2026-09-26)
+
+The private restricted-service install path now checks that the volume GUID
+root has the same `FILE_ID_INFO` as the retained volume handle before creating
+setup state. It writes the owned-root marker and setup directories through the
+GUID path, while the marker retains the reviewed `E:/` acceptance identity.
+A Windows native smoke also checks refusal for a nonexistent GUID and for a
+real GUID paired with a different held directory ID. This closes a setup-state
+drive-letter substitution window; it does not qualify later path-based state
+writes or a concurrent same-volume namespace substitution.
+
+The first fresh owned VHDX (disk ID
+`60022480E293D66E839793C1C8152A90`, GUID
+`\\?\Volume{d68e0edf-7d4a-40c7-b3ef-62329d0182cf}\`) exposed a
+Windows path defect: deriving the parent of a direct child from
+`std::filesystem::path` dropped the volume-root trailing separator and the
+service returned `The parameter is incorrect`. The candidate retained its
+failed receipt SHA-256
+`dd9584e3698c6448cecad7b7f2d2efa26713090c151303ea8adf89b9bdcaeeb3`.
+The source now passes the verified GUID root explicitly as that parent and
+reports `recovery_required` after protected effects may have begun. The failed
+VHDX is retained for diagnosis.
+
+A second new owned 1 GiB NTFS VHDX (disk ID
+`60022480F9894915E8A8046DBCF57CB3`, GUID
+`\\?\Volume{d00abb24-e56e-4bd2-86bf-54d09b166b3c}\`) ran the
+statically linked Release service binary SHA-256
+`4988aae34c98d558dbbc3059e0514406e3bd0369318c3738d0730297faaa4fe7`
+on Windows Server build `10.0.20348.0`. Its exact authored ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`;
+the native plan digest was
+`bfe5e00a37533a83190fd56fa1baec641bfdcc7d9b03969461898e6a19178afc`.
+The restricted service returned `pass` in receipt SHA-256
+`e4d74724a101622cb47b9c66bbdb6b5385e017b2c68e279067daf09e382863ce`.
+Independent backup-mode readback found 11 files, including the reviewed
+acceptance marker SHA-256
+`2b9da3c5e052c580a32ead5339d980ce4f0b5594c75823e45cadfcf95e4ed066`
+and protected completion SHA-256
+`7c15c601cfc601302e1b68f45f0b7311c893f9154dcb0221e027391c8f2c4f66`.
+This demonstrates clean installation in this owned laboratory profile, not
+live remap resistance, general-source publication, or production enablement.
