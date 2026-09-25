@@ -1,0 +1,474 @@
+{
+  "schema": "usk.lifecycle_memory_matrix.v1",
+  "scope": "Observed Windows 10 build 19045 C: NTFS Debug child-process peaks; process preparation is included except prior-format legacy fixtures.",
+  "source": {
+    "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+    "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def"
+  },
+  "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+  "probe_source_sha256": "8d4a374120021418150e459a9ad0269a82c8a772d287b9a309c41816e85c1de3",
+  "metric": "windows_peak_working_set_bytes: GetProcessMemoryInfo PeakWorkingSetSize sampled every 5 ms while each child is live",
+  "observations": [
+    {
+      "receipt_name": "wu005-r4-current-install-4096.json",
+      "receipt_sha256": "3f36347e25b302b04eb1cf7c2afb0f0277e871edb7e1e525c00b8cd259477e32",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "install",
+        "requested_payload_bytes": 1048576,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 94040064,
+        "samples": 645411,
+        "elapsed_ms": 3804767,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass install streaming 1048576 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-verify-4096.json",
+      "receipt_sha256": "85c525b257e6d513bf71cce0127e8786220daf62b6a5496e64cb9466e0a4f414",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "verify",
+        "requested_payload_bytes": 1048576,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 91951104,
+        "samples": 663760,
+        "elapsed_ms": 3922385,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass verify streaming 1048576 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-repair-4096.json",
+      "receipt_sha256": "e9d39bb52c5e05e0809ea6d8c4ae43feca6271b6f2490328714fb6122415b7ad",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "repair",
+        "requested_payload_bytes": 1048576,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 93900800,
+        "samples": 666603,
+        "elapsed_ms": 3938213,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass repair streaming 1048576 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-move-4096.json",
+      "receipt_sha256": "7329900f7df9b03aeb8d6495510170819de1731389867831647c75cdbabb6b59",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "move",
+        "requested_payload_bytes": 1048576,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 107925504,
+        "samples": 1200564,
+        "elapsed_ms": 6927803,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass move streaming 1048576 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-update-4096.json",
+      "receipt_sha256": "c61581511166897eaaee24c10a81be953b5c029b8c531b98ae5f05331355d033",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "update",
+        "requested_payload_bytes": 1048576,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 130809856,
+        "samples": 665345,
+        "elapsed_ms": 3931427,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass update streaming 1048576 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-recovery-4096.json",
+      "receipt_sha256": "ff003b2be02b7b8c698ff73544708ff1d750be599c5b04c3c0d15d16bf2d9e82",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "recovery",
+        "requested_payload_bytes": 1048576,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 93368320,
+        "samples": 664458,
+        "elapsed_ms": 3925935,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass recovery streaming 1048576 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-install-128-1048576.json",
+      "receipt_sha256": "9febaca84dbea033a1703b8a6220e4cb8cd258bc8384e075ac34b7584747a70b",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "install",
+        "requested_payload_bytes": 1048576,
+        "entries": 128,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 14065664,
+        "samples": 1617,
+        "elapsed_ms": 10172,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass install streaming 1048576 128"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-install-128-33554432.json",
+      "receipt_sha256": "b02c3818aeccd1669742f65fb85c45361fab38e4777529e30636dbdc74f5b42a",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "install",
+        "requested_payload_bytes": 33554432,
+        "entries": 128,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 14053376,
+        "samples": 2572,
+        "elapsed_ms": 15606,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass install streaming 33554432 128"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-plan_install-4096-1048576.json",
+      "receipt_sha256": "79ccb2e9b8250b43843b7c485f39113f9d7eaa25fc06612195b86ed628e9526a",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "plan_install",
+        "requested_payload_bytes": 1048576,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 43180032,
+        "samples": 189,
+        "elapsed_ms": 1088,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass plan_install streaming 1048576 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-plan_install-4096-33554432.json",
+      "receipt_sha256": "7b6391aba81000d0fd10e94d67092174ddad77799fc616b2e797dbbeb890b703",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "plan_install",
+        "requested_payload_bytes": 33554432,
+        "entries": 4096,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 43253760,
+        "samples": 197,
+        "elapsed_ms": 1215,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass plan_install streaming 33554432 4096"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-plan_install-128-33554432.json",
+      "receipt_sha256": "ad2b3ae59eeb82c16a5caa24623c129996a33bcf4e3b96e27da878986d88bb6d",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "plan_install",
+        "requested_payload_bytes": 33554432,
+        "entries": 128,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 11698176,
+        "samples": 12,
+        "elapsed_ms": 83,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass plan_install streaming 33554432 128"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-current-plan_install-128-1048576.json",
+      "receipt_sha256": "1a638217db764c705330da6296283c50bb2513dd023975d3669a106fff7dab2e",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "plan_install",
+        "requested_payload_bytes": 1048576,
+        "entries": 128,
+        "source_kind": "streaming",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+        "fixture_prepared_outside_measured_process": false,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 11796480,
+        "samples": 12,
+        "elapsed_ms": 83,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass plan_install streaming 1048576 128"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-legacy-ownership-load-8192-current.json",
+      "receipt_sha256": "354a7751030353ce85153bdfd5fc4381d8e358e7f656e5d65fc0e1ababc6eeef",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "legacy_ownership_load",
+        "requested_payload_bytes": 8192,
+        "entries": 8192,
+        "source_kind": "legacy_record",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+        "fixture_prepared_outside_measured_process": true,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 65368064,
+        "samples": 142,
+        "elapsed_ms": 867,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass legacy_ownership_load legacy_record 8192 8192"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-legacy-verify-8192-current.json",
+      "receipt_sha256": "64927e4ec4e6bce3cea3e47be268da8b49292a411223377cfd55d23830eb9be1",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "legacy_verify",
+        "requested_payload_bytes": 8192,
+        "entries": 8192,
+        "source_kind": "legacy_record",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+        "fixture_prepared_outside_measured_process": true,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 65142784,
+        "samples": 513,
+        "elapsed_ms": 2838,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass legacy_verify legacy_record 8192 8192"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-legacy-uninstall-plan-8192-current.json",
+      "receipt_sha256": "04b1265764af5a474df8c2561ec9882622670758c47bd263766efb4458a20004",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "legacy_uninstall_plan",
+        "requested_payload_bytes": 8192,
+        "entries": 8192,
+        "source_kind": "legacy_record",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+        "fixture_prepared_outside_measured_process": true,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 65507328,
+        "samples": 805,
+        "elapsed_ms": 4943,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass legacy_uninstall_plan legacy_record 8192 8192"
+      }
+    },
+    {
+      "receipt_name": "wu005-r4-legacy-report-8192-current.json",
+      "receipt_sha256": "5c9cb404b3cc0b917a11b840790e9166411811ce7012b2cc99cbef2d469cfae0",
+      "observation": {
+        "schema": "usk.lifecycle_memory_observation.v1",
+        "operation": "legacy_report",
+        "requested_payload_bytes": 8192,
+        "entries": 8192,
+        "source_kind": "legacy_record",
+        "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+        "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+        "source": {
+          "commit": "40f2abb422664ba4319c0ecd3240e5cb60f9b4a2",
+          "tree": "b517cca2e2a852d67a5f3eb64d90846a20270def",
+          "working_tree_dirty": false
+        },
+        "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+        "fixture_prepared_outside_measured_process": true,
+        "metric": "windows_peak_working_set_bytes",
+        "peak_bytes": 123404288,
+        "samples": 1325,
+        "elapsed_ms": 7370,
+        "exit_code": 0,
+        "stdout": "memory-scenario-pass legacy_report legacy_record 8192 8192"
+      }
+    }
+  ],
+  "report_budget_smoke": {
+    "command": "usk_lifecycle_smoke.exe --report-budget-smoke",
+    "binary_sha256": "c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6",
+    "stdout": "report-budget-refusal-pass 16384",
+    "exit_code": 0,
+    "elapsed_ms": 5603
+  },
+  "claim_limits": [
+    "Each 4096-entry operation ran in its own child. Verify, repair, move and update peaks include fixture install preparation; update plans then observes required strict apply refusal, not successful update publication.",
+    "Both 128- and 4096-entry plan-only cases use 1 versus 32 MiB payloads; a separate 128-entry full-install pair tests source streaming. These comparisons separate payload-size from entry-count trends but do not establish a universal constant-memory process bound.",
+    "Legacy 8192-entry operations use separately prepared prior-format fixtures and do not imply the combined report process peak is under 64 MiB.",
+    "This ordinary-user source-level measurement does not qualify protected publication, platform security or release acceptance."
+  ]
+}

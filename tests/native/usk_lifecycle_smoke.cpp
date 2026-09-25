@@ -818,6 +818,45 @@ int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
     return 0;
 }
 
+int report_budget_scenario()
+{
+    Fixture fixture;
+    const fs::path target = fixture.root / "targets/portable";
+    fs::create_directories(target.parent_path());
+    const auto plan = usk::lifecycle::plan_install(
+        "plan.report-budget", "install.report-budget", "2026-07-14T01:10:00Z",
+        target, fixture.roots, recipe(), payload());
+    const auto installed = usk::lifecycle::apply_install(
+        plan, plan.plan_digest, "tx.report-budget", "2026-07-14T01:10:01Z");
+    if (installed.verification.status != "pass") return 61;
+    for (std::size_t index = 0; index < 16384; ++index) {
+        std::ofstream output(target / ("unknown-" + std::to_string(index) + ".txt"),
+            std::ios::binary);
+        if (!output || !output.put('!')) return 62;
+    }
+    const auto rejects_budget = [](const std::function<void()>& action) {
+        try {
+            action();
+        } catch (const std::runtime_error& error) {
+            return std::string(error.what()).find("verification report exceeds entry/path budget") !=
+                std::string::npos;
+        }
+        return false;
+    };
+    if (!rejects_budget([&] {
+            (void)usk::lifecycle::verify_installed(fixture.roots,
+                "install.report-budget", "verify.report-budget", "2026-07-14T01:10:02Z");
+        }) ||
+        !rejects_budget([&] {
+            (void)usk::lifecycle::plan_uninstall(fixture.roots,
+                "install.report-budget", "plan.uninstall.report-budget", "2026-07-14T01:10:03Z");
+        }) ||
+        !fs::exists(target / "unknown-16383.txt") ||
+        !fs::exists(target / "app/bin/program.exe")) return 63;
+    std::cout << "report-budget-refusal-pass 16384\n";
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -853,6 +892,9 @@ int main(int argc, char** argv)
                 throw std::runtime_error("unknown memory scenario source kind");
             return memory_scenario(argv[2], std::stoull(argv[3]),
                 static_cast<std::size_t>(std::stoull(argv[4])), materialized);
+        }
+        if (argc == 2 && std::string(argv[1]) == "--report-budget-smoke") {
+            return report_budget_scenario();
         }
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
         if (const int streaming = streaming_install_and_fault_proof()) {

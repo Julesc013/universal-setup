@@ -32,6 +32,8 @@ namespace {
 
 constexpr std::size_t maximum_lifecycle_files = 4096;
 constexpr std::size_t maximum_lifecycle_directories = 8192;
+constexpr std::size_t maximum_verification_report_entries = 16384;
+constexpr std::size_t maximum_verification_report_path_bytes = 4u * 1024u * 1024u;
 constexpr std::size_t maximum_relative_path_bytes = 1024;
 constexpr std::size_t maximum_total_path_bytes = 1024u * 1024u;
 constexpr std::size_t maximum_closure_path_bytes = 2u * maximum_total_path_bytes;
@@ -493,7 +495,18 @@ usk::lifecycle::VerificationReport verify_manifest(
     report.verified_at = verified_at;
     const fs::path root(state.target_root);
     std::set<std::string> expected;
+    std::size_t report_entries = 0;
+    std::size_t report_path_bytes = 0;
+    const auto charge_report_path = [&](const std::string& path) {
+        if (report_entries >= maximum_verification_report_entries ||
+            path.size() > maximum_verification_report_path_bytes - report_path_bytes) {
+            throw std::runtime_error("lifecycle verification report exceeds entry/path budget");
+        }
+        ++report_entries;
+        report_path_bytes += path.size();
+    };
     for (const auto& file : ownership.files) {
+        charge_report_path(file.relative_path);
         expected.insert(file.relative_path);
         usk::lifecycle::FileVerification item{file.relative_path, {}, file.sha256, {}};
         const fs::path path = root / fs::path(file.relative_path);
@@ -523,6 +536,7 @@ usk::lifecycle::VerificationReport verify_manifest(
         report.files.push_back(std::move(item));
     }
     for (const std::string& directory : ownership.directories) {
+        charge_report_path(directory);
         expected.insert(directory);
         std::error_code error;
         const fs::path path = root / fs::path(directory);
@@ -538,7 +552,10 @@ usk::lifecycle::VerificationReport verify_manifest(
         for (const fs::directory_entry& entry : fs::recursive_directory_iterator(
                  root, fs::directory_options::skip_permission_denied)) {
             const std::string relative = entry.path().lexically_relative(root).generic_string();
-            if (expected.count(relative) == 0) report.unknown_paths.push_back(relative);
+            if (expected.count(relative) == 0) {
+                charge_report_path(relative);
+                report.unknown_paths.push_back(relative);
+            }
         }
         std::sort(report.unknown_paths.begin(), report.unknown_paths.end());
         report.unknown_paths.erase(std::unique(report.unknown_paths.begin(), report.unknown_paths.end()),

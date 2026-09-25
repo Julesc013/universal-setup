@@ -86,6 +86,17 @@ install/verify/repair/move/update/recovery matrix and legacy-report budget remai
 open. The 2 GiB result establishes one multi-gigabyte install shape, not the
 full corpus or release acceptance.
 
+The R4 continuation completed one full 4,096-entry streamed install with a
+1 MiB total payload on Windows 10 build 19045, C: NTFS, Debug. The isolated
+child exited successfully with a 92,921,856-byte OS peak working set over
+2,756,388 ms. `m1_lifecycle_memory_4096_install_r4.v1.json` binds source
+`2dcb067044925c43cd76ef6223453029c13de611`, tree
+`2a57cb175b613abbab514a0cb23ed4d225dfdb23`, and the measured binary
+SHA-256. The 4,096-file staging and install/verification path ran end to end;
+the output does not measure the other operations, and a later report-budget
+source change means this historical binary observation cannot be silently
+rebound to the changed bytes.
+
 `m1_lifecycle_legacy_report_memory_observations.v1.json` measures the
 prior-format ownership reader separately for verify and uninstall planning.
 The native fixture writes one-byte files and a real ownership record in a
@@ -116,6 +127,67 @@ peaks were 64,434,176, 64,520,192 and 64,630,784 bytes respectively, below the
 enforced aggregate report allocation budget or a completed full 4,096-file
 lifecycle matrix. The new observations remain local ordinary-user Debug
 evidence; they do not qualify the protected publisher or release acceptance.
+
+Verification now charges every owned file, owned directory, and observed
+unknown path to a combined limit of 16,384 report entries and 4 MiB of
+cumulative relative-path text. Crossing either limit raises an explicit
+resource-budget error before a report or uninstall plan is returned. An
+isolated native `--report-budget-smoke` fixture installs a small owned payload,
+adds 16,384 unknown files, and observes budget refusal from both verification
+and uninstall planning while all owned and unknown files remain present. This
+is a deterministic count/path-text bound, not an exact allocator-byte ceiling.
+
+## R4 current-source 4,096-entry process matrix
+
+`m1_lifecycle_memory_4096_matrix_r4.v1.json` embeds the sixteen raw child-process
+receipts and their original SHA-256 digests. Each receipt binds clean source
+`40f2abb422664ba4319c0ecd3240e5cb60f9b4a2`, tree
+`b517cca2e2a852d67a5f3eb64d90846a20270def`, and Windows Debug native
+binary SHA-256 `c84cfbb34e5e1b12cb1f576aaceb257980c04f14a8afb6e7f19d238ad6de8bc6`.
+The host was Windows 10 build 19045 with `C:` NTFS. The probe sampled the OS
+`GetProcessMemoryInfo` peak-working-set counter every 5 ms while each child
+ran. These are measured process peaks, not in-process allocation counters.
+
+| Separate 4,096-entry child | Peak working set (bytes) | Elapsed (ms) | Result |
+| --- | ---: | ---: | --- |
+| Install | 94,040,064 | 3,804,767 | Complete streamed install |
+| Verify | 91,951,104 | 3,922,385 | Complete verification |
+| Repair | 93,900,800 | 3,938,213 | Damage repaired and verified |
+| Move | 107,925,504 | 6,927,803 | Move applied and verified |
+| Update | 130,809,856 | 3,931,427 | Update planned; strict apply refused |
+| Recovery | 93,368,320 | 3,925,935 | Injected post-commit interruption recovered |
+
+Each case uses 4,096 streamed entries and 1 MiB requested source bytes in its
+own child. Verify, repair, move and update also perform an install inside that
+child before the named operation, so their peaks include preparation. The
+update case does **not** prove a successful replacement: the protected
+publisher remains unavailable and `apply_update` must refuse. The recovery
+case exercises the existing install-finalization interruption boundary, not
+power loss or the future protected publisher journal.
+
+Plan-only peak working sets were 11,796,480 bytes at 128 entries/1 MiB and
+43,180,032 bytes at 4,096 entries/1 MiB. At 128 entries, increasing the
+requested source from 1 to 32 MiB yielded 11,698,176 bytes; at 4,096 entries
+it yielded 43,253,760 bytes. Separate full streamed installs at 128 entries
+peaked at 14,065,664 bytes (1 MiB) and 14,053,376 bytes (32 MiB). Thus the
+observed metadata/entry-count effect is much larger than the payload-size
+effect in these shapes; this is an observed trend, not a universal constant
+memory theorem. The full 4,096-entry operations use only the 1 MiB shape.
+
+Prior-format 8,192-entry ownership loading, verify and uninstall planning,
+each with fixture preparation outside the measured child, peaked at
+65,368,064, 65,142,784 and 65,507,328 bytes. A combined verify plus
+uninstall-plan child peaked at 123,404,288 bytes. Separate-operation results
+must not be presented as a 64 MiB guarantee for combined processing. The
+16,384-unknown-entry report-budget smoke exited 0 with
+`report-budget-refusal-pass 16384`; it verifies explicit refusal, not an OS
+process-memory ceiling.
+
+The complete corpus is slow: the move child took about 115 minutes, and the
+other full 4,096-entry cases about 63–66 minutes on this machine. Growing
+transaction-journal snapshots remain a throughput issue. These ordinary-user
+measurements do not qualify a restricted-service publisher, successful update
+publication, crash recovery, or release acceptance.
 
 Move planning binds the source root's native identity. Move staging checks root
 identity and ancestor path safety before and after each source read and again
