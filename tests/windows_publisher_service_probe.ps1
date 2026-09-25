@@ -71,11 +71,13 @@ $receipt = [ordered]@{
     volume_disk_number = $disk[0].Number
     service_process_id = $null
     native_observation = $null
+    unprivileged_attack = $null
     cleanup = 'not_run'
     failure = $null
 }
 $created = $false
 $failure = $null
+$attackOutput = $null
 try {
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
         throw 'generated service name already exists'
@@ -348,6 +350,22 @@ try {
     }
     $receipt.service_process_id = $scm.ProcessId
     $receipt.native_observation = $native
+    Assert-OwnedVolume
+    $attackOutput = Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
+    if (Test-Path -LiteralPath $attackOutput) {
+        throw 'fresh disposable lab already has an attacker receipt'
+    }
+    & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') `
+        -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid `
+        -OutputPath $attackOutput
+    $attack = Get-Content -LiteralPath $attackOutput -Raw | ConvertFrom-Json
+    $receipt.unprivileged_attack = $attack
+    Assert-OwnedVolume
+    if ($attack.status -ne 'unprivileged_access_denied_observed' -or
+        $attack.account_sid -eq $sid -or
+        $attack.observation.volume_root -ne $VolumeRoot) {
+        throw 'separate-login access denial evidence is incomplete'
+    }
     $receipt.status = 'protected_publish_observed'
 } catch {
     $failure = $_.Exception.Message
@@ -357,6 +375,12 @@ try {
         try {
             $receipt.native_observation = Get-Content -LiteralPath $serviceReceipt -Raw |
                 ConvertFrom-Json
+        } catch {}
+    }
+    if ($attackOutput -and (Test-Path -LiteralPath $attackOutput -PathType Leaf)) {
+        try {
+            $receipt.unprivileged_attack =
+                Get-Content -LiteralPath $attackOutput -Raw | ConvertFrom-Json
         } catch {}
     }
 } finally {
