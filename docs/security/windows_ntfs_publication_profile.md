@@ -89,12 +89,13 @@ The hosted PR #98 observation at source head
 used Windows build 10.0.20348.0 and a fresh file-backed NTFS VHD. The lab
 bound the VHD backing file, attached device, sole volume extent and observed
 disk number before adding only the generated service SID to that disposable
-volume device's DACL. The restricted own-process service created the protected
-volume boundary, publication root, staging root, destination parent, state and
-journal anchors. Independent receipt checks found six distinct file IDs,
-SYSTEM ownership, exact protected SYSTEM/service-SID DACLs, no reparse points,
-and unchanged second-phase observations. The service was stopped and deletion
-requested, and the VHD was dismounted and removed. The retained JSON receipt
+volume device's DACL. The restricted own-process service protected the
+already formatted volume root and created the publication root, staging root,
+destination parent, state and journal anchors. Its native probe required
+unchanged second-phase observations. Independent receipt checks found six
+distinct file IDs, SYSTEM ownership, exact protected SYSTEM/service-SID DACLs,
+and no reparse points. The service was stopped and deletion requested, and the
+VHD was dismounted and removed. The retained JSON receipt
 SHA-256 is
 862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8.
 This establishes the disposable protected-anchor laboratory step only. It does
