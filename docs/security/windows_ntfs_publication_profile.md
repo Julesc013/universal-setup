@@ -149,3 +149,10 @@ JSON receipt SHA-256:
 These are still lab phase records. They omit effective-rights and exact-stream
 evidence and have no crash replay. OD-001 and production publication remain
 unqualified.
+
+A dependent source candidate now retains exact root and descendant stream
+observations in the sealed and visible tree records and rejects a change in
+stream name, size, or allocation size across phases. Its local Windows Debug
+fixture passes. This source change awaits a hosted disposable-service receipt;
+effective-rights facts, hostile-rights testing, crash replay and independent
+power-loss proof remain open. OD-001 remains unresolved.

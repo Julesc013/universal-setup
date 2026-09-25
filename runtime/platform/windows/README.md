@@ -97,3 +97,12 @@ root and every descendant. The ordinary-user OS tree is rejected and a
 synthetic matching structure passes; the synthetic pass is not an OS admission
 result. The actual restricted SCM service, effective-right checks, protected
 volume-root chain, and attacker harness are still required.
+
+The later disposable restricted-service lab candidate retains the exact
+observed stream set on the root and each descendant, compares name, size and
+allocation size between sealed and visible observations, and serializes those
+facts in its bounded phase records. The one-file native fixture checks that a
+forged stream change fails phase equality. The hosted VHD probe must still
+confirm the serialized facts; effective-rights evidence, crash replay and
+hostile-principal observations remain separate qualifications. Production
+publication continues to refuse.
