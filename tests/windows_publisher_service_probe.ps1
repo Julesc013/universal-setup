@@ -70,6 +70,7 @@ $receipt = [ordered]@{
     volume_root = $VolumeRoot
     volume_disk_number = $disk[0].Number
     service_process_id = $null
+    prepublish_attack = $null
     native_observation = $null
     unprivileged_attack = $null
     cleanup = 'not_run'
@@ -78,6 +79,7 @@ $receipt = [ordered]@{
 $created = $false
 $failure = $null
 $attackOutput = $null
+$preAttackOutput = $null
 try {
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
         throw 'generated service name already exists'
@@ -86,7 +88,7 @@ try {
     # backslash unquoted: a quoted trailing backslash escapes the quote in
     # Windows argv parsing and changes the path received by the service.
     $imagePath = '"' + $binary + '" --service ' + $serviceName +
-        ' "' + $serviceReceipt + '" ' + $VolumeRoot
+        ' "' + $serviceReceipt + '" ' + $VolumeRoot + ' --prepublish-gate'
     & sc.exe create $serviceName type= own start= demand obj= LocalSystem binPath= $imagePath | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'SCM own-process service creation failed' }
     $created = $true
@@ -97,7 +99,7 @@ try {
     $receipt.service_sid = $sid
     $labRoot = Split-Path -Parent $vhd
     $acl = Get-Acl -LiteralPath $labRoot
-    $rights = [Security.AccessControl.FileSystemRights]::Write
+    $rights = [Security.AccessControl.FileSystemRights]::Modify
     $inheritance = [Security.AccessControl.InheritanceFlags]::ObjectInherit
     $rule = New-Object Security.AccessControl.FileSystemAccessRule(
         $account, $rights, $inheritance,
@@ -158,7 +160,53 @@ try {
     }
     Assert-OwnedVolume
 
+    $phaseReady = Join-Path $labRoot 'prepublish-ready.txt'
+    $phaseRelease = Join-Path $labRoot 'prepublish-release.txt'
+    if ((Test-Path -LiteralPath $phaseReady) -or
+        (Test-Path -LiteralPath $phaseRelease)) {
+        throw 'fresh disposable lab already has a prepublish gate marker'
+    }
     Start-Service -Name $serviceName -ErrorAction Stop
+    for ($attempt = 0; $attempt -lt 45 -and
+        -not (Test-Path -LiteralPath $phaseReady -PathType Leaf); ++$attempt) {
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Test-Path -LiteralPath $phaseReady -PathType Leaf) -or
+        [IO.File]::ReadAllText($phaseReady) -ne "usk.publisher.lab_prepared.v1`n" -or
+        (Test-Path -LiteralPath $serviceReceipt)) {
+        throw 'restricted service did not pause after its prepared record'
+    }
+    Assert-OwnedVolume
+    $scmReady = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
+    if (-not $scmReady -or $scmReady.State -ne 'Running' -or
+        $scmReady.ProcessId -le 0) {
+        throw 'restricted service is not running at the prepared phase'
+    }
+    $preAttackOutput = Join-Path $labRoot 'unprivileged-prepublish.json'
+    & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') `
+        -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid `
+        -OutputPath $preAttackOutput -Stage Prepublish
+    $preAttack = Get-Content -LiteralPath $preAttackOutput -Raw | ConvertFrom-Json
+    $receipt.prepublish_attack = $preAttack
+    Assert-OwnedVolume
+    $scmAfterPre = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
+    if ($preAttack.status -ne 'unprivileged_access_denied_observed' -or
+        $preAttack.stage -ne 'Prepublish' -or
+        $preAttack.observation.stage -ne 'Prepublish' -or
+        -not $scmAfterPre -or $scmAfterPre.State -ne 'Running' -or
+        $scmAfterPre.ProcessId -ne $scmReady.ProcessId -or
+        (Test-Path -LiteralPath $serviceReceipt)) {
+        throw 'prepublish attack or service phase observation is incomplete'
+    }
+    $releaseBytes = [Text.Encoding]::ASCII.GetBytes("usk.publisher.lab_continue.v1`n")
+    $releaseTemp = Join-Path $labRoot 'prepublish-release.tmp'
+    $releaseStream = [IO.FileStream]::new($releaseTemp,
+        [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    try {
+        $releaseStream.Write($releaseBytes, 0, $releaseBytes.Length)
+        $releaseStream.Flush($true)
+    } finally { $releaseStream.Dispose() }
+    [IO.File]::Move($releaseTemp, $phaseRelease)
     for ($attempt = 0; $attempt -lt 30 -and
         -not (Test-Path -LiteralPath $serviceReceipt -PathType Leaf); ++$attempt) {
         Start-Sleep -Seconds 1
@@ -332,7 +380,8 @@ try {
             }
         }
     }
-    if ($native.status -ne 'pass' -or $native.service_sid -ne $sid -or
+    if ($native.status -ne 'pass' -or $native.prepublish_gate -ne 'released' -or
+        $native.service_sid -ne $sid -or
         $native.service_sid_type -ne 3 -or $native.service_type -ne 16 -or
         $native.process_user_sid -ne 'S-1-5-18' -or
         $native.thread_impersonating -or
@@ -345,7 +394,8 @@ try {
         @($anchorIds | Sort-Object -Unique).Count -ne 6 -or
         -not $scm -or $scm.ServiceType -ne 'Own Process' -or
         $scm.StartName -ne 'LocalSystem' -or
-        $scm.ProcessId -ne $native.process_id) {
+        $scm.ProcessId -ne $native.process_id -or
+        $scm.ProcessId -ne $scmReady.ProcessId) {
         throw 'native and independent SCM observations disagree'
     }
     $receipt.service_process_id = $scm.ProcessId
@@ -384,6 +434,12 @@ try {
         try {
             $receipt.unprivileged_attack =
                 Get-Content -LiteralPath $attackOutput -Raw | ConvertFrom-Json
+        } catch {}
+    }
+    if ($preAttackOutput -and (Test-Path -LiteralPath $preAttackOutput -PathType Leaf)) {
+        try {
+            $receipt.prepublish_attack =
+                Get-Content -LiteralPath $preAttackOutput -Raw | ConvertFrom-Json
         } catch {}
     }
 } finally {

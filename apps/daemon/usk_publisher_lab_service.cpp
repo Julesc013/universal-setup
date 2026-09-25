@@ -36,10 +36,67 @@ struct OwnedHandle {
 std::wstring service_name;
 std::wstring receipt_path;
 std::wstring volume_root;
+bool prepublish_gate = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
 constexpr std::size_t lab_record_limit = 4u * 1024u * 1024u;
+
+std::wstring gate_sibling(const wchar_t* name) {
+    const auto slash = receipt_path.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) {
+        throw std::runtime_error("publisher lab receipt has no parent");
+    }
+    return receipt_path.substr(0, slash + 1) + name;
+}
+
+void wait_for_prepublish_gate() {
+    const std::wstring ready = gate_sibling(L"prepublish-ready.txt");
+    const std::wstring ready_temp = gate_sibling(L"prepublish-ready.tmp");
+    const std::wstring release = gate_sibling(L"prepublish-release.txt");
+    static constexpr char ready_bytes[] = "usk.publisher.lab_prepared.v1\n";
+    static constexpr char release_bytes[] = "usk.publisher.lab_continue.v1\n";
+    if (GetFileAttributesW(release.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        throw std::runtime_error("prepublish release marker existed before readiness");
+    }
+    {
+        OwnedHandle marker(CreateFileW(ready_temp.c_str(), GENERIC_WRITE, 0, nullptr,
+            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (marker.get() == INVALID_HANDLE_VALUE) {
+            throw std::runtime_error("cannot create prepublish readiness marker");
+        }
+        DWORD written = 0;
+        if (!WriteFile(marker.get(), ready_bytes, sizeof(ready_bytes) - 1, &written, nullptr) ||
+            written != sizeof(ready_bytes) - 1 || !FlushFileBuffers(marker.get())) {
+            throw std::runtime_error("cannot flush prepublish readiness marker");
+        }
+    }
+    if (!MoveFileExW(ready_temp.c_str(), ready.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        throw std::runtime_error("cannot expose flushed prepublish readiness marker");
+    }
+    for (unsigned attempt = 0; attempt != 1200; ++attempt) {
+        OwnedHandle signal(CreateFileW(release.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (signal.get() != INVALID_HANDLE_VALUE) {
+            char bytes[sizeof(release_bytes)]{};
+            DWORD read = 0;
+            if (!ReadFile(signal.get(), bytes, sizeof(bytes), &read, nullptr) ||
+                read != sizeof(release_bytes) - 1 ||
+                std::string(bytes, read) != std::string(release_bytes, sizeof(release_bytes) - 1)) {
+                throw std::runtime_error("prepublish release marker is invalid");
+            }
+            return;
+        }
+        if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+            throw std::runtime_error("cannot inspect prepublish release marker");
+        }
+        if (WaitForSingleObject(stop_event, 100) != WAIT_TIMEOUT) {
+            throw std::runtime_error("prepublish gate interrupted");
+        }
+    }
+    throw std::runtime_error("prepublish gate timed out");
+}
 
 void report_status(DWORD state, DWORD accepted = 0, DWORD error = ERROR_SUCCESS) {
     SERVICE_STATUS status{};
@@ -511,6 +568,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     prepared_hasher.update(
         reinterpret_cast<const unsigned char*>(prepared.data()), prepared.size());
     const std::string prepared_digest = prepared_hasher.finish();
+    if (prepublish_gate) wait_for_prepublish_gate();
     require_publisher_tree_phase_match(sealed, observe_publisher_tree(candidate.get()));
     require_publisher_anchor_set_phase_match(first,
         observe_publisher_anchor_set(volume, {L"publication"}, names));
@@ -789,6 +847,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             std::to_string(volume_observation.volume_information_serial) +
             ",\"volume_file_id_serial\":" +
             std::to_string(volume_observation.file_id_volume_serial) +
+            ",\"prepublish_gate\":" +
+            json_quote(prepublish_gate ? "released" : "disabled") +
             ",\"protected_anchors\":" + anchors + "}\n";
         write_receipt(data);
         WaitForSingleObject(stop_event, 120000);
@@ -805,11 +865,13 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 5 || std::wstring(argv[1]) != L"--service" ||
+    if ((argc != 5 && argc != 6) || std::wstring(argv[1]) != L"--service" ||
+        (argc == 6 && std::wstring(argv[5]) != L"--prepublish-gate") ||
         std::wstring(argv[2]).rfind(L"USK_WU006_", 0) != 0) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
+    prepublish_gate = argc == 6;
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
     return service_exit_code == ERROR_SUCCESS ? 0 : 4;
