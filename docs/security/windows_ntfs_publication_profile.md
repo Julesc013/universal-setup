@@ -100,3 +100,18 @@ SHA-256 is
 862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8.
 This establishes the disposable protected-anchor laboratory step only. It does
 not qualify staged publication, hostile rights, crash recovery or OD-001.
+
+The dependent PR #100 staged-child probe at source head
+487d994d43fb5df8123b86f7d526d4e0a75bde83 and hosted CI run 36083996703
+created a `candidate` directory relative to the retained protected staging
+handle and a `payload.bin` file relative to the retained candidate handle.
+The restricted service wrote and flushed 25 bytes, observed the staged tree
+twice, and required unchanged identity, security and content. Independent
+receipt checks found the expected SHA-256
+92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f,
+path, size, and eight distinct protected root/anchor/staged IDs. The retained
+JSON receipt SHA-256 is
+b344d102c4ae5139b7eeb0095fbd91eead4a262dc61151cf308cf4cfd66d28e0.
+This qualifies protected staging in the disposable lab only. It does not
+establish a durable publish intent, no-replace rename, visible closure,
+hostile-rights resistance, crash recovery or production publication.

@@ -127,10 +127,10 @@ try {
             -OutputPath $serviceOutput
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
-        if ($receipt.service_observation.status -ne 'protected_anchors_observed') {
-            throw 'protected anchor service probe did not pass'
+        if ($receipt.service_observation.status -ne 'protected_stage_observed') {
+            throw 'protected stage service probe did not pass'
         }
-        $receipt.status = 'volume_and_protected_anchors_observed'
+        $receipt.status = 'volume_and_protected_stage_observed'
     }
 } catch {
     $failure = $_.Exception.Message
