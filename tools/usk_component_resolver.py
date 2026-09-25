@@ -40,6 +40,7 @@ def resolve_component_ids(
     components: Any,
     requested: Sequence[str] = (),
     *,
+    include_defaults: bool = True,
     component_limit: int = MAX_COMPONENTS,
     edge_limit: int = MAX_EDGES,
 ) -> tuple[str, ...]:
@@ -50,7 +51,8 @@ def resolve_component_ids(
     unselected components, so latent cycles cannot enter a compiled bundle.
     Conflict declarations are directional; either side rejects a selected pair.
     """
-    if (type(component_limit) is not int or not 1 <= component_limit <= MAX_COMPONENTS or
+    if (type(include_defaults) is not bool or
+            type(component_limit) is not int or not 1 <= component_limit <= MAX_COMPONENTS or
             type(edge_limit) is not int or not 0 <= edge_limit <= MAX_EDGES):
         raise ResolutionError("invalid_budget")
     if not isinstance(components, list) or not components:
@@ -119,7 +121,7 @@ def resolve_component_ids(
                 stack.append((dependency, 0))
 
     seeds = {name for name, (required, default_selected, _, _) in graph.items()
-             if required or default_selected}
+             if required or (include_defaults and default_selected)}
     for name in requested:
         if not isinstance(name, str) or not IDENTIFIER.fullmatch(name) or name not in graph:
             raise ResolutionError("unknown_requested", str(name))
@@ -138,3 +140,34 @@ def resolve_component_ids(
             if conflicting in selected:
                 raise ResolutionError("conflict", name, conflicting)
     return tuple(name for name in order if name in selected)
+
+
+def resolve_transition_component_ids(
+    previous_components: Any,
+    previous_selected: Sequence[str],
+    candidate_components: Any,
+) -> tuple[str, ...]:
+    """Preserve accepted component IDs across a compatible bundle transition.
+
+    The caller must verify package bytes, identity and target compatibility.
+    New defaults stay unselected; new required components and dependencies join.
+    A removed selected component refuses the transition.
+    """
+    if (not isinstance(previous_selected, (list, tuple)) or
+            len(previous_selected) > MAX_COMPONENTS or
+            any(not isinstance(name, str) or not IDENTIFIER.fullmatch(name)
+                for name in previous_selected) or
+            len(previous_selected) != len(set(previous_selected))):
+        raise ResolutionError("invalid_previous_selection")
+    previous = resolve_component_ids(
+        previous_components, previous_selected, include_defaults=False)
+    if set(previous) != set(previous_selected):
+        raise ResolutionError("previous_selection_not_closed")
+    # A latent cycle or reference in an unselected candidate still refuses.
+    resolve_component_ids(candidate_components, include_defaults=False)
+    names = {entry["id"] for entry in candidate_components}
+    for name in sorted(previous_selected):
+        if name not in names:
+            raise ResolutionError("selected_component_removed", name)
+    return resolve_component_ids(
+        candidate_components, previous_selected, include_defaults=False)

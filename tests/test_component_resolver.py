@@ -9,7 +9,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from usk_component_resolver import ResolutionError, resolve_component_ids
+from usk_component_resolver import (ResolutionError, resolve_component_ids,
+                                    resolve_transition_component_ids)
 
 
 def component(name: str, *, requires: tuple[str, ...] = (),
@@ -80,6 +81,45 @@ class ComponentResolverTests(unittest.TestCase):
             resolve_component_ids([component(f"c{i}") for i in range(4097)])
         self.assertEqual((caught.exception.code, caught.exception.witness),
                          ("resource_limit", ("components",)))
+
+    def test_transition_preserves_selection_without_new_defaults(self) -> None:
+        previous = [component("core", required=True),
+                    component("addon", requires=("core",)),
+                    component("unused", default_selected=True)]
+        candidate = [component("core", required=True),
+                     component("addon", requires=("core", "runtime")),
+                     component("runtime"),
+                     component("new_default", default_selected=True),
+                     component("new_required", required=True)]
+        self.assertEqual(resolve_transition_component_ids(
+            previous, ["core", "addon"], candidate),
+            ("core", "runtime", "addon", "new_required"))
+        self.assertEqual(resolve_component_ids(candidate),
+                         ("core", "new_default", "new_required"))
+
+    def test_transition_refuses_removed_or_unclosed_selection(self) -> None:
+        previous = [component("core", required=True),
+                    component("addon", requires=("core",))]
+        with self.assertRaises(ResolutionError) as caught:
+            resolve_transition_component_ids(previous, ["addon"], previous)
+        self.assertEqual(caught.exception.code, "previous_selection_not_closed")
+        with self.assertRaises(ResolutionError) as caught:
+            resolve_transition_component_ids(previous, ["core", "addon"],
+                                             [component("core", required=True)])
+        self.assertEqual((caught.exception.code, caught.exception.witness),
+                         ("selected_component_removed", ("addon",)))
+        with self.assertRaises(ResolutionError) as caught:
+            resolve_transition_component_ids(previous, ["core", "core"], previous)
+        self.assertEqual(caught.exception.code, "invalid_previous_selection")
+
+    def test_transition_refuses_candidate_conflict(self) -> None:
+        previous = [component("core", required=True), component("addon")]
+        candidate = [component("core", required=True),
+                     component("addon", conflicts=("new_required",)),
+                     component("new_required", required=True)]
+        with self.assertRaises(ResolutionError) as caught:
+            resolve_transition_component_ids(previous, ["core", "addon"], candidate)
+        self.assertEqual(caught.exception.code, "conflict")
 
 
 if __name__ == "__main__":
