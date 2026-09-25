@@ -148,12 +148,28 @@ bool lower_sha256(const std::wstring& value) {
     return true;
 }
 
+bool lower_sha256_ascii(const std::string& value) {
+    if (value.size() != 64) return false;
+    for (const char ch : value) {
+        if (!((ch >= '0' && ch <= '9') ||
+                (ch >= 'a' && ch <= 'f'))) return false;
+    }
+    return true;
+}
+
 std::wstring gate_sibling(const wchar_t* name) {
     const auto slash = receipt_path.find_last_of(L"\\/");
     if (slash == std::wstring::npos) {
         throw std::runtime_error("publisher lab receipt has no parent");
     }
-    return receipt_path.substr(0, slash + 1) + name;
+    const auto parent = receipt_path.substr(0, slash + 1);
+    if (!selected_archive_mode) return parent + name;
+    const auto filename = receipt_path.substr(slash + 1);
+    if (filename.size() <= 5 ||
+        filename.compare(filename.size() - 5, 5, L".json") != 0) {
+        throw std::runtime_error("selected lab receipt extension is invalid");
+    }
+    return parent + filename.substr(0, filename.size() - 5) + L"-" + name;
 }
 
 void wait_for_prepublish_gate() {
@@ -773,6 +789,15 @@ std::string observe_prepared_recovery(HANDLE volume,
             usk::json::canonical(usk::json::parse(json_anchor_set(anchors)))) {
         throw std::runtime_error("recovery prepared anchors differ from held observations");
     }
+    if (prepared.contains("source_binding")) {
+        const auto& binding = prepared.at("source_binding");
+        if (binding.as_object().size() != 3 ||
+            !lower_sha256_ascii(binding.at("archive_sha256").as_string()) ||
+            !lower_sha256_ascii(binding.at("archive_identity_digest").as_string()) ||
+            !lower_sha256_ascii(binding.at("entry_set_digest").as_string())) {
+            throw std::runtime_error("recovery selected source binding is malformed");
+        }
+    }
     const auto staged_entries = observe_publisher_directory_entries(staging.get());
     const auto destination_entries =
         observe_publisher_directory_entries(destination.get());
@@ -1103,6 +1128,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             "\"max_ratio\":100,\"max_elapsed_ms\":300000}}";
         selected_payload = usk::archive::inspect_streaming_payload(request, "");
         if (selected_payload->source_sha256 != selected_archive_sha256 ||
+            !lower_sha256_ascii(selected_payload->source_identity_digest) ||
+            !lower_sha256_ascii(selected_payload->entry_set_digest) ||
             selected_payload->files.size() != 1 ||
             selected_payload->files.front().relative_path != "payload.bin") {
             throw std::runtime_error("selected lab archive identity or closure differs");
@@ -1181,6 +1208,14 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         json_quote(first.destination_parent.object.file_id) +
         ",\"destination_name\":\"visible\",\"payload_sha256\":" +
         json_quote(sealed.descendants.front().sha256) +
+        (selected_payload ?
+            ",\"source_binding\":{\"archive_sha256\":" +
+                json_quote(selected_payload->source_sha256) +
+                ",\"archive_identity_digest\":" +
+                json_quote(selected_payload->source_identity_digest) +
+                ",\"entry_set_digest\":" +
+                json_quote(selected_payload->entry_set_digest) + "}" :
+            std::string{}) +
         ",\"protected_anchors\":" + json_anchor_set(third) +
         ",\"sealed_tree\":" + json_tree(sealed) + "}");
     write_journal_phase(journal.get(), L"lab-prepared-evidence.json",
@@ -1529,14 +1564,17 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--postjournal-gate" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
-    const bool campaign_vm_selected = argc == 10 &&
+    const bool campaign_vm_selected = (argc == 10 || argc == 11) &&
         generated_service_name(name, L"USK_VM_") &&
         campaign_selected_receipt_path(argv[3]) &&
         std::wstring(argv[5]) == L"--selected-zip" &&
         campaign_selected_archive_path(argv[6]) &&
         lower_sha256(argv[7]) &&
         std::wstring(argv[8]) == L"--campaign-vm-id" &&
-        campaign_vm_id_matches(argv[9]);
+        campaign_vm_id_matches(argv[9]) &&
+        (argc == 10 || std::wstring(argv[10]) == L"--prepublish-gate" ||
+            std::wstring(argv[10]) == L"--postrename-gate" ||
+            std::wstring(argv[10]) == L"--postjournal-gate");
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
@@ -1544,9 +1582,15 @@ int wmain(int argc, wchar_t** argv) {
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
-    prepublish_gate = argc == 6 || campaign_vm;
-    postrename_gate = campaign_vm_postrename;
-    postjournal_gate = campaign_vm_postjournal;
+    prepublish_gate = argc == 6 || campaign_vm ||
+        (campaign_vm_selected && argc == 11 &&
+            std::wstring(argv[10]) == L"--prepublish-gate");
+    postrename_gate = campaign_vm_postrename ||
+        (campaign_vm_selected && argc == 11 &&
+            std::wstring(argv[10]) == L"--postrename-gate");
+    postjournal_gate = campaign_vm_postjournal ||
+        (campaign_vm_selected && argc == 11 &&
+            std::wstring(argv[10]) == L"--postjournal-gate");
     recover_prepared = campaign_vm_recovery || campaign_vm_replay;
     recover_visible_bound = campaign_vm_replay;
     selected_archive_mode = campaign_vm_selected;
