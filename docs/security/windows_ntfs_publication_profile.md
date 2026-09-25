@@ -331,7 +331,7 @@ exclusion, OD-001 resolution, or production publication.
 The recovery classifier now also observes the prepared journal as a complete
 protected tree. It requires the held journal root's file identity to match the
 anchor, exactly one named record with the readback size and SHA-256, the
-service-only protected security shape on both objects, and an unchanged second
+protected SYSTEM/service-SID security shape on both objects, and an unchanged second
 tree observation. This closes a lab classifier gap where canonical bytes alone
 could be accepted after the record file's ACL changed.
 
