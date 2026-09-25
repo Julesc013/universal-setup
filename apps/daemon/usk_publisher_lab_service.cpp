@@ -199,15 +199,55 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         report_status(SERVICE_RUNNING, SERVICE_ACCEPT_STOP);
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
-        HANDLE volume = CreateFileW(volume_root.c_str(),
+        const DWORD root_access =
             FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
-                READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE,
+                READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE;
+        HANDLE volume = CreateFileW(volume_root.c_str(), root_access,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (volume == INVALID_HANDLE_VALUE) {
             const DWORD error = GetLastError();
+            const auto probe = [&](DWORD access, DWORD flags) {
+                HANDLE trial = CreateFileW(volume_root.c_str(), access,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, flags, nullptr);
+                const DWORD outcome = trial == INVALID_HANDLE_VALUE ? GetLastError() : ERROR_SUCCESS;
+                if (trial != INVALID_HANDLE_VALUE) CloseHandle(trial);
+                return outcome;
+            };
+            const DWORD read_reparse = probe(FILE_READ_ATTRIBUTES,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+            const DWORD full_backup = probe(root_access, FILE_FLAG_BACKUP_SEMANTICS);
+            const DWORD read_backup = probe(FILE_READ_ATTRIBUTES,
+                FILE_FLAG_BACKUP_SEMANTICS);
+            const DWORD read_sync_backup = probe(
+                FILE_READ_ATTRIBUTES | SYNCHRONIZE, FILE_FLAG_BACKUP_SEMANTICS);
+            const DWORD list_backup = probe(
+                FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_FLAG_BACKUP_SEMANTICS);
+            const DWORD control_backup = probe(
+                FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+                FILE_FLAG_BACKUP_SEMANTICS);
+            const DWORD add_backup = probe(
+                FILE_READ_ATTRIBUTES | FILE_ADD_SUBDIRECTORY | SYNCHRONIZE,
+                FILE_FLAG_BACKUP_SEMANTICS);
+            const DWORD dac_backup = probe(
+                FILE_READ_ATTRIBUTES | WRITE_DAC | SYNCHRONIZE,
+                FILE_FLAG_BACKUP_SEMANTICS);
+            const DWORD owner_backup = probe(
+                FILE_READ_ATTRIBUTES | WRITE_OWNER | SYNCHRONIZE,
+                FILE_FLAG_BACKUP_SEMANTICS);
             throw std::runtime_error("restricted service cannot open disposable volume root; Win32 " +
-                std::to_string(error));
+                std::to_string(error) + "; read-reparse=" +
+                std::to_string(read_reparse) + "; full-backup=" +
+                std::to_string(full_backup) + "; read-backup=" +
+                std::to_string(read_backup) + "; read-sync-backup=" +
+                std::to_string(read_sync_backup) + "; list-backup=" +
+                std::to_string(list_backup) + "; control-backup=" +
+                std::to_string(control_backup) + "; add-backup=" +
+                std::to_string(add_backup) + "; dac-backup=" +
+                std::to_string(dac_backup) + "; owner-backup=" +
+                std::to_string(owner_backup));
         }
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
