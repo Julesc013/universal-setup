@@ -55,6 +55,7 @@ bool postrename_gate = false;
 bool postjournal_gate = false;
 bool recover_prepared = false;
 bool recover_visible_bound = false;
+bool reviewed_install_reentry = false;
 bool selected_archive_mode = false;
 std::wstring selected_archive_path;
 std::string selected_archive_sha256;
@@ -1168,7 +1169,9 @@ std::string complete_selected_lab_state(HANDLE state,
 }
 
 std::string observe_prepared_recovery(HANDLE volume,
-    const std::string& service_sid, bool bind_visible_forward) {
+    const std::string& service_sid, bool bind_visible_forward,
+    const std::string& expected_envelope_sha256 = {},
+    const std::string& expected_archive_sha256 = {}) {
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{
         L"staging", L"destination", L"state", L"journal"};
@@ -1285,6 +1288,20 @@ std::string observe_prepared_recovery(HANDLE volume,
             throw std::runtime_error("recovery reviewed snapshot requires selected v2 closure");
         }
         require_reviewed_plan_snapshot(stored_snapshot, prepared, selected_digest);
+    }
+    if (!expected_envelope_sha256.empty() || !expected_archive_sha256.empty()) {
+        if (!has_reviewed_snapshot || !selected_v2 ||
+            !lower_sha256_ascii(expected_envelope_sha256) ||
+            !lower_sha256_ascii(expected_archive_sha256)) {
+            throw std::runtime_error("reviewed install reentry has no durable plan binding");
+        }
+        const auto& snapshot = usk::json::parse(stored_snapshot);
+        if (snapshot.at("plan_envelope_sha256").as_string() !=
+                expected_envelope_sha256 ||
+            snapshot.at("archive_sha256").as_string() !=
+                expected_archive_sha256) {
+            throw std::runtime_error("reviewed install reentry differs from durable plan and source");
+        }
     }
     if (has_completion_record && (!selected_source || !has_visible_record)) {
         throw std::runtime_error("recovery state has no selected visible source");
@@ -2301,10 +2318,6 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         report_status(SERVICE_RUNNING, SERVICE_ACCEPT_STOP);
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
-        const std::optional<ReviewedPlanBinding> reviewed_plan =
-            reviewed_plan_envelope_path.empty() ?
-                std::optional<ReviewedPlanBinding>{} :
-                std::optional<ReviewedPlanBinding>{require_reviewed_selected_plan()};
         const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root);
         const DWORD root_access = recover_prepared ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
@@ -2443,11 +2456,35 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         std::string anchors;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
-            anchors = recover_prepared ?
-                observe_prepared_recovery(volume, observed.service_sid,
-                    recover_visible_bound) :
-                observe_protected_anchors(volume, observed.service_sid,
-                    reviewed_plan);
+            if (recover_prepared) {
+                anchors = observe_prepared_recovery(volume, observed.service_sid,
+                    recover_visible_bound);
+            } else {
+                bool publication_present = false;
+                for (const auto& entry :
+                        usk::platform::windows::observe_publisher_directory_entries(volume)) {
+                    if (CompareStringOrdinal(entry.name.c_str(), -1,
+                            L"publication", -1, TRUE) == CSTR_EQUAL) {
+                        if (entry.name != L"publication" || publication_present) {
+                            throw std::runtime_error("publisher publication root name is ambiguous");
+                        }
+                        publication_present = true;
+                    }
+                }
+                if (publication_present && !reviewed_plan_envelope_path.empty()) {
+                    reviewed_install_reentry = true;
+                    anchors = observe_prepared_recovery(volume, observed.service_sid,
+                        true, reviewed_plan_envelope_sha256,
+                        selected_archive_sha256);
+                } else {
+                    const std::optional<ReviewedPlanBinding> reviewed_plan =
+                        reviewed_plan_envelope_path.empty() ?
+                            std::optional<ReviewedPlanBinding>{} :
+                            std::optional<ReviewedPlanBinding>{require_reviewed_selected_plan()};
+                    anchors = observe_protected_anchors(volume, observed.service_sid,
+                        reviewed_plan);
+                }
+            }
         } catch (...) {
             CloseHandle(volume);
             throw;
@@ -2482,9 +2519,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 ",\"selected_archive_sha256\":" + json_quote(selected_archive_sha256) :
                 std::string{}) +
             ",\"prepublish_gate\":" +
-            json_quote(recover_prepared ? "not_applicable" :
+            json_quote(recover_prepared || reviewed_install_reentry ? "not_applicable" :
                 (prepublish_gate ? "released" : "disabled")) +
-            (recover_prepared ? ",\"recovery_observation\":" :
+            (recover_prepared || reviewed_install_reentry ? ",\"recovery_observation\":" :
                 ",\"protected_anchors\":") + anchors + "}\n";
         write_receipt(data);
         WaitForSingleObject(stop_event, 120000);
@@ -2493,7 +2530,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         try {
             write_receipt("{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
-                json_quote(recover_visible_bound ? "recovery_required" : "failed") +
+                json_quote(recover_visible_bound || reviewed_install_reentry ?
+                    "recovery_required" : "failed") +
                 ",\"error\":" + json_quote(error.what()) + "}\n");
         } catch (...) {}
     }
