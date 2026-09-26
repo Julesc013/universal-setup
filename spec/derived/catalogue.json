@@ -570,7 +570,7 @@
       "path": "plan/tasks/usk-wu-006.md",
       "title": "Implement the qualified staged-child publisher",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "ff3375d8c1cd09a01a6eaaad627b0f65e97f30852d3931881c138ee912711f56",
+      "sha256": "5a32bee29312f7716ebab9dae6f9cab8861f39a0b7c16f4fa520dfa33a9d3d61",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-PLAT"
@@ -3098,7 +3098,10 @@
         "tests/**",
         "docs/security/windows_ntfs_publication_profile.md",
         "docs/architecture/staged_child_commit_authority.md",
-        "docs/architecture/specification_implementation_inventory.v1.json"
+        "docs/architecture/specification_implementation_inventory.v1.json",
+        "tools/development_layout.py",
+        "tools/workspace_hygiene.py",
+        "docs/governance/workspace_hygiene.md"
       ],
       "read_only_paths": [
         "contracts/**",
