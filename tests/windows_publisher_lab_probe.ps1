@@ -5,7 +5,8 @@ param(
     [string]$MachineBinary = '',
     [string]$PublicApplyBinary = '',
     [switch]$InterruptAfterVisibleRecord,
-    [switch]$InterruptAfterRename
+    [switch]$InterruptAfterRename,
+    [switch]$InterruptBeforePublish
 )
 
 $ErrorActionPreference = 'Stop'
@@ -130,7 +131,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
