@@ -999,7 +999,8 @@ void with_public_roots_bound(HANDLE volume, const usk::lifecycle::InstallPlan& p
 std::optional<usk::lifecycle::InstallResult> finalize_reviewed_public_state(const std::string& snapshot_record,
     const std::string& protected_completion_sha256, HANDLE volume,
     HANDLE journal, HANDLE state, HANDLE visible_root,
-    const std::string& visible_root_file_id) {
+    const std::string& visible_root_file_id,
+    std::string* installed_response = nullptr) {
     const auto snapshot = usk::json::parse(snapshot_record);
     if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
         snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") return std::nullopt;
@@ -1014,6 +1015,7 @@ std::optional<usk::lifecycle::InstallResult> finalize_reviewed_public_state(cons
         throw std::runtime_error("public finalization completion identity differs");
     }
     usk::lifecycle::InstallResult completed;
+    std::string installed_reply;
     with_public_roots_bound(volume, plan, visible_root_file_id, [&] {
     const auto result = usk::lifecycle::finalize_protected_visible_install(plan,
         snapshot.at("transaction_id").as_string(),
@@ -1039,6 +1041,7 @@ std::optional<usk::lifecycle::InstallResult> finalize_reviewed_public_state(cons
         if (status != 0 || response.at("status").as_string() != "ok") {
             throw std::runtime_error("publisher public lifecycle readback refused");
         }
+        if (std::string(command) == "installed.inspect") installed_reply = output;
         return response.at("payload");
     };
     const auto installed = public_command("installed.inspect", usk::json::Value(
@@ -1069,6 +1072,7 @@ std::optional<usk::lifecycle::InstallResult> finalize_reviewed_public_state(cons
         throw std::runtime_error("publisher public installed verification differs");
     }
     });
+    if (installed_response) *installed_response = std::move(installed_reply);
     return completed;
 }
 
@@ -1198,7 +1202,8 @@ std::string observe_prepared_recovery(HANDLE volume,
     const std::string& service_sid, bool bind_visible_forward,
     const std::string& expected_envelope_sha256 = {},
     const std::string& expected_archive_sha256 = {},
-    bool require_reviewed_snapshot = false) {
+    bool require_reviewed_snapshot = false,
+    std::string* installed_response = nullptr) {
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{
         L"staging", L"destination", L"state", L"journal"};
@@ -1537,7 +1542,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         if (has_reviewed_snapshot && !completion_digest.empty()) {
             finalize_reviewed_public_state(stored_snapshot, completion_digest,
                 volume, journal.get(), state.get(), root.get(),
-                forward_visible.root.file_id);
+                forward_visible.root.file_id, installed_response);
         }
         return "{\"decision\":\"visible_bound_forward\",\"prepared_sha256\":" +
             json_quote(prepared_digest) +
@@ -1595,7 +1600,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         if (has_reviewed_snapshot && !completion_digest.empty()) {
             finalize_reviewed_public_state(stored_snapshot, completion_digest,
                 volume, journal.get(), state.get(), root.get(),
-                observed_tree.root.file_id);
+                observed_tree.root.file_id, installed_response);
         }
         return "{\"decision\":" + json_quote(
             selected_source && !completion_was_present ?
@@ -2466,13 +2471,15 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         }
         OwnedHandle held_volume(volume);
         std::string apply_response;
+        std::string recovery_installed_response;
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
             if (recover_prepared) {
                 anchors = observe_prepared_recovery(volume, observed.service_sid,
-                    recover_visible_bound, {}, {}, recover_sealed_journal);
+                    recover_visible_bound, {}, {}, recover_sealed_journal,
+                    &recovery_installed_response);
             } else {
                 bool publication_present = false;
                 for (const auto& entry :
@@ -2515,7 +2522,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         anchors = observe_prepared_recovery(volume,
                             observed.service_sid, true,
                             reviewed_plan_envelope_sha256,
-                            selected_archive_sha256);
+                            selected_archive_sha256, false,
+                            &recovery_installed_response);
                     }
                 } else {
                     const std::optional<ReviewedPlanBinding> reviewed_plan =
@@ -2558,6 +2566,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 "recovery_required" : "pass") + ","
             "\"service_name\":" + json_quote(ascii(service_name)) +
             ",\"apply_response\":" + (apply_response.empty() ? "null" : apply_response) +
+            ",\"recovery_installed_response\":" +
+                (recovery_installed_response.empty() ? "null" : recovery_installed_response) +
             ",\"service_sid\":" + json_quote(observed.service_sid) +
             ",\"service_sid_type\":" + std::to_string(observed.service_sid_type) +
             ",\"service_type\":" + std::to_string(observed.service_type) +

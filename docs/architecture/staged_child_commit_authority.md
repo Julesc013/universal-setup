@@ -63,3 +63,9 @@ readback of caller identities and protected records. These are candidate tests;
 this source change does not assert they have executed. General SDK/client
 transport, consumer read policy, per-install leases, complete hostile/crash
 qualification and production enablement remain incomplete.
+
+### Caller-bound interruption and source-free completion candidate
+
+The private recovery engine returns the actual shared `installed.inspect` C ABI response only after protected finalization, independent public verification and the held-root identity checks succeed. It preserves the durable v3 caller transaction and timestamp. This response is labelled `recovery_installed_response`; an interrupted apply is not reclassified as a successful apply.
+
+The hosted selected-metadata case can cancel the admitted ordinary apply after its visible journal record is flushed, independently observe the published payload and absent public installed metadata, delete the exact original archive/request inputs within its new disposable VM input root, and resume the same restricted service without a source. It then validates completed installed/ownership/audit records, checks that existing payload and durable-intent bytes are unchanged, repeats recovery, and compares all record and payload hashes, sizes and closure. The observer permits an absent setup root only for that explicit interruption observation; completed-state validation rejects partial observations. These are candidate test instructions until the current exact-head run is observed. Controlled service cancellation is not VM or physical power-loss evidence. General production profile, external clients and per-install fencing remain open.

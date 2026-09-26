@@ -2,8 +2,8 @@
   "schema": "usk.repository.requirement-implementation-inventory/1",
   "generated_at": "2026-09-26T10:00:24Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "1b449afdded9dfde59b57cc8fcb59ec8d83cc8f7",
-  "repository_base_tree": "81658d89e8b97f0eb348632d93e6cefdf57bddd6",
+  "repository_base_commit": "e94513da8ec5a71d1059231c49f947af6ba678f8",
+  "repository_base_tree": "fc453b23e7c9f4a023f8814c865dc84695b0bb3b",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "f6c0c724f669ecf10c9dc9b77f2d8e02131b70222a933553b6e3e4240de5d60b",
   "source_hash_contract": "sha256-lf-text-v1",
@@ -3464,7 +3464,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "68851ace4aa06e2bcbee21404ff8b647f512152845d993acaf1dd8f1d8b6e4e5"
+          "sha256": "a554fc2d7dadbbb1467b5a482a06789a2e1c09ab81b8a9afb3a936ec10c4e120"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3500,7 +3500,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "68851ace4aa06e2bcbee21404ff8b647f512152845d993acaf1dd8f1d8b6e4e5"
+          "sha256": "a554fc2d7dadbbb1467b5a482a06789a2e1c09ab81b8a9afb3a936ec10c4e120"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3536,7 +3536,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "68851ace4aa06e2bcbee21404ff8b647f512152845d993acaf1dd8f1d8b6e4e5"
+          "sha256": "a554fc2d7dadbbb1467b5a482a06789a2e1c09ab81b8a9afb3a936ec10c4e120"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3831,7 +3831,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "0a836405a135e97fff4893aba8f26ca51d51b9526d5976beb9aa96472af7c800"
+          "sha256": "2fa33608c205b7a4db7ec630880fdd866e654afd3175816be0c29a9a71cd883c"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -3907,7 +3907,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "7855aa5f5feee24d3fbd1950723ff95bf5f985e410bf767a6da4ef19c6740a2a"
+          "sha256": "fa8b6fddd2e561a9773440e00808345b7b3836de8a94a1baa6cdb7c14c1acc95"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -3995,7 +3995,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback_smoke.ps1",
-          "sha256": "c76c16a173bc04749e5bdba4a4431163be1efd36c9df70392f1114b03a473d40"
+          "sha256": "f1de814caaf56656c214782c187bef5555a7f598c8cbd60fb06e44bf36051523"
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
@@ -4003,11 +4003,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "a21dcd552f103b85a51bde8e06305c2c3b7f2660ac2383f8248f345b48b63a02"
+          "sha256": "e8b4dc3742fb155a896bff8a92fd3690e9ff40c368ca7aa28d5f4b5324cd2ef6"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "1b9b2a2e3d2af9e292adc3b6156e9f8edc1d093d7116bb35109037ed01399413"
+          "sha256": "aaf53a00d558e2281af8b49ff42fb2b7743ec6309fdaf734ea4ec15961b2eeb5"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4019,7 +4019,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "d78b2333b679c259d01ba691817028f8ce34a1c88df6c07f4626c9f4612302ac"
+          "sha256": "e929b82da1552f3f96b6ebeb02f89030e812dab587ad7abd74988753c7d2da86"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4059,7 +4059,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "0a836405a135e97fff4893aba8f26ca51d51b9526d5976beb9aa96472af7c800"
+          "sha256": "2fa33608c205b7a4db7ec630880fdd866e654afd3175816be0c29a9a71cd883c"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -4095,7 +4095,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "0a836405a135e97fff4893aba8f26ca51d51b9526d5976beb9aa96472af7c800"
+          "sha256": "2fa33608c205b7a4db7ec630880fdd866e654afd3175816be0c29a9a71cd883c"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -4247,7 +4247,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback_smoke.ps1",
-          "sha256": "c76c16a173bc04749e5bdba4a4431163be1efd36c9df70392f1114b03a473d40"
+          "sha256": "f1de814caaf56656c214782c187bef5555a7f598c8cbd60fb06e44bf36051523"
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
@@ -4255,11 +4255,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "a21dcd552f103b85a51bde8e06305c2c3b7f2660ac2383f8248f345b48b63a02"
+          "sha256": "e8b4dc3742fb155a896bff8a92fd3690e9ff40c368ca7aa28d5f4b5324cd2ef6"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "1b9b2a2e3d2af9e292adc3b6156e9f8edc1d093d7116bb35109037ed01399413"
+          "sha256": "aaf53a00d558e2281af8b49ff42fb2b7743ec6309fdaf734ea4ec15961b2eeb5"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4271,7 +4271,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "d78b2333b679c259d01ba691817028f8ce34a1c88df6c07f4626c9f4612302ac"
+          "sha256": "e929b82da1552f3f96b6ebeb02f89030e812dab587ad7abd74988753c7d2da86"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
