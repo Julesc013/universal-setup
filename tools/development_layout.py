@@ -133,8 +133,14 @@ def task_root(source_root: Path, task_id: str | None = None) -> Path:
 
 
 def default_task_root(source_root: Path, task_id: str | None = None) -> Path:
-    require_configured_development_base()
-    expected = task_root(source_root, task_id).resolve()
+    base = require_configured_development_base()
+    raw = task_root(source_root, task_id)
+    for ancestor in (raw, *raw.parents):
+        if ancestor.exists() and (ancestor.is_symlink() or getattr(ancestor.lstat(), "st_file_attributes", 0) & 0x400):
+            raise ValueError(f"development task path crosses a link: {ancestor}")
+    expected = raw.resolve()
+    if not expected.is_relative_to(base / "repositories"):
+        raise ValueError("development task root escapes the configured repository store")
     configured = os.environ.get("FACMAN_TASK_ROOT", "").strip()
     if configured:
         if Path(configured).expanduser().resolve() != expected:
@@ -325,9 +331,9 @@ def remove_worktree_record(source_root: Path, branch: str) -> None:
 
 
 def ensure_task_root(path: Path, source_root: Path, task_id: str) -> Path:
-    require_configured_development_base()
+    expected = default_task_root(source_root, task_id)
     resolved = path.expanduser().resolve()
-    if resolved != task_root(source_root, task_id).resolve():
+    if resolved != expected:
         raise ValueError("development task root must match the canonical task path")
     for ancestor in (path, *path.parents):
         if ancestor.exists() and (ancestor.is_symlink() or getattr(ancestor.lstat(), "st_file_attributes", 0) & 0x400):

@@ -19,6 +19,95 @@ from tools import development_layout, workspace_hygiene
 
 
 class DevelopmentLayoutTests(unittest.TestCase):
+    @contextlib.contextmanager
+    def budgeted_fixture(self, base: Path, child: str, *, disk: int = 10485760):
+        source = base / "source"
+        source.mkdir()
+        args = workspace_hygiene.parser().parse_args(["run", "--disk-bytes", str(disk), "--ram-bytes", "134217728", "--", sys.executable, "-c", child])
+        with (mock.patch.dict(os.environ, {"FACMAN_DEV_ROOT": str(base / "development"), "FACMAN_TASK_ROOT": ""}),
+              mock.patch.object(workspace_hygiene, "ROOT", source), mock.patch.object(workspace_hygiene, "CONTROL_ROOT", source),
+              mock.patch.object(development_layout, "current_task_id", return_value="fixture"),
+              mock.patch.object(workspace_hygiene, "memory_headroom", return_value=(100 * workspace_hygiene.GIB, 100 * workspace_hygiene.GIB)),
+              mock.patch.object(workspace_hygiene, "worktree_records", return_value=[]),
+              mock.patch.object(workspace_hygiene, "task_roots", return_value=[]),
+              mock.patch.object(workspace_hygiene.shutil, "disk_usage", return_value=mock.Mock(free=100 * workspace_hygiene.GIB))):
+            yield args
+
+    def test_canonical_task_junction_refuses_without_writing_outside(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            outside = base / "outside"
+            outside.mkdir()
+            with mock.patch.dict(os.environ, {"FACMAN_DEV_ROOT": str(base / "development"), "FACMAN_TASK_ROOT": ""}):
+                link = development_layout.task_root(base / "source", "fixture")
+                link.parent.mkdir(parents=True)
+                try:
+                    link.symlink_to(outside, target_is_directory=True)
+                except OSError:
+                    if os.name != "nt":
+                        self.skipTest("directory links unavailable")
+                    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                        "New-Item -ItemType Junction -Path $env:FACMAN_TEST_LINK -Target $env:FACMAN_TEST_TARGET | Out-Null"],
+                        env={**os.environ, "FACMAN_TEST_LINK": str(link), "FACMAN_TEST_TARGET": str(outside)}, check=True, capture_output=True)
+                with self.assertRaisesRegex(ValueError, "crosses a link"):
+                    development_layout.ensure_task_root(development_layout.default_task_root(base / "source", "fixture"), base / "source", "fixture")
+                self.assertEqual(list(outside.iterdir()), [])
+
+    def test_missing_process_command_line_refuses_retirement(self) -> None:
+        if os.name != "nt":
+            self.skipTest("Windows CIM observation")
+        rows = [{"pid": 0, "Name": "System Idle Process", "command": None},
+                {"pid": 4, "Name": "System", "command": None},
+                {"pid": 4321, "Name": "unknown.exe", "command": None}]
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.object(workspace_hygiene.subprocess, "run", return_value=mock.Mock(stdout=json.dumps(rows))):
+                observed = workspace_hygiene.process_observation()
+            self.assertFalse(observed[0]["observation_unavailable"])
+            self.assertFalse(observed[1]["observation_unavailable"])
+            self.assertFalse(workspace_hygiene.worktree_material(Path(temporary), observed)["material_checked"])
+
+    def test_headroom_loss_during_material_observation_prevents_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.budgeted_fixture(Path(temporary), "raise RuntimeError('must not launch')") as args:
+                with (mock.patch.object(workspace_hygiene, "worktree_records", side_effect=lambda _base: []),
+                      mock.patch.object(workspace_hygiene, "memory_headroom", side_effect=[(100 * workspace_hygiene.GIB,) * 2, (0, 0)]),
+                      mock.patch.object(workspace_hygiene.subprocess, "Popen", wraps=subprocess.Popen) as launch,
+                      contextlib.redirect_stdout(io.StringIO())):
+                    self.assertEqual(workspace_hygiene.command_run(args), 2)
+                    self.assertFalse(any(call.args[0][0] == sys.executable for call in launch.call_args_list))
+
+    def test_fast_child_disk_growth_is_not_reported_as_passed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            child = "import os,pathlib; p=pathlib.Path(os.environ['TEMP'])/'rapid'; f=p.open('wb'); f.seek(2*1024*1024); f.write(b'x'); f.close()"
+            with self.budgeted_fixture(Path(temporary), child, disk=1048576) as args:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(workspace_hygiene.command_run(args), 1)
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["stop_reason"], "disk_estimate_exceeded")
+                receipt = json.loads(Path(result["receipt"]).read_text())
+                self.assertGreater(receipt["storage_bytes_after"], 1048576)
+                self.assertTrue(receipt["disposable_output_retained"])
+
+    def test_log_thread_setup_failure_reaps_owned_child(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.budgeted_fixture(Path(temporary), "import time; time.sleep(60)") as args:
+                output = io.StringIO()
+                spawned = []
+                original_popen = subprocess.Popen
+                def launch(*arguments, **keywords):
+                    child = original_popen(*arguments, **keywords)
+                    if arguments[0][0] == sys.executable:
+                        spawned.append(child)
+                    return child
+                with (mock.patch.object(workspace_hygiene.subprocess, "Popen", side_effect=launch),
+                      mock.patch.object(workspace_hygiene.threading.Thread, "start", side_effect=RuntimeError("injected setup failure")),
+                      contextlib.redirect_stdout(output)):
+                    self.assertEqual(workspace_hygiene.command_run(args), 1)
+                self.assertEqual(len(spawned), 1)
+                self.assertIsNotNone(spawned[0].poll())
+                self.assertEqual(json.loads(output.getvalue())["stop_reason"], "runner_interrupted_or_observation_failed")
+
     def test_output_creation_requires_explicit_root(self) -> None:
         with mock.patch.dict(os.environ, {"FACMAN_DEV_ROOT": ""}):
             with self.assertRaisesRegex(ValueError, "FACMAN_DEV_ROOT is required"):

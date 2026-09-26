@@ -301,10 +301,16 @@ def process_observation() -> list[dict[str, Any]]:
         # No portable process working-directory observation: refuse retirement.
         return [{"pid": None, "command": "", "observation_unavailable": True}]
     result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-        "Get-CimInstance Win32_Process | Select-Object @{n='pid';e={$_.ProcessId}},@{n='command';e={$_.CommandLine}},CreationDate | ConvertTo-Json -Compress"],
+        "Get-CimInstance Win32_Process | Select-Object @{n='pid';e={$_.ProcessId}},@{n='command';e={$_.CommandLine}},Name,CreationDate | ConvertTo-Json -Compress"],
         capture_output=True, text=True, check=True)
     rows = json.loads(result.stdout or "[]")
-    return rows if isinstance(rows, list) else [rows]
+    rows = rows if isinstance(rows, list) else [rows]
+    for row in rows:
+        # Idle/System are kernel entries with no user command line. Missing
+        # observations for any other process cannot establish safe retirement.
+        kernel_entry = (row.get("pid"), row.get("Name")) in {(0, "System Idle Process"), (4, "System")}
+        row["observation_unavailable"] = not row.get("command") and not kernel_entry
+    return rows
 
 
 def worktree_material(path: Path, processes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -756,6 +762,8 @@ def owned_process_job(process: subprocess.Popen[bytes], ram_limit: int):
     kernel.CreateJobObjectW.restype = wintypes.HANDLE
     kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
     kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     handle = kernel.CreateJobObjectW(None, None)
     if not handle:
@@ -809,7 +817,26 @@ def owned_process_job(process: subprocess.Popen[bytes], ram_limit: int):
             raise OSError("owned suspended child thread could not be resumed")
         yield
     finally:
-        kernel.CloseHandle(handle)
+        # Closing alone requests asynchronous termination. Keep the reservation
+        # until Windows confirms every assigned process has exited.
+        class Accounting(ctypes.Structure):
+            _fields_ = [("times", ctypes.c_longlong * 4), ("faults", wintypes.DWORD),
+                        ("total", wintypes.DWORD), ("active", wintypes.DWORD), ("terminated", wintypes.DWORD)]
+        try:
+            if not kernel.TerminateJobObject(handle, 1):
+                raise ctypes.WinError(ctypes.get_last_error())
+            deadline = time.monotonic() + 5
+            accounting = Accounting()
+            while True:
+                if not kernel.QueryInformationJobObject(handle, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                if accounting.active == 0:
+                    break
+                if time.monotonic() >= deadline:
+                    raise OSError("owned job descendants did not terminate")
+                time.sleep(0.05)
+        finally:
+            kernel.CloseHandle(handle)
 
 
 def command_run(args: argparse.Namespace) -> int:
@@ -826,12 +853,19 @@ def command_run(args: argparse.Namespace) -> int:
         paths = [base, *[Path(root) for root in storage["roots"] if Path(root).exists()]]
         volumes = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
         available = memory_headroom()
-        reasons = resource_violations(storage, args.disk_bytes, args.ram_bytes, volumes, available,
-                                      args.max_bytes, args.disk_reserve, args.ram_reserve)
+        reasons = []
         if len([record for record in worktree_records(args.base) if not record["primary"]]) > DEFAULT_MAX_WORKTREES:
             reasons.append("secondary_worktree_limit_exceeded")
         if len(task_roots(CONTROL_ROOT)) + int(not task_path.exists()) > development_layout.DEFAULT_MAX_TASK_ROOTS:
             reasons.append("task_root_limit_exceeded")
+        # Worktree/material observation can take time. Charge any intervening
+        # volume loss and refresh cheap counters before admitting the child.
+        fresh_volumes = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
+        storage = {**storage, "logical_bytes": storage["logical_bytes"] + sum(max(0, volumes[key] - value) for key, value in fresh_volumes.items())}
+        volumes = fresh_volumes
+        available = memory_headroom()
+        reasons.extend(resource_violations(storage, args.disk_bytes, args.ram_bytes, volumes, available,
+                                          args.max_bytes, args.disk_reserve, args.ram_reserve))
         if reasons:
             print(json.dumps({"result": "refused", "reasons": reasons, "storage_bytes": storage["logical_bytes"], "volume_free_bytes": volumes,
                               "ram_available_bytes": available[0], "commit_available_bytes": available[1]}, sort_keys=True))
@@ -854,22 +888,37 @@ def command_run(args: argparse.Namespace) -> int:
                    "started_at": development_layout.utc_now(), "state": "starting", "volume_free_before": volumes}
         receipt_path = run / "receipt.json"
         receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
-        process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x4) if os.name == "nt" else 0,
-                                   start_new_session=os.name != "nt")
-        receipt.update(pid=process.pid, state="running")
-        receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
         tail: deque[bytes] = deque(maxlen=32)  # At most 128 KiB, regardless of test duration.
         def read_log() -> None:
             assert process.stdout is not None
             while data := process.stdout.read(4096):
                 tail.append(data)
         reader = threading.Thread(target=read_log, daemon=True)
-        reader.start()
         reason = None
+        reader_started = False
         job = contextlib.ExitStack()
+        fresh_volumes = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
+        fresh_available = memory_headroom()
+        storage = {**storage, "logical_bytes": storage["logical_bytes"] + sum(max(0, volumes[key] - value) for key, value in fresh_volumes.items())}
+        reasons = resource_violations(storage, args.disk_bytes, args.ram_bytes, fresh_volumes, fresh_available,
+                                      args.max_bytes, args.disk_reserve, args.ram_reserve)
+        if reasons:
+            receipt.update(state="refused", reasons=reasons, ended_at=development_layout.utc_now())
+            receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+            remove_tree(temporary)
+            remove_tree(cache)
+            print(json.dumps({"result": "refused", "reasons": reasons, "receipt": str(receipt_path)}, sort_keys=True))
+            return 2
+        volumes = fresh_volumes
+        process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x4) if os.name == "nt" else 0,
+                                   start_new_session=os.name != "nt")
         try:
             job.enter_context(owned_process_job(process, args.ram_bytes))
+            receipt.update(pid=process.pid, state="running")
+            receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+            reader.start()
+            reader_started = True
             while process.poll() is None:
                 time.sleep(2)
                 free = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
@@ -884,17 +933,47 @@ def command_run(args: argparse.Namespace) -> int:
                 if reason:
                     stop_owned_process(process)
                     break
-        except (KeyboardInterrupt, OSError):
+        except (KeyboardInterrupt, Exception) as exc:
             reason = "runner_interrupted_or_observation_failed"
+            receipt["runner_error"] = str(exc)
             stop_owned_process(process)
         finally:
-            job.close()
-            reader.join(timeout=5)
-            if reader.is_alive():
+            try:
+                job.close()
+            except OSError as exc:
+                reason = reason or "owned_job_cleanup_failed"
+                receipt["cleanup_error"] = str(exc)
+            if process.poll() is None:
+                # Also covers failure before job assignment; the Windows child
+                # is still suspended and cannot have launched descendants.
+                process.kill()
+            process.wait(timeout=5)
+            if reader_started:
+                reader.join(timeout=5)
+            if reader_started and reader.is_alive():
                 reason = reason or "child_log_stream_still_open"
             elif process.stdout is not None:
                 process.stdout.close()
             (run / "last-output.log").write_bytes(b"".join(tail))
+            # One terminal walk catches rapid jobs and logical growth invisible
+            # to allocated/free-space counters (including sparse payloads).
+            try:
+                terminal_storage = storage_inventory(observation_roots(args))
+                terminal_free = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
+                terminal_available = memory_headroom()
+                receipt.update(storage_bytes_after=terminal_storage["logical_bytes"], volume_free_after=terminal_free,
+                               ram_available_after=terminal_available[0], commit_available_after=terminal_available[1])
+                if not terminal_storage["complete"]:
+                    reason = reason or "terminal_storage_observation_incomplete"
+                elif terminal_storage["logical_bytes"] - storage["logical_bytes"] > args.disk_bytes:
+                    reason = reason or "disk_estimate_exceeded"
+                elif terminal_storage["logical_bytes"] > args.max_bytes:
+                    reason = reason or "campaign_quota_exceeded"
+                elif any(value < args.disk_reserve for value in terminal_free.values()) or min(terminal_available) < args.ram_reserve:
+                    reason = reason or "host_reserve_exhausted"
+            except (OSError, ValueError) as exc:
+                reason = reason or "terminal_resource_observation_failed"
+                receipt["terminal_error"] = str(exc)
             success = process.returncode == 0 and reason is None
             if success:
                 remove_tree(temporary)

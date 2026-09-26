@@ -51,7 +51,8 @@ does not force removal, prune unrelated records, or delete branches.
 
 Retirement also inspects all untracked and ignored entries, nested repositories,
 contained links, and observed process command lines. Missing observations refuse
-retirement. A normal clean Git status alone is insufficient. Preserve unknown
+retirement, including a missing command line for any user process. Only Windows
+kernel Idle/System entries are excluded. A normal clean Git status alone is insufficient. Preserve unknown
 ignored material before retiring a worktree; cached bytecode is disposable only
 after its source or unmatched bytes have been preserved. Observe state again
 immediately before removal. Command-line observation cannot establish the absence
@@ -101,6 +102,10 @@ The child is assigned while suspended before any code can launch descendants.
 This is cooperative admission and monitoring, not an
 OS disk quota or a sandbox preventing arbitrary commands from writing elsewhere.
 Unrelated activity can trigger a conservative cancellation.
+Counters are refreshed after worktree inspection and immediately before launch.
+After owned descendants exit, one terminal storage walk checks actual logical
+growth and quotas, including rapid or sparse-file output that free-space polling
+cannot measure. A job that exceeds its estimate is not recorded as passed.
 
 Logs retain at most 128 KiB plus a terminal receipt. Successful job-local temporary
 and cache output is removed. Failure/cancellation preserves it for diagnosis;
