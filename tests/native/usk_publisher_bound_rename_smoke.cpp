@@ -5,6 +5,7 @@
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_tree_observation.h"
+#include "usk_publisher_rename_information.h"
 
 #if defined(_WIN32)
 #include <filesystem>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include <aclapi.h>
+#include <winternl.h>
 #include <cstring>
 
 namespace fs = std::filesystem;
@@ -54,6 +56,53 @@ bool refuses(const std::function<void()>& action) {
 
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+
+void check_record_rename(HANDLE staging, HANDLE parent,
+    const std::vector<unsigned char>& descriptor) {
+    using RenameFn = NTSTATUS (NTAPI *)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+    auto* rename = reinterpret_cast<RenameFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtSetInformationFile"));
+    check(rename != nullptr, "record native rename unavailable");
+    const std::wstring name = L".usk-owned-root.v1.json";
+    PublisherRenameInformation information(parent, name);
+    const auto* fields = static_cast<FILE_RENAME_INFO*>(information.data());
+    check(information.size() >= sizeof(FILE_RENAME_INFO) + name.size() * sizeof(WCHAR) &&
+        fields->ReplaceIfExists == FALSE && fields->RootDirectory == parent &&
+        fields->FileNameLength == name.size() * sizeof(WCHAR) &&
+        std::wstring(fields->FileName) == name,
+        "record rename buffer contract differs");
+    for (const auto* invalid : {L".", L"..", L".other", L"record:stream", L"x/y"}) {
+        check(refuses([&] { PublisherRenameInformation rejected(parent, invalid); }),
+            "invalid record rename component admitted");
+    }
+    OwnedHandle file(create_file_relative_with_descriptor(staging, L"pending-record", descriptor));
+    static constexpr char payload[] = "durable metadata fixture\n";
+    DWORD written = 0;
+    check(WriteFile(file.get(), payload, sizeof(payload) - 1, &written, nullptr) &&
+        written == sizeof(payload) - 1 && FlushFileBuffers(file.get()), "record fixture write failed");
+    const auto before = observe_publisher_file_handle(file.get());
+    const auto destination = observe_publisher_directory_handle(parent);
+    IO_STATUS_BLOCK io{};
+    const NTSTATUS status = rename(file.get(), &io, information.data(), information.size(),
+        static_cast<FILE_INFORMATION_CLASS>(10));
+    if (status != 0 || io.Status != 0) {
+        throw std::runtime_error("record fixture rename NTSTATUS " +
+            std::to_string(static_cast<unsigned long>(status)) + "; IO " +
+            std::to_string(static_cast<unsigned long>(io.Status)));
+    }
+    const auto after = observe_publisher_file_handle(file.get());
+    check(after.file_id == before.file_id && after.owner_sid == before.owner_sid &&
+        after.native_name == destination.native_name + L"\\" + name && FlushFileBuffers(file.get()),
+        "record rename changed identity or was not flushed");
+    OwnedHandle collision(create_file_relative_with_descriptor(staging, L"collision-record", descriptor));
+    const auto original_collision = observe_publisher_file_handle(collision.get());
+    io = {};
+    check(rename(collision.get(), &io, information.data(), information.size(),
+        static_cast<FILE_INFORMATION_CLASS>(10)) != 0,
+        "record no-replace rename overwrote occupied name");
+    check(observe_publisher_file_handle(file.get()).file_id == after.file_id &&
+        observe_publisher_file_handle(collision.get()).native_name == original_collision.native_name,
+        "record collision changed retained source or destination");
 }
 } // namespace
 
@@ -180,6 +229,7 @@ int main() {
                 fs::exists(root / "destination-created-anchor" /
                     "visible-created" / "payload.bin"),
                 "created anchor source did not rebind visibly");
+            check_record_rename(staging_parent.get(), target_parent.get(), descriptor);
         }
         fs::remove_all(root);
         std::cout << "publisher-bound-rename-smoke-pass\n";

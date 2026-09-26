@@ -8,6 +8,7 @@
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_handle_observation.h"
+#include "usk_publisher_rename_information.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -68,17 +69,16 @@ void publish_record(HANDLE file, HANDLE parent, const std::wstring& name,
     using RenameFn = NTSTATUS (NTAPI *)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
     auto* rename = reinterpret_cast<RenameFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtSetInformationFile"));
     if (!rename) throw std::runtime_error("metadata native rename is unavailable");
-    struct RenameInformation { BOOLEAN replace; HANDLE root; ULONG bytes; WCHAR name[1]; };
-    const std::size_t bytes = offsetof(RenameInformation, name) + name.size() * sizeof(WCHAR);
-    std::vector<unsigned char> storage(bytes, 0);
-    auto* information = reinterpret_cast<RenameInformation*>(storage.data());
-    information->root = parent;
-    information->bytes = static_cast<ULONG>(name.size() * sizeof(WCHAR));
-    std::memcpy(information->name, name.data(), information->bytes);
+    PublisherRenameInformation information(parent, name);
     IO_STATUS_BLOCK io{};
-    const NTSTATUS status = rename(file, &io, information, static_cast<ULONG>(bytes),
+    const NTSTATUS status = rename(file, &io, information.data(), information.size(),
         static_cast<FILE_INFORMATION_CLASS>(10)); // FileRenameInformation, ReplaceIfExists=false.
-    if (status != 0 || io.Status != 0) throw std::runtime_error("metadata record rename failed or is unconfirmed");
+    if (status != 0 || io.Status != 0) {
+        throw PublisherRenameUnconfirmed("metadata record rename failed or is unconfirmed; NTSTATUS " +
+            std::to_string(static_cast<unsigned long>(status)) + "; IO status " +
+            std::to_string(static_cast<unsigned long>(io.Status)) + "; buffer bytes " +
+            std::to_string(information.size()) + "; name " + fs::path(name).u8string());
+    }
     const auto after_file = observe_publisher_file_handle(file);
     const auto after_parent = observe_publisher_directory_handle(parent);
     require_publisher_object_security_shape(after_file, service_sid);
