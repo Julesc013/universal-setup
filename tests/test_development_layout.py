@@ -218,7 +218,9 @@ class DevelopmentLayoutTests(unittest.TestCase):
 
     def test_real_child_temp_is_contained_log_bounded_and_success_cleaned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
+            # Windows CI may spell TEMP through an 8.3 alias. Child output is
+            # canonical; construct the expected descendants from the same root.
+            base = Path(temporary).resolve(strict=True)
             source = base / "source"
             source.mkdir()
             storage = {"logical_bytes": 0, "complete": True, "roots": []}
@@ -248,7 +250,8 @@ class DevelopmentLayoutTests(unittest.TestCase):
             run = Path(result["receipt"]).parent
             self.assertLessEqual((run / "last-output.log").stat().st_size, 131072)
             child_paths = json.loads((run / "last-output.log").read_text().splitlines()[-1])
-            self.assertTrue(Path(child_paths["tmp"]).is_relative_to(base / "development"))
+            self.assertTrue(Path(child_paths["tmp"]).is_relative_to(base / "development"),
+                            {"actual": child_paths["tmp"], "expected_root": str(base / "development")})
             self.assertFalse((run / "tmp").exists())
             self.assertFalse(receipt["disposable_output_retained"])
             if os.name == "nt":
