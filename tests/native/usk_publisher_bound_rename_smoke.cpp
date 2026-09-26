@@ -12,6 +12,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -103,6 +104,73 @@ void check_record_rename(HANDLE staging, HANDLE parent,
     check(observe_publisher_file_handle(file.get()).file_id == after.file_id &&
         observe_publisher_file_handle(collision.get()).native_name == original_collision.native_name,
         "record collision changed retained source or destination");
+}
+
+void check_record_directory_sharing(HANDLE parent,
+    const std::vector<unsigned char>& descriptor) {
+    using RenameFn = NTSTATUS (NTAPI *)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+    using QueryFn = NTSTATUS (NTAPI *)(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+    const HMODULE native = GetModuleHandleW(L"ntdll.dll");
+    auto* rename = reinterpret_cast<RenameFn>(GetProcAddress(native, "NtSetInformationFile"));
+    auto* query = reinterpret_cast<QueryFn>(GetProcAddress(native, "NtQueryObject"));
+    check(rename && query, "record sharing native entry points unavailable");
+    for (unsigned int mode = 0; mode != 4; ++mode) {
+        const std::wstring root_name = L"record-root-" + std::to_wstring(mode);
+        auto root = std::make_unique<OwnedHandle>((mode & 1) ?
+            create_directory_relative_with_descriptor(parent, root_name, descriptor) :
+            create_record_directory_relative_with_descriptor(parent, root_name, descriptor));
+        auto pending = std::make_unique<OwnedHandle>((mode & 2) ?
+            create_directory_relative_with_descriptor(root->get(), L"pending", descriptor) :
+            create_record_directory_relative_with_descriptor(root->get(), L"pending", descriptor));
+        {
+            OwnedHandle file(create_file_relative_with_descriptor(pending->get(), L"control", descriptor));
+            PublisherRenameInformation information(root->get(), L"control.json");
+            IO_STATUS_BLOCK io{};
+            const NTSTATUS status = rename(file.get(), &io, information.data(), information.size(),
+                static_cast<FILE_INFORMATION_CLASS>(10));
+            std::cout << "record-sharing-control mode=" << mode << " NTSTATUS=" <<
+                static_cast<unsigned long>(status) << '\n';
+            constexpr NTSTATUS sharing_violation = static_cast<NTSTATUS>(0xC0000043u);
+            check((status == 0 && io.Status == 0) || status == sharing_violation,
+                "record sharing control returned an unexpected failure");
+            if (mode == 0) check(status == 0, "record directories without DELETE could not publish");
+        }
+        pending.reset();
+        root.reset();
+        for (const auto& entry : observe_publisher_directory_entries(parent)) {
+            if (entry.name == root_name) root = std::make_unique<OwnedHandle>(
+                open_publisher_listed_child(parent, entry, true, false, true));
+        }
+        check(root != nullptr, "record root reentry absent");
+        for (const auto& entry : observe_publisher_directory_entries(root->get())) {
+            if (entry.name == L"pending") pending = std::make_unique<OwnedHandle>(
+                open_publisher_listed_child(root->get(), entry, true, false, true));
+        }
+        check(pending != nullptr, "record pending reentry absent");
+        for (HANDLE handle : {root->get(), pending->get()}) {
+            PUBLIC_OBJECT_BASIC_INFORMATION facts{};
+            ULONG bytes = 0;
+            check(query(handle, static_cast<OBJECT_INFORMATION_CLASS>(0), &facts, sizeof(facts), &bytes) == 0 &&
+                (facts.GrantedAccess & DELETE) == 0,
+                "record directory retains DELETE access");
+        }
+        check_record_rename(pending->get(), root->get(), descriptor);
+        const auto sealed = observe_publisher_tree(root->get());
+        pending.reset();
+        root.reset();
+        for (const auto& entry : observe_publisher_directory_entries(parent)) {
+            if (entry.name == root_name) root = std::make_unique<OwnedHandle>(
+                open_publisher_listed_child(parent, entry, true, true, true));
+        }
+        check(root != nullptr, "record root rename reentry absent");
+        require_publisher_tree_phase_match(sealed, observe_publisher_tree(root->get()));
+        const auto observed_parent = observe_publisher_directory_handle(parent);
+        const std::wstring published_name = L"record-visible-" + std::to_wstring(mode);
+        (void)probe_publisher_bound_rename_no_replace(root->get(), parent,
+            published_name, sealed.root, observed_parent);
+        require_publisher_tree_phase_match(sealed, observe_publisher_tree(root->get()),
+            observed_parent.native_name + L"\\" + published_name);
+    }
 }
 } // namespace
 
@@ -230,6 +298,7 @@ int main() {
                     "visible-created" / "payload.bin"),
                 "created anchor source did not rebind visibly");
             check_record_rename(staging_parent.get(), target_parent.get(), descriptor);
+            check_record_directory_sharing(root_parent.get(), descriptor);
         }
         fs::remove_all(root);
         std::cout << "publisher-bound-rename-smoke-pass\n";

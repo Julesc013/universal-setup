@@ -174,7 +174,7 @@ struct PublisherMetadataSession::Impl {
         const std::wstring component = fs::u8path(name).wstring();
         if (parent.lexically_normal() == volume_path && component == root_name && !root) {
             require_boundary_rights(observe_publisher_directory_handle(volume), service_sid);
-            root = std::make_unique<OwnedHandle>(create_directory_relative_with_descriptor(volume, component, descriptor));
+            root = std::make_unique<OwnedHandle>(create_record_directory_relative_with_descriptor(volume, component, descriptor));
             require_publisher_object_security_shape(observe_publisher_directory_handle(root->get()), service_sid);
             return;
         }
@@ -194,7 +194,7 @@ struct PublisherMetadataSession::Impl {
             if (const auto existing = find_child(root->get(), L"pending")) {
                 pending = std::make_unique<OwnedHandle>(open_publisher_listed_child(root->get(), *existing, true, false, true));
             } else {
-                pending = std::make_unique<OwnedHandle>(create_directory_relative_with_descriptor(root->get(), L"pending", descriptor));
+                pending = std::make_unique<OwnedHandle>(create_record_directory_relative_with_descriptor(root->get(), L"pending", descriptor));
             }
             require_publisher_tree_security_shape(observe_publisher_tree(pending->get()), service_sid);
         }
@@ -224,14 +224,27 @@ struct PublisherMetadataSession::Impl {
         require_publisher_tree_security_shape(tree, service_sid);
         const auto parent = observe_publisher_directory_handle(volume);
         require_boundary_rights(parent, service_sid);
-        // NTFS directory publication can refuse while a descendant handle is
-        // open. All record handles are already closed; release this private
-        // pending-directory handle before the held root's rename.
+        // Record parents are held without DELETE. Release descendants and
+        // rebind the source with DELETE only for this publication transition.
         pending.reset();
+        root.reset();
+        const auto source = find_child(volume, root_name);
+        if (!source) throw std::runtime_error("private metadata root disappeared before publication");
+        root = std::make_unique<OwnedHandle>(open_publisher_listed_child(volume, *source, true, true, true));
+        require_publisher_tree_phase_match(tree, observe_publisher_tree(root->get()));
         probe_publisher_bound_rename_no_replace(root->get(), volume,
             final_root_path.filename().wstring(), tree.root, parent);
         root_path = final_root_path;
         root_name = root_path.filename().wstring();
+        const auto visible = observe_publisher_tree(root->get());
+        const std::wstring expected_visible = parent.native_name +
+            (parent.native_name.back() == L'\\' ? L"" : L"\\") + root_name;
+        require_publisher_tree_phase_match(tree, visible, expected_visible);
+        root.reset();
+        const auto published = find_child(volume, root_name);
+        if (!published) throw std::runtime_error("published metadata root disappeared before record reentry");
+        root = std::make_unique<OwnedHandle>(open_publisher_listed_child(volume, *published, true, false, true));
+        require_publisher_tree_phase_match(visible, observe_publisher_tree(root->get()));
         initializing = false;
     }
 };

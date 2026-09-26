@@ -3,6 +3,7 @@
 
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_directory_entries.h"
+#include "usk_publisher_tree_observation.h"
 
 #if defined(_WIN32)
 #include <winternl.h>
@@ -98,6 +99,25 @@ HANDLE create_directory_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
     const std::vector<unsigned char>& security_descriptor) {
     return create_relative_with_descriptor(parent, name, security_descriptor, true, true);
+}
+
+HANDLE create_record_directory_relative_with_descriptor(
+    HANDLE parent, const std::wstring& name,
+    const std::vector<unsigned char>& security_descriptor) {
+    HANDLE created = create_directory_relative_with_descriptor(parent, name, security_descriptor);
+    PublisherTreeObservation expected;
+    try { expected = observe_publisher_tree(created); }
+    catch (...) { CloseHandle(created); throw; }
+    if (!CloseHandle(created)) throw std::runtime_error("record directory create handle could not close");
+    for (const auto& entry : observe_publisher_directory_entries(parent)) {
+        if (entry.name != name) continue;
+        HANDLE reopened = open_publisher_listed_child(parent, entry, true, false, true);
+        try {
+            require_publisher_tree_phase_match(expected, observe_publisher_tree(reopened));
+        } catch (...) { CloseHandle(reopened); throw; }
+        return reopened;
+    }
+    throw std::runtime_error("created record directory is absent from held parent");
 }
 
 HANDLE create_staged_directory_relative_with_descriptor(
