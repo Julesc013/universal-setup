@@ -6,7 +6,7 @@ $ErrorActionPreference='Stop'
 # These synthetic records are test inputs, never operating-system evidence.
 $tokens=$null; $parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile(
-    (Join-Path $SourceRoot 'tests/windows_publisher_metadata_vm_probe.ps1'),[ref]$tokens,[ref]$parseErrors)
+    (Join-Path $SourceRoot 'tests/windows_publisher_metadata_readback.ps1'),[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw 'Probe syntax is invalid'}
 $functions=@($ast.FindAll({param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
@@ -54,12 +54,14 @@ $completed.subject=@{subject_type='installation';subject_id='org.example.synthet
 Add-Record 'E:\setup-state\audit\chains\chain.synthetic\00000000000000000000.event.json' $validated
 Add-Record 'E:\setup-state\audit\chains\chain.synthetic\00000000000000000001.event.json' $completed
 Add-Record 'E:\publication\destination\visible\app.bin' $null $digest 5
-$fixture=@{native=@{status='pass'};observer_task_removed=$true;service_sid=$sid;archive_sha256=$digest;
+$fixture=@{volume_drive_root='E:\';native=@{status='pass'};observer_task_removed=$true;service_sid=$sid;archive_sha256=$digest;
     independent=@{identity='S-1-5-18';rows=$rows.ToArray()};request=@{install_id='org.example.synthetic';recipe=$recipe};
     plan=@{plan_digest=$digest;plan_id='plan.synthetic';target=@{root=$target};
         planned_entries=@(@{entry_type='file';relative_path='app.bin';sha256=$digest;size_bytes=5})}}
 $serialized=$fixture|ConvertTo-Json -Depth 32 -Compress
 Assert-IndependentMetadataProbe ($serialized|ConvertFrom-Json)
+$aliasFixture=$serialized.Replace('E:', 'R:')|ConvertFrom-Json
+Assert-IndependentMetadataProbe $aliasFixture
 function Edit-Record($Result,[string]$Path,[scriptblock]$Edit) {
     $row=@($Result.independent.rows|Where-Object path -ceq $Path)[0]
     $record=$row.content_json|ConvertFrom-Json
@@ -68,9 +70,13 @@ function Edit-Record($Result,[string]$Path,[scriptblock]$Edit) {
 }
 $cases=[ordered]@{
     observer_not_removed={param($r) $r.observer_task_removed=$false}
+    wrong_volume_alias={param($r) $r.volume_drive_root='R:\'}
+    malformed_volume_alias={param($r) $r.volume_drive_root='E:\ordinary\'}
     non_system_observer={param($r) $r.independent.identity='S-1-5-32-544'}
     missing_record={param($r) $r.independent.rows=@($r.independent.rows|Where-Object path -cne 'E:\setup-state\.usk-owned-root.v1.json')}
     unexpected_record={param($r) $extra=$r.independent.rows[2].PSObject.Copy();$extra.path='E:\setup-state\extra.json';$r.independent.rows+=@($extra)}
+    unexpected_visible_file={param($r) $extra=$r.independent.rows[-1].PSObject.Copy();$extra.path='E:\publication\destination\visible\extra.bin';$r.independent.rows+=@($extra)}
+    unexpected_visible_directory={param($r) $extra=$r.independent.rows[-1].PSObject.Copy();$extra.path='E:\publication\destination\visible\extra';$extra.directory=$true;$r.independent.rows+=@($extra)}
     wrong_owner={param($r) $r.independent.rows[0].owner='S-1-5-32-544'}
     duplicate_system_ace={param($r) $r.independent.rows[0].aces[1].sid='S-1-5-18'}
     unprotected_acl={param($r) $r.independent.rows[0].protected=$false}
@@ -87,4 +93,4 @@ foreach($case in $cases.GetEnumerator()) {
     try{Assert-IndependentMetadataProbe $result}catch{$refused=$true}
     if(-not $refused){throw ('Readback validator accepted: '+$case.Key)}
 }
-[ordered]@{status='pass';positive=1;refused=$cases.Count;scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress
+[ordered]@{status='pass';positive=2;refused=$cases.Count;scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress

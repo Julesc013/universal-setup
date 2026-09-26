@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$OutputPath,
     [string]$ServiceBinary = '',
-    [string]$DeviceAclBinary = ''
+    [string]$DeviceAclBinary = '',
+    [string]$MachineBinary = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -121,13 +122,21 @@ try {
     if ($ServiceBinary) {
         if (-not $DeviceAclBinary) { throw 'owned VHD device ACL helper is required' }
         $serviceOutput = Join-Path $lab 'service-probe.json'
-        & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
-            -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
-            -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
-            -OutputPath $serviceOutput
+        if ($MachineBinary) {
+            & (Join-Path $PSScriptRoot 'windows_publisher_metadata_hosted_probe.ps1') `
+                -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
+                -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
+                -MachineBinary $MachineBinary -OutputPath $serviceOutput
+        } else {
+            & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
+                -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
+                -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
+                -OutputPath $serviceOutput
+        }
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
-        if ($receipt.service_observation.status -ne 'protected_publish_observed') {
+        $expected = if ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
+        if ($receipt.service_observation.status -ne $expected) {
             throw 'protected publish service probe did not pass'
         }
         $receipt.status = 'volume_and_protected_publish_observed'

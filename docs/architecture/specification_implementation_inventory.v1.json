@@ -3464,7 +3464,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "e23f2bad7222e647667e6e57b8732bd959a70fa730a6e379074c4a0be824dcf8"
+          "sha256": "66c6d4b14b6563548c5bf0cdb6019766af70d6af12265d481f4c4606ace0ebb0"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3500,7 +3500,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "e23f2bad7222e647667e6e57b8732bd959a70fa730a6e379074c4a0be824dcf8"
+          "sha256": "66c6d4b14b6563548c5bf0cdb6019766af70d6af12265d481f4c4606ace0ebb0"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3536,7 +3536,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "e23f2bad7222e647667e6e57b8732bd959a70fa730a6e379074c4a0be824dcf8"
+          "sha256": "66c6d4b14b6563548c5bf0cdb6019766af70d6af12265d481f4c4606ace0ebb0"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3831,7 +3831,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "136600c2027b7fe0d631542dbad91dd778a47efeb5a5ddde4e97c3dfae93b860"
+          "sha256": "6530cceca5c284c01734978075dfc8d80048dd3a05481bd0087ec354180e5a81"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -3907,7 +3907,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "ab23eab24b87592be74e11004be41e34682123cd4fc8b148b8fe34428fe92426"
+          "sha256": "2459e1ce63c09c6b1a2085681ca0f40cd1d136f32d064c3f5619b19f2bda5aeb"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -3919,7 +3919,7 @@
         },
         {
           "path": "tests/native/usk_publisher_lab_device_acl.cpp",
-          "sha256": "9227dbceb181769ad1e9dd35bfce8829d9941279339a35abc51c4645334baeee"
+          "sha256": "a5bc6237c337a42b24ab3f486f05e0e19e21b9def84ee021257b01cca1523cd0"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
@@ -3991,15 +3991,27 @@
         },
         {
           "path": "tests/windows_publisher_metadata_vm_probe.ps1",
-          "sha256": "8910f49da08df0079c1099f8cc6487aeabccaffa1892c60c1d1b1f8110d94f38"
+          "sha256": "175aabba97e74979cebec78f506436ac31d842503e1c32b3bc44668cc630566f"
         },
         {
           "path": "tests/windows_publisher_metadata_readback_smoke.ps1",
-          "sha256": "a9329b545f8a2933959d623c88a2b1003034156b28c7a81b344987fa79d0eeae"
+          "sha256": "c76c16a173bc04749e5bdba4a4431163be1efd36c9df70392f1114b03a473d40"
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "80203a6c34746373292cd2c107b633cf943db22eee6b4d1dc37795941570fc37"
+          "sha256": "fb7ded048e440e0454689085a3bf57fb80d28207ac934dfdd5791833cde86e9f"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
+          "sha256": "4f7afe9f5b004c5363623c80637e7ae0c637052d86d7d49561cf2e54732e3981"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_readback.ps1",
+          "sha256": "62582eccbcf8dc8b15bc621414036311d00542e4e972c36df2b1e4f8bb59c94e"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_inputs.py",
+          "sha256": "9c140b6dab0014a86ce4d6a0da36c69459549aeb55e8ef849bd9d63b5706c24f"
         }
       ],
       "acceptance_ids": [
@@ -4031,7 +4043,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "136600c2027b7fe0d631542dbad91dd778a47efeb5a5ddde4e97c3dfae93b860"
+          "sha256": "6530cceca5c284c01734978075dfc8d80048dd3a05481bd0087ec354180e5a81"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -4067,7 +4079,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "136600c2027b7fe0d631542dbad91dd778a47efeb5a5ddde4e97c3dfae93b860"
+          "sha256": "6530cceca5c284c01734978075dfc8d80048dd3a05481bd0087ec354180e5a81"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -4151,7 +4163,7 @@
         },
         {
           "path": "tests/native/usk_publisher_lab_device_acl.cpp",
-          "sha256": "9227dbceb181769ad1e9dd35bfce8829d9941279339a35abc51c4645334baeee"
+          "sha256": "a5bc6237c337a42b24ab3f486f05e0e19e21b9def84ee021257b01cca1523cd0"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
@@ -4215,15 +4227,27 @@
         },
         {
           "path": "tests/windows_publisher_metadata_vm_probe.ps1",
-          "sha256": "8910f49da08df0079c1099f8cc6487aeabccaffa1892c60c1d1b1f8110d94f38"
+          "sha256": "175aabba97e74979cebec78f506436ac31d842503e1c32b3bc44668cc630566f"
         },
         {
           "path": "tests/windows_publisher_metadata_readback_smoke.ps1",
-          "sha256": "a9329b545f8a2933959d623c88a2b1003034156b28c7a81b344987fa79d0eeae"
+          "sha256": "c76c16a173bc04749e5bdba4a4431163be1efd36c9df70392f1114b03a473d40"
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "80203a6c34746373292cd2c107b633cf943db22eee6b4d1dc37795941570fc37"
+          "sha256": "fb7ded048e440e0454689085a3bf57fb80d28207ac934dfdd5791833cde86e9f"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
+          "sha256": "4f7afe9f5b004c5363623c80637e7ae0c637052d86d7d49561cf2e54732e3981"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_readback.ps1",
+          "sha256": "62582eccbcf8dc8b15bc621414036311d00542e4e972c36df2b1e4f8bb59c94e"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_inputs.py",
+          "sha256": "9c140b6dab0014a86ce4d6a0da36c69459549aeb55e8ef849bd9d63b5706c24f"
         }
       ],
       "acceptance_ids": [

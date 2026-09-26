@@ -8,83 +8,7 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputPath
 )
 $ErrorActionPreference = 'Stop'
-function Assert-IndependentMetadataProbe {
-    param($Result)
-    if ($Result.native.status -ne 'pass' -or -not $Result.observer_task_removed -or
-        $Result.independent.identity -ne 'S-1-5-18') { throw 'Service, observer identity or confirmed task cleanup differs' }
-    foreach ($row in $Result.independent.rows) {
-        if ($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne 2 -or
-            @($row.aces|Where-Object sid -eq 'S-1-5-18').Count -ne 1 -or
-            @($row.aces|Where-Object sid -eq $Result.service_sid).Count -ne 1 -or
-            @($row.aces|Where-Object { $_.rights -ne 2032127 -or $_.type -ne 'Allow' -or
-                $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0 }).Count -ne 0) {
-            throw ('Independent owner/DACL differs: ' + $row.path)
-        }
-    }
-    function Get-ExactRecord([string]$Path) {
-        $found=@($Result.independent.rows|Where-Object { $_.path -ceq $Path -and -not $_.directory })
-        if ($found.Count -ne 1 -or -not $found[0].content_json) { throw ('Missing independent record: ' + $Path) }
-        $found[0].content_json | ConvertFrom-Json
-    }
-    $snapshot=Get-ExactRecord 'E:\publication\journal\lab-reviewed-plan.json'
-    $completion=Get-ExactRecord 'E:\publication\state\lab-installed-state.json'
-    $completionRow=@($Result.independent.rows|Where-Object path -ceq 'E:\publication\state\lab-installed-state.json')[0]
-    if ($snapshot.plan_digest -ne $Result.plan.plan_digest -or $snapshot.archive_sha256 -ne $Result.archive_sha256 -or
-        $completion.source_binding.reviewed_plan_digest -ne $snapshot.plan_digest) { throw 'Independent reviewed source binding differs' }
-    $transaction=$snapshot.transaction_id
-    $installId=$Result.request.install_id
-    $installedPath='E:\setup-state\state\installed\' + $installId + '.' + $transaction + '.json'
-    $installed=Get-ExactRecord $installedPath
-    $ownershipPath='E:\setup-state\state\' + $installed.ownership_manifest_ref.Replace('/','\')
-    $ownership=Get-ExactRecord $ownershipPath
-    $marker=Get-ExactRecord 'E:\setup-state\.usk-owned-root.v1.json'
-    $auditRoot='E:\setup-state\audit\chains\' + $installed.audit_chain_id + '\'
-    $validatedPath=$auditRoot+'00000000000000000000.event.json'
-    $completedPath=$auditRoot+'00000000000000000001.event.json'
-    $validated=Get-ExactRecord $validatedPath
-    $completed=Get-ExactRecord $completedPath
-    $publicFiles=@($Result.independent.rows|Where-Object { -not $_.directory -and $_.path.StartsWith('E:\setup-state\',[StringComparison]::Ordinal) })
-    $expected=@('E:\setup-state\.usk-owned-root.v1.json',$installedPath,$ownershipPath,$validatedPath,$completedPath)
-    if ($publicFiles.Count -ne 5 -or @($publicFiles|Where-Object {$_.path -cnotin $expected}).Count -ne 0) { throw 'Independent public record closure differs' }
-    $target=$Result.plan.target.root.Replace('/','\')
-    if ($marker.schema -ne 'usk.setup_owned_root.v1' -or $marker.acceptance_root.Replace('/','\') -cne 'E:\' -or
-        $installed.schema -ne 'usk.installed_state.v1' -or $installed.install_id -ne $installId -or
-        $installed.transaction_id -ne $transaction -or $installed.created_at -ne $snapshot.applied_at -or
-        $installed.target_root.Replace('/','\') -cne $target -or $installed.source_archive_digest -ne $Result.archive_sha256 -or
-        $installed.recipe_digest -ne $Result.request.recipe.recipe_digest -or $installed.product_id -ne $Result.request.recipe.product_id -or
-        $installed.product_version -ne $Result.request.recipe.product_version -or $installed.lifecycle_status -ne 'installed' -or
-        ($installed.component_selection|ConvertTo-Json -Compress) -cne ($Result.request.recipe.components|ConvertTo-Json -Compress) -or
-        $ownership.schema -ne 'usk.ownership_manifest.v1' -or $ownership.install_id -ne $installId -or
-        $ownership.created_by_transaction_id -ne $transaction -or $ownership.target_root.Replace('/','\') -cne $target -or
-        $ownership.manifest_digest -ne $installed.ownership_manifest_digest -or
-        $installed.ownership_manifest_ref -cne ('ownership/'+$ownership.manifest_id+'.json') -or
-        $installed.last_verification.status -ne 'pass') { throw 'Independent installed/ownership/marker binding differs' }
-    if ($validated.phase -ne 'validated' -or $validated.status -ne 'pass' -or $validated.sequence -ne 0 -or
-        $validated.details_digest -ne $completionRow.sha256 -or $validated.subject.subject_id -ne $Result.plan.plan_id -or
-        $validated.subject.subject_type -ne 'journal' -or $null -ne $validated.previous_event_digest -or
-        $completed.phase -ne 'completed' -or $completed.status -ne 'pass' -or $completed.sequence -ne 1 -or
-        $completed.previous_event_digest -ne $validated.event_digest -or $completed.subject.subject_id -ne $installId -or
-        $completed.subject.subject_type -ne 'installation' -or
-        $completed.details_digest -ne $installed.last_verification.report_digest) { throw 'Independent audit linkage differs' }
-    foreach ($event in @($validated,$completed)) {
-        if ($event.schema -ne 'usk.audit_event.v1' -or $event.operation -ne 'install_local' -or
-            $event.transaction_id -ne $transaction -or $event.plan_id -ne $Result.plan.plan_id -or
-            $event.created_at -ne $snapshot.applied_at -or $event.audit_chain_id -ne $installed.audit_chain_id) {
-            throw 'Independent audit operation binding differs'
-        }
-    }
-    $entries=@($Result.plan.planned_entries|Where-Object entry_type -eq file)
-    if ($ownership.files.Count -ne $entries.Count) { throw 'Independent ownership file count differs' }
-    foreach ($entry in $entries) {
-        $path='E:\publication\destination\visible\'+$entry.relative_path.Replace('/','\')
-        $found=@($Result.independent.rows|Where-Object path -ceq $path)
-        $owned=@($ownership.files|Where-Object relative_path -ceq $entry.relative_path)
-        if ($found.Count -ne 1 -or $owned.Count -ne 1 -or $found[0].sha256 -ne $entry.sha256 -or
-            $found[0].bytes -ne $entry.size_bytes -or $owned[0].sha256 -ne $entry.sha256 -or $owned[0].size_bytes -ne $entry.size_bytes) {
-            throw ('Independent selected payload/ownership differs: ' + $path)
-        }
-    }
-}
+. (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 $vmName = 'USK-R4-VM-709329F7'
 $vmId = '6a23c3f9-272c-4711-b846-152f82bf93d2'
 $lab = [IO.Path]::GetFullPath($LabRoot)
@@ -160,9 +84,10 @@ foreach ($pair in @(@($serviceBinary,$guestService),@($machineBinary,$guestMachi
 }
 Write-Output 'stage=guest_plan_and_restricted_service_operation'
 $result = Invoke-GuestCommand -ArgumentList `
-    $volume,$guestService,$serviceSha,$guestMachine,$machineSha,$guestArchive,$archiveSha,$runId -ScriptBlock {
-    param($Volume,$Binary,$BinarySha,$Machine,$MachineSha,$Archive,$ArchiveSha,$RunId)
+    $volume,$guestService,$serviceSha,$guestMachine,$machineSha,$guestArchive,$archiveSha,$runId,([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1'))) -ScriptBlock {
+    param($Volume,$Binary,$BinarySha,$Machine,$MachineSha,$Archive,$ArchiveSha,$RunId,$ReadbackFunctions)
     $ErrorActionPreference = 'Stop'
+    . ([scriptblock]::Create($ReadbackFunctions))
     $vmId = '6a23c3f9-272c-4711-b846-152f82bf93d2'
     $serviceName = 'USK_VM_246a60474dc94475bf617c7da8d09b58'
     $sid = 'S-1-5-80-218465820-1252995847-723511090-1583053768-1586712674'
@@ -214,7 +139,7 @@ $result = Invoke-GuestCommand -ArgumentList `
     $template.payload.created_at = [DateTime]::UtcNow.AddMinutes(-1).ToString('yyyy-MM-ddTHH:mm:ssZ')
     $template.payload.archive.path = $Archive
     $template.payload.archive.expected_sha256 = $ArchiveSha
-    $template.payload.archive.strip_prefix = 'pkg/'
+    $template.payload.archive.strip_prefix = 'pkg'
     [IO.File]::WriteAllText($requestPath,($template | ConvertTo-Json -Depth 32 -Compress) + "`n",$utf8)
     [IO.File]::WriteAllText($contextPath,(@{schema='usk.oneshot_context.v1';state_root='E:\setup-state';
         authorized_acceptance_root='E:\';target_policy_activation='operator_acceptance_candidate'} | ConvertTo-Json -Compress) + "`n",$utf8)
@@ -258,57 +183,12 @@ $result = Invoke-GuestCommand -ArgumentList `
     if ((Get-Service $serviceName).Status -eq 'Running') { Stop-Service -Name $serviceName }
     $observation = $null
     if ($native.status -eq 'pass') {
-        # A separately launched SYSTEM observer reads original file bytes and
-        # security descriptors, independently of the restricted-service writer.
-        $observerName = 'USK_METADATA_OBSERVER_' + $RunId
-        $observerPath = 'C:\USK-Lab\metadata-observer-' + $RunId + '.ps1'
-        $observerOutput = 'C:\USK-Lab\metadata-observed-' + $RunId + '.json'
-        $observer = @'
-param([string]$Output)
-$ErrorActionPreference='Stop'
-$rows=[Collections.Generic.List[object]]::new()
-$pending=[Collections.Generic.Stack[object]]::new()
-foreach($top in @('E:\setup-state','E:\publication')) {
- $pending.Push((Get-Item -LiteralPath $top -Force))
- while($pending.Count -gt 0) {
-  $p=$pending.Pop()
-  if(($p.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unexpected readback link' }
-  if($rows.Count -ge 10000 -or (-not $p.PSIsContainer -and $p.Extension -eq '.json' -and $p.Length -gt 16MB)) {throw 'Independent readback exceeds its record budget'}
-  $a=Get-Acl -LiteralPath $p.FullName
-  $aces=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) | ForEach-Object {
-   [ordered]@{sid=$_.IdentityReference.Value;rights=[int]$_.FileSystemRights;type=$_.AccessControlType.ToString();inherited=$_.IsInherited;inheritance=[int]$_.InheritanceFlags;propagation=[int]$_.PropagationFlags}
-  })
-  $rows.Add([ordered]@{path=$p.FullName;directory=$p.PSIsContainer;owner=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value;protected=$a.AreAccessRulesProtected;aces=$aces;
-   bytes= $(if($p.PSIsContainer){0}else{$p.Length});sha256=$(if($p.PSIsContainer){$null}else{(Get-FileHash -LiteralPath $p.FullName -Algorithm SHA256).Hash.ToLowerInvariant()});
-   content_json=$(if(-not $p.PSIsContainer -and $p.Extension -eq '.json'){[IO.File]::ReadAllText($p.FullName)}else{$null})})
-  if($p.PSIsContainer){foreach($child in Get-ChildItem -LiteralPath $p.FullName -Force){$pending.Push($child)}}
- }
-}
-$result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;observed_utc=[DateTime]::UtcNow.ToString('o')}
-[IO.File]::WriteAllText($Output,($result|ConvertTo-Json -Depth 10),[Text.UTF8Encoding]::new($false))
-'@
-        [IO.File]::WriteAllText($observerPath,$observer,$utf8)
-        if (Get-ScheduledTask -TaskName $observerName -ErrorAction SilentlyContinue) { throw 'Observer task collision' }
-        $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -File "' + $observerPath + '" -Output "' + $observerOutput + '"')
-        try {
-            Register-ScheduledTask -TaskName $observerName -Action $action -User SYSTEM -RunLevel Highest | Out-Null
-            Start-ScheduledTask -TaskName $observerName
-            $deadline=[DateTime]::UtcNow.AddSeconds(60)
-            while (-not (Test-Path -LiteralPath $observerOutput) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
-            if (-not (Test-Path -LiteralPath $observerOutput)) { throw 'Independent observer receipt absent' }
-            $observation = Get-Content -LiteralPath $observerOutput -Raw | ConvertFrom-Json
-        } finally {
-            $task=Get-ScheduledTask -TaskName $observerName -ErrorAction SilentlyContinue
-            if($task){
-                if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $observerName -ErrorAction Stop}
-                Unregister-ScheduledTask -TaskName $observerName -Confirm:$false -ErrorAction Stop
-            }
-            if(Get-ScheduledTask -TaskName $observerName -ErrorAction SilentlyContinue){throw 'Owned SYSTEM observer cleanup failed'}
-        }
+        $readback=Invoke-IndependentMetadataReadback -DriveRoot 'E:\' -OutputRoot 'C:\USK-Lab' -RunId $RunId
+        $observation=$readback.independent
     }
     [ordered]@{schema='usk.publisher.metadata_vm_probe.v1';vm_id=$vmId;os_build=[Environment]::OSVersion.Version.ToString();
-        disk_unique_id=$disk.UniqueId;volume_guid_root=$Volume.volume_guid_root;service=$serviceName;service_sid=$sid;
-        binary_sha256=$BinarySha;machine_sha256=$MachineSha;archive_sha256=$ArchiveSha;strip_prefix='pkg/';
+        disk_unique_id=$disk.UniqueId;volume_guid_root=$Volume.volume_guid_root;volume_drive_root='E:\';service=$serviceName;service_sid=$sid;
+        binary_sha256=$BinarySha;machine_sha256=$MachineSha;archive_sha256=$ArchiveSha;strip_prefix='pkg';
         envelope_sha256=$envelopeSha;request=$template.payload;plan=$plan;native=$native;independent=$observation;root_acl_before=$rootAclBefore;
         native_receipt=$nativePath;native_receipt_sha256=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant();
         observer_task_removed=($null -eq (Get-ScheduledTask -TaskName ('USK_METADATA_OBSERVER_' + $RunId) -ErrorAction SilentlyContinue));
