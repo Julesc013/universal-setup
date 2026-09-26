@@ -5,6 +5,7 @@
 
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
 #include "usk_publisher_metadata.h"
+#include "usk_protected_install_publisher_internal.h"
 #endif
 
 #include "usk/usk_result.h"
@@ -1806,6 +1807,14 @@ Value execute_command(const std::string& command, const Value& request, const Pu
             required_string(request, "reviewed_plan_digest") != bundle.plan.plan_digest) {
             throw PublicError("stale_plan", "reviewed install plan identity does not match immediate revalidation");
         }
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        if (!request.contains("restart_from") && bundle.plan.required_commit_authority ==
+                usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+            const auto protected_result=usk::lifecycle::apply_in_candidate_publisher_context(
+                bundle.plan,required_string(request,"transaction_id"),required_string(request,"applied_at"));
+            if (protected_result) return response_ok(installed_document(protected_result->installed_state));
+        }
+#endif
         usk::transaction::require_commit_authority(bundle.plan.required_commit_authority);
         usk::lifecycle::require_install_path_capacity(bundle.plan, required_string(request, "transaction_id"));
         bundle.plan.validate_source();

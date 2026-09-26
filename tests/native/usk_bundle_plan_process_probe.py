@@ -22,7 +22,7 @@ from usk_bundle_plan import host_target
 from usk_bundle_selection import finalize_selection
 
 
-def main(executable: str) -> None:
+def main(executable: str, public_apply: str | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="usk-authored-plan-") as directory:
         # Windows temporary roots can have a lexical alias that the planner
         # resolves. Construct every child from one canonical root.
@@ -105,8 +105,26 @@ def main(executable: str) -> None:
         assert planned_files == expected_files, plan
         assert "bin/alternative.bin" not in planned_files, plan
         assert not target.exists() and not (root / "setup-state").exists()
+        if public_apply is not None:
+            apply_file = root / "apply.json"
+            apply_file.write_text(json.dumps({
+                "schema": "usk.install_local_apply_request.v1",
+                "plan_request": request["payload"],
+                "reviewed_plan_id": plan["plan_id"],
+                "reviewed_plan_digest": plan["plan_digest"],
+                "transaction_id": "install.ordinary.caller",
+                "applied_at": "2026-09-26T00:00:00Z", "confirmation": "APPLY",
+            }))
+            applied = subprocess.run([public_apply, "--apply-probe", str(apply_file),
+                str(root / "setup-state"), str(root)], capture_output=True, timeout=30)
+            assert applied.returncode == 2, (applied.returncode, applied.stdout, applied.stderr)
+            refused = json.loads(applied.stdout)
+            assert refused["status"] == "refused", refused
+            assert "commit_authority_unavailable" in applied.stdout.decode(), refused
+            assert not target.exists() and not (root / "setup-state").exists()
+            print("authored-bundle-public-apply-refused-before-mutation")
         print("authored-bundle-native-plan-pass")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else None)

@@ -41,3 +41,25 @@ The internal Windows publisher now takes the selected readers from the exact rev
 This remains an implementation candidate. Focused native builds, record-backend refusal tests and the synthetic readback-oracle regressions ran locally. Exact-head hosted run `36230204335` passed at commit `b3da3b934dec6ea17e3931f8dd16139bc9f261ea`, tree `b844221446ebba6b9bba596f59f03c34123179df`, on Windows `10.0.20348.0`. Its selected-metadata receipt reports successful restricted-service publication, independent SYSTEM readback of payload and ownership/installed/audit records, protected SYSTEM/service-SID descriptors, and confirmed service/observer/VHD cleanup. The retained receipt SHA-256 is `b15545de8e7a6be25a3ebfd650a4caddd2178f2aa06a9a58979695488df7fe5f`. Earlier unsuccessful local VM transport attempts and older successful VM receipts remain bound to their original source and environment. This observation does not establish current-binary crash-window or hostile-rights qualification, an ordinary production adapter, leases or OD-001 closure.
 
 The existing hosted Windows disposable-VHD harness also has a selected-metadata execution case. It observes the actual VM registry identity, creates an own-process restricted service, uses public authoring and selection tools to make a two-file stored source with a nonempty prefix and multi-buffer payloads, reviews the native plan, and independently reads protected payload and metadata as SYSTEM. The pure readback oracle accepts the observed drive alias and refuses a substituted alias. The successful hosted receipt above establishes this execution case; it does not qualify the general production profile. The existing prepublication and hostile-rights probe remains required and unchanged.
+
+## Shared candidate apply execution
+
+The restricted-service implementation is extracted into the private lifecycle
+engine. Its admitted service context invokes the normal `install_local.apply`
+parser and immediate native plan validation, then the concrete protected engine
+consumes those source-bound readers. Caller transaction ID and timestamp are
+persisted in the existing reviewed snapshot and installed state; they are not
+replaced by laboratory-generated operation identities. The context has no public
+constructor, callback registration, JSON activation or SDK capability token.
+The lab host provisions its disposable volume descriptor before execution;
+ordinary apply does not replace a volume ACL. Existing durable prepared/visible
+records, handle-relative no-replace publication, exact closure checks and protected
+metadata finalization remain shared with recovery.
+
+The hosted scenario sends the identical C ABI request to an ordinary native process
+and to the admitted restricted service. It requires refusal before ordinary
+mutation, a verified installed result inside the service, and independent SYSTEM
+readback of caller identities and protected records. These are candidate tests;
+this source change does not assert they have executed. General SDK/client
+transport, consumer read policy, per-install leases, complete hostile/crash
+qualification and production enablement remain incomplete.

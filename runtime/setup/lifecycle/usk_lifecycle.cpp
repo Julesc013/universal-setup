@@ -14,6 +14,7 @@
 #include "usk_utf8_path.h"
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
 #include "usk_protected_publisher_finalization_internal.h"
+#include "usk_protected_install_publisher_internal.h"
 #include "usk_publisher_metadata.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -1125,6 +1126,15 @@ InstallPlan plan_install(
     return plan;
 }
 
+void require_install_execution_identity(const InstallPlan& plan,
+    const std::string& reviewed_plan_digest, const std::string& transaction_id,
+    const std::string& applied_at)
+{
+    validate_plan(plan);
+    if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
+        !valid_timestamp(applied_at)) throw std::runtime_error("reviewed install plan or transaction identity is invalid");
+}
+
 static InstallResult apply_install_impl(
     const InstallPlan& plan,
     const std::string& reviewed_plan_digest,
@@ -1134,9 +1144,7 @@ static InstallResult apply_install_impl(
     LifecycleCancellation cancellation,
     const InstallRestartRequest* restart)
 {
-    validate_plan(plan);
-    if (reviewed_plan_digest != plan.plan_digest || !record_io::valid_identifier(transaction_id) ||
-        !valid_timestamp(applied_at)) throw std::runtime_error("reviewed install plan or transaction identity is invalid");
+    require_install_execution_identity(plan, reviewed_plan_digest, transaction_id, applied_at);
     transaction::require_commit_authority(plan.required_commit_authority);
     require_install_path_capacity(plan, transaction_id);
     if (fs::exists(plan.target_root)) throw std::runtime_error("install target now exists; reviewed plan is invalid");
@@ -1506,12 +1514,13 @@ static std::string require_held_publisher_evidence(
     const auto prepared = json::parse(evidence.prepared_record);
     const auto bound = json::parse(evidence.visible_record);
     const auto snapshot = json::parse(evidence.reviewed_snapshot_record);
+    require_candidate_snapshot_apply_binding(snapshot);
     const auto completion = json::parse(evidence.completion_record);
     const auto& binding = prepared.at("source_binding");
     if (prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
         bound.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
-        snapshot.at("schema").as_string() !=
-            "usk.publisher.lab_reviewed_plan_snapshot.v2" ||
+        (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
+            snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") ||
         completion.at("schema").as_string() !=
             "usk.publisher.lab_installed_state.v2" ||
         prepared.at("service_sid").as_string() != service.service_sid ||

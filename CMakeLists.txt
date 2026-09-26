@@ -180,6 +180,7 @@ target_link_libraries(usk_lifecycle_static PUBLIC
   usk_transaction_static
 )
 if(WIN32)
+  target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_protected_install_publisher.cpp)
   target_compile_definitions(usk_lifecycle_static PRIVATE
     USK_INTERNAL_PUBLISHER_FINALIZATION)
   target_link_libraries(usk_lifecycle_static PRIVATE usk_publisher_windows_static)
@@ -541,6 +542,19 @@ if(USK_BUILD_TESTS)
   set_tests_properties(usk_commit_authority_smoke PROPERTIES TIMEOUT 30)
 
   if(WIN32)
+    add_executable(usk_publisher_candidate_context_smoke tests/native/usk_publisher_candidate_context_smoke.cpp)
+    target_compile_features(usk_publisher_candidate_context_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_candidate_context_smoke PRIVATE usk_lifecycle_static)
+    usk_enable_strict_warnings(usk_publisher_candidate_context_smoke)
+    add_test(NAME usk_publisher_candidate_context_smoke COMMAND usk_publisher_candidate_context_smoke)
+    set_tests_properties(usk_publisher_candidate_context_smoke PROPERTIES TIMEOUT 30)
+    if(TARGET usk_machine)
+      add_test(NAME usk_publisher_candidate_apply_process_smoke
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_bundle_plan_process_probe.py"
+          "$<TARGET_FILE:usk_machine>" "$<TARGET_FILE:usk_publisher_candidate_context_smoke>")
+      set_tests_properties(usk_publisher_candidate_apply_process_smoke PROPERTIES TIMEOUT 60)
+    endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
       add_executable(usk_publisher_lab_service
         apps/daemon/usk_publisher_lab_service.cpp)
