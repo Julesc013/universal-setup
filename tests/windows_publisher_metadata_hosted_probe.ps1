@@ -8,9 +8,15 @@ param(
     [Parameter(Mandatory=$true)][string]$MachineBinary,
     [Parameter(Mandatory=$true)][string]$PublicApplyBinary,
     [Parameter(Mandatory=$true)][string]$OutputPath,
-    [switch]$InterruptAfterVisibleRecord
+    [switch]$InterruptAfterVisibleRecord,
+    [switch]$InterruptAfterRename
 )
 $ErrorActionPreference='Stop'
+if($InterruptAfterVisibleRecord -and $InterruptAfterRename){throw 'Select one interruption window'}
+$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename
+$gate=if($InterruptAfterRename){'postrename'}else{'postjournal'}
+$readyContent=if($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
+$recoveryDecision=if($InterruptAfterRename){'visible_bound_forward'}else{'installed_state_completed_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -117,7 +123,7 @@ try {
     $command='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+
         ' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
         ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
-    if($InterruptAfterVisibleRecord){$command+=' --postjournal-gate'}
+    if($recover){$command+=' --'+$gate+'-gate'}
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
     & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Owned service creation failed'}
@@ -153,26 +159,26 @@ try {
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
-    if($InterruptAfterVisibleRecord) {
-        # Controlled service cancellation at a flushed visible-record window.
+    if($recover) {
+        # Controlled service cancellation at the selected flushed readiness window.
         # This is neither VM power loss nor physical-host power-loss evidence.
-        $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-postjournal-ready.txt'
+        $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$gate+'-ready.txt'
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $ready) -or
-            [IO.File]::ReadAllText($ready) -cne "usk.publisher.lab_visible_recorded.v1`n") {
-            throw 'Durable visible-record interruption window was not reached'
+            [IO.File]::ReadAllText($ready) -cne $readyContent) {
+            throw ('Selected interruption window was not reached: '+$gate)
         }
         Stop-Service $service -ErrorAction Stop
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
         $interrupted=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
-        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch 'postjournal gate interrupted' -or
+        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch ($gate+' gate interrupted') -or
             $interrupted.error -notmatch '"code":"recovery_required"') {
             throw 'Interrupted ordinary apply did not truthfully retain recovery material'
         }
-        $receipt['interruption']=[ordered]@{kind='controlled_service_cancellation';native=$interrupted;
+        $receipt['interruption']=[ordered]@{kind='controlled_service_cancellation';window=$gate;native=$interrupted;
             readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant()}
         $before=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) `
             -RunId ([guid]::NewGuid().ToString('N'))
@@ -189,6 +195,9 @@ try {
                 '; identity='+$before.independent.identity+'; observer_removed='+$before.observer_task_removed)
         }
         Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid
+        $visibleRecords=@($before.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
+        $expectedVisibleRecords=if($InterruptAfterRename){0}else{1}
+        if($visibleRecords.Count -ne $expectedVisibleRecords){throw 'Interrupted visible-journal boundary differs from selected window'}
         foreach($entry in $plan.planned_entries|Where-Object entry_type -eq 'file') {
             $path=$drive+'publication\destination\visible\'+$entry.relative_path.Replace('/','\')
             $row=@($before.independent.rows|Where-Object path -ceq $path)
@@ -233,8 +242,8 @@ try {
     $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
-    $installedResponse=if($InterruptAfterVisibleRecord){$receipt.native.recovery_installed_response}else{$receipt.native.apply_response}
-    if($InterruptAfterVisibleRecord -and $receipt.native.recovery_observation.decision -ne 'installed_state_completed_forward') {
+    $installedResponse=if($recover){$receipt.native.recovery_installed_response}else{$receipt.native.apply_response}
+    if($recover -and $receipt.native.recovery_observation.decision -ne $recoveryDecision) {
         throw 'Source-free recovery did not perform the pending installed-state completion'
     }
     if($installedResponse.status -ne 'ok' -or
@@ -247,7 +256,7 @@ try {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
     Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
-    if($InterruptAfterVisibleRecord) {
+    if($recover) {
         foreach($row in $before.independent.rows) {
             $matching=@($receipt.independent.rows|Where-Object path -ceq $row.path)
             if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or $matching[0].bytes -ne $row.bytes) {
@@ -284,7 +293,7 @@ try {
                 throw 'Repeated recovery changed a completed record or payload'
             }
         }
-        $receipt['source_free_recovery']=[ordered]@{action='installed_state_completed_forward';repeat=$repeat;
+        $receipt['source_free_recovery']=[ordered]@{action=$recoveryDecision;repeat=$repeat;
             independent_repeat=$after.independent;repeat_observer_task_removed=$after.observer_task_removed;
             unchanged_row_count=$after.independent.rows.Count}
     }
@@ -299,6 +308,23 @@ try {
             if($LASTEXITCODE -ne 0){throw 'Owned service deletion failed'}
             if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Owned service remains after deletion'}
             $receipt.service_removed=$true
+        } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
+    if($receipt.status -eq 'protected_metadata_observed' -and $receipt.service_removed) {
+        try {
+            if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
+            $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
+            while($pending.Count) {
+                $directory=$pending.Dequeue();$item=Get-Item -LiteralPath $directory -Force
+                if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Hosted cleanup root contains a link'}
+                foreach($child in Get-ChildItem -LiteralPath $directory -Force) {
+                    if($child.Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Hosted cleanup input contains a link'}
+                    if($child.PSIsContainer){$pending.Enqueue($child.FullName)}
+                }
+            }
+            Remove-Item -LiteralPath $root -Recurse -Force
+            if(Test-Path -LiteralPath $root){throw 'Owned hosted input cleanup did not complete'}
+            $receipt['owned_input_root_removed']=$true
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     $receipt['observed_utc']=[DateTime]::UtcNow.ToString('o')

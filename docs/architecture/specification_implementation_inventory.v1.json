@@ -1,9 +1,9 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-26T10:00:24Z",
+  "generated_at": "2026-09-26T11:36:32Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "e94513da8ec5a71d1059231c49f947af6ba678f8",
-  "repository_base_tree": "fc453b23e7c9f4a023f8814c865dc84695b0bb3b",
+  "repository_base_commit": "db2a4a088a42cfead99c290456df55eef1ad5b1e",
+  "repository_base_tree": "d8e277fe287ff075dba4cc14f99f77fff7f1dd62",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "f6c0c724f669ecf10c9dc9b77f2d8e02131b70222a933553b6e3e4240de5d60b",
   "source_hash_contract": "sha256-lf-text-v1",
@@ -3464,7 +3464,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a554fc2d7dadbbb1467b5a482a06789a2e1c09ab81b8a9afb3a936ec10c4e120"
+          "sha256": "71be082a9ff52aa44b0c4a6cc6675b90203eedd70d5b08078f93e87f31d79d24"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3500,7 +3500,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a554fc2d7dadbbb1467b5a482a06789a2e1c09ab81b8a9afb3a936ec10c4e120"
+          "sha256": "71be082a9ff52aa44b0c4a6cc6675b90203eedd70d5b08078f93e87f31d79d24"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3536,7 +3536,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a554fc2d7dadbbb1467b5a482a06789a2e1c09ab81b8a9afb3a936ec10c4e120"
+          "sha256": "71be082a9ff52aa44b0c4a6cc6675b90203eedd70d5b08078f93e87f31d79d24"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3831,7 +3831,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "d75632ad3f2590f8f4a32c3b1c5ee6ebf34683229c4d1e7f1bab191de1e92e1b"
+          "sha256": "3529e4a1f5b8fe254eaf3a83294fdd090dc82e54d726aa722de246fcfc4861c3"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -3907,7 +3907,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "fa8b6fddd2e561a9773440e00808345b7b3836de8a94a1baa6cdb7c14c1acc95"
+          "sha256": "feb25de072807ea293864e64291b6313c212d93ec0431c42f7a744304385ff07"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4003,7 +4003,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "4e288c08f84d600855c7eeb69af155499cdc655347c1aa0039b4a6ccaf4df3e3"
+          "sha256": "bd6fa1261dccc1435cff90058673ceae8910014052802f7290644554f1a06392"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -4059,7 +4059,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "d75632ad3f2590f8f4a32c3b1c5ee6ebf34683229c4d1e7f1bab191de1e92e1b"
+          "sha256": "3529e4a1f5b8fe254eaf3a83294fdd090dc82e54d726aa722de246fcfc4861c3"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -4095,7 +4095,7 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "d75632ad3f2590f8f4a32c3b1c5ee6ebf34683229c4d1e7f1bab191de1e92e1b"
+          "sha256": "3529e4a1f5b8fe254eaf3a83294fdd090dc82e54d726aa722de246fcfc4861c3"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
@@ -4255,7 +4255,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "4e288c08f84d600855c7eeb69af155499cdc655347c1aa0039b4a6ccaf4df3e3"
+          "sha256": "bd6fa1261dccc1435cff90058673ceae8910014052802f7290644554f1a06392"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
