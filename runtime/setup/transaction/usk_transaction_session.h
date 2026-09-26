@@ -86,6 +86,10 @@ public:
         std::size_t buffer_bytes,
         const StreamReader& reader,
         const std::string& source_identity_digest = {});
+    // Binds replay context in the first durable journal, before staging effects.
+    static std::unique_ptr<TransactionSession> begin_streaming(
+        TransactionSpec spec, const std::string& source_digest,
+        const std::string& source_context, FaultInjector injector = {});
     void bind_stream_source(const std::string& source_digest, const std::string& source_context = {});
     void mark_staged();
     void mark_verified();
