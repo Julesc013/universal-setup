@@ -2,7 +2,7 @@
   "schema": "usk.spec.integrity/1",
   "algorithm": "sha256",
   "self_excluded": "integrity.json",
-  "aggregate_sha256": "984295cbc9d2d21a131e1d7f8b20250db1eaf6a158f40876e10a281a9939f495",
+  "aggregate_sha256": "f6c0c724f669ecf10c9dc9b77f2d8e02131b70222a933553b6e3e4240de5d60b",
   "files": [
     {
       "path": ".gitattributes",
@@ -82,7 +82,7 @@
     {
       "path": "derived/catalogue.json",
       "bytes": 235295,
-      "sha256": "9d5ffae5febfab99c20b3c01d41fe76f8c4e6a14ac7e724971059ec1c7420871"
+      "sha256": "9265d32ed4d9fe9825c389dfa3eaaf2dcd89a43f1d443acc9e4d0ff90d9fe4f2"
     },
     {
       "path": "derived/index.md",
@@ -406,8 +406,8 @@
     },
     {
       "path": "plan/tasks/usk-wu-006.md",
-      "bytes": 6879,
-      "sha256": "92047021671f9611dc598d6204715ea7e88aefde4eabfe76ebb03557b6a52d9e"
+      "bytes": 6832,
+      "sha256": "5a32bee29312f7716ebab9dae6f9cab8861f39a0b7c16f4fa520dfa33a9d3d61"
     },
     {
       "path": "plan/tasks/usk-wu-007.md",

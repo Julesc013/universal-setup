@@ -19,6 +19,13 @@ from tools import development_layout, workspace_hygiene
 
 
 class DevelopmentLayoutTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # These fixtures select their own isolated development roots; the
+        # parent runner's task binding belongs to the real campaign checkout.
+        environment = mock.patch.dict(os.environ, {"FACMAN_TASK_ROOT": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     @contextlib.contextmanager
     def budgeted_fixture(self, base: Path, child: str, *, disk: int = 10485760):
         source = base / "source"
