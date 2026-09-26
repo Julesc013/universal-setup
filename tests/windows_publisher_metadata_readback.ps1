@@ -1,21 +1,25 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
+function Assert-IndependentProtectedRows {
+    param($Rows,[string]$ServiceSid)
+    foreach ($row in $Rows) {
+        if ($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne 2 -or
+            @($row.aces|Where-Object sid -eq 'S-1-5-18').Count -ne 1 -or
+            @($row.aces|Where-Object sid -eq $ServiceSid).Count -ne 1 -or
+            @($row.aces|Where-Object { $_.rights -ne 2032127 -or $_.type -ne 'Allow' -or
+                $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0 }).Count -ne 0) {
+            throw ('Independent owner/DACL differs: ' + $row.path)
+        }
+    }
+}
 function Assert-IndependentMetadataProbe {
     param($Result)
     $drive=$Result.volume_drive_root
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
     if ($Result.native.status -ne 'pass' -or -not $Result.observer_task_removed -or
         $Result.independent.identity -ne 'S-1-5-18') { throw 'Service, observer identity or confirmed task cleanup differs' }
-    foreach ($row in $Result.independent.rows) {
-        if ($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne 2 -or
-            @($row.aces|Where-Object sid -eq 'S-1-5-18').Count -ne 1 -or
-            @($row.aces|Where-Object sid -eq $Result.service_sid).Count -ne 1 -or
-            @($row.aces|Where-Object { $_.rights -ne 2032127 -or $_.type -ne 'Allow' -or
-                $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0 }).Count -ne 0) {
-            throw ('Independent owner/DACL differs: ' + $row.path)
-        }
-    }
+    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid
     function Get-ExactRecord([string]$Path) {
         $found=@($Result.independent.rows|Where-Object { $_.path -ceq $Path -and -not $_.directory })
         if ($found.Count -ne 1 -or -not $found[0].content_json) { throw ('Missing independent record: ' + $Path) }

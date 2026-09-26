@@ -32,6 +32,11 @@ std::string execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration&, bool& effects_may_exist);
 }
 namespace usk::lifecycle {
+class ProtectedApplyEffectsRetained final : public std::runtime_error {
+public:
+    explicit ProtectedApplyEffectsRetained(const std::string& reason) :
+        std::runtime_error("protected apply may retain material; recovery required: " + reason) {}
+};
 void require_candidate_snapshot_apply_binding(const usk::json::Value& snapshot);
 // No exposed constructor, setter, callback or JSON activation can create the
 // operation-scoped context. Only the concrete live service engine creates it.

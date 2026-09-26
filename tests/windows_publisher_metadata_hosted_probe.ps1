@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory=$true)][string]$DeviceAclBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
     [Parameter(Mandatory=$true)][string]$PublicApplyBinary,
-    [Parameter(Mandatory=$true)][string]$OutputPath
+    [Parameter(Mandatory=$true)][string]$OutputPath,
+    [switch]$InterruptAfterVisibleRecord
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
@@ -116,6 +117,7 @@ try {
     $command='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+
         ' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
         ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
+    if($InterruptAfterVisibleRecord){$command+=' --postjournal-gate'}
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
     & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Owned service creation failed'}
@@ -151,6 +153,79 @@ try {
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+    if($InterruptAfterVisibleRecord) {
+        # Controlled service cancellation at a flushed visible-record window.
+        # This is neither VM power loss nor physical-host power-loss evidence.
+        $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-postjournal-ready.txt'
+        $deadline=[DateTime]::UtcNow.AddSeconds(90)
+        while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $ready) -or
+            [IO.File]::ReadAllText($ready) -cne "usk.publisher.lab_visible_recorded.v1`n") {
+            throw 'Durable visible-record interruption window was not reached'
+        }
+        Stop-Service $service -ErrorAction Stop
+        $deadline=[DateTime]::UtcNow.AddSeconds(30)
+        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
+        $interrupted=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
+        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch 'postjournal gate interrupted' -or
+            $interrupted.error -notmatch '"code":"recovery_required"') {
+            throw 'Interrupted ordinary apply did not truthfully retain recovery material'
+        }
+        $receipt['interruption']=[ordered]@{kind='controlled_service_cancellation';native=$interrupted;
+            readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant()}
+        $before=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) `
+            -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt['interrupted_independent']=$before.independent
+        $receipt['interrupted_observer_task_removed']=$before.observer_task_removed
+        $publicBefore=@($before.independent.rows|Where-Object { -not $_.directory -and
+            $_.path.StartsWith(($drive+'setup-state\'),[StringComparison]::Ordinal) })
+        # Protected setup-root bootstrap precedes the prepared phase. Its marker
+        # is expected; installed/ownership/audit records and completion are not.
+        if($before.independent.identity -ne 'S-1-5-18' -or -not $before.observer_task_removed -or
+            $publicBefore.Count -ne 1 -or $publicBefore[0].path -cne ($drive+'setup-state\.usk-owned-root.v1.json') -or
+            @($before.independent.rows|Where-Object path -ceq ($drive+'publication\state\lab-installed-state.json')).Count -ne 0) {
+            throw ('Independent interrupted metadata differs: public_files='+($publicBefore.path -join ',')+
+                '; identity='+$before.independent.identity+'; observer_removed='+$before.observer_task_removed)
+        }
+        Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid
+        foreach($entry in $plan.planned_entries|Where-Object entry_type -eq 'file') {
+            $path=$drive+'publication\destination\visible\'+$entry.relative_path.Replace('/','\')
+            $row=@($before.independent.rows|Where-Object path -ceq $path)
+            if($row.Count -ne 1 -or $row[0].sha256 -ne $entry.sha256 -or $row[0].bytes -ne $entry.size_bytes) {
+                throw 'Independent interrupted visible payload differs'
+            }
+        }
+        $snapshot=@($before.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-reviewed-plan.json'))
+        if($snapshot.Count -ne 1){throw 'Independent caller-bound snapshot absent'}
+        $snapshotValue=$snapshot[0].content_json|ConvertFrom-Json
+        if($snapshotValue.schema -ne 'usk.publisher.lab_reviewed_plan_snapshot.v3' -or
+            $snapshotValue.transaction_id -ne $applyRequest.transaction_id -or
+            $snapshotValue.applied_at -ne $applyRequest.applied_at -or
+            $snapshotValue.plan_digest -ne $plan.plan_digest) {throw 'Interrupted snapshot caller binding differs'}
+        # Delete only regular input files within this freshly created VM root;
+        # retain minimal parsed inputs and independent observations in receipt.
+        $removed=[Collections.Generic.List[string]]::new()
+        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+            $exact=[IO.Path]::GetFullPath($path)
+            $item=Get-Item -LiteralPath $exact -Force
+            if(-not $exact.StartsWith(($root+'\'),[StringComparison]::OrdinalIgnoreCase) -or
+                $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw 'Source-removal target escaped the newly created hosted input root'
+            }
+            Remove-Item -LiteralPath $exact -Force
+            if(Test-Path -LiteralPath $exact){throw 'Original input remains after source removal'}
+            $removed.Add($exact)
+        }
+        $receipt['removed_source_inputs']=$removed.ToArray()
+        $recoveryPath=Join-Path $root ('vm-recovery-'+$id+'.json')
+        $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
+            ' --recover-visible-bound --campaign-vm-id '+$vmId
+        & sc.exe config $service binPath= $recoveryCommand|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Owned service recovery configuration failed'}
+        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        $nativePath=$recoveryPath
+    }
     $deadline=[DateTime]::UtcNow.AddSeconds(90)
     while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
     if(-not (Test-Path -LiteralPath $nativePath)){throw 'Native service receipt absent'}
@@ -158,16 +233,61 @@ try {
     $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
-    if($receipt.native.apply_response.status -ne 'ok' -or
-        $receipt.native.apply_response.payload.schema -ne 'usk.installed_state.v1' -or
-        $receipt.native.apply_response.payload.transaction_id -ne $applyRequest.transaction_id -or
-        $receipt.native.apply_response.payload.created_at -ne $applyRequest.applied_at -or
-        $receipt.native.apply_response.payload.last_verification.status -ne 'pass') {
+    $installedResponse=if($InterruptAfterVisibleRecord){$receipt.native.recovery_installed_response}else{$receipt.native.apply_response}
+    if($InterruptAfterVisibleRecord -and $receipt.native.recovery_observation.decision -ne 'installed_state_completed_forward') {
+        throw 'Source-free recovery did not perform the pending installed-state completion'
+    }
+    if($installedResponse.status -ne 'ok' -or
+        $installedResponse.payload.schema -ne 'usk.installed_state.v1' -or
+        $installedResponse.payload.transaction_id -ne $applyRequest.transaction_id -or
+        $installedResponse.payload.created_at -ne $applyRequest.applied_at -or
+        $installedResponse.payload.last_verification.status -ne 'pass') {
         throw 'Protected ordinary apply did not preserve caller identities and verified installed result'
     }
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
     Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
+    if($InterruptAfterVisibleRecord) {
+        foreach($row in $before.independent.rows) {
+            $matching=@($receipt.independent.rows|Where-Object path -ceq $row.path)
+            if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or $matching[0].bytes -ne $row.bytes) {
+                throw 'Recovery changed independently observed published payload or durable intent'
+            }
+        }
+        # Re-enter the same source-free recovery operation. No published record
+        # or public installed/audit record may change or acquire a duplicate.
+        $repeatPath=Join-Path $root ('vm-recovery-repeat-'+$id+'.json')
+        $repeatCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$repeatPath+'" '+$VolumeRoot+
+            ' --recover-visible-bound --campaign-vm-id '+$vmId
+        & sc.exe config $service binPath= $repeatCommand|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Owned service repeat configuration failed'}
+        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        $deadline=[DateTime]::UtcNow.AddSeconds(90)
+        while(-not (Test-Path -LiteralPath $repeatPath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $repeatPath)){throw 'Repeated recovery receipt absent'}
+        $repeat=Get-Content -LiteralPath $repeatPath -Raw|ConvertFrom-Json
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+        if($repeat.status -ne 'pass' -or $repeat.recovery_observation.decision -ne 'already_visible_bound' -or
+            $repeat.recovery_installed_response.payload.transaction_id -ne $applyRequest.transaction_id -or
+            $repeat.recovery_installed_response.payload.last_verification.status -ne 'pass') {
+            throw 'Repeated source-free recovery did not preserve completed caller state'
+        }
+        $after=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        $repeatResult=[pscustomobject]@{volume_drive_root=$drive;native=$repeat;service_sid=$sid;independent=$after.independent;
+            observer_task_removed=$after.observer_task_removed;plan=$plan;archive_sha256=$inputs.archive_sha256;
+            apply_request=$applyRequest;request=$request.payload}
+        Assert-IndependentMetadataProbe $repeatResult
+        if($after.independent.rows.Count -ne $receipt.independent.rows.Count){throw 'Repeated recovery changed record closure'}
+        foreach($row in $receipt.independent.rows) {
+            $matching=@($after.independent.rows|Where-Object path -ceq $row.path)
+            if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or $matching[0].bytes -ne $row.bytes) {
+                throw 'Repeated recovery changed a completed record or payload'
+            }
+        }
+        $receipt['source_free_recovery']=[ordered]@{action='installed_state_completed_forward';repeat=$repeat;
+            independent_repeat=$after.independent;repeat_observer_task_removed=$after.observer_task_removed;
+            unchanged_row_count=$after.independent.rows.Count}
+    }
     $receipt.status='protected_metadata_observed'
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
