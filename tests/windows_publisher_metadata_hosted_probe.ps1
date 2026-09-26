@@ -168,19 +168,27 @@ try {
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
         $interrupted=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
-        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch 'postjournal gate interrupted') {
+        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch 'postjournal gate interrupted' -or
+            $interrupted.error -notmatch '"code":"recovery_required"') {
             throw 'Interrupted ordinary apply did not truthfully retain recovery material'
         }
         $receipt['interruption']=[ordered]@{kind='controlled_service_cancellation';native=$interrupted;
             readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant()}
         $before=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) `
-            -RunId ([guid]::NewGuid().ToString('N')) -AllowAbsentSetupRoot
+            -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt['interrupted_independent']=$before.independent
+        $receipt['interrupted_observer_task_removed']=$before.observer_task_removed
+        $publicBefore=@($before.independent.rows|Where-Object { -not $_.directory -and
+            $_.path.StartsWith(($drive+'setup-state\'),[StringComparison]::Ordinal) })
+        # Protected setup-root bootstrap precedes the prepared phase. Its marker
+        # is expected; installed/ownership/audit records and completion are not.
         if($before.independent.identity -ne 'S-1-5-18' -or -not $before.observer_task_removed -or
-            @($before.independent.missing_roots).Count -ne 1 -or
-            $before.independent.missing_roots[0] -cne ($drive+'setup-state') -or
+            $publicBefore.Count -ne 1 -or $publicBefore[0].path -cne ($drive+'setup-state\.usk-owned-root.v1.json') -or
             @($before.independent.rows|Where-Object path -ceq ($drive+'publication\state\lab-installed-state.json')).Count -ne 0) {
-            throw 'Independent interrupted state unexpectedly completed metadata'
+            throw ('Independent interrupted metadata differs: public_files='+($publicBefore.path -join ',')+
+                '; identity='+$before.independent.identity+'; observer_removed='+$before.observer_task_removed)
         }
+        Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid
         foreach($entry in $plan.planned_entries|Where-Object entry_type -eq 'file') {
             $path=$drive+'publication\destination\visible\'+$entry.relative_path.Replace('/','\')
             $row=@($before.independent.rows|Where-Object path -ceq $path)
@@ -195,8 +203,6 @@ try {
             $snapshotValue.transaction_id -ne $applyRequest.transaction_id -or
             $snapshotValue.applied_at -ne $applyRequest.applied_at -or
             $snapshotValue.plan_digest -ne $plan.plan_digest) {throw 'Interrupted snapshot caller binding differs'}
-        $receipt['interrupted_independent']=$before.independent
-        $receipt['interrupted_observer_task_removed']=$before.observer_task_removed
         # Delete only regular input files within this freshly created VM root;
         # retain minimal parsed inputs and independent observations in receipt.
         $removed=[Collections.Generic.List[string]]::new()

@@ -1,22 +1,25 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
-function Assert-IndependentMetadataProbe {
-    param($Result)
-    $drive=$Result.volume_drive_root
-    if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
-    if ($Result.native.status -ne 'pass' -or -not $Result.observer_task_removed -or
-        $Result.independent.identity -ne 'S-1-5-18' -or
-        $Result.independent.missing_roots) { throw 'Service, observer identity or confirmed task cleanup differs' }
-    foreach ($row in $Result.independent.rows) {
+function Assert-IndependentProtectedRows {
+    param($Rows,[string]$ServiceSid)
+    foreach ($row in $Rows) {
         if ($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne 2 -or
             @($row.aces|Where-Object sid -eq 'S-1-5-18').Count -ne 1 -or
-            @($row.aces|Where-Object sid -eq $Result.service_sid).Count -ne 1 -or
+            @($row.aces|Where-Object sid -eq $ServiceSid).Count -ne 1 -or
             @($row.aces|Where-Object { $_.rights -ne 2032127 -or $_.type -ne 'Allow' -or
                 $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0 }).Count -ne 0) {
             throw ('Independent owner/DACL differs: ' + $row.path)
         }
     }
+}
+function Assert-IndependentMetadataProbe {
+    param($Result)
+    $drive=$Result.volume_drive_root
+    if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
+    if ($Result.native.status -ne 'pass' -or -not $Result.observer_task_removed -or
+        $Result.independent.identity -ne 'S-1-5-18') { throw 'Service, observer identity or confirmed task cleanup differs' }
+    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid
     function Get-ExactRecord([string]$Path) {
         $found=@($Result.independent.rows|Where-Object { $_.path -ceq $Path -and -not $_.directory })
         if ($found.Count -ne 1 -or -not $found[0].content_json) { throw ('Missing independent record: ' + $Path) }
@@ -104,7 +107,7 @@ function Assert-IndependentMetadataProbe {
     }
 }
 function Invoke-IndependentMetadataReadback {
-    param([string]$DriveRoot,[string]$OutputRoot,[string]$RunId,[switch]$AllowAbsentSetupRoot)
+    param([string]$DriveRoot,[string]$OutputRoot,[string]$RunId)
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
     }
@@ -114,15 +117,11 @@ function Invoke-IndependentMetadataReadback {
     if((Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) -or
         (Test-Path -LiteralPath $script) -or (Test-Path -LiteralPath $output)) { throw 'Observer collision' }
     $observer=@'
-param([string]$Output,[string]$DriveRoot,[switch]$AllowAbsentSetupRoot)
+param([string]$Output,[string]$DriveRoot)
 $ErrorActionPreference='Stop'
 $rows=[Collections.Generic.List[object]]::new()
-$missing=[Collections.Generic.List[string]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
 foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
- if($AllowAbsentSetupRoot -and $top -ceq ($DriveRoot+'setup-state') -and -not (Test-Path -LiteralPath $top)) {
-  $missing.Add($top);continue
- }
  $pending.Push((Get-Item -LiteralPath $top -Force))
  while($pending.Count -gt 0) {
   $p=$pending.Pop()
@@ -138,7 +137,7 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
   if($p.PSIsContainer){foreach($child in Get-ChildItem -LiteralPath $p.FullName -Force){$pending.Push($child)}}
  }
 }
-$result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;missing_roots=$missing.ToArray();observed_utc=[DateTime]::UtcNow.ToString('o')}
+$result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;observed_utc=[DateTime]::UtcNow.ToString('o')}
 $temporary=$Output+'.pending'
 $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try {
@@ -155,7 +154,6 @@ try {
     # reviewed script is passed as data to a -Command script block.
     $command="& ([scriptblock]::Create([IO.File]::ReadAllText('"+$script.Replace("'","''")+"'))) -Output '"+
         $output.Replace("'","''")+"' -DriveRoot '"+$DriveRoot+"'"
-    if($AllowAbsentSetupRoot){$command+=' -AllowAbsentSetupRoot'}
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
     $registered=$false

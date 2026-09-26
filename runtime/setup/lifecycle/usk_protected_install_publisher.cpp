@@ -2449,7 +2449,11 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
         entry.reader=file.reader;
         selected.selected_payload.files.push_back(std::move(entry));
     }
-    context.anchors=observe_protected_anchors(context.volume,context.service_sid,selected,false,&completed);
+    try {
+        context.anchors=observe_protected_anchors(context.volume,context.service_sid,selected,false,&completed);
+    } catch (const std::exception& error) {
+        throw ProtectedApplyEffectsRetained(error.what());
+    }
     return completed;
 }
 

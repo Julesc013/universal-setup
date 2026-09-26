@@ -2085,7 +2085,14 @@ char* usk::lifecycle::public_command_json(
         response = usk::json::canonical(response_error(
             invalid ? "invalid_argument" : "refused", error.code(), error.what()));
         *out_command_status = invalid ? USK_STATUS_INVALID_ARGUMENT : USK_STATUS_ERROR;
-    } catch (const usk::transaction::CommitAuthorityUnavailable& error) {
+    }
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    catch (const usk::lifecycle::ProtectedApplyEffectsRetained& error) {
+        response = usk::json::canonical(response_error("refused", "recovery_required", error.what()));
+        *out_command_status = USK_STATUS_ERROR;
+    }
+#endif
+    catch (const usk::transaction::CommitAuthorityUnavailable& error) {
         response = usk::json::canonical(response_error("refused", "commit_authority_unavailable", error.what()));
         *out_command_status = USK_STATUS_ERROR;
     } catch (const usk::lifecycle::RestartEffectsRetained& error) {

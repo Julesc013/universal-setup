@@ -73,7 +73,7 @@ $cases=[ordered]@{
     wrong_volume_alias={param($r) $r.volume_drive_root='R:\'}
     malformed_volume_alias={param($r) $r.volume_drive_root='E:\ordinary\'}
     non_system_observer={param($r) $r.independent.identity='S-1-5-32-544'}
-    partial_root_observation={param($r) $r.independent|Add-Member -NotePropertyName missing_roots -NotePropertyValue @('E:\setup-state')}
+    partial_installed_state={param($r) $r.independent.rows=@($r.independent.rows|Where-Object path -cne 'E:\setup-state\state\installed\org.example.synthetic.tx.synthetic.json')}
     missing_record={param($r) $r.independent.rows=@($r.independent.rows|Where-Object path -cne 'E:\setup-state\.usk-owned-root.v1.json')}
     unexpected_record={param($r) $extra=$r.independent.rows[2].PSObject.Copy();$extra.path='E:\setup-state\extra.json';$r.independent.rows+=@($extra)}
     unexpected_visible_file={param($r) $extra=$r.independent.rows[-1].PSObject.Copy();$extra.path='E:\publication\destination\visible\extra.bin';$r.independent.rows+=@($extra)}
