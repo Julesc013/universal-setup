@@ -2423,6 +2423,7 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
     const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
     if (service.service_sid != context.service_sid) throw std::runtime_error("publisher service identity changed");
     require_install_execution_identity(plan,bound.plan_digest,transaction_id,applied_at);
+    require_install_path_capacity(plan,transaction_id);
     require_public_mount_mapping(context.volume,bound.setup_root,plan.target_root.u8string());
     usk::platform::windows::require_publisher_object_security_shape(
         usk::platform::windows::observe_publisher_directory_handle(context.volume),context.service_sid);

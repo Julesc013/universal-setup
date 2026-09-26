@@ -548,6 +548,13 @@ if(USK_BUILD_TESTS)
     usk_enable_strict_warnings(usk_publisher_candidate_context_smoke)
     add_test(NAME usk_publisher_candidate_context_smoke COMMAND usk_publisher_candidate_context_smoke)
     set_tests_properties(usk_publisher_candidate_context_smoke PROPERTIES TIMEOUT 30)
+    if(TARGET usk_machine)
+      add_test(NAME usk_publisher_candidate_apply_process_smoke
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_bundle_plan_process_probe.py"
+          "$<TARGET_FILE:usk_machine>" "$<TARGET_FILE:usk_publisher_candidate_context_smoke>")
+      set_tests_properties(usk_publisher_candidate_apply_process_smoke PROPERTIES TIMEOUT 60)
+    endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
       add_executable(usk_publisher_lab_service
         apps/daemon/usk_publisher_lab_service.cpp)

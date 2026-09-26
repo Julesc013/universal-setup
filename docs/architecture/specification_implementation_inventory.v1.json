@@ -870,11 +870,11 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
-          "sha256": "c939c8e32b382715cb8b30b04fd5e58a3e05330e273305600641f2704e80de15"
+          "sha256": "fced2962065632a1590c28048788f708fb707220806f525cc888873bea2eb27d"
         }
       ],
       "acceptance_ids": [
@@ -994,11 +994,11 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
-          "sha256": "c939c8e32b382715cb8b30b04fd5e58a3e05330e273305600641f2704e80de15"
+          "sha256": "fced2962065632a1590c28048788f708fb707220806f525cc888873bea2eb27d"
         }
       ],
       "acceptance_ids": [
@@ -2685,7 +2685,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2720,7 +2720,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2755,7 +2755,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2895,7 +2895,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2929,7 +2929,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2963,7 +2963,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -3141,7 +3141,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -3177,7 +3177,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -3213,7 +3213,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -3472,7 +3472,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         }
       ],
       "acceptance_ids": [
@@ -3508,7 +3508,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         }
       ],
       "acceptance_ids": [
@@ -3544,7 +3544,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         }
       ],
       "acceptance_ids": [
@@ -3620,11 +3620,11 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5eb44a94d8774e0e7781e9f39a3e828f8faae41afc3f6f5a786a15281b20f28c"
+          "sha256": "a39eda9538211e6398af95569a26138f217b55c0bf59c77ec225376b02bc1da5"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
-          "sha256": "c939c8e32b382715cb8b30b04fd5e58a3e05330e273305600641f2704e80de15"
+          "sha256": "fced2962065632a1590c28048788f708fb707220806f525cc888873bea2eb27d"
         }
       ],
       "acceptance_ids": [
@@ -3959,7 +3959,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.h",
@@ -4019,7 +4019,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "43892115b010c9d7c01e409ecc2e146dbd0f189328b4bc00ee933709dbb7b25b"
+          "sha256": "d78b2333b679c259d01ba691817028f8ce34a1c88df6c07f4626c9f4612302ac"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4211,7 +4211,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "e2ea76865e5ab9cefceed29032e7098444361ec61ed6fc0beb9903587c0c2da4"
+          "sha256": "6f4958a279138b7c13556936b657d4295d237b6f4792c069db21907f18ff4b0a"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.h",
@@ -4271,7 +4271,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "43892115b010c9d7c01e409ecc2e146dbd0f189328b4bc00ee933709dbb7b25b"
+          "sha256": "d78b2333b679c259d01ba691817028f8ce34a1c88df6c07f4626c9f4612302ac"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",

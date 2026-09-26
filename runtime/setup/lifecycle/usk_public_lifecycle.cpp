@@ -1810,7 +1810,6 @@ Value execute_command(const std::string& command, const Value& request, const Pu
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
         if (!request.contains("restart_from") && bundle.plan.required_commit_authority ==
                 usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
-            usk::lifecycle::require_install_path_capacity(bundle.plan, required_string(request, "transaction_id"));
             const auto protected_result=usk::lifecycle::apply_in_candidate_publisher_context(
                 bundle.plan,required_string(request,"transaction_id"),required_string(request,"applied_at"));
             if (protected_result) return response_ok(installed_document(protected_result->installed_state));
