@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_tree_observation.h"
+#include "usk_publisher_directory_entries.h"
 #include "usk_publisher_security_descriptor.h"
 
 #include <aclapi.h>
@@ -116,6 +117,32 @@ int main() {
         check(fs::create_directory(base), "fixture parent already exists");
         const auto root = base / "staging";
         check(fs::create_directory(root), "fixture root already exists");
+        {
+            using namespace usk::platform::windows;
+            const std::wstring marker = L".usk-owned-root.v1.json";
+            check(is_publisher_canonical_component(marker),
+                "adopted setup ownership marker is not addressable");
+            for (const auto& invalid : {L".", L"..", L".arbitrary",
+                    L".USK-owned-root.v1.json", L".usk-owned-root.v1.json.",
+                    L".usk-owned-root.v1.json ", L".usk-owned-root.v1.json:stream",
+                    L"CON.json", L"NUL", L"LPT1.txt"}) {
+                check(!is_publisher_canonical_component(invalid),
+                    "metadata marker allowance admitted an unsafe alias");
+            }
+            write_payload(root / marker, "{}", 2);
+            {
+                auto held = open_directory(root);
+                const auto listed = observe_publisher_directory_entries(held.get());
+                check(listed.size() == 1 && listed[0].name == marker,
+                    "exact marker directory listing differs");
+                Handle opened(open_publisher_listed_child(
+                    held.get(), listed[0], false));
+                const auto tree = observe_publisher_tree(held.get());
+                require_publisher_tree_exact_file_closure(tree,
+                    {{marker, 2, "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"}});
+            }
+            check(fs::remove(root / marker), "marker fixture removal failed");
+        }
         const auto nested = root / "nested";
         check(fs::create_directory(nested), "fixture nested creation failed");
         const auto file = nested / "payload.bin";

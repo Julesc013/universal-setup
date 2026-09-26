@@ -54,7 +54,10 @@ bool valid_component(const std::wstring& name) {
             ch == L'|' || ch == L'?' || ch == L'*') return false;
     }
     const std::wstring stem = name.substr(0, name.find(L'.'));
-    if (stem.empty() || stem.back() == L' ') return false;
+    // The adopted setup-root protocol uses this exact metadata marker.
+    // Keep other empty-stem names refused; do not admit a leading-dot class.
+    if (stem.empty()) return name == L".usk-owned-root.v1.json";
+    if (stem.back() == L' ') return false;
     const auto equals = [&](const wchar_t* reserved) {
         return CompareStringOrdinal(stem.data(), static_cast<int>(stem.size()),
             reserved, -1, TRUE) == CSTR_EQUAL;
