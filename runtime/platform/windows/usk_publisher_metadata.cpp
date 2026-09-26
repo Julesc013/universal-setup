@@ -224,6 +224,10 @@ struct PublisherMetadataSession::Impl {
         require_publisher_tree_security_shape(tree, service_sid);
         const auto parent = observe_publisher_directory_handle(volume);
         require_boundary_rights(parent, service_sid);
+        // NTFS directory publication can refuse while a descendant handle is
+        // open. All record handles are already closed; release this private
+        // pending-directory handle before the held root's rename.
+        pending.reset();
         probe_publisher_bound_rename_no_replace(root->get(), volume,
             final_root_path.filename().wstring(), tree.root, parent);
         root_path = final_root_path;

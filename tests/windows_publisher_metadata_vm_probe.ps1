@@ -166,7 +166,25 @@ $result = Invoke-GuestCommand -ArgumentList `
     $vmId = '6a23c3f9-272c-4711-b846-152f82bf93d2'
     $serviceName = 'USK_VM_246a60474dc94475bf617c7da8d09b58'
     $sid = 'S-1-5-80-218465820-1252995847-723511090-1583053768-1586712674'
+    # A guest restart can detach its file-backed VHD. Reattach only the exact
+    # retained image, then verify the original disk/volume before assigning E.
+    # This creates no disk, partition or filesystem.
+    if (-not $Volume.vhd_path.StartsWith('C:\USK-Lab\publisher-test-',[StringComparison]::Ordinal) -or
+        -not $Volume.vhd_path.EndsWith('.vhdx',[StringComparison]::Ordinal) -or
+        ((Get-Item -LiteralPath $Volume.vhd_path).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Retained guest VHD path differs'
+    }
+    $image=Get-DiskImage -ImagePath $Volume.vhd_path
+    if(-not $image.Attached){Mount-DiskImage -ImagePath $Volume.vhd_path -NoDriveLetter|Out-Null}
     $disk = Get-DiskImage -ImagePath $Volume.vhd_path | Get-Disk
+    if($disk.UniqueId -ne $Volume.disk_unique_id -or $disk.IsBoot -or $disk.IsSystem){throw 'Retained guest disk identity differs'}
+    $partitions=@($disk|Get-Partition|Where-Object Type -eq Basic)
+    if($partitions.Count -ne 1){throw 'Retained guest partition shape differs'}
+    $retained=Get-Volume -Partition $partitions[0]
+    if($retained.UniqueId -ne $Volume.volume_guid_root -or $retained.FileSystem -ne 'NTFS'){throw 'Retained guest volume identity differs'}
+    $letter=Get-Volume -DriveLetter E -ErrorAction SilentlyContinue
+    if($letter -and $letter.UniqueId -ne $retained.UniqueId){throw 'Guest E is occupied by another volume'}
+    if(-not $letter){$partitions[0]|Set-Partition -NewDriveLetter E}
     $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
     if ((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId -ine $vmId -or
         $disk.UniqueId -ne $Volume.disk_unique_id -or $disk.IsBoot -or $disk.IsSystem -or
