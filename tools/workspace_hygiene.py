@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import ctypes
 import json
 import os
 import re
@@ -11,6 +13,10 @@ import shutil
 import stat
 import subprocess
 import sys
+import signal
+import threading
+import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -46,6 +52,9 @@ DEFAULT_BRANCH_STARTS = {
     "hotfix/": "origin/main",
 }
 DEFAULT_MAX_WORKTREES = 1
+GIB = 1024 ** 3
+DEFAULT_DISK_RESERVE = 10 * GIB
+DEFAULT_RAM_RESERVE = 2 * GIB
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -159,6 +168,10 @@ def is_reparse_or_link(path: Path) -> bool:
 
 
 def directory_inventory(path: Path) -> tuple[int, int, list[Path]]:
+    if is_reparse_or_link(path):
+        return 0, 0, [path]
+    if any(is_reparse_or_link(parent) for parent in path.parents if parent.exists()):
+        raise ValueError(f"inventory root crosses a link: {path}")
     def raise_walk_error(error: OSError) -> None:
         raise error
 
@@ -187,7 +200,7 @@ def directory_inventory(path: Path) -> tuple[int, int, list[Path]]:
                 total += candidate.stat().st_size
                 files += 1
             except OSError:
-                continue
+                raise
     return files, total, links
 
 
@@ -196,7 +209,133 @@ def directory_size(path: Path) -> tuple[int, int]:
     return files, total
 
 
+def storage_inventory(extra_roots: list[str] | None = None) -> dict[str, Any]:
+    """One streaming walk of the entire repository store plus explicit legacy roots.
+
+    This is observation, never deletion authority. Linked roots are not traversed.
+    Allocated sizes exclude duplicate hard links; they are not reclaimability claims.
+    """
+    area = development_layout.repository_root(CONTROL_ROOT)
+    candidates = [area, CONTROL_ROOT]
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        candidates.append(Path(os.environ["LOCALAPPDATA"]) / "FacMan" / "Development" / "repositories" / development_layout.repository_key(CONTROL_ROOT))
+    candidates += [Path(name).expanduser() for name in extra_roots or []]
+    roots: list[Path] = []
+    for path in sorted(set(candidates), key=lambda value: len(value.parts)):
+        if not path.is_absolute() or path == Path(path.anchor) or ".." in path.parts:
+            raise ValueError(f"storage observation requires an exact non-volume root: {path}")
+        if not any(path.is_relative_to(parent) for parent in roots):
+            roots.append(path)
+    categories: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+    skipped: list[str] = []
+    hardlinks: set[tuple[int, int]] = set()
+    allocated = None
+    if os.name == "nt":
+        from ctypes import wintypes
+        class StandardInfo(ctypes.Structure):
+            _fields_ = [("allocation", ctypes.c_longlong), ("end", ctypes.c_longlong),
+                        ("links", wintypes.DWORD), ("delete_pending", ctypes.c_byte), ("directory", ctypes.c_byte)]
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.GetFileInformationByHandleEx.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        def allocated(file: Path) -> int:
+            handle = kernel.CreateFileW(str(file), 0x80, 7, None, 3, 0x80, None)
+            if handle == ctypes.c_void_p(-1).value:
+                raise ctypes.WinError(ctypes.get_last_error())
+            try:
+                standard = StandardInfo()
+                if not kernel.GetFileInformationByHandleEx(handle, 1, ctypes.byref(standard), ctypes.sizeof(standard)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                return standard.allocation
+            finally:
+                kernel.CloseHandle(handle)
+    for root in roots:
+        if not os.path.lexists(root):
+            continue
+        if any(is_reparse_or_link(parent) for parent in (root, *root.parents) if parent.exists()):
+            skipped.append(str(root))
+            continue
+        def walk_error(exc: OSError) -> None:
+            errors.append(str(exc))
+        for current, directories, names in os.walk(root, followlinks=False, onerror=walk_error):
+            current_path = Path(current)
+            for name in list(directories):
+                child = current_path / name
+                if is_reparse_or_link(child):
+                    skipped.append(str(child))
+                    directories.remove(name)
+            for name in names:
+                file = current_path / name
+                try:
+                    if is_reparse_or_link(file):
+                        skipped.append(str(file))
+                        continue
+                    info = file.stat()
+                    relative = file.relative_to(area) if file.is_relative_to(area) else None
+                    category = str(area / relative.parts[0]) if relative and len(relative.parts) > 1 else str(root)
+                    row = categories.setdefault(category, {"path": category, "logical_bytes": 0, "allocated_bytes": 0, "files": 0})
+                    row["logical_bytes"] += info.st_size
+                    row["files"] += 1
+                    identity = (info.st_dev, info.st_ino)
+                    if info.st_nlink > 1 and identity in hardlinks:
+                        continue
+                    if info.st_nlink > 1:
+                        hardlinks.add(identity)
+                    if allocated is not None:
+                        row["allocated_bytes"] += allocated(file)
+                    else:
+                        row["allocated_bytes"] += getattr(info, "st_blocks", (info.st_size + 511) // 512) * 512
+                except OSError as exc:
+                    errors.append(f"{file}: {exc}")
+    return {"roots": [str(path) for path in roots], "categories": sorted(categories.values(), key=lambda row: row["logical_bytes"], reverse=True),
+            "logical_bytes": sum(row["logical_bytes"] for row in categories.values()),
+            "allocated_bytes": sum(row["allocated_bytes"] for row in categories.values()),
+            "errors": errors, "skipped_links": skipped, "complete": not errors and not skipped}
+
+
+def process_observation() -> list[dict[str, Any]]:
+    if os.name != "nt":
+        # No portable process working-directory observation: refuse retirement.
+        return [{"pid": None, "command": "", "observation_unavailable": True}]
+    result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+        "Get-CimInstance Win32_Process | Select-Object @{n='pid';e={$_.ProcessId}},@{n='command';e={$_.CommandLine}},CreationDate | ConvertTo-Json -Compress"],
+        capture_output=True, text=True, check=True)
+    rows = json.loads(result.stdout or "[]")
+    return rows if isinstance(rows, list) else [rows]
+
+
+def worktree_material(path: Path, processes: list[dict[str, Any]]) -> dict[str, Any]:
+    nested: list[str] = []
+    links: list[str] = []
+    errors: list[str] = []
+    if not path.exists() or any(is_reparse_or_link(parent) for parent in (path, *path.parents) if parent.exists()):
+        return {"material_checked": False, "material_error": "missing or linked root"}
+    def walk_error(exc: OSError) -> None:
+        errors.append(str(exc))
+    for current, directories, names in os.walk(path, followlinks=False, onerror=walk_error):
+        current_path = Path(current)
+        if current_path != path and ".git" in directories + names:
+            nested.append(str(current_path))
+            directories[:] = []
+            continue
+        for name in list(directories):
+            if is_reparse_or_link(current_path / name):
+                links.append(str(current_path / name))
+                directories.remove(name)
+        links.extend(str(current_path / name) for name in names if is_reparse_or_link(current_path / name))
+    normalized = str(path).replace("\\", "/").casefold()
+    users = [row["pid"] for row in processes if row.get("pid") != os.getpid() and normalized in str(row.get("command") or "").replace("\\", "/").casefold()]
+    available = not any(row.get("observation_unavailable") for row in processes)
+    return {"material_checked": available and not errors, "nested_repositories": nested, "contained_links": links,
+            "active_processes": users, "material_errors": errors}
+
+
 def remove_tree(path: Path) -> None:
+    if not path.is_absolute() or path == Path(path.anchor) or any(is_reparse_or_link(parent) for parent in (path, *path.parents) if parent.exists()):
+        raise ValueError(f"refusing recursive removal through a link or volume root: {path}")
     def clear_readonly_and_retry(function: Any, candidate: str, exc_info: Any) -> None:
         error = exc_info[1]
         if not isinstance(error, PermissionError):
@@ -248,7 +387,8 @@ def task_root_record(path: Path, *, measure: bool) -> dict[str, Any]:
     return record
 
 
-def worktree_records(base: str) -> list[dict[str, Any]]:
+def worktree_records(base: str, *, only_path: Path | None = None) -> list[dict[str, Any]]:
+    processes = process_observation()
     output = git("worktree", "list", "--porcelain").stdout.splitlines()
     raw: list[dict[str, str]] = []
     current: dict[str, str] = {}
@@ -264,6 +404,8 @@ def worktree_records(base: str) -> list[dict[str, Any]]:
     managed_root = development_layout.worktree_root(CONTROL_ROOT).resolve()
     for item in raw:
         path = Path(item["worktree"]).resolve()
+        if only_path is not None and path != only_path.resolve():
+            continue
         head = item.get("HEAD", "")
         branch = item.get("branch", "detached").removeprefix("refs/heads/")
         primary = path == CONTROL_ROOT
@@ -290,8 +432,9 @@ def worktree_records(base: str) -> list[dict[str, Any]]:
             == 0
         )
         status = [] if not path.exists() else git(
-            "-C", str(path), "status", "--porcelain=v1", "--untracked-files=normal"
+            "-C", str(path), "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"
         ).stdout.splitlines()
+        material = {} if primary else worktree_material(path, processes)
         branch_head_matches = primary or bool(
             branch != "detached"
             and git("rev-parse", "--verify", branch, check=False).returncode == 0
@@ -309,6 +452,10 @@ def worktree_records(base: str) -> list[dict[str, Any]]:
             and branch_head_matches
             and not locked
             and branch != "detached"
+            and material.get("material_checked")
+            and not material.get("nested_repositories")
+            and not material.get("contained_links")
+            and not material.get("active_processes")
         )
         records.append(
             {
@@ -323,6 +470,8 @@ def worktree_records(base: str) -> list[dict[str, Any]]:
                 "contained_in_target": contained,
                 "contained_in_base": contained,
                 "clean": not status,
+                "status_entries": status,
+                **material,
                 "branch_head_matches": branch_head_matches,
                 "locked": locked,
                 "lock_reason": item.get("locked") or None,
@@ -344,12 +493,16 @@ def retirement_record(record: dict[str, Any]) -> dict[str, Any]:
         "owned": "missing_or_invalid_ownership_record",
         "clean": "dirty_worktree",
         "branch_head_matches": "branch_head_mismatch",
+        "material_checked": "material_or_process_observation_incomplete",
     }
     for key, reason in required.items():
         if not observed.get(key):
             reasons.append(reason)
     if observed.get("locked"):
         reasons.append("worktree_locked")
+    for key in ("nested_repositories", "contained_links", "active_processes"):
+        if observed.get(key):
+            reasons.append(key)
     if observed.get("branch") == "detached":
         reasons.append("detached_disposable_receipt_required")
     if Path(str(observed["path"])).resolve() == ROOT.resolve():
@@ -475,9 +628,289 @@ def command_paths(args: argparse.Namespace) -> int:
     return 0
 
 
+def memory_headroom() -> tuple[int, int]:
+    if os.name == "nt":
+        from ctypes import wintypes
+        class MemoryStatus(ctypes.Structure):
+            _fields_ = [("length", wintypes.DWORD), ("load", wintypes.DWORD),
+                        *[(name, ctypes.c_ulonglong) for name in ("physical", "available", "commit", "commit_available", "virtual", "virtual_available", "extended")]]
+        status = MemoryStatus()
+        status.length = ctypes.sizeof(status)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            raise OSError("GlobalMemoryStatusEx failed")
+        return status.available, status.commit_available
+    values = {}
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        name, _, value = line.partition(":")
+        values[name] = int(value.split()[0]) * 1024
+    return values["MemAvailable"], max(0, values["CommitLimit"] - values["Committed_AS"])
+
+
+def observation_roots(args: argparse.Namespace) -> list[str]:
+    roots = list(args.extra_root or [])
+    file = getattr(args, "extra_roots_file", None)
+    if file:
+        rows = json.loads(Path(file).read_text(encoding="utf-8-sig"))
+        if not isinstance(rows, list):
+            raise ValueError("extra roots receipt must contain an array")
+        for row in rows:
+            value = row if isinstance(row, str) else row.get("path") if isinstance(row, dict) else None
+            if not isinstance(value, str) or not value:
+                raise ValueError("extra roots receipt has an invalid path")
+            roots.append(value)
+    return roots
+
+
+def resource_violations(storage: dict[str, Any], demand: int, ram: int, volumes: dict[str, int], available: tuple[int, int],
+                        max_bytes: int, disk_reserve: int, ram_reserve: int) -> list[str]:
+    reasons = []
+    if demand <= 0 or ram <= 0:
+        reasons.append("positive_disk_and_ram_estimates_required")
+    if not storage["complete"]:
+        reasons.append("storage_observation_incomplete")
+    if storage["logical_bytes"] + demand > max_bytes:
+        reasons.append("campaign_storage_quota_exceeded")
+    # Charge the entire estimate to each affected volume, conservatively.
+    if any(free < disk_reserve + demand for free in volumes.values()):
+        reasons.append("volume_free_space_reserve_exhausted")
+    if min(available) < ram_reserve + ram:
+        reasons.append("ram_or_commit_reserve_exhausted")
+    return reasons
+
+
+@contextlib.contextmanager
+def resource_lock(path: Path):
+    """Kernel-released lock: one admitted heavy job, including across workers.
+
+    A crashed runner leaves a harmless file, not a stale admission reservation.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+b") as handle:
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise ValueError("another resource-budgeted job is active") from exc
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def stop_owned_process(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+    except OSError:
+        pass  # Non-console children still have the owned job/tree termination path.
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], check=True, capture_output=True)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=5)
+
+
+@contextlib.contextmanager
+def owned_process_job(process: subprocess.Popen[bytes], ram_limit: int):
+    """Windows Job Object also closes persistent build-server descendants."""
+    if os.name != "nt":
+        try:
+            yield
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        return
+    from ctypes import wintypes
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [("process_time", ctypes.c_longlong), ("job_time", ctypes.c_longlong),
+                    ("flags", wintypes.DWORD), ("min_working_set", ctypes.c_size_t), ("max_working_set", ctypes.c_size_t),
+                    ("active_processes", wintypes.DWORD), ("affinity", ctypes.c_size_t),
+                    ("priority", wintypes.DWORD), ("scheduling", wintypes.DWORD)]
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [("basic", BasicLimits), ("io", ctypes.c_ulonglong * 6),
+                    ("process_memory", ctypes.c_size_t), ("job_memory", ctypes.c_size_t),
+                    ("peak_process_memory", ctypes.c_size_t), ("peak_job_memory", ctypes.c_size_t)]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.CreateJobObjectW(None, None)
+    if not handle:
+        stop_owned_process(process)
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        limits = ExtendedLimits()
+        limits.basic.flags = 0x2000 | 0x200  # KILL_ON_JOB_CLOSE | JOB_MEMORY
+        limits.job_memory = ram_limit
+        if not kernel.SetInformationJobObject(handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)) or not kernel.AssignProcessToJobObject(handle, int(process._handle)):
+            stop_owned_process(process)
+            raise ctypes.WinError(ctypes.get_last_error())
+        # Popen created the initial thread suspended. Assign before any child code
+        # runs, so short-lived launchers cannot leave uncontained descendants.
+        class ThreadEntry(ctypes.Structure):
+            _fields_ = [("size", wintypes.DWORD), ("usage", wintypes.DWORD), ("thread", wintypes.DWORD),
+                        ("process", wintypes.DWORD), ("base_priority", wintypes.LONG),
+                        ("delta_priority", wintypes.LONG), ("flags", wintypes.DWORD)]
+        kernel.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        kernel.Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+        kernel.Thread32Next.argtypes = kernel.Thread32First.argtypes
+        kernel.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenThread.restype = wintypes.HANDLE
+        kernel.ResumeThread.argtypes = [wintypes.HANDLE]
+        kernel.ResumeThread.restype = wintypes.DWORD
+        snapshot = kernel.CreateToolhelp32Snapshot(4, 0)
+        if snapshot == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        resumed = False
+        try:
+            entry = ThreadEntry()
+            entry.size = ctypes.sizeof(entry)
+            found = kernel.Thread32First(snapshot, ctypes.byref(entry))
+            while found:
+                if entry.process == process.pid:
+                    thread = kernel.OpenThread(2, False, entry.thread)
+                    if not thread:
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    try:
+                        if kernel.ResumeThread(thread) == 0xffffffff:
+                            raise ctypes.WinError(ctypes.get_last_error())
+                        resumed = True
+                    finally:
+                        kernel.CloseHandle(thread)
+                    break
+                found = kernel.Thread32Next(snapshot, ctypes.byref(entry))
+        finally:
+            kernel.CloseHandle(snapshot)
+        if not resumed:
+            raise OSError("owned suspended child thread could not be resumed")
+        yield
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def command_run(args: argparse.Namespace) -> int:
+    base = development_layout.require_configured_development_base()
+    command = args.program[1:] if args.program[:1] == ["--"] else args.program
+    if not command:
+        raise ValueError("run requires an executable and arguments after --")
+    if args.max_bytes > development_layout.DEFAULT_MAX_BYTES or args.disk_reserve < DEFAULT_DISK_RESERVE or args.ram_reserve < DEFAULT_RAM_RESERVE:
+        raise ValueError("campaign quota/reserves may not be weakened by a job")
+    task_id = development_layout.current_task_id(ROOT)
+    with resource_lock(base / ".resource-job.lock"):
+        storage = storage_inventory(observation_roots(args))
+        paths = [base, *[Path(root) for root in storage["roots"] if Path(root).exists()]]
+        volumes = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
+        available = memory_headroom()
+        reasons = resource_violations(storage, args.disk_bytes, args.ram_bytes, volumes, available,
+                                      args.max_bytes, args.disk_reserve, args.ram_reserve)
+        if len([record for record in worktree_records(args.base) if not record["primary"]]) > DEFAULT_MAX_WORKTREES:
+            reasons.append("secondary_worktree_limit_exceeded")
+        if len(task_roots(CONTROL_ROOT)) > development_layout.DEFAULT_MAX_TASK_ROOTS:
+            reasons.append("task_root_limit_exceeded")
+        if reasons:
+            print(json.dumps({"result": "refused", "reasons": reasons, "storage_bytes": storage["logical_bytes"], "volume_free_bytes": volumes,
+                              "ram_available_bytes": available[0], "commit_available_bytes": available[1]}, sort_keys=True))
+            return 2
+        task = development_layout.ensure_task_root(development_layout.default_task_root(ROOT, task_id), CONTROL_ROOT, task_id)
+        run = task / "runs" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S-%f")
+        run.mkdir(parents=True)
+        temporary = run / "tmp"
+        cache = run / "cache"
+        temporary.mkdir()
+        cache.mkdir()
+        env = {**os.environ, "FACMAN_DEV_ROOT": str(base), "FACMAN_TASK_ROOT": str(task),
+               "TMP": str(temporary), "TEMP": str(temporary), "TMPDIR": str(temporary),
+               "XDG_CACHE_HOME": str(cache), "PIP_CACHE_DIR": str(cache / "pip"),
+               "CMAKE_BUILD_PARALLEL_LEVEL": "2", "PYTHONDONTWRITEBYTECODE": "1"}
+        env["MSBUILDDISABLENODEREUSE"] = "1"
+        receipt = {"schema": "facman.resource_job.v1", "command": command, "cwd": str(ROOT), "task_root": str(task),
+                   "disk_estimate_bytes": args.disk_bytes, "ram_estimate_bytes": args.ram_bytes, "max_bytes": args.max_bytes,
+                   "disk_reserve_bytes": args.disk_reserve, "ram_reserve_bytes": args.ram_reserve,
+                   "started_at": development_layout.utc_now(), "state": "starting", "volume_free_before": volumes}
+        receipt_path = run / "receipt.json"
+        receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+        process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x4) if os.name == "nt" else 0,
+                                   start_new_session=os.name != "nt")
+        receipt.update(pid=process.pid, state="running")
+        receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+        tail: deque[bytes] = deque(maxlen=32)  # At most 128 KiB, regardless of test duration.
+        def read_log() -> None:
+            assert process.stdout is not None
+            while data := process.stdout.read(4096):
+                tail.append(data)
+        reader = threading.Thread(target=read_log, daemon=True)
+        reader.start()
+        reason = None
+        job = contextlib.ExitStack()
+        try:
+            job.enter_context(owned_process_job(process, args.ram_bytes))
+            while process.poll() is None:
+                time.sleep(2)
+                free = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
+                growth = sum(max(0, volumes[volume] - value) for volume, value in free.items())
+                available = memory_headroom()
+                if growth > args.disk_bytes:
+                    reason = "disk_estimate_exceeded"
+                elif storage["logical_bytes"] + growth > args.max_bytes:
+                    reason = "campaign_quota_exceeded"
+                elif any(value < args.disk_reserve for value in free.values()) or min(available) < args.ram_reserve:
+                    reason = "host_reserve_exhausted"
+                if reason:
+                    stop_owned_process(process)
+                    break
+        except (KeyboardInterrupt, OSError):
+            reason = "runner_interrupted_or_observation_failed"
+            stop_owned_process(process)
+        finally:
+            job.close()
+            reader.join(timeout=5)
+            if reader.is_alive():
+                reason = reason or "child_log_stream_still_open"
+            elif process.stdout is not None:
+                process.stdout.close()
+            (run / "last-output.log").write_bytes(b"".join(tail))
+            success = process.returncode == 0 and reason is None
+            if success:
+                remove_tree(temporary)
+                remove_tree(cache)
+            receipt.update(state="passed" if success else "failed_or_cancelled", exit_code=process.returncode,
+                           stop_reason=reason, ended_at=development_layout.utc_now(), disposable_output_retained=not success)
+            receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+        print(json.dumps({"result": receipt["state"], "exit_code": process.returncode, "stop_reason": reason,
+                          "receipt": str(receipt_path), "log": str(run / "last-output.log")}, sort_keys=True))
+        return 0 if success else 1
+
+
 def command_doctor(args: argparse.Namespace) -> int:
+    if args.max_bytes > development_layout.DEFAULT_MAX_BYTES or args.max_task_roots > development_layout.DEFAULT_MAX_TASK_ROOTS or args.max_worktrees > DEFAULT_MAX_WORKTREES:
+        raise ValueError("campaign limits may be tightened, not raised")
     roots = [
-        task_root_record(path, measure=args.measure)
+        task_root_record(path, measure=False)
         for path in task_roots(CONTROL_ROOT)
     ]
     worktrees = worktree_records(args.base)
@@ -494,11 +927,15 @@ def command_doctor(args: argparse.Namespace) -> int:
     if unowned:
         violations.append("unowned_task_roots_present")
     if args.measure:
-        total = sum(int(record.get("bytes", 0)) for record in roots)
+        storage = storage_inventory(observation_roots(args))
+        total = storage["logical_bytes"]
         if total > args.max_bytes:
-            violations.append(f"task_root_bytes_exceed_{args.max_bytes}")
+            violations.append(f"campaign_storage_bytes_exceed_{args.max_bytes}")
+        if not storage["complete"]:
+            violations.append("campaign_storage_observation_incomplete")
     else:
         total = None
+        storage = None
     secondary = [record for record in worktrees if not record["primary"]]
     if len(secondary) > args.max_worktrees:
         violations.append(f"secondary_worktree_count_exceeds_{args.max_worktrees}")
@@ -517,7 +954,8 @@ def command_doctor(args: argparse.Namespace) -> int:
         "result": "pass" if not violations else "fail",
         "violations": violations,
         "task_roots": roots,
-        "task_root_bytes": total,
+        "campaign_storage_bytes": total,
+        "storage": storage,
         "worktrees": worktrees,
         "refs": refs,
         "in_tree_output_roots": in_tree_outputs,
@@ -592,6 +1030,12 @@ def command_worktrees(args: argparse.Namespace) -> int:
         path = Path(str(record["path"]))
         if is_reparse_or_link(path):
             raise ValueError(f"refusing linked worktree: {path}")
+        # Recheck local state and GitHub dependencies immediately before mutation.
+        fresh = next((item for item in worktree_records(args.base, only_path=path) if item["path"] == str(path)), None)
+        if fresh is None or fresh["head"] != record["head"] or not retirement_record(fresh)["cleanup_eligible"]:
+            record["removed"] = False
+            record["retirement_reasons"] = ["state_changed_before_removal"]
+            continue
         branch = str(record["branch"])
         git("worktree", "remove", str(path))
         development_layout.remove_worktree_record(CONTROL_ROOT, branch)
@@ -612,6 +1056,21 @@ def command_worktrees(args: argparse.Namespace) -> int:
 
 
 def command_worktree_add(args: argparse.Namespace) -> int:
+    if args.max_worktrees > DEFAULT_MAX_WORKTREES:
+        raise ValueError("secondary worktree limit may not be raised")
+    base = development_layout.require_configured_development_base()
+    with resource_lock(base / ".resource-job.lock"):
+        storage = storage_inventory(observation_roots(args))
+        volumes = {str(path.anchor): shutil.disk_usage(path).free for path in [base, *[Path(root) for root in storage["roots"] if Path(root).exists()]]}
+        reasons = resource_violations(storage, 256 * 1024 ** 2, 128 * 1024 ** 2, volumes, memory_headroom(),
+                                      development_layout.DEFAULT_MAX_BYTES, DEFAULT_DISK_RESERVE, DEFAULT_RAM_RESERVE)
+        if reasons:
+            raise ValueError("worktree admission refused: " + ", ".join(reasons))
+        return admitted_worktree_add(args)
+
+
+def admitted_worktree_add(args: argparse.Namespace) -> int:
+    development_layout.require_configured_development_base()
     branch = args.branch.strip()
     target_ref = (args.target or default_target_for_branch(branch) or "").strip()
     start_ref = (args.start or default_start_for_branch(branch) or "").strip()
@@ -929,6 +1388,8 @@ def parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--max-worktrees", type=int, default=DEFAULT_MAX_WORKTREES)
     doctor.add_argument("--max-bytes", type=int, default=development_layout.DEFAULT_MAX_BYTES)
+    doctor.add_argument("--extra-root", action="append", default=[], help="exact attributable legacy output root to include in observation")
+    doctor.add_argument("--extra-roots-file", help="existing JSON array of exact legacy paths or inventory rows")
     doctor.set_defaults(handler=command_doctor)
     clean = commands.add_parser("clean", help="remove expired marker-owned task roots")
     clean.add_argument(
@@ -953,6 +1414,8 @@ def parser() -> argparse.ArgumentParser:
     add.add_argument("--target")
     add.add_argument("--base", default="origin/main", help=argparse.SUPPRESS)
     add.add_argument("--max-worktrees", type=int, default=DEFAULT_MAX_WORKTREES)
+    add.add_argument("--extra-root", action="append", default=[])
+    add.add_argument("--extra-roots-file")
     add.set_defaults(handler=command_worktree_add)
     register = commands.add_parser(
         "worktree-register",
@@ -986,6 +1449,17 @@ def parser() -> argparse.ArgumentParser:
     prune.add_argument("--acknowledge-unowned", action="store_true")
     prune.add_argument("--apply", action="store_true")
     prune.set_defaults(handler=command_legacy_prune)
+    run = commands.add_parser("run", help="admit and monitor one resource-budgeted build/test command")
+    run.add_argument("--base", default="origin/dev")
+    run.add_argument("--disk-bytes", type=int, required=True)
+    run.add_argument("--ram-bytes", type=int, required=True)
+    run.add_argument("--max-bytes", type=int, default=development_layout.DEFAULT_MAX_BYTES)
+    run.add_argument("--disk-reserve", type=int, default=DEFAULT_DISK_RESERVE)
+    run.add_argument("--ram-reserve", type=int, default=DEFAULT_RAM_RESERVE)
+    run.add_argument("--extra-root", action="append", default=[])
+    run.add_argument("--extra-roots-file")
+    run.add_argument("program", nargs=argparse.REMAINDER)
+    run.set_defaults(handler=command_run)
     return result
 
 

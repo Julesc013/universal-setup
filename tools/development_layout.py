@@ -107,6 +107,22 @@ def development_base() -> Path:
     return (base / "facman" / "development").resolve()
 
 
+def require_configured_development_base() -> Path:
+    """Admission for writes: never silently create a fallback store."""
+    configured = os.environ.get("FACMAN_DEV_ROOT", "").strip()
+    if not configured:
+        raise ValueError("FACMAN_DEV_ROOT is required before creating campaign outputs")
+    path = Path(configured).expanduser()
+    if not path.is_absolute() or path == Path(path.anchor):
+        raise ValueError("FACMAN_DEV_ROOT must be an absolute non-drive-root directory")
+    for ancestor in (path, *path.parents):
+        if ancestor.exists():
+            attributes = getattr(ancestor.lstat(), "st_file_attributes", 0)
+            if ancestor.is_symlink() or attributes & 0x400:
+                raise ValueError(f"configured development root crosses a link: {ancestor}")
+    return path.resolve()
+
+
 def repository_root(source_root: Path) -> Path:
     return development_base() / "repositories" / repository_key(source_root)
 
@@ -117,10 +133,13 @@ def task_root(source_root: Path, task_id: str | None = None) -> Path:
 
 
 def default_task_root(source_root: Path, task_id: str | None = None) -> Path:
+    require_configured_development_base()
+    expected = task_root(source_root, task_id).resolve()
     configured = os.environ.get("FACMAN_TASK_ROOT", "").strip()
     if configured:
-        return Path(configured).expanduser().resolve()
-    return task_root(source_root, task_id)
+        if Path(configured).expanduser().resolve() != expected:
+            raise ValueError("FACMAN_TASK_ROOT must match the canonical task root")
+    return expected
 
 
 def worktree_root(source_root: Path) -> Path:
@@ -140,7 +159,12 @@ def worktree_record_path(source_root: Path, branch: str) -> Path:
 def ensure_worktree_store(
     source_root: Path, *, acknowledge_existing_unowned: bool = False
 ) -> Path:
-    root = worktree_root(source_root).expanduser().resolve()
+    require_configured_development_base()
+    raw_root = worktree_root(source_root).expanduser()
+    for ancestor in (raw_root, *raw_root.parents):
+        if ancestor.exists() and (ancestor.is_symlink() or getattr(ancestor.lstat(), "st_file_attributes", 0) & 0x400):
+            raise ValueError(f"worktree store crosses a link: {ancestor}")
+    root = raw_root.resolve()
     source = control_source_root(source_root)
     if root == source or root.is_relative_to(source) or source.is_relative_to(root):
         raise ValueError(f"development worktree store overlaps source checkout: {root}")
@@ -301,7 +325,13 @@ def remove_worktree_record(source_root: Path, branch: str) -> None:
 
 
 def ensure_task_root(path: Path, source_root: Path, task_id: str) -> Path:
+    require_configured_development_base()
     resolved = path.expanduser().resolve()
+    if resolved != task_root(source_root, task_id).resolve():
+        raise ValueError("development task root must match the canonical task path")
+    for ancestor in (path, *path.parents):
+        if ancestor.exists() and (ancestor.is_symlink() or getattr(ancestor.lstat(), "st_file_attributes", 0) & 0x400):
+            raise ValueError(f"development task path crosses a link: {ancestor}")
     source = control_source_root(source_root)
     if resolved == source or resolved.is_relative_to(source):
         raise ValueError(f"development task root must be outside source checkout: {resolved}")
@@ -363,5 +393,3 @@ def read_marker(path: Path, source_root: Path | None = None) -> dict[str, object
         if path.resolve() != expected_path:
             raise ValueError(f"development ownership marker path mismatch: {marker}")
     return payload
-
-
