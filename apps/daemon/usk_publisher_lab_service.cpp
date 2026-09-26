@@ -2065,7 +2065,28 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
             selected_archive_sha256) {
         throw std::runtime_error("native reviewed plan identity differs");
     }
-    auto selected_payload = inspect_selected_lab_archive();
+    // Staging must consume the exact verified readers selected by the native
+    // plan. Reopening with laboratory budgets and an empty strip prefix can
+    // change the closure and reject a valid reviewed source.
+    usk::archive::StreamingStoredArchivePayload selected_payload;
+    selected_payload.source_sha256 = internal_plan.recipe.source_archive_digest;
+    selected_payload.source_identity_digest = internal_plan.recipe.source_identity_digest;
+    selected_payload.entry_set_digest = internal_plan.recipe.entry_set_digest;
+    selected_payload.archive_size_bytes = plan.at("source").at("size_bytes").as_unsigned();
+    selected_payload.uncompressed_bytes = plan.at("totals").at("uncompressed_bytes").as_unsigned();
+    selected_payload.payload_buffer_bytes = usk::lifecycle::streaming_payload_buffer_bytes;
+    selected_payload.validate_source = internal_plan.validate_source;
+    for (const auto& planned_file : internal_plan.files) {
+        if (!planned_file.bytes.empty() || !planned_file.reader) {
+            throw std::runtime_error("reviewed publisher requires source-bound streaming readers");
+        }
+        usk::archive::StreamingPayloadFile selected_file;
+        selected_file.relative_path = planned_file.relative_path;
+        selected_file.sha256 = planned_file.sha256;
+        selected_file.size_bytes = planned_file.size_bytes;
+        selected_file.reader = planned_file.reader;
+        selected_payload.files.push_back(std::move(selected_file));
+    }
     if (plan.at("source").at("filesystem_identity_digest").as_string() !=
             selected_payload.source_identity_digest ||
         plan.at("source").at("size_bytes").as_unsigned() !=
@@ -2321,7 +2342,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             reviewed_plan->install_plan.target_root.u8string());
         usk::lifecycle::initialize_setup_root_for_publisher(
             reviewed_plan->setup_root, reviewed_plan->acceptance_root,
-            "operator_acceptance_candidate", volume, volume_root);
+            "operator_acceptance_candidate", volume, volume_root, service_name);
         if (read_phase_record(journal.get(), L"lab-reviewed-plan.json") !=
                 reviewed_plan->durable_snapshot) {
             throw std::runtime_error("reviewed plan snapshot changed before prepared phase");

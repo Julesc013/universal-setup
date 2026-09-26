@@ -25,6 +25,14 @@ HANDLE create_directory_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
     const std::vector<unsigned char>& security_descriptor);
 
+// A record destination must not retain its create handle's DELETE access:
+// the filesystem's internal target-directory open can conflict with it.
+// Close that handle, reopen the exact listed child without DELETE, and compare
+// complete observations. Protected-parent provenance remains the caller's job.
+HANDLE create_record_directory_relative_with_descriptor(
+    HANDLE parent, const std::wstring& name,
+    const std::vector<unsigned char>& security_descriptor);
+
 // A selected payload's directory may use the full canonical component
 // grammar. Keep the narrower generated-anchor grammar on the API above.
 HANDLE create_staged_directory_relative_with_descriptor(

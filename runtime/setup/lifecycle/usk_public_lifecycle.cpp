@@ -3,6 +3,10 @@
 
 #include "usk_public_lifecycle.h"
 
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+#include "usk_publisher_metadata.h"
+#endif
+
 #include "usk/usk_result.h"
 #include "usk_archive_payload.h"
 #include "usk_audit_repository.h"
@@ -1984,7 +1988,7 @@ usk::lifecycle::InstallPlan usk::lifecycle::reviewed_install_plan_for_publisher(
 void usk::lifecycle::initialize_setup_root_for_publisher(
     const std::string& state_root, const std::string& authorized_acceptance_root,
     const std::string& target_policy_activation, HANDLE held_volume,
-    const std::wstring& volume_guid_root)
+    const std::wstring& volume_guid_root, const std::wstring& service_name)
 {
     const PublicConfig config = parse_config(state_root.c_str(),
         authorized_acceptance_root.c_str(), target_policy_activation.c_str());
@@ -2028,7 +2032,20 @@ void usk::lifecycle::initialize_setup_root_for_publisher(
     const fs::path physical_parent =
         config.setup_root.relative_path().parent_path().empty() ?
             fs::path(volume_guid_root) : physical_setup_root.parent_path();
-    initialize_setup_root_at(config, physical_setup_root, physical_parent);
+    if (!service_name.empty()) {
+#if defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        platform::windows::PublisherMetadataSession metadata(held_volume,
+            volume_guid_root, physical_setup_root, service_name);
+        initialize_setup_root_at(config, metadata.initialization_root(), physical_parent);
+        metadata.publish_initialized_root();
+#else
+        throw std::runtime_error("protected metadata backend is absent from this host composition");
+#endif
+    } else {
+        // The existing unqualified volume-alias fixture exercises addressing
+        // only. It supplies no service and cannot establish protected metadata.
+        initialize_setup_root_at(config, physical_setup_root, physical_parent);
+    }
 }
 #endif
 

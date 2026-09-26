@@ -91,6 +91,9 @@ void require_publisher_tree_phase_match(
 void require_publisher_tree_security_shape(
     const PublisherTreeObservation& tree, const std::string& service_sid);
 
+void require_publisher_object_security_shape(
+    const PublisherHandleObservation& object, const std::string& service_sid);
+
 // Reopen one exact visible component relative to a retained destination-parent
 // handle, freshly observe its tree, and compare it with the sealed tree. This
 // is a read-only consistency candidate, not protected-parent admission.

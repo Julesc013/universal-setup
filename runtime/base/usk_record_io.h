@@ -18,6 +18,25 @@ void write_new_durable_text(const std::filesystem::path& path, const std::string
 std::string read_stable_text(const std::filesystem::path& path, std::size_t max_bytes);
 void rename_no_replace(const std::filesystem::path& source, const std::filesystem::path& target);
 
+// Internal operation-local backend. The protected publisher supplies held-
+// parent creation and atomic record publication; ordinary repositories keep
+// their existing writer. This is not a public SDK authorization interface.
+struct RecordWriteOperations {
+    std::function<void(const std::filesystem::path&, const std::string&)> create_directory;
+    std::function<void(const std::filesystem::path&, const std::string&)> write_new_text;
+};
+
+class ScopedRecordWriteOperations {
+public:
+    explicit ScopedRecordWriteOperations(const RecordWriteOperations& operations);
+    ScopedRecordWriteOperations(RecordWriteOperations&&) = delete;
+    ~ScopedRecordWriteOperations();
+    ScopedRecordWriteOperations(const ScopedRecordWriteOperations&) = delete;
+    ScopedRecordWriteOperations& operator=(const ScopedRecordWriteOperations&) = delete;
+private:
+    const RecordWriteOperations* previous_;
+};
+
 #if defined(_WIN32)
 struct WindowsBoundRenameProbeResult {
     std::string source_file_id;

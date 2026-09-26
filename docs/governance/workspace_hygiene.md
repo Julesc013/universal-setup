@@ -114,6 +114,10 @@ kernel lock but leaves a running/starting receipt: inspect that process and outp
 before cleanup or restart. Reuse compatible task-local incremental builds, retain
 necessary evidence, and explicitly retire obsolete builds after qualification.
 
+An executable-launch failure creates a terminal `failed_to_start` receipt with
+`launch_failed`, removes the empty job-local temp/cache directories, and releases
+admission. It must not leave a receipt that implies a live worker exists.
+
 VM backing disks and checkpoint chains count against the same storage quota.
 Keep automatic checkpoints disabled on campaign VMs. Before a requested snapshot,
 reserve its estimated disk and RAM demand through the runner; retain only the

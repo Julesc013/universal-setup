@@ -3,6 +3,7 @@
 
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
+#include "usk_publisher_rename_information.h"
 #include "usk_publisher_volume_stream_observation.h"
 
 #if defined(_WIN32)
@@ -135,17 +136,7 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
         !same_volume(observe_local_ntfs_volume_handle(destination_parent), parent_volume)) {
         throw std::runtime_error("publisher rename bound handles changed before call");
     }
-    const std::size_t name_bytes = destination_component.size() * sizeof(WCHAR);
-    const std::size_t info_bytes = offsetof(FILE_RENAME_INFO, FileName) +
-        name_bytes + sizeof(WCHAR);
-    std::vector<std::max_align_t> buffer(
-        (info_bytes + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
-    auto* info = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
-    info->ReplaceIfExists = FALSE;
-    info->RootDirectory = destination_parent;
-    info->FileNameLength = static_cast<DWORD>(name_bytes);
-    std::memcpy(info->FileName, destination_component.data(), name_bytes);
-    info->FileName[destination_component.size()] = L'\0';
+    PublisherRenameInformation information(destination_parent, destination_component);
     using NtSetInformationFileFn = NTSTATUS (NTAPI *)(
         HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, int);
     const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
@@ -153,11 +144,13 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
         GetProcAddress(ntdll, "NtSetInformationFile")) : nullptr;
     if (!nt_set) throw std::runtime_error("publisher native rename is unavailable");
     IO_STATUS_BLOCK io{};
-    const NTSTATUS status = nt_set(staged_root, &io, info,
-        static_cast<ULONG>(info_bytes), 10 /* FileRenameInformation */);
-    if (status != 0) {
+    const NTSTATUS status = nt_set(staged_root, &io, information.data(),
+        information.size(), 10 /* FileRenameInformation */);
+    if (status != 0 || io.Status != 0) {
         throw PublisherRenameUnconfirmed("publisher native rename returned NTSTATUS " +
             std::to_string(static_cast<unsigned long>(status)) +
+            "; IO status " + std::to_string(static_cast<unsigned long>(io.Status)) +
+            "; buffer bytes " + std::to_string(information.size()) +
             "; outcome requires retained recovery observation");
     }
     try {

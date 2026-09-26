@@ -912,9 +912,23 @@ def command_run(args: argparse.Namespace) -> int:
             print(json.dumps({"result": "refused", "reasons": reasons, "receipt": str(receipt_path)}, sort_keys=True))
             return 2
         volumes = fresh_volumes
-        process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x4) if os.name == "nt" else 0,
-                                   start_new_session=os.name != "nt")
+        try:
+            process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | 0x4) if os.name == "nt" else 0,
+                                       start_new_session=os.name != "nt")
+        except OSError as exc:
+            # No child exists: retire only the empty job-local directories and
+            # retain a terminal receipt, rather than a misleading active lease.
+            remove_tree(temporary)
+            remove_tree(cache)
+            receipt.update(state="failed_to_start", exit_code=None, stop_reason="launch_failed",
+                           runner_error=str(exc), ended_at=development_layout.utc_now(),
+                           disposable_output_retained=False)
+            receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+            (run / "last-output.log").write_bytes(b"")
+            print(json.dumps({"result": receipt["state"], "exit_code": None, "stop_reason": "launch_failed",
+                              "receipt": str(receipt_path), "log": str(run / "last-output.log")}, sort_keys=True))
+            return 1
         try:
             job.enter_context(owned_process_job(process, args.ram_bytes))
             receipt.update(pid=process.pid, state="running")

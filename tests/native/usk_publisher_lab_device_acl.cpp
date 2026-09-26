@@ -196,10 +196,12 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[1]) == L"--owned-vhd-volume";
         const bool campaign_vm = argc == 7 &&
             std::wstring(argv[1]) == L"--owned-vm-vhd-volume";
-        if (!hosted && !campaign_vm) {
+        const bool hosted_vm = argc == 7 &&
+            std::wstring(argv[1]) == L"--owned-hosted-vm-vhd-volume";
+        if (!hosted && !campaign_vm && !hosted_vm) {
             throw std::runtime_error("expected a supported disposable-lab admission mode");
         }
-        if (hosted) {
+        if (hosted || hosted_vm) {
             wchar_t actions[8]{};
             wchar_t environment[32]{};
             if (GetEnvironmentVariableW(L"GITHUB_ACTIONS", actions, 8) == 0 ||
@@ -208,7 +210,8 @@ int wmain(int argc, wchar_t** argv) {
                 std::wstring(environment) != L"github-hosted") {
                 throw std::runtime_error("device ACL provisioning requires a hosted disposable runner");
             }
-        } else if (!admitted_campaign_vm(argv[6])) {
+        }
+        if ((campaign_vm || hosted_vm) && !admitted_campaign_vm(argv[6])) {
             throw std::runtime_error("current Hyper-V guest ID does not match the campaign VM");
         }
         const std::wstring root(argv[2]);
@@ -219,7 +222,7 @@ int wmain(int argc, wchar_t** argv) {
             throw std::runtime_error("invalid campaign service name");
         }
         const std::wstring vhd(argv[5]);
-        const bool owned_path = hosted ? owned_vhd_path(vhd) :
+        const bool owned_path = (hosted || hosted_vm) ? owned_vhd_path(vhd) :
             generated_suffix(vhd, L"C:\\USK-Lab\\publisher-test-", L".vhdx");
         if (!owned_path) {
             throw std::runtime_error("backing file is outside the admitted disposable lab");
@@ -310,7 +313,8 @@ int wmain(int argc, wchar_t** argv) {
         if (after.find(ascii(sid_text)) == std::string::npos) {
             throw std::runtime_error("dedicated service ACE was not observed after update");
         }
-        std::cout << "{\"admission\":" << quote(hosted ? "hosted_runner" : "campaign_vm") <<
+        std::cout << "{\"admission\":" << quote(hosted ? "hosted_runner" :
+            hosted_vm ? "hosted_vm" : "campaign_vm") <<
             ",\"before_dacl\":" << quote(before) <<
             ",\"after_dacl\":" << quote(after) <<
             ",\"service_sid\":" << quote(ascii(sid_text)) <<
