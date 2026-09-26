@@ -14,6 +14,7 @@
 #include "usk_utf8_path.h"
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
 #include "usk_protected_publisher_finalization_internal.h"
+#include "usk_publisher_metadata.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
@@ -1442,7 +1443,8 @@ static std::string protected_record_sha256(const std::string& record)
 }
 
 static std::string require_held_publisher_evidence(
-    const InstallPlan& plan, const ProtectedPublisherEvidence& evidence)
+    const InstallPlan& plan, const std::string& transaction_id,
+    const std::string& applied_at, const ProtectedPublisherEvidence& evidence)
 {
     using namespace platform::windows;
     if (evidence.volume == nullptr || evidence.journal == nullptr ||
@@ -1515,13 +1517,24 @@ static std::string require_held_publisher_evidence(
         completion.at("volume_serial").as_unsigned() != volume.file_id_volume_serial ||
         binding.at("reviewed_plan_digest").as_string() != plan.plan_digest ||
         binding.at("reviewed_plan_snapshot_sha256").as_string() != snapshot_sha ||
+        binding.at("archive_sha256").as_string() != plan.recipe.source_archive_digest ||
+        binding.at("archive_identity_digest").as_string() != plan.recipe.source_identity_digest ||
+        binding.at("entry_set_digest").as_string() != plan.recipe.entry_set_digest ||
         snapshot.at("plan_digest").as_string() != plan.plan_digest ||
+        snapshot.at("transaction_id").as_string() != transaction_id ||
+        snapshot.at("applied_at").as_string() != applied_at ||
+        snapshot.at("archive_sha256").as_string() != plan.recipe.source_archive_digest ||
+        snapshot.at("archive_identity_digest").as_string() != plan.recipe.source_identity_digest ||
+        snapshot.at("entry_set_digest").as_string() != plan.recipe.entry_set_digest ||
         snapshot.at("setup_root").as_string() !=
             plan.roots.state_root.parent_path().u8string() ||
         fs::path(snapshot.at("target_root").as_string()).lexically_normal() !=
             plan.target_root.lexically_normal() ||
         json::canonical(completion.at("source_binding")) != json::canonical(binding) ||
         bound.at("prepared_record_sha256").as_string() != prepared_sha ||
+        prepared.at("source_file_id").as_string() != visible.root.file_id ||
+        prepared.at("sealed_tree").at("root").at("file_id").as_string() !=
+            visible.root.file_id ||
         bound.at("source_file_id").as_string() != visible.root.file_id ||
         completion.at("prepared_record_sha256").as_string() != prepared_sha ||
         completion.at("visible_record_sha256").as_string() != visible_sha ||
@@ -1540,14 +1553,14 @@ InstallResult finalize_protected_visible_install(
     const std::string& applied_at, const ProtectedPublisherEvidence& evidence)
 {
     validate_plan(plan);
-    const std::string protected_completion_sha256 =
-        require_held_publisher_evidence(plan, evidence);
     if (plan.required_commit_authority !=
             transaction::CommitAuthorityRequirement::staged_child_bound_v1 ||
         !record_io::valid_identifier(transaction_id) ||
-        !valid_timestamp(applied_at) || !sha256(protected_completion_sha256)) {
+        !valid_timestamp(applied_at)) {
         throw std::runtime_error("protected install finalization identity is invalid");
     }
+    const std::string protected_completion_sha256 =
+        require_held_publisher_evidence(plan, transaction_id, applied_at, evidence);
     require_install_path_capacity(plan, transaction_id);
     const fs::path bound_target = publisher_volume_bound_path(
         plan.target_root, evidence.volume_guid_root);
@@ -1555,6 +1568,8 @@ InstallResult finalize_protected_visible_install(
         plan.roots.state_root, evidence.volume_guid_root);
     const fs::path bound_audit = publisher_volume_bound_path(
         plan.roots.audit_root, evidence.volume_guid_root);
+    platform::windows::PublisherMetadataSession metadata(evidence.volume,
+        evidence.volume_guid_root, bound_state.parent_path(), evidence.service_name, true);
     record_io::require_safe_directory(bound_target);
     state::StateRepository repository(bound_state);
     audit::AuditRepository audit_repository(bound_audit);
@@ -1711,7 +1726,8 @@ InstallResult finalize_protected_visible_install(
         chain[1].message != "protected managed install completed") {
         throw std::runtime_error("protected install audit completion differs");
     }
-    if (require_held_publisher_evidence(plan, evidence) != protected_completion_sha256) {
+    if (require_held_publisher_evidence(plan, transaction_id, applied_at, evidence) !=
+            protected_completion_sha256) {
         throw std::runtime_error("protected publisher evidence changed during finalization");
     }
     return {installed, ownership, verification, {}};

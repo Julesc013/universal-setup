@@ -37,6 +37,24 @@ namespace fs = std::filesystem;
 
 namespace usk::record_io {
 
+namespace {
+thread_local const RecordWriteOperations* record_write_operations = nullptr;
+}
+
+ScopedRecordWriteOperations::ScopedRecordWriteOperations(const RecordWriteOperations& operations)
+    : previous_(record_write_operations)
+{
+    if (!operations.create_directory || !operations.write_new_text) {
+        throw std::runtime_error("record write backend requires both operations");
+    }
+    record_write_operations = &operations;
+}
+
+ScopedRecordWriteOperations::~ScopedRecordWriteOperations()
+{
+    record_write_operations = previous_;
+}
+
 bool valid_identifier(const std::string& value)
 {
     return !value.empty() && value.size() <= 128 &&
@@ -145,6 +163,10 @@ void create_directory_exclusive(const fs::path& parent, const std::string& name)
     std::error_code error;
     const fs::path target = parent / name;
     base::require_native_path_capacity(target, base::NativePathKind::directory, "new record directory");
+    if (record_write_operations) {
+        record_write_operations->create_directory(parent, name);
+        return;
+    }
     if (!fs::create_directory(target, error) || error || linked(target)) {
         throw std::runtime_error("cannot exclusively create record directory");
     }
@@ -155,6 +177,10 @@ void write_new_durable_text(const fs::path& path, const std::string& content)
 {
     base::require_native_path_capacity(path, base::NativePathKind::file, "durable record");
     require_safe_directory(path.parent_path());
+    if (record_write_operations) {
+        record_write_operations->write_new_text(path, content);
+        return;
+    }
 #if defined(_WIN32)
     HANDLE handle = CreateFileW(
         path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,

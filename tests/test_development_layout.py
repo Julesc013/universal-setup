@@ -115,6 +115,25 @@ class DevelopmentLayoutTests(unittest.TestCase):
                 self.assertIsNotNone(spawned[0].poll())
                 self.assertEqual(json.loads(output.getvalue())["stop_reason"], "runner_interrupted_or_observation_failed")
 
+    def test_missing_executable_records_failure_and_releases_admission(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.budgeted_fixture(Path(temporary), "pass") as args:
+                original = args.program
+                args.program = [str(Path(temporary) / "missing-executable")]
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(workspace_hygiene.command_run(args), 1)
+                result = json.loads(output.getvalue())
+                receipt = json.loads(Path(result["receipt"]).read_text())
+                self.assertEqual(receipt["state"], "failed_to_start")
+                self.assertEqual(receipt["stop_reason"], "launch_failed")
+                self.assertNotIn("pid", receipt)
+                self.assertFalse((Path(result["receipt"]).parent / "tmp").exists())
+                self.assertFalse((Path(result["receipt"]).parent / "cache").exists())
+                args.program = original
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(workspace_hygiene.command_run(args), 0)
+
     def test_unrelated_prelaunch_consumption_cannot_hide_logical_growth(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             child = "import os,pathlib; p=pathlib.Path(os.environ['TEMP'])/'rapid'; f=p.open('wb'); f.seek(2*1024*1024); f.write(b'x'); f.close()"

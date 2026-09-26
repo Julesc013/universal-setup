@@ -583,6 +583,12 @@ void require_publisher_tree_security_shape(
     }
 }
 
+void require_publisher_object_security_shape(
+    const PublisherHandleObservation& object, const std::string& service_sid) {
+    require_canonical_service_sid(service_sid);
+    require_protected_object_shape(object, service_sid);
+}
+
 PublisherTreeObservation observe_visible_publisher_tree_against_seal(
     HANDLE destination_parent, const std::wstring& destination_component,
     const PublisherTreeObservation& sealed) {

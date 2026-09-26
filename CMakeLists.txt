@@ -73,6 +73,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_anchor_create.cpp
     runtime/platform/windows/usk_publisher_staged_stream.cpp
     runtime/platform/windows/usk_publisher_bound_rename.cpp
+    runtime/platform/windows/usk_publisher_metadata.cpp
     runtime/platform/windows/usk_publisher_directory_entries.cpp
     runtime/platform/windows/usk_publisher_handle_observation.cpp
     runtime/platform/windows/usk_publisher_security_descriptor.cpp
@@ -722,6 +723,26 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_package_verify_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_package_verify_smoke PRIVATE usk_static usk_verify_static)
   add_test(NAME usk_package_verify_smoke COMMAND usk_package_verify_smoke)
+
+  # Keep retained native/Python fixtures inside this disposable build tree.
+  # Failed probes may retain diagnostics; they must not scatter payloads into
+  # the user's system temporary directory across repeated local test runs.
+  # The campaign task path already carries repository/task identity. Adding
+  # build/run identifiers to native fixture paths can exceed the supported
+  # Windows path envelope before the behavior under test is reached.
+  if(DEFINED ENV{FACMAN_TASK_ROOT} AND NOT "$ENV{FACMAN_TASK_ROOT}" STREQUAL "")
+    set(USK_TEST_TEMP_ROOT "$ENV{FACMAN_TASK_ROOT}/t")
+  else()
+    set(USK_TEST_TEMP_ROOT "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
+  endif()
+  file(MAKE_DIRECTORY "${USK_TEST_TEMP_ROOT}")
+  get_property(USK_NATIVE_TESTS DIRECTORY PROPERTY TESTS)
+  foreach(USK_NATIVE_TEST IN LISTS USK_NATIVE_TESTS)
+    set_property(TEST "${USK_NATIVE_TEST}" APPEND PROPERTY ENVIRONMENT
+      "TMP=${USK_TEST_TEMP_ROOT}"
+      "TEMP=${USK_TEST_TEMP_ROOT}"
+      "TMPDIR=${USK_TEST_TEMP_ROOT}")
+  endforeach()
 endif()
 
 if(USK_BUILD_FUZZERS)
