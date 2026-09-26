@@ -850,6 +850,7 @@ def command_run(args: argparse.Namespace) -> int:
     task_path = development_layout.default_task_root(ROOT, task_id)
     with resource_lock(base / ".resource-job.lock"):
         storage = storage_inventory(observation_roots(args))
+        measured_logical_before = storage["logical_bytes"]
         paths = [base, *[Path(root) for root in storage["roots"] if Path(root).exists()]]
         volumes = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
         available = memory_headroom()
@@ -885,7 +886,8 @@ def command_run(args: argparse.Namespace) -> int:
         receipt = {"schema": "facman.resource_job.v1", "command": command, "cwd": str(ROOT), "task_root": str(task),
                    "disk_estimate_bytes": args.disk_bytes, "ram_estimate_bytes": args.ram_bytes, "max_bytes": args.max_bytes,
                    "disk_reserve_bytes": args.disk_reserve, "ram_reserve_bytes": args.ram_reserve,
-                   "started_at": development_layout.utc_now(), "state": "starting", "volume_free_before": volumes}
+                   "started_at": development_layout.utc_now(), "state": "starting", "volume_free_before": volumes,
+                   "storage_bytes_before": measured_logical_before}
         receipt_path = run / "receipt.json"
         receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
         tail: deque[bytes] = deque(maxlen=32)  # At most 128 KiB, regardless of test duration.
@@ -965,7 +967,7 @@ def command_run(args: argparse.Namespace) -> int:
                                ram_available_after=terminal_available[0], commit_available_after=terminal_available[1])
                 if not terminal_storage["complete"]:
                     reason = reason or "terminal_storage_observation_incomplete"
-                elif terminal_storage["logical_bytes"] - storage["logical_bytes"] > args.disk_bytes:
+                elif terminal_storage["logical_bytes"] - measured_logical_before > args.disk_bytes:
                     reason = reason or "disk_estimate_exceeded"
                 elif terminal_storage["logical_bytes"] > args.max_bytes:
                     reason = reason or "campaign_quota_exceeded"
