@@ -1199,11 +1199,14 @@ static InstallResult apply_install_impl(
                 applied_at, "install_local", "validated", "pass", "plan", plan.plan_id,
                 plan.plan_digest, transaction_id, plan.plan_id, "reviewed plan revalidated"};
             audit_repository.append(chain_id, validated);
-            transaction = std::make_unique<transaction::TransactionSession>(transaction::TransactionSpec{
+            const transaction::TransactionSpec spec{
                 transaction_id, plan.plan_id, plan.plan_digest, "install_local",
                 plan.roots.staging_parent, plan.target_root, plan.roots.state_root, plan.roots.audit_root,
-                plan.required_commit_authority}, injector);
-            if (!source_digest.empty()) transaction->bind_stream_source(source_digest, install_stream_source_context(plan));
+                plan.required_commit_authority};
+            transaction = source_digest.empty()
+                ? std::make_unique<transaction::TransactionSession>(spec, injector)
+                : transaction::TransactionSession::begin_streaming(
+                    spec, source_digest, install_stream_source_context(plan), injector);
         }
         for (const PayloadFile& file : plan.files) {
             stage_payload_file(*transaction, file.relative_path, file, cancellation,

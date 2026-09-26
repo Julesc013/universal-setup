@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_transaction_session.h"
+#include "usk_json.h"
 
 #include <chrono>
 #include <filesystem>
@@ -423,9 +424,56 @@ int durable_recovery_retains_foreign_content(Fixture& fixture)
 
 } // namespace
 
+int initial_stream_binding_before_effects(Fixture& fixture)
+{
+    const std::string context = "{\"schema\":\"test.initial_stream_source.v1\"}";
+    const auto source = usk::json::sha256_canonical(usk::json::parse(context));
+    auto invalid = fixture.spec("initial-source-invalid");
+    if (!throws([&] { TransactionSession::begin_streaming(invalid, std::string(64, '0'), context); }) ||
+        fs::exists(fixture.state / "transactions" / "initial-source-invalid.journal.json") ||
+        fs::exists(fixture.staging / ".usk-stage-initial-source-invalid")) return 181;
+    for (const auto& phase : {"created", "validated", "planned", "staging"}) {
+        auto spec = fixture.spec(std::string("initial-source-") + phase);
+        if (!throws([&] {
+            TransactionSession::begin_streaming(spec, source, context,
+                [&](const std::string& state, const std::string& point) {
+                    if (state == phase && point == "after_journal") throw std::runtime_error("interrupt initial stream");
+                });
+        })) return 182;
+        const auto inspected = TransactionSession::inspect_recovery(spec);
+        if (inspected.stream_source_digest != source || inspected.stream_source_context != context ||
+            inspected.current_state != phase || inspected.target_exists || inspected.staging_exists) return 183;
+        const auto replay = TransactionSession::restart_streaming(spec, spec.transaction_id + "-replay",
+            inspected.snapshot_sha256, source);
+        auto next = spec;
+        next.transaction_id += "-replay";
+        const auto lineage = TransactionSession::inspect_recovery(next);
+        // Replay preserves the exact plan identity rather than inventing a new plan.
+        if (replay->current_state() != "staging" || !fs::exists(replay->staging_root()) ||
+            lineage.stream_source_digest != source || lineage.stream_source_context != context ||
+            lineage.restart_origin_transaction_id != spec.transaction_id ||
+            lineage.restart_origin_snapshot_sha256 != inspected.snapshot_sha256) return 186;
+    }
+    auto spec = fixture.spec("initial-source-created-stage");
+    if (!throws([&] {
+        TransactionSession::begin_streaming(spec, source, context,
+            [](const std::string&, const std::string& point) {
+                if (point == "after_staging_create") throw std::runtime_error("interrupt owned staging");
+            });
+    })) return 184;
+    const auto inspected = TransactionSession::inspect_recovery(spec);
+    if (inspected.stream_source_digest != source || inspected.stream_source_context != context ||
+        !inspected.staging_exists || inspected.publication_root_identity.empty() || inspected.target_exists) return 185;
+    if (!fs::remove(fixture.staging / ".usk-stage-initial-source-created-stage")) return 187;
+    if (!throws([&] { TransactionSession::restart_streaming(spec, "missing-stage-replay",
+            inspected.snapshot_sha256, source); })) return 188;
+    return 0;
+}
+
 int main()
 {
     Fixture fixture;
+    if (int result = initial_stream_binding_before_effects(fixture)) return result;
     bool commit_supported = false;
     if (int result = happy_path(fixture, commit_supported)) return result;
     if (int result = no_clobber(fixture)) return result;
