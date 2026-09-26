@@ -209,6 +209,37 @@ def directory_size(path: Path) -> tuple[int, int]:
     return files, total
 
 
+def retained_storage_roots(area: Path) -> list[Path]:
+    receipt = area / "retained-storage-roots.json"
+    for path in (receipt, *receipt.parents):
+        try:
+            facts = path.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(facts.st_mode) or getattr(facts, "st_file_attributes", 0) & 0x400:
+            raise ValueError(f"retained storage registration crosses a link: {path}")
+    try:
+        facts = receipt.stat()
+    except FileNotFoundError:
+        return []
+    if not stat.S_ISREG(facts.st_mode) or facts.st_size > 65536:
+        raise ValueError("retained storage registration must be a bounded regular file")
+    with receipt.open("rb") as stream:
+        content = stream.read(65537)
+    if len(content) > 65536:
+        raise ValueError("retained storage registration exceeds its byte budget")
+    rows = json.loads(content.decode("utf-8-sig"))
+    if not isinstance(rows, list) or len(rows) > 64:
+        raise ValueError("retained storage registration must contain at most 64 paths")
+    roots = []
+    for row in rows:
+        value = row if isinstance(row, str) else row.get("path") if isinstance(row, dict) else None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("retained storage registration has an invalid path")
+        roots.append(Path(value).expanduser())
+    return roots
+
+
 def storage_inventory(extra_roots: list[str] | None = None) -> dict[str, Any]:
     """One streaming walk of the entire repository store plus explicit legacy roots.
 
@@ -216,7 +247,9 @@ def storage_inventory(extra_roots: list[str] | None = None) -> dict[str, Any]:
     Allocated sizes exclude duplicate hard links; they are not reclaimability claims.
     """
     area = development_layout.repository_root(CONTROL_ROOT)
-    candidates = [area, CONTROL_ROOT]
+    # Keep discovered external material in every later admission/monitor scan.
+    # This is accounting input; it never permits output creation or cleanup.
+    candidates = [area, CONTROL_ROOT, *retained_storage_roots(area)]
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
         candidates.append(Path(os.environ["LOCALAPPDATA"]) / "FacMan" / "Development" / "repositories" / development_layout.repository_key(CONTROL_ROOT))
     candidates += [Path(name).expanduser() for name in extra_roots or []]

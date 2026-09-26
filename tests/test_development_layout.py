@@ -194,6 +194,46 @@ class DevelopmentLayoutTests(unittest.TestCase):
             reasons = workspace_hygiene.resource_violations(observed, 1, 1, {"volume": 100}, (100, 100), 30, 10, 10)
             self.assertIn("campaign_storage_quota_exceeded", reasons)
 
+    def test_registered_external_storage_is_counted_without_cli_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            area, legacy = base / "area", base / "legacy"
+            area.mkdir(); legacy.mkdir()
+            (legacy / "payload").write_bytes(b"x" * 40)
+            registration = json.dumps([str(legacy)]).encode()
+            (area / "retained-storage-roots.json").write_bytes(registration)
+            with (mock.patch.object(development_layout, "repository_root", return_value=area),
+                  mock.patch.object(workspace_hygiene, "CONTROL_ROOT", base / "source")):
+                observed = workspace_hygiene.storage_inventory()
+            self.assertTrue(observed["complete"])
+            self.assertEqual(observed["logical_bytes"], len(registration) + 40)
+            reasons = workspace_hygiene.resource_violations(observed, 0, 0,
+                {"volume": 1000}, (1000, 1000), len(registration) + 39, 10, 10)
+            self.assertIn("campaign_storage_quota_exceeded", reasons)
+
+    def test_bad_retained_registration_refuses_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            area = Path(temporary)
+            receipt = area / "retained-storage-roots.json"
+            for contents in ('{}', '[""]', '["x"]' + ' ' * 65536):
+                receipt.write_text(contents)
+                with self.assertRaises(ValueError):
+                    workspace_hygiene.retained_storage_roots(area)
+
+    def test_linked_registration_refuses_before_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            area = Path(temporary)
+            receipt = area / "retained-storage-roots.json"
+            receipt.write_text('[]')
+            original = Path.lstat
+            def observe(path):
+                if path == receipt:
+                    return mock.Mock(st_mode=0o100644, st_file_attributes=0x400)
+                return original(path)
+            with mock.patch.object(Path, "lstat", observe):
+                with self.assertRaisesRegex(ValueError, "crosses a link"):
+                    workspace_hygiene.retained_storage_roots(area)
+
     def test_ignored_source_and_nested_repository_refuse_retirement(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)
