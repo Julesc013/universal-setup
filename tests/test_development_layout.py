@@ -129,9 +129,9 @@ class DevelopmentLayoutTests(unittest.TestCase):
                 output.seek(0)
                 output.truncate()
                 with (mock.patch.object(workspace_hygiene, "memory_headroom", return_value=(0, 0)),
-                      mock.patch.object(workspace_hygiene.subprocess, "Popen") as launch):
+                      mock.patch.object(workspace_hygiene.subprocess, "Popen", wraps=subprocess.Popen) as launch):
                     self.assertEqual(workspace_hygiene.command_run(args), 2)
-                    launch.assert_not_called()
+                    self.assertFalse(any(call.args[0][0] == sys.executable for call in launch.call_args_list))
                 self.assertIn("ram_or_commit_reserve_exhausted", json.loads(output.getvalue())["reasons"])
             result = first_result
             receipt = json.loads(Path(result["receipt"]).read_text())

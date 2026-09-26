@@ -820,6 +820,7 @@ def command_run(args: argparse.Namespace) -> int:
     if args.max_bytes > development_layout.DEFAULT_MAX_BYTES or args.disk_reserve < DEFAULT_DISK_RESERVE or args.ram_reserve < DEFAULT_RAM_RESERVE:
         raise ValueError("campaign quota/reserves may not be weakened by a job")
     task_id = development_layout.current_task_id(ROOT)
+    task_path = development_layout.default_task_root(ROOT, task_id)
     with resource_lock(base / ".resource-job.lock"):
         storage = storage_inventory(observation_roots(args))
         paths = [base, *[Path(root) for root in storage["roots"] if Path(root).exists()]]
@@ -829,13 +830,13 @@ def command_run(args: argparse.Namespace) -> int:
                                       args.max_bytes, args.disk_reserve, args.ram_reserve)
         if len([record for record in worktree_records(args.base) if not record["primary"]]) > DEFAULT_MAX_WORKTREES:
             reasons.append("secondary_worktree_limit_exceeded")
-        if len(task_roots(CONTROL_ROOT)) > development_layout.DEFAULT_MAX_TASK_ROOTS:
+        if len(task_roots(CONTROL_ROOT)) + int(not task_path.exists()) > development_layout.DEFAULT_MAX_TASK_ROOTS:
             reasons.append("task_root_limit_exceeded")
         if reasons:
             print(json.dumps({"result": "refused", "reasons": reasons, "storage_bytes": storage["logical_bytes"], "volume_free_bytes": volumes,
                               "ram_available_bytes": available[0], "commit_available_bytes": available[1]}, sort_keys=True))
             return 2
-        task = development_layout.ensure_task_root(development_layout.default_task_root(ROOT, task_id), CONTROL_ROOT, task_id)
+        task = development_layout.ensure_task_root(task_path, CONTROL_ROOT, task_id)
         run = task / "runs" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S-%f")
         run.mkdir(parents=True)
         temporary = run / "tmp"
