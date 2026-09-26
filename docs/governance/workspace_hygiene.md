@@ -69,7 +69,7 @@ retains its portable fallback; creating output does not use that fallback.
 tasks, labs, sibling builds, packages, caches, and other files. It also counts
 the canonical source checkout and Git database, and the same repository's old
 Windows fallback store. Supply remaining attributable legacy locations with
-`--extra-root <exact-path>` or `--extra-roots-file <existing-inventory.json>`.
+`--extra-root <exact-path>` or `--extra-roots-file <existing-inventory.json>`. Known retained external roots can also be stored as the same JSON array in `retained-storage-roots.json` directly under the existing repository store. Admission, monitoring and doctor automatically include this bounded, nonlinked registration; it supplies no output or deletion authority.
 Observation does not authorize deletion.
 Overlapping roots and allocated hard-link storage are counted once. Logical bytes
 and filesystem allocation are reported separately; neither is a claim that all
