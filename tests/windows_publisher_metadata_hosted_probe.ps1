@@ -9,14 +9,15 @@ param(
     [Parameter(Mandatory=$true)][string]$PublicApplyBinary,
     [Parameter(Mandatory=$true)][string]$OutputPath,
     [switch]$InterruptAfterVisibleRecord,
-    [switch]$InterruptAfterRename
+    [switch]$InterruptAfterRename,
+    [switch]$InterruptBeforePublish
 )
 $ErrorActionPreference='Stop'
-if($InterruptAfterVisibleRecord -and $InterruptAfterRename){throw 'Select one interruption window'}
-$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename
-$gate=if($InterruptAfterRename){'postrename'}else{'postjournal'}
-$readyContent=if($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
-$recoveryDecision=if($InterruptAfterRename){'visible_bound_forward'}else{'installed_state_completed_forward'}
+if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish) -gt 1){throw 'Select one interruption window'}
+$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish
+$gate=if($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
+$readyContent=if($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
+$recoveryDecision=if($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -196,10 +197,13 @@ try {
         }
         Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid
         $visibleRecords=@($before.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
-        $expectedVisibleRecords=if($InterruptAfterRename){0}else{1}
+        $expectedVisibleRecords=if($InterruptAfterVisibleRecord){1}else{0}
         if($visibleRecords.Count -ne $expectedVisibleRecords){throw 'Interrupted visible-journal boundary differs from selected window'}
+        $payloadPrefix=if($InterruptBeforePublish){$drive+'publication\staging\candidate\'}else{$drive+'publication\destination\visible\'}
+        $absentPrefix=if($InterruptBeforePublish){$drive+'publication\destination\visible'}else{$drive+'publication\staging\candidate'}
+        if(@($before.independent.rows|Where-Object {$_.path -ceq $absentPrefix -or $_.path.StartsWith($absentPrefix+'\',[StringComparison]::Ordinal)}).Count -ne 0){throw 'Interrupted payload namespace differs from selected window'}
         foreach($entry in $plan.planned_entries|Where-Object entry_type -eq 'file') {
-            $path=$drive+'publication\destination\visible\'+$entry.relative_path.Replace('/','\')
+            $path=$payloadPrefix+$entry.relative_path.Replace('/','\')
             $row=@($before.independent.rows|Where-Object path -ceq $path)
             if($row.Count -ne 1 -or $row[0].sha256 -ne $entry.sha256 -or $row[0].bytes -ne $entry.size_bytes) {
                 throw 'Independent interrupted visible payload differs'
@@ -258,7 +262,12 @@ try {
     Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
     if($recover) {
         foreach($row in $before.independent.rows) {
-            $matching=@($receipt.independent.rows|Where-Object path -ceq $row.path)
+            $completedPath=$row.path
+            $stagedRoot=$drive+'publication\staging\candidate'
+            if($InterruptBeforePublish -and ($row.path -ceq $stagedRoot -or $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal))) {
+                $completedPath=$drive+'publication\destination\visible'+$row.path.Substring($stagedRoot.Length)
+            }
+            $matching=@($receipt.independent.rows|Where-Object path -ceq $completedPath)
             if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or $matching[0].bytes -ne $row.bytes) {
                 throw 'Recovery changed independently observed published payload or durable intent'
             }
