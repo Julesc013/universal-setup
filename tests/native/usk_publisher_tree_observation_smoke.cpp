@@ -111,7 +111,7 @@ void check_closure_refused(const PublisherTreeObservation& tree,
 int main() {
     try {
         const auto base = fs::temp_directory_path() /
-            ("usk-publisher-tree-" + std::to_string(
+            ("p-" + std::to_string(
                 std::chrono::steady_clock::now().time_since_epoch().count()));
         check(fs::create_directory(base), "fixture parent already exists");
         const auto root = base / "staging";
@@ -280,7 +280,9 @@ int main() {
                     write_payload(sibling, "x", 1);
                     side_files.push_back(sibling);
                 }
-                const auto component = L"level-" + std::to_wstring(depth);
+                // Keep all 12 levels and 64 siblings within the configured
+                // task root without requiring drive-root scratch output.
+                const auto component = L"l" + std::to_wstring(depth);
                 current /= component;
                 check(fs::create_directory(current),
                     "wide directory-chain level creation failed");
