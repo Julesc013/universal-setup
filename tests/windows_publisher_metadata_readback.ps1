@@ -26,6 +26,8 @@ function Assert-IndependentMetadataProbe {
     $completionRow=@($Result.independent.rows|Where-Object path -ceq ($drive + 'publication\state\lab-installed-state.json'))[0]
     if ($snapshot.plan_digest -ne $Result.plan.plan_digest -or $snapshot.archive_sha256 -ne $Result.archive_sha256 -or
         $completion.source_binding.reviewed_plan_digest -ne $snapshot.plan_digest) { throw 'Independent reviewed source binding differs' }
+    if ($Result.apply_request -and ($snapshot.transaction_id -ne $Result.apply_request.transaction_id -or
+        $snapshot.applied_at -ne $Result.apply_request.applied_at)) { throw 'Independent caller operation binding differs' }
     $transaction=$snapshot.transaction_id
     $installId=$Result.request.install_id
     $installedPath=($drive + 'setup-state\state\installed\') + $installId + '.' + $transaction + '.json'

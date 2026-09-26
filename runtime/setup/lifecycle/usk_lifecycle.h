@@ -95,6 +95,9 @@ struct InstallPlan {
 };
 
 // Plan-time known paths; supply the exact transaction ID before any apply effects.
+void require_install_execution_identity(const InstallPlan& plan,
+    const std::string& reviewed_plan_digest, const std::string& transaction_id,
+    const std::string& applied_at);
 void require_install_path_capacity(
     const InstallPlan& plan,
     const std::string& transaction_id = {});

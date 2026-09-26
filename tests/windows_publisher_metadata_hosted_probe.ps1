@@ -89,9 +89,27 @@ try {
         throw 'Actual selected native plan differs'
     }
     $receipt.request=$request.payload;$receipt.plan=$plan;$receipt.archive_sha256=$inputs.archive_sha256
-    [IO.File]::WriteAllText($envelope,([ordered]@{schema='usk.publisher.lab_reviewed_plan_envelope.v1';
+    $applyRequest=[ordered]@{schema='usk.install_local_apply_request.v1';plan_request=$request.payload;
+        reviewed_plan_id=$plan.plan_id;reviewed_plan_digest=$plan.plan_digest;transaction_id='install.'+$id;
+        applied_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ');confirmation='APPLY'}
+    $receipt['apply_request']=$applyRequest
+    # The identical ordinary request must refuse outside the admitted service,
+    # before creating payload or setup state. No public activation mints authority.
+    $ordinaryPath=Join-Path $root ('ordinary-apply-'+$id+'.json')
+    [IO.File]::WriteAllText($ordinaryPath,([ordered]@{schema='usk.oneshot_request.v1';
+        request_id='apply.'+$id;command='install_local.apply';payload=$applyRequest;dry_run=$false}|
+        ConvertTo-Json -Depth 32 -Compress)+"`n",$utf8)
+    $ordinary=& $MachineBinary --machine --request-file $ordinaryPath --context-file $contextPath 2>&1
+    $receipt['ordinary_apply_exit_code']=$LASTEXITCODE
+    $receipt['ordinary_apply_response']=($ordinary -join "`n")|ConvertFrom-Json
+    if($receipt.ordinary_apply_exit_code -eq 0 -or ($ordinary -join "`n") -notmatch 'commit_authority_unavailable' -or
+        (Test-Path -LiteralPath ($drive+'setup-state')) -or (Test-Path -LiteralPath ($drive+'publication'))) {
+        throw 'Ordinary apply did not refuse before mutation outside the service'
+    }
+    [IO.File]::WriteAllText($envelope,([ordered]@{schema='usk.publisher.lab_reviewed_plan_envelope.v2';
         activation='operator_acceptance_candidate';acceptance_root=$drive;state_root=$drive+'setup-state';
-        reviewed_plan_digest=$plan.plan_digest;plan_request=$request.payload}|ConvertTo-Json -Depth 32 -Compress)+"`n",$utf8)
+        reviewed_plan_digest=$plan.plan_digest;plan_request=$request.payload;apply_request=$applyRequest}|
+        ConvertTo-Json -Depth 32 -Compress)+"`n",$utf8)
     $receipt['envelope_sha256']=(Get-FileHash -LiteralPath $envelope -Algorithm SHA256).Hash.ToLowerInvariant()
     $command='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+
         ' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
@@ -138,6 +156,13 @@ try {
     $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
+    if($receipt.native.apply_response.status -ne 'ok' -or
+        $receipt.native.apply_response.payload.schema -ne 'usk.installed_state.v1' -or
+        $receipt.native.apply_response.payload.transaction_id -ne $applyRequest.transaction_id -or
+        $receipt.native.apply_response.payload.created_at -ne $applyRequest.applied_at -or
+        $receipt.native.apply_response.payload.last_verification.status -ne 'pass') {
+        throw 'Protected ordinary apply did not preserve caller identities and verified installed result'
+    }
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
     Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
