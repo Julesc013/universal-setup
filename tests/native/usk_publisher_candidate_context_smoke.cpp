@@ -1,10 +1,30 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_protected_install_publisher_internal.h"
+#include "usk_public_lifecycle.h"
+#include "usk_stable_file.h"
 #include <iostream>
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc == 5 && std::string(argv[1]) == "--apply-probe") {
+        try {
+            usk::base::StableFile file{std::filesystem::path(argv[2])};
+            if (!file.identity().size_bytes || file.identity().size_bytes > 1024u*1024u) return 5;
+            const auto bytes=file.read(0,static_cast<std::size_t>(file.identity().size_bytes));
+            file.verify_unchanged();
+            const std::string request(bytes.begin(),bytes.end());
+            int status=-1;
+            char* raw=usk_public_lifecycle_command_json("install_local.apply",request.data(),request.size(),
+                argv[3],argv[4],"operator_acceptance_candidate",&status);
+            if (!raw) return 5;
+            const std::string response(raw);
+            usk_public_lifecycle_command_free(raw);
+            std::cout << response << '\n';
+            return status == 0 ? 0 : 2;
+        } catch (const std::exception&) { return 5; }
+    }
+    if (argc != 1) return 5;
     using namespace usk::platform::windows;
     // Pure durable-binding fixture; these are not OS observations or a plan
     // acceptance test. A non-lab caller ID must survive, while substitutions

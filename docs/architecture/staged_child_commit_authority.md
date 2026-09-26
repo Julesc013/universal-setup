@@ -56,7 +56,7 @@ ordinary apply does not replace a volume ACL. Existing durable prepared/visible
 records, handle-relative no-replace publication, exact closure checks and protected
 metadata finalization remain shared with recovery.
 
-The hosted scenario sends the identical request to an ordinary machine process
+The hosted scenario sends the identical C ABI request to an ordinary native process
 and to the admitted restricted service. It requires refusal before ordinary
 mutation, a verified installed result inside the service, and independent SYSTEM
 readback of caller identities and protected records. These are candidate tests;

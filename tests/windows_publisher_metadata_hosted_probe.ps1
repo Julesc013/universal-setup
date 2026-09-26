@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory=$true)][string]$ServiceBinary,
     [Parameter(Mandatory=$true)][string]$DeviceAclBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
+    [Parameter(Mandatory=$true)][string]$PublicApplyBinary,
     [Parameter(Mandatory=$true)][string]$OutputPath
 )
 $ErrorActionPreference='Stop'
@@ -93,13 +94,14 @@ try {
         reviewed_plan_id=$plan.plan_id;reviewed_plan_digest=$plan.plan_digest;transaction_id='install.'+$id;
         applied_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ');confirmation='APPLY'}
     $receipt['apply_request']=$applyRequest
+    $receipt['public_apply_binary_sha256']=(Get-FileHash -LiteralPath $PublicApplyBinary -Algorithm SHA256).Hash.ToLowerInvariant()
     # The identical ordinary request must refuse outside the admitted service,
     # before creating payload or setup state. No public activation mints authority.
     $ordinaryPath=Join-Path $root ('ordinary-apply-'+$id+'.json')
-    [IO.File]::WriteAllText($ordinaryPath,([ordered]@{schema='usk.oneshot_request.v1';
-        request_id='apply.'+$id;command='install_local.apply';payload=$applyRequest;dry_run=$false}|
-        ConvertTo-Json -Depth 32 -Compress)+"`n",$utf8)
-    $ordinary=& $MachineBinary --machine --request-file $ordinaryPath --context-file $contextPath 2>&1
+    [IO.File]::WriteAllText($ordinaryPath,($applyRequest|ConvertTo-Json -Depth 32 -Compress)+"`n",$utf8)
+    # usk_machine remains inspect-only. Exercise the actual C ABI instead of
+    # interpreting its earlier command_unavailable as publisher evidence.
+    $ordinary=& $PublicApplyBinary --apply-probe $ordinaryPath ($drive+'setup-state') $drive
     $receipt['ordinary_apply_exit_code']=$LASTEXITCODE
     $receipt['ordinary_apply_response']=($ordinary -join "`n")|ConvertFrom-Json
     if($receipt.ordinary_apply_exit_code -eq 0 -or ($ordinary -join "`n") -notmatch 'commit_authority_unavailable' -or
