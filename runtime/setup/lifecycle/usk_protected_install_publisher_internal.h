@@ -20,6 +20,9 @@ struct CandidatePublisherConfiguration {
         selected_archive_mode=false;
     std::wstring selected_archive_path, reviewed_plan_envelope_path;
     std::string selected_archive_sha256, reviewed_plan_envelope_sha256;
+    // Authenticated transport bytes, compared to the independently reviewed
+    // request and durable snapshot before any publication/recovery effect.
+    std::optional<std::string> submitted_apply_request;
     HANDLE stop_event=nullptr;
     std::function<void(HANDLE,const std::string&)> prepare_disposable_boundary;
 };

@@ -8,6 +8,7 @@ param(
     [Parameter(Mandatory=$true)][string]$MachineBinary,
     [Parameter(Mandatory=$true)][string]$PublicApplyBinary,
     [Parameter(Mandatory=$true)][string]$OutputPath,
+    [string]$ClientBinary = '',
     [switch]$InterruptAfterVisibleRecord,
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish
@@ -70,6 +71,35 @@ $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run'
     observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false}
 $created=$false
 $failure=$null
+$requestClient=$null
+$clientNumber=0
+function Start-RequestClient($submitted=$applyRequest) {
+    $script:clientNumber++
+    $prefix=Join-Path $root ('client-'+$clientNumber)
+    $clientRequest=$prefix+'-request.json'
+    [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
+    $process=Start-Process -FilePath $ClientBinary -ArgumentList @('--service',$service,'--request-file',('"'+$clientRequest+'"')) `
+        -WindowStyle Hidden -PassThru -RedirectStandardOutput ($prefix+'-response.json') -RedirectStandardError ($prefix+'-error.txt')
+    return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt'}
+}
+function Complete-RequestClient($client,[bool]$expectSuccess) {
+    if(-not $client.process.WaitForExit(120000)) {
+        $client.process.Kill();$client.process.WaitForExit();throw 'Owned request client timed out'
+    }
+    if(($client.process.ExitCode -eq 0) -ne $expectSuccess) {
+        throw ('Request client exit differs: '+$client.process.ExitCode+'; '+[IO.File]::ReadAllText($client.error))
+    }
+    $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
+        caller_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
+    if($expectSuccess) {
+        if((Get-Item -LiteralPath $client.response).Length -gt 4MB -or
+            [IO.File]::ReadAllText($client.response).Trim() -cne [IO.File]::ReadAllText($nativePath).Trim()) {
+            throw 'Authenticated client result differs from independently retained service result'
+        }
+        $result['response_sha256']=(Get-FileHash -LiteralPath $client.response -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    return $result
+}
 try {
     Assert-OwnedVolume
     if(Test-Path -LiteralPath ($drive+'publication')){throw 'Hosted metadata disk is not fresh'}
@@ -124,7 +154,14 @@ try {
     $command='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+
         ' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
         ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
+    $selectedClientArguments=' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
+        ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
     if($recover){$command+=' --'+$gate+'-gate'}
+    if($ClientBinary) {
+        $callerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $clientArguments=' --authorized-client-sid '+$callerSid
+        $command+=$clientArguments
+    }
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
     & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Owned service creation failed'}
@@ -160,6 +197,7 @@ try {
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+    if($ClientBinary){$requestClient=Start-RequestClient}
     if($recover) {
         # Controlled service cancellation at the selected flushed readiness window.
         # This is neither VM power loss nor physical-host power-loss evidence.
@@ -171,6 +209,10 @@ try {
             throw ('Selected interruption window was not reached: '+$gate)
         }
         Stop-Service $service -ErrorAction Stop
+        if($requestClient) {
+            $receipt['interrupted_client']=Complete-RequestClient $requestClient $false
+            $requestClient=$null
+        }
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
@@ -234,15 +276,25 @@ try {
         $recoveryPath=Join-Path $root ('vm-recovery-'+$id+'.json')
         $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
             ' --recover-visible-bound --campaign-vm-id '+$vmId
+        if($ClientBinary) {
+            $recoveryPath=Join-Path $root ('vm-selected-reconnect-'+$id+'.json')
+            $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
+                $selectedClientArguments+$clientArguments
+        }
         & sc.exe config $service binPath= $recoveryCommand|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Owned service recovery configuration failed'}
         try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
         $nativePath=$recoveryPath
+        if($ClientBinary){$requestClient=Start-RequestClient}
     }
     $deadline=[DateTime]::UtcNow.AddSeconds(90)
     while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
     if(-not (Test-Path -LiteralPath $nativePath)){throw 'Native service receipt absent'}
     $receipt.native=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
+    if($requestClient) {
+        $receipt['authenticated_client']=Complete-RequestClient $requestClient $true
+        $requestClient=$null
+    }
     $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
@@ -277,13 +329,24 @@ try {
         $repeatPath=Join-Path $root ('vm-recovery-repeat-'+$id+'.json')
         $repeatCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$repeatPath+'" '+$VolumeRoot+
             ' --recover-visible-bound --campaign-vm-id '+$vmId
+        if($ClientBinary) {
+            $repeatPath=Join-Path $root ('vm-selected-reconnect-repeat-'+$id+'.json')
+            $repeatCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$repeatPath+'" '+$VolumeRoot+
+                $selectedClientArguments+$clientArguments
+        }
         & sc.exe config $service binPath= $repeatCommand|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Owned service repeat configuration failed'}
         try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        if($ClientBinary){$requestClient=Start-RequestClient}
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $repeatPath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $repeatPath)){throw 'Repeated recovery receipt absent'}
         $repeat=Get-Content -LiteralPath $repeatPath -Raw|ConvertFrom-Json
+        if($requestClient) {
+            $nativePath=$repeatPath
+            $receipt['authenticated_client_repeat']=Complete-RequestClient $requestClient $true
+            $requestClient=$null
+        }
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         if($repeat.status -ne 'pass' -or $repeat.recovery_observation.decision -ne 'already_visible_bound' -or
             $repeat.recovery_installed_response.payload.transaction_id -ne $applyRequest.transaction_id -or
@@ -306,10 +369,40 @@ try {
             independent_repeat=$after.independent;repeat_observer_task_removed=$after.observer_task_removed;
             unchanged_row_count=$after.independent.rows.Count}
     }
+    if($recover -and $ClientBinary) {
+        # A genuine authenticated peer cannot change the durable request merely
+        # by reusing this endpoint after successful recovery.
+        $tampered=$applyRequest|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
+        $tampered.transaction_id='install.'+[guid]::NewGuid().ToString('N')
+        $stalePath=Join-Path $root ('vm-selected-stale-client-'+$id+'.json')
+        $staleCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$stalePath+'" '+$VolumeRoot+
+            $selectedClientArguments+$clientArguments
+        & sc.exe config $service binPath= $staleCommand|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Owned stale-client service configuration failed'}
+        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        $requestClient=Start-RequestClient $tampered
+        $receipt['stale_authenticated_client']=Complete-RequestClient $requestClient $false
+        $requestClient=$null
+        $stale=Get-Content -LiteralPath $stalePath -Raw|ConvertFrom-Json
+        if($stale.status -ne 'failed' -or $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
+            throw 'Stale authenticated request was not refused by durable binding'
+        }
+        $unchanged=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) `
+            -RunId ([guid]::NewGuid().ToString('N'))
+        if(($after.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($unchanged.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Stale authenticated request changed retained installation records'
+        }
+        $receipt['stale_authenticated_request_unchanged_rows']=$unchanged.independent.rows.Count
+        $receipt['stale_observer_task_removed']=$unchanged.observer_task_removed
+    }
     $receipt.status='protected_metadata_observed'
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
 } finally {
+    if($requestClient -and -not $requestClient.process.HasExited) {
+        $requestClient.process.Kill();$requestClient.process.WaitForExit()
+    }
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
