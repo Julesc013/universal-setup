@@ -389,7 +389,7 @@ try {
         $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
             ' --recover-visible-bound --campaign-vm-id '+$vmId
         if($ClientBinary) {
-            $recoveryPath=Join-Path $root ('vm-selected-reconnect-'+$id+'.json')
+            $recoveryPath=Join-Path $root ($(if($InterruptAfterStage){'vm-recovery-snapshot-'}else{'vm-selected-reconnect-'})+$id+'.json')
             $recoveryCommand=if($InterruptAfterStage){
                 '"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
                     ' --recover-snapshot-only --campaign-vm-id '+$vmId+$clientArguments
