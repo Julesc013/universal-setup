@@ -354,7 +354,10 @@ try {
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $nativePath)){throw 'Partial consumer grant receipt absent'}
         $partial=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
-        if($partial.status -ne 'recovery_required' -or $partial.error -notmatch 'first consumer grant'){throw 'Expected injected grant interruption absent'}
+        $receipt['partial_grant_native']=$partial
+        if($partial.status -ne 'recovery_required' -or $partial.error -notmatch 'first consumer grant'){
+            throw ('Expected injected grant interruption absent; native status='+$partial.status+'; error='+$partial.error)
+        }
         $receipt['interrupted_consumer_client']=Complete-RequestClient $requestClient $false $true
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}

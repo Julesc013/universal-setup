@@ -262,12 +262,15 @@ void admit_current_publisher_client_observer(const std::wstring& service_name,
         throw std::runtime_error("consumer SID unavailable");
     PSID owner = nullptr;
     PACL dacl = nullptr;
-    if (GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
+    const auto security_status = GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, nullptr,
-        &dacl, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&before.value)) != ERROR_SUCCESS ||
+        &dacl, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&before.value));
+    if (security_status != ERROR_SUCCESS ||
         !owner || !dacl || !IsValidAcl(dacl) ||
         !IsWellKnownSid(owner, WinLocalSystemSid))
-        throw std::runtime_error("current publisher process security unavailable");
+        throw std::runtime_error("current publisher process security unavailable; win32=" +
+            std::to_string(security_status) + "; system_owner=" +
+            std::to_string(owner && IsWellKnownSid(owner, WinLocalSystemSid)));
     constexpr DWORD observer_access = SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
     auto ace_bytes = [](PACL acl) {
         std::vector<std::vector<unsigned char>> result;
