@@ -96,6 +96,51 @@ class DevelopmentLayoutTests(unittest.TestCase):
                 self.assertGreater(receipt["storage_bytes_after"], 1048576)
                 self.assertTrue(receipt["disposable_output_retained"])
 
+    def test_unrelated_host_volume_loss_does_not_stop_owned_job(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.budgeted_fixture(Path(temporary), "import time; time.sleep(3)", disk=1048576) as args:
+                launched = False
+                original_popen = subprocess.Popen
+                def launch(*arguments, **keywords):
+                    nonlocal launched
+                    child = original_popen(*arguments, **keywords)
+                    if arguments[0][0] == sys.executable:
+                        launched = True
+                    return child
+                def free(_path):
+                    return mock.Mock(free=(99 if launched else 100) * workspace_hygiene.GIB)
+                output = io.StringIO()
+                with (mock.patch.object(workspace_hygiene.subprocess, "Popen", side_effect=launch),
+                      mock.patch.object(workspace_hygiene.shutil, "disk_usage", side_effect=free),
+                      contextlib.redirect_stdout(output)):
+                    self.assertEqual(workspace_hygiene.command_run(args), 0)
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["result"], "passed")
+                receipt = json.loads(Path(result["receipt"]).read_text())
+                self.assertLess(receipt["storage_bytes_after"] - receipt["storage_bytes_before"], 1048576)
+
+    def test_owned_live_growth_still_stops_job(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            child = ("import os,pathlib,time; p=pathlib.Path(os.environ['TEMP'])/'rapid'; "
+                     "f=p.open('wb'); f.seek(2*1024*1024); f.write(b'x'); f.close(); time.sleep(30)")
+            with self.budgeted_fixture(Path(temporary), child, disk=1048576) as args:
+                launched = False
+                original_popen = subprocess.Popen
+                def launch(*arguments, **keywords):
+                    nonlocal launched
+                    process = original_popen(*arguments, **keywords)
+                    if arguments[0][0] == sys.executable:
+                        launched = True
+                    return process
+                def free(_path):
+                    return mock.Mock(free=(99 if launched else 100) * workspace_hygiene.GIB)
+                output = io.StringIO()
+                with (mock.patch.object(workspace_hygiene.subprocess, "Popen", side_effect=launch),
+                      mock.patch.object(workspace_hygiene.shutil, "disk_usage", side_effect=free),
+                      contextlib.redirect_stdout(output)):
+                    self.assertEqual(workspace_hygiene.command_run(args), 1)
+                self.assertEqual(json.loads(output.getvalue())["stop_reason"], "disk_estimate_exceeded")
+
     def test_log_thread_setup_failure_reaps_owned_child(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             with self.budgeted_fixture(Path(temporary), "import time; time.sleep(60)") as args:

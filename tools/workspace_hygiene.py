@@ -892,10 +892,9 @@ def command_run(args: argparse.Namespace) -> int:
             reasons.append("secondary_worktree_limit_exceeded")
         if len(task_roots(CONTROL_ROOT)) + int(not task_path.exists()) > development_layout.DEFAULT_MAX_TASK_ROOTS:
             reasons.append("task_root_limit_exceeded")
-        # Worktree/material observation can take time. Charge any intervening
-        # volume loss and refresh cheap counters before admitting the child.
+        # Refresh host headroom after the inventory walk. Other processes may
+        # consume volume space during it; that loss is not campaign output.
         fresh_volumes = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
-        storage = {**storage, "logical_bytes": storage["logical_bytes"] + sum(max(0, volumes[key] - value) for key, value in fresh_volumes.items())}
         volumes = fresh_volumes
         available = memory_headroom()
         reasons.extend(resource_violations(storage, args.disk_bytes, args.ram_bytes, volumes, available,
@@ -934,7 +933,6 @@ def command_run(args: argparse.Namespace) -> int:
         job = contextlib.ExitStack()
         fresh_volumes = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
         fresh_available = memory_headroom()
-        storage = {**storage, "logical_bytes": storage["logical_bytes"] + sum(max(0, volumes[key] - value) for key, value in fresh_volumes.items())}
         reasons = resource_violations(storage, args.disk_bytes, args.ram_bytes, fresh_volumes, fresh_available,
                                       args.max_bytes, args.disk_reserve, args.ram_reserve)
         if reasons:
@@ -971,14 +969,25 @@ def command_run(args: argparse.Namespace) -> int:
             while process.poll() is None:
                 time.sleep(2)
                 free = {str(Path(path).anchor): shutil.disk_usage(path).free for path in paths}
-                growth = sum(max(0, volumes[volume] - value) for volume, value in free.items())
+                possible_growth = sum(max(0, volumes[volume] - value) for volume, value in free.items())
                 available = memory_headroom()
-                if growth > args.disk_bytes:
-                    reason = "disk_estimate_exceeded"
-                elif storage["logical_bytes"] + growth > args.max_bytes:
-                    reason = "campaign_quota_exceeded"
-                elif any(value < args.disk_reserve for value in free.values()) or min(available) < args.ram_reserve:
+                if any(value < args.disk_reserve for value in free.values()) or min(available) < args.ram_reserve:
                     reason = "host_reserve_exhausted"
+                elif (possible_growth > max(0, args.disk_bytes -
+                        max(0, storage["logical_bytes"] - measured_logical_before)) or
+                        storage["logical_bytes"] + possible_growth > args.max_bytes):
+                    # Volume loss is only a trigger for a fresh owned-storage
+                    # inventory. It cannot by itself consume the job allowance.
+                    observed = storage_inventory(observation_roots(args))
+                    if not observed["complete"]:
+                        reason = "live_storage_observation_incomplete"
+                    else:
+                        storage = observed
+                        volumes = free
+                        if storage["logical_bytes"] - measured_logical_before > args.disk_bytes:
+                            reason = "disk_estimate_exceeded"
+                        elif storage["logical_bytes"] > args.max_bytes:
+                            reason = "campaign_quota_exceeded"
                 if reason:
                     stop_owned_process(process)
                     break
