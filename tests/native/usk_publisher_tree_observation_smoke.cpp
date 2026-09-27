@@ -440,6 +440,12 @@ int main() {
                     catch (const std::exception&) { return true; }
                     return false;
                 };
+                auto leading_reader = mixed;
+                auto& leading_aces = leading_reader.descendants.front().object.dacl_aces;
+                std::rotate(leading_aces.begin(), leading_aces.end() - 1,
+                    leading_aces.end());
+                check(rejected(leading_reader),
+                    "consumer ACE before SYSTEM was accepted");
                 auto changed = mixed;
                 changed.descendants.front().object.dacl_aces.back().access_mask |= FILE_WRITE_DATA;
                 check(rejected(changed),"consumer mutation ACE was accepted");

@@ -599,8 +599,9 @@ PublisherTreeObservation publisher_consumer_read_projection(
         if (object.dacl_aces.size() == 3) {
             const auto reader_position = std::find_if(object.dacl_aces.begin(),
                 object.dacl_aces.end(), [&](const auto& ace) { return ace.sid == consumer_sid; });
-            if (reader_position == object.dacl_aces.end()) {
-                throw std::runtime_error("visible payload consumer ACE is absent");
+            if (reader_position == object.dacl_aces.end() ||
+                reader_position == object.dacl_aces.begin()) {
+                throw std::runtime_error("visible payload consumer ACE is absent or precedes SYSTEM");
             }
             const auto& reader = *reader_position;
             if (reader.type != ACCESS_ALLOWED_ACE_TYPE || reader.flags != 0 ||
