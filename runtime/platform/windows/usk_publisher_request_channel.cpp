@@ -268,26 +268,34 @@ void admit_current_publisher_client_observer(const std::wstring& service_name,
     const auto security_status = GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, nullptr,
         &dacl, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&before.value));
+    std::string observed_owner = "unavailable";
+    if (security_status == ERROR_SUCCESS && owner &&
+        ConvertSidToStringSidW(owner, reinterpret_cast<LPWSTR*>(&owner_text.value))) {
+        const auto* p = static_cast<const wchar_t*>(owner_text.value);
+        observed_owner.clear();
+        for (; *p; ++p) {
+            if (*p > 0x7f) throw std::runtime_error("process owner SID is not ASCII");
+            observed_owner.push_back(static_cast<char>(*p));
+        }
+    }
+    const auto logon_owner_matches = std::count_if(service.token.process_groups.begin(),
+        service.token.process_groups.end(), [&](const ObservedTokenGroup& group) {
+            return group.sid == observed_owner &&
+                (group.attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID;
+        });
     if (security_status != ERROR_SUCCESS ||
         !owner || !dacl || !IsValidAcl(dacl) ||
         (!IsWellKnownSid(owner, WinLocalSystemSid) &&
          !IsWellKnownSid(owner, WinBuiltinAdministratorsSid) &&
-         !EqualSid(owner, service_owner.value))) {
-        std::string observed_owner = "unavailable";
-        if (owner && ConvertSidToStringSidW(owner, reinterpret_cast<LPWSTR*>(&owner_text.value))) {
-            const auto* p = static_cast<const wchar_t*>(owner_text.value);
-            observed_owner.clear();
-            for (; *p; ++p) {
-                if (*p > 0x7f) throw std::runtime_error("process owner SID is not ASCII");
-                observed_owner.push_back(static_cast<char>(*p));
-            }
-        }
+         !EqualSid(owner, service_owner.value) && logon_owner_matches != 1) ||
+        logon_owner_matches > 1) {
         throw std::runtime_error("current publisher process security unavailable; win32=" +
             std::to_string(security_status) + "; system_owner=" +
             std::to_string(owner && IsWellKnownSid(owner, WinLocalSystemSid)) +
             "; administrators_owner=" +
             std::to_string(owner && IsWellKnownSid(owner, WinBuiltinAdministratorsSid)) +
             "; service_owner=" + std::to_string(owner && EqualSid(owner, service_owner.value)) +
+            "; token_logon_owner_matches=" + std::to_string(logon_owner_matches) +
             "; observed_owner=" + observed_owner);
     }
     constexpr DWORD observer_access = SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
