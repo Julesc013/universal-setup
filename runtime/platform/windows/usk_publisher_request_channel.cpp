@@ -267,10 +267,13 @@ void admit_current_publisher_client_observer(const std::wstring& service_name,
         &dacl, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&before.value));
     if (security_status != ERROR_SUCCESS ||
         !owner || !dacl || !IsValidAcl(dacl) ||
-        !IsWellKnownSid(owner, WinLocalSystemSid))
+        (!IsWellKnownSid(owner, WinLocalSystemSid) &&
+         !IsWellKnownSid(owner, WinBuiltinAdministratorsSid)))
         throw std::runtime_error("current publisher process security unavailable; win32=" +
             std::to_string(security_status) + "; system_owner=" +
-            std::to_string(owner && IsWellKnownSid(owner, WinLocalSystemSid)));
+            std::to_string(owner && IsWellKnownSid(owner, WinLocalSystemSid)) +
+            "; administrators_owner=" +
+            std::to_string(owner && IsWellKnownSid(owner, WinBuiltinAdministratorsSid)));
     constexpr DWORD observer_access = SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
     auto ace_bytes = [](PACL acl) {
         std::vector<std::vector<unsigned char>> result;
