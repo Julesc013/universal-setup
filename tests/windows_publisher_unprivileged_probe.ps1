@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedUserSid,
     [Parameter(Mandatory = $true)][string]$ServiceSid,
     [Parameter(Mandatory = $true)][string]$OutputPath,
-    [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish'
+    [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish',
+    [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +23,7 @@ $receipt = [ordered]@{
     }).Count -ne 0
     volume_root = $root
     stage = $Stage
+    payload_relative_path = $PayloadRelativePath
     attempts = @()
     failure = $null
 }
@@ -60,9 +62,10 @@ try {
         throw 'unprivileged process or disposable volume identity mismatch'
     }
     $destination = $root + 'publication\destination'
+    $payloadPath = $PayloadRelativePath.Replace('/', '\')
     if ($Stage -eq 'Prepublish') {
         $candidate = $root + 'publication\staging\candidate'
-        $file = $candidate + '\payload.bin'
+        $file = $candidate + '\' + $payloadPath
         Require-Denied 'staged_read' {
             $handle = [IO.File]::Open($file, [IO.FileMode]::Open,
                 [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor
@@ -82,7 +85,7 @@ try {
             [IO.Directory]::CreateDirectory($destination + '\visible') | Out-Null
         }
     } else {
-        $file = $destination + '\visible\payload.bin'
+        $file = $destination + '\visible\' + $payloadPath
         Require-Denied 'visible_read' {
             $handle = [IO.File]::Open($file, [IO.FileMode]::Open,
                 [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor

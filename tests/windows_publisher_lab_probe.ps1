@@ -10,10 +10,16 @@ param(
     [switch]$InterruptDuringConsumerAccess,
     [switch]$InterruptAfterVisibleRecord,
     [switch]$InterruptAfterRename,
-    [switch]$InterruptBeforePublish
+    [switch]$InterruptBeforePublish,
+    [switch]$HostileRights
 )
 
 $ErrorActionPreference = 'Stop'
+if ($HostileRights -and (-not $MachineBinary -or -not $ClientBinary -or
+    $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
+    $InterruptAfterRename -or $InterruptBeforePublish)) {
+    throw 'Selected hostile-rights probe requires an uninterrupted reviewed client operation'
+}
 
 # This script is deliberately limited to a fresh GitHub-hosted Windows VM.
 # In particular, no local workstation disk may pass the admission check.
@@ -135,7 +141,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -HostileRights:$HostileRights
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `

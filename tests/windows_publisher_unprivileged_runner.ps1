@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$VolumeRoot,
     [Parameter(Mandatory = $true)][string]$ServiceSid,
     [Parameter(Mandatory = $true)][string]$OutputPath,
-    [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish'
+    [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish',
+    [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,6 +42,7 @@ $receipt = [ordered]@{
     account_name = $accountName
     account_sid = $null
     stage = $Stage
+    payload_relative_path = $PayloadRelativePath
     volume_root = $VolumeRoot
     vhd_disk_number = $disk[0].Number
     process_exit_code = $null
@@ -84,7 +86,8 @@ try {
         $script + '" -VolumeRoot "' + $VolumeRoot.TrimEnd('\') +
         '" -ExpectedUserSid "' + $receipt.account_sid +
         '" -ServiceSid "' + $ServiceSid +
-        '" -OutputPath "' + $childOutput + '" -Stage ' + $Stage
+        '" -OutputPath "' + $childOutput + '" -Stage ' + $Stage +
+        ' -PayloadRelativePath ' + $PayloadRelativePath
     $process = Start-Process -FilePath (Get-Command pwsh).Source `
         -ArgumentList $arguments -Credential $credential -PassThru `
         -WindowStyle Hidden -WorkingDirectory $attackFolder -ErrorAction Stop
@@ -111,6 +114,7 @@ try {
         $observation.administrator -or $observation.service_sid_present -or
         $observation.volume_root -ne $VolumeRoot -or
         $observation.stage -ne $Stage -or
+        $observation.payload_relative_path -cne $PayloadRelativePath -or
         $observation.process_id -ne $process.Id -or
         @($observation.attempts).Count -ne 4 -or
         @($observation.attempts | Where-Object {
