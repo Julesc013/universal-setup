@@ -362,6 +362,7 @@ try {
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $before=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt['partial_before_replay_independent']=$before.independent
         Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid -ConsumerSid $consumerSid -VisibleRoot ($drive+'publication\destination\visible') -AllowPartial
         $granted=@($before.independent.rows|Where-Object {@($_.aces|Where-Object sid -eq $consumerSid).Count -eq 1})
         if($granted.Count -ne 1){throw 'First-grant interruption did not leave exactly one readable payload object'}

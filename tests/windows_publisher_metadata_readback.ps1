@@ -10,7 +10,8 @@ function Assert-IndependentProtectedRows {
         if($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne $required -or
             $row.aces[0].sid -cne 'S-1-5-18' -or $row.aces[1].sid -cne $ServiceSid -or
             @($row.aces|Where-Object {$_.type -ne 'Allow' -or $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0}).Count) {
-            throw ('Independent owner/DACL differs: '+$row.path)
+            throw ('Independent owner/DACL differs: '+$row.path+' owner='+$row.owner+
+                ' protected='+$row.protected+' ACEs='+($row.aces|ConvertTo-Json -Compress -Depth 4))
         }
         if($row.aces[0].rights -ne 2032127 -or $row.aces[1].rights -ne 2032127 -or
             ($required -eq 3 -and ($row.aces[2].sid -cne $ConsumerSid -or $row.aces[2].rights -ne 1179817))) {
