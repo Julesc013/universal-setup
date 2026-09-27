@@ -1240,3 +1240,39 @@ window after forced VM turn-off, plus an idempotent repeat. It does not prove
 the prepared-only window with this command, physical-host power-loss
 durability, general sources, hostile concurrent rights, per-install lease
 fencing, OD-001 closure or ordinary production publisher qualification.
+
+## Authenticated candidate client transport
+
+The candidate now accepts the existing `install_local.apply` request through
+a local, one-request named pipe. The worker configuration admits an exact
+caller SID and independently pins the reviewed envelope/source identities.
+The pipe rejects remote clients, requires an exclusive first instance, and
+grants the caller individual data/attribute rights without pipe-instance
+creation, ACL modification or ownership rights. After reading a bounded
+message, the worker identifies the client token and reverts before entering
+the publisher. The client binds the held pipe to the live own-process
+restricted SCM service and retains a process handle against PID reuse.
+Request and response limits are 1 MiB and 4 MiB; overlapped I/O has a deadline
+and server stop cancellation. A transport timeout is not proof that an
+operation failed: reconnect with the same reviewed request.
+
+The submitted request must match the independently reviewed apply request
+before fresh effects, and must match the protected v3 snapshot before replay.
+A client cannot select new source/target roots, mint publisher authority, or
+change the caller transaction merely by connecting. Local native transport
+tests exercise request/reply, identity reversion, access refusal, impostor
+service refusal, exclusivity, cancellation, timeout and oversized messages.
+The disposable Windows runner harness additionally exercises client-driven
+apply, source-free reconnect/retry and changed-transaction refusal with
+independent readback. Harness definition is not execution evidence.
+
+This remains the private candidate backend: its service/volume/lab admission
+is retained, replies preserve the actual apply versus recovery observation,
+and public production availability remains false. Consumer read/execute
+grants, practical ordinary-location deployment, per-install fencing and
+full hostile-rights/crash qualification are still outstanding. No additional
+file ACL grant or user-volume provisioning is introduced by the transport.
+
+Transport API references: [Microsoft named-pipe access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights),
+[client identification](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient),
+and [server process identity](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeserverprocessid).

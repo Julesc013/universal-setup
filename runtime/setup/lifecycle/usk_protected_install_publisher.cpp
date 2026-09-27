@@ -67,6 +67,7 @@ thread_local std::wstring selected_archive_path;
 thread_local std::string selected_archive_sha256;
 thread_local std::wstring reviewed_plan_envelope_path;
 thread_local std::string reviewed_plan_envelope_sha256;
+thread_local std::optional<std::string> submitted_apply_request;
 struct ReviewedPlanBinding {
     std::string plan_digest;
     std::string envelope_sha256;
@@ -1942,6 +1943,9 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
     selected_payload.validate_source();
     const std::string apply_request = apply_envelope ?
         usk::json::canonical(envelope.at("apply_request")) : std::string{};
+    if (submitted_apply_request && *submitted_apply_request != apply_request) {
+        throw StaleReviewedInstallRequest();
+    }
     if (apply_envelope && (envelope.at("apply_request").at("schema").as_string() !=
             "usk.install_local_apply_request.v1" ||
         usk::json::canonical(envelope.at("apply_request").at("plan_request")) != canonical_request ||
@@ -2386,15 +2390,23 @@ struct ScopedExecution {
         selected_archive_sha256=config.selected_archive_sha256;
         reviewed_plan_envelope_path=config.reviewed_plan_envelope_path;
         reviewed_plan_envelope_sha256=config.reviewed_plan_envelope_sha256;
+        submitted_apply_request=config.submitted_apply_request ?
+            std::optional<std::string>{usk::json::canonical(usk::json::parse(*config.submitted_apply_request))} :
+            std::nullopt;
         stop_event=config.stop_event;
         reviewed_install_reentry=false;
         execution_active=true;
     }
-    ~ScopedExecution() { execution_active=false; }
+    ~ScopedExecution() { submitted_apply_request.reset(); execution_active=false; }
 };
 } // namespace
 
 void usk::lifecycle::require_candidate_snapshot_apply_binding(const usk::json::Value& snapshot) {
+    if (submitted_apply_request &&
+        (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" ||
+         usk::json::canonical(snapshot.at("apply_request")) != *submitted_apply_request)) {
+        throw StaleReviewedInstallRequest();
+    }
     if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") return;
     const auto& apply=snapshot.at("apply_request");
     if (snapshot.as_object().size() != 16 || apply.as_object().size() != 7 ||

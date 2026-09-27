@@ -16,6 +16,7 @@
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
+#include "usk_publisher_request_channel.h"
 
 #if defined(_WIN32)
 #if !defined(NOMINMAX)
@@ -56,6 +57,7 @@ std::wstring selected_archive_path;
 std::string selected_archive_sha256;
 std::wstring reviewed_plan_envelope_path;
 std::string reviewed_plan_envelope_sha256;
+std::wstring authorized_client_sid;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
@@ -234,6 +236,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
     status_handle = RegisterServiceCtrlHandlerExW(service_name.c_str(), control_handler, nullptr);
     if (!status_handle) return;
     bool publication_effects_may_exist = false;
+    std::unique_ptr<usk::platform::windows::PublisherRequestChannel> request_channel;
     try {
         report_status(SERVICE_START_PENDING);
         stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -257,6 +260,13 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         config.reviewed_plan_envelope_path=reviewed_plan_envelope_path;
         config.reviewed_plan_envelope_sha256=reviewed_plan_envelope_sha256;
         config.stop_event=stop_event;
+        if (!authorized_client_sid.empty()) {
+            const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
+            request_channel=std::make_unique<usk::platform::windows::PublisherRequestChannel>(
+                service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
+                authorized_client_sid, stop_event, 120000);
+            config.submitted_apply_request=request_channel->receive();
+        }
         config.prepare_disposable_boundary=[](HANDLE volume,const std::string& sid) {
             const auto descriptor=usk::platform::windows::make_publisher_directory_security_descriptor(
                 std::wstring(sid.begin(),sid.end()));
@@ -273,18 +283,21 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         };
         const auto data=usk::platform::windows::execute_candidate_restricted_publisher(config,publication_effects_may_exist);
         write_receipt(data);
+        if (request_channel) request_channel->reply(data);
         WaitForSingleObject(stop_event, 120000);
     } catch (const std::exception& error) {
         service_exit_code = ERROR_SERVICE_SPECIFIC_ERROR;
-        try {
-            write_receipt("{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+        const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
                 json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
                     "failed" : recover_visible_bound || reviewed_install_reentry ||
                     publication_effects_may_exist ?
                     "recovery_required" : "failed") +
-                ",\"error\":" + json_quote(error.what()) + "}\n");
-        } catch (...) {}
+                ",\"error\":" + json_quote(error.what()) + "}\n";
+        try { write_receipt(failure); } catch (...) {}
+        // An authenticated peer receives the actual refusal/retained-effects
+        // result when delivery is possible; loss of transport stays unknown.
+        if (request_channel) { try { request_channel->reply(failure); } catch (...) {} }
     }
     if (stop_event) CloseHandle(stop_event);
     report_status(SERVICE_STOPPED, 0, service_exit_code);
@@ -292,6 +305,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+    const bool external_client = argc >= 3 && std::wstring(argv[argc-2]) == L"--authorized-client-sid";
+    if (external_client) { authorized_client_sid=argv[argc-1]; argc-=2; }
     if (argc < 5 || std::wstring(argv[1]) != L"--service") return 2;
     const std::wstring name(argv[2]);
     const bool hosted = (argc == 5 || argc == 6) &&
@@ -368,6 +383,7 @@ int wmain(int argc, wchar_t** argv) {
         !campaign_vm_sealed_journal &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
         !campaign_vm_selected && !campaign_vm_selected_plan) return 2;
+    if (external_client && !campaign_vm_selected_plan) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
