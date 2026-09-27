@@ -3,6 +3,9 @@
 #include "usk_publisher_request_channel.h"
 #if defined(_WIN32)
 #include <sddl.h>
+#include <aclapi.h>
+#include "usk_publisher_token_observation.h"
+#include "usk_publisher_security_descriptor.h"
 #include <algorithm>
 #include <exception>
 #include <stdexcept>
@@ -240,6 +243,122 @@ std::string submit_publisher_request(const std::wstring& service_name,
     } catch(const std::exception& error) {
         throw PublisherRequestOutcomeUnknown(error.what());
     }
+}
+void admit_current_publisher_client_observer(const std::wstring& service_name,
+    const std::wstring& consumer_sid) {
+    // Refuse before any security effect unless SCM and our current restricted
+    // token independently identify the actual own-process SYSTEM service.
+    const auto service = observe_current_restricted_publisher_service(service_name);
+    std::string sid_ascii;
+    for (const auto ch : consumer_sid) {
+        if (ch > 0x7f) throw std::runtime_error("consumer SID is not ASCII");
+        sid_ascii.push_back(static_cast<char>(ch));
+    }
+    require_publisher_consumer_sid(sid_ascii);
+    const auto canonical = canonical_sid(consumer_sid);
+    if (canonical != consumer_sid) throw std::runtime_error("noncanonical consumer SID");
+    LocalBuffer reader, before, after, updated, service_owner, owner_text;
+    if (!ConvertStringSidToSidW(consumer_sid.c_str(), &reader.value))
+        throw std::runtime_error("consumer SID unavailable");
+    const std::wstring service_sid(service.service_sid.begin(), service.service_sid.end());
+    if (!ConvertStringSidToSidW(service_sid.c_str(), &service_owner.value))
+        throw std::runtime_error("observed service owner SID unavailable");
+    PSID owner = nullptr;
+    PACL dacl = nullptr;
+    const auto security_status = GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, nullptr,
+        &dacl, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&before.value));
+    std::string observed_owner = "unavailable";
+    if (security_status == ERROR_SUCCESS && owner &&
+        ConvertSidToStringSidW(owner, reinterpret_cast<LPWSTR*>(&owner_text.value))) {
+        const auto* p = static_cast<const wchar_t*>(owner_text.value);
+        observed_owner.clear();
+        for (; *p; ++p) {
+            if (*p > 0x7f) throw std::runtime_error("process owner SID is not ASCII");
+            observed_owner.push_back(static_cast<char>(*p));
+        }
+    }
+    const auto logon_owner_matches = std::count_if(service.token.process_groups.begin(),
+        service.token.process_groups.end(), [&](const ObservedTokenGroup& group) {
+            return group.sid == observed_owner &&
+                (group.attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID;
+        });
+    if (security_status != ERROR_SUCCESS ||
+        !owner || !dacl || !IsValidAcl(dacl) ||
+        (!IsWellKnownSid(owner, WinLocalSystemSid) &&
+         !IsWellKnownSid(owner, WinBuiltinAdministratorsSid) &&
+         !EqualSid(owner, service_owner.value) && logon_owner_matches != 1) ||
+        logon_owner_matches > 1) {
+        throw std::runtime_error("current publisher process security unavailable; win32=" +
+            std::to_string(security_status) + "; system_owner=" +
+            std::to_string(owner && IsWellKnownSid(owner, WinLocalSystemSid)) +
+            "; administrators_owner=" +
+            std::to_string(owner && IsWellKnownSid(owner, WinBuiltinAdministratorsSid)) +
+            "; service_owner=" + std::to_string(owner && EqualSid(owner, service_owner.value)) +
+            "; token_logon_owner_matches=" + std::to_string(logon_owner_matches) +
+            "; observed_owner=" + observed_owner);
+    }
+    constexpr DWORD observer_access = SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+    auto ace_bytes = [](PACL acl) {
+        std::vector<std::vector<unsigned char>> result;
+        for (DWORD i = 0; i < acl->AceCount; ++i) {
+            void* raw = nullptr;
+            if (!GetAce(acl, i, &raw)) throw std::runtime_error("process ACE unavailable");
+            auto* header = static_cast<ACE_HEADER*>(raw);
+            const auto* bytes = static_cast<const unsigned char*>(raw);
+            result.emplace_back(bytes, bytes + header->AceSize);
+        }
+        return result;
+    };
+    auto expected = ace_bytes(dacl);
+    for (const auto& bytes : expected) {
+        const auto* header = reinterpret_cast<const ACE_HEADER*>(bytes.data());
+        if (header->AceType == ACCESS_ALLOWED_ACE_TYPE || header->AceType == ACCESS_DENIED_ACE_TYPE) {
+            const auto* ace = reinterpret_cast<const ACCESS_ALLOWED_ACE*>(bytes.data());
+            if (EqualSid(const_cast<DWORD*>(&ace->SidStart), reader.value))
+                throw std::runtime_error("consumer process ACE already present");
+        }
+    }
+    EXPLICIT_ACCESSW access{};
+    access.grfAccessPermissions = observer_access;
+    access.grfAccessMode = GRANT_ACCESS;
+    access.grfInheritance = NO_INHERITANCE;
+    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    access.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    access.Trustee.ptstrName = static_cast<LPWSTR>(reader.value);
+    if (SetEntriesInAclW(1, &access, dacl, reinterpret_cast<PACL*>(&updated.value)) != ERROR_SUCCESS)
+        throw std::runtime_error("consumer process descriptor unavailable");
+    auto desired = ace_bytes(static_cast<PACL>(updated.value));
+    auto preserved = desired;
+    unsigned readers = 0;
+    for (auto it = preserved.begin(); it != preserved.end();) {
+        const auto* header = reinterpret_cast<const ACE_HEADER*>(it->data());
+        const auto* ace = reinterpret_cast<const ACCESS_ALLOWED_ACE*>(it->data());
+        if (header->AceType == ACCESS_ALLOWED_ACE_TYPE &&
+            EqualSid(const_cast<DWORD*>(&ace->SidStart), reader.value)) {
+            if (header->AceFlags || ace->Mask != observer_access)
+                throw std::runtime_error("consumer process rights exceed identity observation");
+            ++readers; it = preserved.erase(it);
+        } else ++it;
+    }
+    std::sort(expected.begin(), expected.end());
+    std::sort(preserved.begin(), preserved.end());
+    if (readers != 1 || preserved != expected)
+        throw std::runtime_error("consumer process descriptor changes existing access");
+    if (SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, static_cast<PACL>(updated.value), nullptr) != ERROR_SUCCESS)
+        throw std::runtime_error("consumer process observation admission failed");
+    PSID actual_owner = nullptr;
+    PACL actual = nullptr;
+    if (GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &actual_owner, nullptr,
+        &actual, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&after.value)) != ERROR_SUCCESS ||
+        !actual_owner || !EqualSid(owner, actual_owner) || !actual || !IsValidAcl(actual))
+        throw std::runtime_error("consumer process admission readback unavailable");
+    auto observed = ace_bytes(actual);
+    std::sort(desired.begin(), desired.end());
+    std::sort(observed.begin(), observed.end());
+    if (desired != observed) throw std::runtime_error("consumer process admission readback differs");
 }
 }
 #endif

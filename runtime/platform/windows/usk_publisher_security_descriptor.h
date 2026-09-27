@@ -16,6 +16,10 @@
 namespace usk::platform::windows {
 
 DWORD publisher_directory_access_mask();
+DWORD publisher_consumer_read_access_mask();
+// Canonical account-form SID; rejects privileged built-ins and service SIDs.
+// Actual account identity/group membership require independent TokenUser proof.
+void require_publisher_consumer_sid(const std::string& sid);
 
 // Builds a self-relative owner SYSTEM, protected-DACL descriptor with exactly
 // SYSTEM and the supplied Windows service SID as allow ACEs. The caller must
@@ -24,6 +28,12 @@ DWORD publisher_directory_access_mask();
 // grants no authority and does not enable strict publication.
 std::vector<unsigned char> make_publisher_directory_security_descriptor(
     const std::wstring& service_sid);
+
+// Only the visible payload may receive this explicit, non-inherited read/execute
+// ACE. Private anchors retain the descriptor above. Caller must bind the reader
+// durably and revalidate the published closure before applying the descriptor.
+std::vector<unsigned char> make_publisher_consumer_security_descriptor(
+    const std::wstring& service_sid, const std::string& consumer_sid);
 
 } // namespace usk::platform::windows
 #endif

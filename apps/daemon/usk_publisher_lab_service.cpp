@@ -58,6 +58,8 @@ std::string selected_archive_sha256;
 std::wstring reviewed_plan_envelope_path;
 std::string reviewed_plan_envelope_sha256;
 std::wstring authorized_client_sid;
+bool grant_client_read = false;
+bool interrupt_consumer_grant = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
 DWORD service_exit_code = ERROR_SUCCESS;
@@ -262,10 +264,14 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         config.stop_event=stop_event;
         if (!authorized_client_sid.empty()) {
             const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
+            if (grant_client_read)
+                usk::platform::windows::admit_current_publisher_client_observer(service_name, authorized_client_sid);
             request_channel=std::make_unique<usk::platform::windows::PublisherRequestChannel>(
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
                 authorized_client_sid, stop_event, 120000);
             config.submitted_apply_request=request_channel->receive();
+            if (grant_client_read) config.consumer_read_sid=ascii(authorized_client_sid);
+            config.interrupt_consumer_grant=interrupt_consumer_grant;
         }
         config.prepare_disposable_boundary=[](HANDLE volume,const std::string& sid) {
             const auto descriptor=usk::platform::windows::make_publisher_directory_security_descriptor(
@@ -305,8 +311,13 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+    grant_client_read = argc > 1 && std::wstring(argv[argc-1]) == L"--grant-client-read";
+    if (grant_client_read) --argc;
     const bool external_client = argc >= 3 && std::wstring(argv[argc-2]) == L"--authorized-client-sid";
     if (external_client) { authorized_client_sid=argv[argc-1]; argc-=2; }
+    interrupt_consumer_grant = argc > 1 && std::wstring(argv[argc-1]) == L"--interrupt-consumer-grant";
+    if (interrupt_consumer_grant) --argc;
+    if ((grant_client_read && !external_client) || (interrupt_consumer_grant && !grant_client_read)) return 2;
     if (argc < 5 || std::wstring(argv[1]) != L"--service") return 2;
     const std::wstring name(argv[2]);
     const bool hosted = (argc == 5 || argc == 6) &&

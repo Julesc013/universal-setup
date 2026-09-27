@@ -589,6 +589,37 @@ void require_publisher_object_security_shape(
     require_protected_object_shape(object, service_sid);
 }
 
+PublisherTreeObservation publisher_consumer_read_projection(
+    const PublisherTreeObservation& tree, const std::string& service_sid,
+    const std::string& consumer_sid, bool require_every_grant) {
+    require_canonical_service_sid(service_sid);
+    require_publisher_consumer_sid(consumer_sid);
+    auto result = tree;
+    const auto project = [&](PublisherHandleObservation& object) {
+        if (object.dacl_aces.size() == 3) {
+            const auto reader_position = std::find_if(object.dacl_aces.begin(),
+                object.dacl_aces.end(), [&](const auto& ace) { return ace.sid == consumer_sid; });
+            if (reader_position == object.dacl_aces.end() ||
+                reader_position == object.dacl_aces.begin()) {
+                throw std::runtime_error("visible payload consumer ACE is absent or precedes SYSTEM");
+            }
+            const auto& reader = *reader_position;
+            if (reader.type != ACCESS_ALLOWED_ACE_TYPE || reader.flags != 0 ||
+                reader.access_mask != publisher_consumer_read_access_mask() ||
+                reader.sid != consumer_sid) {
+                throw std::runtime_error("visible payload consumer ACE differs from durable policy");
+            }
+            object.dacl_aces.erase(reader_position);
+        } else if (require_every_grant) {
+            throw std::runtime_error("visible payload consumer access is incomplete");
+        }
+        require_protected_object_shape(object, service_sid);
+    };
+    project(result.root);
+    for (auto& entry : result.descendants) project(entry.object);
+    return result;
+}
+
 PublisherTreeObservation observe_visible_publisher_tree_against_seal(
     HANDLE destination_parent, const std::wstring& destination_component,
     const PublisherTreeObservation& sealed) {

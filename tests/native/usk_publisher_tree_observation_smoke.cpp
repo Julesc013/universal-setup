@@ -418,6 +418,55 @@ int main() {
                 set_profile_facts(entry.object);
             }
             require_publisher_tree_security_shape(synthetic, service_sid);
+            {
+                using namespace usk::platform::windows;
+                const std::string consumer = "S-1-5-21-1-2-3-1001";
+                auto mixed = synthetic;
+                mixed.descendants.front().object.dacl_aces.push_back(
+                    {ACCESS_ALLOWED_ACE_TYPE, 0, publisher_consumer_read_access_mask(), consumer});
+                require_publisher_tree_phase_match(synthetic,
+                    publisher_consumer_read_projection(mixed, service_sid, consumer));
+                auto reordered = mixed;
+                std::swap(reordered.descendants.front().object.dacl_aces[1],
+                    reordered.descendants.front().object.dacl_aces[2]);
+                require_publisher_tree_phase_match(synthetic,
+                    publisher_consumer_read_projection(reordered, service_sid, consumer));
+                bool incomplete = false;
+                try { (void)publisher_consumer_read_projection(mixed,service_sid,consumer,true); }
+                catch (const std::exception&) { incomplete = true; }
+                check(incomplete,"partial consumer grant passed complete verification");
+                const auto rejected = [&](const auto& value) {
+                    try { (void)publisher_consumer_read_projection(value,service_sid,consumer); }
+                    catch (const std::exception&) { return true; }
+                    return false;
+                };
+                auto leading_reader = mixed;
+                auto& leading_aces = leading_reader.descendants.front().object.dacl_aces;
+                std::rotate(leading_aces.begin(), leading_aces.end() - 1,
+                    leading_aces.end());
+                check(rejected(leading_reader),
+                    "consumer ACE before SYSTEM was accepted");
+                auto changed = mixed;
+                changed.descendants.front().object.dacl_aces.back().access_mask |= FILE_WRITE_DATA;
+                check(rejected(changed),"consumer mutation ACE was accepted");
+                changed = mixed;
+                changed.descendants.front().object.dacl_aces.back().flags = INHERITED_ACE;
+                check(rejected(changed),"inherited consumer ACE was accepted");
+                changed = mixed;
+                changed.descendants.front().object.dacl_aces.back().sid = "S-1-5-21-1-2-3-1002";
+                check(rejected(changed),"unbound consumer SID was accepted");
+                changed = mixed;
+                changed.descendants.front().object.dacl_aces.push_back(changed.descendants.front().object.dacl_aces.back());
+                check(rejected(changed),"extra consumer ACE was accepted");
+                mixed.root.dacl_aces.push_back({ACCESS_ALLOWED_ACE_TYPE,0,publisher_consumer_read_access_mask(),consumer});
+                for (auto& entry : mixed.descendants) {
+                    if (entry.object.dacl_aces.size() == 2) entry.object.dacl_aces.push_back(
+                        {ACCESS_ALLOWED_ACE_TYPE,0,publisher_consumer_read_access_mask(),consumer});
+                }
+                require_publisher_tree_phase_match(synthetic,
+                    publisher_consumer_read_projection(mixed,service_sid,consumer,true));
+                check_security_refused(mixed,service_sid,"consumer profile escaped into strict private-tree validation");
+            }
             synthetic.descendants.back().object.dacl_aces.back().sid = "S-1-1-0";
             check_security_refused(synthetic, service_sid,
                 "wrong descendant ACE SID was accepted");

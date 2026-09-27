@@ -2,24 +2,35 @@
 # SPDX-License-Identifier: MIT
 
 function Assert-IndependentProtectedRows {
-    param($Rows,[string]$ServiceSid)
-    foreach ($row in $Rows) {
-        if ($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne 2 -or
-            @($row.aces|Where-Object sid -eq 'S-1-5-18').Count -ne 1 -or
-            @($row.aces|Where-Object sid -eq $ServiceSid).Count -ne 1 -or
-            @($row.aces|Where-Object { $_.rights -ne 2032127 -or $_.type -ne 'Allow' -or
-                $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0 }).Count -ne 0) {
-            throw ('Independent owner/DACL differs: ' + $row.path)
+    param($Rows,[string]$ServiceSid,[string]$ConsumerSid='',[string]$VisibleRoot='',[switch]$AllowPartial)
+    foreach($row in $Rows) {
+        $visible=$ConsumerSid -and ($row.path -ceq $VisibleRoot -or $row.path.StartsWith($VisibleRoot+'\',[StringComparison]::Ordinal))
+        $readers=@($row.aces|Where-Object sid -eq $ConsumerSid)
+        $required=if($visible -and (-not $AllowPartial -or $readers.Count)){3}else{2}
+        $system=@($row.aces|Where-Object sid -eq 'S-1-5-18')
+        $service=@($row.aces|Where-Object sid -eq $ServiceSid)
+        if($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne $required -or
+            $row.aces[0].sid -cne 'S-1-5-18' -or $system.Count -ne 1 -or $service.Count -ne 1 -or
+            $readers.Count -ne ($required - 2) -or
+            @($row.aces|Where-Object {$_.type -ne 'Allow' -or $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0}).Count) {
+            throw ('Independent owner/DACL differs: '+$row.path+' owner='+$row.owner+
+                ' protected='+$row.protected+' ACEs='+($row.aces|ConvertTo-Json -Compress -Depth 4))
+        }
+        if($system[0].rights -ne 2032127 -or $service[0].rights -ne 2032127 -or
+            ($required -eq 3 -and $readers[0].rights -ne 1179817)) {
+            throw ('Independent authority/consumer rights differ: '+$row.path)
         }
     }
 }
 function Assert-IndependentMetadataProbe {
-    param($Result)
+    param($Result,[switch]$AllowPartialConsumerGrant)
     $drive=$Result.volume_drive_root
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
-    if ($Result.native.status -ne 'pass' -or -not $Result.observer_task_removed -or
+    $expectedStatus=if($AllowPartialConsumerGrant){'recovery_required'}else{'pass'}
+    if($AllowPartialConsumerGrant -and (-not $Result.consumer_sid -or $Result.native.error -notmatch 'injected interruption after first consumer grant')){throw 'Partial-grant witness is not the admitted injected failure'}
+    if ($Result.native.status -ne $expectedStatus -or -not $Result.observer_task_removed -or
         $Result.independent.identity -ne 'S-1-5-18') { throw 'Service, observer identity or confirmed task cleanup differs' }
-    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid
+    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid -ConsumerSid ([string]$Result.consumer_sid) -VisibleRoot ($drive+'publication\destination\visible') -AllowPartial:$AllowPartialConsumerGrant
     function Get-ExactRecord([string]$Path) {
         $found=@($Result.independent.rows|Where-Object { $_.path -ceq $Path -and -not $_.directory })
         if ($found.Count -ne 1 -or -not $found[0].content_json) { throw ('Missing independent record: ' + $Path) }
@@ -32,6 +43,10 @@ function Assert-IndependentMetadataProbe {
         $completion.source_binding.reviewed_plan_digest -ne $snapshot.plan_digest) { throw 'Independent reviewed source binding differs' }
     if ($Result.apply_request -and ($snapshot.transaction_id -ne $Result.apply_request.transaction_id -or
         $snapshot.applied_at -ne $Result.apply_request.applied_at)) { throw 'Independent caller operation binding differs' }
+    if($Result.consumer_sid -and ($snapshot.schema -cne 'usk.publisher.lab_reviewed_plan_snapshot.v4' -or
+        $snapshot.consumer_read_sid -cne $Result.consumer_sid -or
+        (-not $AllowPartialConsumerGrant -and ($Result.native.consumer_access.consumer_sid -cne $Result.consumer_sid -or
+        $Result.native.consumer_access.status -cne 'read_execute_granted')))){throw 'Independent durable consumer policy differs'}
     $transaction=$snapshot.transaction_id
     $installId=$Result.request.install_id
     $installedPath=($drive + 'setup-state\state\installed\') + $installId + '.' + $transaction + '.json'

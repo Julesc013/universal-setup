@@ -175,7 +175,8 @@ std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
 
 HANDLE open_publisher_listed_child(HANDLE parent,
     const PublisherDirectoryEntry& listed,
-    bool require_add_subdirectory, bool require_delete, bool require_add_file) {
+    bool require_add_subdirectory, bool require_delete, bool require_add_file,
+    bool require_write_dac) {
     if (!parent || parent == INVALID_HANDLE_VALUE ||
         !valid_component(listed.name)) {
         throw std::runtime_error("publisher relative child open has invalid inputs");
@@ -202,6 +203,7 @@ HANDLE open_publisher_listed_child(HANDLE parent,
         throw std::runtime_error("publisher mutable child must be a directory");
     }
     const ACCESS_MASK access = FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE |
+        (require_write_dac ? WRITE_DAC : 0) |
         (require_delete ? DELETE : 0) |
         (directory ? (FILE_LIST_DIRECTORY | FILE_TRAVERSE |
             (require_add_subdirectory ? FILE_ADD_SUBDIRECTORY : 0) |

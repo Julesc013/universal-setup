@@ -1,4 +1,4 @@
-# Windows NTFS publication profile — candidate only
+# Windows NTFS publication profile â€” candidate only
 
 `windows_nt_x64_local_ntfs_service_sid_noreplace_v1` is a proposed design, not a platform proof. Its production record remains `implementation: absent`, `availability: false`, `qualification: not_run`, and `support: unsupported`. Nothing here authorizes endpoint mutation or changes the runtime's current refusal behavior.
 
@@ -1276,3 +1276,52 @@ file ACL grant or user-volume provisioning is introduced by the transport.
 Transport API references: [Microsoft named-pipe access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights),
 [client identification](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient),
 and [server process identity](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeserverprocessid).
+
+## Candidate visible consumer access and partial-grant replay
+
+The private publisher now has an opt-in consumer policy in reviewed snapshot
+v4. It binds an account-form SID to the authenticated client before publication
+effects. v2/v3 retain their strict two-ACE profile and are not rewritten.
+
+Only after protected completion and the matching public installed state,
+ownership and completed two-event audit chain verify may the worker grant
+explicit read/execute to the visible payload. The owner remains SYSTEM and
+the protected DACL retains the original SYSTEM/service full-control ACEs.
+The additional ACE has no inheritance and exactly FILE_GENERIC_READ plus
+FILE_GENERIC_EXECUTE. It gives no write, deletion, ACL or ownership rights.
+Private volume/namespace anchors, staging, state and journals stay unchanged.
+
+Granting multiple objects is not atomic. An interruption may expose some
+verified payload bytes before the terminal result. Recovery first proves
+the same completed public metadata, then admits only exact original or
+exact policy-extended descriptors on visible payload objects. It removes
+only that validated ACE when comparing the original durable seal/completion;
+all IDs, paths, bytes, streams and remaining security facts stay checked.
+The original protected records remain immutable. Replay repairs incomplete
+grants and success requires a fresh complete granted-tree observation.
+
+This is candidate implementation, not a general production profile.
+The hosted probe is prepared to use an owned non-admin account, a real
+neutral executable, source-free replay after a first-grant injected failure,
+independent SYSTEM readback and mutation/private-access denials. Until actual
+receipts are inspected it is not non-admin runtime qualification. Injection
+and controlled cancellation are not power-loss proof. Lease/fencing and
+ordinary customer provisioning remain separate incomplete obligations.
+
+The consumer-mode service admits the configured account to its own process
+with only SYNCHRONIZE and PROCESS_QUERY_LIMITED_INFORMATION, after live SCM
+and restricted-token corroboration. This preserves the client's held-process
+identity check without granting termination, memory, handle-duplication or
+process-security mutation rights. Existing owner and ACE bytes are retained
+and the resulting descriptor is read back. No other process is modified.
+The process owner may be SYSTEM, built-in Administrators, the exact observed
+SCM service SID, or the unique logon-session SID marked in that service's
+current restricted SYSTEM token. The hosted Windows 20348 probe observed an
+`S-1-5-5-...` owner, not the SCM service SID. SCM and the live
+restricted SYSTEM token remain mandatory. Existing ownership is preserved.
+Administrators are already outside the candidate adversary claim. This does
+not change the strict SYSTEM owner required for protected filesystem objects.
+Hosted cancellation observes owned descendants by parent, start time,
+executable and command line, terminates the held tree and confirms recorded
+instances have exited. Unconfirmed cleanup retains the account and backing
+volume for disposable runner shutdown.
