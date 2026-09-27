@@ -103,7 +103,7 @@ try {
             env=environment, capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         observed = json.loads(result.stdout)
-        self.assertEqual((observed["positive"], observed["refused"]), (4, 23))
+        self.assertEqual((observed["positive"], observed["refused"]), (5, 23))
         self.assertIn("no VM/runtime qualification", observed["scope"])
 
 

@@ -104,6 +104,11 @@ Edit-Record $consumer 'E:\publication\journal\lab-reviewed-plan.json' {param($r)
 }
 $consumer.independent.rows[-1].aces+=@([pscustomobject]@{sid=$consumerSid;rights=1179817;type='Allow';inherited=$false;inheritance=0;propagation=0})
 Assert-IndependentMetadataProbe $consumer
+$reorderedConsumer=$consumer|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
+$reader=$reorderedConsumer.independent.rows[-1].aces[2]
+$reorderedConsumer.independent.rows[-1].aces[2]=$reorderedConsumer.independent.rows[-1].aces[1]
+$reorderedConsumer.independent.rows[-1].aces[1]=$reader
+Assert-IndependentMetadataProbe $reorderedConsumer
 $consumerBytes=$consumer|ConvertTo-Json -Depth 32 -Compress
 $consumerCases=[ordered]@{
     wrong_reader={param($r)$r.independent.rows[-1].aces[-1].sid='S-1-5-21-1-2-3-1002'}
@@ -127,4 +132,4 @@ Edit-Record $partial 'E:\setup-state\audit\chains\chain.synthetic\00000000000000
 $refused=$false
 try{Assert-IndependentMetadataProbe $partial -AllowPartialConsumerGrant}catch{$refused=$true}
 if(-not $refused){throw 'Partial consumer grant was accepted without completed audit'}
-[ordered]@{status='pass';positive=4;refused=($cases.Count+$consumerCases.Count+1);scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress
+[ordered]@{status='pass';positive=5;refused=($cases.Count+$consumerCases.Count+1);scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress

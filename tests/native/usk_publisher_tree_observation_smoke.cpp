@@ -426,6 +426,11 @@ int main() {
                     {ACCESS_ALLOWED_ACE_TYPE, 0, publisher_consumer_read_access_mask(), consumer});
                 require_publisher_tree_phase_match(synthetic,
                     publisher_consumer_read_projection(mixed, service_sid, consumer));
+                auto reordered = mixed;
+                std::swap(reordered.descendants.front().object.dacl_aces[1],
+                    reordered.descendants.front().object.dacl_aces[2]);
+                require_publisher_tree_phase_match(synthetic,
+                    publisher_consumer_read_projection(reordered, service_sid, consumer));
                 bool incomplete = false;
                 try { (void)publisher_consumer_read_projection(mixed,service_sid,consumer,true); }
                 catch (const std::exception&) { incomplete = true; }

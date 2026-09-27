@@ -597,13 +597,18 @@ PublisherTreeObservation publisher_consumer_read_projection(
     auto result = tree;
     const auto project = [&](PublisherHandleObservation& object) {
         if (object.dacl_aces.size() == 3) {
-            const auto& reader = object.dacl_aces.back();
+            const auto reader_position = std::find_if(object.dacl_aces.begin(),
+                object.dacl_aces.end(), [&](const auto& ace) { return ace.sid == consumer_sid; });
+            if (reader_position == object.dacl_aces.end()) {
+                throw std::runtime_error("visible payload consumer ACE is absent");
+            }
+            const auto& reader = *reader_position;
             if (reader.type != ACCESS_ALLOWED_ACE_TYPE || reader.flags != 0 ||
                 reader.access_mask != publisher_consumer_read_access_mask() ||
                 reader.sid != consumer_sid) {
                 throw std::runtime_error("visible payload consumer ACE differs from durable policy");
             }
-            object.dacl_aces.pop_back();
+            object.dacl_aces.erase(reader_position);
         } else if (require_every_grant) {
             throw std::runtime_error("visible payload consumer access is incomplete");
         }

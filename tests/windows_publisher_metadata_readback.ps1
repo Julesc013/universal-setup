@@ -7,14 +7,17 @@ function Assert-IndependentProtectedRows {
         $visible=$ConsumerSid -and ($row.path -ceq $VisibleRoot -or $row.path.StartsWith($VisibleRoot+'\',[StringComparison]::Ordinal))
         $readers=@($row.aces|Where-Object sid -eq $ConsumerSid)
         $required=if($visible -and (-not $AllowPartial -or $readers.Count)){3}else{2}
+        $system=@($row.aces|Where-Object sid -eq 'S-1-5-18')
+        $service=@($row.aces|Where-Object sid -eq $ServiceSid)
         if($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne $required -or
-            $row.aces[0].sid -cne 'S-1-5-18' -or $row.aces[1].sid -cne $ServiceSid -or
+            $row.aces[0].sid -cne 'S-1-5-18' -or $system.Count -ne 1 -or $service.Count -ne 1 -or
+            $readers.Count -ne ($required - 2) -or
             @($row.aces|Where-Object {$_.type -ne 'Allow' -or $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0}).Count) {
             throw ('Independent owner/DACL differs: '+$row.path+' owner='+$row.owner+
                 ' protected='+$row.protected+' ACEs='+($row.aces|ConvertTo-Json -Compress -Depth 4))
         }
-        if($row.aces[0].rights -ne 2032127 -or $row.aces[1].rights -ne 2032127 -or
-            ($required -eq 3 -and ($row.aces[2].sid -cne $ConsumerSid -or $row.aces[2].rights -ne 1179817))) {
+        if($system[0].rights -ne 2032127 -or $service[0].rights -ne 2032127 -or
+            ($required -eq 3 -and $readers[0].rights -ne 1179817)) {
             throw ('Independent authority/consumer rights differ: '+$row.path)
         }
     }
