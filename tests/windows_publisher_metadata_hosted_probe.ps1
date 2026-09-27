@@ -90,6 +90,18 @@ $consumerProcess=$null
 $clientCleanupConfirmed=$true
 $consumerOutput=Join-Path $root 'consumer-output'
 $consumerScript=Join-Path $root 'consumer-client.ps1'
+function Read-NativeReceipt([string]$Path) {
+    $deadline=[DateTime]::UtcNow.AddSeconds(30)
+    while($true) {
+        try { $raw=[IO.File]::ReadAllText($Path); break }
+        catch [IO.IOException] {
+            if([DateTime]::UtcNow -ge $deadline){throw}
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    if(-not $raw -or $raw.Length -gt 4MB){throw 'Native service receipt is empty or exceeds bound'}
+    return $raw|ConvertFrom-Json
+}
 function Start-RequestClient($submitted=$applyRequest) {
     $script:clientNumber++
     $prefix=Join-Path $(if($ConsumerAccess){$consumerOutput}else{$root}) ('client-'+$clientNumber)
@@ -325,7 +337,7 @@ try {
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
-        $interrupted=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
+        $interrupted=Read-NativeReceipt $nativePath
         $expectedInterruption=if($InterruptAfterStage){'poststage gate stopped before forced VM poweroff'}else{$gate+' gate interrupted'}
         if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch $expectedInterruption -or
             $interrupted.error -notmatch '"code":"recovery_required"') {
@@ -408,7 +420,7 @@ try {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $nativePath)){throw 'Partial consumer grant receipt absent'}
-        $partial=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
+        $partial=Read-NativeReceipt $nativePath
         $receipt['partial_grant_native']=$partial
         if($partial.status -ne 'recovery_required' -or $partial.error -notmatch 'first consumer grant'){
             throw ('Expected injected grant interruption absent; native status='+$partial.status+'; error='+$partial.error)
@@ -445,7 +457,7 @@ try {
     $deadline=[DateTime]::UtcNow.AddSeconds(90)
     while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
     if(-not (Test-Path -LiteralPath $nativePath)){throw 'Native service receipt absent'}
-    $receipt.native=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
+    $receipt.native=Read-NativeReceipt $nativePath
     if($requestClient) {
         $receipt['authenticated_client']=Complete-RequestClient $requestClient $true
         $requestClient=$null
@@ -513,7 +525,7 @@ try {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $repeatPath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $repeatPath)){throw 'Repeated recovery receipt absent'}
-        $repeat=Get-Content -LiteralPath $repeatPath -Raw|ConvertFrom-Json
+        $repeat=Read-NativeReceipt $repeatPath
         if($requestClient) {
             $nativePath=$repeatPath
             $receipt['authenticated_client_repeat']=Complete-RequestClient $requestClient $true
@@ -557,7 +569,7 @@ try {
         $nativePath=$stalePath
         $receipt['stale_authenticated_client']=Complete-RequestClient $requestClient $false $true
         $requestClient=$null
-        $stale=Get-Content -LiteralPath $stalePath -Raw|ConvertFrom-Json
+        $stale=Read-NativeReceipt $stalePath
         if($stale.status -ne 'failed' -or $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
             throw 'Stale authenticated request was not refused by durable binding'
         }
