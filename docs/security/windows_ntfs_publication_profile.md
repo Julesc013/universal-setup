@@ -1314,7 +1314,8 @@ and restricted-token corroboration. This preserves the client's held-process
 identity check without granting termination, memory, handle-duplication or
 process-security mutation rights. Existing owner and ACE bytes are retained
 and the resulting descriptor is read back. No other process is modified.
-The process owner may be SYSTEM or built-in Administrators; SCM and the live
+The process owner may be SYSTEM, built-in Administrators or the exact observed
+SCM service SID. SCM and the live
 restricted SYSTEM token remain mandatory. Existing ownership is preserved.
 Administrators are already outside the candidate adversary claim. This does
 not change the strict SYSTEM owner required for protected filesystem objects.

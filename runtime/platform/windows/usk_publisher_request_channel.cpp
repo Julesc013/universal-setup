@@ -248,7 +248,7 @@ void admit_current_publisher_client_observer(const std::wstring& service_name,
     const std::wstring& consumer_sid) {
     // Refuse before any security effect unless SCM and our current restricted
     // token independently identify the actual own-process SYSTEM service.
-    observe_current_restricted_publisher_service(service_name);
+    const auto service = observe_current_restricted_publisher_service(service_name);
     std::string sid_ascii;
     for (const auto ch : consumer_sid) {
         if (ch > 0x7f) throw std::runtime_error("consumer SID is not ASCII");
@@ -257,9 +257,12 @@ void admit_current_publisher_client_observer(const std::wstring& service_name,
     require_publisher_consumer_sid(sid_ascii);
     const auto canonical = canonical_sid(consumer_sid);
     if (canonical != consumer_sid) throw std::runtime_error("noncanonical consumer SID");
-    LocalBuffer reader, before, after, updated;
+    LocalBuffer reader, before, after, updated, service_owner, owner_text;
     if (!ConvertStringSidToSidW(consumer_sid.c_str(), &reader.value))
         throw std::runtime_error("consumer SID unavailable");
+    const std::wstring service_sid(service.service_sid.begin(), service.service_sid.end());
+    if (!ConvertStringSidToSidW(service_sid.c_str(), &service_owner.value))
+        throw std::runtime_error("observed service owner SID unavailable");
     PSID owner = nullptr;
     PACL dacl = nullptr;
     const auto security_status = GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
@@ -268,12 +271,25 @@ void admit_current_publisher_client_observer(const std::wstring& service_name,
     if (security_status != ERROR_SUCCESS ||
         !owner || !dacl || !IsValidAcl(dacl) ||
         (!IsWellKnownSid(owner, WinLocalSystemSid) &&
-         !IsWellKnownSid(owner, WinBuiltinAdministratorsSid)))
+         !IsWellKnownSid(owner, WinBuiltinAdministratorsSid) &&
+         !EqualSid(owner, service_owner.value))) {
+        std::string observed_owner = "unavailable";
+        if (owner && ConvertSidToStringSidW(owner, reinterpret_cast<LPWSTR*>(&owner_text.value))) {
+            const auto* p = static_cast<const wchar_t*>(owner_text.value);
+            observed_owner.clear();
+            for (; *p; ++p) {
+                if (*p > 0x7f) throw std::runtime_error("process owner SID is not ASCII");
+                observed_owner.push_back(static_cast<char>(*p));
+            }
+        }
         throw std::runtime_error("current publisher process security unavailable; win32=" +
             std::to_string(security_status) + "; system_owner=" +
             std::to_string(owner && IsWellKnownSid(owner, WinLocalSystemSid)) +
             "; administrators_owner=" +
-            std::to_string(owner && IsWellKnownSid(owner, WinBuiltinAdministratorsSid)));
+            std::to_string(owner && IsWellKnownSid(owner, WinBuiltinAdministratorsSid)) +
+            "; service_owner=" + std::to_string(owner && EqualSid(owner, service_owner.value)) +
+            "; observed_owner=" + observed_owner);
+    }
     constexpr DWORD observer_access = SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
     auto ace_bytes = [](PACL acl) {
         std::vector<std::vector<unsigned char>> result;
