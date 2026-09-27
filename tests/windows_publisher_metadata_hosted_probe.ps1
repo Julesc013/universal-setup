@@ -14,13 +14,15 @@ param(
     [switch]$InterruptDuringConsumerAccess,
     [switch]$InterruptAfterVisibleRecord,
     [switch]$InterruptAfterRename,
-    [switch]$InterruptBeforePublish
+    [switch]$InterruptBeforePublish,
+    [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
 if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish) -gt 1){throw 'Select one interruption window'}
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptDuringConsumerAccess
+if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
 $gate=if($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
 $readyContent=if($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
 $recoveryDecision=if($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
@@ -217,6 +219,7 @@ try {
     $selectedClientArguments=' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
         ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
     if($recover -and -not $InterruptDuringConsumerAccess){$command+=' --'+$gate+'-gate'}
+    if($HostileRights){$command+=' --prepublish-gate'}
     if($InterruptDuringConsumerAccess){$command+=' --interrupt-consumer-grant'}
     if($ClientBinary) {
         $callerSid=if($ConsumerAccess){$consumerSid}else{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
@@ -260,6 +263,48 @@ try {
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
     if($ClientBinary){$requestClient=Start-RequestClient}
+    if($HostileRights) {
+        $attackRelative=if($ConsumerAccess){'bin/core.exe'}else{'bin/core.bin'}
+        if(@($plan.planned_entries|Where-Object relative_path -ceq $attackRelative).Count -ne 1){
+            throw 'Selected hostile-rights payload is absent from the reviewed plan'
+        }
+        $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-prepublish-ready.txt'
+        $release=$nativePath.Substring(0,$nativePath.Length-5)+'-prepublish-release.txt'
+        $deadline=[DateTime]::UtcNow.AddSeconds(90)
+        while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $ready) -or
+            [IO.File]::ReadAllText($ready) -cne "usk.publisher.lab_prepared.v1`n" -or
+            (Test-Path -LiteralPath $release)) {throw 'Selected publisher did not pause at the protected prepublish phase'}
+        Assert-OwnedVolume
+        $pausedBefore=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        if($pausedBefore.independent.identity -ne 'S-1-5-18' -or -not $pausedBefore.observer_task_removed){throw 'Prepublish independent observation unavailable'}
+        Assert-IndependentProtectedRows -Rows $pausedBefore.independent.rows -ServiceSid $sid
+        $stagedPath=$drive+'publication\staging\candidate\'+$attackRelative.Replace('/','\')
+        if(@($pausedBefore.independent.rows|Where-Object path -ceq $stagedPath).Count -ne 1){
+            throw 'Selected staged payload was absent before the hostile-rights probe'
+        }
+        $receipt['prepublish_before_attack']=$pausedBefore.independent
+        $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-prepublish.json'
+        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Prepublish -PayloadRelativePath $attackRelative
+        $attack=Get-Content -LiteralPath $attackOutput -Raw|ConvertFrom-Json
+        $receipt['prepublish_hostile_rights']=$attack
+        if($attack.status -ne 'unprivileged_access_denied_observed' -or $attack.payload_relative_path -cne $attackRelative){
+            throw 'Selected prepublish attacker result differs'
+        }
+        $pausedAfter=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt['prepublish_after_attack']=$pausedAfter.independent
+        if($pausedAfter.independent.identity -ne 'S-1-5-18' -or -not $pausedAfter.observer_task_removed -or
+            ($pausedBefore.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($pausedAfter.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Selected prepublish hostile attempts changed protected state'
+        }
+        Assert-OwnedVolume
+        $releaseTemp=$release+'.tmp'
+        $releaseBytes=[Text.Encoding]::ASCII.GetBytes("usk.publisher.lab_continue.v1`n")
+        $stream=[IO.FileStream]::new($releaseTemp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+        try{$stream.Write($releaseBytes,0,$releaseBytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+        [IO.File]::Move($releaseTemp,$release)
+    }
     if($recover -and -not $InterruptDuringConsumerAccess) {
         # Controlled service cancellation at the selected flushed readiness window.
         # This is neither VM power loss nor physical-host power-loss evidence.
@@ -413,6 +458,22 @@ try {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
     Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
+    if($HostileRights) {
+        $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
+        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative
+        $attack=Get-Content -LiteralPath $attackOutput -Raw|ConvertFrom-Json
+        $receipt['postpublish_hostile_rights']=$attack
+        if($attack.status -ne 'unprivileged_access_denied_observed' -or $attack.payload_relative_path -cne $attackRelative){
+            throw 'Selected postpublish attacker result differs'
+        }
+        $afterAttack=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt['postpublish_after_attack']=$afterAttack.independent
+        if($afterAttack.independent.identity -ne 'S-1-5-18' -or -not $afterAttack.observer_task_removed -or
+            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($afterAttack.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Selected postpublish hostile attempts changed published state'
+        }
+    }
     if($recover) {
         foreach($row in $before.independent.rows) {
             $completedPath=$row.path

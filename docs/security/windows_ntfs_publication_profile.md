@@ -1301,12 +1301,17 @@ The original protected records remain immutable. Replay repairs incomplete
 grants and success requires a fresh complete granted-tree observation.
 
 This is candidate implementation, not a general production profile.
-The hosted probe is prepared to use an owned non-admin account, a real
-neutral executable, source-free replay after a first-grant injected failure,
-independent SYSTEM readback and mutation/private-access denials. Until actual
-receipts are inspected it is not non-admin runtime qualification. Injection
-and controlled cancellation are not power-loss proof. Lease/fencing and
-ordinary customer provisioning remain separate incomplete obligations.
+The exact-head hosted Windows 20348 run [36355552793](https://github.com/Julesc013/universal-setup/actions/runs/36355552793)
+observed an owned non-admin account reading both selected payload files and
+running the neutral executable. An injected first grant left one visible
+reader ACE; source-free replay completed all four visible grants. Independent
+SYSTEM readback checked the payload and ACL closure, and the non-admin client
+received access-denied for 19 mutation and private-access attempts. Its
+account, service, client and owned VHD were reported cleaned up. This receipt
+qualifies that hosted candidate run only. Injection and controlled cancellation
+are not power-loss proof. Hostile rights against this selected-bundle path,
+lease/fencing, general-source admission and ordinary customer provisioning
+remain separate incomplete obligations.
 
 The consumer-mode service admits the configured account to its own process
 with only SYNCHRONIZE and PROCESS_QUERY_LIMITED_INFORMATION, after live SCM
