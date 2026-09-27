@@ -23,6 +23,10 @@ struct CandidatePublisherConfiguration {
     // Authenticated transport bytes, compared to the independently reviewed
     // request and durable snapshot before any publication/recovery effect.
     std::optional<std::string> submitted_apply_request;
+    // Opt-in account from the authenticated request channel, durably bound in
+    // snapshot v4 before effects. Empty preserves the v2/v3 private profile.
+    std::string consumer_read_sid;
+    bool interrupt_consumer_grant = false;
     HANDLE stop_event=nullptr;
     std::function<void(HANDLE,const std::string&)> prepare_disposable_boundary;
 };

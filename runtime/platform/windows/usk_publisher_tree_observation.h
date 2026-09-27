@@ -94,6 +94,13 @@ void require_publisher_tree_security_shape(
 void require_publisher_object_security_shape(
     const PublisherHandleObservation& object, const std::string& service_sid);
 
+// Explicit projection for a durably admitted visible-payload reader. Checks
+// every object first: exact original descriptor or its single exact read ACE.
+// All identity/content/stream facts are retained. Never use on private anchors.
+PublisherTreeObservation publisher_consumer_read_projection(
+    const PublisherTreeObservation& tree, const std::string& service_sid,
+    const std::string& consumer_sid, bool require_every_grant = false);
+
 // Reopen one exact visible component relative to a retained destination-parent
 // handle, freshly observe its tree, and compare it with the sealed tree. This
 // is a read-only consistency candidate, not protected-parent admission.

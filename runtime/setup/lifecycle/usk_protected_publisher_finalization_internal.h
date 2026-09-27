@@ -38,6 +38,15 @@ InstallResult finalize_protected_visible_install(
     const std::string& applied_at,
     const ProtectedPublisherEvidence& evidence);
 
+// Read-only prerequisite for recognizing any visible consumer ACE on retry.
+// Requires the same completed public state, ownership and two-event audit
+// chain bound to the protected completion proof; never initializes records.
+void require_completed_consumer_install(const InstallPlan& plan,
+    const std::string& transaction_id, const std::string& applied_at,
+    const std::string& protected_completion_sha256,
+    const std::wstring& volume_guid_root, HANDLE volume,
+    const std::wstring& service_name);
+
 } // namespace usk::lifecycle
 #endif
 #endif

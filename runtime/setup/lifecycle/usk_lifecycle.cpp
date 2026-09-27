@@ -1453,6 +1453,62 @@ static std::string protected_record_sha256(const std::string& record)
     return hash.finish();
 }
 
+void require_completed_consumer_install(const InstallPlan& plan,
+    const std::string& transaction_id, const std::string& applied_at,
+    const std::string& protected_completion_sha256,
+    const std::wstring& volume_guid_root, HANDLE volume,
+    const std::wstring& service_name)
+{
+    const auto bound_state = publisher_volume_bound_path(plan.roots.state_root,volume_guid_root);
+    platform::windows::PublisherMetadataSession metadata(volume,volume_guid_root,
+        bound_state.parent_path(),service_name,true);
+    state::StateRepository repository(publisher_volume_bound_path(plan.roots.state_root,volume_guid_root));
+    const auto installed = repository.read_installed(plan.install_id);
+    const auto ownership = repository.read_ownership("ownership." + plan.install_id + "." + transaction_id);
+    audit::AuditRepository audits(publisher_volume_bound_path(plan.roots.audit_root,volume_guid_root));
+    const auto chain = audits.read_and_validate_chain_bounded(installed.audit_chain_id,2);
+    if (installed.audit_chain_id != install_audit_chain_id(plan.install_id,transaction_id,false) ||
+        ownership.directories != directory_closure(plan.files) ||
+        ownership.files.size() != plan.files.size()) {
+        throw std::runtime_error("consumer ownership/audit closure differs from reviewed plan");
+    }
+    for (std::size_t index=0; index<plan.files.size(); ++index) {
+        const auto& owned=ownership.files[index];
+        const auto& expected=plan.files[index];
+        if (std::tie(owned.relative_path,owned.sha256,owned.size_bytes) !=
+            std::tie(expected.relative_path,expected.sha256,expected.size_bytes)) {
+            throw std::runtime_error("consumer ownership file differs from reviewed plan");
+        }
+    }
+    if (installed.lifecycle_status != "installed" || installed.transaction_id != transaction_id ||
+        installed.install_id != plan.install_id || installed.created_at != applied_at ||
+        installed.product_id != plan.recipe.product_id || installed.product_version != plan.recipe.product_version ||
+        installed.provider_revision != plan.recipe.provider_revision ||
+        installed.component_selection != plan.recipe.components ||
+        installed.target_root != plan.target_root.string() ||
+        installed.recipe_digest != plan.recipe.recipe_digest ||
+        installed.source_archive_digest != plan.recipe.source_archive_digest ||
+        installed.last_verification.status != "pass" ||
+        ownership.manifest_digest != installed.ownership_manifest_digest ||
+        installed.ownership_manifest_ref != "ownership/" + ownership.manifest_id + ".json" ||
+        ownership.install_id != plan.install_id || ownership.created_by_transaction_id != transaction_id ||
+        ownership.target_root != plan.target_root.string() || chain.size() != 2 ||
+        chain[0].created_at != applied_at || chain[0].operation != "install_local" ||
+        chain[0].phase != "validated" || chain[0].status != "pass" ||
+        chain[0].transaction_id != transaction_id || chain[0].plan_id != plan.plan_id ||
+        chain[0].details_digest != protected_completion_sha256 ||
+        chain[0].subject_type != "journal" || chain[0].subject_id != plan.plan_id ||
+        chain[0].message != "held-handle protected publication closure verified" ||
+        chain[1].created_at != applied_at || chain[1].operation != "install_local" ||
+        chain[1].phase != "completed" || chain[1].status != "pass" ||
+        chain[1].transaction_id != transaction_id || chain[1].plan_id != plan.plan_id ||
+        chain[1].details_digest != installed.last_verification.report_digest ||
+        chain[1].subject_type != "installation" || chain[1].subject_id != plan.install_id ||
+        chain[1].message != "protected managed install completed") {
+        throw std::runtime_error("consumer access requires matching completed public metadata");
+    }
+}
+
 static std::string require_held_publisher_evidence(
     const InstallPlan& plan, const std::string& transaction_id,
     const std::string& applied_at, const ProtectedPublisherEvidence& evidence)
@@ -1468,7 +1524,19 @@ static std::string require_held_publisher_evidence(
     const auto volume = observe_local_ntfs_volume_handle(evidence.volume);
     const auto journal = observe_publisher_tree(evidence.journal);
     const auto state = observe_publisher_tree(evidence.state);
-    const auto visible = observe_publisher_tree(evidence.visible_root);
+    const auto snapshot = json::parse(evidence.reviewed_snapshot_record);
+    require_candidate_snapshot_apply_binding(snapshot);
+    const auto actual_visible = observe_publisher_tree(evidence.visible_root);
+    auto visible = actual_visible;
+    if (snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4") {
+        const bool has_grant = actual_visible.root.dacl_aces.size() != 2 ||
+            std::any_of(actual_visible.descendants.begin(),actual_visible.descendants.end(),
+                [](const auto& entry) { return entry.object.dacl_aces.size() != 2; });
+        if (has_grant) require_completed_consumer_install(plan,transaction_id,applied_at,
+            protected_record_sha256(evidence.completion_record),evidence.volume_guid_root,evidence.volume,evidence.service_name);
+        visible = publisher_consumer_read_projection(actual_visible,service.service_sid,
+            snapshot.at("consumer_read_sid").as_string());
+    }
     require_publisher_tree_security_shape(journal, service.service_sid);
     require_publisher_tree_security_shape(state, service.service_sid);
     require_publisher_tree_security_shape(visible, service.service_sid);
@@ -1513,14 +1581,13 @@ static std::string require_held_publisher_evidence(
     require_publisher_tree_exact_file_closure(visible, expected);
     const auto prepared = json::parse(evidence.prepared_record);
     const auto bound = json::parse(evidence.visible_record);
-    const auto snapshot = json::parse(evidence.reviewed_snapshot_record);
-    require_candidate_snapshot_apply_binding(snapshot);
     const auto completion = json::parse(evidence.completion_record);
     const auto& binding = prepared.at("source_binding");
     if (prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
         bound.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
         (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
-            snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") ||
+            snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
+            snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") ||
         completion.at("schema").as_string() !=
             "usk.publisher.lab_installed_state.v2" ||
         prepared.at("service_sid").as_string() != service.service_sid ||

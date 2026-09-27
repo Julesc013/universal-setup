@@ -5,6 +5,9 @@ param(
     [string]$MachineBinary = '',
     [string]$PublicApplyBinary = '',
     [string]$ClientBinary = '',
+    [string]$PayloadBinary = '',
+    [switch]$ConsumerAccess,
+    [switch]$InterruptDuringConsumerAccess,
     [switch]$InterruptAfterVisibleRecord,
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish
@@ -131,7 +134,7 @@ try {
             & (Join-Path $PSScriptRoot 'windows_publisher_metadata_hosted_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
-                -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -OutputPath $serviceOutput `
+                -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
                 -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `

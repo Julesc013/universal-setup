@@ -2,14 +2,19 @@
 # SPDX-License-Identifier: MIT
 
 function Assert-IndependentProtectedRows {
-    param($Rows,[string]$ServiceSid)
-    foreach ($row in $Rows) {
-        if ($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne 2 -or
-            @($row.aces|Where-Object sid -eq 'S-1-5-18').Count -ne 1 -or
-            @($row.aces|Where-Object sid -eq $ServiceSid).Count -ne 1 -or
-            @($row.aces|Where-Object { $_.rights -ne 2032127 -or $_.type -ne 'Allow' -or
-                $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0 }).Count -ne 0) {
-            throw ('Independent owner/DACL differs: ' + $row.path)
+    param($Rows,[string]$ServiceSid,[string]$ConsumerSid='',[string]$VisibleRoot='',[switch]$AllowPartial)
+    foreach($row in $Rows) {
+        $visible=$ConsumerSid -and ($row.path -ceq $VisibleRoot -or $row.path.StartsWith($VisibleRoot+'\',[StringComparison]::Ordinal))
+        $readers=@($row.aces|Where-Object sid -eq $ConsumerSid)
+        $required=if($visible -and (-not $AllowPartial -or $readers.Count)){3}else{2}
+        if($row.owner -ne 'S-1-5-18' -or -not $row.protected -or $row.aces.Count -ne $required -or
+            $row.aces[0].sid -cne 'S-1-5-18' -or $row.aces[1].sid -cne $ServiceSid -or
+            @($row.aces|Where-Object {$_.type -ne 'Allow' -or $_.inherited -or $_.inheritance -ne 0 -or $_.propagation -ne 0}).Count) {
+            throw ('Independent owner/DACL differs: '+$row.path)
+        }
+        if($row.aces[0].rights -ne 2032127 -or $row.aces[1].rights -ne 2032127 -or
+            ($required -eq 3 -and ($row.aces[2].sid -cne $ConsumerSid -or $row.aces[2].rights -ne 1179817))) {
+            throw ('Independent authority/consumer rights differ: '+$row.path)
         }
     }
 }
@@ -19,7 +24,7 @@ function Assert-IndependentMetadataProbe {
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
     if ($Result.native.status -ne 'pass' -or -not $Result.observer_task_removed -or
         $Result.independent.identity -ne 'S-1-5-18') { throw 'Service, observer identity or confirmed task cleanup differs' }
-    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid
+    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid -ConsumerSid ([string]$Result.consumer_sid) -VisibleRoot ($drive+'publication\destination\visible')
     function Get-ExactRecord([string]$Path) {
         $found=@($Result.independent.rows|Where-Object { $_.path -ceq $Path -and -not $_.directory })
         if ($found.Count -ne 1 -or -not $found[0].content_json) { throw ('Missing independent record: ' + $Path) }
@@ -32,6 +37,9 @@ function Assert-IndependentMetadataProbe {
         $completion.source_binding.reviewed_plan_digest -ne $snapshot.plan_digest) { throw 'Independent reviewed source binding differs' }
     if ($Result.apply_request -and ($snapshot.transaction_id -ne $Result.apply_request.transaction_id -or
         $snapshot.applied_at -ne $Result.apply_request.applied_at)) { throw 'Independent caller operation binding differs' }
+    if($Result.consumer_sid -and ($snapshot.schema -cne 'usk.publisher.lab_reviewed_plan_snapshot.v4' -or
+        $snapshot.consumer_read_sid -cne $Result.consumer_sid -or $Result.native.consumer_access.consumer_sid -cne $Result.consumer_sid -or
+        $Result.native.consumer_access.status -cne 'read_execute_granted')){throw 'Independent durable consumer policy differs'}
     $transaction=$snapshot.transaction_id
     $installId=$Result.request.install_id
     $installedPath=($drive + 'setup-state\state\installed\') + $installId + '.' + $transaction + '.json'

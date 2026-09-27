@@ -67,6 +67,27 @@ int main() {
                 "publisher DACL SID order or identity is wrong");
         }
         LocalFree(expected_service);
+        using namespace usk::platform::windows;
+        const std::string consumer_sid = "S-1-5-21-1-2-3-1001";
+        const auto readable = make_publisher_consumer_security_descriptor(service_sid, consumer_sid);
+        check(GetSecurityDescriptorDacl(const_cast<unsigned char*>(readable.data()),
+            &present, &dacl, &dacl_defaulted) != FALSE && present && dacl && dacl->AceCount == 3,
+            "consumer descriptor does not contain three explicit ACEs");
+        void* reader_raw = nullptr;
+        check(GetAce(dacl, 2, &reader_raw) != FALSE, "consumer ACE is unavailable");
+        const auto* reader = static_cast<const ACCESS_ALLOWED_ACE*>(reader_raw);
+        check(reader->Header.AceType == ACCESS_ALLOWED_ACE_TYPE && reader->Header.AceFlags == 0 &&
+            reader->Mask == (FILE_GENERIC_READ | FILE_GENERIC_EXECUTE) &&
+            (reader->Mask & (DELETE | FILE_DELETE_CHILD | FILE_WRITE_DATA | FILE_APPEND_DATA |
+                FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | WRITE_DAC | WRITE_OWNER)) == 0,
+            "consumer ACE admits mutation or inheritance");
+        for (const auto& invalid : {"S-1-5-18", "S-1-1-0", "S-1-5-32-545",
+                "S-1-5-21-1-2-3-500", "S-1-5-21-1-2-3-513", "S-1-5-80-1-2-3-4-5", "invalid", ""}) {
+            bool denied = false;
+            try { (void)make_publisher_consumer_security_descriptor(service_sid, invalid); }
+            catch (const std::exception&) { denied = true; }
+            check(denied, "privileged/group/malformed consumer SID was accepted");
+        }
         check(refused(L"S-1-5-21-1-2-3-1001") &&
             refused(L"S-1-5-80-1") && refused(L"invalid") && refused(L""),
             "non-service or malformed SID was accepted");

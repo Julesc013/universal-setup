@@ -9,16 +9,21 @@ param(
     [Parameter(Mandatory=$true)][string]$PublicApplyBinary,
     [Parameter(Mandatory=$true)][string]$OutputPath,
     [string]$ClientBinary = '',
+    [string]$PayloadBinary = '',
+    [switch]$ConsumerAccess,
+    [switch]$InterruptDuringConsumerAccess,
     [switch]$InterruptAfterVisibleRecord,
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish
 )
 $ErrorActionPreference='Stop'
 if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish) -gt 1){throw 'Select one interruption window'}
-$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish
+if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish)){throw 'Consumer interruption requires its exclusive consumer profile'}
+if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
+$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptDuringConsumerAccess
 $gate=if($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
 $readyContent=if($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
-$recoveryDecision=if($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
+$recoveryDecision=if($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -73,14 +78,30 @@ $created=$false
 $failure=$null
 $requestClient=$null
 $clientNumber=0
+$consumerCreated=$false
+$consumerCredential=$null
+$consumerSid=''
+$consumerProcess=$null
+$consumerOutput=Join-Path $root 'consumer-output'
+$consumerScript=Join-Path $root 'consumer-client.ps1'
 function Start-RequestClient($submitted=$applyRequest) {
     $script:clientNumber++
-    $prefix=Join-Path $root ('client-'+$clientNumber)
+    $prefix=Join-Path $(if($ConsumerAccess){$consumerOutput}else{$root}) ('client-'+$clientNumber)
     $clientRequest=$prefix+'-request.json'
     [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
-    $process=Start-Process -FilePath $ClientBinary -ArgumentList @('--service',$service,'--request-file',('"'+$clientRequest+'"')) `
-        -WindowStyle Hidden -PassThru -RedirectStandardOutput ($prefix+'-response.json') -RedirectStandardError ($prefix+'-error.txt')
-    return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt'}
+    $options=@{FilePath=$ClientBinary;ArgumentList=@('--service',$service,'--request-file',('"'+$clientRequest+'"'));
+        WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$prefix+'-response.json';RedirectStandardError=$prefix+'-error.txt'}
+    $identityPath=$prefix+'-identity.json'
+    if($ConsumerAccess) {
+        $options.FilePath=(Get-Command pwsh).Source
+        $options.ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
+            '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,'-ClientBinary',$ClientBinary,
+            '-ServiceName',$service,'-RequestFile',$clientRequest)
+        $options['Credential']=$consumerCredential
+        $options['WorkingDirectory']=$consumerOutput
+    }
+    $process=Start-Process @options
+    return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt';identity=$identityPath}
 }
 function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailureResponse=$false) {
     if(-not $client.process.WaitForExit(120000)) {
@@ -92,6 +113,12 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     }
     $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
         caller_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
+    if($ConsumerAccess) {
+        $actual=Get-Content -LiteralPath $client.identity -Raw|ConvertFrom-Json
+        if($actual.user_sid -cne $consumerSid -or $actual.administrator){throw 'Actual client did not run as admitted non-admin user'}
+        $result.caller_sid=$actual.user_sid
+        $result['caller_observation']=$actual
+    }
     $hasResponse=(Get-Item -LiteralPath $client.response).Length -gt 0
     if($expectSuccess -or $hasResponse) {
         if((Get-Item -LiteralPath $client.response).Length -gt 4MB -or
@@ -108,10 +135,34 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     return $result
 }
 try {
+    if($ConsumerAccess) {
+        $consumerName='USKUSR_'+[guid]::NewGuid().ToString('N').Substring(0,13)
+        if(Get-LocalUser -Name $consumerName -ErrorAction SilentlyContinue){throw 'Consumer account collision'}
+        $secure=ConvertTo-SecureString ('Aa1!'+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
+        $account=New-LocalUser -Name $consumerName -Password $secure -PasswordNeverExpires
+        $consumerCreated=$true;$consumerSid=$account.SID.Value
+        Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545').Name -Member $account
+        $consumerCredential=[Management.Automation.PSCredential]::new($env:COMPUTERNAME+'\'+$consumerName,$secure)
+        $receipt['consumer_account_sid']=$consumerSid
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_consumer_client.ps1') -Destination $consumerScript
+        $clientCopy=Join-Path $root 'consumer-client.exe'
+        Copy-Item -LiteralPath $ClientBinary -Destination $clientCopy
+        $ClientBinary=$clientCopy
+        New-Item -ItemType Directory -Path $consumerOutput|Out-Null
+        $rootAcl=Get-Acl -LiteralPath $root
+        $rootAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($consumerSid),'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
+        Set-Acl -LiteralPath $root -AclObject $rootAcl
+        $outputAcl=Get-Acl -LiteralPath $consumerOutput
+        $outputAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($consumerSid),'Modify','ContainerInherit,ObjectInherit','None','Allow'))
+        Set-Acl -LiteralPath $consumerOutput -AclObject $outputAcl
+    }
     Assert-OwnedVolume
     if(Test-Path -LiteralPath ($drive+'publication')){throw 'Hosted metadata disk is not fresh'}
+    $fixtureArgs=if($ConsumerAccess){@('--application-binary',$PayloadBinary)}else{@()}
     $generated=& python -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
-        --output $fixture --target ($drive+'publication\destination\visible') --request-id ('metadata.'+$id)
+        --output $fixture --target ($drive+'publication\destination\visible') --request-id ('metadata.'+$id) @fixtureArgs
     if($LASTEXITCODE -ne 0){throw 'Public authoring input generation failed'}
     $inputs=$generated|ConvertFrom-Json
     Copy-Item -LiteralPath $inputs.archive_file -Destination $archive
@@ -163,10 +214,12 @@ try {
         ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
     $selectedClientArguments=' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
         ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
-    if($recover){$command+=' --'+$gate+'-gate'}
+    if($recover -and -not $InterruptDuringConsumerAccess){$command+=' --'+$gate+'-gate'}
+    if($InterruptDuringConsumerAccess){$command+=' --interrupt-consumer-grant'}
     if($ClientBinary) {
-        $callerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $callerSid=if($ConsumerAccess){$consumerSid}else{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
         $clientArguments=' --authorized-client-sid '+$callerSid
+        if($ConsumerAccess){$clientArguments+=' --grant-client-read'}
         $command+=$clientArguments
     }
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
@@ -205,7 +258,7 @@ try {
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
     if($ClientBinary){$requestClient=Start-RequestClient}
-    if($recover) {
+    if($recover -and -not $InterruptDuringConsumerAccess) {
         # Controlled service cancellation at the selected flushed readiness window.
         # This is neither VM power loss nor physical-host power-loss evidence.
         $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$gate+'-ready.txt'
@@ -261,7 +314,7 @@ try {
         $snapshot=@($before.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-reviewed-plan.json'))
         if($snapshot.Count -ne 1){throw 'Independent caller-bound snapshot absent'}
         $snapshotValue=$snapshot[0].content_json|ConvertFrom-Json
-        if($snapshotValue.schema -ne 'usk.publisher.lab_reviewed_plan_snapshot.v3' -or
+        if($snapshotValue.schema -ne $(if($ConsumerAccess){'usk.publisher.lab_reviewed_plan_snapshot.v4'}else{'usk.publisher.lab_reviewed_plan_snapshot.v3'}) -or
             $snapshotValue.transaction_id -ne $applyRequest.transaction_id -or
             $snapshotValue.applied_at -ne $applyRequest.applied_at -or
             $snapshotValue.plan_digest -ne $plan.plan_digest) {throw 'Interrupted snapshot caller binding differs'}
@@ -294,6 +347,36 @@ try {
         $nativePath=$recoveryPath
         if($ClientBinary){$requestClient=Start-RequestClient}
     }
+    if($InterruptDuringConsumerAccess) {
+        $deadline=[DateTime]::UtcNow.AddSeconds(90)
+        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Partial consumer grant receipt absent'}
+        $partial=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
+        if($partial.status -ne 'recovery_required' -or $partial.error -notmatch 'first consumer grant'){throw 'Expected injected grant interruption absent'}
+        $receipt['interrupted_consumer_client']=Complete-RequestClient $requestClient $false $true
+        $requestClient=$null
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+        $before=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid -ConsumerSid $consumerSid -VisibleRoot ($drive+'publication\destination\visible') -AllowPartial
+        $granted=@($before.independent.rows|Where-Object {@($_.aces|Where-Object sid -eq $consumerSid).Count -eq 1})
+        if($granted.Count -ne 1){throw 'First-grant interruption did not leave exactly one readable payload object'}
+        $receipt['partial_consumer_grant']=[ordered]@{native=$partial;independent=$before.independent;observer_task_removed=$before.observer_task_removed;granted_objects=$granted.Count}
+        $removed=[Collections.Generic.List[string]]::new()
+        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+            $exact=[IO.Path]::GetFullPath($path);$item=Get-Item -LiteralPath $exact -Force
+            if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Consumer source removal target escaped owned root'}
+            Remove-Item -LiteralPath $exact -Force
+            if(Test-Path -LiteralPath $exact){throw 'Consumer source input remains'}
+            $removed.Add($exact)
+        }
+        $receipt['removed_source_inputs']=$removed.ToArray()
+        $nativePath=Join-Path $root ('vm-selected-consumer-reconnect-'+$id+'.json')
+        $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+$selectedClientArguments+$clientArguments
+        & sc.exe config $service binPath= $recoveryCommand|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Consumer reconnect configuration failed'}
+        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        $requestClient=Start-RequestClient
+    }
     $deadline=[DateTime]::UtcNow.AddSeconds(90)
     while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
     if(-not (Test-Path -LiteralPath $nativePath)){throw 'Native service receipt absent'}
@@ -302,6 +385,7 @@ try {
         $receipt['authenticated_client']=Complete-RequestClient $requestClient $true
         $requestClient=$null
     }
+    $receipt['consumer_sid']=$consumerSid
     $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
@@ -363,7 +447,8 @@ try {
         $after=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $repeatResult=[pscustomobject]@{volume_drive_root=$drive;native=$repeat;service_sid=$sid;independent=$after.independent;
             observer_task_removed=$after.observer_task_removed;plan=$plan;archive_sha256=$inputs.archive_sha256;
-            apply_request=$applyRequest;request=$request.payload}
+            apply_request=$applyRequest;request=$request.payload;consumer_sid=$consumerSid}
+        $repeatResult|Add-Member -NotePropertyName consumer_sid -NotePropertyValue $consumerSid -Force
         Assert-IndependentMetadataProbe $repeatResult
         if($after.independent.rows.Count -ne $receipt.independent.rows.Count){throw 'Repeated recovery changed record closure'}
         foreach($row in $receipt.independent.rows) {
@@ -404,6 +489,28 @@ try {
         $receipt['stale_authenticated_request_unchanged_rows']=$unchanged.independent.rows.Count
         $receipt['stale_observer_task_removed']=$unchanged.observer_task_removed
     }
+    if($ConsumerAccess) {
+        $identityPath=Join-Path $consumerOutput 'payload-identity.json'
+        $accessPath=Join-Path $consumerOutput 'payload-access.json'
+        $consumerProcess=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @(
+            '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
+            '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,
+            '-PayloadRoot',($drive+'publication\destination\visible'),'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput
+        if(-not $consumerProcess.WaitForExit(45000)){$consumerProcess.Kill();$consumerProcess.WaitForExit();throw 'Consumer payload probe timed out'}
+        $consumerProcess.WaitForExit()
+        if($consumerProcess.ExitCode -ne 0){throw 'Non-admin payload access probe failed'}
+        $access=Get-Content -LiteralPath $accessPath -Raw|ConvertFrom-Json
+        if($access.status -ne 'pass' -or $access.identity.user_sid -cne $consumerSid -or $access.identity.administrator){throw 'Consumer access identity/result differs'}
+        foreach($file in $access.files) {
+            $row=@($receipt.independent.rows|Where-Object path -ceq $file.path)
+            if($row.Count -ne 1 -or $row[0].sha256 -cne $file.sha256){throw 'Consumer-read bytes differ from independent SYSTEM readback'}
+        }
+        $receipt['consumer_access_observation']=$access
+        $afterAccess=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        if(($after.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne ($afterAccess.independent.rows|ConvertTo-Json -Depth 32 -Compress)){throw 'Consumer access attempts changed installed bytes/ACLs'}
+        $receipt['consumer_attempts_unchanged_rows']=$afterAccess.independent.rows
+        $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
+    }
     $receipt.status='protected_metadata_observed'
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
@@ -412,6 +519,15 @@ try {
         try { if(-not $requestClient.process.HasExited){$requestClient.process.Kill();$requestClient.process.WaitForExit()} }
         catch { $failure='Owned client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
+    if($consumerProcess) {
+        try {if(-not $consumerProcess.HasExited){$consumerProcess.Kill();$consumerProcess.WaitForExit()}}
+        catch {$failure='Consumer payload process cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
+    }
+    if($consumerCreated) {
+        try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
+        catch {$failure='Owned consumer account cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
+    }
+    $consumerCredential=$null
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}

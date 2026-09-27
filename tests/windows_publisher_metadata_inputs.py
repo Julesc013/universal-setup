@@ -19,7 +19,7 @@ from usk_bundle_plan import compose_plan, host_target
 from usk_bundle_selection import finalize_selection
 
 
-def create_inputs(root: Path, target: Path, request_id: str) -> dict:
+def create_inputs(root: Path, target: Path, request_id: str, application_binary: Path | None = None) -> dict:
     # The caller creates one fresh owned directory. Never overwrite inputs.
     if any(root.iterdir()):
         raise ValueError("metadata fixture directory must be empty")
@@ -28,14 +28,18 @@ def create_inputs(root: Path, target: Path, request_id: str) -> dict:
     files = {"core": b"selected core payload\r\n" * 7000,
              "addon": b"selected addon payload\r\n" * 4000,
              "alternative": b"must not be selected\r\n"}
+    if application_binary is not None:
+        files["core"] = application_binary.read_bytes()
     components = []
     for name, data in files.items():
-        (product / f"{name}.bin").write_bytes(data)
+        extension = "exe" if name == "core" and application_binary is not None else "bin"
+        filename = f"{name}.{extension}"
+        (product / filename).write_bytes(data)
         components.append({
             "id": name, "required": name == "core",
             "default_selected": name == "core", "requires": [], "conflicts": [],
             "variants": [{"target": host_target(), "files": [{
-                "source": f"{name}.bin", "path": f"bin/{name}.bin"}]}],
+                "source": filename, "path": f"bin/{filename}"}]}],
         })
     definition = product / "product.json"
     definition.write_text(json.dumps({
@@ -52,7 +56,7 @@ def create_inputs(root: Path, target: Path, request_id: str) -> dict:
         selected / "product.bundle.json", target, request_id=request_id,
         install_id="org.example.metadata.probe", created_at="2026-09-26T00:00:00Z",
         entrypoint_id="main", entrypoint_kind="application",
-        entrypoint_path="bin/core.bin")
+        entrypoint_path="bin/core.exe" if application_binary is not None else "bin/core.bin")
     # Exercise the accepted source-prefix contract, preserving exact selected
     # payload bytes. The resulting archive is separately hashed and reviewed
     # by the native planner; the intermediate bundle is not a signed product.
@@ -78,5 +82,6 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--request-id", required=True)
+    parser.add_argument("--application-binary", type=Path)
     args = parser.parse_args()
-    print(json.dumps(create_inputs(args.output, args.target, args.request_id)))
+    print(json.dumps(create_inputs(args.output, args.target, args.request_id, args.application_binary)))

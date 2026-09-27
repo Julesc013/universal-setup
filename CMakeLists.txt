@@ -77,6 +77,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_directory_entries.cpp
     runtime/platform/windows/usk_publisher_handle_observation.cpp
     runtime/platform/windows/usk_publisher_security_descriptor.cpp
+    runtime/platform/windows/usk_publisher_consumer_access.cpp
     runtime/platform/windows/usk_publisher_tree_observation.cpp
     runtime/platform/windows/usk_publisher_token_observation.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
@@ -550,6 +551,7 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_candidate_context_smoke COMMAND usk_publisher_candidate_context_smoke)
     set_tests_properties(usk_publisher_candidate_context_smoke PROPERTIES TIMEOUT 30)
     add_executable(usk_publisher_request_channel_smoke tests/native/usk_publisher_request_channel_smoke.cpp)
+    add_executable(usk_neutral_payload tests/fixtures/authoring/neutral_one_file/hello.c)
     target_compile_features(usk_publisher_request_channel_smoke PRIVATE cxx_std_17)
     target_link_libraries(usk_publisher_request_channel_smoke PRIVATE usk_publisher_windows_static)
     usk_enable_strict_warnings(usk_publisher_request_channel_smoke)

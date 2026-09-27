@@ -94,4 +94,29 @@ foreach($case in $cases.GetEnumerator()) {
     try{Assert-IndependentMetadataProbe $result}catch{$refused=$true}
     if(-not $refused){throw ('Readback validator accepted: '+$case.Key)}
 }
-[ordered]@{status='pass';positive=2;refused=$cases.Count;scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress
+$consumer=$serialized|ConvertFrom-Json
+$consumerSid='S-1-5-21-1-2-3-1001'
+$consumer|Add-Member -NotePropertyName consumer_sid -NotePropertyValue $consumerSid
+$consumer.native|Add-Member -NotePropertyName consumer_access -NotePropertyValue ([pscustomobject]@{status='read_execute_granted';consumer_sid=$consumerSid})
+Edit-Record $consumer 'E:\publication\journal\lab-reviewed-plan.json' {param($r)
+    $r|Add-Member -NotePropertyName schema -NotePropertyValue 'usk.publisher.lab_reviewed_plan_snapshot.v4'
+    $r|Add-Member -NotePropertyName consumer_read_sid -NotePropertyValue $consumerSid
+}
+$consumer.independent.rows[-1].aces+=@([pscustomobject]@{sid=$consumerSid;rights=1179817;type='Allow';inherited=$false;inheritance=0;propagation=0})
+Assert-IndependentMetadataProbe $consumer
+$consumerBytes=$consumer|ConvertTo-Json -Depth 32 -Compress
+$consumerCases=[ordered]@{
+    wrong_reader={param($r)$r.independent.rows[-1].aces[-1].sid='S-1-5-21-1-2-3-1002'}
+    consumer_write={param($r)$r.independent.rows[-1].aces[-1].rights=1179819}
+    inherited_read={param($r)$r.independent.rows[-1].aces[-1].inherited=$true}
+    private_grant={param($r)$r.independent.rows[0].aces+=@($r.independent.rows[-1].aces[-1])}
+    unbound_policy={param($r)Edit-Record $r 'E:\publication\journal\lab-reviewed-plan.json' {param($record)$record.consumer_read_sid='S-1-5-21-1-2-3-1002'}}
+}
+foreach($case in $consumerCases.GetEnumerator()) {
+    $changed=$consumerBytes|ConvertFrom-Json
+    &$case.Value $changed
+    $refused=$false
+    try{Assert-IndependentMetadataProbe $changed}catch{$refused=$true}
+    if(-not $refused){throw ('Consumer oracle accepted: '+$case.Key)}
+}
+[ordered]@{status='pass';positive=3;refused=($cases.Count+$consumerCases.Count);scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress

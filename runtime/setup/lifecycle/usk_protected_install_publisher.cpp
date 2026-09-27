@@ -14,6 +14,7 @@
 #include "usk_public_lifecycle.h"
 #include "usk_protected_install_publisher_internal.h"
 #include "usk_publisher_security_descriptor.h"
+#include "usk_publisher_consumer_access.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
@@ -68,6 +69,8 @@ thread_local std::string selected_archive_sha256;
 thread_local std::wstring reviewed_plan_envelope_path;
 thread_local std::string reviewed_plan_envelope_sha256;
 thread_local std::optional<std::string> submitted_apply_request;
+thread_local std::string consumer_read_sid;
+thread_local bool interrupt_consumer_grant = false;
 struct ReviewedPlanBinding {
     std::string plan_digest;
     std::string envelope_sha256;
@@ -626,7 +629,7 @@ void write_journal_phase(HANDLE journal, const std::wstring& name,
 
 HANDLE open_exact_lab_child(HANDLE parent, const std::wstring& name,
     bool require_add_subdirectory = false, bool require_delete = false,
-    bool require_add_file = false) {
+    bool require_add_file = false, bool require_write_dac = false) {
     HANDLE result = INVALID_HANDLE_VALUE;
     for (const auto& listed :
             usk::platform::windows::observe_publisher_directory_entries(parent)) {
@@ -637,7 +640,7 @@ HANDLE open_exact_lab_child(HANDLE parent, const std::wstring& name,
         }
         result = usk::platform::windows::open_publisher_listed_child(
             parent, listed, require_add_subdirectory, require_delete,
-            require_add_file);
+            require_add_file, require_write_dac);
     }
     if (result == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("required recovery child is absent");
@@ -717,12 +720,13 @@ void require_reviewed_plan_snapshot(const std::string& record,
     const auto snapshot = usk::json::parse(record);
     const auto& binding = prepared.at("source_binding");
     const std::string schema = snapshot.at("schema").as_string();
-    const bool caller_bound = schema == "usk.publisher.lab_reviewed_plan_snapshot.v3";
+    const bool consumer_bound = schema == "usk.publisher.lab_reviewed_plan_snapshot.v4";
+    const bool caller_bound = consumer_bound || schema == "usk.publisher.lab_reviewed_plan_snapshot.v3";
     const bool finalization_context = caller_bound ||
         schema == "usk.publisher.lab_reviewed_plan_snapshot.v2";
     if ((!finalization_context && schema !=
             "usk.publisher.lab_reviewed_plan_snapshot.v1") ||
-        snapshot.as_object().size() != (caller_bound ? 16u : finalization_context ? 15u : 10u) ||
+        snapshot.as_object().size() != (consumer_bound ? 17u : caller_bound ? 16u : finalization_context ? 15u : 10u) ||
         record_sha256(record) !=
             binding.at("reviewed_plan_snapshot_sha256").as_string() ||
         snapshot.at("plan_digest").as_string() !=
@@ -780,7 +784,8 @@ usk::lifecycle::InstallPlan restore_reviewed_install_plan(
     const std::string& record) {
     const auto snapshot = usk::json::parse(record);
     if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
-        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") {
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") {
         throw std::runtime_error("protected public finalization requires a v2 plan snapshot");
     }
     usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot);
@@ -861,10 +866,11 @@ ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
     require_publisher_tree_security_shape(journal_reobserved, service_sid);
     require_publisher_tree_phase_match(journal_tree, journal_reobserved);
     const auto snapshot = usk::json::parse(record);
-    const bool caller_bound=snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
+    const bool consumer_bound=snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
+    const bool caller_bound=consumer_bound || snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
     if ((!caller_bound && snapshot.at("schema").as_string() !=
             "usk.publisher.lab_reviewed_plan_snapshot.v2") ||
-        snapshot.as_object().size() != (caller_bound ? 16u : 15u) ||
+        snapshot.as_object().size() != (consumer_bound ? 17u : caller_bound ? 16u : 15u) ||
         !lower_sha256_ascii(snapshot.at("plan_envelope_sha256").as_string()) ||
         !lower_sha256_ascii(snapshot.at("archive_sha256").as_string()) ||
         snapshot.at("plan_request").at("archive")
@@ -1004,7 +1010,8 @@ std::optional<usk::lifecycle::InstallResult> finalize_reviewed_public_state(cons
     std::string* installed_response = nullptr) {
     const auto snapshot = usk::json::parse(snapshot_record);
     if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
-        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") return std::nullopt;
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") return std::nullopt;
     const auto plan = restore_reviewed_install_plan(snapshot_record);
     usk::lifecycle::ProtectedPublisherEvidence evidence{
         volume, journal, state, visible_root, volume_root, service_name,
@@ -1370,7 +1377,24 @@ std::string observe_prepared_recovery(HANDLE volume,
         staged ? staging.get() : destination.get(),
         staged ? L"candidate" : L"visible", false,
         bind_visible_forward && staged));
-    const auto observed_tree = observe_publisher_tree(root.get());
+    const auto actual_tree = observe_publisher_tree(root.get());
+    const bool consumer_bound = has_reviewed_snapshot && visible &&
+        usk::json::parse(stored_snapshot).at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
+    auto observed_tree = actual_tree;
+    if (consumer_bound) {
+        const bool has_grant = actual_tree.root.dacl_aces.size() != 2 ||
+            std::any_of(actual_tree.descendants.begin(), actual_tree.descendants.end(),
+                [](const auto& entry) { return entry.object.dacl_aces.size() != 2; });
+        if (has_grant) {
+            if (!has_completion_record) throw std::runtime_error("consumer ACE precedes protected completion");
+            const auto snapshot = usk::json::parse(stored_snapshot);
+            usk::lifecycle::require_completed_consumer_install(
+                restore_reviewed_install_plan(stored_snapshot),
+                snapshot.at("transaction_id").as_string(), snapshot.at("applied_at").as_string(),
+                record_sha256(read_phase_record(state.get(),L"lab-installed-state.json")),volume_root,volume,service_name);
+        }
+        observed_tree = publisher_consumer_read_projection(actual_tree,service_sid,consumer_read_sid);
+    }
     require_publisher_tree_security_shape(observed_tree, service_sid);
     if (selected_v2) {
         if (selected_file_set_digest(observed_tree) != selected_digest) {
@@ -1430,7 +1454,7 @@ std::string observe_prepared_recovery(HANDLE volume,
     const auto second = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(anchors, second);
-    require_publisher_tree_phase_match(observed_tree,
+    require_publisher_tree_phase_match(actual_tree,
         observe_publisher_tree(root.get()));
     require_publisher_tree_phase_match(journal_tree,
         observe_publisher_tree(journal.get()));
@@ -1464,7 +1488,7 @@ std::string observe_prepared_recovery(HANDLE volume,
             // There is no retry after a rename with an uncertain outcome.
             require_publisher_anchor_set_phase_match(anchors,
                 observe_publisher_anchor_set(volume, {L"publication"}, names));
-            require_publisher_tree_phase_match(observed_tree,
+            require_publisher_tree_phase_match(actual_tree,
                 observe_publisher_tree(root.get()));
             (void)probe_publisher_bound_rename_no_replace(root.get(),
                 destination.get(), L"visible", observed_tree.root,
@@ -1569,7 +1593,7 @@ std::string observe_prepared_recovery(HANDLE volume,
                 throw std::runtime_error("recovery completion disappeared during repeat");
             }
         }
-        require_publisher_tree_phase_match(observed_tree,
+        require_publisher_tree_phase_match(actual_tree,
             observe_publisher_tree(root.get()));
         require_publisher_tree_phase_match(journal_tree,
             observe_publisher_tree(journal.get()));
@@ -1958,7 +1982,7 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
     const std::string applied_at = apply_envelope ?
         envelope.at("apply_request").at("applied_at").as_string() : current_utc_timestamp();
     usk::json::Value snapshot_value(usk::json::Value::Object{
-            {"schema", usk::json::Value(apply_envelope ? "usk.publisher.lab_reviewed_plan_snapshot.v3" : "usk.publisher.lab_reviewed_plan_snapshot.v2")},
+            {"schema", usk::json::Value(!consumer_read_sid.empty() ? "usk.publisher.lab_reviewed_plan_snapshot.v4" : apply_envelope ? "usk.publisher.lab_reviewed_plan_snapshot.v3" : "usk.publisher.lab_reviewed_plan_snapshot.v2")},
             {"plan_digest", usk::json::Value(plan_digest)},
             {"plan_envelope_sha256", usk::json::Value(reviewed_plan_envelope_sha256)},
             {"archive_sha256", usk::json::Value(selected_payload.source_sha256)},
@@ -1974,6 +1998,10 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
                 internal_plan.recipe.restart_policy_context)},
             {"plan_request", request},
             {"planned_entries", plan.at("planned_entries")}});
+    if (!consumer_read_sid.empty()) {
+        if (!apply_envelope) throw std::runtime_error("consumer read grant requires reviewed ordinary apply");
+        snapshot_value.as_object().emplace("consumer_read_sid",usk::json::Value(consumer_read_sid));
+    }
     if (apply_envelope) snapshot_value.as_object().emplace("apply_request",envelope.at("apply_request"));
     const std::string snapshot=canonical_record(usk::json::canonical(snapshot_value));
     usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot_value);
@@ -1986,7 +2014,8 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
 std::string observe_protected_anchors(HANDLE volume, const std::string& service_sid,
     const std::optional<ReviewedPlanBinding>& reviewed_plan,
     bool staged_only_reentry = false,
-    usk::lifecycle::InstallResult* completed_result = nullptr) {
+    usk::lifecycle::InstallResult* completed_result = nullptr,
+    std::string* installed_response = nullptr) {
     using namespace usk::platform::windows;
     const std::wstring sid(service_sid.begin(), service_sid.end());
     const auto descriptor = make_publisher_directory_security_descriptor(sid);
@@ -2288,7 +2317,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         if (reviewed_plan) {
             const auto finalized = finalize_reviewed_public_state(
                 reviewed_plan->durable_snapshot, completion_digest, volume,
-                journal.get(), state.get(), visible_root.get(), visible.root.file_id);
+                journal.get(), state.get(), visible_root.get(), visible.root.file_id, installed_response);
             if (completed_result) {
                 if (!finalized) throw std::runtime_error("protected apply has no installed result");
                 *completed_result = *finalized;
@@ -2393,23 +2422,33 @@ struct ScopedExecution {
         submitted_apply_request=config.submitted_apply_request ?
             std::optional<std::string>{usk::json::canonical(usk::json::parse(*config.submitted_apply_request))} :
             std::nullopt;
+        consumer_read_sid=config.consumer_read_sid;
+        interrupt_consumer_grant=config.interrupt_consumer_grant;
+        if (!consumer_read_sid.empty()) {
+            usk::platform::windows::require_publisher_consumer_sid(consumer_read_sid);
+            if (!submitted_apply_request) throw std::runtime_error("consumer policy requires authenticated apply");
+        } else if (interrupt_consumer_grant) throw std::runtime_error("consumer fault requires admitted consumer policy");
         stop_event=config.stop_event;
         reviewed_install_reentry=false;
         execution_active=true;
     }
-    ~ScopedExecution() { submitted_apply_request.reset(); execution_active=false; }
+    ~ScopedExecution() { submitted_apply_request.reset(); consumer_read_sid.clear(); execution_active=false; }
 };
 } // namespace
 
 void usk::lifecycle::require_candidate_snapshot_apply_binding(const usk::json::Value& snapshot) {
-    if (submitted_apply_request &&
-        (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" ||
-         usk::json::canonical(snapshot.at("apply_request")) != *submitted_apply_request)) {
+    const bool consumer_bound = snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
+    const bool caller_bound = consumer_bound || snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
+    if ((!consumer_read_sid.empty() && !consumer_bound) ||
+        (consumer_bound && snapshot.at("consumer_read_sid").as_string() != consumer_read_sid) ||
+        (submitted_apply_request && (!caller_bound ||
+         usk::json::canonical(snapshot.at("apply_request")) != *submitted_apply_request))) {
         throw StaleReviewedInstallRequest();
     }
-    if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") return;
+    if (consumer_bound) usk::platform::windows::require_publisher_consumer_sid(snapshot.at("consumer_read_sid").as_string());
+    if (!caller_bound) return;
     const auto& apply=snapshot.at("apply_request");
-    if (snapshot.as_object().size() != 16 || apply.as_object().size() != 7 ||
+    if (snapshot.as_object().size() != (consumer_bound ? 17u : 16u) || apply.as_object().size() != 7 ||
         apply.at("schema").as_string() != "usk.install_local_apply_request.v1" ||
         apply.at("confirmation").as_string() != "APPLY" ||
         usk::json::canonical(apply.at("plan_request")) != usk::json::canonical(snapshot.at("plan_request")) ||
@@ -2523,7 +2562,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         reviewed_plan.selected_payload.source_sha256;
                     reviewed_plan_envelope_sha256 = reviewed_plan.envelope_sha256;
                     anchors = observe_protected_anchors(volume,
-                        observed.service_sid, reviewed_plan, true);
+                        observed.service_sid, reviewed_plan, true, nullptr, &recovery_installed_response);
                 } else if (publication_present && !reviewed_plan_envelope_path.empty()) {
                     publication_effects_may_exist = true;
                     if (recovery_journal_has_snapshot_only(volume,
@@ -2532,7 +2571,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                             reviewed_plan_from_snapshot_only(
                                 volume, observed.service_sid);
                         anchors = observe_protected_anchors(volume,
-                            observed.service_sid, reviewed_plan, true);
+                            observed.service_sid, reviewed_plan, true, nullptr, &recovery_installed_response);
                     } else {
                         reviewed_install_reentry = true;
                         anchors = observe_prepared_recovery(volume,
@@ -2576,11 +2615,73 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         } catch (...) {
             throw;
         }
+        std::string consumer_access = "null";
+        if (!consumer_read_sid.empty()) {
+            using namespace usk::platform::windows;
+            if (apply_response.empty() && recovery_installed_response.empty()) {
+                throw std::runtime_error("consumer access requires verified public installation completion");
+            }
+            OwnedHandle publication(open_exact_lab_child(volume,L"publication"));
+            OwnedHandle destination(open_exact_lab_child(publication.get(),L"destination"));
+            OwnedHandle journal(open_exact_lab_child(publication.get(),L"journal"));
+            OwnedHandle state(open_exact_lab_child(publication.get(),L"state"));
+            OwnedHandle visible(open_exact_lab_child(destination.get(),L"visible",false,false,false,true));
+            const auto snapshot_record = read_phase_record(journal.get(),L"lab-reviewed-plan.json");
+            const auto snapshot = usk::json::parse(snapshot_record);
+            usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot);
+            const auto plan = restore_reviewed_install_plan(snapshot_record);
+            usk::lifecycle::require_completed_consumer_install(plan,
+                snapshot.at("transaction_id").as_string(),snapshot.at("applied_at").as_string(),
+                record_sha256(read_phase_record(state.get(),L"lab-installed-state.json")),volume_root,volume,service_name);
+            const PublisherAnchorNames grant_names{L"staging",L"destination",L"state",L"journal"};
+            const auto grant_anchors=observe_publisher_anchor_set(volume,{L"publication"},grant_names);
+            require_publisher_anchor_set_security_shape(grant_anchors,observed.service_sid);
+            const auto prepared_record=read_phase_record(journal.get(),L"lab-prepared-evidence.json");
+            const auto prepared=usk::json::parse(prepared_record);
+            if (usk::json::canonical(prepared.at("protected_anchors")) !=
+                    usk::json::canonical(usk::json::parse(json_anchor_set(grant_anchors)))) {
+                throw std::runtime_error("consumer reopened anchors differ from durable publication");
+            }
+            std::string confirmed_installed;
+            if (!finalize_reviewed_public_state(snapshot_record,
+                    record_sha256(read_phase_record(state.get(),L"lab-installed-state.json")),
+                    volume,journal.get(),state.get(),visible.get(),
+                    observe_publisher_directory_handle(visible.get()).file_id,&confirmed_installed)) {
+                throw std::runtime_error("consumer held publication proof is unavailable");
+            }
+            const auto grant_journal=observe_publisher_tree(journal.get());
+            const auto grant_state=observe_publisher_tree(state.get());
+            const auto before = observe_publisher_tree(visible.get());
+            const auto projected = publisher_consumer_read_projection(before,observed.service_sid,consumer_read_sid);
+            const auto expected = prepared_tree_at_visible_name(prepared.at("sealed_tree"),
+                prepared.at("sealed_tree").at("root").at("native_name").as_string(),
+                ascii(before.root.native_name));
+            if (expected != usk::json::canonical(usk::json::parse(json_tree(projected)))) {
+                throw std::runtime_error("consumer visible closure differs from prepared seal");
+            }
+            publication_effects_may_exist = true;
+            const auto objects = grant_publisher_consumer_read(visible.get(),before,
+                observed.service_sid,consumer_read_sid,stop_event,[&](std::size_t changed) {
+                    if (interrupt_consumer_grant && changed == 1) {
+                        throw std::runtime_error("injected interruption after first consumer grant; recovery required");
+                    }
+                });
+            require_publisher_anchor_set_phase_match(grant_anchors,
+                observe_publisher_anchor_set(volume,{L"publication"},grant_names));
+            require_publisher_tree_phase_match(grant_journal,observe_publisher_tree(journal.get()));
+            require_publisher_tree_phase_match(grant_state,observe_publisher_tree(state.get()));
+            usk::lifecycle::require_completed_consumer_install(plan,
+                snapshot.at("transaction_id").as_string(),snapshot.at("applied_at").as_string(),
+                record_sha256(read_phase_record(state.get(),L"lab-installed-state.json")),volume_root,volume,service_name);
+            consumer_access = "{\"status\":\"read_execute_granted\",\"consumer_sid\":" +
+                json_quote(consumer_read_sid) + ",\"objects\":" + std::to_string(objects) + "}";
+        }
         const std::string data =
             "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
             json_quote(recover_prepared && !recover_visible_bound ?
                 "recovery_required" : "pass") + ","
             "\"service_name\":" + json_quote(ascii(service_name)) +
+            ",\"consumer_access\":" + consumer_access +
             ",\"apply_response\":" + (apply_response.empty() ? "null" : apply_response) +
             ",\"recovery_installed_response\":" +
                 (recovery_installed_response.empty() ? "null" : recovery_installed_response) +

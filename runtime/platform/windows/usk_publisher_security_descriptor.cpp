@@ -36,8 +36,33 @@ DWORD publisher_directory_access_mask() {
         READ_CONTROL | SYNCHRONIZE | WRITE_DAC | WRITE_OWNER;
 }
 
-std::vector<unsigned char> make_publisher_directory_security_descriptor(
-    const std::wstring& service_sid) {
+DWORD publisher_consumer_read_access_mask() {
+    return FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
+}
+
+void require_publisher_consumer_sid(const std::string& sid) {
+    PSID raw = nullptr;
+    if (sid.empty() || !ConvertStringSidToSidA(sid.c_str(), &raw)) {
+        throw std::runtime_error("publisher consumer SID is malformed");
+    }
+    std::unique_ptr<void, LocalFreeDeleter> owned(raw);
+    const SID_IDENTIFIER_AUTHORITY nt = SECURITY_NT_AUTHORITY;
+    if (!IsValidSid(raw) || *GetSidSubAuthorityCount(raw) != 5 ||
+        *GetSidSubAuthority(raw, 0) != SECURITY_NT_NON_UNIQUE ||
+        *GetSidSubAuthority(raw, 4) < 1000 ||
+        std::memcmp(GetSidIdentifierAuthority(raw), &nt, sizeof(nt)) != 0) {
+        throw std::runtime_error("publisher consumer requires an ordinary account SID");
+    }
+    LPSTR canonical = nullptr;
+    if (!ConvertSidToStringSidA(raw, &canonical)) {
+        throw std::runtime_error("publisher consumer SID cannot be rendered");
+    }
+    std::unique_ptr<void, LocalFreeDeleter> canonical_owned(canonical);
+    if (sid != canonical) throw std::runtime_error("publisher consumer SID is not canonical");
+}
+
+static std::vector<unsigned char> make_descriptor(
+    const std::wstring& service_sid, const std::string& consumer_sid) {
     if (service_sid.empty()) throw std::runtime_error("publisher service SID is missing");
     PSID raw_service_sid = nullptr;
     if (!ConvertStringSidToSidW(service_sid.c_str(), &raw_service_sid)) {
@@ -54,9 +79,18 @@ std::vector<unsigned char> make_publisher_directory_security_descriptor(
     }
     const auto system_length = GetLengthSid(system_sid);
     const auto service_length = GetLengthSid(raw_service_sid);
+    PSID raw_consumer_sid = nullptr;
+    if (!consumer_sid.empty()) {
+        require_publisher_consumer_sid(consumer_sid);
+        if (!ConvertStringSidToSidA(consumer_sid.c_str(), &raw_consumer_sid)) {
+            throw std::runtime_error("publisher consumer SID conversion failed");
+        }
+    }
+    std::unique_ptr<void, LocalFreeDeleter> owned_consumer_sid(raw_consumer_sid);
+    const auto consumer_length = raw_consumer_sid ? GetLengthSid(raw_consumer_sid) : 0;
     const std::size_t acl_size = sizeof(ACL) +
-        2 * (sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD)) +
-        system_length + service_length;
+        (raw_consumer_sid ? 3u : 2u) * (sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD)) +
+        system_length + service_length + consumer_length;
     if (acl_size > std::numeric_limits<DWORD>::max()) {
         throw std::runtime_error("publisher ACL length exceeds Windows limits");
     }
@@ -68,6 +102,10 @@ std::vector<unsigned char> make_publisher_directory_security_descriptor(
         !AddAccessAllowedAceEx(acl, ACL_REVISION, 0,
             publisher_directory_access_mask(), raw_service_sid)) {
         throw std::runtime_error("publisher protected ACL construction failed");
+    }
+    if (raw_consumer_sid && !AddAccessAllowedAceEx(acl, ACL_REVISION, 0,
+            publisher_consumer_read_access_mask(), raw_consumer_sid)) {
+        throw std::runtime_error("publisher consumer read ACE construction failed");
     }
     SECURITY_DESCRIPTOR absolute{};
     if (!InitializeSecurityDescriptor(&absolute, SECURITY_DESCRIPTOR_REVISION) ||
@@ -89,6 +127,17 @@ std::vector<unsigned char> make_publisher_directory_security_descriptor(
         throw std::runtime_error("publisher self-relative descriptor is invalid");
     }
     return relative;
+}
+
+std::vector<unsigned char> make_publisher_directory_security_descriptor(
+    const std::wstring& service_sid) {
+    return make_descriptor(service_sid, {});
+}
+
+std::vector<unsigned char> make_publisher_consumer_security_descriptor(
+    const std::wstring& service_sid, const std::string& consumer_sid) {
+    require_publisher_consumer_sid(consumer_sid);
+    return make_descriptor(service_sid, consumer_sid);
 }
 
 } // namespace usk::platform::windows
