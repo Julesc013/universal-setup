@@ -287,15 +287,17 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         WaitForSingleObject(stop_event, 120000);
     } catch (const std::exception& error) {
         service_exit_code = ERROR_SERVICE_SPECIFIC_ERROR;
-        try {
-            write_receipt("{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+        const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
                 json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
                     "failed" : recover_visible_bound || reviewed_install_reentry ||
                     publication_effects_may_exist ?
                     "recovery_required" : "failed") +
-                ",\"error\":" + json_quote(error.what()) + "}\n");
-        } catch (...) {}
+                ",\"error\":" + json_quote(error.what()) + "}\n";
+        try { write_receipt(failure); } catch (...) {}
+        // An authenticated peer receives the actual refusal/retained-effects
+        // result when delivery is possible; loss of transport stays unknown.
+        if (request_channel) { try { request_channel->reply(failure); } catch (...) {} }
     }
     if (stop_event) CloseHandle(stop_event);
     report_status(SERVICE_STOPPED, 0, service_exit_code);

@@ -184,6 +184,7 @@ PublisherRequestChannel::~PublisherRequestChannel() = default;
 std::string PublisherRequestChannel::receive() {
     auto& state = *state_;
     if (state.received) throw std::runtime_error("publisher endpoint accepts one request");
+    if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
     Io io;
     const BOOL connected = ConnectNamedPipe(state.pipe.value, &io.overlapped);
     const DWORD error = connected ? ERROR_SUCCESS : GetLastError();
@@ -191,6 +192,7 @@ std::string PublisherRequestChannel::receive() {
     else io.finish(state.pipe.value, connected, state.stop, state.until, error);
     auto request = read_message(state.pipe.value, request_limit, state.stop, state.until);
     require_caller(state.pipe.value, state.caller_sid);
+    if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
     state.received = true;
     return request;
 }
@@ -232,8 +234,12 @@ std::string submit_publisher_request(const std::wstring& service_name,
     }
     DWORD mode = PIPE_READMODE_MESSAGE;
     if (!SetNamedPipeHandleState(pipe.value, &mode, nullptr, nullptr)) throw std::runtime_error("publisher endpoint message mode unavailable");
-    write_message(pipe.value, request, request_limit, nullptr, until);
-    return read_message(pipe.value, response_limit, nullptr, until);
+    try {
+        write_message(pipe.value, request, request_limit, nullptr, until);
+        return read_message(pipe.value, response_limit, nullptr, until);
+    } catch(const std::exception& error) {
+        throw PublisherRequestOutcomeUnknown(error.what());
+    }
 }
 }
 #endif

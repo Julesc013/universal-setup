@@ -24,7 +24,19 @@ int wmain(int argc, wchar_t** argv) {
         file.verify_unchanged();
         const auto request=usk::json::canonical(usk::json::parse(std::string(bytes.begin(),bytes.end())));
         const auto response=usk::platform::windows::submit_publisher_request(argv[2],request,120000);
-        const auto result=usk::json::parse(response);
+        const auto result=[&] {
+            try {
+                const auto parsed=usk::json::parse(response);
+                const auto status=parsed.at("status").as_string();
+                if(parsed.at("schema").as_string()!= "usk.publisher_lab_service_observation.v1" ||
+                    (status!="pass" && status!="failed" && status!="recovery_required")) {
+                    throw std::runtime_error("unexpected publisher response shape");
+                }
+                return parsed;
+            } catch(const std::exception& error) {
+                throw usk::platform::windows::PublisherRequestOutcomeUnknown(error.what());
+            }
+        }();
         if (_setmode(_fileno(stdout),_O_BINARY) == -1) throw std::runtime_error("binary output unavailable");
         std::cout << response;
         return result.at("status").as_string() == "pass" ? 0 : 3;

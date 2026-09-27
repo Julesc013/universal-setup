@@ -9,7 +9,13 @@
 #include <windows.h>
 #include <memory>
 #include <string>
+#include <stdexcept>
 namespace usk::platform::windows {
+class PublisherRequestOutcomeUnknown final : public std::runtime_error {
+public:
+    explicit PublisherRequestOutcomeUnknown(const std::string& reason) :
+        std::runtime_error("publisher response unavailable; outcome unknown: " + reason) {}
+};
 // Private transport only. This grants no filesystem or publisher authority.
 // The service supplies the admitted caller SID; message fields cannot choose it.
 class PublisherRequestChannel final {

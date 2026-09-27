@@ -82,21 +82,28 @@ function Start-RequestClient($submitted=$applyRequest) {
         -WindowStyle Hidden -PassThru -RedirectStandardOutput ($prefix+'-response.json') -RedirectStandardError ($prefix+'-error.txt')
     return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt'}
 }
-function Complete-RequestClient($client,[bool]$expectSuccess) {
+function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailureResponse=$false) {
     if(-not $client.process.WaitForExit(120000)) {
         $client.process.Kill();$client.process.WaitForExit();throw 'Owned request client timed out'
     }
+    $client.process.WaitForExit()
     if(($client.process.ExitCode -eq 0) -ne $expectSuccess) {
         throw ('Request client exit differs: '+$client.process.ExitCode+'; '+[IO.File]::ReadAllText($client.error))
     }
     $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
         caller_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
-    if($expectSuccess) {
+    $hasResponse=(Get-Item -LiteralPath $client.response).Length -gt 0
+    if($expectSuccess -or $hasResponse) {
         if((Get-Item -LiteralPath $client.response).Length -gt 4MB -or
             [IO.File]::ReadAllText($client.response).Trim() -cne [IO.File]::ReadAllText($nativePath).Trim()) {
             throw 'Authenticated client result differs from independently retained service result'
         }
         $result['response_sha256']=(Get-FileHash -LiteralPath $client.response -Algorithm SHA256).Hash.ToLowerInvariant()
+        $result['delivery']='response_received'
+    } elseif($requireFailureResponse -or [IO.File]::ReadAllText($client.error) -notmatch 'outcome unknown') {
+        throw 'Request client did not deliver a structured failure or explicitly report unknown outcome'
+    } else {
+        $result['delivery']='outcome_unknown'
     }
     return $result
 }
@@ -381,7 +388,8 @@ try {
         if($LASTEXITCODE -ne 0){throw 'Owned stale-client service configuration failed'}
         try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
         $requestClient=Start-RequestClient $tampered
-        $receipt['stale_authenticated_client']=Complete-RequestClient $requestClient $false
+        $nativePath=$stalePath
+        $receipt['stale_authenticated_client']=Complete-RequestClient $requestClient $false $true
         $requestClient=$null
         $stale=Get-Content -LiteralPath $stalePath -Raw|ConvertFrom-Json
         if($stale.status -ne 'failed' -or $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
@@ -400,8 +408,9 @@ try {
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
 } finally {
-    if($requestClient -and -not $requestClient.process.HasExited) {
-        $requestClient.process.Kill();$requestClient.process.WaitForExit()
+    if($requestClient) {
+        try { if(-not $requestClient.process.HasExited){$requestClient.process.Kill();$requestClient.process.WaitForExit()} }
+        catch { $failure='Owned client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     if($created) {
         try {
