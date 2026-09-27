@@ -15,17 +15,19 @@ param(
     [switch]$InterruptAfterVisibleRecord,
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish,
+    [switch]$InterruptAfterStage,
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
-if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish) -gt 1){throw 'Select one interruption window'}
-if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish)){throw 'Consumer interruption requires its exclusive consumer profile'}
+if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish+[int][bool]$InterruptAfterStage) -gt 1){throw 'Select one interruption window'}
+if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
-$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptDuringConsumerAccess
+if($InterruptAfterStage -and -not $ClientBinary){throw 'Snapshot-only replay requires an authenticated client'}
+$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
-$gate=if($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
-$readyContent=if($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
-$recoveryDecision=if($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
+$gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
+$readyContent=if($InterruptAfterStage){"usk.publisher.lab_snapshot_and_stage_sealed.v1`n"}elseif($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
+$recoveryDecision=if($InterruptAfterStage){'snapshot_only_completed_forward'}elseif($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -324,7 +326,8 @@ try {
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
         $interrupted=Get-Content -LiteralPath $nativePath -Raw|ConvertFrom-Json
-        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch ($gate+' gate interrupted') -or
+        $expectedInterruption=if($InterruptAfterStage){'poststage gate stopped before forced VM poweroff'}else{$gate+' gate interrupted'}
+        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch $expectedInterruption -or
             $interrupted.error -notmatch '"code":"recovery_required"') {
             throw 'Interrupted ordinary apply did not truthfully retain recovery material'
         }
@@ -336,10 +339,12 @@ try {
         $receipt['interrupted_observer_task_removed']=$before.observer_task_removed
         $publicBefore=@($before.independent.rows|Where-Object { -not $_.directory -and
             $_.path.StartsWith(($drive+'setup-state\'),[StringComparison]::Ordinal) })
-        # Protected setup-root bootstrap precedes the prepared phase. Its marker
-        # is expected; installed/ownership/audit records and completion are not.
+        # The poststage window precedes setup-root bootstrap. Later windows
+        # retain only its marker; none may have installed/audit completion.
+        $expectedPublicCount=if($InterruptAfterStage){0}else{1}
         if($before.independent.identity -ne 'S-1-5-18' -or -not $before.observer_task_removed -or
-            $publicBefore.Count -ne 1 -or $publicBefore[0].path -cne ($drive+'setup-state\.usk-owned-root.v1.json') -or
+            $publicBefore.Count -ne $expectedPublicCount -or
+            ($expectedPublicCount -eq 1 -and $publicBefore[0].path -cne ($drive+'setup-state\.usk-owned-root.v1.json')) -or
             @($before.independent.rows|Where-Object path -ceq ($drive+'publication\state\lab-installed-state.json')).Count -ne 0) {
             throw ('Independent interrupted metadata differs: public_files='+($publicBefore.path -join ',')+
                 '; identity='+$before.independent.identity+'; observer_removed='+$before.observer_task_removed)
@@ -348,8 +353,8 @@ try {
         $visibleRecords=@($before.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
         $expectedVisibleRecords=if($InterruptAfterVisibleRecord){1}else{0}
         if($visibleRecords.Count -ne $expectedVisibleRecords){throw 'Interrupted visible-journal boundary differs from selected window'}
-        $payloadPrefix=if($InterruptBeforePublish){$drive+'publication\staging\candidate\'}else{$drive+'publication\destination\visible\'}
-        $absentPrefix=if($InterruptBeforePublish){$drive+'publication\destination\visible'}else{$drive+'publication\staging\candidate'}
+        $payloadPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$drive+'publication\staging\candidate\'}else{$drive+'publication\destination\visible\'}
+        $absentPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$drive+'publication\destination\visible'}else{$drive+'publication\staging\candidate'}
         if(@($before.independent.rows|Where-Object {$_.path -ceq $absentPrefix -or $_.path.StartsWith($absentPrefix+'\',[StringComparison]::Ordinal)}).Count -ne 0){throw 'Interrupted payload namespace differs from selected window'}
         foreach($entry in $plan.planned_entries|Where-Object entry_type -eq 'file') {
             $path=$payloadPrefix+$entry.relative_path.Replace('/','\')
@@ -385,8 +390,13 @@ try {
             ' --recover-visible-bound --campaign-vm-id '+$vmId
         if($ClientBinary) {
             $recoveryPath=Join-Path $root ('vm-selected-reconnect-'+$id+'.json')
-            $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
-                $selectedClientArguments+$clientArguments
+            $recoveryCommand=if($InterruptAfterStage){
+                '"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
+                    ' --recover-snapshot-only --campaign-vm-id '+$vmId+$clientArguments
+            }else{
+                '"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
+                    $selectedClientArguments+$clientArguments
+            }
         }
         & sc.exe config $service binPath= $recoveryCommand|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Owned service recovery configuration failed'}
@@ -478,7 +488,7 @@ try {
         foreach($row in $before.independent.rows) {
             $completedPath=$row.path
             $stagedRoot=$drive+'publication\staging\candidate'
-            if($InterruptBeforePublish -and ($row.path -ceq $stagedRoot -or $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal))) {
+            if(($InterruptBeforePublish -or $InterruptAfterStage) -and ($row.path -ceq $stagedRoot -or $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal))) {
                 $completedPath=$drive+'publication\destination\visible'+$row.path.Substring($stagedRoot.Length)
             }
             $matching=@($receipt.independent.rows|Where-Object path -ceq $completedPath)

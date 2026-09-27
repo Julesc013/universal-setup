@@ -11,13 +11,14 @@ param(
     [switch]$InterruptAfterVisibleRecord,
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish,
+    [switch]$InterruptAfterStage,
     [switch]$HostileRights
 )
 
 $ErrorActionPreference = 'Stop'
 if ($HostileRights -and (-not $MachineBinary -or -not $ClientBinary -or
     $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
-    $InterruptAfterRename -or $InterruptBeforePublish)) {
+    $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
     throw 'Selected hostile-rights probe requires an uninterrupted reviewed client operation'
 }
 
@@ -141,7 +142,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -HostileRights:$HostileRights
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -HostileRights:$HostileRights
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `

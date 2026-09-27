@@ -394,7 +394,8 @@ int wmain(int argc, wchar_t** argv) {
         !campaign_vm_sealed_journal &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
         !campaign_vm_selected && !campaign_vm_selected_plan) return 2;
-    if (external_client && !campaign_vm_selected_plan) return 2;
+    if (external_client && !campaign_vm_selected_plan &&
+        !campaign_vm_snapshot_recovery) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];

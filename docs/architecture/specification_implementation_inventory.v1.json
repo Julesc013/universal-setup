@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "916b27dbfc36a8b61e9d67e2deada33157543587b3406b7de4af8862dbc689ee"
+          "sha256": "b3ee4986bb0f34e1fa2fdaf21e5084a9820e9793efa157ad0595cb7a99b8c3e7"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "916b27dbfc36a8b61e9d67e2deada33157543587b3406b7de4af8862dbc689ee"
+          "sha256": "b3ee4986bb0f34e1fa2fdaf21e5084a9820e9793efa157ad0595cb7a99b8c3e7"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "916b27dbfc36a8b61e9d67e2deada33157543587b3406b7de4af8862dbc689ee"
+          "sha256": "b3ee4986bb0f34e1fa2fdaf21e5084a9820e9793efa157ad0595cb7a99b8c3e7"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3931,11 +3931,11 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "e91b3bd38df93218115651998e679d64df4f8b6685511d3f9c2896796cdac182"
+          "sha256": "c86ffe04e38ad100ea5036b30c24252f6f52d332ba781ffa3a770812048ad05c"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "972282d904d1a020435d9faea82e554047eac521f07c65a479265db1c93d2133"
+          "sha256": "2411b5afdacf24a45ae7be0d9bf5a904a5720e6c0ec2417cf6de2d1d2298c771"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
@@ -4027,11 +4027,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "68cd8823ce1ff328a6d7f3b9f81f2e87dd3bf4d935d4ecce226c856c6a8bbafa"
+          "sha256": "cfc4b81ac610db71651dd01d269a6a514f5393c2381ebd514bedc57aa305d6a8"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "1bf611a5e78bf4c8731cb8524bb07e8bd47d2e9073afff574b11adcb643c2a93"
+          "sha256": "90f6dfda2ea0732339a7f6e00f27ddd421a6bd8057597e90262a19c42a745fe3"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4043,7 +4043,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "7c5bd321582464b38a2d3fa27ebd48bde6a7479093260895beed0271fc24d1da"
+          "sha256": "37a43b843ff4214b9642ea706c0d08ab98b9fba688ce044aeab7d879153a2d15"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4195,7 +4195,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "972282d904d1a020435d9faea82e554047eac521f07c65a479265db1c93d2133"
+          "sha256": "2411b5afdacf24a45ae7be0d9bf5a904a5720e6c0ec2417cf6de2d1d2298c771"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
@@ -4279,11 +4279,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "68cd8823ce1ff328a6d7f3b9f81f2e87dd3bf4d935d4ecce226c856c6a8bbafa"
+          "sha256": "cfc4b81ac610db71651dd01d269a6a514f5393c2381ebd514bedc57aa305d6a8"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "1bf611a5e78bf4c8731cb8524bb07e8bd47d2e9073afff574b11adcb643c2a93"
+          "sha256": "90f6dfda2ea0732339a7f6e00f27ddd421a6bd8057597e90262a19c42a745fe3"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4295,7 +4295,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "7c5bd321582464b38a2d3fa27ebd48bde6a7479093260895beed0271fc24d1da"
+          "sha256": "37a43b843ff4214b9642ea706c0d08ab98b9fba688ce044aeab7d879153a2d15"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",

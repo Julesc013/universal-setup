@@ -2711,8 +2711,12 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             ",\"prepublish_gate\":" +
             json_quote(recover_prepared || reviewed_install_reentry ? "not_applicable" :
                 (prepublish_gate ? "released" : "disabled")) +
-            (recover_prepared || reviewed_install_reentry ? ",\"recovery_observation\":" :
-                ",\"protected_anchors\":") + anchors + "}\n";
+            (recover_snapshot_only ?
+                ",\"recovery_observation\":{\"decision\":\"snapshot_only_completed_forward\","
+                    "\"protected_anchors\":" :
+                recover_prepared || reviewed_install_reentry ?
+                    ",\"recovery_observation\":" : ",\"protected_anchors\":") +
+            anchors + (recover_snapshot_only ? "}}\n" : "}\n");
         return data;
 }
 #endif
