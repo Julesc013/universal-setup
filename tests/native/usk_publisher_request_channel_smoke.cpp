@@ -100,6 +100,9 @@ int main() {
         { PublisherRequestChannel impostor(name,service_sid,sid,nullptr,25);
           refuses([&] { usk::platform::windows::submit_publisher_request(name,"{}",25); }); }
         refuses([&] { usk::platform::windows::publisher_request_pipe_name(L"bad\\remote"); });
+        // A non-service process cannot use admission to mutate its process ACL.
+        refuses([&] { usk::platform::windows::admit_current_publisher_client_observer(
+            name, L"S-1-5-21-1-2-3-1001"); });
         std::cout << "publisher request authentication, bounds, cancellation and exclusive endpoint passed\n";
         return 0;
     } catch(const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

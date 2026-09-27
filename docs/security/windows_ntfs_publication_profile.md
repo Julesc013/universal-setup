@@ -1307,3 +1307,14 @@ independent SYSTEM readback and mutation/private-access denials. Until actual
 receipts are inspected it is not non-admin runtime qualification. Injection
 and controlled cancellation are not power-loss proof. Lease/fencing and
 ordinary customer provisioning remain separate incomplete obligations.
+
+The consumer-mode service admits the configured account to its own process
+with only SYNCHRONIZE and PROCESS_QUERY_LIMITED_INFORMATION, after live SCM
+and restricted-token corroboration. This preserves the client's held-process
+identity check without granting termination, memory, handle-duplication or
+process-security mutation rights. Existing owner and ACE bytes are retained
+and the resulting descriptor is read back. No other process is modified.
+Hosted cancellation observes owned descendants by parent, start time,
+executable and command line, terminates the held tree and confirms recorded
+instances have exited. Unconfirmed cleanup retains the account and backing
+volume for disposable runner shutdown.

@@ -163,6 +163,9 @@ try {
     }
 } finally {
     try {
+        if($receipt.service_observation -and $receipt.service_observation.client_cleanup_confirmed -eq $false){
+            throw 'Owned client cleanup unconfirmed; retain backing volume until runner VM disposal'
+        }
         $backingFileExisted = Test-Path -LiteralPath $vhd -PathType Leaf
         if ($mounted) {
             $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop

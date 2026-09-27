@@ -264,6 +264,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         config.stop_event=stop_event;
         if (!authorized_client_sid.empty()) {
             const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
+            if (grant_client_read)
+                usk::platform::windows::admit_current_publisher_client_observer(service_name, authorized_client_sid);
             request_channel=std::make_unique<usk::platform::windows::PublisherRequestChannel>(
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
                 authorized_client_sid, stop_event, 120000);

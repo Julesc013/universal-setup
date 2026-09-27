@@ -37,6 +37,10 @@ private:
 std::string submit_publisher_request(const std::wstring& service_name,
     const std::string& request, DWORD timeout_ms = 30000);
 std::wstring publisher_request_pipe_name(const std::wstring& service_name);
+// Current restricted SYSTEM service only: grant the admitted consumer enough
+// process rights to hold/query our identity, preserving every existing ACE.
+void admit_current_publisher_client_observer(const std::wstring& service_name,
+    const std::wstring& consumer_sid);
 }
 #endif
 #endif

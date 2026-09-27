@@ -19,12 +19,14 @@ function Assert-IndependentProtectedRows {
     }
 }
 function Assert-IndependentMetadataProbe {
-    param($Result)
+    param($Result,[switch]$AllowPartialConsumerGrant)
     $drive=$Result.volume_drive_root
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
-    if ($Result.native.status -ne 'pass' -or -not $Result.observer_task_removed -or
+    $expectedStatus=if($AllowPartialConsumerGrant){'recovery_required'}else{'pass'}
+    if($AllowPartialConsumerGrant -and (-not $Result.consumer_sid -or $Result.native.error -notmatch 'injected interruption after first consumer grant')){throw 'Partial-grant witness is not the admitted injected failure'}
+    if ($Result.native.status -ne $expectedStatus -or -not $Result.observer_task_removed -or
         $Result.independent.identity -ne 'S-1-5-18') { throw 'Service, observer identity or confirmed task cleanup differs' }
-    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid -ConsumerSid ([string]$Result.consumer_sid) -VisibleRoot ($drive+'publication\destination\visible')
+    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid -ConsumerSid ([string]$Result.consumer_sid) -VisibleRoot ($drive+'publication\destination\visible') -AllowPartial:$AllowPartialConsumerGrant
     function Get-ExactRecord([string]$Path) {
         $found=@($Result.independent.rows|Where-Object { $_.path -ceq $Path -and -not $_.directory })
         if ($found.Count -ne 1 -or -not $found[0].content_json) { throw ('Missing independent record: ' + $Path) }
@@ -38,8 +40,9 @@ function Assert-IndependentMetadataProbe {
     if ($Result.apply_request -and ($snapshot.transaction_id -ne $Result.apply_request.transaction_id -or
         $snapshot.applied_at -ne $Result.apply_request.applied_at)) { throw 'Independent caller operation binding differs' }
     if($Result.consumer_sid -and ($snapshot.schema -cne 'usk.publisher.lab_reviewed_plan_snapshot.v4' -or
-        $snapshot.consumer_read_sid -cne $Result.consumer_sid -or $Result.native.consumer_access.consumer_sid -cne $Result.consumer_sid -or
-        $Result.native.consumer_access.status -cne 'read_execute_granted')){throw 'Independent durable consumer policy differs'}
+        $snapshot.consumer_read_sid -cne $Result.consumer_sid -or
+        (-not $AllowPartialConsumerGrant -and ($Result.native.consumer_access.consumer_sid -cne $Result.consumer_sid -or
+        $Result.native.consumer_access.status -cne 'read_execute_granted')))){throw 'Independent durable consumer policy differs'}
     $transaction=$snapshot.transaction_id
     $installId=$Result.request.install_id
     $installedPath=($drive + 'setup-state\state\installed\') + $installId + '.' + $transaction + '.json'

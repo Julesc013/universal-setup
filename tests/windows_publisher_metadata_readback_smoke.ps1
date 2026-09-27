@@ -119,4 +119,12 @@ foreach($case in $consumerCases.GetEnumerator()) {
     try{Assert-IndependentMetadataProbe $changed}catch{$refused=$true}
     if(-not $refused){throw ('Consumer oracle accepted: '+$case.Key)}
 }
-[ordered]@{status='pass';positive=3;refused=($cases.Count+$consumerCases.Count);scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress
+$partial=$consumerBytes|ConvertFrom-Json
+$partial.native.status='recovery_required'
+$partial.native|Add-Member -NotePropertyName error -NotePropertyValue 'injected interruption after first consumer grant; recovery required'
+Assert-IndependentMetadataProbe $partial -AllowPartialConsumerGrant
+Edit-Record $partial 'E:\setup-state\audit\chains\chain.synthetic\00000000000000000001.event.json' {param($r)$r.phase='validated'}
+$refused=$false
+try{Assert-IndependentMetadataProbe $partial -AllowPartialConsumerGrant}catch{$refused=$true}
+if(-not $refused){throw 'Partial consumer grant was accepted without completed audit'}
+[ordered]@{status='pass';positive=4;refused=($cases.Count+$consumerCases.Count+1);scope='synthetic readback validation only; no VM/runtime qualification'}|ConvertTo-Json -Compress

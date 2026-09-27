@@ -25,6 +25,7 @@ $gate=if($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'po
 $readyContent=if($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
 $recoveryDecision=if($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -82,6 +83,7 @@ $consumerCreated=$false
 $consumerCredential=$null
 $consumerSid=''
 $consumerProcess=$null
+$clientCleanupConfirmed=$true
 $consumerOutput=Join-Path $root 'consumer-output'
 $consumerScript=Join-Path $root 'consumer-client.ps1'
 function Start-RequestClient($submitted=$applyRequest) {
@@ -105,7 +107,7 @@ function Start-RequestClient($submitted=$applyRequest) {
 }
 function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailureResponse=$false) {
     if(-not $client.process.WaitForExit(120000)) {
-        $client.process.Kill();$client.process.WaitForExit();throw 'Owned request client timed out'
+        Stop-OwnedPublisherProcessTree $client.process|Out-Null;throw 'Owned request client timed out'
     }
     $client.process.WaitForExit()
     if(($client.process.ExitCode -eq 0) -ne $expectSuccess) {
@@ -360,6 +362,10 @@ try {
         Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid -ConsumerSid $consumerSid -VisibleRoot ($drive+'publication\destination\visible') -AllowPartial
         $granted=@($before.independent.rows|Where-Object {@($_.aces|Where-Object sid -eq $consumerSid).Count -eq 1})
         if($granted.Count -ne 1){throw 'First-grant interruption did not leave exactly one readable payload object'}
+        $partialWitness=[pscustomobject]@{volume_drive_root=$drive;native=$partial;service_sid=$sid;consumer_sid=$consumerSid;
+            independent=$before.independent;observer_task_removed=$before.observer_task_removed;plan=$plan;archive_sha256=$inputs.archive_sha256;
+            apply_request=$applyRequest;request=$request.payload}
+        Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant
         $receipt['partial_consumer_grant']=[ordered]@{native=$partial;independent=$before.independent;observer_task_removed=$before.observer_task_removed;granted_objects=$granted.Count}
         $removed=[Collections.Generic.List[string]]::new()
         foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
@@ -496,7 +502,7 @@ try {
             '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
             '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,
             '-PayloadRoot',($drive+'publication\destination\visible'),'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput
-        if(-not $consumerProcess.WaitForExit(45000)){$consumerProcess.Kill();$consumerProcess.WaitForExit();throw 'Consumer payload probe timed out'}
+        if(-not $consumerProcess.WaitForExit(45000)){Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null;throw 'Consumer payload probe timed out'}
         $consumerProcess.WaitForExit()
         if($consumerProcess.ExitCode -ne 0){throw 'Non-admin payload access probe failed'}
         $access=Get-Content -LiteralPath $accessPath -Raw|ConvertFrom-Json
@@ -507,7 +513,8 @@ try {
         }
         $receipt['consumer_access_observation']=$access
         $afterAccess=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if(($after.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne ($afterAccess.independent.rows|ConvertTo-Json -Depth 32 -Compress)){throw 'Consumer access attempts changed installed bytes/ACLs'}
+        $accessBaseline=if($recover){$after.independent.rows}else{$receipt.independent.rows}
+        if(($accessBaseline|ConvertTo-Json -Depth 32 -Compress) -cne ($afterAccess.independent.rows|ConvertTo-Json -Depth 32 -Compress)){throw 'Consumer access attempts changed installed bytes/ACLs'}
         $receipt['consumer_attempts_unchanged_rows']=$afterAccess.independent.rows
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
@@ -516,17 +523,19 @@ try {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
 } finally {
     if($requestClient) {
-        try { if(-not $requestClient.process.HasExited){$requestClient.process.Kill();$requestClient.process.WaitForExit()} }
-        catch { $failure='Owned client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+        try { Stop-OwnedPublisherProcessTree $requestClient.process|Out-Null }
+        catch { $clientCleanupConfirmed=$false;$failure='Owned client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     if($consumerProcess) {
-        try {if(-not $consumerProcess.HasExited){$consumerProcess.Kill();$consumerProcess.WaitForExit()}}
-        catch {$failure='Consumer payload process cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
+        try {Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null}
+        catch {$clientCleanupConfirmed=$false;$failure='Consumer payload process cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
-    if($consumerCreated) {
+    $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
+    if($consumerCreated -and $clientCleanupConfirmed) {
         try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
         catch {$failure='Owned consumer account cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
     }
+    if($consumerCreated -and -not $clientCleanupConfirmed){$receipt['consumer_account_retained']=$consumerName}
     $consumerCredential=$null
     if($created) {
         try {
