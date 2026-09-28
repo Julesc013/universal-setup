@@ -660,7 +660,10 @@ try {
         }
         if(-not (Test-Path -LiteralPath $concurrentReady) -or
             [IO.File]::ReadAllText($concurrentReady) -cne "usk.publisher.concurrent_ready.v1`n") {
-            throw 'Production concurrent attacker did not establish readiness'
+            $diagnostic=if(Test-Path -LiteralPath $concurrentError){
+                Read-BoundedDiagnostic $concurrentError 2048
+            }else{'stderr absent'}
+            throw ('Production concurrent attacker did not establish missing-path baseline: '+$diagnostic)
         }
         $attackerProcess=Get-CimInstance Win32_Process -Filter ('ProcessId='+$concurrentAttacker.Id) -ErrorAction Stop
         $attackerOwner=Invoke-CimMethod -InputObject $attackerProcess -MethodName GetOwnerSid
@@ -1064,9 +1067,16 @@ try {
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
             $coverage=if($ProductionConcurrentRights) {
+                # The same path must be missing before submission and after
+                # completion, but deny writes while the service is staging.
+                # Parent markers bound a broader interval; no exact native
+                # rename-overlap claim follows from these samples.
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
+                $concurrent.concurrent.staged_write.missing_before_start -ge 1 -and
                 $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.staged_write.denied_after_start_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.staged_write.missing_after_completion -ge 1 -and
                 $concurrent.concurrent.cycles_after_start_before_observed_reply -ge 1
             }else{
                 $concurrent.stage -ceq 'Concurrent' -and
@@ -1086,6 +1096,9 @@ try {
                 throw 'Concurrent hostile-rights observation differs from the actual client'
             }
             $receipt['concurrent_hostile_rights']=$concurrent
+            if($ProductionConcurrentRights) {
+                $receipt['concurrent_qualification_limit']='sampled_live_staging_not_exact_rename_overlap'
+            }
             $concurrentAttacker=$null
         }
     } else {
