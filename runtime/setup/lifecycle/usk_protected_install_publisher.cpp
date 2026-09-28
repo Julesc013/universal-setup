@@ -2788,6 +2788,16 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         bool snapshot_only_replay = false;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
+            if ((recover_snapshot_only || recover_reviewed) && !install_guard) {
+                // Source-free recovery has no submitted apply request from which
+                // to name the install guard. Bind it to the protected snapshot
+                // while the volume guard is held, before recovery can mutate.
+                OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
+                OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+                const auto plan = restore_reviewed_install_plan(
+                    read_phase_record(journal.get(), L"lab-reviewed-plan.json"));
+                install_guard.emplace(volume_root, plan.install_id);
+            }
             if (verify_installed_request) {
                 return verify_completed_install_in_service(volume, observed.service_sid);
             }
