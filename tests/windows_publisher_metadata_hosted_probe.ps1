@@ -565,9 +565,11 @@ try {
             $clientError=if($requestClient -and (Test-Path -LiteralPath $requestClient.error)){
                 Read-BoundedDiagnostic $requestClient.error 1024
             }else{'client error absent'}
-            $serviceState=(Get-Service $service -ErrorAction SilentlyContinue).Status
+            $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction SilentlyContinue
             throw ('Selected interruption window was not reached: '+$gate+
-                '; service='+$serviceState+'; native='+$nativeError+'; client='+$clientError)
+                '; service='+$serviceInfo.State+'; exit_code='+$serviceInfo.ExitCode+
+                '; service_exit_code='+$serviceInfo.ServiceSpecificExitCode+
+                '; native='+$nativeError+'; client='+$clientError)
         }
         Stop-Service $service -ErrorAction Stop
         if($requestClient) {
