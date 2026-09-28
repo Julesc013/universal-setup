@@ -29,6 +29,10 @@ if ($HostileRights -and (-not $MachineBinary -or -not $ClientBinary -or
     throw 'Selected hostile-rights probe requires an uninterrupted reviewed client operation'
 }
 
+if($TerminateAtPoststage -and (-not $InterruptAfterStage -or -not $RegisteredService -or -not $ReviewedSource -or -not $ClientBinary -or $MachineRequestClient -or $ConsumerAccess -or $NonAdminClient)) {
+    throw 'Transport-loss probe requires the registered reviewed publisher client and poststage gate'
+}
+
 # This script is deliberately limited to a fresh GitHub-hosted Windows VM.
 # In particular, no local workstation disk may pass the admission check.
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
