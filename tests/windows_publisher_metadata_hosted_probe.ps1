@@ -295,9 +295,26 @@ try {
     }
     $receipt.request=$request.payload;$receipt.plan=$plan;$receipt.archive_sha256=$inputs.archive_sha256
     $receipt['source_mode']=if($RegisteredService){'registered_reviewed_service'}elseif($ReviewedSource){'authenticated_reviewed_envelope'}else{'legacy_scm_source_binding'}
-    $applyRequest=[ordered]@{schema='usk.install_local_apply_request.v1';plan_request=$request.payload;
-        reviewed_plan_id=$plan.plan_id;reviewed_plan_digest=$plan.plan_digest;transaction_id='install.'+$id;
-        applied_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ');confirmation='APPLY'}
+    $responsePath=Join-Path $root ('metadata-plan-response-'+$id+'.json')
+    [IO.File]::WriteAllText($responsePath,($output -join "`n")+"`n",$utf8)
+    $bindingDir=Join-Path $root ('authored-binding-'+$id)
+    $bound=& python -B (Join-Path $PSScriptRoot '..\tools\usk_bundle_apply_binding.py') `
+        --request-file $requestPath --response-file $responsePath `
+        --acceptance-root $drive --state-root ($drive+'setup-state') `
+        --transaction-id ('install.'+$id) `
+        --applied-at ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')) `
+        --output-dir $bindingDir
+    if($LASTEXITCODE -ne 0){throw 'Authored native plan could not bind a protected apply'}
+    $binding=$bound|ConvertFrom-Json
+    if($binding.schema -ne 'usk.publisher.candidate_binding.v1' -or
+        $binding.apply_file -cne (Join-Path $bindingDir 'apply.json') -or
+        $binding.envelope_file -cne (Join-Path $bindingDir 'envelope.json')) {
+        throw 'Authored apply binding output differs'
+    }
+    $applyRequest=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
+    $envelope=$binding.envelope_file
+    if((Get-FileHash -LiteralPath $envelope -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+        $binding.envelope_sha256) {throw 'Authored apply envelope identity differs'}
     $receipt['apply_request']=$applyRequest
     $receipt['public_apply_binary_sha256']=(Get-FileHash -LiteralPath $PublicApplyBinary -Algorithm SHA256).Hash.ToLowerInvariant()
     # The identical ordinary request must refuse outside the admitted service,
@@ -313,11 +330,7 @@ try {
         (Test-Path -LiteralPath ($drive+'setup-state')) -or (Test-Path -LiteralPath ($drive+'publication'))) {
         throw 'Ordinary apply did not refuse before mutation outside the service'
     }
-    [IO.File]::WriteAllText($envelope,([ordered]@{schema='usk.publisher.lab_reviewed_plan_envelope.v2';
-        activation='operator_acceptance_candidate';acceptance_root=$drive;state_root=$drive+'setup-state';
-        reviewed_plan_digest=$plan.plan_digest;plan_request=$request.payload;apply_request=$applyRequest}|
-        ConvertTo-Json -Depth 32 -Compress)+"`n",$utf8)
-    $receipt['envelope_sha256']=(Get-FileHash -LiteralPath $envelope -Algorithm SHA256).Hash.ToLowerInvariant()
+    $receipt['envelope_sha256']=$binding.envelope_sha256
     $selectedClientArguments=if($ReviewedSource){
         ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+' --campaign-vm-id '+$vmId
     }else{
@@ -548,7 +561,8 @@ try {
         # Delete only regular input files within this freshly created VM root;
         # retain minimal parsed inputs and independent observations in receipt.
         $removed=[Collections.Generic.List[string]]::new()
-        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+            $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
             $exact=[IO.Path]::GetFullPath($path)
             $item=Get-Item -LiteralPath $exact -Force
             if(-not $exact.StartsWith(($root+'\'),[StringComparison]::OrdinalIgnoreCase) -or
@@ -617,7 +631,8 @@ try {
         Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant
         $receipt['partial_consumer_grant']=[ordered]@{native=$partial;independent=$before.independent;observer_task_removed=$before.observer_task_removed;granted_objects=$granted.Count}
         $removed=[Collections.Generic.List[string]]::new()
-        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+            $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
             $exact=[IO.Path]::GetFullPath($path);$item=Get-Item -LiteralPath $exact -Force
             if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Consumer source removal target escaped owned root'}
             Remove-Item -LiteralPath $exact -Force
@@ -711,7 +726,8 @@ try {
         # service grammar against the existing source-free recovery engine.
         if(-not $recover) {
             $removed=[Collections.Generic.List[string]]::new()
-            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+                $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
                 $exact=[IO.Path]::GetFullPath($path)
                 $item=Get-Item -LiteralPath $exact -Force
                 if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or
@@ -724,7 +740,8 @@ try {
             }
             $receipt['removed_source_inputs']=$removed.ToArray()
         } else {
-            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+                $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
                 if(Test-Path -LiteralPath $path){throw 'Original source returned before registered replay'}
             }
         }
