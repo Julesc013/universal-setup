@@ -24,6 +24,15 @@ param(
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
+function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
+    $stream=[IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite)
+    try {
+        $bytes=[byte[]]::new($Limit)
+        $count=$stream.Read($bytes,0,$Limit)
+        return [Text.Encoding]::UTF8.GetString($bytes,0,$count)
+    } finally {$stream.Dispose()}
+}
 if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish+[int][bool]$InterruptAfterStage) -gt 1){throw 'Select one interruption window'}
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
@@ -348,7 +357,13 @@ try {
         throw 'Authored apply binding output differs'
     }
     $applyRequest=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
-    $envelope=$binding.envelope_file
+    if($RegisteredService) {
+        $envelope=$binding.envelope_file
+    } else {
+        # The existing disposable service grammar admits only plan-ID files
+        # directly beneath C:\USK-Lab. Keep the authored bytes and digest.
+        Copy-Item -LiteralPath $binding.envelope_file -Destination $envelope -ErrorAction Stop
+    }
     if((Get-FileHash -LiteralPath $envelope -Algorithm SHA256).Hash.ToLowerInvariant() -cne
         $binding.envelope_sha256) {throw 'Authored apply envelope identity differs'}
     $receipt['apply_request']=$applyRequest
@@ -368,6 +383,7 @@ try {
     }
     $sourceInputs=@($archive,$envelope,$inputs.archive_file,$inputs.request_file,
         $requestPath,$contextPath,$ordinaryPath,$responsePath,$binding.apply_file)+@($inputs.source_files)
+    if($envelope -cne $binding.envelope_file){$sourceInputs+=@($binding.envelope_file)}
     if($packageRoot) {
         $sourceInputs+=@((Join-Path $packageRoot 'inspect\product.bundle.json'),
             (Join-Path $packageRoot 'inspect\prefab.manifest.json'),
@@ -475,7 +491,10 @@ try {
             try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
         } else { Start-RegisteredPublisher }
     } else {
-        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        try{Start-Service $service}catch{
+            if($recover){throw ('Interruption service start failed: '+$_.Exception.Message)}
+            if((Get-Service $service).Status -ne 'Stopped'){throw}
+        }
     }
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ExpectUnprotectedRefusal) {
@@ -543,10 +562,24 @@ try {
         # This is neither VM power loss nor physical-host power-loss evidence.
         $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$gate+'-ready.txt'
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
-        while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){
+            if((Test-Path -LiteralPath $nativePath) -and
+                (Get-Service $service -ErrorAction SilentlyContinue).Status -eq 'Stopped'){break}
+            Start-Sleep -Milliseconds 250
+        }
         if(-not (Test-Path -LiteralPath $ready) -or
             [IO.File]::ReadAllText($ready) -cne $readyContent) {
-            throw ('Selected interruption window was not reached: '+$gate)
+            $nativeError=if(Test-Path -LiteralPath $nativePath){
+                Read-BoundedDiagnostic $nativePath 2048
+            }else{'native receipt absent'}
+            $clientError=if($requestClient -and (Test-Path -LiteralPath $requestClient.error)){
+                Read-BoundedDiagnostic $requestClient.error 1024
+            }else{'client error absent'}
+            $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction SilentlyContinue
+            throw ('Selected interruption window was not reached: '+$gate+
+                '; service='+$serviceInfo.State+'; exit_code='+$serviceInfo.ExitCode+
+                '; service_exit_code='+$serviceInfo.ServiceSpecificExitCode+
+                '; native='+$nativeError+'; client='+$clientError)
         }
         Stop-Service $service -ErrorAction Stop
         if($requestClient) {
@@ -830,6 +863,67 @@ try {
             throw 'Registered source-free reentry changed independently observed installed rows'
         }
         $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
+    }
+    if($RegisteredService -and -not $InterruptAfterStage) {
+        # The ordinary packaged client asks the restricted service to verify
+        # the completed installation. The caller receives no private-state ACL.
+        $verifyRequest=[ordered]@{schema='usk.publisher_installed_verify_request.v1';
+            request_id='verify.'+$id;install_id=$applyRequest.plan_request.install_id;
+            transaction_id=$applyRequest.transaction_id;report_id='verify.'+$id;
+            verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+        $verifyArgs=@('--verify',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+        if($NonAdminClient){$verifyArgs+='--admit-client-observer'}
+        $configuredVerify=& $ServiceControlBinary @verifyArgs
+        if($LASTEXITCODE -ne 0 -or ($configuredVerify|ConvertFrom-Json).status -ne 'verify_configured') {
+            throw 'Product service control did not configure read-only verification'
+        }
+        Start-RegisteredPublisher
+        $requestClient=Start-RequestClient $verifyRequest
+        $verifyClient=$requestClient
+        if(-not $verifyClient.process.WaitForExit(120000)){throw 'Registered verification client timed out'}
+        $verifyClient.process.WaitForExit()
+        $requestClient=$null
+        if($verifyClient.process.ExitCode -ne 0 -or
+            (Get-Item -LiteralPath $verifyClient.response).Length -gt 4MB) {
+            throw ('Registered verification client failed: '+[IO.File]::ReadAllText($verifyClient.error))
+        }
+        $verified=Get-Content -LiteralPath $verifyClient.response -Raw|ConvertFrom-Json
+        if($verified.status -ne 'pass' -or $verified.transaction_id -cne $applyRequest.transaction_id -or
+            $verified.verify_response.status -ne 'ok' -or
+            $verified.verify_response.payload.status -ne 'pass' -or
+            $verified.verify_response.payload.install_id -cne $verifyRequest.install_id -or
+            $verified.verify_response.payload.report_id -cne $verifyRequest.report_id -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw 'Authenticated read-only verification differs from completed installation'
+        }
+        $receipt['registered_installed_verify']=[ordered]@{status=$verified.status;
+            report_digest=$verified.verify_response.payload.report_digest;
+            client_exit_code=$verifyClient.process.ExitCode;
+            response_sha256=(Get-FileHash -LiteralPath $verifyClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
+        $staleVerify=[ordered]@{}
+        foreach($key in $verifyRequest.Keys){$staleVerify[$key]=$verifyRequest[$key]}
+        $staleVerify.transaction_id='install.'+[guid]::NewGuid().ToString('N')
+        Start-RegisteredPublisher
+        $requestClient=Start-RequestClient $staleVerify
+        $staleClient=$requestClient
+        if(-not $staleClient.process.WaitForExit(120000)){throw 'Stale verification client timed out'}
+        $staleClient.process.WaitForExit()
+        $requestClient=$null
+        $staleResponse=Get-Content -LiteralPath $staleClient.response -Raw|ConvertFrom-Json
+        if($staleClient.process.ExitCode -eq 0 -or $staleResponse.status -ne 'failed' -or
+            $staleResponse.error -notmatch 'differs from completed install') {
+            throw 'Stale authenticated verification request was not refused'
+        }
+        $receipt.registered_installed_verify['stale_transaction_refused']=$true
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
+        $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        if($verifyRows.independent.identity -ne 'S-1-5-18' -or -not $verifyRows.observer_task_removed -or
+            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($verifyRows.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Read-only verification changed independently observed installed rows'
+        }
+        $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
     }
     if($HostileRights) {
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'

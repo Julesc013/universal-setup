@@ -51,6 +51,7 @@ bool recover_snapshot_only = false;
 bool recover_reviewed = false;
 bool recover_sealed_journal = false;
 bool recover_visible_bound = false;
+bool verify_installed = false;
 bool reviewed_install_reentry = false;
 bool require_preprotected_boundary = false;
 
@@ -260,6 +261,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         config.recover_reviewed=recover_reviewed;
         config.recover_sealed_journal=recover_sealed_journal;
         config.recover_visible_bound=recover_visible_bound;
+        config.verify_installed=verify_installed;
         config.selected_archive_mode=selected_archive_mode;
         config.selected_archive_path=selected_archive_path;
         config.selected_archive_sha256=selected_archive_sha256;
@@ -273,7 +275,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             request_channel=std::make_unique<usk::platform::windows::PublisherRequestChannel>(
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
                 authorized_client_sid, stop_event, 120000);
-            config.submitted_apply_request=request_channel->receive();
+            if (verify_installed) config.submitted_verify_request=request_channel->receive();
+            else config.submitted_apply_request=request_channel->receive();
             if (grant_client_read) config.consumer_read_sid=ascii(authorized_client_sid);
             config.interrupt_consumer_grant=interrupt_consumer_grant;
         }
@@ -302,8 +305,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
                 json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
-                    "failed" : recover_visible_bound || reviewed_install_reentry ||
-                    publication_effects_may_exist ?
+                    "failed" : !verify_installed && (recover_visible_bound || reviewed_install_reentry ||
+                    publication_effects_may_exist) ?
                     "recovery_required" : "failed") +
                 ",\"error\":" + json_quote(error.what()) + "}\n";
         if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
@@ -458,8 +461,19 @@ int wmain(int argc, wchar_t** argv) {
                 return true;
             } catch (const std::exception&) { return false; }
         }();
+    const bool registered_verify = argc == 6 && external_client &&
+        !grant_client_read && !interrupt_consumer_grant &&
+        generated_service_name(name, L"USK_PUB_") &&
+        std::wstring(argv[3]) == L"--no-receipt" &&
+        std::wstring(argv[5]) == L"--verify-installed" &&
+        [&] {
+            try {
+                (void)usk::platform::windows::publisher_volume_operation_guard_name(argv[4]);
+                return true;
+            } catch (const std::exception&) { return false; }
+        }();
     const bool registered_mode = registered_reviewed || registered_fault ||
-        registered_recovery;
+        registered_recovery || registered_verify;
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
@@ -492,6 +506,7 @@ int wmain(int argc, wchar_t** argv) {
         campaign_vm_sealed_journal;
     recover_snapshot_only = campaign_vm_snapshot_recovery;
     recover_reviewed = campaign_vm_reviewed_recovery || registered_recovery;
+    verify_installed = registered_verify;
     require_preprotected_boundary = campaign_vm_reviewed_source ||
         campaign_vm_selected_plan || registered_mode;
     recover_sealed_journal = campaign_vm_sealed_journal;
