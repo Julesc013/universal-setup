@@ -314,7 +314,11 @@ std::string ascii(const std::wstring& value) {
 }
 
 std::wstring selected_visible_component(const std::string& target) {
-    const std::filesystem::path path(target);
+    // Public plans persist generic '/' paths; service configuration may use '\\'.
+    // Normalize only separator spelling before checking for dot or duplicate
+    // components, so both representations have the same strict path grammar.
+    std::filesystem::path path(target);
+    path.make_preferred();
     const std::filesystem::path root = path.root_path();
     const std::wstring root_name = root.wstring();
     if (!path.is_absolute() || path.lexically_normal() != path ||

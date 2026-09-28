@@ -4071,7 +4071,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "2ebd3bde5727032d32a1b5812a5550ac67716cda0e51a21ab4f508d720d0a7ed"
+          "sha256": "c180152f2df21e733a7c0a53081ab71f085953020e3fdd4235ef7c93c7ca9a68"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4359,7 +4359,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "2ebd3bde5727032d32a1b5812a5550ac67716cda0e51a21ab4f508d720d0a7ed"
+          "sha256": "c180152f2df21e733a7c0a53081ab71f085953020e3fdd4235ef7c93c7ca9a68"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
