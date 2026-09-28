@@ -138,13 +138,9 @@ try {
                 $PayloadRelativePath -cne 'bin/core.bin') {
                 throw 'production attacker source is not on the exact owned volume'
             }
-            $sourceHandle=[IO.File]::Open($SameVolumeSource,[IO.FileMode]::Open,
-                [IO.FileAccess]::ReadWrite,[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
-            try {
-                if($sourceHandle.Length -ne 1 -or $sourceHandle.ReadByte() -ne 0x42) {
-                    throw 'same-volume attacker source bytes differ'
-                }
-            } finally {$sourceHandle.Dispose()}
+            # The protected volume-root ACL deliberately prevents this caller
+            # from reopening even its own scratch file. SYSTEM independently
+            # checks the source bytes before and after the attempted rename.
         }
         $receipt['concurrent'] = [ordered]@{
             destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
@@ -230,11 +226,6 @@ try {
                 $receipt.concurrent.cycles_after_completion -lt 3) {
                 throw 'production attacker did not observe live staging and completed visibility'
             }
-            $retained=[IO.File]::ReadAllBytes($SameVolumeSource)
-            if($retained.Length -ne 1 -or $retained[0] -ne 0x42) {
-                throw 'same-volume attacker source changed during refused replacement'
-            }
-            $receipt.concurrent['same_volume_source_retained']=$true
         } elseif (-not $receipt.concurrent.ready_utc -or
             $receipt.concurrent.destination_create.denied -lt 4 -or
             $receipt.concurrent.destination_create.denied_after_gate_before_observed_reply -lt 1 -or

@@ -187,7 +187,7 @@ function Start-StageObserver {
         -Destination $scriptPath -ErrorAction Stop
     $arguments='-NoProfile -NonInteractive -File "'+$scriptPath+'" -StagePath "'+
         $stagePath+'" -ReadyPath "'+$readyPath+'" -StopPath "'+$stopPath+
-        '" -OutputPath "'+$outputPath+'"'
+        '" -OutputPath "'+$outputPath+'" -SourcePath "'+$attackSource+'"'
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
     $registered=$false
     try {
@@ -1187,6 +1187,10 @@ try {
                 $stageObservation=Complete-StageObserver $stageObserver
                 $receipt['production_stage_observation']=$stageObservation
                 $receipt['production_stage_observer_task_removed']=$stageObserver.removed
+                if($stageObservation.source_sha256_at_start -cne $scratchSha256 -or
+                    $stageObservation.source_sha256_at_stop -cne $scratchSha256) {
+                    throw 'SYSTEM observer found changed same-volume attacker source'
+                }
             }
             if(-not $concurrentAttacker.WaitForExit(30000)) {
                 throw 'Concurrent attacker remained after terminal publisher reply'
@@ -1210,7 +1214,8 @@ try {
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
                 $stageObserver.removed -and $overlap -and $replaceOverlap -and
-                $concurrent.concurrent.same_volume_source_retained -and
+                $stageObservation.source_sha256_at_start -ceq $scratchSha256 -and
+                $stageObservation.source_sha256_at_stop -ceq $scratchSha256 -and
                 $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_write.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_replace.denied_after_start_before_observed_reply -ge 1 -and
