@@ -79,6 +79,7 @@ def _manifest(prefab: dict[str, Any], entries: dict[str, dict[str, Any]]) -> dic
             "product_version": prefab["product_version"],
             "target": "windows-x64", "entries": entries,
             "installation_mode": "selected_ntfs_candidate",
+            "service_mode": "requires_executable_probe",
             "signing_status": "unsigned",
             "provisioning": "dedicated_ntfs_volume_and_restricted_service_required"}
 
@@ -141,7 +142,7 @@ def build_candidate_package(bundle: Path, machine: Path, service: Path,
     native = {"service": service.absolute(), "control": control.absolute(),
               "client": client.absolute()}
     if any(native[role].name.lower() != BINARIES[role] for role in BINARIES):
-        raise CandidatePackageError("candidate requires ordinary, gate-free publisher binaries")
+        raise CandidatePackageError("candidate publisher binary names differ")
     sizes = []
     for source in native.values():
         _require_pe(source)

@@ -41,6 +41,7 @@ class SelectedCandidatePackageTests(unittest.TestCase):
             manifest = build_candidate_package(bundle, *binaries, output)
             self.assertEqual(inspect_candidate_package(output), manifest)
             self.assertEqual(manifest["installation_mode"], "selected_ntfs_candidate")
+            self.assertEqual(manifest["service_mode"], "requires_executable_probe")
             self.assertEqual(manifest["signing_status"], "unsigned")
             self.assertEqual(manifest["target"], "windows-x64")
             self.assertEqual(len(manifest["entries"]), 7)
@@ -71,12 +72,12 @@ class SelectedCandidatePackageTests(unittest.TestCase):
             fault.write_bytes(b"MZ\x00fault")
             output = root / "candidate"
             output.mkdir()
-            with self.assertRaisesRegex(CandidatePackageError, "ordinary, gate-free"):
+            with self.assertRaisesRegex(CandidatePackageError, "binary names differ"):
                 build_candidate_package(bundle, binaries[0], fault,
                                         binaries[2], binaries[3], output)
             lab = binaries[1].with_name("usk_publisher_lab_service.exe")
             lab.write_bytes(b"MZ\x00lab")
-            with self.assertRaisesRegex(CandidatePackageError, "ordinary, gate-free"):
+            with self.assertRaisesRegex(CandidatePackageError, "binary names differ"):
                 build_candidate_package(bundle, binaries[0], lab,
                                         binaries[2], binaries[3], output)
             (output / "keep.txt").write_text("keep", encoding="utf-8")
