@@ -24,6 +24,15 @@ param(
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
+function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
+    $stream=[IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite)
+    try {
+        $bytes=[byte[]]::new($Limit)
+        $count=$stream.Read($bytes,0,$Limit)
+        return [Text.Encoding]::UTF8.GetString($bytes,0,$count)
+    } finally {$stream.Dispose()}
+}
 if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish+[int][bool]$InterruptAfterStage) -gt 1){throw 'Select one interruption window'}
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
@@ -551,12 +560,10 @@ try {
         if(-not (Test-Path -LiteralPath $ready) -or
             [IO.File]::ReadAllText($ready) -cne $readyContent) {
             $nativeError=if(Test-Path -LiteralPath $nativePath){
-                $nativeText=[IO.File]::ReadAllText($nativePath)
-                $nativeText.Substring(0,[Math]::Min(2048,$nativeText.Length))
+                Read-BoundedDiagnostic $nativePath 2048
             }else{'native receipt absent'}
             $clientError=if($requestClient -and (Test-Path -LiteralPath $requestClient.error)){
-                $clientText=[IO.File]::ReadAllText($requestClient.error)
-                $clientText.Substring(0,[Math]::Min(1024,$clientText.Length))
+                Read-BoundedDiagnostic $requestClient.error 1024
             }else{'client error absent'}
             $serviceState=(Get-Service $service -ErrorAction SilentlyContinue).Status
             throw ('Selected interruption window was not reached: '+$gate+
