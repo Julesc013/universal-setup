@@ -39,7 +39,11 @@ function Stop-OwnedPublisherProcessTree {
         foreach($record in $owned) {
             $live=Get-CimInstance Win32_Process -Filter ('ProcessId='+$record.ProcessId) -ErrorAction Stop
             if($live -and $live.CreationDate -eq $record.CreationDate) {
-                if($live.ExecutablePath -cne $record.ExecutablePath -or $live.CommandLine -cne $record.CommandLine){
+                # CIM can temporarily omit either field while a killed process
+                # exits. Keep waiting for disappearance; still reject any
+                # observed replacement identity or a descendant left alive.
+                if(($live.ExecutablePath -and $live.ExecutablePath -cne $record.ExecutablePath) -or
+                    ($live.CommandLine -and $live.CommandLine -cne $record.CommandLine)){
                     throw 'Owned process identity changed during cancellation'
                 }
                 $remaining++
