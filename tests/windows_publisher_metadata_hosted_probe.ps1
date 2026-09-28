@@ -43,7 +43,7 @@ if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or 
     throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
 }
 if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not $ServiceControlBinary -or
-    $ConsumerAccess -or $ExpectUnprotectedRefusal -or
+    $ExpectUnprotectedRefusal -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or
     $InterruptBeforePublish -or
     $InterruptDuringConsumerAccess)) {
@@ -63,6 +63,7 @@ if($RegisteredService -and $HostileRights -and
 if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
     throw 'Non-admin client requires the registered service without consumer payload rights'
 }
+$registeredMode=if($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
 $gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
@@ -203,7 +204,7 @@ function Read-NativeReceipt([string]$Path) {
 }
 function Start-RegisteredPublisher {
     $startArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-    if($NonAdminClient){$startArgs+='--admit-client-observer'}
+    if($registeredMode){$startArgs+=$registeredMode}
     $started=& $ServiceControlBinary @startArgs
     if($LASTEXITCODE -ne 0 -or ($started|ConvertFrom-Json).status -ne 'start_requested') {
         throw 'Product service control did not start the matching publisher'
@@ -419,10 +420,11 @@ try {
         $expectedRegisteredCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
             ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
             $(if($NonAdminClient){' --admit-client-observer'}else{''})+
-            ' --authorized-client-sid '+$callerSid
+            ' --authorized-client-sid '+$callerSid+
+            $(if($ConsumerAccess){' --grant-client-read'}else{''})
         $controlArgs=@('--register',$service,$ServiceBinary,$VolumeRoot,$envelope,
             $receipt.envelope_sha256,$callerSid)
-        if($NonAdminClient){$controlArgs+='--admit-client-observer'}
+        if($registeredMode){$controlArgs+=$registeredMode}
         $registrationAttempted=$true
         $registered=& $ServiceControlBinary @controlArgs
         if($LASTEXITCODE -ne 0){throw 'Product service control did not register the reviewed publisher'}
@@ -479,12 +481,21 @@ try {
     if($RegisteredService) {
         $wrongStartError=Join-Path $root ('wrong-start-'+$id+'.txt')
         $wrongStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
-        if($NonAdminClient){$wrongStartArgs+='--admit-client-observer'}
+        if($registeredMode){$wrongStartArgs+=$registeredMode}
         & $ServiceControlBinary @wrongStartArgs 2>$wrongStartError|Out-Null
         if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
             throw 'Registered publisher accepted a different start caller'
         }
         $receipt['wrong_caller_start_refused']=$true
+        if($ConsumerAccess) {
+            $wrongModeError=Join-Path $root ('wrong-mode-'+$id+'.txt')
+            & $ServiceControlBinary --start $service $ServiceBinary $VolumeRoot $callerSid `
+                --admit-client-observer 2>$wrongModeError|Out-Null
+            if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+                throw 'Registered publisher accepted a weaker caller mode'
+            }
+            $receipt['wrong_caller_mode_refused']=$true
+        }
         if($InterruptAfterStage -or $HostileRights) {
             $registeredGate=if($HostileRights){'--prepublish-gate'}else{'--poststage-gate'}
             $testCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
@@ -683,7 +694,7 @@ try {
                 throw 'Owned fault-test command could not be restored'
             }
             $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-            if($NonAdminClient){$controlArgs+='--admit-client-observer'}
+            if($registeredMode){$controlArgs+=$registeredMode}
             $configuredRecovery=& $ServiceControlBinary @controlArgs
             if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
                 throw 'Product service control did not configure incomplete-phase recovery'
@@ -863,7 +874,7 @@ try {
         $beforeControl=(Get-CimInstance Win32_Service -Filter "Name='$service'").PathName
         $wrongCallerError=Join-Path $root ('wrong-caller-'+$id+'.txt')
         $wrongArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
-        if($NonAdminClient){$wrongArgs+='--admit-client-observer'}
+        if($registeredMode){$wrongArgs+=$registeredMode}
         & $ServiceControlBinary @wrongArgs 2>$wrongCallerError|Out-Null
         if($LASTEXITCODE -eq 0 -or
             (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $beforeControl) {
@@ -871,7 +882,7 @@ try {
         }
         $receipt['wrong_caller_recovery_refused']=$true
         $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-        if($NonAdminClient){$controlArgs+='--admit-client-observer'}
+        if($registeredMode){$controlArgs+=$registeredMode}
         $configuredRecovery=& $ServiceControlBinary @controlArgs
         if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
             throw 'Product service control did not configure source-free recovery'
@@ -914,7 +925,7 @@ try {
             transaction_id=$applyRequest.transaction_id;report_id='verify.'+$id;
             verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
         $verifyArgs=@('--verify',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-        if($NonAdminClient){$verifyArgs+='--admit-client-observer'}
+        if($registeredMode){$verifyArgs+=$registeredMode}
         $configuredVerify=& $ServiceControlBinary @verifyArgs
         if($LASTEXITCODE -ne 0 -or ($configuredVerify|ConvertFrom-Json).status -ne 'verify_configured') {
             throw 'Product service control did not configure read-only verification'
@@ -968,7 +979,7 @@ try {
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
         if(-not $HostileRights) {
             $damageEntries=@($plan.planned_entries|Where-Object {
-                $_.entry_type -ceq 'file' -and $_.relative_path -ceq 'bin/core.bin'
+                $_.entry_type -ceq 'file' -and $_.relative_path -ceq $(if($ConsumerAccess){'bin/core.exe'}else{'bin/core.bin'})
             })
             if($damageEntries.Count -ne 1){throw 'Selected owned damage file is absent from reviewed plan'}
             Assert-OwnedVolume

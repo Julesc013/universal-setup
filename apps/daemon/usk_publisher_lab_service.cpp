@@ -328,7 +328,8 @@ int wmain(int argc, wchar_t** argv) {
     if (admit_client_observer) --argc;
     interrupt_consumer_grant = argc > 1 && std::wstring(argv[argc-1]) == L"--interrupt-consumer-grant";
     if (interrupt_consumer_grant) --argc;
-    if ((grant_client_read && !external_client) || (interrupt_consumer_grant && !grant_client_read)) return 2;
+    if ((grant_client_read && (!external_client || admit_client_observer)) ||
+        (interrupt_consumer_grant && !grant_client_read)) return 2;
     if (admit_client_observer && (!external_client || grant_client_read || interrupt_consumer_grant)) return 2;
     if (argc < 5 || std::wstring(argv[1]) != L"--service") return 2;
     const std::wstring name(argv[2]);
@@ -423,7 +424,7 @@ int wmain(int argc, wchar_t** argv) {
     // receives the result; this mode has no service-chosen receipt pathname,
     // lab-only ACL setup, campaign VM dependency, or fault-injection gate.
     bool registered_reviewed = false;
-    if (argc == 8 && external_client && !grant_client_read &&
+    if (argc == 8 && external_client &&
             !interrupt_consumer_grant && generated_service_name(name, L"USK_PUB_") &&
             std::wstring(argv[3]) == L"--no-receipt" &&
             std::wstring(argv[5]) == L"--reviewed-plan-envelope" &&
@@ -452,7 +453,7 @@ int wmain(int argc, wchar_t** argv) {
     const bool registered_fault = false;
 #endif
     const bool registered_recovery = argc == 6 && external_client &&
-        !grant_client_read && !interrupt_consumer_grant &&
+        !interrupt_consumer_grant &&
         generated_service_name(name, L"USK_PUB_") &&
         std::wstring(argv[3]) == L"--no-receipt" &&
         std::wstring(argv[5]) == L"--recover-reviewed" &&
@@ -463,7 +464,7 @@ int wmain(int argc, wchar_t** argv) {
             } catch (const std::exception&) { return false; }
         }();
     const bool registered_verify = argc == 6 && external_client &&
-        !grant_client_read && !interrupt_consumer_grant &&
+        !interrupt_consumer_grant &&
         generated_service_name(name, L"USK_PUB_") &&
         std::wstring(argv[3]) == L"--no-receipt" &&
         std::wstring(argv[5]) == L"--verify-installed" &&
