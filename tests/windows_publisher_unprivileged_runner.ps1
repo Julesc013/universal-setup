@@ -4,7 +4,9 @@ param(
     [Parameter(Mandatory = $true)][string]$ServiceSid,
     [Parameter(Mandatory = $true)][string]$OutputPath,
     [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish',
-    [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin'
+    [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin',
+    [Management.Automation.PSCredential]$ExistingCredential,
+    [string]$ExistingSid = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +25,9 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hoste
     -not (Test-Path -LiteralPath $vhd -PathType Leaf)) {
     throw 'unprivileged access probe requires the owned hosted Windows VHD'
 }
+if (($null -ne $ExistingCredential) -ne ($ExistingSid -ne '')) {
+    throw 'existing attacker identity requires both credential and SID'
+}
 $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop
 $disk = @($image | Get-Disk -ErrorAction Stop)
 $partitions = @($disk | Get-Partition -ErrorAction Stop |
@@ -33,7 +38,15 @@ if (-not $image.Attached -or $disk.Count -ne 1 -or
     throw 'unprivileged access probe volume is not the attached disposable VHD'
 }
 
-$accountName = 'USKATK_' + [Guid]::NewGuid().ToString('N').Substring(0, 13)
+$reuseAccount = $null -ne $ExistingCredential
+$accountName = if ($reuseAccount) {
+    $prefix = $env:COMPUTERNAME + '\USKUSR_'
+    if (-not $ExistingCredential.UserName.StartsWith($prefix,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'existing attacker is not the owned client account'
+    }
+    $ExistingCredential.UserName.Substring($env:COMPUTERNAME.Length + 1)
+} else { 'USKATK_' + [Guid]::NewGuid().ToString('N').Substring(0, 13) }
 $attackFolder = Join-Path $runnerTemp ('USK-WU006-ATTACK-' + [Guid]::NewGuid().ToString('N'))
 $childOutput = Join-Path $attackFolder 'access.json'
 $receipt = [ordered]@{
@@ -41,6 +54,7 @@ $receipt = [ordered]@{
     status = 'not_run'
     account_name = $accountName
     account_sid = $null
+    account_origin = $(if ($reuseAccount) { 'existing_owned_client' } else { 'created_attacker' })
     stage = $Stage
     payload_relative_path = $PayloadRelativePath
     volume_root = $VolumeRoot
@@ -55,15 +69,25 @@ $folderCreated = $false
 $process = $null
 $failure = $null
 try {
-    if (Get-LocalUser -Name $accountName -ErrorAction SilentlyContinue) {
-        throw 'generated local attack account name already exists'
+    if ($reuseAccount) {
+        $account = Get-LocalUser -Name $accountName -ErrorAction Stop
+        if ($account.SID.Value -cne $ExistingSid) {
+            throw 'existing attacker SID differs from the owned client'
+        }
+        $credential = $ExistingCredential
+    } else {
+        if (Get-LocalUser -Name $accountName -ErrorAction SilentlyContinue) {
+            throw 'generated local attack account name already exists'
+        }
+        $plainPassword = 'Aa1!' + [Guid]::NewGuid().ToString('N')
+        $password = ConvertTo-SecureString $plainPassword -AsPlainText -Force
+        $plainPassword = $null
+        $account = New-LocalUser -Name $accountName -Password $password `
+            -PasswordNeverExpires -ErrorAction Stop
+        $accountCreated = $true
+        $credential = New-Object System.Management.Automation.PSCredential(
+            "$env:COMPUTERNAME\$accountName", $password)
     }
-    $plainPassword = 'Aa1!' + [Guid]::NewGuid().ToString('N')
-    $password = ConvertTo-SecureString $plainPassword -AsPlainText -Force
-    $plainPassword = $null
-    $account = New-LocalUser -Name $accountName -Password $password `
-        -PasswordNeverExpires -ErrorAction Stop
-    $accountCreated = $true
     $receipt.account_sid = $account.SID.Value
 
     [IO.Directory]::CreateDirectory($attackFolder) | Out-Null
@@ -79,8 +103,6 @@ try {
     $acl.AddAccessRule($rule)
     Set-Acl -LiteralPath $attackFolder -AclObject $acl
 
-    $credential = New-Object System.Management.Automation.PSCredential(
-        "$env:COMPUTERNAME\$accountName", $password)
     $script = Join-Path $PSScriptRoot 'windows_publisher_unprivileged_probe.ps1'
     $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
         $script + '" -VolumeRoot "' + $VolumeRoot.TrimEnd('\') +

@@ -446,7 +446,8 @@ int wmain(int argc, wchar_t** argv) {
         lower_sha256(argv[7]) &&
         std::wstring(argv[8]) == L"--test-gate-receipt" &&
         campaign_selected_receipt_path(argv[9]) &&
-        std::wstring(argv[10]) == L"--poststage-gate";
+        (std::wstring(argv[10]) == L"--poststage-gate" ||
+            std::wstring(argv[10]) == L"--prepublish-gate");
 #else
     const bool registered_fault = false;
 #endif

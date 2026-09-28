@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "79a07be5a1e5d465040de4315bac5c74291ee57c4480b5002320f082f9af3049"
+          "sha256": "5e4a6d518d9066bd1ebbd13f837c0bf40d359718a1e7bdafbd6b2cca8aac2cfe"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "79a07be5a1e5d465040de4315bac5c74291ee57c4480b5002320f082f9af3049"
+          "sha256": "5e4a6d518d9066bd1ebbd13f837c0bf40d359718a1e7bdafbd6b2cca8aac2cfe"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "79a07be5a1e5d465040de4315bac5c74291ee57c4480b5002320f082f9af3049"
+          "sha256": "5e4a6d518d9066bd1ebbd13f837c0bf40d359718a1e7bdafbd6b2cca8aac2cfe"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3947,7 +3947,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "5bab91a5eed0a378f18ebe080c5872b53929ebc9627b12c96def029880b9c827"
+          "sha256": "a45b646afbecc8f46e615c85135b51589362940823f5b55566da1199c47b2e28"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
@@ -3975,7 +3975,7 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",
-          "sha256": "3931be7bcff40c810965277fbe28e08a9a3f3c012f41001b953e8ab2b64732e1"
+          "sha256": "1b5cebfc7e5c6531336f70ccce06d52d51a3b674d53c05bef60a200cfa5fe70a"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_staged_stream.h",
@@ -4039,7 +4039,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "f15240e61f9513945330e1d15cf2a387d1cbc04a7bf3f46ed1b44fa38f88d357"
+          "sha256": "7fd744d9aea6b00e66754b5a89d62766629a4020a323da97b43124fb1eda8342"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
@@ -4231,7 +4231,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "5bab91a5eed0a378f18ebe080c5872b53929ebc9627b12c96def029880b9c827"
+          "sha256": "a45b646afbecc8f46e615c85135b51589362940823f5b55566da1199c47b2e28"
         },
         {
           "path": "tests/windows_publisher_service_probe.ps1",
@@ -4259,7 +4259,7 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",
-          "sha256": "3931be7bcff40c810965277fbe28e08a9a3f3c012f41001b953e8ab2b64732e1"
+          "sha256": "1b5cebfc7e5c6531336f70ccce06d52d51a3b674d53c05bef60a200cfa5fe70a"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_publisher_finalization_internal.h",
@@ -4315,7 +4315,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "f15240e61f9513945330e1d15cf2a387d1cbc04a7bf3f46ed1b44fa38f88d357"
+          "sha256": "7fd744d9aea6b00e66754b5a89d62766629a4020a323da97b43124fb1eda8342"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",

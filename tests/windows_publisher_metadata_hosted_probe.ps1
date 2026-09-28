@@ -43,15 +43,22 @@ if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or 
     throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
 }
 if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not $ServiceControlBinary -or
-    $ConsumerAccess -or $HostileRights -or $ExpectUnprotectedRefusal -or
+    $ConsumerAccess -or $ExpectUnprotectedRefusal -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or
     $InterruptBeforePublish -or
     $InterruptDuringConsumerAccess)) {
     throw 'Registered service probe requires a reviewed-source request and at most the poststage interruption'
 }
+if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
+    throw 'Registered hostile-rights proof requires the same owned non-admin client identity'
+}
 if($RegisteredService -and $InterruptAfterStage -and
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
     throw 'Registered poststage interruption requires the separately built fault-test service'
+}
+if($RegisteredService -and $HostileRights -and
+    (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
+    throw 'Registered hostile-rights proof requires the separately built fault-test service'
 }
 if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
     throw 'Non-admin client requires the registered service without consumer payload rights'
@@ -284,7 +291,7 @@ try {
     if($LASTEXITCODE -ne 0){throw 'Public authoring input generation failed'}
     $inputs=$generated|ConvertFrom-Json
     $packageRoot=''
-    if($RegisteredService -and -not $NonAdminClient -and -not $InterruptAfterStage) {
+    if($RegisteredService -and -not $NonAdminClient -and -not $InterruptAfterStage -and -not $HostileRights) {
         # Exercise the actual emitted native package through installation.
         # The fault-test service and externally admitted VHD ACL helper are
         # deliberately outside this ordinary candidate package.
@@ -478,10 +485,11 @@ try {
             throw 'Registered publisher accepted a different start caller'
         }
         $receipt['wrong_caller_start_refused']=$true
-        if($InterruptAfterStage) {
+        if($InterruptAfterStage -or $HostileRights) {
+            $registeredGate=if($HostileRights){'--prepublish-gate'}else{'--poststage-gate'}
             $testCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
                 ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
-                ' --test-gate-receipt "'+$nativePath+'" --poststage-gate'+
+                ' --test-gate-receipt "'+$nativePath+'" '+$registeredGate+
                 $(if($NonAdminClient){' --admit-client-observer'}else{''})+
                 ' --authorized-client-sid '+$callerSid
             & sc.exe config $service binPath= $testCommand|Out-Null
@@ -538,11 +546,18 @@ try {
         }
         $receipt['prepublish_before_attack']=$pausedBefore.independent
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-prepublish.json'
-        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Prepublish -PayloadRelativePath $attackRelative
+        $attackIdentity=if($RegisteredService -and $NonAdminClient){
+            @{ExistingCredential=$consumerCredential;ExistingSid=$consumerSid}
+        }else{@{}}
+        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Prepublish -PayloadRelativePath $attackRelative @attackIdentity
         $attack=Get-Content -LiteralPath $attackOutput -Raw|ConvertFrom-Json
         $receipt['prepublish_hostile_rights']=$attack
         if($attack.status -ne 'unprivileged_access_denied_observed' -or $attack.payload_relative_path -cne $attackRelative){
             throw 'Selected prepublish attacker result differs'
+        }
+        if($RegisteredService -and ($attack.account_sid -cne $consumerSid -or
+            $attack.account_origin -cne 'existing_owned_client')) {
+            throw 'Registered prepublish attacker did not use the submitting client identity'
         }
         $pausedAfter=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt['prepublish_after_attack']=$pausedAfter.independent
@@ -727,10 +742,22 @@ try {
         $requestClient.process.WaitForExit()
         if($requestClient.process.ExitCode -ne 0 -or
             (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB -or
-            (Test-Path -LiteralPath $nativePath)) {
+            ((Test-Path -LiteralPath $nativePath) -and -not $HostileRights)) {
             throw ('Registered service client failed or wrote a lab receipt: '+[IO.File]::ReadAllText($requestClient.error))
         }
         $receipt.native=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        if($HostileRights) {
+            if(-not (Test-Path -LiteralPath $nativePath) -or
+                [IO.File]::ReadAllText($requestClient.response).Trim() -cne
+                [IO.File]::ReadAllText($nativePath).Trim()) {
+                throw 'Registered hostile service receipt differs from authenticated client result'
+            }
+            $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $nativePath=Join-Path $root ('registered-no-receipt-'+$id+'.json')
+            if(Test-Path -LiteralPath $nativePath) {
+                throw 'Registered recovery absence marker already exists'
+            }
+        }
         if($NonAdminClient) {
             $actual=Get-Content -LiteralPath $requestClient.identity -Raw|ConvertFrom-Json
             if($actual.user_sid -cne $consumerSid -or $actual.administrator){
@@ -757,6 +784,15 @@ try {
     }
     $receipt['consumer_sid']=if($ConsumerAccess){$consumerSid}else{''}
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+    if($RegisteredService -and $HostileRights) {
+        # Restore the registered command before using product recovery/verify
+        # control. Only the separately built fault-test binary admits the gate.
+        & sc.exe config $service binPath= $expectedRegisteredCommand|Out-Null
+        if($LASTEXITCODE -ne 0 -or
+            (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
+            throw 'Registered hostile service command restoration failed'
+        }
+    }
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
     if($RegisteredService -and -not $recover -and
         ($receipt.native.install_operation_guard_held -ne $true -or
@@ -1000,11 +1036,18 @@ try {
     }
     if($HostileRights) {
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
-        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative
+        $attackIdentity=if($RegisteredService -and $NonAdminClient){
+            @{ExistingCredential=$consumerCredential;ExistingSid=$consumerSid}
+        }else{@{}}
+        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative @attackIdentity
         $attack=Get-Content -LiteralPath $attackOutput -Raw|ConvertFrom-Json
         $receipt['postpublish_hostile_rights']=$attack
         if($attack.status -ne 'unprivileged_access_denied_observed' -or $attack.payload_relative_path -cne $attackRelative){
             throw 'Selected postpublish attacker result differs'
+        }
+        if($RegisteredService -and ($attack.account_sid -cne $consumerSid -or
+            $attack.account_origin -cne 'existing_owned_client')) {
+            throw 'Registered postpublish attacker did not use the submitting client identity'
         }
         $afterAttack=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt['postpublish_after_attack']=$afterAttack.independent
