@@ -28,9 +28,16 @@ public:
     PublisherInstallBusy() : std::runtime_error("publisher installation operation is active") {}
 };
 
+class PublisherServiceControlBusy final : public std::runtime_error {
+public:
+    PublisherServiceControlBusy() : std::runtime_error("publisher service control is active") {}
+};
+
 std::wstring publisher_volume_operation_guard_name(const std::wstring& volume_guid_root);
 std::wstring publisher_install_operation_guard_name(const std::wstring& volume_guid_root,
     const std::string& install_id);
+std::wstring publisher_service_control_guard_name(const std::wstring& volume_guid_root,
+    const std::wstring& service_name);
 
 class PublisherVolumeOperationGuard final {
 public:
@@ -63,6 +70,22 @@ public:
 private:
     HANDLE mutex_ = nullptr;
     bool previous_owner_abandoned_ = false;
+};
+
+// Serializes this product's SCM configuration, start and removal requests for
+// one generated service. It is separate from the volume guard held by the
+// service itself, so a fast-starting service cannot fail on its own guard.
+class PublisherServiceControlGuard final {
+public:
+    PublisherServiceControlGuard(const std::wstring& volume_guid_root,
+        const std::wstring& service_name);
+    ~PublisherServiceControlGuard();
+
+    PublisherServiceControlGuard(const PublisherServiceControlGuard&) = delete;
+    PublisherServiceControlGuard& operator=(const PublisherServiceControlGuard&) = delete;
+
+private:
+    HANDLE mutex_ = nullptr;
 };
 
 } // namespace usk::platform::windows

@@ -4011,15 +4011,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
-          "sha256": "2fd916bf1a0ef325fbfb735586095f3f445a76ff5abe6fc9130e7a3ddbc7edfe"
+          "sha256": "e9ac421dbb309d4253ed844b8a29e73d95a4b50e1336ac862509389dfa46e92a"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
-          "sha256": "1e8ead54b671f1f10b3d0075ac0548a5c92ec57ea784c03fcec28b97e61e2138"
+          "sha256": "bfb647060ed009c28660f9df01b4bb4b0b969e7988b236f52a10473837485cc7"
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "5af909c268150a7ab1e130674caf2a7791f7204c41d6f66fa5ff82feca5647cb"
+          "sha256": "d99d4d6b433ece7e8ff49f3247eba59fe3722cd02070efe08707ed1252f32868"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
@@ -4083,7 +4083,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "ab86a7b085ca536a3ef263d8aa638c5966797284b8b5c004f19900f1c5187a2b"
+          "sha256": "872099352d7ff312714852b3db5ca38367cb686c73f5e30a2102c2d526d9ec3c"
         },
         {
           "path": "tools/usk_selected_candidate_package.py",
@@ -4299,15 +4299,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
-          "sha256": "2fd916bf1a0ef325fbfb735586095f3f445a76ff5abe6fc9130e7a3ddbc7edfe"
+          "sha256": "e9ac421dbb309d4253ed844b8a29e73d95a4b50e1336ac862509389dfa46e92a"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
-          "sha256": "1e8ead54b671f1f10b3d0075ac0548a5c92ec57ea784c03fcec28b97e61e2138"
+          "sha256": "bfb647060ed009c28660f9df01b4bb4b0b969e7988b236f52a10473837485cc7"
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "5af909c268150a7ab1e130674caf2a7791f7204c41d6f66fa5ff82feca5647cb"
+          "sha256": "d99d4d6b433ece7e8ff49f3247eba59fe3722cd02070efe08707ed1252f32868"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
@@ -4371,7 +4371,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "ab86a7b085ca536a3ef263d8aa638c5966797284b8b5c004f19900f1c5187a2b"
+          "sha256": "872099352d7ff312714852b3db5ca38367cb686c73f5e30a2102c2d526d9ec3c"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",

@@ -189,6 +189,7 @@ void register_service(const std::wstring& name, const std::wstring& binary,
     require_file(binary);
     require_file(envelope);
     if (!lower_sha256(digest)) throw std::runtime_error("envelope digest is invalid");
+    usk::platform::windows::PublisherServiceControlGuard control(volume, name);
     const std::wstring command = command_prefix(name, binary, volume) +
         L" --reviewed-plan-envelope \"" + envelope + L"\" " + digest +
         command_suffix(caller, mode);
@@ -221,6 +222,7 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_file(binary);
+    usk::platform::windows::PublisherServiceControlGuard control(volume, name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -247,6 +249,7 @@ void configure_verify(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_file(binary);
+    usk::platform::windows::PublisherServiceControlGuard control(volume, name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -273,6 +276,7 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_file(binary);
+    usk::platform::windows::PublisherServiceControlGuard control(volume, name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -290,6 +294,7 @@ void request_unregister(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_file(binary);
+    usk::platform::windows::PublisherServiceControlGuard control(volume, name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -299,6 +304,7 @@ void request_unregister(const std::wstring& name, const std::wstring& binary,
     const auto config = query_configuration(service.get());
     require_profile(config);
     require_existing_command(config.binary_path, name, binary, volume, caller, mode);
+    require_stopped(service.get());
     if (!DeleteService(service.get()))
         throw std::runtime_error("matching publisher service deletion request failed");
 }
