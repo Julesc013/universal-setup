@@ -71,6 +71,7 @@ int main() {
             refuses([&] { channel->receive(); });
             channel->reply("completed");
             refuses([&] { channel->reply("duplicate"); });
+            channel->wait_for_client_disconnect();
         } catch (...) { channel.reset(); client.join(); throw; }
         client.join();
         if(client_failure) std::rethrow_exception(client_failure);

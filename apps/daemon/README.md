@@ -12,7 +12,6 @@ usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SERVICE_EXE 
 usk_publisher_service_control --recover USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --verify USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --start USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
-usk_publisher_service_control --stop USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 ```
 
 The second command changes only a stopped, matching own-process LocalSystem
@@ -33,13 +32,13 @@ protected root and authenticated request when started. This selected profile
 is still a candidate; the general product host and public capability gate
 remain unfinished.
 
-After receiving a terminal client response, the exact matching controller can
-stop the service before reconfiguration for verification or recovery. `--stop`
-checks the registered restricted service, binary, volume, caller and access
-mode before sending `SERVICE_CONTROL_STOP`; it waits for both SCM stop and the
-held original process to exit. It reports `stopped` or `already_stopped`.
-Stopping an in-flight request can leave an unknown operation outcome; this
-command never reports that an install, verification or recovery succeeded.
+The registered service handles one authenticated request. After writing its
+terminal reply, it holds the pipe until that client disconnects, then stops.
+This lets the same service be reconfigured for verification or recovery after
+the caller has received the reply. A vanished or unresponsive client cannot
+keep it running beyond the bounded transport wait. A disconnected client may
+still have an unknown operation outcome and must use the existing retry or
+source-free recovery path; service shutdown is not an install success signal.
 
 The separate `usk_publisher_lab_service_fault` target exists only when tests
 are enabled. Its extra receipt-backed poststage gate lets a disposable hosted

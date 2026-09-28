@@ -28,16 +28,6 @@ public:
 private:
     SC_HANDLE value_;
 };
-class ProcessHandle {
-public:
-    explicit ProcessHandle(HANDLE value) : value_(value) {}
-    ~ProcessHandle() { if (value_) CloseHandle(value_); }
-    ProcessHandle(const ProcessHandle&) = delete;
-    ProcessHandle& operator=(const ProcessHandle&) = delete;
-    HANDLE get() const noexcept { return value_; }
-private:
-    HANDLE value_;
-};
 
 bool generated_name(const std::wstring& name) {
     constexpr wchar_t prefix[] = L"USK_PUB_";
@@ -182,18 +172,12 @@ void require_existing_command(const std::wstring& command,
     }
 }
 
-SERVICE_STATUS_PROCESS query_status(SC_HANDLE service) {
+void require_stopped(SC_HANDLE service) {
     SERVICE_STATUS_PROCESS status{};
     DWORD needed = 0;
     if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
-            reinterpret_cast<BYTE*>(&status), sizeof(status), &needed)) {
-        throw std::runtime_error("service status is unavailable");
-    }
-    return status;
-}
-
-void require_stopped(SC_HANDLE service) {
-    if (query_status(service).dwCurrentState != SERVICE_STOPPED) {
+            reinterpret_cast<BYTE*>(&status), sizeof(status), &needed) ||
+        status.dwCurrentState != SERVICE_STOPPED) {
         throw std::runtime_error("service must be stopped before reconfiguration");
     }
 }
@@ -302,53 +286,6 @@ void request_start(const std::wstring& name, const std::wstring& binary,
         throw std::runtime_error("matching publisher service could not start");
 }
 
-bool request_stop(const std::wstring& name, const std::wstring& binary,
-    const std::wstring& volume, const std::wstring& caller,
-    const std::wstring& mode) {
-    require_file(binary);
-    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
-    if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
-    ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
-        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_STOP));
-    if (!service.get()) throw std::runtime_error("registered publisher service unavailable");
-    const auto config = query_configuration(service.get());
-    require_profile(config);
-    require_existing_command(config.binary_path, name, binary, volume, caller, mode);
-    const auto before = query_status(service.get());
-    if (before.dwCurrentState == SERVICE_STOPPED) return false;
-    if (before.dwCurrentState != SERVICE_RUNNING || !before.dwProcessId) {
-        throw std::runtime_error("matching publisher service is not running");
-    }
-    ProcessHandle process(OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
-        FALSE, before.dwProcessId));
-    if (!process.get() || WaitForSingleObject(process.get(), 0) != WAIT_TIMEOUT) {
-        throw std::runtime_error("matching publisher process is unavailable");
-    }
-    const auto current = query_status(service.get());
-    if (current.dwCurrentState != SERVICE_RUNNING ||
-        current.dwProcessId != before.dwProcessId) {
-        throw std::runtime_error("publisher service process changed before stop");
-    }
-    SERVICE_STATUS result{};
-    if (!ControlService(service.get(), SERVICE_CONTROL_STOP, &result)) {
-        throw std::runtime_error("matching publisher service stop request failed");
-    }
-    const ULONGLONG deadline = GetTickCount64() + 30000;
-    for (;;) {
-        const auto after = query_status(service.get());
-        const DWORD process_state = WaitForSingleObject(process.get(), 0);
-        if (after.dwCurrentState == SERVICE_STOPPED &&
-            process_state == WAIT_OBJECT_0) return true;
-        if (after.dwProcessId && after.dwProcessId != before.dwProcessId) {
-            throw std::runtime_error("publisher service process changed during stop");
-        }
-        if (process_state == WAIT_FAILED || GetTickCount64() >= deadline) {
-            throw std::runtime_error("publisher service stop was not confirmed");
-        }
-        Sleep(100);
-    }
-}
-
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -356,13 +293,11 @@ int wmain(int argc, wchar_t** argv) {
     const bool recovery = argc >= 2 && std::wstring(argv[1]) == L"--recover";
     const bool verify = argc >= 2 && std::wstring(argv[1]) == L"--verify";
     const bool start = argc >= 2 && std::wstring(argv[1]) == L"--start";
-    const bool stop = argc >= 2 && std::wstring(argv[1]) == L"--stop";
     if ((!registration || (argc != 8 && argc != 9)) &&
         (!recovery || (argc != 6 && argc != 7)) &&
         (!verify || (argc != 6 && argc != 7)) &&
-        (!start || (argc != 6 && argc != 7)) &&
-        (!stop || (argc != 6 && argc != 7))) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID | --recover NAME BINARY VOLUME CALLER_SID | --verify NAME BINARY VOLUME CALLER_SID | --start NAME BINARY VOLUME CALLER_SID | --stop NAME BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read]\n";
+        (!start || (argc != 6 && argc != 7))) {
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID | --recover NAME BINARY VOLUME CALLER_SID | --verify NAME BINARY VOLUME CALLER_SID | --start NAME BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read]\n";
         return 2;
     }
     try {
@@ -379,20 +314,17 @@ int wmain(int argc, wchar_t** argv) {
         }
         require_volume(volume);
         require_canonical_sid(caller);
-        bool stopped = false;
         if (registration) {
             register_service(name, binary, volume, argv[5], argv[6], caller, mode);
         } else if (recovery) {
             configure_recovery(name, binary, volume, caller, mode);
         } else if (verify) {
             configure_verify(name, binary, volume, caller, mode);
-        } else if (start) {
-            request_start(name, binary, volume, caller, mode);
         } else {
-            stopped = request_stop(name, binary, volume, caller, mode);
+            request_start(name, binary, volume, caller, mode);
         }
         std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\",\"status\":\""
-            << (registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : start ? L"start_requested" : stopped ? L"stopped" : L"already_stopped")
+            << (registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : L"start_requested")
             << L"\",\"service\":\"" << name << L"\"}\n";
         return 0;
     } catch (const std::exception& error) {

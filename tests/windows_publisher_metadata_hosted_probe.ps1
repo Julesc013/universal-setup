@@ -896,29 +896,16 @@ try {
     }
     $receipt['consumer_sid']=if($ConsumerAccess){$consumerSid}else{''}
     if($RegisteredService -and -not $HostileRights -and -not $recover) {
-        # After the authenticated terminal reply, use the packaged control
-        # path for the install-to-verify transition. A mismatched caller must
-        # leave this exact running service alone.
-        $wrongStopError=Join-Path $root ('wrong-stop-'+$id+'.txt')
-        $wrongStopArgs=@('--stop',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
-        if($registeredMode){$wrongStopArgs+=$registeredMode}
-        & $ServiceControlBinary @wrongStopArgs 2>$wrongStopError|Out-Null
-        if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Running') {
-            throw 'Registered publisher accepted a different stop caller'
+        # The packaged client has received the terminal reply and closed its
+        # authenticated pipe. The one-request service must now stop itself
+        # before install-to-verify reconfiguration, without an SCM stop call.
+        $stopDeadline=[DateTime]::UtcNow.AddSeconds(30)
+        while((Get-Service $service).Status -ne 'Stopped' -and
+            [DateTime]::UtcNow -lt $stopDeadline){Start-Sleep -Milliseconds 100}
+        if((Get-Service $service).Status -ne 'Stopped') {
+            throw 'Registered publisher did not stop after terminal client disconnect'
         }
-        $stopArgs=@('--stop',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-        if($registeredMode){$stopArgs+=$registeredMode}
-        $stopped=& $ServiceControlBinary @stopArgs
-        if($LASTEXITCODE -ne 0 -or ($stopped|ConvertFrom-Json).status -ne 'stopped' -or
-            (Get-Service $service).Status -ne 'Stopped') {
-            throw 'Product service control did not stop the completed publisher'
-        }
-        $stoppedAgain=& $ServiceControlBinary @stopArgs
-        if($LASTEXITCODE -ne 0 -or ($stoppedAgain|ConvertFrom-Json).status -ne 'already_stopped') {
-            throw 'Product service control repeated stop differs'
-        }
-        $receipt['registered_service_stop']=[ordered]@{
-            wrong_caller_refused=$true;first_status='stopped';repeat_status='already_stopped'}
+        $receipt['registered_terminal_shutdown']='observed_after_client_reply'
     } elseif((Get-Service $service).Status -ne 'Stopped') {Stop-Service $service}
     if($RegisteredService -and $HostileRights) {
         # Restore the registered command before using product recovery/verify

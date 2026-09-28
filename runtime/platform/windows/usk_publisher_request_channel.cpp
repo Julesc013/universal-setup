@@ -205,6 +205,25 @@ void PublisherRequestChannel::reply(const std::string& response) {
     write_message(state.pipe.value, response, response_limit, state.stop, state.until);
     state.replied = true;
 }
+void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
+    try {
+        if (!state_ || !state_->replied) return;
+        auto& state = *state_;
+        char unexpected = 0;
+        Io io;
+        const BOOL started = ReadFile(state.pipe.value, &unexpected, 1, nullptr,
+            &io.overlapped);
+        const DWORD error = started ? ERROR_SUCCESS : GetLastError();
+        // A peer close normally completes the read with ERROR_BROKEN_PIPE.
+        // Extra input is ignored: this channel admits exactly one request.
+        // A stopped or unresponsive client cannot retain the service forever.
+        (void)io.finish(state.pipe.value, started, state.stop,
+            deadline(120000), error);
+    } catch (...) {
+        // The terminal reply is already written. Departure, cancellation,
+        // timeout and broken-pipe outcomes cannot change the operation result.
+    }
+}
 std::string submit_publisher_request(const std::wstring& service_name,
     const std::string& request, DWORD timeout_ms) {
     const auto until = deadline(timeout_ms);
