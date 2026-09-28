@@ -2549,6 +2549,124 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
 }
 
 namespace {
+struct CompletedVerificationBoundary {
+    std::string snapshot_record;
+    std::string completion_digest;
+    std::string visible_root_file_id;
+    std::string observation;
+};
+
+CompletedVerificationBoundary observe_completed_verification_boundary(
+    HANDLE volume, const std::string& service_sid) {
+    using namespace usk::platform::windows;
+    const PublisherAnchorNames names{L"staging", L"destination", L"state", L"journal"};
+    const auto anchors = observe_publisher_anchor_set(volume, {L"publication"}, names);
+    require_publisher_anchor_set_security_shape(anchors, service_sid);
+    OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
+    OwnedHandle staging(open_exact_lab_child(publication.get(), L"staging"));
+    OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
+    OwnedHandle state(open_exact_lab_child(publication.get(), L"state"));
+    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+    const auto destination_entries = observe_publisher_directory_entries(destination.get());
+    if (observe_publisher_directory_entries(publication.get()).size() != 4 ||
+        !observe_publisher_directory_entries(staging.get()).empty() ||
+        destination_entries.size() != 1 || destination_entries.front().name != L"visible") {
+        throw std::runtime_error("verification requires a completed protected namespace");
+    }
+    OwnedHandle visible(open_exact_lab_child(destination.get(), L"visible"));
+    const std::string prepared_record = read_phase_record(journal.get(), L"lab-prepared-evidence.json");
+    const std::string snapshot_record = read_phase_record(journal.get(), L"lab-reviewed-plan.json");
+    const std::string visible_record = read_phase_record(journal.get(), L"lab-visible-evidence.json");
+    const std::string completion_record = read_phase_record(state.get(), L"lab-installed-state.json");
+    const auto prepared = usk::json::parse(prepared_record);
+    const auto snapshot = usk::json::parse(snapshot_record);
+    const auto bound = usk::json::parse(visible_record);
+    const auto completion = usk::json::parse(completion_record);
+    const auto journal_tree = observe_publisher_tree(journal.get());
+    const auto state_tree = observe_publisher_tree(state.get());
+    const auto visible_tree = observe_publisher_tree(visible.get());
+    require_publisher_tree_security_shape(journal_tree, service_sid);
+    require_publisher_tree_security_shape(state_tree, service_sid);
+    require_publisher_tree_security_shape(visible_tree, service_sid);
+    const std::string prepared_digest = record_sha256(prepared_record);
+    const std::string snapshot_digest = record_sha256(snapshot_record);
+    const std::string visible_digest = record_sha256(visible_record);
+    const std::string completion_digest = record_sha256(completion_record);
+    if (journal_tree.root.file_id != anchors.journal.object.file_id ||
+        journal_tree.descendants.size() != 3 ||
+        journal_tree.descendants[0].relative_path != L"lab-prepared-evidence.json" ||
+        journal_tree.descendants[0].sha256 != prepared_digest ||
+        journal_tree.descendants[1].relative_path != L"lab-reviewed-plan.json" ||
+        journal_tree.descendants[1].sha256 != snapshot_digest ||
+        journal_tree.descendants[2].relative_path != L"lab-visible-evidence.json" ||
+        journal_tree.descendants[2].sha256 != visible_digest ||
+        state_tree.root.file_id != anchors.state.object.file_id ||
+        state_tree.descendants.size() != 1 ||
+        state_tree.descendants[0].relative_path != L"lab-installed-state.json" ||
+        state_tree.descendants[0].sha256 != completion_digest ||
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" ||
+        prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
+        prepared.at("phase").as_string() != "lab_prepared_evidence" ||
+        prepared.at("service_sid").as_string() != service_sid ||
+        prepared.at("destination_name").as_string() != "visible" ||
+        prepared.at("source_file_id").as_string() != visible_tree.root.file_id ||
+        prepared.at("destination_parent_file_id").as_string() !=
+            anchors.destination_parent.object.file_id ||
+        prepared.at("volume_serial").as_unsigned() !=
+            anchors.chain.volume.file_id_volume_serial ||
+        usk::json::canonical(prepared.at("protected_anchors")) !=
+            usk::json::canonical(usk::json::parse(json_anchor_set(anchors)))) {
+        throw std::runtime_error("verification protected evidence differs");
+    }
+    const std::string selected_digest = prepared.at("selected_file_set_digest").as_string();
+    require_reviewed_plan_snapshot(snapshot_record, prepared, selected_digest);
+    const std::string staged_name =
+        ascii(anchors.staging.object.native_name) + "\\candidate";
+    const std::string visible_name =
+        ascii(anchors.destination_parent.object.native_name) + "\\visible";
+    const std::string sealed_visible = prepared_tree_at_visible_name(
+        prepared.at("sealed_tree"), staged_name, visible_name);
+    if (bound.as_object().size() != 9 ||
+        bound.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
+        bound.at("phase").as_string() != "lab_visible_evidence" ||
+        bound.at("source_file_id").as_string() != visible_tree.root.file_id ||
+        bound.at("destination_parent_file_id").as_string() !=
+            anchors.destination_parent.object.file_id ||
+        bound.at("destination_name").as_string() != "visible" ||
+        bound.at("selected_file_set_digest").as_string() != selected_digest ||
+        bound.at("prepared_record_sha256").as_string() != prepared_digest ||
+        usk::json::canonical(bound.at("protected_anchors")) !=
+            usk::json::canonical(usk::json::parse(json_anchor_set(anchors))) ||
+        usk::json::canonical(bound.at("visible_tree")) != sealed_visible ||
+        completion.as_object().size() != 11 ||
+        completion.at("schema").as_string() != "usk.publisher.lab_installed_state.v2" ||
+        completion.at("phase").as_string() != "lab_installed_state" ||
+        completion.at("service_sid").as_string() != service_sid ||
+        completion.at("volume_serial").as_unsigned() !=
+            anchors.chain.volume.file_id_volume_serial ||
+        completion.at("prepared_record_sha256").as_string() != prepared_digest ||
+        completion.at("visible_record_sha256").as_string() != visible_digest ||
+        completion.at("visible_root_file_id").as_string() != visible_tree.root.file_id ||
+        completion.at("destination_parent_file_id").as_string() !=
+            anchors.destination_parent.object.file_id ||
+        completion.at("destination_name").as_string() != "visible" ||
+        completion.at("selected_file_set_digest").as_string() != selected_digest ||
+        usk::json::canonical(completion.at("source_binding")) !=
+            usk::json::canonical(prepared.at("source_binding"))) {
+        throw std::runtime_error("verification completed intent differs from prepared publication");
+    }
+    require_publisher_anchor_set_phase_match(anchors,
+        observe_publisher_anchor_set(volume, {L"publication"}, names));
+    require_publisher_tree_phase_match(journal_tree, observe_publisher_tree(journal.get()));
+    require_publisher_tree_phase_match(state_tree, observe_publisher_tree(state.get()));
+    require_publisher_tree_phase_match(visible_tree, observe_publisher_tree(visible.get()));
+    // Current payload bytes may differ from the sealed install. The shared
+    // verifier reports that drift; protected intent and root identity may not.
+    return {snapshot_record, completion_digest, visible_tree.root.file_id,
+        json_anchor_set(anchors) + "\n" + json_tree(journal_tree) + "\n" +
+            json_tree(state_tree) + "\n" + json_tree(visible_tree)};
+}
+
 std::string verify_completed_install_in_service(HANDLE volume,
     const std::string& service_sid) {
     if (!submitted_verify_request) throw std::runtime_error("authenticated verify request is absent");
@@ -2557,22 +2675,8 @@ std::string verify_completed_install_in_service(HANDLE volume,
         request.at("schema").as_string() != "usk.publisher_installed_verify_request.v1") {
         throw std::runtime_error("authenticated verify request shape differs");
     }
-    const auto recovery = usk::json::parse(observe_prepared_recovery(
-        volume, service_sid, false, {}, {}, true));
-    if (recovery.at("observed_location").as_string() !=
-            "visible_with_visible_record" ||
-        !recovery.contains("completion_record_sha256") ||
-        recovery.at("completion_record_sha256").type() ==
-            usk::json::Value::Type::null_value ||
-        recovery.at("state_empty").as_boolean()) {
-        throw std::runtime_error("read-only verify requires completed protected publication");
-    }
-    using namespace usk::platform::windows;
-    OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
-    OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
-    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
-    OwnedHandle visible(open_exact_lab_child(destination.get(), L"visible"));
-    const std::string snapshot_record = read_phase_record(journal.get(), L"lab-reviewed-plan.json");
+    const auto boundary = observe_completed_verification_boundary(volume, service_sid);
+    const std::string snapshot_record = boundary.snapshot_record;
     const auto snapshot = usk::json::parse(snapshot_record);
     if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") {
         throw std::runtime_error("read-only verify requires caller-bound installed snapshot");
@@ -2584,7 +2688,7 @@ std::string verify_completed_install_in_service(HANDLE volume,
     }
     usk::lifecycle::require_completed_consumer_install(plan,
         snapshot.at("transaction_id").as_string(), snapshot.at("applied_at").as_string(),
-        recovery.at("completion_record_sha256").as_string(), volume_root, volume, service_name);
+        boundary.completion_digest, volume_root, volume, service_name);
     const auto public_request = usk::json::Value(usk::json::Value::Object{
         {"schema", usk::json::Value("usk.installed_verify_request.v1")},
         {"request_id", request.at("request_id")},
@@ -2593,7 +2697,7 @@ std::string verify_completed_install_in_service(HANDLE volume,
         {"verified_at", request.at("verified_at")}});
     std::string response;
     with_public_roots_bound(volume, plan,
-        observe_publisher_directory_handle(visible.get()).file_id, [&] {
+        boundary.visible_root_file_id, [&] {
         const std::string input = usk::json::canonical(public_request);
         int status = -1;
         char* raw = usk_public_lifecycle_command_json("installed.verify",
@@ -2617,10 +2721,11 @@ std::string verify_completed_install_in_service(HANDLE volume,
     if (status != "pass" && status != "fail" && status != "unknown") {
         throw std::runtime_error("installed verification result is unsupported");
     }
-    const auto after = usk::json::parse(observe_prepared_recovery(
-        volume, service_sid, false, {}, {}, true));
-    if (usk::json::canonical(after) != usk::json::canonical(recovery) ||
-        read_phase_record(journal.get(), L"lab-reviewed-plan.json") != snapshot_record) {
+    const auto after = observe_completed_verification_boundary(volume, service_sid);
+    if (after.snapshot_record != snapshot_record ||
+        after.completion_digest != boundary.completion_digest ||
+        after.visible_root_file_id != boundary.visible_root_file_id ||
+        after.observation != boundary.observation) {
         throw std::runtime_error("protected publication changed during read-only verify");
     }
     return "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
