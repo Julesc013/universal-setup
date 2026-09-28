@@ -23,7 +23,14 @@ public:
     PublisherVolumeBusy() : std::runtime_error("publisher volume operation is active") {}
 };
 
+class PublisherInstallBusy final : public std::runtime_error {
+public:
+    PublisherInstallBusy() : std::runtime_error("publisher installation operation is active") {}
+};
+
 std::wstring publisher_volume_operation_guard_name(const std::wstring& volume_guid_root);
+std::wstring publisher_install_operation_guard_name(const std::wstring& volume_guid_root,
+    const std::string& install_id);
 
 class PublisherVolumeOperationGuard final {
 public:
@@ -32,6 +39,25 @@ public:
 
     PublisherVolumeOperationGuard(const PublisherVolumeOperationGuard&) = delete;
     PublisherVolumeOperationGuard& operator=(const PublisherVolumeOperationGuard&) = delete;
+    bool previous_owner_abandoned() const noexcept { return previous_owner_abandoned_; }
+
+private:
+    HANDLE mutex_ = nullptr;
+    bool previous_owner_abandoned_ = false;
+};
+
+// The volume guard is acquired first because this candidate has one protected
+// publication namespace per volume. An authenticated install request then
+// holds this installation-specific mutex until its state transition ends.
+// Neither mutex grants timed automatic takeover of a live worker.
+class PublisherInstallOperationGuard final {
+public:
+    PublisherInstallOperationGuard(const std::wstring& volume_guid_root,
+        const std::string& install_id);
+    ~PublisherInstallOperationGuard();
+
+    PublisherInstallOperationGuard(const PublisherInstallOperationGuard&) = delete;
+    PublisherInstallOperationGuard& operator=(const PublisherInstallOperationGuard&) = delete;
     bool previous_owner_abandoned() const noexcept { return previous_owner_abandoned_; }
 
 private:

@@ -758,6 +758,11 @@ try {
     $receipt['consumer_sid']=if($ConsumerAccess){$consumerSid}else{''}
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
+    if($RegisteredService -and -not $recover -and
+        ($receipt.native.install_operation_guard_held -ne $true -or
+         $receipt.native.install_operation_guard_abandoned -ne $false)) {
+        throw 'Authenticated install did not hold its installation operation guard'
+    }
     $installedResponse=if($recover){$receipt.native.recovery_installed_response}else{$receipt.native.apply_response}
     if($recover -and $receipt.native.recovery_observation.decision -ne $recoveryDecision) {
         throw 'Source-free recovery did not perform the pending installed-state completion'

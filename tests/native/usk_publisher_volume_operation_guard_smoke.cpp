@@ -39,6 +39,9 @@ int main()
 {
     using usk::platform::windows::PublisherVolumeBusy;
     using usk::platform::windows::PublisherVolumeOperationGuard;
+    using usk::platform::windows::PublisherInstallBusy;
+    using usk::platform::windows::PublisherInstallOperationGuard;
+    using usk::platform::windows::publisher_install_operation_guard_name;
     using usk::platform::windows::publisher_volume_operation_guard_name;
 
     const std::wstring root = fresh_root();
@@ -52,6 +55,40 @@ int main()
     }
     if (publisher_volume_operation_guard_name(root) !=
         publisher_volume_operation_guard_name(lower)) return 2;
+    if (publisher_install_operation_guard_name(root, "org.example.setup") !=
+            publisher_install_operation_guard_name(lower, "org.example.setup") ||
+        publisher_install_operation_guard_name(root, "org.example.setup") ==
+            publisher_install_operation_guard_name(root, "Org.example.setup")) return 10;
+    for (const std::string& invalid : {std::string{}, std::string("../other"),
+            std::string(129, 'a')}) {
+        bool refused = false;
+        try { (void)publisher_install_operation_guard_name(root, invalid); }
+        catch (const std::invalid_argument&) { refused = true; }
+        if (!refused) return 11;
+    }
+    {
+        PublisherInstallOperationGuard owner(root, "org.example.setup");
+        if (owner.previous_owner_abandoned()) return 12;
+        std::atomic<int> contender_result{0};
+        std::thread contender([&] {
+            try {
+                PublisherInstallOperationGuard second(lower, "org.example.setup");
+                contender_result = 2;
+            } catch (const PublisherInstallBusy&) {
+                contender_result = 1;
+            } catch (...) {
+                contender_result = 3;
+            }
+        });
+        contender.join();
+        if (contender_result != 1) return 13;
+        PublisherInstallOperationGuard independent(root, "org.example.other");
+        if (independent.previous_owner_abandoned()) return 14;
+    }
+    {
+        PublisherInstallOperationGuard successor(root, "org.example.setup");
+        if (successor.previous_owner_abandoned()) return 15;
+    }
 
     {
         PublisherVolumeOperationGuard owner(root);
