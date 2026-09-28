@@ -38,3 +38,11 @@ VM stop the registered service after a durable snapshot and staged tree, then
 exercise the normal source-free recovery command. A controlled service stop is
 recorded as process cancellation, not as power-loss evidence. The ordinary
 `usk_publisher_lab_service` executable does not accept that gate grammar.
+
+`usk_publisher_client` returns 0 only for a complete `pass` response. It returns
+3 for a complete `failed` or `recovery_required` response, 5 when a submitted
+request or its response/output has an unknown outcome, and 2 for local
+validation or pre-send refusal. On exit 5, reconnect with the same reviewed
+request or use source-free recovery; the exit code does not establish that no
+publication effects occurred. The packaged machine client uses the same
+unknown-outcome distinction.
