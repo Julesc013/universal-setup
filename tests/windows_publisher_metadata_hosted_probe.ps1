@@ -845,9 +845,11 @@ try {
             throw 'Product service control did not configure read-only verification'
         }
         Start-RegisteredPublisher
-        $verifyClient=Start-RequestClient $verifyRequest
+        $requestClient=Start-RequestClient $verifyRequest
+        $verifyClient=$requestClient
         if(-not $verifyClient.process.WaitForExit(120000)){throw 'Registered verification client timed out'}
         $verifyClient.process.WaitForExit()
+        $requestClient=$null
         if($verifyClient.process.ExitCode -ne 0 -or
             (Get-Item -LiteralPath $verifyClient.response).Length -gt 4MB) {
             throw ('Registered verification client failed: '+[IO.File]::ReadAllText($verifyClient.error))
@@ -870,9 +872,11 @@ try {
         foreach($key in $verifyRequest.Keys){$staleVerify[$key]=$verifyRequest[$key]}
         $staleVerify.transaction_id='install.'+[guid]::NewGuid().ToString('N')
         Start-RegisteredPublisher
-        $staleClient=Start-RequestClient $staleVerify
+        $requestClient=Start-RequestClient $staleVerify
+        $staleClient=$requestClient
         if(-not $staleClient.process.WaitForExit(120000)){throw 'Stale verification client timed out'}
         $staleClient.process.WaitForExit()
+        $requestClient=$null
         $staleResponse=Get-Content -LiteralPath $staleClient.response -Raw|ConvertFrom-Json
         if($staleClient.process.ExitCode -eq 0 -or $staleResponse.status -ne 'failed' -or
             $staleResponse.error -notmatch 'differs from completed install') {
