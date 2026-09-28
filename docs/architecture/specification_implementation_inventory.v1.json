@@ -870,7 +870,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -994,7 +994,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -2685,7 +2685,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2720,7 +2720,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2755,7 +2755,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -3496,7 +3496,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         }
       ],
       "acceptance_ids": [
@@ -3532,7 +3532,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         }
       ],
       "acceptance_ids": [
@@ -3568,7 +3568,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         }
       ],
       "acceptance_ids": [
@@ -3644,7 +3644,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "b6444272a3806f2156d881b6ed3d19b28de81fa3ce44b91de2da704dc33f49f7"
+          "sha256": "7341e288493631692619cd254daf4e0d07617920dfca6ca72fac46641551dc04"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -3943,7 +3943,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "6b9121d80452f46b49c95836da15936809c73394115cb11c029b0f13a61cfd4c"
+          "sha256": "b7bfc89ea26b8d614333b80cc4f2bb0c4d190583607b4e74d358a647df258c14"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4039,7 +4039,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "81ba46d16cf84993b56a3c0927de930839e405b847d82bf4168c26f1605ca8c8"
+          "sha256": "e5c72f4d13847d303079342dd6128e39eb0d591e7ddd022bd53ff31eb2ebc917"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
@@ -4315,7 +4315,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "81ba46d16cf84993b56a3c0927de930839e405b847d82bf4168c26f1605ca8c8"
+          "sha256": "e5c72f4d13847d303079342dd6128e39eb0d591e7ddd022bd53ff31eb2ebc917"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
