@@ -33,10 +33,9 @@ function Invoke-IndependentOwnedPayloadDamage {
     $id=[guid]::NewGuid().ToString('N')
     $name='USK_PAYLOAD_DAMAGE_'+$id
     $outputRoot=Split-Path -Parent $vhd
-    $script=Join-Path $outputRoot ('payload-damage-'+$id+'.ps1')
     $output=Join-Path $outputRoot ('payload-damage-'+$id+'.json')
     if((Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $script) -or (Test-Path -LiteralPath $output)) {
+        (Test-Path -LiteralPath $output)) {
         throw 'Owned payload damage task or output collision'
     }
     $body=@'
@@ -71,9 +70,10 @@ if($after -ceq $before){throw 'Selected payload damage did not change content'}
     path=$Target;bytes=$item.Length;before_sha256=$before;after_sha256=$after}|
     ConvertTo-Json -Compress|Set-Content -LiteralPath $Output -Encoding utf8
 '@
-    [IO.File]::WriteAllText($script,$body,[Text.UTF8Encoding]::new($false))
     $quote={param($value) "'"+$value.Replace("'","''")+"'"}
-    $command='& ([scriptblock]::Create([IO.File]::ReadAllText('+(& $quote $script)+')))'+
+    # Keep executable text in the registered task action. A separate script
+    # under runner temp could be replaced between registration and SYSTEM run.
+    $command='& ([scriptblock]::Create('+(& $quote $body)+'))'+
         ' -Target '+(& $quote $target)+' -ExpectedSha256 '+(& $quote $ExpectedSha256)+
         ' -VhdPath '+(& $quote $vhd)+' -VolumeRoot '+(& $quote $VolumeRoot)+
         ' -DriveRoot '+(& $quote $DriveRoot)+' -Output '+(& $quote $output)
@@ -102,8 +102,6 @@ if($after -ceq $before){throw 'Selected payload damage did not change content'}
             Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop
             if(Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue){throw 'Owned damage task cleanup failed'}
         }
-        foreach($path in @($script,$output)) {
-            if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
-        }
+        if(Test-Path -LiteralPath $output){Remove-Item -LiteralPath $output -Force -ErrorAction Stop}
     }
 }
