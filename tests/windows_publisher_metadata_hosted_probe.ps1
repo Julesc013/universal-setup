@@ -60,6 +60,24 @@ if($MachineRequestClient -and (-not $RegisteredService -or -not $MachineBinary -
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
     throw 'Registered hostile-rights proof requires the same owned non-admin client identity'
 }
+function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPath) {
+    if((Test-Path -LiteralPath $ReceiptPath -PathType Leaf) -and
+        (Get-Item -LiteralPath $ReceiptPath).Length -le 256KB) {
+        try {
+            $attack=Get-Content -LiteralPath $ReceiptPath -Raw|ConvertFrom-Json
+            if($attack.schema -ceq 'usk.publisher.unprivileged_access_probe.v1' -and
+                $attack.status -ceq 'failed' -and $attack.failure) {
+                return ([string]$attack.failure).Substring(0,
+                    [math]::Min(512,([string]$attack.failure).Length))
+            }
+        } catch {}
+    }
+    if(Test-Path -LiteralPath $ErrorPath -PathType Leaf) {
+        $diagnostic=Read-BoundedDiagnostic $ErrorPath 2048
+        if($diagnostic){return $diagnostic}
+    }
+    return 'bounded attacker diagnostic absent'
+}
 if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedSource -or
     -not $NonAdminClient -or $HostileRights -or $ConsumerAccess -or $MachineRequestClient -or
     $InterruptAfterStage -or $TerminateAtPoststage -or
@@ -764,18 +782,14 @@ try {
         while(-not (Test-Path -LiteralPath $concurrentReady) -and
             [DateTime]::UtcNow -lt $attackerDeadline) {
             if($concurrentAttacker.HasExited) {
-                $diagnostic=if(Test-Path -LiteralPath $concurrentError){
-                    Read-BoundedDiagnostic $concurrentError 2048
-                }else{'stderr absent'}
+                $diagnostic=Read-ConcurrentAttackerDiagnostic $concurrentOutput $concurrentError
                 throw ('Production concurrent attacker exited before readiness: '+$diagnostic)
             }
             Start-Sleep -Milliseconds 25
         }
         if(-not (Test-Path -LiteralPath $concurrentReady) -or
             [IO.File]::ReadAllText($concurrentReady) -cne "usk.publisher.concurrent_ready.v1`n") {
-            $diagnostic=if(Test-Path -LiteralPath $concurrentError){
-                Read-BoundedDiagnostic $concurrentError 2048
-            }else{'stderr absent'}
+            $diagnostic=Read-ConcurrentAttackerDiagnostic $concurrentOutput $concurrentError
             throw ('Production concurrent attacker did not become ready: '+$diagnostic)
         }
         $attackerProcess=Get-CimInstance Win32_Process -Filter ('ProcessId='+$concurrentAttacker.Id) -ErrorAction Stop
