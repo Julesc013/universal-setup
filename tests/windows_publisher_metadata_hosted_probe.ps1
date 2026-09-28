@@ -1793,8 +1793,28 @@ try {
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
-            & sc.exe delete $service|Out-Null
-            if($LASTEXITCODE -ne 0){throw 'Owned service deletion failed'}
+            if($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
+                $wrongRemove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
+                if($registeredMode){$wrongRemove+=$registeredMode}
+                & $ServiceControlBinary @wrongRemove 2>$null|Out-Null
+                if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
+                    throw 'Publisher service accepted a different unregister caller'
+                }
+                $remove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+                if($registeredMode){$remove+=$registeredMode}
+                $removed=& $ServiceControlBinary @remove
+                if($LASTEXITCODE -ne 0 -or
+                    ($removed|ConvertFrom-Json).status -cne 'removal_requested') {
+                    throw 'Owned product service unregister failed'
+                }
+                $receipt['product_service_unregister']=$removed|ConvertFrom-Json
+            }else{
+                & sc.exe delete $service|Out-Null
+                if($LASTEXITCODE -ne 0){throw 'Owned service deletion failed'}
+            }
+            $removeDeadline=[DateTime]::UtcNow.AddSeconds(15)
+            while((Get-Service $service -ErrorAction SilentlyContinue) -and
+                [DateTime]::UtcNow -lt $removeDeadline){Start-Sleep -Milliseconds 100}
             if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Owned service remains after deletion'}
             $receipt.service_removed=$true
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }

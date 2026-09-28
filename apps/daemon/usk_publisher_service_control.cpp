@@ -286,6 +286,23 @@ void request_start(const std::wstring& name, const std::wstring& binary,
         throw std::runtime_error("matching publisher service could not start");
 }
 
+void request_unregister(const std::wstring& name, const std::wstring& binary,
+    const std::wstring& volume, const std::wstring& caller,
+    const std::wstring& mode) {
+    require_file(binary);
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
+    ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | DELETE));
+    if (!service.get()) throw std::runtime_error("registered publisher service unavailable");
+    require_stopped(service.get());
+    const auto config = query_configuration(service.get());
+    require_profile(config);
+    require_existing_command(config.binary_path, name, binary, volume, caller, mode);
+    if (!DeleteService(service.get()))
+        throw std::runtime_error("matching publisher service deletion request failed");
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -293,11 +310,13 @@ int wmain(int argc, wchar_t** argv) {
     const bool recovery = argc >= 2 && std::wstring(argv[1]) == L"--recover";
     const bool verify = argc >= 2 && std::wstring(argv[1]) == L"--verify";
     const bool start = argc >= 2 && std::wstring(argv[1]) == L"--start";
+    const bool unregister = argc >= 2 && std::wstring(argv[1]) == L"--unregister";
     if ((!registration || (argc != 8 && argc != 9)) &&
         (!recovery || (argc != 6 && argc != 7)) &&
         (!verify || (argc != 6 && argc != 7)) &&
-        (!start || (argc != 6 && argc != 7))) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID | --recover NAME BINARY VOLUME CALLER_SID | --verify NAME BINARY VOLUME CALLER_SID | --start NAME BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read]\n";
+        (!start || (argc != 6 && argc != 7)) &&
+        (!unregister || (argc != 6 && argc != 7))) {
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID | --recover NAME BINARY VOLUME CALLER_SID | --verify NAME BINARY VOLUME CALLER_SID | --start NAME BINARY VOLUME CALLER_SID | --unregister NAME BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read]\n";
         return 2;
     }
     try {
@@ -320,11 +339,13 @@ int wmain(int argc, wchar_t** argv) {
             configure_recovery(name, binary, volume, caller, mode);
         } else if (verify) {
             configure_verify(name, binary, volume, caller, mode);
-        } else {
+        } else if (start) {
             request_start(name, binary, volume, caller, mode);
+        } else {
+            request_unregister(name, binary, volume, caller, mode);
         }
         std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\",\"status\":\""
-            << (registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : L"start_requested")
+            << (registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : start ? L"start_requested" : L"removal_requested")
             << L"\",\"service\":\"" << name << L"\"}\n";
         return 0;
     } catch (const std::exception& error) {
