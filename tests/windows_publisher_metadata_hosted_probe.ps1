@@ -196,6 +196,7 @@ $consumerSid=''
 $consumerProcess=$null
 $concurrentAttacker=$null
 $concurrentOutput=''
+$concurrentError=''
 $concurrentCompleted=''
 $clientCleanupConfirmed=$true
 $consumerOutput=Join-Path $root 'consumer-output'
@@ -671,9 +672,11 @@ try {
             # prepublish gate through the observed reply. This does not prove
             # that a sample occurred during the instantaneous native rename.
             $concurrentOutput=Join-Path $consumerOutput 'concurrent-attack.json'
+            $concurrentError=Join-Path $consumerOutput 'concurrent-stderr.txt'
             $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
             $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
             if((Test-Path -LiteralPath $concurrentOutput) -or
+                (Test-Path -LiteralPath $concurrentError) -or
                 (Test-Path -LiteralPath $concurrentReady) -or
                 (Test-Path -LiteralPath $concurrentCompleted)) {
                 throw 'Concurrent attacker output is not fresh'
@@ -686,11 +689,29 @@ try {
                 '-PayloadRelativePath',$attackRelative)
             $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
                 -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
-                -WindowStyle Hidden -WorkingDirectory $consumerOutput -ErrorAction Stop
+                -WindowStyle Hidden -WorkingDirectory $consumerOutput `
+                -RedirectStandardError $concurrentError -ErrorAction Stop
             $attackerDeadline=[DateTime]::UtcNow.AddSeconds(30)
             while(-not (Test-Path -LiteralPath $concurrentReady) -and
                 [DateTime]::UtcNow -lt $attackerDeadline) {
-                if($concurrentAttacker.HasExited){throw 'Concurrent attacker exited before readiness'}
+                if($concurrentAttacker.HasExited){
+                    $concurrentAttacker.WaitForExit()
+                    $receipt['concurrent_attacker_exit_code']=$concurrentAttacker.ExitCode
+                    if((Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -and
+                        (Get-Item -LiteralPath $concurrentOutput).Length -le 16KB) {
+                        $receipt['concurrent_attacker_early_receipt']=
+                            Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+                    }
+                    if((Test-Path -LiteralPath $concurrentError -PathType Leaf) -and
+                        (Get-Item -LiteralPath $concurrentError).Length -le 16KB) {
+                        $receipt['concurrent_attacker_stderr']=
+                            [IO.File]::ReadAllText($concurrentError)
+                    }
+                    $reason=if($receipt.concurrent_attacker_early_receipt){
+                        $receipt.concurrent_attacker_early_receipt.failure
+                    }else{$receipt.concurrent_attacker_stderr}
+                    throw ('Concurrent attacker exited before readiness: '+$reason)
+                }
                 Start-Sleep -Milliseconds 25
             }
             if(-not (Test-Path -LiteralPath $concurrentReady) -or
