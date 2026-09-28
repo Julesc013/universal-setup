@@ -293,7 +293,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 "cannot protect disposable volume root; Win32 "+std::to_string(applied));
         };
         const auto data=usk::platform::windows::execute_candidate_restricted_publisher(config,publication_effects_may_exist);
-        write_receipt(data);
+        if (!receipt_path.empty()) write_receipt(data);
         if (request_channel) request_channel->reply(data);
         WaitForSingleObject(stop_event, 120000);
     } catch (const std::exception& error) {
@@ -305,7 +305,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                     publication_effects_may_exist ?
                     "recovery_required" : "failed") +
                 ",\"error\":" + json_quote(error.what()) + "}\n";
-        try { write_receipt(failure); } catch (...) {}
+        if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
         // An authenticated peer receives the actual refusal/retained-effects
         // result when delivery is possible; loss of transport stays unknown.
         if (request_channel) { try { request_channel->reply(failure); } catch (...) {} }
@@ -411,20 +411,37 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[10]) == L"--postrename-gate" ||
             std::wstring(argv[10]) == L"--postjournal-gate" ||
             std::wstring(argv[10]) == L"--poststage-gate");
+    // A separately provisioned restricted service can use the same reviewed
+    // engine on an already protected dedicated volume. Its authenticated peer
+    // receives the result; this mode has no service-chosen receipt pathname,
+    // lab-only ACL setup, campaign VM dependency, or fault-injection gate.
+    bool registered_reviewed = false;
+    if (argc == 8 && external_client && !grant_client_read &&
+            !interrupt_consumer_grant && generated_service_name(name, L"USK_PUB_") &&
+            std::wstring(argv[3]) == L"--no-receipt" &&
+            std::wstring(argv[5]) == L"--reviewed-plan-envelope" &&
+            lower_sha256(argv[7])) {
+        try {
+            (void)usk::platform::windows::publisher_volume_operation_guard_name(argv[4]);
+            const std::filesystem::path envelope(argv[6]);
+            registered_reviewed = envelope.is_absolute() &&
+                envelope.lexically_normal() == envelope && !envelope.empty();
+        } catch (const std::exception&) { registered_reviewed = false; }
+    }
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
         !campaign_vm_sealed_journal &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
         !campaign_vm_selected && !campaign_vm_selected_plan &&
-        !campaign_vm_reviewed_source) return 2;
+        !campaign_vm_reviewed_source && !registered_reviewed) return 2;
     if (external_client && !campaign_vm_selected_plan &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
-        !campaign_vm_reviewed_source) return 2;
+        !campaign_vm_reviewed_source && !registered_reviewed) return 2;
     if ((campaign_vm_reviewed_recovery || campaign_vm_reviewed_source) &&
         !external_client) return 2;
     service_name = argv[2];
-    receipt_path = argv[3];
+    receipt_path = registered_reviewed ? L"" : argv[3];
     volume_root = argv[4];
     const std::wstring selected_gate =
         campaign_vm_selected && argc == 11 ? argv[10] :
@@ -442,11 +459,12 @@ int wmain(int argc, wchar_t** argv) {
     recover_snapshot_only = campaign_vm_snapshot_recovery;
     recover_reviewed = campaign_vm_reviewed_recovery;
     require_preprotected_boundary = campaign_vm_reviewed_source ||
-        campaign_vm_selected_plan;
+        campaign_vm_selected_plan || registered_reviewed;
     recover_sealed_journal = campaign_vm_sealed_journal;
     recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
-        campaign_vm_snapshot_recovery || campaign_vm_reviewed_source;
+        campaign_vm_snapshot_recovery || campaign_vm_reviewed_source ||
+        registered_reviewed;
     if (campaign_vm_selected || campaign_vm_selected_plan) {
         selected_archive_path = argv[6];
         selected_archive_sha256 = ascii(argv[7]);
@@ -454,6 +472,10 @@ int wmain(int argc, wchar_t** argv) {
     if (campaign_vm_selected_plan || campaign_vm_reviewed_source) {
         reviewed_plan_envelope_path = campaign_vm_selected_plan ? argv[11] : argv[6];
         reviewed_plan_envelope_sha256 = ascii(campaign_vm_selected_plan ? argv[12] : argv[7]);
+    }
+    if (registered_reviewed) {
+        reviewed_plan_envelope_path = argv[6];
+        reviewed_plan_envelope_sha256 = ascii(argv[7]);
     }
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
