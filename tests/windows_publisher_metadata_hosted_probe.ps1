@@ -18,6 +18,7 @@ param(
     [switch]$InterruptAfterStage,
     [switch]$ReviewedSource,
     [switch]$RegisteredService,
+    [switch]$NonAdminClient,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
@@ -37,6 +38,9 @@ if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or
     $InterruptBeforePublish -or $InterruptAfterStage -or
     $InterruptDuringConsumerAccess)) {
     throw 'Registered service probe requires one uninterrupted reviewed-source request'
+}
+if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
+    throw 'Non-admin client requires the registered service without consumer payload rights'
 }
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
@@ -175,13 +179,13 @@ function Read-NativeReceipt([string]$Path) {
 }
 function Start-RequestClient($submitted=$applyRequest) {
     $script:clientNumber++
-    $prefix=Join-Path $(if($ConsumerAccess){$consumerOutput}else{$root}) ('client-'+$clientNumber)
+    $prefix=Join-Path $(if($ConsumerAccess -or $NonAdminClient){$consumerOutput}else{$root}) ('client-'+$clientNumber)
     $clientRequest=$prefix+'-request.json'
     [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
     $options=@{FilePath=$ClientBinary;ArgumentList=@('--service',$service,'--request-file',('"'+$clientRequest+'"'));
         WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$prefix+'-response.json';RedirectStandardError=$prefix+'-error.txt'}
     $identityPath=$prefix+'-identity.json'
-    if($ConsumerAccess) {
+    if($ConsumerAccess -or $NonAdminClient) {
         $options.FilePath=(Get-Command pwsh).Source
         $options.ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
             '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,'-ClientBinary',$ClientBinary,
@@ -202,7 +206,7 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     }
     $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
         caller_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
-    if($ConsumerAccess) {
+    if($ConsumerAccess -or $NonAdminClient) {
         $actual=Get-Content -LiteralPath $client.identity -Raw|ConvertFrom-Json
         if($actual.user_sid -cne $consumerSid -or $actual.administrator){throw 'Actual client did not run as admitted non-admin user'}
         $result.caller_sid=$actual.user_sid
@@ -224,7 +228,7 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     return $result
 }
 try {
-    if($ConsumerAccess) {
+    if($ConsumerAccess -or $NonAdminClient) {
         $consumerName='USKUSR_'+[guid]::NewGuid().ToString('N').Substring(0,13)
         if(Get-LocalUser -Name $consumerName -ErrorAction SilentlyContinue){throw 'Consumer account collision'}
         $secure=ConvertTo-SecureString ('Aa1!'+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
@@ -310,14 +314,15 @@ try {
     if($HostileRights){$command+=' --prepublish-gate'}
     if($InterruptDuringConsumerAccess){$command+=' --interrupt-consumer-grant'}
     if($ClientBinary) {
-        $callerSid=if($ConsumerAccess){$consumerSid}else{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
+        $callerSid=if($ConsumerAccess -or $NonAdminClient){$consumerSid}else{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
         $clientArguments=' --authorized-client-sid '+$callerSid
         if($ConsumerAccess){$clientArguments+=' --grant-client-read'}
         $command+=$clientArguments
     }
     if($RegisteredService) {
         $command='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
-            ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+$clientArguments
+            ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
+            $(if($NonAdminClient){' --admit-client-observer'}else{''})+$clientArguments
     }
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
     & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
@@ -564,6 +569,13 @@ try {
             throw ('Registered service client failed or wrote a lab receipt: '+[IO.File]::ReadAllText($requestClient.error))
         }
         $receipt.native=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        if($NonAdminClient) {
+            $actual=Get-Content -LiteralPath $requestClient.identity -Raw|ConvertFrom-Json
+            if($actual.user_sid -cne $consumerSid -or $actual.administrator){
+                throw 'Registered client did not run as the admitted non-admin user'
+            }
+            $receipt['registered_client_identity']=$actual
+        }
         $receipt['authenticated_client']=[ordered]@{exit_code=0;caller_sid=$callerSid;
             binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
             response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -581,7 +593,7 @@ try {
         }
         $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
-    $receipt['consumer_sid']=$consumerSid
+    $receipt['consumer_sid']=if($ConsumerAccess){$consumerSid}else{''}
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
     $installedResponse=if($recover){$receipt.native.recovery_installed_response}else{$receipt.native.apply_response}
@@ -598,6 +610,11 @@ try {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
     Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
+    if($NonAdminClient -and @($receipt.independent.rows|Where-Object {
+        @($_.aces|Where-Object sid -eq $consumerSid).Count -ne 0
+    }).Count -ne 0) {
+        throw 'Non-admin request caller acquired published payload or private-state ACL rights'
+    }
     if($HostileRights) {
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
         & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative

@@ -61,6 +61,7 @@ std::wstring reviewed_plan_envelope_path;
 std::string reviewed_plan_envelope_sha256;
 std::wstring authorized_client_sid;
 bool grant_client_read = false;
+bool admit_client_observer = false;
 bool interrupt_consumer_grant = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
@@ -267,7 +268,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         config.stop_event=stop_event;
         if (!authorized_client_sid.empty()) {
             const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
-            if (grant_client_read)
+            if (grant_client_read || admit_client_observer)
                 usk::platform::windows::admit_current_publisher_client_observer(service_name, authorized_client_sid);
             request_channel=std::make_unique<usk::platform::windows::PublisherRequestChannel>(
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
@@ -320,9 +321,12 @@ int wmain(int argc, wchar_t** argv) {
     if (grant_client_read) --argc;
     const bool external_client = argc >= 3 && std::wstring(argv[argc-2]) == L"--authorized-client-sid";
     if (external_client) { authorized_client_sid=argv[argc-1]; argc-=2; }
+    admit_client_observer = argc > 1 && std::wstring(argv[argc-1]) == L"--admit-client-observer";
+    if (admit_client_observer) --argc;
     interrupt_consumer_grant = argc > 1 && std::wstring(argv[argc-1]) == L"--interrupt-consumer-grant";
     if (interrupt_consumer_grant) --argc;
     if ((grant_client_read && !external_client) || (interrupt_consumer_grant && !grant_client_read)) return 2;
+    if (admit_client_observer && (!external_client || grant_client_read || interrupt_consumer_grant)) return 2;
     if (argc < 5 || std::wstring(argv[1]) != L"--service") return 2;
     const std::wstring name(argv[2]);
     const bool hosted = (argc == 5 || argc == 6) &&
@@ -440,6 +444,7 @@ int wmain(int argc, wchar_t** argv) {
         !campaign_vm_reviewed_source && !registered_reviewed) return 2;
     if ((campaign_vm_reviewed_recovery || campaign_vm_reviewed_source) &&
         !external_client) return 2;
+    if (admit_client_observer && !registered_reviewed) return 2;
     service_name = argv[2];
     receipt_path = registered_reviewed ? L"" : argv[3];
     volume_root = argv[4];
