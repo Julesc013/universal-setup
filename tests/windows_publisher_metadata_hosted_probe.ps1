@@ -72,7 +72,7 @@ function Get-OwnedVolumeRootSddl([string]$Phase) {
     }
     Assert-OwnedVolume
     $taskName='USK_ROOT_ACL_'+$id+'_'+$Phase
-    $observation=Join-Path $root ('root-acl-'+$Phase+'.json')
+    $observation=Join-Path $observerRoot ('root-acl-'+$Phase+'.json')
     if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
         (Test-Path -LiteralPath $observation)) { throw 'Owned root ACL observer collision' }
     $command='$ErrorActionPreference=''Stop'';if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne ''S-1-5-18''){throw ''SYSTEM root ACL observer required''};'+
@@ -100,6 +100,7 @@ function Get-OwnedVolumeRootSddl([string]$Phase) {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
             if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned root ACL observer cleanup failed'}
         }
+        if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
     }
 }
 $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId
@@ -118,6 +119,22 @@ $archive=Join-Path $sourceDir ($(if($ReviewedSource){'product-'+$id+'.zip'}else{
 $envelope=Join-Path $root ('plan-'+$id+'.json')
 $out=[IO.Path]::GetFullPath($OutputPath)
 if(Test-Path -LiteralPath $out){throw 'Metadata receipt collision'}
+$observerRoot=Join-Path (Split-Path -Parent $vhd) ('root-acl-observer-'+$id)
+if((Split-Path -Parent $out) -ine (Split-Path -Parent $vhd) -or
+    (Test-Path -LiteralPath $observerRoot)) { throw 'Owned root ACL observer output root differs' }
+New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
+$runnerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$observerAcl=[Security.AccessControl.DirectorySecurity]::new()
+$observerAcl.SetSecurityDescriptorSddlForm('O:'+$runnerSid+'G:'+$runnerSid+
+    'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;'+$runnerSid+')')
+Set-Acl -LiteralPath $observerRoot -AclObject $observerAcl
+$observedAcl=Get-Acl -LiteralPath $observerRoot
+$observerRules=@($observedAcl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]))
+if(-not $observedAcl.AreAccessRulesProtected -or $observerRules.Count -ne 2 -or
+    @($observerRules|Where-Object {$_.IdentityReference.Value -eq 'S-1-5-18'}).Count -ne 1 -or
+    @($observerRules|Where-Object {$_.IdentityReference.Value -eq $runnerSid}).Count -ne 1) {
+    throw 'Owned SYSTEM observer output directory has an unexpected ACL'
+}
 $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run';vm_id=$vmId;
     runner_environment=$env:RUNNER_ENVIRONMENT;os_build=[Environment]::OSVersion.Version.ToString();
     disk_unique_id=$disk.UniqueId;volume_guid_root=$VolumeRoot;volume_drive_root=$drive;service=$service;
@@ -716,6 +733,8 @@ try {
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
     if($ReviewedSource) {
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
+        if((Get-Service $service).Status -ne 'Stopped') { throw 'Reviewed service remains active during root ACL observation' }
         $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
         if($receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service) {
             throw 'Reviewed-source service changed the preprotected volume root ACL'
@@ -768,6 +787,10 @@ try {
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     $receipt['observed_utc']=[DateTime]::UtcNow.ToString('o')
+    if(Test-Path -LiteralPath $observerRoot){
+        try { Remove-Item -LiteralPath $observerRoot -ErrorAction Stop }
+        catch { $failure='Owned root ACL observer directory cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
     $receipt|ConvertTo-Json -Depth 32|Set-Content -LiteralPath $out -Encoding UTF8
     # The existing outer harness dismounts/deletes only its identified VHD.
     # This entire hosted VM is disposable; no workstation resources are used.
