@@ -4835,7 +4835,7 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "a323d19bd8bca439aee31b9a3d855485fd1749e1599243d4f148928894b69235"
+          "sha256": "efcd81862ce3467dcb0090d41cc2e223886e95e4873a7d17768b5fa04c1e6119"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
