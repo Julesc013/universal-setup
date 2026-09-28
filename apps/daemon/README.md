@@ -32,6 +32,12 @@ protected root and authenticated request when started. This selected profile
 is still a candidate; the general product host and public capability gate
 remain unfinished.
 
+The packaged request client may be started as soon as `--start` returns. It
+waits within its transport deadline while the same restricted own-process
+service reports `START_PENDING`, then pins the running process before opening
+its authenticated pipe. A service that stops, changes type, or never becomes
+ready refuses before a request is sent.
+
 The registered service handles one authenticated request. After writing its
 terminal reply, it holds the pipe until that client disconnects, then stops.
 This lets the same service be reconfigured for verification or recovery after

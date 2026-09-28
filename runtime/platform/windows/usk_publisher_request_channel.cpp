@@ -140,6 +140,30 @@ DWORD service_process(SC_HANDLE service) {
     }
     return status.dwProcessId;
 }
+DWORD await_service_process(SC_HANDLE service, ULONGLONG until) {
+    SERVICE_SID_INFO sid{};
+    DWORD size = 0;
+    if (!QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
+            reinterpret_cast<BYTE*>(&sid), sizeof(sid), &size) ||
+        sid.dwServiceSidType != SERVICE_SID_TYPE_RESTRICTED) {
+        throw std::runtime_error("publisher server is not a restricted service");
+    }
+    while (true) {
+        SERVICE_STATUS_PROCESS status{};
+        if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                reinterpret_cast<BYTE*>(&status), sizeof(status), &size) ||
+            status.dwServiceType != SERVICE_WIN32_OWN_PROCESS) {
+            throw std::runtime_error("publisher server is not an own-process service");
+        }
+        if (status.dwCurrentState == SERVICE_RUNNING) return service_process(service);
+        if (status.dwCurrentState != SERVICE_START_PENDING) {
+            throw std::runtime_error("publisher server stopped before becoming ready");
+        }
+        const DWORD wait = std::min<DWORD>(remaining(until), 20);
+        if (!wait) throw std::runtime_error("publisher server startup timed out");
+        Sleep(wait);
+    }
+}
 }
 std::wstring publisher_request_pipe_name(const std::wstring& service_name) {
     if (service_name.empty() || service_name.size() > 80) throw std::runtime_error("publisher service name invalid");
@@ -245,7 +269,9 @@ std::string submit_publisher_request(const std::wstring& service_name,
     if (!manager.value) throw std::runtime_error("publisher SCM unavailable");
     ServiceHandle service(OpenServiceW(manager.value, service_name.c_str(), SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG));
     if (!service.value) throw std::runtime_error("publisher service unavailable");
-    const auto expected = service_process(service.value);
+    // StartServiceW returns while ServiceMain may still be START_PENDING.
+    // Wait only for that transition, before opening or writing the pipe.
+    const auto expected = await_service_process(service.value, until);
     Handle process(OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, expected));
     if (!process.value || WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT) throw std::runtime_error("publisher process unavailable");
     HANDLE raw = INVALID_HANDLE_VALUE;
