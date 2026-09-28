@@ -61,9 +61,24 @@ def compose_binding(request: dict[str, Any], response: dict[str, Any], *,
         if not re.fullmatch(r"[A-Za-z]:[\\/]", acceptance_root):
             raise BindingError("selected publisher requires a drive-root acceptance boundary")
         acceptance = str(PureWindowsPath(acceptance_root))
+        selected_target = source["target"]["root"]
+        if not isinstance(selected_target, str):
+            raise BindingError("selected destination target is not a path")
+        selected_target = selected_target.replace("\\", "/")
+        target_match = re.fullmatch(
+            r"[A-Za-z]:/publication/destination/([A-Za-z0-9_][A-Za-z0-9_.-]{0,254})",
+            selected_target)
+        if not target_match:
+            raise BindingError("selected target is outside the exact protected destination")
+        component = target_match.group(1)
+        stem = component.split(".", 1)[0].upper()
+        if (component.endswith(".") or
+                stem in {"CON", "PRN", "AUX", "NUL"} or
+                re.fullmatch(r"(?:COM|LPT)[1-9]", stem)):
+            raise BindingError("selected destination child is not canonical")
         expected_target = _windows_path(str(PureWindowsPath(acceptance) /
-            "publication" / "destination" / "visible"))
-        if (_windows_path(source["target"]["root"]) != expected_target or
+            "publication" / "destination" / component))
+        if (selected_target != expected_target or
                 _windows_path(planned["target"]["root"]) != expected_target or
                 _windows_path(state_root) !=
                     _windows_path(str(PureWindowsPath(acceptance) / "setup-state"))):

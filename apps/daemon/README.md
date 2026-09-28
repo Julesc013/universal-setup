@@ -33,6 +33,12 @@ protected root and authenticated request when started. This selected profile
 is still a candidate; the general product host and public capability gate
 remain unfinished.
 
+A reviewed plan may select an ASCII final directory name beneath the dedicated
+volume's protected `publication/destination` parent. Recovery and verification
+bind that name to the durable reviewed snapshot before opening the directory.
+A different parent or a noncanonical final name is refused. Arbitrary product
+target roots are not yet admitted.
+
 Unregister requires the service to be stopped and rechecks its generated name,
 executable path, volume, authorized caller, access mode, own-process account,
 and restricted service SID. Its `removal_requested` reply means Windows accepted
