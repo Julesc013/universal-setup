@@ -217,8 +217,11 @@ int wmain(int argc, wchar_t** argv) {
         const std::wstring root(argv[2]);
         if (!guid_root(root)) throw std::runtime_error("invalid volume GUID root");
         const std::wstring service_name(argv[3]);
-        const std::wstring prefix = hosted ? L"USK_WU006_" : L"USK_VM_";
-        if (!generated_suffix(service_name, prefix, L"")) {
+        const bool admitted_service = hosted ?
+            generated_suffix(service_name, L"USK_WU006_", L"") :
+            generated_suffix(service_name, L"USK_VM_", L"") ||
+                (hosted_vm && generated_suffix(service_name, L"USK_PUB_", L""));
+        if (!admitted_service) {
             throw std::runtime_error("invalid campaign service name");
         }
         const std::wstring vhd(argv[5]);

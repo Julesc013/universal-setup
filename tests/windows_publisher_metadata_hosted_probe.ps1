@@ -17,6 +17,7 @@ param(
     [switch]$InterruptBeforePublish,
     [switch]$InterruptAfterStage,
     [switch]$ReviewedSource,
+    [switch]$RegisteredService,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
@@ -29,6 +30,13 @@ if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection req
 if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or $HostileRights -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
     throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
+}
+if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or
+    $ConsumerAccess -or $HostileRights -or $ExpectUnprotectedRefusal -or
+    $InterruptAfterVisibleRecord -or $InterruptAfterRename -or
+    $InterruptBeforePublish -or $InterruptAfterStage -or
+    $InterruptDuringConsumerAccess)) {
+    throw 'Registered service probe requires one uninterrupted reviewed-source request'
 }
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
@@ -106,7 +114,7 @@ function Get-OwnedVolumeRootSddl([string]$Phase) {
 $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
 $id=[guid]::NewGuid().ToString('N')
-$service='USK_VM_'+$id
+$service=$(if($RegisteredService){'USK_PUB_'}else{'USK_VM_'})+$id
 $root='C:\USK-Lab'
 if(Test-Path -LiteralPath $root){throw 'Unexpected existing hosted campaign input root'}
 New-Item -ItemType Directory -Path $root|Out-Null
@@ -267,7 +275,7 @@ try {
         throw 'Actual selected native plan differs'
     }
     $receipt.request=$request.payload;$receipt.plan=$plan;$receipt.archive_sha256=$inputs.archive_sha256
-    $receipt['source_mode']=if($ReviewedSource){'authenticated_reviewed_envelope'}else{'legacy_scm_source_binding'}
+    $receipt['source_mode']=if($RegisteredService){'registered_reviewed_service'}elseif($ReviewedSource){'authenticated_reviewed_envelope'}else{'legacy_scm_source_binding'}
     $applyRequest=[ordered]@{schema='usk.install_local_apply_request.v1';plan_request=$request.payload;
         reviewed_plan_id=$plan.plan_id;reviewed_plan_digest=$plan.plan_digest;transaction_id='install.'+$id;
         applied_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ');confirmation='APPLY'}
@@ -306,6 +314,10 @@ try {
         $clientArguments=' --authorized-client-sid '+$callerSid
         if($ConsumerAccess){$clientArguments+=' --grant-client-read'}
         $command+=$clientArguments
+    }
+    if($RegisteredService) {
+        $command='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
+            ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+$clientArguments
     }
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
     & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
@@ -543,16 +555,33 @@ try {
         try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
         $requestClient=Start-RequestClient
     }
-    $deadline=[DateTime]::UtcNow.AddSeconds(90)
-    while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
-    if(-not (Test-Path -LiteralPath $nativePath)){throw 'Native service receipt absent'}
-    $receipt.native=Read-NativeReceipt $nativePath
-    if($requestClient) {
-        $receipt['authenticated_client']=Complete-RequestClient $requestClient $true
+    if($RegisteredService) {
+        if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered service client timed out'}
+        $requestClient.process.WaitForExit()
+        if($requestClient.process.ExitCode -ne 0 -or
+            (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw ('Registered service client failed or wrote a lab receipt: '+[IO.File]::ReadAllText($requestClient.error))
+        }
+        $receipt.native=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        $receipt['authenticated_client']=[ordered]@{exit_code=0;caller_sid=$callerSid;
+            binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
+            response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant();
+            delivery='response_received'}
+        $receipt['native_response_sha256']=$receipt.authenticated_client.response_sha256
         $requestClient=$null
+    } else {
+        $deadline=[DateTime]::UtcNow.AddSeconds(90)
+        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Native service receipt absent'}
+        $receipt.native=Read-NativeReceipt $nativePath
+        if($requestClient) {
+            $receipt['authenticated_client']=Complete-RequestClient $requestClient $true
+            $requestClient=$null
+        }
+        $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     $receipt['consumer_sid']=$consumerSid
-    $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
     if($receipt.native.status -ne 'pass'){throw ('Native metadata operation failed: '+$receipt.native.error)}
     $installedResponse=if($recover){$receipt.native.recovery_installed_response}else{$receipt.native.apply_response}
