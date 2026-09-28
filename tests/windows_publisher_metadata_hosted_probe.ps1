@@ -156,6 +156,8 @@ $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run'
     archive_sha256=$null;strip_prefix='pkg';request=$null;plan=$null;native=$null;independent=$null;
     observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false}
 $created=$false
+$registrationAttempted=$false
+$expectedRegisteredCommand=''
 $failure=$null
 $requestClient=$null
 $clientNumber=0
@@ -322,9 +324,14 @@ try {
     }
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
     if($RegisteredService) {
+        $expectedRegisteredCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
+            ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
+            $(if($NonAdminClient){' --admit-client-observer'}else{''})+
+            ' --authorized-client-sid '+$callerSid
         $controlArgs=@('--register',$service,$ServiceBinary,$VolumeRoot,$envelope,
             $receipt.envelope_sha256,$callerSid)
         if($NonAdminClient){$controlArgs+='--admit-client-observer'}
+        $registrationAttempted=$true
         $registered=& $ServiceControlBinary @controlArgs
         if($LASTEXITCODE -ne 0){throw 'Product service control did not register the reviewed publisher'}
         $created=$true
@@ -879,6 +886,17 @@ try {
     }
     if($consumerCreated -and -not $clientCleanupConfirmed){$receipt['consumer_account_retained']=$consumerName}
     $consumerCredential=$null
+    if($registrationAttempted -and -not $created) {
+        try {
+            $pendingService=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+            if($pendingService) {
+                if($pendingService.PathName -cne $expectedRegisteredCommand) {
+                    throw 'Failed registration left a service with an unexpected command; retain for inspection'
+                }
+                $created=$true
+            }
+        } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}

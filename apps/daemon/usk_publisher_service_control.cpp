@@ -199,7 +199,11 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         if (observed.binary_path != command)
             throw std::runtime_error("registered service command differs from reviewed input");
     } catch (...) {
-        (void)DeleteService(service.get());
+        if (!DeleteService(service.get())) {
+            const DWORD deletion_error = GetLastError();
+            throw std::runtime_error("registration failed and created service deletion failed (Win32 error " +
+                std::to_string(deletion_error) + ")");
+        }
         throw;
     }
 }
