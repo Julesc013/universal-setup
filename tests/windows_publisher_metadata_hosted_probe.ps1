@@ -220,6 +220,19 @@ function Complete-StageObserver($Observer) {
     }
     return $result
 }
+function Test-LiveStageAttemptOverlap($Observation,$Attempts) {
+    foreach($run in @($Observation.runs)) {
+        if($run.samples -lt 2 -or $run.maximum_gap_ticks -gt 2000000){continue}
+        foreach($attempt in @($Attempts)) {
+            if([long]$attempt.start_tick -gt [long]$run.first_tick -and
+                [long]$attempt.end_tick -ge [long]$attempt.start_tick -and
+                [long]$attempt.end_tick -lt [long]$run.last_tick) {
+                return $true
+            }
+        }
+    }
+    return $false
+}
 $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
 $id=[guid]::NewGuid().ToString('N')
@@ -600,6 +613,34 @@ try {
         Set-Acl -LiteralPath $path -AclObject $acl
     }
     Assert-OwnedVolume
+    if($ProductionConcurrentRights) {
+        # The attack originates from a writable file on this same disposable
+        # NTFS volume. Its ACL is explicit; the volume root stays protected.
+        $scratch=Join-Path $drive 'attacker-scratch'
+        $scratchFile=Join-Path $scratch 'replacement.bin'
+        if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $scratchFile)) {
+            throw 'Owned same-volume attack source is not fresh'
+        }
+        New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+        [IO.File]::WriteAllBytes($scratchFile,[byte[]]@(0x42))
+        $scratchSha256=(Get-FileHash -LiteralPath $scratchFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $consumerIdentity=[Security.Principal.SecurityIdentifier]::new($consumerSid)
+        $systemIdentity=[Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        foreach($path in @($scratch,$scratchFile)) {
+            $scratchAcl=Get-Acl -LiteralPath $path
+            $scratchAcl.SetAccessRuleProtection($true,$false)
+            $inherit=if($path -ceq $scratch){'ContainerInherit,ObjectInherit'}else{'None'}
+            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $systemIdentity,'FullControl',$inherit,'None','Allow'))
+            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $consumerIdentity,'Modify',$inherit,'None','Allow'))
+            Set-Acl -LiteralPath $path -AclObject $scratchAcl
+        }
+        $attackSource=$VolumeRoot+'attacker-scratch\replacement.bin'
+        $receipt['same_volume_attacker_source']=[ordered]@{
+            path=$attackSource;volume_root=$VolumeRoot;size_bytes=1;
+            sha256=$scratchSha256}
+    }
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
     if(-not $ExpectUnprotectedRefusal) {
         $acl=[Security.AccessControl.DirectorySecurity]::new()
@@ -713,7 +754,8 @@ try {
             '-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),'-ExpectedUserSid',$consumerSid,
             '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
             '-Stage','ProductionConcurrent','-ReleasePath',('"'+$productionStart+'"'),
-            '-PayloadRelativePath',$attackRelative)
+            '-PayloadRelativePath',$attackRelative,
+            '-SameVolumeSource',('"'+$attackSource+'"'))
         $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
             -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $consumerOutput `
@@ -1139,7 +1181,7 @@ try {
             if($concurrentAttacker.ExitCode -ne 0 -or
                 -not (Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -or
                 (Get-Item -LiteralPath $concurrentOutput).Length -gt
-                    $(if($ProductionConcurrentRights){128KB}else{16KB})) {
+                    $(if($ProductionConcurrentRights){256KB}else{16KB})) {
                 throw 'Concurrent attacker did not produce a bounded successful receipt'
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
@@ -1147,23 +1189,17 @@ try {
                 # The protected ancestor masks absence as ACCESS_DENIED for
                 # this caller. Correlate its denied writes with independent
                 # SYSTEM samples of the actual staged file.
-                $overlap=$false
-                foreach($run in @($stageObservation.runs)) {
-                    if($run.samples -lt 2 -or $run.maximum_gap_ticks -gt 2000000){continue}
-                    foreach($attempt in @($concurrent.concurrent.staged_write.denied_attempts)) {
-                        if([long]$attempt.start_tick -gt [long]$run.first_tick -and
-                            [long]$attempt.end_tick -ge [long]$attempt.start_tick -and
-                            [long]$attempt.end_tick -lt [long]$run.last_tick) {
-                            $overlap=$true;break
-                        }
-                    }
-                    if($overlap){break}
-                }
+                $overlap=Test-LiveStageAttemptOverlap $stageObservation `
+                    $concurrent.concurrent.staged_write.denied_attempts
+                $replaceOverlap=Test-LiveStageAttemptOverlap $stageObservation `
+                    $concurrent.concurrent.staged_replace.denied_attempts
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
-                $stageObserver.removed -and $overlap -and
+                $stageObserver.removed -and $overlap -and $replaceOverlap -and
+                $concurrent.concurrent.same_volume_source_retained -and
                 $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_write.denied_after_start_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.staged_replace.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.cycles_after_start_before_observed_reply -ge 1
             }else{
                 $concurrent.stage -ceq 'Concurrent' -and
@@ -1184,7 +1220,7 @@ try {
             }
             $receipt['concurrent_hostile_rights']=$concurrent
             if($ProductionConcurrentRights) {
-                $receipt['concurrent_qualification_limit']='sampled_live_staging_not_exact_rename_overlap'
+                $receipt['concurrent_qualification_limit']='sampled_live_staging_and_same_volume_replace_not_exact_rename_overlap'
             }
             $concurrentAttacker=$null
         }

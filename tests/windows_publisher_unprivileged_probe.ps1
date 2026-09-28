@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputPath,
     [ValidateSet('Prepublish', 'Postpublish', 'Concurrent', 'ProductionConcurrent')][string]$Stage = 'Postpublish',
     [string]$ReleasePath = '',
+    [string]$SameVolumeSource = '',
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin'
 )
 
@@ -72,15 +73,15 @@ function Observe-ConcurrentDenial {
             if ($AfterRelease -and -not $AfterCompletion) {
                 if ($Stage -eq 'ProductionConcurrent') {
                     $receipt.concurrent[$Name].denied_after_start_before_observed_reply++
-                    if ($Name -eq 'staged_write') {
-                        $samples=$receipt.concurrent.staged_write.denied_attempts
+                    if ($Name -in @('staged_write','staged_replace')) {
+                        $samples=$receipt.concurrent[$Name].denied_attempts
                         $sample=[ordered]@{start_tick=$attemptStart;end_tick=$attemptEnd}
                         if($samples.Count -lt 1024){
-                            $receipt.concurrent.staged_write.denied_attempts += $sample
+                            $receipt.concurrent[$Name].denied_attempts += $sample
                         }else{
-                            $samples[$receipt.concurrent.staged_write.denied_attempt_count % 1024]=$sample
+                            $samples[$receipt.concurrent[$Name].denied_attempt_count % 1024]=$sample
                         }
-                        $receipt.concurrent.staged_write.denied_attempt_count++
+                        $receipt.concurrent[$Name].denied_attempt_count++
                     }
                 } else {
                     $receipt.concurrent[$Name].denied_after_gate_before_observed_reply++
@@ -132,9 +133,23 @@ try {
         $candidate = $root + 'publication\staging\candidate'
         $stagedFile = $candidate + '\' + $payloadPath
         $visibleFile = $destination + '\visible\' + $payloadPath
+        if($Stage -eq 'ProductionConcurrent') {
+            if($SameVolumeSource -cne $root+'attacker-scratch\replacement.bin' -or
+                $PayloadRelativePath -cne 'bin/core.bin') {
+                throw 'production attacker source is not on the exact owned volume'
+            }
+            $sourceHandle=[IO.File]::Open($SameVolumeSource,[IO.FileMode]::Open,
+                [IO.FileAccess]::ReadWrite,[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+            try {
+                if($sourceHandle.Length -ne 1 -or $sourceHandle.ReadByte() -ne 0x42) {
+                    throw 'same-volume attacker source bytes differ'
+                }
+            } finally {$sourceHandle.Dispose()}
+        }
         $receipt['concurrent'] = [ordered]@{
             destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
             staged_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_replace = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             visible_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
             cycles = 0; cycles_after_gate_before_observed_reply = 0; cycles_after_start_before_observed_reply = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
             ready_utc = $null; release_seen_utc = $null; started_seen_utc = $null; completed_seen_utc = $null
@@ -169,6 +184,11 @@ try {
                     [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
                 $handle.Dispose()
             } $true $afterCompletion $afterRelease
+            if($Stage -eq 'ProductionConcurrent') {
+                Observe-ConcurrentDenial 'staged_replace' {
+                    [IO.File]::Move($SameVolumeSource,$stagedFile,$true)
+                } $true $afterCompletion $afterRelease
+            }
             Observe-ConcurrentDenial 'visible_write' {
                 $handle = [IO.File]::Open($visibleFile, [IO.FileMode]::Open,
                     [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
@@ -204,11 +224,17 @@ try {
                 $receipt.concurrent.destination_create.denied -lt 4 -or
                 $receipt.concurrent.destination_create.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_write.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_replace.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.cycles_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.visible_write.denied_after_completion -lt 3 -or
                 $receipt.concurrent.cycles_after_completion -lt 3) {
                 throw 'production attacker did not observe live staging and completed visibility'
             }
+            $retained=[IO.File]::ReadAllBytes($SameVolumeSource)
+            if($retained.Length -ne 1 -or $retained[0] -ne 0x42) {
+                throw 'same-volume attacker source changed during refused replacement'
+            }
+            $receipt.concurrent['same_volume_source_retained']=$true
         } elseif (-not $receipt.concurrent.ready_utc -or
             $receipt.concurrent.destination_create.denied -lt 4 -or
             $receipt.concurrent.destination_create.denied_after_gate_before_observed_reply -lt 1 -or
