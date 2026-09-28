@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedUserSid,
     [Parameter(Mandatory = $true)][string]$ServiceSid,
     [Parameter(Mandatory = $true)][string]$OutputPath,
-    [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish',
+    [ValidateSet('Prepublish', 'Postpublish', 'Concurrent')][string]$Stage = 'Postpublish',
+    [string]$ReleasePath = '',
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin'
 )
 
@@ -54,6 +55,27 @@ function Require-Denied {
     }
 }
 
+function Observe-ConcurrentDenial {
+    param([string]$Name, [scriptblock]$Action, [bool]$AllowMissing,
+        [bool]$AfterCompletion, [bool]$AfterRelease)
+    try {
+        & $Action
+        throw "concurrent $Name unexpectedly obtained mutation access"
+    } catch {
+        $cause = $_.Exception
+        while ($cause.InnerException) { $cause = $cause.InnerException }
+        if ($cause.HResult -eq -2147024891) {
+            $receipt.concurrent[$Name].denied++
+            if ($AfterCompletion) { $receipt.concurrent[$Name].denied_after_completion++ }
+            if ($AfterRelease -and -not $AfterCompletion) {
+                $receipt.concurrent[$Name].denied_during_release++
+            }
+        } elseif ($AllowMissing -and $cause.HResult -in @(-2147024894, -2147024893)) {
+            $receipt.concurrent[$Name].missing++
+        } else { throw }
+    }
+}
+
 try {
     if ($root -notmatch '^\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\$' -or
         $identity.User.Value -ne $ExpectedUserSid -or
@@ -63,7 +85,96 @@ try {
     }
     $destination = $root + 'publication\destination'
     $payloadPath = $PayloadRelativePath.Replace('/', '\')
-    if ($Stage -eq 'Prepublish') {
+    if ($Stage -eq 'Concurrent') {
+        $output = [IO.Path]::GetFullPath($OutputPath)
+        $folder = [IO.Path]::GetDirectoryName($output)
+        $releaseMarker = [IO.Path]::GetFullPath($ReleasePath)
+        if ($env:GITHUB_ACTIONS -ne 'true' -or
+            $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
+            [IO.Path]::GetFileName($output) -cne 'concurrent-attack.json' -or
+            [IO.Path]::GetFileName($folder) -cne 'consumer-output' -or
+            [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($folder)) -cne 'C:\USK-Lab' -or
+            [IO.Path]::GetDirectoryName($releaseMarker) -cne 'C:\USK-Lab' -or
+            -not [IO.Path]::GetFileName($releaseMarker).EndsWith('-prepublish-release.txt',
+                [StringComparison]::Ordinal)) {
+            throw 'concurrent attacker requires the owned hosted consumer output'
+        }
+        $ready = Join-Path $folder 'concurrent-ready.txt'
+        $completed = Join-Path $folder 'concurrent-completed.txt'
+        if ((Test-Path -LiteralPath $ready) -or
+            (Test-Path -LiteralPath $completed) -or
+            (Test-Path -LiteralPath $output)) {
+            throw 'concurrent attacker markers are not fresh'
+        }
+        $candidate = $root + 'publication\staging\candidate'
+        $stagedFile = $candidate + '\' + $payloadPath
+        $visibleFile = $destination + '\visible\' + $payloadPath
+        $receipt['concurrent'] = [ordered]@{
+            destination_create = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_during_release = 0 }
+            staged_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_during_release = 0 }
+            visible_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_during_release = 0 }
+            cycles = 0; cycles_during_release = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
+            ready_utc = $null; release_seen_utc = $null; completed_seen_utc = $null
+        }
+        $deadline = [DateTime]::UtcNow.AddSeconds(120)
+        $prior = [DateTime]::UtcNow
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $now = [DateTime]::UtcNow
+            $gap = ($now - $prior).TotalMilliseconds
+            if ($gap -gt $receipt.concurrent.max_cycle_gap_ms) {
+                $receipt.concurrent.max_cycle_gap_ms = [math]::Round($gap, 3)
+            }
+            $prior = $now
+            $afterCompletion = Test-Path -LiteralPath $completed
+            $afterRelease = Test-Path -LiteralPath $releaseMarker
+            if ($afterRelease -and -not $receipt.concurrent.release_seen_utc) {
+                $receipt.concurrent.release_seen_utc = $now.ToString('o')
+            }
+            if ($afterCompletion -and -not $receipt.concurrent.completed_seen_utc) {
+                $receipt.concurrent.completed_seen_utc = $now.ToString('o')
+            }
+            Observe-ConcurrentDenial 'destination_create' {
+                [IO.Directory]::CreateDirectory($destination + '\hostile-child') | Out-Null
+            } $false $afterCompletion $afterRelease
+            Observe-ConcurrentDenial 'staged_write' {
+                $handle = [IO.File]::Open($stagedFile, [IO.FileMode]::Open,
+                    [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+                $handle.Dispose()
+            } $true $afterCompletion $afterRelease
+            Observe-ConcurrentDenial 'visible_write' {
+                $handle = [IO.File]::Open($visibleFile, [IO.FileMode]::Open,
+                    [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+                $handle.Dispose()
+            } $true $afterCompletion $afterRelease
+            $receipt.concurrent.cycles++
+            if ($afterRelease -and -not $afterCompletion) {
+                $receipt.concurrent.cycles_during_release++
+            }
+            if ($afterCompletion) { $receipt.concurrent.cycles_after_completion++ }
+            if (-not $receipt.concurrent.ready_utc -and
+                $receipt.concurrent.staged_write.denied -gt 0) {
+                $readyTemp = $ready + '.tmp'
+                $readyBytes = [Text.Encoding]::ASCII.GetBytes("usk.publisher.concurrent_ready.v1`n")
+                $stream = [IO.FileStream]::new($readyTemp, [IO.FileMode]::CreateNew,
+                    [IO.FileAccess]::Write, [IO.FileShare]::Read)
+                try { $stream.Write($readyBytes, 0, $readyBytes.Length); $stream.Flush($true) }
+                finally { $stream.Dispose() }
+                [IO.File]::Move($readyTemp, $ready)
+                $receipt.concurrent.ready_utc = [DateTime]::UtcNow.ToString('o')
+            }
+            if ($receipt.concurrent.cycles_after_completion -ge 3) { break }
+            Start-Sleep -Milliseconds 1
+        }
+        if (-not $receipt.concurrent.ready_utc -or
+            $receipt.concurrent.destination_create.denied -lt 4 -or
+            $receipt.concurrent.destination_create.denied_during_release -lt 1 -or
+            $receipt.concurrent.cycles_during_release -lt 1 -or
+            $receipt.concurrent.staged_write.denied -lt 1 -or
+            $receipt.concurrent.visible_write.denied_after_completion -lt 3 -or
+            $receipt.concurrent.cycles_after_completion -lt 3) {
+            throw 'concurrent attacker did not cover prepublish, released operation, and completed visibility'
+        }
+    } elseif ($Stage -eq 'Prepublish') {
         $candidate = $root + 'publication\staging\candidate'
         $file = $candidate + '\' + $payloadPath
         Require-Denied 'staged_read' {
