@@ -22,6 +22,7 @@ param(
     [switch]$RegisteredService,
     [switch]$MachineRequestClient,
     [switch]$NonAdminClient,
+    [switch]$ProductionConcurrentRights,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
@@ -58,6 +59,12 @@ if($MachineRequestClient -and (-not $RegisteredService -or -not $MachineBinary -
 }
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
     throw 'Registered hostile-rights proof requires the same owned non-admin client identity'
+}
+if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedSource -or
+    -not $NonAdminClient -or $HostileRights -or $ConsumerAccess -or $MachineRequestClient -or
+    $InterruptAfterStage -or $TerminateAtPoststage -or
+    (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
+    throw 'Production concurrent rights probe requires the ordinary registered service and its non-admin client'
 }
 if($RegisteredService -and $InterruptAfterStage -and
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
@@ -616,7 +623,64 @@ try {
         }
         $receipt['terminal_service_process_id']=$terminalAtStart.ProcessId
     }
+    if($ProductionConcurrentRights) {
+        $attackRelative='bin/core.bin'
+        if(@($plan.planned_entries|Where-Object relative_path -ceq $attackRelative).Count -ne 1) {
+            throw 'Production concurrent payload is absent from the reviewed plan'
+        }
+        $productionStart=Join-Path $root ('production-'+$id+'-production-start.txt')
+        $concurrentOutput=Join-Path $consumerOutput 'concurrent-attack.json'
+        $concurrentError=Join-Path $consumerOutput 'concurrent-stderr.txt'
+        $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
+        $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
+        foreach($path in @($productionStart,$concurrentOutput,$concurrentError,
+            $concurrentReady,$concurrentCompleted)) {
+            if(Test-Path -LiteralPath $path){throw 'Production concurrent attacker input is not fresh'}
+        }
+        $attackArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File',('"'+(Join-Path $PSScriptRoot 'windows_publisher_unprivileged_probe.ps1')+'"'),
+            '-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),'-ExpectedUserSid',$consumerSid,
+            '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
+            '-Stage','ProductionConcurrent','-ReleasePath',('"'+$productionStart+'"'),
+            '-PayloadRelativePath',$attackRelative)
+        $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+            -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
+            -WindowStyle Hidden -WorkingDirectory $consumerOutput `
+            -RedirectStandardError $concurrentError -ErrorAction Stop
+        $attackerDeadline=[DateTime]::UtcNow.AddSeconds(30)
+        while(-not (Test-Path -LiteralPath $concurrentReady) -and
+            [DateTime]::UtcNow -lt $attackerDeadline) {
+            if($concurrentAttacker.HasExited) {
+                $diagnostic=if(Test-Path -LiteralPath $concurrentError){
+                    Read-BoundedDiagnostic $concurrentError 2048
+                }else{'stderr absent'}
+                throw ('Production concurrent attacker exited before readiness: '+$diagnostic)
+            }
+            Start-Sleep -Milliseconds 25
+        }
+        if(-not (Test-Path -LiteralPath $concurrentReady) -or
+            [IO.File]::ReadAllText($concurrentReady) -cne "usk.publisher.concurrent_ready.v1`n") {
+            throw 'Production concurrent attacker did not establish readiness'
+        }
+        $attackerProcess=Get-CimInstance Win32_Process -Filter ('ProcessId='+$concurrentAttacker.Id) -ErrorAction Stop
+        $attackerOwner=Invoke-CimMethod -InputObject $attackerProcess -MethodName GetOwnerSid
+        if(-not $attackerProcess -or $attackerOwner.ReturnValue -ne 0 -or
+            $attackerOwner.Sid -cne $consumerSid -or
+            -not $attackerProcess.CommandLine.Contains('windows_publisher_unprivileged_probe.ps1')) {
+            throw 'Production concurrent attacker differs from the submitting non-admin process'
+        }
+        $receipt['concurrent_attacker_process_id']=$concurrentAttacker.Id
+        $receipt['concurrent_attacker_sid']=$attackerOwner.Sid
+        Assert-OwnedVolume
+    }
     if($ClientBinary){$requestClient=Start-RequestClient}
+    if($ProductionConcurrentRights) {
+        if(-not $requestClient -or $requestClient.process.HasExited) {
+            throw 'Production request client did not remain live at attacker marker'
+        }
+        [IO.File]::WriteAllText($productionStart,
+            "usk.publisher.production_request_start.v1`n",[Text.UTF8Encoding]::new($false))
+    }
     if($ExpectUnprotectedRefusal) {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
@@ -999,16 +1063,24 @@ try {
                 throw 'Concurrent attacker did not produce a bounded successful receipt'
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+            $coverage=if($ProductionConcurrentRights) {
+                $concurrent.stage -ceq 'ProductionConcurrent' -and
+                $concurrent.concurrent.started_seen_utc -and
+                $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.cycles_after_start_before_observed_reply -ge 1
+            }else{
+                $concurrent.stage -ceq 'Concurrent' -and
+                $concurrent.concurrent.destination_create.denied_after_gate_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.cycles_after_gate_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.staged_write.denied -ge 1
+            }
             if($concurrent.schema -cne 'usk.publisher.unprivileged_access_probe.v1' -or
                 $concurrent.status -cne 'access_denied_observed' -or
-                $concurrent.stage -cne 'Concurrent' -or
+                -not $coverage -or
                 $concurrent.user_sid -cne $consumerSid -or $concurrent.administrator -or
                 $concurrent.service_sid_present -or
                 $concurrent.process_id -ne $concurrentAttacker.Id -or
-                $concurrent.concurrent.staged_write.denied -lt 1 -or
                 $concurrent.concurrent.destination_create.denied -lt 4 -or
-                $concurrent.concurrent.destination_create.denied_after_gate_before_observed_reply -lt 1 -or
-                $concurrent.concurrent.cycles_after_gate_before_observed_reply -lt 1 -or
                 $concurrent.concurrent.visible_write.denied_after_completion -lt 3 -or
                 $concurrent.concurrent.cycles_after_completion -lt 3) {
                 throw 'Concurrent hostile-rights observation differs from the actual client'

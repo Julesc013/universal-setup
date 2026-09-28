@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedUserSid,
     [Parameter(Mandatory = $true)][string]$ServiceSid,
     [Parameter(Mandatory = $true)][string]$OutputPath,
-    [ValidateSet('Prepublish', 'Postpublish', 'Concurrent')][string]$Stage = 'Postpublish',
+    [ValidateSet('Prepublish', 'Postpublish', 'Concurrent', 'ProductionConcurrent')][string]$Stage = 'Postpublish',
     [string]$ReleasePath = '',
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin'
 )
@@ -68,7 +68,11 @@ function Observe-ConcurrentDenial {
             $receipt.concurrent[$Name].denied++
             if ($AfterCompletion) { $receipt.concurrent[$Name].denied_after_completion++ }
             if ($AfterRelease -and -not $AfterCompletion) {
-                $receipt.concurrent[$Name].denied_after_gate_before_observed_reply++
+                if ($Stage -eq 'ProductionConcurrent') {
+                    $receipt.concurrent[$Name].denied_after_start_before_observed_reply++
+                } else {
+                    $receipt.concurrent[$Name].denied_after_gate_before_observed_reply++
+                }
             }
         } elseif ($AllowMissing -and $cause.HResult -in @(-2147024894, -2147024893)) {
             $receipt.concurrent[$Name].missing++
@@ -85,7 +89,7 @@ try {
     }
     $destination = $root + 'publication\destination'
     $payloadPath = $PayloadRelativePath.Replace('/', '\')
-    if ($Stage -eq 'Concurrent') {
+    if ($Stage -in @('Concurrent', 'ProductionConcurrent')) {
         $output = [IO.Path]::GetFullPath($OutputPath)
         $folder = [IO.Path]::GetDirectoryName($output)
         $releaseMarker = [IO.Path]::GetFullPath($ReleasePath)
@@ -95,8 +99,9 @@ try {
             [IO.Path]::GetFileName($folder) -cne 'consumer-output' -or
             [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($folder)) -cne 'C:\USK-Lab' -or
             [IO.Path]::GetDirectoryName($releaseMarker) -cne 'C:\USK-Lab' -or
-            -not [IO.Path]::GetFileName($releaseMarker).EndsWith('-prepublish-release.txt',
-                [StringComparison]::Ordinal)) {
+            -not [IO.Path]::GetFileName($releaseMarker).EndsWith(
+                $(if ($Stage -eq 'ProductionConcurrent') {'-production-start.txt'}
+                  else {'-prepublish-release.txt'}), [StringComparison]::Ordinal)) {
             throw 'concurrent attacker requires the owned hosted consumer output'
         }
         $ready = Join-Path $folder 'concurrent-ready.txt'
@@ -110,11 +115,11 @@ try {
         $stagedFile = $candidate + '\' + $payloadPath
         $visibleFile = $destination + '\visible\' + $payloadPath
         $receipt['concurrent'] = [ordered]@{
-            destination_create = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0 }
-            staged_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0 }
-            visible_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0 }
-            cycles = 0; cycles_after_gate_before_observed_reply = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
-            ready_utc = $null; release_seen_utc = $null; completed_seen_utc = $null
+            destination_create = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
+            staged_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
+            visible_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
+            cycles = 0; cycles_after_gate_before_observed_reply = 0; cycles_after_start_before_observed_reply = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
+            ready_utc = $null; release_seen_utc = $null; started_seen_utc = $null; completed_seen_utc = $null
         }
         $deadline = [DateTime]::UtcNow.AddSeconds(120)
         $prior = [DateTime]::UtcNow
@@ -127,7 +132,12 @@ try {
             $prior = $now
             $afterCompletion = Test-Path -LiteralPath $completed
             $afterRelease = Test-Path -LiteralPath $releaseMarker
-            if ($afterRelease -and -not $receipt.concurrent.release_seen_utc) {
+            if ($afterRelease -and $Stage -eq 'ProductionConcurrent' -and
+                -not $receipt.concurrent.started_seen_utc) {
+                $receipt.concurrent.started_seen_utc = $now.ToString('o')
+            }
+            if ($afterRelease -and $Stage -eq 'Concurrent' -and
+                -not $receipt.concurrent.release_seen_utc) {
                 $receipt.concurrent.release_seen_utc = $now.ToString('o')
             }
             if ($afterCompletion -and -not $receipt.concurrent.completed_seen_utc) {
@@ -135,7 +145,7 @@ try {
             }
             Observe-ConcurrentDenial 'destination_create' {
                 [IO.Directory]::CreateDirectory($destination + '\hostile-child') | Out-Null
-            } $false $afterCompletion $afterRelease
+            } ($Stage -eq 'ProductionConcurrent') $afterCompletion $afterRelease
             Observe-ConcurrentDenial 'staged_write' {
                 $handle = [IO.File]::Open($stagedFile, [IO.FileMode]::Open,
                     [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
@@ -148,11 +158,16 @@ try {
             } $true $afterCompletion $afterRelease
             $receipt.concurrent.cycles++
             if ($afterRelease -and -not $afterCompletion) {
-                $receipt.concurrent.cycles_after_gate_before_observed_reply++
+                if ($Stage -eq 'ProductionConcurrent') {
+                    $receipt.concurrent.cycles_after_start_before_observed_reply++
+                } else {
+                    $receipt.concurrent.cycles_after_gate_before_observed_reply++
+                }
             }
             if ($afterCompletion) { $receipt.concurrent.cycles_after_completion++ }
             if (-not $receipt.concurrent.ready_utc -and
-                $receipt.concurrent.staged_write.denied -gt 0) {
+                ($Stage -eq 'ProductionConcurrent' -or
+                 $receipt.concurrent.staged_write.denied -gt 0)) {
                 $readyTemp = $ready + '.tmp'
                 $readyBytes = [Text.Encoding]::ASCII.GetBytes("usk.publisher.concurrent_ready.v1`n")
                 $stream = [IO.FileStream]::new($readyTemp, [IO.FileMode]::CreateNew,
@@ -165,7 +180,16 @@ try {
             if ($receipt.concurrent.cycles_after_completion -ge 3) { break }
             Start-Sleep -Milliseconds 1
         }
-        if (-not $receipt.concurrent.ready_utc -or
+        if ($Stage -eq 'ProductionConcurrent') {
+            if (-not $receipt.concurrent.ready_utc -or
+                $receipt.concurrent.destination_create.denied -lt 4 -or
+                $receipt.concurrent.destination_create.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.cycles_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.visible_write.denied_after_completion -lt 3 -or
+                $receipt.concurrent.cycles_after_completion -lt 3) {
+                throw 'production attacker did not cover request-to-reply and completed visibility'
+            }
+        } elseif (-not $receipt.concurrent.ready_utc -or
             $receipt.concurrent.destination_create.denied -lt 4 -or
             $receipt.concurrent.destination_create.denied_after_gate_before_observed_reply -lt 1 -or
             $receipt.concurrent.cycles_after_gate_before_observed_reply -lt 1 -or

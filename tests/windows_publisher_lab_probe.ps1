@@ -18,6 +18,7 @@ param(
     [switch]$RegisteredService,
     [switch]$MachineRequestClient,
     [switch]$NonAdminClient,
+    [switch]$ProductionConcurrentRights,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
@@ -31,6 +32,11 @@ if ($HostileRights -and (-not $MachineBinary -or -not $ClientBinary -or
 
 if($TerminateAtPoststage -and (-not $InterruptAfterStage -or -not $RegisteredService -or -not $ReviewedSource -or -not $ClientBinary -or $MachineRequestClient -or $ConsumerAccess -or $NonAdminClient)) {
     throw 'Transport-loss probe requires the registered reviewed publisher client and poststage gate'
+}
+if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedSource -or
+    -not $NonAdminClient -or $HostileRights -or $ConsumerAccess -or $MachineRequestClient -or
+    $InterruptAfterStage -or (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
+    throw 'Production rights probe requires the ordinary registered service and non-admin client'
 }
 
 # This script is deliberately limited to a fresh GitHub-hosted Windows VM.
@@ -153,7 +159,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -MachineRequestClient:$MachineRequestClient -NonAdminClient:$NonAdminClient -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -MachineRequestClient:$MachineRequestClient -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
