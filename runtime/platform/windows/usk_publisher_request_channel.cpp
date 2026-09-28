@@ -226,7 +226,9 @@ void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
             const DWORD error = started ? ERROR_SUCCESS : GetLastError();
             // Extra client bytes never authorize a second request or permit
             // early pipe closure. One absolute deadline bounds all draining.
-            if (!io.finish(state.pipe.value, started, state.stop, until, error)) return;
+            // A successful zero-byte read can be an empty client message,
+            // not a disconnect. Broken pipe is reported as a read error.
+            (void)io.finish(state.pipe.value, started, state.stop, until, error);
             Sleep(1);
         }
     } catch (...) {

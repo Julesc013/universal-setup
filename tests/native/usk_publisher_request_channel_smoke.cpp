@@ -47,6 +47,8 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
             const bool written=configured && WriteFile(pipe,message.data(),static_cast<DWORD>(message.size()),&transferred,nullptr)!=FALSE;
             if (written && send_extra) {
                 constexpr char extra[] = "no-second-request";
+                require(WriteFile(pipe,extra,0,&transferred,nullptr)!=FALSE &&
+                    transferred==0,"empty extra client message failed");
                 require(WriteFile(pipe,extra,sizeof(extra)-1,&transferred,nullptr)!=FALSE &&
                     transferred==sizeof(extra)-1,"extra client message failed");
                 Sleep(75);
