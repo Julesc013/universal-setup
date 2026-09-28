@@ -32,6 +32,14 @@ protected root and authenticated request when started. This selected profile
 is still a candidate; the general product host and public capability gate
 remain unfinished.
 
+The registered service handles one authenticated request. After writing its
+terminal reply, it holds the pipe until that client disconnects, then stops.
+This lets the same service be reconfigured for verification or recovery after
+the caller has received the reply. A vanished or unresponsive client cannot
+keep it running beyond the bounded transport wait. A disconnected client may
+still have an unknown operation outcome and must use the existing retry or
+source-free recovery path; service shutdown is not an install success signal.
+
 The separate `usk_publisher_lab_service_fault` target exists only when tests
 are enabled. Its extra receipt-backed poststage gate lets a disposable hosted
 VM stop the registered service after a durable snapshot and staged tree, then

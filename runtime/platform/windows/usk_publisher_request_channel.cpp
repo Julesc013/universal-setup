@@ -205,6 +205,37 @@ void PublisherRequestChannel::reply(const std::string& response) {
     write_message(state.pipe.value, response, response_limit, state.stop, state.until);
     state.replied = true;
 }
+void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
+    try {
+        if (!state_ || !state_->replied) return;
+        auto& state = *state_;
+        DWORD mode = PIPE_READMODE_BYTE;
+        if (!SetNamedPipeHandleState(state.pipe.value, &mode, nullptr, nullptr)) {
+            // Preserve the reply long enough for a slow client even if this
+            // handle cannot switch modes; never treat setup failure as leave.
+            if (state.stop) WaitForSingleObject(state.stop, 120000);
+            else Sleep(120000);
+            return;
+        }
+        const ULONGLONG until = deadline(120000);
+        char ignored[4096];
+        while (remaining(until)) {
+            Io io;
+            const BOOL started = ReadFile(state.pipe.value, ignored,
+                static_cast<DWORD>(sizeof(ignored)), nullptr, &io.overlapped);
+            const DWORD error = started ? ERROR_SUCCESS : GetLastError();
+            // Extra client bytes never authorize a second request or permit
+            // early pipe closure. One absolute deadline bounds all draining.
+            // A successful zero-byte read can be an empty client message,
+            // not a disconnect. Broken pipe is reported as a read error.
+            (void)io.finish(state.pipe.value, started, state.stop, until, error);
+            Sleep(1);
+        }
+    } catch (...) {
+        // The terminal reply is already written. Departure, cancellation,
+        // timeout and broken-pipe outcomes cannot change the operation result.
+    }
+}
 std::string submit_publisher_request(const std::wstring& service_name,
     const std::string& request, DWORD timeout_ms) {
     const auto until = deadline(timeout_ms);

@@ -303,8 +303,12 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         };
         const auto data=usk::platform::windows::execute_candidate_restricted_publisher(config,publication_effects_may_exist);
         if (!receipt_path.empty()) write_receipt(data);
-        if (request_channel) request_channel->reply(data);
-        WaitForSingleObject(stop_event, 120000);
+        if (request_channel) {
+            request_channel->reply(data);
+            request_channel->wait_for_client_disconnect();
+        } else {
+            WaitForSingleObject(stop_event, 120000);
+        }
     } catch (const std::exception& error) {
         service_exit_code = ERROR_SERVICE_SPECIFIC_ERROR;
         const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
@@ -317,7 +321,12 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
         // An authenticated peer receives the actual refusal/retained-effects
         // result when delivery is possible; loss of transport stays unknown.
-        if (request_channel) { try { request_channel->reply(failure); } catch (...) {} }
+        if (request_channel) {
+            try {
+                request_channel->reply(failure);
+                request_channel->wait_for_client_disconnect();
+            } catch (...) {}
+        }
     }
     if (stop_event) CloseHandle(stop_event);
     report_status(SERVICE_STOPPED, 0, service_exit_code);

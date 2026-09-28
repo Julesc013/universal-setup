@@ -28,6 +28,9 @@ public:
     PublisherRequestChannel& operator=(const PublisherRequestChannel&) = delete;
     std::string receive();
     void reply(const std::string& response);
+    // One-request service: after the terminal reply, retain the pipe until
+    // the client closes it or the bounded wait ends. No second request runs.
+    void wait_for_client_disconnect() noexcept;
 private:
     struct State;
     std::unique_ptr<State> state_;

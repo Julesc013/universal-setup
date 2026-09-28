@@ -33,8 +33,9 @@ std::wstring current_sid() {
     return value;
 }
 std::thread raw_client(const std::wstring& name, const std::string& message,
-    std::string& response, std::exception_ptr& failure) {
-    return std::thread([&,name,message] {
+    std::string& response, std::exception_ptr& failure,
+    bool send_extra = false) {
+    return std::thread([&,name,message,send_extra] {
         try {
             const auto pipe_name=usk::platform::windows::publisher_request_pipe_name(name);
             HANDLE pipe=CreateFileW(pipe_name.c_str(), FILE_READ_DATA|FILE_WRITE_DATA|
@@ -44,6 +45,14 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
             DWORD mode=PIPE_READMODE_MESSAGE, transferred=0;
             const bool configured=SetNamedPipeHandleState(pipe,&mode,nullptr,nullptr)!=FALSE;
             const bool written=configured && WriteFile(pipe,message.data(),static_cast<DWORD>(message.size()),&transferred,nullptr)!=FALSE;
+            if (written && send_extra) {
+                constexpr char extra[] = "no-second-request";
+                require(WriteFile(pipe,extra,0,&transferred,nullptr)!=FALSE &&
+                    transferred==0,"empty extra client message failed");
+                require(WriteFile(pipe,extra,sizeof(extra)-1,&transferred,nullptr)!=FALSE &&
+                    transferred==sizeof(extra)-1,"extra client message failed");
+                Sleep(75);
+            }
             char bytes[128]{};
             const bool read=written && ReadFile(pipe,bytes,sizeof(bytes),&transferred,nullptr)!=FALSE;
             CloseHandle(pipe);
@@ -62,7 +71,7 @@ int main() {
         std::exception_ptr client_failure;
         auto channel=std::make_unique<PublisherRequestChannel>(name,service_sid,sid,nullptr,2000);
         refuses([&] { PublisherRequestChannel duplicate(name,service_sid,sid,nullptr); });
-        auto client=raw_client(name,"{\"reviewed\":true}",response,client_failure);
+        auto client=raw_client(name,"{\"reviewed\":true}",response,client_failure,true);
         try {
             require(channel->receive()=="{\"reviewed\":true}","request bytes changed");
             HANDLE token=nullptr;
@@ -71,11 +80,12 @@ int main() {
             refuses([&] { channel->receive(); });
             channel->reply("completed");
             refuses([&] { channel->reply("duplicate"); });
+            channel->wait_for_client_disconnect();
         } catch (...) { channel.reset(); client.join(); throw; }
+        channel.reset();
         client.join();
         if(client_failure) std::rethrow_exception(client_failure);
         require(response=="completed","response bytes changed");
-        channel.reset();
         HANDLE stop=CreateEventW(nullptr,TRUE,TRUE,nullptr);
         require(stop!=nullptr,"stop event unavailable");
         { PublisherRequestChannel stopped(name,service_sid,sid,stop,2000);
