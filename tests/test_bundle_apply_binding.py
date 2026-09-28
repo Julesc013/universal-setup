@@ -56,6 +56,31 @@ class BundleApplyBindingTests(unittest.TestCase):
         self.assertEqual(envelope["reviewed_plan_digest"], "d" * 64)
         self.assertEqual(envelope["activation"], "operator_acceptance_candidate")
 
+    def test_reviewed_child_may_vary_only_beneath_protected_parent(self) -> None:
+        request = copy.deepcopy(self.request)
+        response = copy.deepcopy(self.response)
+        target = "Q:/publication/destination/selected-app"
+        request["payload"]["target"]["root"] = target.replace("/", "\\")
+        response["result"]["payload"]["target"]["root"] = target
+        apply, envelope = self.bind(request, response)
+        self.assertEqual(apply["plan_request"]["target"]["root"], target.replace("/", "\\"))
+        self.assertEqual(envelope["plan_request"]["target"]["root"], target.replace("/", "\\"))
+        for invalid in (
+            "Q:/publication/other/selected-app",
+            "Q:/publication/destination/nested/selected-app",
+            "Q:/publication/destination/CON.txt",
+            "Q:/publication/destination/trailing.",
+            "Q:/publication/destination/../selected-app",
+            "Q:/publication//destination/selected-app",
+            "R:/publication/destination/selected-app",
+        ):
+            with self.subTest(target=invalid):
+                changed = copy.deepcopy(response)
+                changed["result"]["payload"]["target"]["root"] = invalid
+                request["payload"]["target"]["root"] = invalid
+                with self.assertRaises(BindingError):
+                    self.bind(request, changed)
+
     def test_source_target_selection_and_authority_substitution_refuse(self) -> None:
         for location, key, replacement in (
             ("source", "sha256", "0" * 64),
