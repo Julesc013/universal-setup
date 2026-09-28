@@ -252,9 +252,39 @@ the fixed 64 KiB stream buffer and zero old-tree payload retention claim;
 those counters are distinct from the OS process peaks above.
 
 The isolated update row is a required refusal, not successful protected
-replacement. Recovery remains setup-inclusive in the historical matrix;
-it has no separate current-source process peak here. These observations do
+replacement. At this checkpoint, recovery remained setup-inclusive in the
+historical matrix and had no separate current-source process peak. These observations do
 not establish a 4,096-entry 32 MiB full operation, a current-source 2 GiB
 run, an aggregate allocator budget, adversarial namespace safety, or release
 qualification. The historical matrix remains bound to its own source and
 binary rather than being relabelled as this measurement.
+
+## Isolated 4,096-entry source-free recovery finalization
+
+`m1_lifecycle_memory_4096_source_free_recovery_65ed95a.v1.json` is the raw
+Windows process observation at clean source
+`65ed95aa19a5522f1d51c8e86da41af14dcc50cd` (tree
+`86545040d8bdf2cbe1de0cea98390552686ee173`). The Release native binary
+SHA-256 was `67656d2fec68865a47d2376333286343f0290360cdc3bb75825eebfade40fc4a`;
+the exact WU005 repository-development binding SHA-256 was
+`8c7a826d43e7f799279f32b2dd11adda31bc5b3d98add2a56e1f6e3dba675e96`.
+The raw receipt SHA-256 is
+`dc10d96d8cd80c8667e1b7deb3ddea8b2bc575577289000765d66ba4ed272d20`.
+The host reported Windows 10 build 19045 and `D:` NTFS serial `1b6df063`.
+
+Fixture preparation applied a 1 MiB, 4,096-entry streamed install and
+interrupted it after target commit in a separate process. It then removed the
+source file. The measured child refused a reappearing source, checked the
+committed target's exact paths, sizes and SHA-256 hashes, reconstructed the
+reviewed plan from the recorded digest and file metadata, and completed
+install finalization. Its payload reader throws if recovery requests source
+bytes. The temporary fixture root was removed after the run.
+
+| Isolated child | Peak working set (bytes) | Elapsed (ms) | Result |
+| --- | ---: | ---: | --- |
+| Recovery plan reconstruction and finalization | 42,729,472 | 2,271 | Completed and verified |
+
+This is the measured Windows peak of the recovery child; it includes plan
+reconstruction and preflight checks but excludes the expensive fixture
+preparation process. It does not measure protected-service recovery, power
+loss, a successful update, or an entire end-to-end recovery application.

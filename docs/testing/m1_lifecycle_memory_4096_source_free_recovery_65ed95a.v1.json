@@ -1,0 +1,24 @@
+{
+  "schema": "usk.lifecycle_memory_observation.v1",
+  "operation": "recovery",
+  "requested_payload_bytes": 1048576,
+  "entries": 4096,
+  "source_kind": "isolated_streaming",
+  "binary_sha256": "67656d2fec68865a47d2376333286343f0290360cdc3bb75825eebfade40fc4a",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\t",
+  "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+  "source": {
+    "commit": "65ed95aa19a5522f1d51c8e86da41af14dcc50cd",
+    "tree": "86545040d8bdf2cbe1de0cea98390552686ee173",
+    "working_tree_dirty": false
+  },
+  "fixture": "interrupted install prepared outside measured child; source removed; plan reconstruction and recovery finalization measured",
+  "fixture_prepared_outside_measured_process": true,
+  "metric": "windows_peak_working_set_bytes",
+  "peak_bytes": 42729472,
+  "samples": 408,
+  "elapsed_ms": 2271,
+  "exit_code": 0,
+  "stdout": "memory-scenario-pass recovery isolated_streaming 1048576 4096"
+}
