@@ -10,14 +10,19 @@ a reviewed plan envelope, its exact SHA-256, and the authorized caller SID:
 ```text
 usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID [--admit-client-observer]
 usk_publisher_service_control --recover USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer]
+usk_publisher_service_control --start USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer]
 ```
 
 The second command changes only a stopped, matching own-process LocalSystem
 service with a restricted service SID. It keeps that service name and SID for
 source-free recovery. The optional observer flag permits a specifically bound
 non-admin caller to verify the service process; it grants no installed payload
-access. Registration and reconfiguration do not start the service or qualify
-the volume. The publisher itself revalidates the reviewed source, held volume,
+access. Start requests require a stopped service and recheck its own-process,
+restricted-SID, executable, volume, caller, and observer configuration. A
+successful start request does not claim the setup operation succeeded; the
+authenticated client must inspect its terminal response. Registration and
+reconfiguration do not start the service or qualify the volume. The publisher
+itself revalidates the reviewed source, held volume,
 protected root and authenticated request when started. This selected profile
 is still a candidate; the general product host and public capability gate
 remain unfinished.

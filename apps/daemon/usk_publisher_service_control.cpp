@@ -233,14 +233,32 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
         throw std::runtime_error("registered recovery command readback differs");
 }
 
+void request_start(const std::wstring& name, const std::wstring& binary,
+    const std::wstring& volume, const std::wstring& caller, bool observer) {
+    require_file(binary);
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
+    ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_START));
+    if (!service.get()) throw std::runtime_error("registered publisher service unavailable");
+    require_stopped(service.get());
+    const auto config = query_configuration(service.get());
+    require_profile(config);
+    require_existing_command(config.binary_path, name, binary, volume, caller, observer);
+    if (!StartServiceW(service.get(), 0, nullptr))
+        throw std::runtime_error("matching publisher service could not start");
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
     const bool registration = argc >= 2 && std::wstring(argv[1]) == L"--register";
     const bool recovery = argc >= 2 && std::wstring(argv[1]) == L"--recover";
+    const bool start = argc >= 2 && std::wstring(argv[1]) == L"--start";
     if ((!registration || (argc != 8 && argc != 9)) &&
-        (!recovery || (argc != 6 && argc != 7))) {
-        std::wcerr << L"usage: usk_publisher_service_control --register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID [--admit-client-observer] | --recover NAME BINARY VOLUME CALLER_SID [--admit-client-observer]\n";
+        (!recovery || (argc != 6 && argc != 7)) &&
+        (!start || (argc != 6 && argc != 7))) {
+        std::wcerr << L"usage: usk_publisher_service_control --register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID [--admit-client-observer] | --recover NAME BINARY VOLUME CALLER_SID [--admit-client-observer] | --start NAME BINARY VOLUME CALLER_SID [--admit-client-observer]\n";
         return 2;
     }
     try {
@@ -257,11 +275,13 @@ int wmain(int argc, wchar_t** argv) {
         require_canonical_sid(caller);
         if (registration) {
             register_service(name, binary, volume, argv[5], argv[6], caller, observer);
-        } else {
+        } else if (recovery) {
             configure_recovery(name, binary, volume, caller, observer);
+        } else {
+            request_start(name, binary, volume, caller, observer);
         }
         std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\",\"status\":\""
-            << (registration ? L"registered" : L"recovery_configured")
+            << (registration ? L"registered" : recovery ? L"recovery_configured" : L"start_requested")
             << L"\",\"service\":\"" << name << L"\"}\n";
         return 0;
     } catch (const std::exception& error) {

@@ -180,6 +180,14 @@ function Read-NativeReceipt([string]$Path) {
     if(-not $raw -or $raw.Length -gt 4MB){throw 'Native service receipt is empty or exceeds bound'}
     return $raw|ConvertFrom-Json
 }
+function Start-RegisteredPublisher {
+    $startArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+    if($NonAdminClient){$startArgs+='--admit-client-observer'}
+    $started=& $ServiceControlBinary @startArgs
+    if($LASTEXITCODE -ne 0 -or ($started|ConvertFrom-Json).status -ne 'start_requested') {
+        throw 'Product service control did not start the matching publisher'
+    }
+}
 function Start-RequestClient($submitted=$applyRequest) {
     $script:clientNumber++
     $prefix=Join-Path $(if($ConsumerAccess -or $NonAdminClient){$consumerOutput}else{$root}) ('client-'+$clientNumber)
@@ -384,7 +392,19 @@ try {
     Assert-OwnedVolume
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
-    try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+    if($RegisteredService) {
+        $wrongStartError=Join-Path $root ('wrong-start-'+$id+'.txt')
+        $wrongStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
+        if($NonAdminClient){$wrongStartArgs+='--admit-client-observer'}
+        & $ServiceControlBinary @wrongStartArgs 2>$wrongStartError|Out-Null
+        if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+            throw 'Registered publisher accepted a different start caller'
+        }
+        $receipt['wrong_caller_start_refused']=$true
+        Start-RegisteredPublisher
+    } else {
+        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+    }
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ExpectUnprotectedRefusal) {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
@@ -665,7 +685,7 @@ try {
         if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
             throw 'Product service control did not configure source-free recovery'
         }
-        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        Start-RegisteredPublisher
         $requestClient=Start-RequestClient
         if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered recovery client timed out'}
         $requestClient.process.WaitForExit()
