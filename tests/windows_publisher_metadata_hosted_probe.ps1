@@ -561,7 +561,8 @@ try {
         # Delete only regular input files within this freshly created VM root;
         # retain minimal parsed inputs and independent observations in receipt.
         $removed=[Collections.Generic.List[string]]::new()
-        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+            $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
             $exact=[IO.Path]::GetFullPath($path)
             $item=Get-Item -LiteralPath $exact -Force
             if(-not $exact.StartsWith(($root+'\'),[StringComparison]::OrdinalIgnoreCase) -or
@@ -630,7 +631,8 @@ try {
         Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant
         $receipt['partial_consumer_grant']=[ordered]@{native=$partial;independent=$before.independent;observer_task_removed=$before.observer_task_removed;granted_objects=$granted.Count}
         $removed=[Collections.Generic.List[string]]::new()
-        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+            $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
             $exact=[IO.Path]::GetFullPath($path);$item=Get-Item -LiteralPath $exact -Force
             if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Consumer source removal target escaped owned root'}
             Remove-Item -LiteralPath $exact -Force
@@ -724,7 +726,8 @@ try {
         # service grammar against the existing source-free recovery engine.
         if(-not $recover) {
             $removed=[Collections.Generic.List[string]]::new()
-            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+                $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
                 $exact=[IO.Path]::GetFullPath($path)
                 $item=Get-Item -LiteralPath $exact -Force
                 if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or
@@ -737,7 +740,8 @@ try {
             }
             $receipt['removed_source_inputs']=$removed.ToArray()
         } else {
-            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+                $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
                 if(Test-Path -LiteralPath $path){throw 'Original source returned before registered replay'}
             }
         }
