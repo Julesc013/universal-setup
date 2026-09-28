@@ -209,16 +209,26 @@ void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
     try {
         if (!state_ || !state_->replied) return;
         auto& state = *state_;
-        char unexpected = 0;
-        Io io;
-        const BOOL started = ReadFile(state.pipe.value, &unexpected, 1, nullptr,
-            &io.overlapped);
-        const DWORD error = started ? ERROR_SUCCESS : GetLastError();
-        // A peer close normally completes the read with ERROR_BROKEN_PIPE.
-        // Extra input is ignored: this channel admits exactly one request.
-        // A stopped or unresponsive client cannot retain the service forever.
-        (void)io.finish(state.pipe.value, started, state.stop,
-            deadline(120000), error);
+        DWORD mode = PIPE_READMODE_BYTE;
+        if (!SetNamedPipeHandleState(state.pipe.value, &mode, nullptr, nullptr)) {
+            // Preserve the reply long enough for a slow client even if this
+            // handle cannot switch modes; never treat setup failure as leave.
+            if (state.stop) WaitForSingleObject(state.stop, 120000);
+            else Sleep(120000);
+            return;
+        }
+        const ULONGLONG until = deadline(120000);
+        char ignored[4096];
+        while (remaining(until)) {
+            Io io;
+            const BOOL started = ReadFile(state.pipe.value, ignored,
+                static_cast<DWORD>(sizeof(ignored)), nullptr, &io.overlapped);
+            const DWORD error = started ? ERROR_SUCCESS : GetLastError();
+            // Extra client bytes never authorize a second request or permit
+            // early pipe closure. One absolute deadline bounds all draining.
+            if (!io.finish(state.pipe.value, started, state.stop, until, error)) return;
+            Sleep(1);
+        }
     } catch (...) {
         // The terminal reply is already written. Departure, cancellation,
         // timeout and broken-pipe outcomes cannot change the operation result.

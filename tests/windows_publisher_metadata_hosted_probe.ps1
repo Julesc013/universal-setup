@@ -582,6 +582,26 @@ try {
             command=$serviceProcessAtStart.CommandLine;
             started_utc=$heldServiceProcess.StartTime.ToUniversalTime().ToString('o')}
     }
+    $terminalServiceProcess=$null
+    if($RegisteredService -and -not $HostileRights -and -not $recover) {
+        $terminalAtStart=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($terminalAtStart.State -cne 'Running' -or $terminalAtStart.ProcessId -le 0 -or
+            $terminalAtStart.PathName -cne $expectedRegisteredCommand) {
+            throw 'Terminal service did not start with its registered command'
+        }
+        $terminalServiceProcess=Get-Process -Id $terminalAtStart.ProcessId -ErrorAction Stop
+        $null=$terminalServiceProcess.Handle
+        $terminalProcessAtStart=Get-CimInstance Win32_Process -Filter ('ProcessId='+$terminalAtStart.ProcessId) -ErrorAction Stop
+        if(-not $terminalProcessAtStart -or -not $terminalProcessAtStart.CreationDate -or
+            $terminalProcessAtStart.CommandLine -cne $expectedRegisteredCommand -or
+            -not [string]::Equals([IO.Path]::GetFullPath($terminalProcessAtStart.ExecutablePath),
+                [IO.Path]::GetFullPath($ServiceBinary),[StringComparison]::OrdinalIgnoreCase) -or
+            [math]::Abs(($terminalProcessAtStart.CreationDate.ToUniversalTime()-
+                $terminalServiceProcess.StartTime.ToUniversalTime()).Ticks) -gt 10000) {
+            throw 'Terminal service process differs from registered command'
+        }
+        $receipt['terminal_service_process_id']=$terminalAtStart.ProcessId
+    }
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ExpectUnprotectedRefusal) {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
@@ -899,13 +919,17 @@ try {
         # The packaged client has received the terminal reply and closed its
         # authenticated pipe. The one-request service must now stop itself
         # before install-to-verify reconfiguration, without an SCM stop call.
-        $stopDeadline=[DateTime]::UtcNow.AddSeconds(30)
-        while((Get-Service $service).Status -ne 'Stopped' -and
-            [DateTime]::UtcNow -lt $stopDeadline){Start-Sleep -Milliseconds 100}
-        if((Get-Service $service).Status -ne 'Stopped') {
-            throw 'Registered publisher did not stop after terminal client disconnect'
+        if(-not $terminalServiceProcess.WaitForExit(30000)) {
+            throw 'Original registered publisher process retained after terminal client disconnect'
         }
-        $receipt['registered_terminal_shutdown']='observed_after_client_reply'
+        $terminalAtEnd=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($terminalAtEnd.State -cne 'Stopped' -or $terminalAtEnd.ProcessId -ne 0 -or
+            $terminalAtEnd.ExitCode -ne 0) {
+            throw 'Registered publisher did not stop cleanly after terminal client disconnect'
+        }
+        $receipt['registered_terminal_shutdown']=[ordered]@{
+            original_process_exited=$true;scm_state=$terminalAtEnd.State;
+            scm_exit_code=$terminalAtEnd.ExitCode}
     } elseif((Get-Service $service).Status -ne 'Stopped') {Stop-Service $service}
     if($RegisteredService -and $HostileRights) {
         # Restore the registered command before using product recovery/verify
