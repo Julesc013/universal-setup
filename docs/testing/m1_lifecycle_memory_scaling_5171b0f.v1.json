@@ -1,0 +1,157 @@
+{
+  "schema": "usk.wu005_current_source_scaling.v1",
+  "status": "passed",
+  "source": {
+    "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+    "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+    "working_tree_dirty": false
+  },
+  "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+  "binding_sha256": "171a80277432251115a4ec758267f7f0ad734fad33972238531cd84869149e79",
+  "rows": [
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "plan_install",
+      "requested_payload_bytes": 1048576,
+      "entries": 128,
+      "source_kind": "streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T134108-226520\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "fixture_prepared_outside_measured_process": false,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 9691136,
+      "samples": 4,
+      "elapsed_ms": 30,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass plan_install streaming 1048576 128"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "plan_install",
+      "requested_payload_bytes": 33554432,
+      "entries": 128,
+      "source_kind": "streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T134108-226520\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "fixture_prepared_outside_measured_process": false,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 9621504,
+      "samples": 5,
+      "elapsed_ms": 31,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass plan_install streaming 33554432 128"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "plan_install",
+      "requested_payload_bytes": 1048576,
+      "entries": 4096,
+      "source_kind": "streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T134108-226520\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "fixture_prepared_outside_measured_process": false,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 22159360,
+      "samples": 16,
+      "elapsed_ms": 91,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass plan_install streaming 1048576 4096"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "plan_install",
+      "requested_payload_bytes": 33554432,
+      "entries": 4096,
+      "source_kind": "streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T134108-226520\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "fixture_prepared_outside_measured_process": false,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 22167552,
+      "samples": 16,
+      "elapsed_ms": 91,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass plan_install streaming 33554432 4096"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "install",
+      "requested_payload_bytes": 1048576,
+      "entries": 128,
+      "source_kind": "streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T134108-226520\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "fixture_prepared_outside_measured_process": false,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 11046912,
+      "samples": 4587,
+      "elapsed_ms": 25301,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass install streaming 1048576 128"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "install",
+      "requested_payload_bytes": 33554432,
+      "entries": 128,
+      "source_kind": "streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T134108-226520\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+      "fixture_prepared_outside_measured_process": false,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 10997760,
+      "samples": 6396,
+      "elapsed_ms": 35383,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass install streaming 33554432 128"
+    }
+  ]
+}

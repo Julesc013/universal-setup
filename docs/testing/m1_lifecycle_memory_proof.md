@@ -216,3 +216,45 @@ That qualification belongs with the protected publisher and lease work.
 Whole-root update recovery/publication and the transaction snapshot helper
 remain WU006-owned. This document records implementation evidence only; it
 does not claim acceptance execution or qualification.
+
+## PR175 successor: isolated 4,096-entry process peaks
+
+`m1_lifecycle_memory_4096_isolated_5171b0f.v1.json` records five completed
+Windows child processes on clean source `5171b0f8ba4a2ec0dc139706bc9c99a462f272c5`
+(tree `b017601aa6aa8ad2a054f020ea57fc0b6ce66724`) and Release binary
+SHA-256 `0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0`.
+The exact WU005 task-binding SHA-256 was
+`171a80277432251115a4ec758267f7f0ad734fad33972238531cd84869149e79`.
+The host reported Windows 10 build 19045 and `D:` NTFS serial `1b6df063`.
+The task-local runner prepared a 1 MiB/4,096-entry fixture outside the
+five measured children, then passed its root to each child. The receipt records
+the preparation time and common temporary parent, but omits the exact prepared
+root and a fixture digest. It therefore does not independently establish a
+cross-row fixture identity. Each row records its own OS peak working set,
+native exit code, elapsed time, source and binary identities.
+
+| Isolated child | Peak working set (bytes) | Elapsed (ms) | Result |
+| --- | ---: | ---: | --- |
+| Install | 44,732,416 | 1,334,253 | Complete install |
+| Verify | 19,779,584 | 477 | Complete verification |
+| Update | 50,528,256 | 973 | Strict replacement refused |
+| Repair | 26,103,808 | 2,075 | Deliberate owned-file damage repaired |
+| Move | 47,112,192 | 1,310,311 | Complete move |
+
+`m1_lifecycle_memory_scaling_5171b0f.v1.json` binds the same clean source,
+binary and task binding. Separate plan children peaked at 9,691,136 and
+9,621,504 bytes for 128 entries with 1 and 32 MiB requested, and 22,159,360
+and 22,167,552 bytes for 4,096 entries with 1 and 32 MiB requested. Separate
+complete 128-entry installs peaked at 11,046,912 and 10,997,760 bytes for
+1 and 32 MiB. These observations separate entry-count metadata growth from
+payload-size growth in the measured shapes. The native counters also retain
+the fixed 64 KiB stream buffer and zero old-tree payload retention claim;
+those counters are distinct from the OS process peaks above.
+
+The isolated update row is a required refusal, not successful protected
+replacement. Recovery remains setup-inclusive in the historical matrix;
+it has no separate current-source process peak here. These observations do
+not establish a 4,096-entry 32 MiB full operation, a current-source 2 GiB
+run, an aggregate allocator budget, adversarial namespace safety, or release
+qualification. The historical matrix remains bound to its own source and
+binary rather than being relabelled as this measurement.
