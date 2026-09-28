@@ -51,24 +51,6 @@ std::wstring publisher_install_operation_guard_name(const std::wstring& root,
     return name;
 }
 
-std::wstring publisher_service_control_guard_name(const std::wstring& root,
-    const std::wstring& service_name)
-{
-    const std::wstring volume_name = publisher_volume_operation_guard_name(root);
-    if (service_name.size() != 40u || service_name.rfind(L"USK_PUB_", 0) != 0) {
-        throw std::invalid_argument("publisher service control guard requires a generated service name");
-    }
-    for (std::size_t index = 8u; index < service_name.size(); ++index) {
-        const wchar_t ch = service_name[index];
-        if (!((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f'))) {
-            throw std::invalid_argument("publisher service control guard name is malformed");
-        }
-    }
-    return L"Global\\USK.Publisher.ServiceControl." +
-        volume_name.substr(std::wstring(L"Global\\USK.Publisher.Volume.").size()) +
-        L"." + service_name;
-}
-
 PublisherVolumeOperationGuard::PublisherVolumeOperationGuard(const std::wstring& root)
 {
     const std::wstring name = publisher_volume_operation_guard_name(root);
@@ -115,30 +97,6 @@ PublisherInstallOperationGuard::PublisherInstallOperationGuard(const std::wstrin
 }
 
 PublisherInstallOperationGuard::~PublisherInstallOperationGuard()
-{
-    if (mutex_) {
-        ReleaseMutex(mutex_);
-        CloseHandle(mutex_);
-    }
-}
-
-PublisherServiceControlGuard::PublisherServiceControlGuard(const std::wstring& root,
-    const std::wstring& service_name)
-{
-    const std::wstring name = publisher_service_control_guard_name(root, service_name);
-    mutex_ = CreateMutexW(nullptr, FALSE, name.c_str());
-    if (!mutex_) {
-        throw std::runtime_error("publisher service control guard cannot open its named mutex");
-    }
-    const DWORD outcome = WaitForSingleObject(mutex_, 0);
-    if (outcome == WAIT_OBJECT_0 || outcome == WAIT_ABANDONED) return;
-    CloseHandle(mutex_);
-    mutex_ = nullptr;
-    if (outcome == WAIT_TIMEOUT) throw PublisherServiceControlBusy();
-    throw std::runtime_error("publisher service control guard wait failed");
-}
-
-PublisherServiceControlGuard::~PublisherServiceControlGuard()
 {
     if (mutex_) {
         ReleaseMutex(mutex_);

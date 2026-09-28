@@ -41,10 +41,7 @@ int main()
     using usk::platform::windows::PublisherVolumeOperationGuard;
     using usk::platform::windows::PublisherInstallBusy;
     using usk::platform::windows::PublisherInstallOperationGuard;
-    using usk::platform::windows::PublisherServiceControlBusy;
-    using usk::platform::windows::PublisherServiceControlGuard;
     using usk::platform::windows::publisher_install_operation_guard_name;
-    using usk::platform::windows::publisher_service_control_guard_name;
     using usk::platform::windows::publisher_volume_operation_guard_name;
 
     const std::wstring root = fresh_root();
@@ -62,15 +59,6 @@ int main()
             publisher_install_operation_guard_name(lower, "org.example.setup") ||
         publisher_install_operation_guard_name(root, "org.example.setup") ==
             publisher_install_operation_guard_name(root, "Org.example.setup")) return 10;
-    const std::wstring service_name = L"USK_PUB_0123456789abcdef0123456789abcdef";
-    if (publisher_service_control_guard_name(root, service_name) !=
-            publisher_service_control_guard_name(lower, service_name) ||
-        publisher_service_control_guard_name(root, service_name) ==
-            publisher_volume_operation_guard_name(root)) return 16;
-    bool malformed_service_refused = false;
-    try { (void)publisher_service_control_guard_name(root, L"USK_PUB_not_generated"); }
-    catch (const std::invalid_argument&) { malformed_service_refused = true; }
-    if (!malformed_service_refused) return 17;
     for (const std::string& invalid : {std::string{}, std::string("../other"),
             std::string(129, 'a')}) {
         bool refused = false;
@@ -101,27 +89,6 @@ int main()
         PublisherInstallOperationGuard successor(root, "org.example.setup");
         if (successor.previous_owner_abandoned()) return 15;
     }
-
-    {
-        PublisherServiceControlGuard owner(root, service_name);
-        // A service is allowed to acquire its volume guard while the control
-        // process is still returning from StartServiceW.
-        PublisherVolumeOperationGuard service(root);
-        std::atomic<int> contender_result{0};
-        std::thread contender([&] {
-            try {
-                PublisherServiceControlGuard second(lower, service_name);
-                contender_result = 2;
-            } catch (const PublisherServiceControlBusy&) {
-                contender_result = 1;
-            } catch (...) {
-                contender_result = 3;
-            }
-        });
-        contender.join();
-        if (contender_result != 1) return 18;
-    }
-    { PublisherServiceControlGuard successor(root, service_name); }
 
     {
         PublisherVolumeOperationGuard owner(root);

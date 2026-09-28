@@ -38,6 +38,11 @@ executable path, volume, authorized caller, access mode, own-process account,
 and restricted service SID. Its `removal_requested` reply means Windows accepted
 the deletion request; callers must independently wait until the service is
 absent before reclaiming its owned volume or files.
+Registration, configuration, start, and removal hold one empty per-service
+lock file beneath the protected `Program Files/Universal Setup/PublisherControl`
+directory. The controller verifies its owner, protected ACL, and ordinary-file
+shape. The lock file remains after a deletion request so another controller
+cannot enter a different lock domain while Windows still retains the service.
 
 The packaged request client may be started as soon as `--start` returns. It
 waits within its transport deadline while the same restricted own-process
