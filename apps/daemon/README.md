@@ -12,6 +12,7 @@ usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SERVICE_EXE 
 usk_publisher_service_control --recover USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --verify USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --start USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --unregister USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 ```
 
 The second command changes only a stopped, matching own-process LocalSystem
@@ -31,6 +32,17 @@ itself revalidates the reviewed source, held volume,
 protected root and authenticated request when started. This selected profile
 is still a candidate; the general product host and public capability gate
 remain unfinished.
+
+Unregister requires the service to be stopped and rechecks its generated name,
+executable path, volume, authorized caller, access mode, own-process account,
+and restricted service SID. Its `removal_requested` reply means Windows accepted
+the deletion request; callers must independently wait until the service is
+absent before reclaiming its owned volume or files.
+Registration, configuration, start, and removal hold one empty per-service
+lock file beneath the protected `Program Files/Universal Setup/PublisherControl`
+directory. The controller verifies its owner, protected ACL, and ordinary-file
+shape. The lock file remains after a deletion request so another controller
+cannot enter a different lock domain while Windows still retains the service.
 
 The packaged request client may be started as soon as `--start` returns. It
 waits within its transport deadline while the same restricted own-process

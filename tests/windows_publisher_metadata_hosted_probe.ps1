@@ -596,6 +596,26 @@ try {
             throw 'Product service control did not register the reviewed publisher'
         }
         $receipt['service_control_binary_sha256']=(Get-FileHash -LiteralPath $ServiceControlBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+        if($ProductionConcurrentRights) {
+            if(-not $env:ProgramW6432){throw 'Protected Program Files root is unavailable'}
+            $controlLocks=Join-Path $env:ProgramW6432 'Universal Setup\PublisherControl'
+            $controlLock=Join-Path $controlLocks `
+                ($VolumeRoot.Substring(11,36).ToLowerInvariant()+'.'+$service+'.lock')
+            if(-not (Test-Path -LiteralPath $controlLock -PathType Leaf)) {
+                throw 'Product service control lock file is absent'
+            }
+            $held=[IO.File]::Open($controlLock,[IO.FileMode]::Open,
+                [IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+            try {
+                $blockedStart=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+                if($registeredMode){$blockedStart+=$registeredMode}
+                & $ServiceControlBinary @blockedStart 2>$null|Out-Null
+                if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+                    throw 'Publisher service start bypassed held control lock'
+                }
+            } finally { $held.Dispose() }
+            $receipt['service_control_lock_start_refusal']=$true
+        }
     } else {
         & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Owned service creation failed'}
@@ -1793,8 +1813,40 @@ try {
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
-            & sc.exe delete $service|Out-Null
-            if($LASTEXITCODE -ne 0){throw 'Owned service deletion failed'}
+            if($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
+                $held=[IO.File]::Open($controlLock,[IO.FileMode]::Open,
+                    [IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+                try {
+                    $blockedRemove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+                    if($registeredMode){$blockedRemove+=$registeredMode}
+                    & $ServiceControlBinary @blockedRemove 2>$null|Out-Null
+                    if($LASTEXITCODE -eq 0 -or
+                        -not (Get-Service $service -ErrorAction SilentlyContinue)) {
+                        throw 'Publisher service unregister bypassed held control lock'
+                    }
+                } finally { $held.Dispose() }
+                $receipt['service_control_lock_unregister_refusal']=$true
+                $wrongRemove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
+                if($registeredMode){$wrongRemove+=$registeredMode}
+                & $ServiceControlBinary @wrongRemove 2>$null|Out-Null
+                if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
+                    throw 'Publisher service accepted a different unregister caller'
+                }
+                $remove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+                if($registeredMode){$remove+=$registeredMode}
+                $removed=& $ServiceControlBinary @remove
+                if($LASTEXITCODE -ne 0 -or
+                    ($removed|ConvertFrom-Json).status -cne 'removal_requested') {
+                    throw 'Owned product service unregister failed'
+                }
+                $receipt['product_service_unregister']=$removed|ConvertFrom-Json
+            }else{
+                & sc.exe delete $service|Out-Null
+                if($LASTEXITCODE -ne 0){throw 'Owned service deletion failed'}
+            }
+            $removeDeadline=[DateTime]::UtcNow.AddSeconds(15)
+            while((Get-Service $service -ErrorAction SilentlyContinue) -and
+                [DateTime]::UtcNow -lt $removeDeadline){Start-Sleep -Milliseconds 100}
             if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Owned service remains after deletion'}
             $receipt.service_removed=$true
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }

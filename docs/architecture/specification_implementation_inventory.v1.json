@@ -1026,7 +1026,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "e2ccec99ad48c7e53646c5178335c8407ce335d915980daed98e230609ed8d55"
+          "sha256": "d62e3be8446082a3466881933f01aba8abc73a056307aa5e03312a24bae5508c"
         },
         {
           "path": "runtime/platform/README.md",
@@ -1057,7 +1057,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "e2ccec99ad48c7e53646c5178335c8407ce335d915980daed98e230609ed8d55"
+          "sha256": "d62e3be8446082a3466881933f01aba8abc73a056307aa5e03312a24bae5508c"
         },
         {
           "path": "runtime/platform/README.md",
@@ -1088,7 +1088,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "e2ccec99ad48c7e53646c5178335c8407ce335d915980daed98e230609ed8d55"
+          "sha256": "d62e3be8446082a3466881933f01aba8abc73a056307aa5e03312a24bae5508c"
         },
         {
           "path": "runtime/platform/README.md",
@@ -2168,7 +2168,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "e2ccec99ad48c7e53646c5178335c8407ce335d915980daed98e230609ed8d55"
+          "sha256": "d62e3be8446082a3466881933f01aba8abc73a056307aa5e03312a24bae5508c"
         }
       ],
       "acceptance_ids": [
@@ -2199,7 +2199,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "e2ccec99ad48c7e53646c5178335c8407ce335d915980daed98e230609ed8d55"
+          "sha256": "d62e3be8446082a3466881933f01aba8abc73a056307aa5e03312a24bae5508c"
         }
       ],
       "acceptance_ids": [
@@ -2230,7 +2230,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "e2ccec99ad48c7e53646c5178335c8407ce335d915980daed98e230609ed8d55"
+          "sha256": "d62e3be8446082a3466881933f01aba8abc73a056307aa5e03312a24bae5508c"
         }
       ],
       "acceptance_ids": [
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "d1a11fd24e87835fa2353f5169bb6970f3b333edaffcce7ef32c15af5ac0c2b1"
+          "sha256": "4479a8cecf691c5857af17d8bd7e2f97a645b6ab9c62ba90f1c9f17a151e1532"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4083,7 +4083,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "2499957a1b8397654f618fa8e4040a1dee0b42a7ec66c5e1c6b4ce9ca6194903"
+          "sha256": "62a2692d0a85550a89dcaa0170c4379572c0e8885d08064878ca758c81f062d8"
         },
         {
           "path": "tools/usk_selected_candidate_package.py",
@@ -4335,7 +4335,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "d1a11fd24e87835fa2353f5169bb6970f3b333edaffcce7ef32c15af5ac0c2b1"
+          "sha256": "4479a8cecf691c5857af17d8bd7e2f97a645b6ab9c62ba90f1c9f17a151e1532"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4371,7 +4371,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "2499957a1b8397654f618fa8e4040a1dee0b42a7ec66c5e1c6b4ce9ca6194903"
+          "sha256": "62a2692d0a85550a89dcaa0170c4379572c0e8885d08064878ca758c81f062d8"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
