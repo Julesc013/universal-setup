@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "d529fffce0630f73630a0d7740d8e12ad0e3562a0d3f2ccc553f4bd60cdad8a2"
+          "sha256": "79a07be5a1e5d465040de4315bac5c74291ee57c4480b5002320f082f9af3049"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "d529fffce0630f73630a0d7740d8e12ad0e3562a0d3f2ccc553f4bd60cdad8a2"
+          "sha256": "79a07be5a1e5d465040de4315bac5c74291ee57c4480b5002320f082f9af3049"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "d529fffce0630f73630a0d7740d8e12ad0e3562a0d3f2ccc553f4bd60cdad8a2"
+          "sha256": "79a07be5a1e5d465040de4315bac5c74291ee57c4480b5002320f082f9af3049"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
