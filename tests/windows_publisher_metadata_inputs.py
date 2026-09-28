@@ -31,10 +31,13 @@ def create_inputs(root: Path, target: Path, request_id: str, application_binary:
     if application_binary is not None:
         files["core"] = application_binary.read_bytes()
     components = []
+    source_paths = []
     for name, data in files.items():
         extension = "exe" if name == "core" and application_binary is not None else "bin"
         filename = f"{name}.{extension}"
-        (product / filename).write_bytes(data)
+        source = product / filename
+        source.write_bytes(data)
+        source_paths.append(source)
         components.append({
             "id": name, "required": name == "core",
             "default_selected": name == "core", "requires": [], "conflicts": [],
@@ -74,7 +77,13 @@ def create_inputs(root: Path, target: Path, request_id: str, application_binary:
     destination = root / "request.json"
     destination.write_text(json.dumps(request) + "\n", encoding="utf-8")
     return {"request_file": str(destination), "archive_file": str(prefixed),
-            "archive_sha256": request["payload"]["archive"]["expected_sha256"]}
+            "archive_sha256": request["payload"]["archive"]["expected_sha256"],
+            "bundle_file": str(selected / "product.bundle.json"),
+            "source_files": [str(path) for path in (
+                definition, *source_paths,
+                compiled / "product.bundle.json", compiled / "payload.zip",
+                selected / "product.bundle.json", selected / "payload.zip",
+                selected / "selection.receipt.json")]}
 
 
 if __name__ == "__main__":

@@ -273,9 +273,45 @@ try {
         --output $fixture --target ($drive+'publication\destination\visible') --request-id ('metadata.'+$id) @fixtureArgs
     if($LASTEXITCODE -ne 0){throw 'Public authoring input generation failed'}
     $inputs=$generated|ConvertFrom-Json
-    Copy-Item -LiteralPath $inputs.archive_file -Destination $archive
+    $packageRoot=''
+    if($RegisteredService -and -not $NonAdminClient -and -not $InterruptAfterStage) {
+        # Exercise the actual emitted native package through installation.
+        # The fault-test service and externally admitted VHD ACL helper are
+        # deliberately outside this ordinary candidate package.
+        $packageRoot=Join-Path $root ('candidate-package-'+$id)
+        New-Item -ItemType Directory -Path $packageRoot -ErrorAction Stop|Out-Null
+        $packed=& python -B (Join-Path $PSScriptRoot '..\tools\usk_selected_candidate_package.py') build `
+            --bundle $inputs.bundle_file --machine $MachineBinary --service $ServiceBinary `
+            --control $ServiceControlBinary --client $ClientBinary --output-dir $packageRoot
+        if($LASTEXITCODE -ne 0){throw 'Selected native candidate package build failed'}
+        $package=$packed|ConvertFrom-Json
+        if($package.schema -ne 'usk.selected_ntfs_candidate_package.v1' -or
+            $package.installation_mode -ne 'selected_ntfs_candidate' -or
+            $package.product_id -ne 'org.example.metadata') {
+            throw 'Selected candidate package identity differs'
+        }
+        $MachineBinary=Join-Path $packageRoot 'inspect\usk_machine.exe'
+        $ServiceBinary=Join-Path $packageRoot 'publisher\usk_publisher_lab_service.exe'
+        $ServiceControlBinary=Join-Path $packageRoot 'publisher\usk_publisher_service_control.exe'
+        $ClientBinary=Join-Path $packageRoot 'publisher\usk_publisher_client.exe'
+        $archive=Join-Path $packageRoot 'inspect\payload.zip'
+        $inputs.archive_sha256=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt['strip_prefix']=''
+        $receipt['candidate_package_manifest_sha256']=(Get-FileHash -LiteralPath `
+            (Join-Path $packageRoot 'setup-package.manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        $productInfo=& $MachineBinary --product-info (Join-Path $packageRoot 'inspect\product.bundle.json')
+        if($LASTEXITCODE -ne 0 -or ($productInfo|ConvertFrom-Json).payload_sha256 -cne
+            $inputs.archive_sha256) {throw 'Packaged native product inspection differs'}
+    } else {
+        Copy-Item -LiteralPath $inputs.archive_file -Destination $archive
+    }
     $request=Get-Content -LiteralPath $inputs.request_file -Raw|ConvertFrom-Json
     $request.payload.archive.path=$archive
+    if($packageRoot) {
+        $request.payload.archive.strip_prefix=''
+        $request.payload.archive.expected_sha256=$inputs.archive_sha256
+        $request.payload.archive.budgets.max_depth=([int]$request.payload.archive.budgets.max_depth)-1
+    }
     $requestPath=Join-Path $root ('metadata-request-'+$id+'.json')
     $contextPath=Join-Path $root ('metadata-context-'+$id+'.json')
     $utf8=[Text.UTF8Encoding]::new($false)
@@ -329,6 +365,13 @@ try {
     if($receipt.ordinary_apply_exit_code -eq 0 -or ($ordinary -join "`n") -notmatch 'commit_authority_unavailable' -or
         (Test-Path -LiteralPath ($drive+'setup-state')) -or (Test-Path -LiteralPath ($drive+'publication'))) {
         throw 'Ordinary apply did not refuse before mutation outside the service'
+    }
+    $sourceInputs=@($archive,$envelope,$inputs.archive_file,$inputs.request_file,
+        $requestPath,$contextPath,$ordinaryPath,$responsePath,$binding.apply_file)+@($inputs.source_files)
+    if($packageRoot) {
+        $sourceInputs+=@((Join-Path $packageRoot 'inspect\product.bundle.json'),
+            (Join-Path $packageRoot 'inspect\prefab.manifest.json'),
+            (Join-Path $packageRoot 'setup-package.manifest.json'))
     }
     $receipt['envelope_sha256']=$binding.envelope_sha256
     $selectedClientArguments=if($ReviewedSource){
@@ -561,8 +604,7 @@ try {
         # Delete only regular input files within this freshly created VM root;
         # retain minimal parsed inputs and independent observations in receipt.
         $removed=[Collections.Generic.List[string]]::new()
-        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
-            $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
+        foreach($path in $sourceInputs) {
             $exact=[IO.Path]::GetFullPath($path)
             $item=Get-Item -LiteralPath $exact -Force
             if(-not $exact.StartsWith(($root+'\'),[StringComparison]::OrdinalIgnoreCase) -or
@@ -631,8 +673,7 @@ try {
         Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant
         $receipt['partial_consumer_grant']=[ordered]@{native=$partial;independent=$before.independent;observer_task_removed=$before.observer_task_removed;granted_objects=$granted.Count}
         $removed=[Collections.Generic.List[string]]::new()
-        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
-            $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
+        foreach($path in $sourceInputs) {
             $exact=[IO.Path]::GetFullPath($path);$item=Get-Item -LiteralPath $exact -Force
             if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Consumer source removal target escaped owned root'}
             Remove-Item -LiteralPath $exact -Force
@@ -726,8 +767,7 @@ try {
         # service grammar against the existing source-free recovery engine.
         if(-not $recover) {
             $removed=[Collections.Generic.List[string]]::new()
-            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
-                $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
+            foreach($path in $sourceInputs) {
                 $exact=[IO.Path]::GetFullPath($path)
                 $item=Get-Item -LiteralPath $exact -Force
                 if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or
@@ -740,8 +780,7 @@ try {
             }
             $receipt['removed_source_inputs']=$removed.ToArray()
         } else {
-            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,
-                $requestPath,$ordinaryPath,$responsePath,$binding.apply_file)) {
+            foreach($path in $sourceInputs) {
                 if(Test-Path -LiteralPath $path){throw 'Original source returned before registered replay'}
             }
         }
