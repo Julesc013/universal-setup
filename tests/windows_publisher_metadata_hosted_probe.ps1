@@ -683,7 +683,7 @@ try {
             }
             $attackArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
                 '-File',('"'+(Join-Path $PSScriptRoot 'windows_publisher_unprivileged_probe.ps1')+'"'),
-                '-VolumeRoot',('"'+$VolumeRoot+'"'),'-ExpectedUserSid',$consumerSid,
+                '-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),'-ExpectedUserSid',$consumerSid,
                 '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
                 '-Stage','Concurrent','-ReleasePath',('"'+$release+'"'),
                 '-PayloadRelativePath',$attackRelative)
@@ -699,8 +699,12 @@ try {
                     $receipt['concurrent_attacker_exit_code']=$concurrentAttacker.ExitCode
                     if((Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -and
                         (Get-Item -LiteralPath $concurrentOutput).Length -le 16KB) {
-                        $receipt['concurrent_attacker_early_receipt']=
-                            Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+                        try {
+                            $receipt['concurrent_attacker_early_receipt']=
+                                Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+                        } catch {
+                            $receipt['concurrent_attacker_receipt_parse_error']=$_.Exception.Message
+                        }
                     }
                     if((Test-Path -LiteralPath $concurrentError -PathType Leaf) -and
                         (Get-Item -LiteralPath $concurrentError).Length -le 16KB) {
@@ -709,7 +713,11 @@ try {
                     }
                     $reason=if($receipt.concurrent_attacker_early_receipt){
                         $receipt.concurrent_attacker_early_receipt.failure
-                    }else{$receipt.concurrent_attacker_stderr}
+                    }elseif($receipt.concurrent_attacker_stderr){
+                        $receipt.concurrent_attacker_stderr
+                    }elseif($receipt.concurrent_attacker_receipt_parse_error){
+                        $receipt.concurrent_attacker_receipt_parse_error
+                    }else{'exit_code='+$concurrentAttacker.ExitCode}
                     throw ('Concurrent attacker exited before readiness: '+$reason)
                 }
                 Start-Sleep -Milliseconds 25
