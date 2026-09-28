@@ -17,29 +17,39 @@
 #include <cstdio>
 #include <fcntl.h>
 #include <io.h>
+#include <shellapi.h>
 #endif
 
 namespace {
 #ifdef _WIN32
-bool generated_service_name(const std::string& name)
+bool generated_service_name(const std::wstring& name)
 {
-    if (name.size() != 40 || name.compare(0, 8, "USK_PUB_") != 0) return false;
+    if (name.size() != 40 || name.compare(0, 8, L"USK_PUB_") != 0) return false;
     for (std::size_t index = 8; index < name.size(); ++index) {
-        const char ch = name[index];
-        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) return false;
+        const wchar_t ch = name[index];
+        if (!((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f'))) return false;
     }
     return true;
 }
 
-int candidate_service_request(int argc, char** argv)
+int candidate_service_request()
 {
-    if (argc != 5 || std::string(argv[3]) != "--request-file" ||
-        !generated_service_name(argv[2]) || argv[4][0] == '\0') {
+    int count = 0;
+    LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    const bool valid = arguments && count == 5 &&
+        std::wstring(arguments[1]) == L"--candidate-service" &&
+        std::wstring(arguments[3]) == L"--request-file" &&
+        generated_service_name(arguments[2]) && arguments[4][0] != L'\0';
+    const std::wstring service = valid ? arguments[2] : L"";
+    const std::filesystem::path request_path = valid ?
+        std::filesystem::path(arguments[4]) : std::filesystem::path{};
+    if (arguments) LocalFree(arguments);
+    if (!valid) {
         std::cerr << "usk_machine: invalid candidate service options\n";
         return 2;
     }
     try {
-        usk::base::StableFile file{std::filesystem::path(argv[4])};
+        usk::base::StableFile file{request_path};
         const auto size = file.identity().size_bytes;
         if (size == 0 || size > 1024u * 1024u) {
             throw std::runtime_error("request exceeds candidate transport bound");
@@ -56,7 +66,6 @@ int candidate_service_request(int argc, char** argv)
             throw std::runtime_error("candidate request schema is unavailable");
         }
         const auto request = usk::json::canonical(parsed);
-        const auto service = std::wstring(argv[2], argv[2] + std::string(argv[2]).size());
         const auto response = usk::platform::windows::submit_publisher_request(
             service, request, 120000);
         limits.max_bytes = 4u * 1024u * 1024u;
@@ -80,6 +89,7 @@ int candidate_service_request(int argc, char** argv)
                 "binary output unavailable");
         }
         std::cout << response;
+        std::cout.flush();
         if (!std::cout) {
             throw usk::platform::windows::PublisherRequestOutcomeUnknown(
                 "publisher response output failed");
@@ -100,7 +110,7 @@ int main(int argc, char** argv)
 {
 #ifdef _WIN32
     if (argc >= 2 && std::string(argv[1]) == "--candidate-service") {
-        return candidate_service_request(argc, argv);
+        return candidate_service_request();
     }
 #endif
     if (argc == 3 && std::string(argv[1]) == "--product-info" && argv[2][0] != '\0') {

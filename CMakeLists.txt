@@ -431,7 +431,7 @@ if(USK_BUILD_APPS)
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
   target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
   if(WIN32)
-    target_link_libraries(usk_machine PRIVATE usk_publisher_windows_static)
+    target_link_libraries(usk_machine PRIVATE usk_publisher_windows_static shell32)
   endif()
   usk_enable_strict_warnings(usk_machine)
 
