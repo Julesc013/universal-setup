@@ -26,3 +26,10 @@ itself revalidates the reviewed source, held volume,
 protected root and authenticated request when started. This selected profile
 is still a candidate; the general product host and public capability gate
 remain unfinished.
+
+The separate `usk_publisher_lab_service_fault` target exists only when tests
+are enabled. Its extra receipt-backed poststage gate lets a disposable hosted
+VM stop the registered service after a durable snapshot and staged tree, then
+exercise the normal source-free recovery command. A controlled service stop is
+recorded as process cancellation, not as power-loss evidence. The ordinary
+`usk_publisher_lab_service` executable does not accept that gate grammar.

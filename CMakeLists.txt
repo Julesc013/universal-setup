@@ -586,6 +586,15 @@ if(USK_BUILD_TESTS)
       set_tests_properties(usk_publisher_candidate_apply_process_smoke PROPERTIES TIMEOUT 60)
     endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      add_executable(usk_publisher_lab_service_fault
+        apps/daemon/usk_publisher_lab_service.cpp)
+      target_compile_features(usk_publisher_lab_service_fault PRIVATE cxx_std_17)
+      target_compile_definitions(usk_publisher_lab_service_fault PRIVATE
+        USK_TEST_REGISTERED_FAULT_GATE=1)
+      target_link_libraries(usk_publisher_lab_service_fault PRIVATE
+        usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
+      usk_enable_strict_warnings(usk_publisher_lab_service_fault)
+
       add_executable(usk_publisher_lab_device_acl
         tests/native/usk_publisher_lab_device_acl.cpp)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
