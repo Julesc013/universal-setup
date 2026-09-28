@@ -13,6 +13,7 @@ param(
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish,
     [switch]$InterruptAfterStage,
+    [switch]$TerminateAtPoststage,
     [switch]$ReviewedSource,
     [switch]$RegisteredService,
     [switch]$MachineRequestClient,
@@ -148,7 +149,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -MachineRequestClient:$MachineRequestClient -NonAdminClient:$NonAdminClient -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -MachineRequestClient:$MachineRequestClient -NonAdminClient:$NonAdminClient -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
