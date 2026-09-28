@@ -583,7 +583,9 @@ int public_process_boundaries(const fs::path& executable) {
         "transaction.staging.after_stream_write", "transaction.staging.after_stage_stream",
         "transaction.staged.after_journal", "transaction.verified.after_journal",
         "transaction.committing.after_journal", "transaction.committing.after_commit_effect",
-        "transaction.committed.after_journal"};
+        "transaction.committed.after_journal", "transaction.created.after_journal",
+        "transaction.validated.after_journal", "transaction.planned.after_journal",
+        "transaction.staging.after_journal", "transaction.staging.after_staging_create"};
     for (bool deflate : {false, true}) {
         for (std::size_t i = 0; i < points.size(); ++i) {
             Fixture fixture(false); prepare_public(fixture, deflate);
@@ -602,7 +604,7 @@ int public_process_boundaries(const fs::path& executable) {
             const auto request = replay_request(fixture.root, "old", "new");
             const auto before = snapshot(fixture.root);
             const auto result = command(fixture.root, "install_local.apply", request);
-            if (i < 6) {
+            if (i < 6 || i >= 9) {
                 if (result.status != USK_STATUS_OK) {
                     std::cerr << points[i] << " replay: " << usk::json::canonical(result.document) << '\n'; return 40;
                 }

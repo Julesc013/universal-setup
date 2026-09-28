@@ -1070,6 +1070,23 @@ StreamStageResult TransactionSession::stage_file_stream(
     }
 }
 
+std::unique_ptr<TransactionSession> TransactionSession::begin_streaming(
+    TransactionSpec spec, const std::string& source_digest,
+    const std::string& source_context, FaultInjector injector)
+{
+    if (!valid_sha256(source_digest) || source_context.empty() || source_context.size() > 16384u ||
+        json::canonical(json::parse(source_context)) != source_context ||
+        json::sha256_canonical(json::parse(source_context)) != source_digest) {
+        throw std::runtime_error("initial stream source context does not match its source digest");
+    }
+    StreamJournal source;
+    source.present = true;
+    source.source_digest = source_digest;
+    source.source_context = source_context;
+    return std::unique_ptr<TransactionSession>(new TransactionSession(
+        std::move(spec), std::move(injector), ResumeMode::none, std::move(source)));
+}
+
 void TransactionSession::bind_stream_source(const std::string& source_digest, const std::string& source_context)
 {
     if (current_state_ != "staging" || !valid_sha256(source_digest) ||
@@ -1469,10 +1486,19 @@ std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
     const auto document = json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
     const auto inspection = inspect_recovery(prior_spec);
     const auto prior_stream = read_stream_journal(document, safe_relative_path);
+    const auto replayable = [](const RecoveryInspection& value) {
+        const bool phase = value.current_state == "created" || value.current_state == "validated" ||
+            value.current_state == "planned" || value.current_state == "staging" ||
+            value.current_state == "staged" || value.current_state == "verified" ||
+            value.current_state == "recovery_required";
+        // A missing directory is legitimate only before any directory identity
+        // was published. Never reinterpret disappearance of recorded staging as
+        // permission to replay, or a commit attempt as a pre-visibility crash.
+        return phase && !value.commit_started && !value.target_exists &&
+            (value.staging_exists || value.publication_root_identity.empty());
+    };
     if (inspection.snapshot_sha256 != expected_snapshot_sha256 || !prior_stream.present ||
-        prior_stream.source_digest != source_digest || !inspection.staging_exists || inspection.target_exists ||
-        (inspection.current_state != "staging" && inspection.current_state != "staged" &&
-         inspection.current_state != "verified" && inspection.current_state != "recovery_required")) {
+        prior_stream.source_digest != source_digest || !replayable(inspection)) {
         throw std::runtime_error("transaction is not an explicit stream replay candidate");
     }
     auto ancestor_spec = prior_spec;
@@ -1482,8 +1508,7 @@ std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
         if (depth >= 64u || !visited.insert(ancestor_spec.transaction_id).second) {
             throw std::runtime_error("stream restart lineage is cyclic or exceeds 64 journals");
         }
-        if (ancestor.commit_started || ancestor.stream_source_digest != source_digest ||
-            !ancestor.staging_exists || ancestor.target_exists) {
+        if (!replayable(ancestor) || ancestor.stream_source_digest != source_digest) {
             throw std::runtime_error("stream restart refuses changed or uncertain ancestor state");
         }
         if (ancestor.restart_origin_transaction_id.empty()) break;
