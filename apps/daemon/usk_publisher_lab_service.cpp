@@ -432,21 +432,33 @@ int wmain(int argc, wchar_t** argv) {
                 envelope.lexically_normal() == envelope && !envelope.empty();
         } catch (const std::exception&) { registered_reviewed = false; }
     }
+    const bool registered_recovery = argc == 6 && external_client &&
+        !grant_client_read && !interrupt_consumer_grant &&
+        generated_service_name(name, L"USK_PUB_") &&
+        std::wstring(argv[3]) == L"--no-receipt" &&
+        std::wstring(argv[5]) == L"--recover-reviewed" &&
+        [&] {
+            try {
+                (void)usk::platform::windows::publisher_volume_operation_guard_name(argv[4]);
+                return true;
+            } catch (const std::exception&) { return false; }
+        }();
+    const bool registered_mode = registered_reviewed || registered_recovery;
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
         !campaign_vm_sealed_journal &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
         !campaign_vm_selected && !campaign_vm_selected_plan &&
-        !campaign_vm_reviewed_source && !registered_reviewed) return 2;
+        !campaign_vm_reviewed_source && !registered_mode) return 2;
     if (external_client && !campaign_vm_selected_plan &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
-        !campaign_vm_reviewed_source && !registered_reviewed) return 2;
+        !campaign_vm_reviewed_source && !registered_mode) return 2;
     if ((campaign_vm_reviewed_recovery || campaign_vm_reviewed_source) &&
         !external_client) return 2;
-    if (admit_client_observer && !registered_reviewed) return 2;
+    if (admit_client_observer && !registered_mode) return 2;
     service_name = argv[2];
-    receipt_path = registered_reviewed ? L"" : argv[3];
+    receipt_path = registered_mode ? L"" : argv[3];
     volume_root = argv[4];
     const std::wstring selected_gate =
         campaign_vm_selected && argc == 11 ? argv[10] :
@@ -462,9 +474,9 @@ int wmain(int argc, wchar_t** argv) {
     recover_prepared = campaign_vm_recovery || campaign_vm_replay ||
         campaign_vm_sealed_journal;
     recover_snapshot_only = campaign_vm_snapshot_recovery;
-    recover_reviewed = campaign_vm_reviewed_recovery;
+    recover_reviewed = campaign_vm_reviewed_recovery || registered_recovery;
     require_preprotected_boundary = campaign_vm_reviewed_source ||
-        campaign_vm_selected_plan || registered_reviewed;
+        campaign_vm_selected_plan || registered_mode;
     recover_sealed_journal = campaign_vm_sealed_journal;
     recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
