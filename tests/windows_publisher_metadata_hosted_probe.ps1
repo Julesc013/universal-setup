@@ -357,7 +357,7 @@ try {
         throw 'Authored apply binding output differs'
     }
     $applyRequest=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
-    if($RegisteredService -or $ReviewedSource) {
+    if($RegisteredService) {
         $envelope=$binding.envelope_file
     } else {
         # The existing disposable service grammar admits only plan-ID files
