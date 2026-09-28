@@ -65,6 +65,43 @@ function Assert-OwnedVolume {
         throw 'Owned VHD changed before privileged operation'
     }
 }
+function Get-OwnedVolumeRootSddl([string]$Phase) {
+    if($Phase -notin @('service-start','service-end') -or
+        $VolumeRoot -notmatch '^\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\$') {
+        throw 'Owned root ACL observer arguments differ'
+    }
+    Assert-OwnedVolume
+    $taskName='USK_ROOT_ACL_'+$id+'_'+$Phase
+    $observation=Join-Path $root ('root-acl-'+$Phase+'.json')
+    if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $observation)) { throw 'Owned root ACL observer collision' }
+    $command='$ErrorActionPreference=''Stop'';if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne ''S-1-5-18''){throw ''SYSTEM root ACL observer required''};'+
+        '$sddl=(Get-Acl -LiteralPath '''+$VolumeRoot.Replace("'","''")+''').Sddl;'+
+        '[IO.File]::WriteAllText('''+$observation.Replace("'","''")+''',(@{identity=''S-1-5-18'';sddl=$sddl}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))'
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
+    $registered=$false
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -User SYSTEM -RunLevel Highest|Out-Null
+        $registered=$true
+        Start-ScheduledTask -TaskName $taskName
+        $deadline=[DateTime]::UtcNow.AddSeconds(45)
+        while(-not (Test-Path -LiteralPath $observation) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $observation)){throw 'Owned root ACL observer receipt absent'}
+        $result=Get-Content -LiteralPath $observation -Raw|ConvertFrom-Json
+        if($result.identity -ne 'S-1-5-18' -or [string]::IsNullOrWhiteSpace($result.sddl)) {
+            throw 'Owned root ACL observer identity or descriptor differs'
+        }
+        return $result.sddl
+    } finally {
+        if($registered) {
+            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+            if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned root ACL observer cleanup failed'}
+        }
+    }
+}
 $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
 $id=[guid]::NewGuid().ToString('N')
@@ -293,7 +330,7 @@ try {
         $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
         Set-Acl -LiteralPath $VolumeRoot -AclObject $acl
     }
-    $receipt['root_acl_at_service_start']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+    $receipt['root_acl_at_service_start']=Get-OwnedVolumeRootSddl 'service-start'
     Assert-OwnedVolume
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
@@ -679,7 +716,7 @@ try {
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
     if($ReviewedSource) {
-        $receipt['root_acl_after_service']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+        $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
         if($receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service) {
             throw 'Reviewed-source service changed the preprotected volume root ACL'
         }
