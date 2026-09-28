@@ -1079,6 +1079,8 @@ def command_doctor(args: argparse.Namespace) -> int:
         violations.append(f"secondary_worktree_count_exceeds_{args.max_worktrees}")
     if any(not record["managed_location"] for record in secondary):
         violations.append("unmanaged_secondary_worktrees_present")
+    if any(not record["owned"] for record in secondary):
+        violations.append("unowned_secondary_worktrees_present")
     if in_tree_outputs:
         violations.append("in_tree_output_roots_present")
     if any(record["cleanup_candidate"] for record in refs["local_branches"]):
