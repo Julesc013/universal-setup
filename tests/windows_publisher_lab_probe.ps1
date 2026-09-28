@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$OutputPath,
     [string]$ServiceBinary = '',
+    [string]$ServiceControlBinary = '',
     [string]$DeviceAclBinary = '',
     [string]$MachineBinary = '',
     [string]$PublicApplyBinary = '',
@@ -144,7 +145,7 @@ try {
         if ($MachineBinary) {
             & (Join-Path $PSScriptRoot 'windows_publisher_metadata_hosted_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
-                -ServiceBinary $ServiceBinary -DeviceAclBinary $DeviceAclBinary `
+                -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
                 -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -NonAdminClient:$NonAdminClient -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
         } else {
