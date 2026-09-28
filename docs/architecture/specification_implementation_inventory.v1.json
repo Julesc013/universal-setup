@@ -3979,7 +3979,7 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
-          "sha256": "b23cd5e1c9241c6b28cbbe73a345543ed34f477bd0eb7b241549759144cf9e2b"
+          "sha256": "c56c58b171aa9414eb2dc869a7060dfbb2413029fcdbd7b983e33f38ed8a218e"
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",
@@ -4047,11 +4047,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "048d04add02b5bdddd7af2aa57a3dc8a70b879e1efe731bd16b45628b8ba4e6a"
+          "sha256": "d1a11fd24e87835fa2353f5169bb6970f3b333edaffcce7ef32c15af5ac0c2b1"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
-          "sha256": "5f7c56d9125aa0e30d50403cd81ea1fa1f87f108fc28ed5ed52a1c5bdb4b683f"
+          "sha256": "74297e104f251ff56751b398e26e9fc9b3f638b438140cfabb2788039f316407"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
@@ -4275,7 +4275,7 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
-          "sha256": "b23cd5e1c9241c6b28cbbe73a345543ed34f477bd0eb7b241549759144cf9e2b"
+          "sha256": "c56c58b171aa9414eb2dc869a7060dfbb2413029fcdbd7b983e33f38ed8a218e"
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",
@@ -4335,11 +4335,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "048d04add02b5bdddd7af2aa57a3dc8a70b879e1efe731bd16b45628b8ba4e6a"
+          "sha256": "d1a11fd24e87835fa2353f5169bb6970f3b333edaffcce7ef32c15af5ac0c2b1"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
-          "sha256": "5f7c56d9125aa0e30d50403cd81ea1fa1f87f108fc28ed5ed52a1c5bdb4b683f"
+          "sha256": "74297e104f251ff56751b398e26e9fc9b3f638b438140cfabb2788039f316407"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
