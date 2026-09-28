@@ -53,6 +53,10 @@ $completed.details_digest=$verificationDigest;$completed.previous_event_digest=$
 $completed.subject=@{subject_type='installation';subject_id='org.example.synthetic'}
 Add-Record 'E:\setup-state\audit\chains\chain.synthetic\00000000000000000000.event.json' $validated
 Add-Record 'E:\setup-state\audit\chains\chain.synthetic\00000000000000000001.event.json' $completed
+Add-Record 'E:\publication\destination\visible' $null
+$rows[$rows.Count-1].directory=$true
+$rows[$rows.Count-1].bytes=0
+$rows[$rows.Count-1].sha256=$null
 Add-Record 'E:\publication\destination\visible\app.bin' $null $digest 5
 $fixture=@{volume_drive_root='E:\';native=@{status='pass'};observer_task_removed=$true;service_sid=$sid;archive_sha256=$digest;
     independent=@{identity='S-1-5-18';rows=$rows.ToArray()};request=@{install_id='org.example.synthetic';recipe=$recipe};
@@ -78,6 +82,7 @@ $cases=[ordered]@{
     unexpected_record={param($r) $extra=$r.independent.rows[2].PSObject.Copy();$extra.path='E:\setup-state\extra.json';$r.independent.rows+=@($extra)}
     unexpected_visible_file={param($r) $extra=$r.independent.rows[-1].PSObject.Copy();$extra.path='E:\publication\destination\visible\extra.bin';$r.independent.rows+=@($extra)}
     unexpected_visible_directory={param($r) $extra=$r.independent.rows[-1].PSObject.Copy();$extra.path='E:\publication\destination\visible\extra';$extra.directory=$true;$r.independent.rows+=@($extra)}
+    unexpected_destination_sibling={param($r) $extra=@($r.independent.rows|Where-Object path -ceq 'E:\publication\destination\visible')[0].PSObject.Copy();$extra.path='E:\publication\destination\shadow';$r.independent.rows+=@($extra)}
     wrong_owner={param($r) $r.independent.rows[0].owner='S-1-5-32-544'}
     duplicate_system_ace={param($r) $r.independent.rows[0].aces[1].sid='S-1-5-18'}
     unprotected_acl={param($r) $r.independent.rows[0].protected=$false}
@@ -102,7 +107,9 @@ Edit-Record $consumer 'E:\publication\journal\lab-reviewed-plan.json' {param($r)
     $r|Add-Member -NotePropertyName schema -NotePropertyValue 'usk.publisher.lab_reviewed_plan_snapshot.v4'
     $r|Add-Member -NotePropertyName consumer_read_sid -NotePropertyValue $consumerSid
 }
-$consumer.independent.rows[-1].aces+=@([pscustomobject]@{sid=$consumerSid;rights=1179817;type='Allow';inherited=$false;inheritance=0;propagation=0})
+foreach($row in $consumer.independent.rows|Where-Object {$_.path -ceq 'E:\publication\destination\visible' -or $_.path.StartsWith('E:\publication\destination\visible\',[StringComparison]::Ordinal)}) {
+    $row.aces+=@([pscustomobject]@{sid=$consumerSid;rights=1179817;type='Allow';inherited=$false;inheritance=0;propagation=0})
+}
 Assert-IndependentMetadataProbe $consumer
 $reorderedConsumer=$consumer|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
 $reader=$reorderedConsumer.independent.rows[-1].aces[2]

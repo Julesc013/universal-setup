@@ -31,6 +31,16 @@ function Assert-IndependentMetadataProbe {
         -not $visibleRoot.StartsWith($drive+'publication\destination\',[StringComparison]::Ordinal)) {
         throw 'Reviewed visible target is outside the observed protected destination'
     }
+    $destinationPrefix=$drive+'publication\destination\'
+    $destinationChildren=@($Result.independent.rows|Where-Object {
+        $_.path.StartsWith($destinationPrefix,[StringComparison]::Ordinal) -and
+        $_.path.Substring($destinationPrefix.Length).IndexOf('\') -lt 0
+    })
+    if($destinationChildren.Count -ne 1 -or
+        $destinationChildren[0].path -cne $visibleRoot -or
+        -not $destinationChildren[0].directory) {
+        throw 'Independent protected destination has an unexpected child'
+    }
     $expectedStatus=if($AllowPartialConsumerGrant){'recovery_required'}else{'pass'}
     if($AllowPartialConsumerGrant -and (-not $Result.consumer_sid -or $Result.native.error -notmatch 'injected interruption after first consumer grant')){throw 'Partial-grant witness is not the admitted injected failure'}
     if ($Result.native.status -ne $expectedStatus -or -not $Result.observer_task_removed -or
