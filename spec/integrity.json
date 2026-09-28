@@ -2,7 +2,7 @@
   "schema": "usk.spec.integrity/1",
   "algorithm": "sha256",
   "self_excluded": "integrity.json",
-  "aggregate_sha256": "596b10c4ab1a6cb5e8cda2c44d31ce9203596413e885b5e975e52be91da5297a",
+  "aggregate_sha256": "cc246b6eaef3202dbe3c9f8a7615e7f1131ec706b17257431188f4408f8a9bfe",
   "files": [
     {
       "path": ".gitattributes",
@@ -81,8 +81,8 @@
     },
     {
       "path": "derived/catalogue.json",
-      "bytes": 235331,
-      "sha256": "f39b9f9ffb41c4aed8e22404726c57161229cf6bc06959016edea0ff6083c2e6"
+      "bytes": 235376,
+      "sha256": "cd96ecce39a9e6f56dd31eab98108f92bbd408be5d381e795c70fe88d6dac3c5"
     },
     {
       "path": "derived/index.md",
