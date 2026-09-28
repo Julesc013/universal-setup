@@ -831,6 +831,63 @@ try {
         }
         $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
     }
+    if($RegisteredService -and -not $InterruptAfterStage) {
+        # The ordinary packaged client asks the restricted service to verify
+        # the completed installation. The caller receives no private-state ACL.
+        $verifyRequest=[ordered]@{schema='usk.publisher_installed_verify_request.v1';
+            request_id='verify.'+$id;install_id=$applyRequest.plan_request.install_id;
+            transaction_id=$applyRequest.transaction_id;report_id='verify.'+$id;
+            verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+        $verifyArgs=@('--verify',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+        if($NonAdminClient){$verifyArgs+='--admit-client-observer'}
+        $configuredVerify=& $ServiceControlBinary @verifyArgs
+        if($LASTEXITCODE -ne 0 -or ($configuredVerify|ConvertFrom-Json).status -ne 'verify_configured') {
+            throw 'Product service control did not configure read-only verification'
+        }
+        Start-RegisteredPublisher
+        $verifyClient=Start-RequestClient $verifyRequest
+        if(-not $verifyClient.process.WaitForExit(120000)){throw 'Registered verification client timed out'}
+        $verifyClient.process.WaitForExit()
+        if($verifyClient.process.ExitCode -ne 0 -or
+            (Get-Item -LiteralPath $verifyClient.response).Length -gt 4MB) {
+            throw ('Registered verification client failed: '+[IO.File]::ReadAllText($verifyClient.error))
+        }
+        $verified=Get-Content -LiteralPath $verifyClient.response -Raw|ConvertFrom-Json
+        if($verified.status -ne 'pass' -or $verified.transaction_id -cne $applyRequest.transaction_id -or
+            $verified.verify_response.status -ne 'ok' -or
+            $verified.verify_response.payload.status -ne 'pass' -or
+            $verified.verify_response.payload.install_id -cne $verifyRequest.install_id -or
+            $verified.verify_response.payload.report_id -cne $verifyRequest.report_id -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw 'Authenticated read-only verification differs from completed installation'
+        }
+        $receipt['registered_installed_verify']=[ordered]@{status=$verified.status;
+            report_digest=$verified.verify_response.payload.report_digest;
+            client_exit_code=$verifyClient.process.ExitCode;
+            response_sha256=(Get-FileHash -LiteralPath $verifyClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
+        $staleVerify=[ordered]@{}
+        foreach($key in $verifyRequest.Keys){$staleVerify[$key]=$verifyRequest[$key]}
+        $staleVerify.transaction_id='install.'+[guid]::NewGuid().ToString('N')
+        Start-RegisteredPublisher
+        $staleClient=Start-RequestClient $staleVerify
+        if(-not $staleClient.process.WaitForExit(120000)){throw 'Stale verification client timed out'}
+        $staleClient.process.WaitForExit()
+        $staleResponse=Get-Content -LiteralPath $staleClient.response -Raw|ConvertFrom-Json
+        if($staleClient.process.ExitCode -eq 0 -or $staleResponse.status -ne 'failed' -or
+            $staleResponse.error -notmatch 'differs from completed install') {
+            throw 'Stale authenticated verification request was not refused'
+        }
+        $receipt.registered_installed_verify['stale_transaction_refused']=$true
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
+        $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        if($verifyRows.independent.identity -ne 'S-1-5-18' -or -not $verifyRows.observer_task_removed -or
+            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($verifyRows.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Read-only verification changed independently observed installed rows'
+        }
+        $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
+    }
     if($HostileRights) {
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
         & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative

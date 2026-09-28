@@ -62,6 +62,7 @@ thread_local bool recover_reviewed = false;
 thread_local bool recover_sealed_journal = false;
 thread_local bool recover_visible_bound = false;
 thread_local bool reviewed_install_reentry = false;
+thread_local bool verify_installed_request = false;
 
 using usk::platform::windows::StaleReviewedInstallRequest;
 thread_local bool selected_archive_mode = false;
@@ -70,6 +71,7 @@ thread_local std::string selected_archive_sha256;
 thread_local std::wstring reviewed_plan_envelope_path;
 thread_local std::string reviewed_plan_envelope_sha256;
 thread_local std::optional<std::string> submitted_apply_request;
+thread_local std::optional<std::string> submitted_verify_request;
 thread_local std::string consumer_read_sid;
 thread_local bool interrupt_consumer_grant = false;
 struct ReviewedPlanBinding {
@@ -2440,6 +2442,7 @@ struct ScopedExecution {
         recover_reviewed=config.recover_reviewed;
         recover_sealed_journal=config.recover_sealed_journal;
         recover_visible_bound=config.recover_visible_bound;
+        verify_installed_request=config.verify_installed;
         selected_archive_mode=config.selected_archive_mode;
         selected_archive_path=config.selected_archive_path;
         selected_archive_sha256=config.selected_archive_sha256;
@@ -2448,6 +2451,16 @@ struct ScopedExecution {
         submitted_apply_request=config.submitted_apply_request ?
             std::optional<std::string>{usk::json::canonical(usk::json::parse(*config.submitted_apply_request))} :
             std::nullopt;
+        submitted_verify_request=config.submitted_verify_request ?
+            std::optional<std::string>{usk::json::canonical(usk::json::parse(*config.submitted_verify_request))} :
+            std::nullopt;
+        if (verify_installed_request != submitted_verify_request.has_value() ||
+            (verify_installed_request && (submitted_apply_request ||
+                recover_prepared || recover_reviewed || recover_snapshot_only ||
+                !reviewed_plan_envelope_path.empty() || !selected_archive_path.empty() ||
+                config.prepare_disposable_boundary))) {
+            throw std::runtime_error("read-only verify mode has incompatible publisher authority");
+        }
         consumer_read_sid=config.consumer_read_sid;
         interrupt_consumer_grant=config.interrupt_consumer_grant;
         if (!consumer_read_sid.empty()) {
@@ -2458,7 +2471,8 @@ struct ScopedExecution {
         reviewed_install_reentry=false;
         execution_active=true;
     }
-    ~ScopedExecution() { submitted_apply_request.reset(); consumer_read_sid.clear(); execution_active=false; }
+    ~ScopedExecution() { submitted_apply_request.reset(); submitted_verify_request.reset();
+        consumer_read_sid.clear(); execution_active=false; }
 };
 } // namespace
 
@@ -2534,13 +2548,95 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
     return completed;
 }
 
+namespace {
+std::string verify_completed_install_in_service(HANDLE volume,
+    const std::string& service_sid) {
+    if (!submitted_verify_request) throw std::runtime_error("authenticated verify request is absent");
+    const auto request = usk::json::parse(*submitted_verify_request);
+    if (request.as_object().size() != 6 ||
+        request.at("schema").as_string() != "usk.publisher_installed_verify_request.v1") {
+        throw std::runtime_error("authenticated verify request shape differs");
+    }
+    const auto recovery = usk::json::parse(observe_prepared_recovery(
+        volume, service_sid, false, {}, {}, true));
+    if (recovery.at("observed_location").as_string() !=
+            "visible_with_visible_record" ||
+        !recovery.contains("completion_record_sha256") ||
+        recovery.at("completion_record_sha256").type() ==
+            usk::json::Value::Type::null_value ||
+        recovery.at("state_empty").as_boolean()) {
+        throw std::runtime_error("read-only verify requires completed protected publication");
+    }
+    using namespace usk::platform::windows;
+    OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
+    OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
+    OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+    OwnedHandle visible(open_exact_lab_child(destination.get(), L"visible"));
+    const std::string snapshot_record = read_phase_record(journal.get(), L"lab-reviewed-plan.json");
+    const auto snapshot = usk::json::parse(snapshot_record);
+    if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") {
+        throw std::runtime_error("read-only verify requires caller-bound installed snapshot");
+    }
+    const auto plan = restore_reviewed_install_plan(snapshot_record);
+    if (request.at("install_id").as_string() != plan.install_id ||
+        request.at("transaction_id").as_string() != snapshot.at("transaction_id").as_string()) {
+        throw std::runtime_error("authenticated verify request differs from completed install");
+    }
+    usk::lifecycle::require_completed_consumer_install(plan,
+        snapshot.at("transaction_id").as_string(), snapshot.at("applied_at").as_string(),
+        recovery.at("completion_record_sha256").as_string(), volume_root, volume, service_name);
+    const auto public_request = usk::json::Value(usk::json::Value::Object{
+        {"schema", usk::json::Value("usk.installed_verify_request.v1")},
+        {"request_id", request.at("request_id")},
+        {"install_id", request.at("install_id")},
+        {"report_id", request.at("report_id")},
+        {"verified_at", request.at("verified_at")}});
+    std::string response;
+    with_public_roots_bound(volume, plan,
+        observe_publisher_directory_handle(visible.get()).file_id, [&] {
+        const std::string input = usk::json::canonical(public_request);
+        int status = -1;
+        char* raw = usk_public_lifecycle_command_json("installed.verify",
+            input.data(), input.size(), plan.roots.state_root.parent_path().u8string().c_str(),
+            std::filesystem::path(plan.target_root).root_path().u8string().c_str(),
+            "operator_acceptance_candidate", &status);
+        if (!raw) throw std::runtime_error("installed verification response is absent");
+        response = raw;
+        usk_public_lifecycle_command_free(raw);
+        if (status != 0 || usk::json::parse(response).at("status").as_string() != "ok") {
+            throw std::runtime_error("installed verification refused");
+        }
+    });
+    const auto result = usk::json::parse(response);
+    const auto& report = result.at("payload");
+    if (report.at("schema").as_string() != "usk.verification_report.v1" ||
+        report.at("install_id").as_string() != plan.install_id) {
+        throw std::runtime_error("installed verification response identity differs");
+    }
+    const std::string status = report.at("status").as_string();
+    if (status != "pass" && status != "fail" && status != "unknown") {
+        throw std::runtime_error("installed verification result is unsupported");
+    }
+    const auto after = usk::json::parse(observe_prepared_recovery(
+        volume, service_sid, false, {}, {}, true));
+    if (usk::json::canonical(after) != usk::json::canonical(recovery) ||
+        read_phase_record(journal.get(), L"lab-reviewed-plan.json") != snapshot_record) {
+        throw std::runtime_error("protected publication changed during read-only verify");
+    }
+    return "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
+        json_quote(status == "pass" ? "pass" : "failed") +
+        ",\"transaction_id\":" + json_quote(snapshot.at("transaction_id").as_string()) +
+        ",\"verify_response\":" + response + "}\n";
+}
+} // namespace
+
 std::string usk::platform::windows::execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration& config, bool& publication_effects_may_exist) {
     ScopedExecution execution(config);
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
         const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root);
-        const DWORD root_access = recover_prepared ?
+        const DWORD root_access = recover_prepared || verify_installed_request ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
                 READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE);
@@ -2558,6 +2654,9 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         bool snapshot_only_replay = false;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
+            if (verify_installed_request) {
+                return verify_completed_install_in_service(volume, observed.service_sid);
+            }
             if (recover_prepared) {
                 anchors = observe_prepared_recovery(volume, observed.service_sid,
                     recover_visible_bound, {}, {}, recover_sealed_journal,

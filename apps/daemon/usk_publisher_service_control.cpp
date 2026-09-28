@@ -151,6 +151,8 @@ void require_existing_command(const std::wstring& command,
         index += 3;
     } else if (args[index] == L"--recover-reviewed") {
         ++index;
+    } else if (args[index] == L"--verify-installed") {
+        ++index;
     } else {
         throw std::runtime_error("existing service mode differs");
     }
@@ -233,6 +235,31 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
         throw std::runtime_error("registered recovery command readback differs");
 }
 
+void configure_verify(const std::wstring& name, const std::wstring& binary,
+    const std::wstring& volume, const std::wstring& caller, bool observer) {
+    require_file(binary);
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
+    ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
+        SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
+    if (!service.get()) throw std::runtime_error("registered publisher service unavailable");
+    require_stopped(service.get());
+    const auto before = query_configuration(service.get());
+    require_profile(before);
+    require_existing_command(before.binary_path, name, binary, volume, caller, observer);
+    const std::wstring command = command_prefix(name, binary, volume) +
+        L" --verify-installed" + command_suffix(caller, observer);
+    if (!ChangeServiceConfigW(service.get(), SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
+            SERVICE_NO_CHANGE, command.c_str(), nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr)) {
+        throw std::runtime_error("registered verify configuration failed");
+    }
+    const auto after = query_configuration(service.get());
+    require_profile(after);
+    if (after.binary_path != command)
+        throw std::runtime_error("registered verify command readback differs");
+}
+
 void request_start(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller, bool observer) {
     require_file(binary);
@@ -254,11 +281,13 @@ void request_start(const std::wstring& name, const std::wstring& binary,
 int wmain(int argc, wchar_t** argv) {
     const bool registration = argc >= 2 && std::wstring(argv[1]) == L"--register";
     const bool recovery = argc >= 2 && std::wstring(argv[1]) == L"--recover";
+    const bool verify = argc >= 2 && std::wstring(argv[1]) == L"--verify";
     const bool start = argc >= 2 && std::wstring(argv[1]) == L"--start";
     if ((!registration || (argc != 8 && argc != 9)) &&
         (!recovery || (argc != 6 && argc != 7)) &&
+        (!verify || (argc != 6 && argc != 7)) &&
         (!start || (argc != 6 && argc != 7))) {
-        std::wcerr << L"usage: usk_publisher_service_control --register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID [--admit-client-observer] | --recover NAME BINARY VOLUME CALLER_SID [--admit-client-observer] | --start NAME BINARY VOLUME CALLER_SID [--admit-client-observer]\n";
+        std::wcerr << L"usage: usk_publisher_service_control --register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID [--admit-client-observer] | --recover NAME BINARY VOLUME CALLER_SID [--admit-client-observer] | --verify NAME BINARY VOLUME CALLER_SID [--admit-client-observer] | --start NAME BINARY VOLUME CALLER_SID [--admit-client-observer]\n";
         return 2;
     }
     try {
@@ -277,11 +306,13 @@ int wmain(int argc, wchar_t** argv) {
             register_service(name, binary, volume, argv[5], argv[6], caller, observer);
         } else if (recovery) {
             configure_recovery(name, binary, volume, caller, observer);
+        } else if (verify) {
+            configure_verify(name, binary, volume, caller, observer);
         } else {
             request_start(name, binary, volume, caller, observer);
         }
         std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\",\"status\":\""
-            << (registration ? L"registered" : recovery ? L"recovery_configured" : L"start_requested")
+            << (registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : L"start_requested")
             << L"\",\"service\":\"" << name << L"\"}\n";
         return 0;
     } catch (const std::exception& error) {
