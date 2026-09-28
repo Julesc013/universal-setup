@@ -51,7 +51,7 @@ if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not
     throw 'Registered service probe requires a reviewed-source request and at most the poststage interruption'
 }
 if($MachineRequestClient -and (-not $RegisteredService -or -not $MachineBinary -or
-    $ConsumerAccess -or $NonAdminClient -or $InterruptAfterStage -or $HostileRights)) {
+    $NonAdminClient -or $InterruptAfterStage -or $HostileRights)) {
     throw 'Packaged machine request client requires uninterrupted registered same-user service profile'
 }
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
@@ -913,7 +913,7 @@ try {
             throw 'Product service control did not configure source-free recovery'
         }
         Start-RegisteredPublisher
-        $submittedRecovery=if($MachineRequestClient){$applyRequest}else{$recoveryRequest}
+        $submittedRecovery=$recoveryRequest
         $requestClient=Start-RequestClient $submittedRecovery
         if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered recovery client timed out'}
         $requestClient.process.WaitForExit()
@@ -945,34 +945,32 @@ try {
             throw 'Registered source-free reentry changed independently observed installed rows'
         }
         $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
-        if(-not $MachineRequestClient) {
-            $staleRecovery=[ordered]@{
-                schema='usk.publisher_recovery_request.v1'
-                request_id='recover.stale.'+$id
-                install_id=$recoveryRequest.install_id
-                transaction_id=$recoveryRequest.transaction_id+'.changed'
-            }
-            Start-RegisteredPublisher
-            $requestClient=Start-RequestClient $staleRecovery
-            if(-not $requestClient.process.WaitForExit(120000)) {
-                throw 'Stale recovery client timed out'
-            }
-            $requestClient.process.WaitForExit()
-            $stale=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
-            if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
-                $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
-                throw 'Changed minimal recovery request was admitted'
-            }
-            $receipt['stale_minimal_recovery_refused']=[ordered]@{
-                status=$stale.status;response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
-            $requestClient=$null
-            if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
-            $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-            if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
-                ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-                ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-                throw 'Changed minimal recovery request altered installed state'
-            }
+        $staleRecovery=[ordered]@{
+            schema='usk.publisher_recovery_request.v1'
+            request_id='recover.stale.'+$id
+            install_id=$recoveryRequest.install_id
+            transaction_id=$recoveryRequest.transaction_id+'.changed'
+        }
+        Start-RegisteredPublisher
+        $requestClient=Start-RequestClient $staleRecovery
+        if(-not $requestClient.process.WaitForExit(120000)) {
+            throw 'Stale recovery client timed out'
+        }
+        $requestClient.process.WaitForExit()
+        $stale=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
+            $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
+            throw 'Changed minimal recovery request was admitted'
+        }
+        $receipt['stale_minimal_recovery_refused']=[ordered]@{
+            status=$stale.status;response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
+        $requestClient=$null
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+        $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
+            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Changed minimal recovery request altered installed state'
         }
     }
     if($RegisteredService -and -not $InterruptAfterStage) {

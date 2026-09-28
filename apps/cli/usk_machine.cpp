@@ -62,7 +62,8 @@ int candidate_service_request()
         const auto parsed = usk::json::parse(std::string(bytes.begin(), bytes.end()), limits);
         const auto schema = parsed.at("schema").as_string();
         if (schema != "usk.install_local_apply_request.v1" &&
-            schema != "usk.publisher_installed_verify_request.v1") {
+            schema != "usk.publisher_installed_verify_request.v1" &&
+            schema != "usk.publisher_recovery_request.v1") {
             throw std::runtime_error("candidate request schema is unavailable");
         }
         const auto request = usk::json::canonical(parsed);
