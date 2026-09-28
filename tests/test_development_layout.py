@@ -26,6 +26,29 @@ class DevelopmentLayoutTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
+    def test_doctor_refuses_canonical_worktree_without_ownership_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            args = workspace_hygiene.parser().parse_args(["doctor"])
+            secondary = {
+                "path": str(Path(temporary) / "worktrees" / "task-example"),
+                "primary": False,
+                "managed_location": True,
+                "owned": False,
+                "marker_error": "ownership record missing",
+            }
+            output = io.StringIO()
+            with (
+                mock.patch.object(workspace_hygiene, "ROOT", Path(temporary)),
+                mock.patch.object(workspace_hygiene, "task_roots", return_value=[]),
+                mock.patch.object(workspace_hygiene, "worktree_records", return_value=[secondary]),
+                mock.patch.object(workspace_hygiene, "ref_records", return_value={"local_branches": [], "tags": []}),
+                contextlib.redirect_stdout(output),
+            ):
+                self.assertEqual(workspace_hygiene.command_doctor(args), 1)
+            report = json.loads(output.getvalue())
+            self.assertEqual(report["result"], "fail")
+            self.assertIn("unowned_secondary_worktrees_present", report["violations"])
+
     @contextlib.contextmanager
     def budgeted_fixture(self, base: Path, child: str, *, disk: int = 10485760):
         source = base / "source"
