@@ -4811,11 +4811,11 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "ccd8c996118f32fdbc3bb83b73812c48e1097f8e11887ab133697bf34fbaa89d"
+          "sha256": "31eb516245f27e350beb3563743fcb43fb1d753de901ea20dab1ddf727aa8e88"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
-          "sha256": "4f1d1e81e352e7f68498682eed3bf84b1fa315b2928aa0e2f41387883e66b681"
+          "sha256": "1cd0393fcd61de909496bd94a407c9ac10eb8fbd99eb93dc9abe9db469a9ad37"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_observations.v1.json",

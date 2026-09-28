@@ -172,6 +172,8 @@ def measure(binary: Path, operation: str, payload_bytes: int, entries: int,
             prepared_root: Path | None = None) -> dict:
     isolated_operations = {"install", "verify", "repair", "move", "update"}
     if isolated or prepared_root is not None:
+        if os.name != "nt":
+            raise RuntimeError("isolated operation peaks require Windows per-process counters")
         if (materialized or operation not in isolated_operations or
                 entries < 1 or entries > 4096 or payload_bytes < 1):
             raise ValueError("isolated scenario dimensions are invalid")

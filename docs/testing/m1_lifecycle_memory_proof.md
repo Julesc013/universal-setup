@@ -59,8 +59,13 @@ The additive `--isolated` mode prepares a disposable fixture before starting the
 measured child. A caller may use `--prepared-root` to measure install once, then
 verify, refused update, repair and move in fresh children against that same
 installed state. The native fixture admits only a direct temporary child named
-`usk-isolated-probe-*`; the caller owns its cleanup. This removes repeated
-installation from those later process peaks. The existing recovery probe still
+`usk-isolated-probe-*`; the caller owns its cleanup. A manifest binds payload
+size, entry count, source digest and install identity. The measured child also
+checks the fixture and rejects links before touching the target, so its peak
+includes this bounded admission work. Isolated mode uses Windows per-process
+counters; POSIX cumulative child RSS cannot establish a separate peak after
+fixture preparation. This removes repeated installation from those later
+process peaks. The existing recovery probe still
 includes its setup, and a refused update is not a successful replacement proof.
 No 4,096-entry result is inferred from the small isolated smoke.
 The native smoke independently checks output and refusal behavior. The 24
