@@ -357,7 +357,13 @@ try {
         throw 'Authored apply binding output differs'
     }
     $applyRequest=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
-    $envelope=$binding.envelope_file
+    if($RegisteredService -or $ReviewedSource) {
+        $envelope=$binding.envelope_file
+    } else {
+        # The existing disposable service grammar admits only plan-ID files
+        # directly beneath C:\USK-Lab. Keep the authored bytes and digest.
+        Copy-Item -LiteralPath $binding.envelope_file -Destination $envelope -ErrorAction Stop
+    }
     if((Get-FileHash -LiteralPath $envelope -Algorithm SHA256).Hash.ToLowerInvariant() -cne
         $binding.envelope_sha256) {throw 'Authored apply envelope identity differs'}
     $receipt['apply_request']=$applyRequest
@@ -377,6 +383,7 @@ try {
     }
     $sourceInputs=@($archive,$envelope,$inputs.archive_file,$inputs.request_file,
         $requestPath,$contextPath,$ordinaryPath,$responsePath,$binding.apply_file)+@($inputs.source_files)
+    if($envelope -cne $binding.envelope_file){$sourceInputs+=@($binding.envelope_file)}
     if($packageRoot) {
         $sourceInputs+=@((Join-Path $packageRoot 'inspect\product.bundle.json'),
             (Join-Path $packageRoot 'inspect\prefab.manifest.json'),
