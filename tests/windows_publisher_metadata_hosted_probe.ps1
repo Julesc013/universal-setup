@@ -543,10 +543,24 @@ try {
         # This is neither VM power loss nor physical-host power-loss evidence.
         $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$gate+'-ready.txt'
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
-        while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){
+            if((Test-Path -LiteralPath $nativePath) -and
+                (Get-Service $service -ErrorAction SilentlyContinue).Status -eq 'Stopped'){break}
+            Start-Sleep -Milliseconds 250
+        }
         if(-not (Test-Path -LiteralPath $ready) -or
             [IO.File]::ReadAllText($ready) -cne $readyContent) {
-            throw ('Selected interruption window was not reached: '+$gate)
+            $nativeError=if(Test-Path -LiteralPath $nativePath){
+                $nativeText=[IO.File]::ReadAllText($nativePath)
+                $nativeText.Substring(0,[Math]::Min(2048,$nativeText.Length))
+            }else{'native receipt absent'}
+            $clientError=if($requestClient -and (Test-Path -LiteralPath $requestClient.error)){
+                $clientText=[IO.File]::ReadAllText($requestClient.error)
+                $clientText.Substring(0,[Math]::Min(1024,$clientText.Length))
+            }else{'client error absent'}
+            $serviceState=(Get-Service $service -ErrorAction SilentlyContinue).Status
+            throw ('Selected interruption window was not reached: '+$gate+
+                '; service='+$serviceState+'; native='+$nativeError+'; client='+$clientError)
         }
         Stop-Service $service -ErrorAction Stop
         if($requestClient) {
