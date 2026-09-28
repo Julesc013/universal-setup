@@ -917,6 +917,8 @@ try {
         $recovered=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
         if($recovered.status -ne 'pass' -or
             $recovered.recovery_observation.decision -ne 'already_visible_bound' -or
+            $recovered.install_operation_guard_held -ne $true -or
+            $recovered.install_operation_guard_abandoned -ne $false -or
             $recovered.recovery_installed_response.status -ne 'ok' -or
             $recovered.recovery_installed_response.payload.transaction_id -ne $applyRequest.transaction_id -or
             (Test-Path -LiteralPath $nativePath)) {
