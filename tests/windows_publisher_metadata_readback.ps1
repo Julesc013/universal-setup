@@ -137,6 +137,10 @@ $ErrorActionPreference='Stop'
 $rows=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
 foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
+ if(-not (Test-Path -LiteralPath $top -PathType Container)) {
+  if($top -ceq ($DriveRoot+'setup-state')){continue}
+  throw 'Protected publication root is absent during independent readback'
+ }
  $pending.Push((Get-Item -LiteralPath $top -Force))
  while($pending.Count -gt 0) {
   $p=$pending.Pop()
