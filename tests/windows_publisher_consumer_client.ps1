@@ -4,6 +4,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedUserSid,
     [Parameter(Mandatory=$true)][string]$IdentityPath,
     [string]$ClientBinary='', [string]$ServiceName='', [string]$RequestFile='',
+    [ValidateSet('service','candidate-service')][string]$ClientMode='service',
+    [string]$ExpectedClientSha256='',
     [string]$PayloadRoot='', [string]$AccessReceipt=''
 )
 $ErrorActionPreference='Stop'
@@ -71,5 +73,15 @@ public static class USKConsumerAccessProbe {
     exit 0
 }
 if(-not $ClientBinary -or -not $ServiceName -or -not $RequestFile){throw 'Client request inputs missing'}
-& $ClientBinary --service $ServiceName --request-file $RequestFile
+if($ExpectedClientSha256 -cnotmatch '^[0-9a-f]{64}$'){
+    throw 'Exact expected client binary digest is required'
+}
+$clientPath=[IO.Path]::GetFullPath($ClientBinary)
+$clientDigest=(Get-FileHash -LiteralPath $clientPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if($clientDigest -cne $ExpectedClientSha256){throw 'Client binary differs from parent selection'}
+$observed['client_binary_path']=$clientPath
+$observed['client_binary_sha256']=$clientDigest
+$observed['client_mode']=$ClientMode
+$observed|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $IdentityPath -Encoding utf8
+& $clientPath ('--'+$ClientMode) $ServiceName --request-file $RequestFile
 exit $LASTEXITCODE
