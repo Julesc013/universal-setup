@@ -667,8 +667,9 @@ try {
             throw 'Selected prepublish hostile attempts changed protected state'
         }
         if($RegisteredService -and $NonAdminClient) {
-            # Keep the actual submitting account attacking the protected
-            # destination while the held service crosses the rename window.
+            # Sample the submitting account's attempted mutations from the
+            # prepublish gate through the observed reply. This does not prove
+            # that a sample occurred during the instantaneous native rename.
             $concurrentOutput=Join-Path $consumerOutput 'concurrent-attack.json'
             $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
             $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
@@ -967,8 +968,8 @@ try {
                 $concurrent.process_id -ne $concurrentAttacker.Id -or
                 $concurrent.concurrent.staged_write.denied -lt 1 -or
                 $concurrent.concurrent.destination_create.denied -lt 4 -or
-                $concurrent.concurrent.destination_create.denied_during_release -lt 1 -or
-                $concurrent.concurrent.cycles_during_release -lt 1 -or
+                $concurrent.concurrent.destination_create.denied_after_gate_before_observed_reply -lt 1 -or
+                $concurrent.concurrent.cycles_after_gate_before_observed_reply -lt 1 -or
                 $concurrent.concurrent.visible_write.denied_after_completion -lt 3 -or
                 $concurrent.concurrent.cycles_after_completion -lt 3) {
                 throw 'Concurrent hostile-rights observation differs from the actual client'

@@ -68,7 +68,7 @@ function Observe-ConcurrentDenial {
             $receipt.concurrent[$Name].denied++
             if ($AfterCompletion) { $receipt.concurrent[$Name].denied_after_completion++ }
             if ($AfterRelease -and -not $AfterCompletion) {
-                $receipt.concurrent[$Name].denied_during_release++
+                $receipt.concurrent[$Name].denied_after_gate_before_observed_reply++
             }
         } elseif ($AllowMissing -and $cause.HResult -in @(-2147024894, -2147024893)) {
             $receipt.concurrent[$Name].missing++
@@ -110,10 +110,10 @@ try {
         $stagedFile = $candidate + '\' + $payloadPath
         $visibleFile = $destination + '\visible\' + $payloadPath
         $receipt['concurrent'] = [ordered]@{
-            destination_create = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_during_release = 0 }
-            staged_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_during_release = 0 }
-            visible_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_during_release = 0 }
-            cycles = 0; cycles_during_release = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
+            destination_create = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0 }
+            staged_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0 }
+            visible_write = [ordered]@{ denied = 0; missing = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0 }
+            cycles = 0; cycles_after_gate_before_observed_reply = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
             ready_utc = $null; release_seen_utc = $null; completed_seen_utc = $null
         }
         $deadline = [DateTime]::UtcNow.AddSeconds(120)
@@ -148,7 +148,7 @@ try {
             } $true $afterCompletion $afterRelease
             $receipt.concurrent.cycles++
             if ($afterRelease -and -not $afterCompletion) {
-                $receipt.concurrent.cycles_during_release++
+                $receipt.concurrent.cycles_after_gate_before_observed_reply++
             }
             if ($afterCompletion) { $receipt.concurrent.cycles_after_completion++ }
             if (-not $receipt.concurrent.ready_utc -and
@@ -167,12 +167,12 @@ try {
         }
         if (-not $receipt.concurrent.ready_utc -or
             $receipt.concurrent.destination_create.denied -lt 4 -or
-            $receipt.concurrent.destination_create.denied_during_release -lt 1 -or
-            $receipt.concurrent.cycles_during_release -lt 1 -or
+            $receipt.concurrent.destination_create.denied_after_gate_before_observed_reply -lt 1 -or
+            $receipt.concurrent.cycles_after_gate_before_observed_reply -lt 1 -or
             $receipt.concurrent.staged_write.denied -lt 1 -or
             $receipt.concurrent.visible_write.denied_after_completion -lt 3 -or
             $receipt.concurrent.cycles_after_completion -lt 3) {
-            throw 'concurrent attacker did not cover prepublish, released operation, and completed visibility'
+            throw 'concurrent attacker did not cover prepublish, gate-to-reply, and completed visibility'
         }
     } elseif ($Stage -eq 'Prepublish') {
         $candidate = $root + 'publication\staging\candidate'
