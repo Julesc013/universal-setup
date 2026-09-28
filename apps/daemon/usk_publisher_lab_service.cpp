@@ -18,6 +18,10 @@
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_publisher_request_channel.h"
 
+#if defined(USK_PRODUCTION_PUBLISHER) && defined(USK_TEST_REGISTERED_FAULT_GATE)
+#error Production publisher cannot include the registered fault gate
+#endif
+
 #if defined(_WIN32)
 #if !defined(NOMINMAX)
 #define NOMINMAX
@@ -490,6 +494,12 @@ int wmain(int argc, wchar_t** argv) {
         }();
     const bool registered_mode = registered_reviewed || registered_fault ||
         registered_recovery || registered_verify;
+#if defined(USK_PRODUCTION_PUBLISHER)
+    // The packaged service exposes only the externally authenticated
+    // registered path. Disposable receipt, VM and fault-gate grammars remain
+    // in separately named lab binaries.
+    if (!registered_mode) return 2;
+#endif
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&

@@ -26,7 +26,7 @@ class SelectedCandidatePackageTests(unittest.TestCase):
         binaries = root / "binaries"
         binaries.mkdir()
         paths = [binaries / name for name in (
-            "usk_machine.exe", "usk_publisher_lab_service.exe",
+            "usk_machine.exe", "usk_publisher_service.exe",
             "usk_publisher_service_control.exe", "usk_publisher_client.exe")]
         for index, path in enumerate(paths):
             path.write_bytes(b"MZ\x00selected-candidate-test-" + bytes((index,)))
@@ -73,6 +73,11 @@ class SelectedCandidatePackageTests(unittest.TestCase):
             output.mkdir()
             with self.assertRaisesRegex(CandidatePackageError, "ordinary, gate-free"):
                 build_candidate_package(bundle, binaries[0], fault,
+                                        binaries[2], binaries[3], output)
+            lab = binaries[1].with_name("usk_publisher_lab_service.exe")
+            lab.write_bytes(b"MZ\x00lab")
+            with self.assertRaisesRegex(CandidatePackageError, "ordinary, gate-free"):
+                build_candidate_package(bundle, binaries[0], lab,
                                         binaries[2], binaries[3], output)
             (output / "keep.txt").write_text("keep", encoding="utf-8")
             with self.assertRaisesRegex(CandidatePackageError, "empty"):

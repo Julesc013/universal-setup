@@ -340,7 +340,7 @@ try {
             throw 'Selected candidate package identity differs'
         }
         $MachineBinary=Join-Path $packageRoot 'inspect\usk_machine.exe'
-        $ServiceBinary=Join-Path $packageRoot 'publisher\usk_publisher_lab_service.exe'
+        $ServiceBinary=Join-Path $packageRoot 'publisher\usk_publisher_service.exe'
         $ServiceControlBinary=Join-Path $packageRoot 'publisher\usk_publisher_service_control.exe'
         $ClientBinary=Join-Path $packageRoot 'publisher\usk_publisher_client.exe'
         if($ConsumerAccess) {

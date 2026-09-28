@@ -436,6 +436,15 @@ if(USK_BUILD_APPS)
   usk_enable_strict_warnings(usk_machine)
 
   if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    add_executable(usk_publisher_service
+      apps/daemon/usk_publisher_lab_service.cpp)
+    target_compile_features(usk_publisher_service PRIVATE cxx_std_17)
+    target_compile_definitions(usk_publisher_service PRIVATE
+      USK_PRODUCTION_PUBLISHER=1)
+    target_link_libraries(usk_publisher_service PRIVATE
+      usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
+    usk_enable_strict_warnings(usk_publisher_service)
+
     add_executable(usk_publisher_lab_service
       apps/daemon/usk_publisher_lab_service.cpp)
     target_compile_features(usk_publisher_lab_service PRIVATE cxx_std_17)
@@ -589,6 +598,12 @@ if(USK_BUILD_TESTS)
       set_tests_properties(usk_publisher_candidate_apply_process_smoke PROPERTIES TIMEOUT 60)
     endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      add_test(NAME usk_publisher_service_mode_smoke
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_publisher_service_mode_probe.py"
+          "$<TARGET_FILE:usk_publisher_service>")
+      set_tests_properties(usk_publisher_service_mode_smoke PROPERTIES TIMEOUT 15)
+
       add_executable(usk_publisher_lab_service_fault
         apps/daemon/usk_publisher_lab_service.cpp)
       target_compile_features(usk_publisher_lab_service_fault PRIVATE cxx_std_17)
@@ -610,7 +625,7 @@ if(USK_BUILD_TESTS)
           COMMAND pwsh -NoProfile -NonInteractive -File
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
             -OutputPath "$ENV{RUNNER_TEMP}/usk-wu013-machine-bridge.json"
-            -ServiceBinary "$<TARGET_FILE:usk_publisher_lab_service>"
+            -ServiceBinary "$<TARGET_FILE:usk_publisher_service>"
             -ServiceControlBinary "$<TARGET_FILE:usk_publisher_service_control>"
             -DeviceAclBinary "$<TARGET_FILE:usk_publisher_lab_device_acl>"
             -MachineBinary "$<TARGET_FILE:usk_machine>"

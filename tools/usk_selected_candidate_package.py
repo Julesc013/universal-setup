@@ -26,7 +26,7 @@ from usk_prefab_envelope import (EnvelopeError, MAX_MANIFEST_BYTES,
 SCHEMA = "usk.selected_ntfs_candidate_package.v1"
 PROFILE = "windows_nt_x64_local_ntfs_service_sid_noreplace_v1"
 BINARIES = {
-    "service": "usk_publisher_lab_service.exe",
+    "service": "usk_publisher_service.exe",
     "control": "usk_publisher_service_control.exe",
     "client": "usk_publisher_client.exe",
 }
