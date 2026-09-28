@@ -58,6 +58,7 @@ thread_local bool postrename_gate = false;
 thread_local bool postjournal_gate = false;
 thread_local bool recover_prepared = false;
 thread_local bool recover_snapshot_only = false;
+thread_local bool recover_reviewed = false;
 thread_local bool recover_sealed_journal = false;
 thread_local bool recover_visible_bound = false;
 thread_local bool reviewed_install_reentry = false;
@@ -2412,6 +2413,7 @@ struct ScopedExecution {
         postjournal_gate=config.postjournal_gate;
         recover_prepared=config.recover_prepared;
         recover_snapshot_only=config.recover_snapshot_only;
+        recover_reviewed=config.recover_reviewed;
         recover_sealed_journal=config.recover_sealed_journal;
         recover_visible_bound=config.recover_visible_bound;
         selected_archive_mode=config.selected_archive_mode;
@@ -2529,6 +2531,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         std::string recovery_installed_response;
         usk::platform::windows::PublisherVolumeObservation volume_observation;
         std::string anchors;
+        bool snapshot_only_replay = false;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
             if (recover_prepared) {
@@ -2547,22 +2550,32 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         publication_present = true;
                     }
                 }
-                if (recover_snapshot_only) {
+                if (recover_snapshot_only || recover_reviewed) {
                     publication_effects_may_exist = publication_present;
-                    if (!publication_present ||
-                        !recovery_journal_has_snapshot_only(volume,
-                            observed.service_sid)) {
+                    if (!publication_present) {
+                        throw std::runtime_error(
+                            "independent recovery requires a protected publication");
+                    }
+                    snapshot_only_replay = recovery_journal_has_snapshot_only(
+                        volume, observed.service_sid);
+                    if (snapshot_only_replay) {
+                        selected_archive_mode = true;
+                        const ReviewedPlanBinding reviewed_plan =
+                            reviewed_plan_from_snapshot_only(
+                                volume, observed.service_sid, false);
+                        selected_archive_sha256 =
+                            reviewed_plan.selected_payload.source_sha256;
+                        reviewed_plan_envelope_sha256 = reviewed_plan.envelope_sha256;
+                        anchors = observe_protected_anchors(volume,
+                            observed.service_sid, reviewed_plan, true, nullptr, &recovery_installed_response);
+                    } else if (recover_reviewed) {
+                        anchors = observe_prepared_recovery(volume,
+                            observed.service_sid, true, {}, {}, true,
+                            &recovery_installed_response);
+                    } else {
                         throw std::runtime_error(
                             "independent recovery requires an exact snapshot-only state");
                     }
-                    const ReviewedPlanBinding reviewed_plan =
-                        reviewed_plan_from_snapshot_only(
-                            volume, observed.service_sid, false);
-                    selected_archive_sha256 =
-                        reviewed_plan.selected_payload.source_sha256;
-                    reviewed_plan_envelope_sha256 = reviewed_plan.envelope_sha256;
-                    anchors = observe_protected_anchors(volume,
-                        observed.service_sid, reviewed_plan, true, nullptr, &recovery_installed_response);
                 } else if (publication_present && !reviewed_plan_envelope_path.empty()) {
                     publication_effects_may_exist = true;
                     if (recovery_journal_has_snapshot_only(volume,
@@ -2709,14 +2722,14 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 ",\"selected_archive_sha256\":" + json_quote(selected_archive_sha256) :
                 std::string{}) +
             ",\"prepublish_gate\":" +
-            json_quote(recover_prepared || reviewed_install_reentry ? "not_applicable" :
+            json_quote(recover_prepared || recover_reviewed || reviewed_install_reentry ? "not_applicable" :
                 (prepublish_gate ? "released" : "disabled")) +
-            (recover_snapshot_only ?
+            (snapshot_only_replay ?
                 ",\"recovery_observation\":{\"decision\":\"snapshot_only_completed_forward\","
                     "\"protected_anchors\":" :
-                recover_prepared || reviewed_install_reentry ?
+                recover_prepared || recover_reviewed || reviewed_install_reentry ?
                     ",\"recovery_observation\":" : ",\"protected_anchors\":") +
-            anchors + (recover_snapshot_only ? "}}\n" : "}\n");
+            anchors + (snapshot_only_replay ? "}}\n" : "}\n");
         return data;
 }
 #endif

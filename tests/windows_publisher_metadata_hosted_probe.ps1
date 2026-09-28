@@ -401,14 +401,9 @@ try {
         $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
             ' --recover-visible-bound --campaign-vm-id '+$vmId
         if($ClientBinary) {
-            $recoveryPath=Join-Path $root ($(if($InterruptAfterStage){'vm-recovery-snapshot-'}else{'vm-selected-reconnect-'})+$id+'.json')
-            $recoveryCommand=if($InterruptAfterStage){
-                '"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
-                    ' --recover-snapshot-only --campaign-vm-id '+$vmId+$clientArguments
-            }else{
-                '"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
-                    $selectedClientArguments+$clientArguments
-            }
+            $recoveryPath=Join-Path $root ('vm-recovery-reviewed-'+$id+'.json')
+            $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
+                ' --recover-reviewed --campaign-vm-id '+$vmId+$clientArguments
         }
         & sc.exe config $service binPath= $recoveryCommand|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Owned service recovery configuration failed'}
@@ -514,9 +509,9 @@ try {
         $repeatCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$repeatPath+'" '+$VolumeRoot+
             ' --recover-visible-bound --campaign-vm-id '+$vmId
         if($ClientBinary) {
-            $repeatPath=Join-Path $root ('vm-selected-reconnect-repeat-'+$id+'.json')
+            $repeatPath=Join-Path $root ('vm-recovery-reviewed-repeat-'+$id+'.json')
             $repeatCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$repeatPath+'" '+$VolumeRoot+
-                $selectedClientArguments+$clientArguments
+                ' --recover-reviewed --campaign-vm-id '+$vmId+$clientArguments
         }
         & sc.exe config $service binPath= $repeatCommand|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Owned service repeat configuration failed'}
@@ -559,9 +554,9 @@ try {
         # by reusing this endpoint after successful recovery.
         $tampered=$applyRequest|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
         $tampered.transaction_id='install.'+[guid]::NewGuid().ToString('N')
-        $stalePath=Join-Path $root ('vm-selected-stale-client-'+$id+'.json')
+        $stalePath=Join-Path $root ('vm-recovery-reviewed-stale-'+$id+'.json')
         $staleCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$stalePath+'" '+$VolumeRoot+
-            $selectedClientArguments+$clientArguments
+            ' --recover-reviewed --campaign-vm-id '+$vmId+$clientArguments
         & sc.exe config $service binPath= $staleCommand|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Owned stale-client service configuration failed'}
         try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}

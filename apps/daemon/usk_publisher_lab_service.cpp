@@ -48,6 +48,7 @@ bool postrename_gate = false;
 bool postjournal_gate = false;
 bool recover_prepared = false;
 bool recover_snapshot_only = false;
+bool recover_reviewed = false;
 bool recover_sealed_journal = false;
 bool recover_visible_bound = false;
 bool reviewed_install_reentry = false;
@@ -254,6 +255,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         config.postjournal_gate=postjournal_gate;
         config.recover_prepared=recover_prepared;
         config.recover_snapshot_only=recover_snapshot_only;
+        config.recover_reviewed=recover_reviewed;
         config.recover_sealed_journal=recover_sealed_journal;
         config.recover_visible_bound=recover_visible_bound;
         config.selected_archive_mode=selected_archive_mode;
@@ -346,6 +348,12 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring(argv[5]) == L"--recover-snapshot-only" &&
         std::wstring(argv[6]) == L"--campaign-vm-id" &&
         campaign_vm_id_matches(argv[7]);
+    const bool campaign_vm_reviewed_recovery = argc == 8 &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_recovery_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--recover-reviewed" &&
+        std::wstring(argv[6]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[7]);
     const bool campaign_vm_sealed_journal = argc == 8 &&
         generated_service_name(name, L"USK_VM_") &&
         campaign_recovery_receipt_path(argv[3]) &&
@@ -390,12 +398,13 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[13]) == L"--poststage-gate");
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
-        !campaign_vm_snapshot_recovery &&
+        !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
         !campaign_vm_sealed_journal &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
         !campaign_vm_selected && !campaign_vm_selected_plan) return 2;
     if (external_client && !campaign_vm_selected_plan &&
-        !campaign_vm_snapshot_recovery) return 2;
+        !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery) return 2;
+    if (campaign_vm_reviewed_recovery && !external_client) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
@@ -412,6 +421,7 @@ int wmain(int argc, wchar_t** argv) {
     recover_prepared = campaign_vm_recovery || campaign_vm_replay ||
         campaign_vm_sealed_journal;
     recover_snapshot_only = campaign_vm_snapshot_recovery;
+    recover_reviewed = campaign_vm_reviewed_recovery;
     recover_sealed_journal = campaign_vm_sealed_journal;
     recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
