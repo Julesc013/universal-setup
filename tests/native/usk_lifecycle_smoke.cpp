@@ -424,6 +424,18 @@ fs::path legacy_probe_root(const std::string& value, bool require_empty)
     return root;
 }
 
+fs::path isolated_memory_probe_root(const std::string& value, bool require_empty)
+{
+    const fs::path root = fs::absolute(fs::path(value)).lexically_normal();
+    if (root.filename().string().rfind("usk-isolated-probe-", 0) != 0 ||
+        !fs::equivalent(root.parent_path(), fs::temp_directory_path()) ||
+        !fs::is_directory(root) || fs::is_symlink(fs::symlink_status(root)) ||
+        (require_empty && !fs::is_empty(root))) {
+        throw std::runtime_error("isolated memory root must be a disposable temporary directory");
+    }
+    return root;
+}
+
 int run()
 {
     Fixture fixture;
@@ -821,6 +833,135 @@ int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
     return 0;
 }
 
+int isolated_memory_scenario(const std::string& operation, const fs::path& root,
+    std::uint64_t payload_bytes, std::size_t entries, bool prepare)
+{
+    if (payload_bytes == 0 || payload_bytes > 2ull * 1024ull * 1024ull * 1024ull ||
+        entries == 0 || entries > 4096 ||
+        (operation != "install" && operation != "verify" && operation != "repair" &&
+         operation != "move" && operation != "update")) {
+        throw std::runtime_error("isolated memory scenario dimensions are invalid");
+    }
+    const usk::lifecycle::LifecycleRoots roots{
+        root / "staging", root / "state", root / "audit"};
+    const fs::path target = root / "targets/portable";
+    const fs::path source_path = root / "source.bin";
+    const std::uint64_t bytes_per_entry = (payload_bytes + entries - 1u) / entries;
+    if (prepare) {
+        Fixture fixture(root, false);
+        fs::create_directories(target.parent_path());
+        std::ofstream output(source_path, std::ios::binary);
+        if (!output) throw std::runtime_error("isolated source create failed");
+        const std::vector<char> chunk(64u * 1024u, 'x');
+        for (std::uint64_t offset = 0; offset < bytes_per_entry;) {
+            const auto count = static_cast<std::streamsize>(
+                std::min<std::uint64_t>(chunk.size(), bytes_per_entry - offset));
+            output.write(chunk.data(), count);
+            if (!output) throw std::runtime_error("isolated source write failed");
+            offset += static_cast<std::uint64_t>(count);
+        }
+        output.close();
+    }
+    const auto make_files = [&] {
+        auto source = std::make_shared<usk::base::StableFile>(source_path);
+        const std::string digest = source->sha256_hex();
+        std::vector<usk::lifecycle::PayloadFile> files;
+        files.reserve(entries);
+        for (std::size_t index = 0; index < entries; ++index) {
+            const std::string relative = index == 0 ? "app/bin/program.exe" :
+                "app/data/entry-" + std::to_string(index) + ".bin";
+            files.push_back({relative, {}, digest, bytes_per_entry,
+                [source](std::uint64_t offset, unsigned char* output, std::size_t capacity) {
+                    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(
+                        capacity, source->identity().size_bytes - offset));
+                    if (count != 0) source->read_into(offset, output, count);
+                    return count;
+                }, 64u * 1024u});
+        }
+        return files;
+    };
+    if (prepare) {
+        if (operation != "install") {
+            const auto plan = usk::lifecycle::plan_install(
+                "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
+                target, roots, recipe(), make_files());
+            const auto installed = usk::lifecycle::apply_install(
+                plan, plan.plan_digest, "tx.memory.install", "2026-07-14T01:00:01Z");
+            if (installed.verification.status != "pass") return 65;
+        }
+        std::cout << "memory-fixture-prepared " << operation << ' ' <<
+            (bytes_per_entry * entries) << ' ' << entries << '\n';
+        return 0;
+    }
+    if (!fs::is_regular_file(source_path) || !fs::is_directory(roots.state_root)) {
+        throw std::runtime_error("isolated memory fixture is incomplete");
+    }
+    if (operation == "install") {
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
+            target, roots, recipe(), make_files());
+        const auto installed = usk::lifecycle::apply_install(
+            plan, plan.plan_digest, "tx.memory.install", "2026-07-14T01:00:01Z");
+        if (installed.verification.status != "pass") return 66;
+    } else if (operation == "verify") {
+        if (usk::lifecycle::verify_installed(roots, "install.memory",
+                "verify.memory", "2026-07-14T01:00:02Z").status != "pass") return 67;
+    } else if (operation == "repair") {
+        {
+            std::ofstream damaged(target / "app/bin/program.exe", std::ios::binary | std::ios::trunc);
+            if (!damaged.put('!')) return 68;
+        }
+        const auto plan = usk::lifecycle::plan_repair(roots, "install.memory",
+            "plan.memory.repair", "2026-07-14T01:00:02Z", make_files());
+        if (usk::lifecycle::apply_repair(plan, plan.plan_digest,
+                "tx.memory.repair", "2026-07-14T01:00:03Z").after.status != "pass") return 69;
+    } else if (operation == "move") {
+        const fs::path destination = root / "targets/moved";
+        const auto plan = usk::lifecycle::plan_move(roots, "install.memory",
+            "plan.memory.move", "2026-07-14T01:00:04Z", destination);
+        const auto result = usk::lifecycle::apply_move(plan, plan.plan_digest,
+            "tx.memory.move", "2026-07-14T01:00:05Z");
+        if (result.verification.status != "pass" || !fs::is_directory(destination)) return 70;
+    } else {
+        auto next = recipe();
+        next.product_version = "2.0.0";
+        const auto plan = usk::lifecycle::plan_update(roots, "install.memory",
+            "plan.memory.update", "2026-07-14T01:00:02Z", "upgrade", target,
+            next, make_files());
+        if (!refuses([&] { (void)usk::lifecycle::apply_update(plan, plan.plan_digest,
+                "tx.memory.update", "2026-07-14T01:00:03Z"); }) ||
+            !fs::is_directory(target)) return 71;
+    }
+    std::cout << "memory-scenario-pass " << operation << " isolated_streaming " <<
+        (bytes_per_entry * entries) << ' ' << entries << '\n';
+    return 0;
+}
+
+int isolated_memory_fixture_smoke()
+{
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path root = fs::temp_directory_path() /
+        ("usk-isolated-probe-" + std::to_string(nonce));
+    fs::create_directory(root);
+    try {
+        const auto admitted = isolated_memory_probe_root(root.string(), true);
+        for (const auto& [operation, prepare] :
+                std::vector<std::pair<std::string, bool>>{{"install", true},
+                    {"install", false}, {"verify", false}, {"update", false},
+                    {"repair", false}, {"move", false}}) {
+            if (isolated_memory_scenario(operation, admitted, 2, 2, prepare)) {
+                fs::remove_all(root);
+                return 72;
+            }
+        }
+    } catch (...) {
+        fs::remove_all(root);
+        throw;
+    }
+    fs::remove_all(root);
+    return 0;
+}
+
 int report_budget_scenario()
 {
     Fixture fixture;
@@ -942,6 +1083,13 @@ int main(int argc, char** argv)
             return memory_scenario(argv[2], std::stoull(argv[3]),
                 static_cast<std::size_t>(std::stoull(argv[4])), materialized);
         }
+        if (argc == 6 && (std::string(argv[1]) == "--prepare-isolated-memory" ||
+                          std::string(argv[1]) == "--observe-isolated-memory")) {
+            const bool prepare = std::string(argv[1]) == "--prepare-isolated-memory";
+            const auto root = isolated_memory_probe_root(argv[3], prepare);
+            return isolated_memory_scenario(argv[2], root, std::stoull(argv[4]),
+                static_cast<std::size_t>(std::stoull(argv[5])), prepare);
+        }
         if (argc == 2 && std::string(argv[1]) == "--report-budget-smoke") {
             return report_budget_scenario();
         }
@@ -954,6 +1102,9 @@ int main(int argc, char** argv)
         }
         if (const int legacy = legacy_ownership_compatibility_proof()) {
             return legacy;
+        }
+        if (const int isolated = isolated_memory_fixture_smoke()) {
+            return isolated;
         }
         return run();
     } catch (const std::exception& error) {

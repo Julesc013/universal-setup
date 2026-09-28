@@ -51,8 +51,18 @@ visibility, existing recovery-required handling remains in force.
 OS child-process peak working set on Windows or child maximum RSS on POSIX,
 binary digest, source identity, filesystem profile, operation, source kind,
 entry count and payload bytes. Streaming and materialized-source cases distinguish
-fixed buffers from caller-retained payload. Each operation runs in its own process;
-install preparation is included in the peak for verify, repair, move and update.
+fixed buffers from caller-retained payload. Each operation runs in its own process.
+The historical 4,096-entry matrix includes fixture installation in the verify,
+repair, move and update child peaks.
+
+The additive `--isolated` mode prepares a disposable fixture before starting the
+measured child. A caller may use `--prepared-root` to measure install once, then
+verify, refused update, repair and move in fresh children against that same
+installed state. The native fixture admits only a direct temporary child named
+`usk-isolated-probe-*`; the caller owns its cleanup. This removes repeated
+installation from those later process peaks. The existing recovery probe still
+includes its setup, and a refused update is not a successful replacement proof.
+No 4,096-entry result is inferred from the small isolated smoke.
 The native smoke independently checks output and refusal behavior. The 24
 observations in `m1_lifecycle_memory_observations.v1.json` bind source commit
 `140b08b1f4d3a16515a34e848fb55a56cee35fe6`, its tree and the measured

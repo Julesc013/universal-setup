@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
-"""Measure one isolated native lifecycle scenario in a child process."""
+"""Measure one native lifecycle child, optionally reusing an installed fixture.
+
+--isolated prepares outside the measured child. --prepared-root reuses a caller-owned
+temporary fixture, so install can run once before verify/update/repair/move.
+Recovery and legacy scenarios retain their separate existing measurement paths.
+"""
 
 from __future__ import annotations
 
@@ -89,10 +94,14 @@ def source_identity() -> dict:
 
 
 def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int,
-                  materialized: bool, fixture_root: Path | None = None) -> dict:
+                  materialized: bool, fixture_root: Path | None = None,
+                  fixture_kind: str = "legacy") -> dict:
     if not binary.is_file() or payload_bytes < 1 or entries < 1:
         raise ValueError("binary and positive scenario dimensions are required")
-    if fixture_root is not None:
+    if fixture_root is not None and fixture_kind == "isolated":
+        command = [str(binary), "--observe-isolated-memory", operation,
+                   str(fixture_root), str(payload_bytes), str(entries)]
+    elif fixture_root is not None:
         command = [str(binary), "--observe-legacy-memory", operation,
                    str(fixture_root), str(entries)]
     else:
@@ -134,7 +143,8 @@ def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int
         "requested_payload_bytes": payload_bytes,
         "entries": entries,
         "source_kind": "legacy_record" if operation.startswith("legacy_") else
-                       ("materialized" if materialized else "streaming"),
+                       ("isolated_streaming" if fixture_kind == "isolated" else
+                        ("materialized" if materialized else "streaming")),
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "platform": platform.platform(),
         "temporary_root": tempfile.gettempdir(),
@@ -142,7 +152,11 @@ def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int
         "source": source_identity(),
         "fixture": ("prior-format ownership record with one-byte files, prepared in a separate process"
                     if operation.startswith("legacy_") else
-                    "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source"),
+                    (("source prepared outside measured child; install includes plan and apply"
+                      if operation == "install" else
+                      "installed state prepared outside measured child; operation only")
+                     if fixture_kind == "isolated" else
+                     "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source")),
         "fixture_prepared_outside_measured_process": fixture_root is not None,
         "metric": metric,
         "peak_bytes": peak_bytes,
@@ -154,7 +168,27 @@ def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int
 
 
 def measure(binary: Path, operation: str, payload_bytes: int, entries: int,
-            materialized: bool) -> dict:
+            materialized: bool, isolated: bool = False,
+            prepared_root: Path | None = None) -> dict:
+    isolated_operations = {"install", "verify", "repair", "move", "update"}
+    if isolated or prepared_root is not None:
+        if (materialized or operation not in isolated_operations or
+                entries < 1 or entries > 4096 or payload_bytes < 1):
+            raise ValueError("isolated scenario dimensions are invalid")
+        if prepared_root is not None:
+            return measure_child(binary, operation, payload_bytes, entries, False,
+                                 prepared_root, "isolated")
+        with tempfile.TemporaryDirectory(prefix="usk-isolated-probe-") as directory:
+            fixture_root = Path(directory)
+            prepared = subprocess.run(
+                [str(binary), "--prepare-isolated-memory", operation,
+                 str(fixture_root), str(payload_bytes), str(entries)],
+                check=True, capture_output=True, text=True,
+            )
+            if not prepared.stdout.startswith(f"memory-fixture-prepared {operation} "):
+                raise RuntimeError("isolated fixture preparation did not complete")
+            return measure_child(binary, operation, payload_bytes, entries,
+                                 False, fixture_root, "isolated")
     if operation.startswith("legacy_"):
         if os.name != "nt":
             raise RuntimeError("isolated legacy child peaks currently require Windows process counters")
@@ -182,9 +216,11 @@ def main() -> int:
     parser.add_argument("payload_bytes", type=int)
     parser.add_argument("entries", type=int)
     parser.add_argument("--materialized", action="store_true")
+    parser.add_argument("--isolated", action="store_true")
+    parser.add_argument("--prepared-root", type=Path)
     args = parser.parse_args()
     print(json.dumps(measure(args.binary, args.operation, args.payload_bytes, args.entries,
-                             args.materialized),
+                             args.materialized, args.isolated, args.prepared_root),
                      indent=2))
     return 0
 
