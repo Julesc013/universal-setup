@@ -18,6 +18,7 @@ function Invoke-IndependentOwnedPayloadDamage {
         -not (Test-Path -LiteralPath $vhd -PathType Leaf) -or
         $DriveRoot -cnotmatch '^[A-Z]:\\$' -or
         $PayloadRelativePath -cnotmatch '^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*$' -or
+        @($PayloadRelativePath.Split('/')|Where-Object {$_ -eq '.' -or $_ -eq '..'}).Count -ne 0 -or
         $ExpectedSha256 -cnotmatch '^[0-9a-f]{64}$') {
         throw 'Owned payload damage requires an exact hosted disposable volume and selected file'
     }

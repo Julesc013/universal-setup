@@ -2608,6 +2608,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
         prepared.at("phase").as_string() != "lab_prepared_evidence" ||
         prepared.at("service_sid").as_string() != service_sid ||
+        prepared.at("destination_name").as_string() != "visible" ||
         prepared.at("source_file_id").as_string() != visible_tree.root.file_id ||
         prepared.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
