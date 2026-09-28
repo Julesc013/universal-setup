@@ -19,7 +19,8 @@ from usk_bundle_plan import compose_plan, host_target
 from usk_bundle_selection import finalize_selection
 
 
-def create_inputs(root: Path, target: Path, request_id: str, application_binary: Path | None = None) -> dict:
+def create_inputs(root: Path, target: Path, request_id: str, application_binary: Path | None = None,
+                  core_bytes: int = 0) -> dict:
     # The caller creates one fresh owned directory. Never overwrite inputs.
     if any(root.iterdir()):
         raise ValueError("metadata fixture directory must be empty")
@@ -30,6 +31,11 @@ def create_inputs(root: Path, target: Path, request_id: str, application_binary:
              "alternative": b"must not be selected\r\n"}
     if application_binary is not None:
         files["core"] = application_binary.read_bytes()
+    elif core_bytes:
+        if not 1 <= core_bytes <= 32 * 1024 * 1024:
+            raise ValueError("core payload size exceeds hosted probe bound")
+        pattern = b"selected core payload\r\n"
+        files["core"] = (pattern * (core_bytes // len(pattern) + 1))[:core_bytes]
     components = []
     source_paths = []
     for name, data in files.items():
@@ -92,5 +98,7 @@ if __name__ == "__main__":
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--request-id", required=True)
     parser.add_argument("--application-binary", type=Path)
+    parser.add_argument("--core-bytes", type=int, default=0)
     args = parser.parse_args()
-    print(json.dumps(create_inputs(args.output, args.target, args.request_id, args.application_binary)))
+    print(json.dumps(create_inputs(args.output, args.target, args.request_id,
+                                   args.application_binary, args.core_bytes)))

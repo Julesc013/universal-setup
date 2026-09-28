@@ -152,6 +152,74 @@ function Get-OwnedVolumeRootSddl([string]$Phase) {
         if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
     }
 }
+function Start-StageObserver {
+    Assert-OwnedVolume
+    $taskName='USK_STAGE_OBSERVER_'+$id
+    $scriptPath=Join-Path $observerRoot 'stage-observer.ps1'
+    $readyPath=Join-Path $observerRoot 'stage-ready.txt'
+    $stopPath=Join-Path $observerRoot 'stage-stop.txt'
+    $outputPath=Join-Path $observerRoot 'stage-observation.json'
+    $stagePath=$VolumeRoot+'publication\staging\candidate\bin\core.bin'
+    if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $readyPath) -or
+        (Test-Path -LiteralPath $stopPath) -or (Test-Path -LiteralPath $outputPath)) {
+        throw 'Owned stage observer collision'
+    }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_stage_observer.ps1') `
+        -Destination $scriptPath -ErrorAction Stop
+    $arguments='-NoProfile -NonInteractive -File "'+$scriptPath+'" -StagePath "'+
+        $stagePath+'" -ReadyPath "'+$readyPath+'" -StopPath "'+$stopPath+
+        '" -OutputPath "'+$outputPath+'"'
+    $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
+    $registered=$false
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -User SYSTEM -RunLevel Highest|Out-Null
+        $registered=$true
+        Start-ScheduledTask -TaskName $taskName
+        $deadline=[DateTime]::UtcNow.AddSeconds(30)
+        while(-not (Test-Path -LiteralPath $readyPath) -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 25
+        }
+        if(-not (Test-Path -LiteralPath $readyPath) -or
+            [IO.File]::ReadAllText($readyPath) -cne "usk.publisher.stage_observer_ready.v1`n") {
+            throw 'SYSTEM stage observer did not become ready'
+        }
+        return [pscustomobject]@{task=$taskName;script=$scriptPath;ready=$readyPath;
+            stop=$stopPath;output=$outputPath;removed=$false}
+    } catch {
+        if($registered) {
+            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if($task -and $task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+        }
+        throw
+    }
+}
+function Complete-StageObserver($Observer) {
+    [IO.File]::WriteAllText($Observer.stop,"usk.publisher.stage_observer_stop.v1`n",
+        [Text.UTF8Encoding]::new($false))
+    $deadline=[DateTime]::UtcNow.AddSeconds(30)
+    while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 25
+    }
+    if(-not (Test-Path -LiteralPath $Observer.output) -or
+        (Get-Item -LiteralPath $Observer.output).Length -gt 16KB) {
+        throw 'SYSTEM stage observer did not produce a bounded result'
+    }
+    $result=Get-Content -LiteralPath $Observer.output -Raw|ConvertFrom-Json
+    $task=Get-ScheduledTask -TaskName $Observer.task -ErrorAction Stop
+    if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $Observer.task -ErrorAction Stop}
+    Unregister-ScheduledTask -TaskName $Observer.task -Confirm:$false -ErrorAction Stop
+    if(Get-ScheduledTask -TaskName $Observer.task -ErrorAction SilentlyContinue) {
+        throw 'SYSTEM stage observer task remains registered'
+    }
+    $Observer.removed=$true
+    if($result.schema -cne 'usk.publisher.stage_observer.v1' -or
+        $result.identity -cne 'S-1-5-18' -or -not $result.stopped) {
+        throw 'SYSTEM stage observer identity or terminal marker differs'
+    }
+    return $result
+}
 $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
 $id=[guid]::NewGuid().ToString('N')
@@ -205,6 +273,7 @@ $concurrentAttacker=$null
 $concurrentOutput=''
 $concurrentError=''
 $concurrentCompleted=''
+$stageObserver=$null
 $clientCleanupConfirmed=$true
 $consumerOutput=Join-Path $root 'consumer-output'
 $consumerScript=Join-Path $root 'consumer-client.ps1'
@@ -324,7 +393,8 @@ try {
     }
     Assert-OwnedVolume
     if(Test-Path -LiteralPath ($drive+'publication')){throw 'Hosted metadata disk is not fresh'}
-    $fixtureArgs=if($ConsumerAccess){@('--application-binary',$PayloadBinary)}else{@()}
+    $fixtureArgs=if($ConsumerAccess){@('--application-binary',$PayloadBinary)}
+        elseif($ProductionConcurrentRights){@('--core-bytes','33554432')}else{@()}
     $generated=& python -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
         --output $fixture --target ($drive+'publication\destination\visible') --request-id ('metadata.'+$id) @fixtureArgs
     if($LASTEXITCODE -ne 0){throw 'Public authoring input generation failed'}
@@ -633,6 +703,7 @@ try {
         $concurrentError=Join-Path $consumerOutput 'concurrent-stderr.txt'
         $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
         $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
+        $stageObserver=Start-StageObserver
         foreach($path in @($productionStart,$concurrentOutput,$concurrentError,
             $concurrentReady,$concurrentCompleted)) {
             if(Test-Path -LiteralPath $path){throw 'Production concurrent attacker input is not fresh'}
@@ -663,7 +734,7 @@ try {
             $diagnostic=if(Test-Path -LiteralPath $concurrentError){
                 Read-BoundedDiagnostic $concurrentError 2048
             }else{'stderr absent'}
-            throw ('Production concurrent attacker did not establish missing-path baseline: '+$diagnostic)
+            throw ('Production concurrent attacker did not become ready: '+$diagnostic)
         }
         $attackerProcess=Get-CimInstance Win32_Process -Filter ('ProcessId='+$concurrentAttacker.Id) -ErrorAction Stop
         $attackerOwner=Invoke-CimMethod -InputObject $attackerProcess -MethodName GetOwnerSid
@@ -1056,6 +1127,11 @@ try {
         if($concurrentAttacker) {
             [IO.File]::WriteAllText($concurrentCompleted,
                 "usk.publisher.concurrent_completed.v1`n",[Text.UTF8Encoding]::new($false))
+            if($ProductionConcurrentRights) {
+                $stageObservation=Complete-StageObserver $stageObserver
+                $receipt['production_stage_observation']=$stageObservation
+                $receipt['production_stage_observer_task_removed']=$stageObserver.removed
+            }
             if(-not $concurrentAttacker.WaitForExit(30000)) {
                 throw 'Concurrent attacker remained after terminal publisher reply'
             }
@@ -1067,16 +1143,23 @@ try {
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
             $coverage=if($ProductionConcurrentRights) {
-                # The same path must be missing before submission and after
-                # completion, but deny writes while the service is staging.
-                # Parent markers bound a broader interval; no exact native
-                # rename-overlap claim follows from these samples.
+                # The protected ancestor masks absence as ACCESS_DENIED for
+                # this caller. Correlate its denied writes with independent
+                # SYSTEM samples of the actual staged file.
+                $overlap=$false
+                foreach($run in @($stageObservation.runs)) {
+                    if($run.samples -lt 2 -or $run.maximum_gap_ticks -gt 2000000){continue}
+                    foreach($tick in @($concurrent.concurrent.staged_write.denied_ticks)) {
+                        if([long]$tick -gt [long]$run.first_tick -and
+                            [long]$tick -lt [long]$run.last_tick) {$overlap=$true;break}
+                    }
+                    if($overlap){break}
+                }
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
-                $concurrent.concurrent.staged_write.missing_before_start -ge 1 -and
+                $stageObserver.removed -and $overlap -and
                 $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_write.denied_after_start_before_observed_reply -ge 1 -and
-                $concurrent.concurrent.staged_write.missing_after_completion -ge 1 -and
                 $concurrent.concurrent.cycles_after_start_before_observed_reply -ge 1
             }else{
                 $concurrent.stage -ceq 'Concurrent' -and
@@ -1616,6 +1699,19 @@ try {
         try {Stop-OwnedPublisherProcessTree $concurrentAttacker|Out-Null}
         catch {$clientCleanupConfirmed=$false;$failure='Concurrent attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
+    if($stageObserver -and -not $stageObserver.removed) {
+        try {
+            $task=Get-ScheduledTask -TaskName $stageObserver.task -ErrorAction SilentlyContinue
+            if($task) {
+                if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $stageObserver.task -ErrorAction Stop}
+                Unregister-ScheduledTask -TaskName $stageObserver.task -Confirm:$false -ErrorAction Stop
+            }
+            if(Get-ScheduledTask -TaskName $stageObserver.task -ErrorAction SilentlyContinue) {
+                throw 'Owned stage observer task remains registered'
+            }
+            $stageObserver.removed=$true
+        } catch {$failure='Owned stage observer cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
+    }
     $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
     if($consumerCreated -and $clientCleanupConfirmed) {
         try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
@@ -1662,7 +1758,14 @@ try {
     }
     $receipt['observed_utc']=[DateTime]::UtcNow.ToString('o')
     if(Test-Path -LiteralPath $observerRoot){
-        try { Remove-Item -LiteralPath $observerRoot -ErrorAction Stop }
+        try {
+            if($stageObserver -and $stageObserver.removed) {
+                foreach($path in @($stageObserver.script,$stageObserver.ready,$stageObserver.stop,$stageObserver.output)) {
+                    if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
+                }
+            }
+            Remove-Item -LiteralPath $observerRoot -ErrorAction Stop
+        }
         catch { $failure='Owned root ACL observer directory cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     $receipt|ConvertTo-Json -Depth 32|Set-Content -LiteralPath $out -Encoding UTF8
