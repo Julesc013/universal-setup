@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-28T13:47:37Z",
+  "generated_at": "2026-09-28T14:21:51Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "6f49b99b0cd0ddedea25e84f2c9ed4570dfd7ddd",
   "repository_base_tree": "ba83f7d37e9106fe5f5430e283e2b98d74596e79",
@@ -1026,7 +1026,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "d16ae2c21b5447703b64594fc294cdb60549c30e6f19e4b047f25288708b19d3"
+          "sha256": "00cab1111061a744c6db327f611d84012135144a7483effa6477d708435831f6"
         },
         {
           "path": "runtime/platform/README.md",
@@ -1057,7 +1057,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "d16ae2c21b5447703b64594fc294cdb60549c30e6f19e4b047f25288708b19d3"
+          "sha256": "00cab1111061a744c6db327f611d84012135144a7483effa6477d708435831f6"
         },
         {
           "path": "runtime/platform/README.md",
@@ -1088,7 +1088,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "d16ae2c21b5447703b64594fc294cdb60549c30e6f19e4b047f25288708b19d3"
+          "sha256": "00cab1111061a744c6db327f611d84012135144a7483effa6477d708435831f6"
         },
         {
           "path": "runtime/platform/README.md",
@@ -2168,7 +2168,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "d16ae2c21b5447703b64594fc294cdb60549c30e6f19e4b047f25288708b19d3"
+          "sha256": "00cab1111061a744c6db327f611d84012135144a7483effa6477d708435831f6"
         }
       ],
       "acceptance_ids": [
@@ -2199,7 +2199,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "d16ae2c21b5447703b64594fc294cdb60549c30e6f19e4b047f25288708b19d3"
+          "sha256": "00cab1111061a744c6db327f611d84012135144a7483effa6477d708435831f6"
         }
       ],
       "acceptance_ids": [
@@ -2230,7 +2230,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "d16ae2c21b5447703b64594fc294cdb60549c30e6f19e4b047f25288708b19d3"
+          "sha256": "00cab1111061a744c6db327f611d84012135144a7483effa6477d708435831f6"
         }
       ],
       "acceptance_ids": [
@@ -3335,7 +3335,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
-          "sha256": "9925f0044eb03d481b059211c15218487a9b1b4f92a8d7850032a9205f827ecf"
+          "sha256": "244e1dbcfc45d38a4123b76bbed9fb284dbbc76c8fc47ca7a2097a3b40aebb99"
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "57c4cf218245481c72e93aa0f9f8103534df8d4aad649062e0005f9c994e6701"
+          "sha256": "d339abe23e6d7d5c89f83c41f27c653dc1aa90089e7674bd7117c8dc106f4a4d"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "57c4cf218245481c72e93aa0f9f8103534df8d4aad649062e0005f9c994e6701"
+          "sha256": "d339abe23e6d7d5c89f83c41f27c653dc1aa90089e7674bd7117c8dc106f4a4d"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "57c4cf218245481c72e93aa0f9f8103534df8d4aad649062e0005f9c994e6701"
+          "sha256": "d339abe23e6d7d5c89f83c41f27c653dc1aa90089e7674bd7117c8dc106f4a4d"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3943,7 +3943,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "b7bfc89ea26b8d614333b80cc4f2bb0c4d190583607b4e74d358a647df258c14"
+          "sha256": "83416caae44a13b0084ad495cd1fe20f72f4fe287fda3c7747df029e151f4e9d"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4039,7 +4039,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "6cd5d735113ae7abe1655544adece7b7ac68a1ad9598dd33af27c28a26e51fbb"
+          "sha256": "883cfaf57e006e193ade9876e926593b5095711dac3a611a8afd00367381afec"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
@@ -4087,7 +4087,7 @@
         },
         {
           "path": "tests/windows_publisher_owned_process.ps1",
-          "sha256": "e779b95b21c2e2cfce5302074b15daad99fbebfe768c75d3d3af9f6421833683"
+          "sha256": "dafac18b6c3ddcad0be81397ffeb233530f0b3570628521d07ce1bc7c04263c6"
         }
       ],
       "acceptance_ids": [
@@ -4143,7 +4143,7 @@
       "spec_id": "USK-S-PUB",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "At PR #98 source head 6d3a73910df3f672efcde13e6d3f7e40c0c6097b, hosted run 36083054549 on Windows build 10.0.20348.0 positively observed a newly provisioned NTFS VHD, exact VHD-backed volume device SID ACL, a restricted own-process service, and six protected SYSTEM/service-SID anchors with distinct file IDs and stable second-phase observations. Retained receipt SHA-256 862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8. The receipt binds service/volume/anchor observations only. No durable publish-prepared receipt, target-bound rename, visible-closure receipt, independent attacker/fault evidence, or qualified publisher exists; OD-001 remains open. A dependent source candidate creates and flushes a protected staged directory/file through retained handles and reobserves the staged closure. Hosted PR #100 run 36083996703 at source 487d994d43fb5df8123b86f7d526d4e0a75bde83 observed the 25-byte payload digest and eight distinct protected IDs on a disposable NTFS VHD; retained receipt SHA-256 b344d102c4ae5139b7eeb0095fbd91eead4a262dc61151cf308cf4cfd66d28e0. No durable publish intent, visible no-replace rename, hostile-rights proof, crash recovery, or production enablement follows from this staged probe. A lab-only candidate creates protected files with FILE_WRITE_THROUGH and flushes two summary markers around a held-handle no-replace rename, with source/parent and visible-tree checks. The markers are not model-compliant publish_prepared or visible_bound records because they omit full closure evidence and replay. An ordinary-user smoke exercises success and refusals. Initial hosted run 36086635337 stopped before rename when the restricted service received Win32 5 on a VHD volume flush; retained failed receipt SHA-256 c867f68bd26dc3930e805d0fe2a7287687340ccbea1d7bf488c1a95ee43. A second hosted run 36087096515 reached the bound native rename but returned NTSTATUS 0xc0000043 (sharing violation) while the staged payload handle remained open; its failed receipt SHA-256 is 3e6e77b917bb7851b99197a3db25a542cbdc427bbd8e93dbfea0df430b15570. Third hosted run 36087498601 still returned 0xc0000043 after that handle closed; failed receipt SHA-256 723b561b53c3c8ee6c57155b72131b00643e6f78dce42d699f6ba4b359fd7a1. An ordinary-user write-through create-only source succeeds on Windows 10 C: NTFS, so a bounded same-VHD diagnostic now compares separate empty held, reopened, and Win32 absolute-name objects to isolate the target failure; the absolute-name case is diagnostic only and cannot become a publisher fallback. Power-loss durability, hostile-rights/fault proof, recovery, and production capability remain unqualified. Hosted PR #102 run 36088974062 at source ef95390e61f3b42e1796caf9375b4a3b02820a90 on Windows build 10.0.20348.0 observed a successful handle-relative no-replace rename by the generated restricted service on a fresh NTFS VHD; the held source and independently reopened visible root retained the same composite file ID and the visible payload SHA-256 92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f. Both lab summary markers were file-flushed and independently checked, then service/VHD cleanup was reported. Retained receipt SHA-256 1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1. The markers omit full durable closure evidence/replay; hostile-rights, crash recovery, production enablement and OD-001 remain open. A dependent WU-006 lab candidate now writes canonical JSON records with a 4 MiB accepted/written byte limit, containing structured protected-anchor, volume, staged/visible root and descendant observations; its one-descendant fixture does not qualify general peak serialization memory. It closes each file, reopens it through the retained journal handle, and compares exact stored bytes before continuing. The independent runner checks the recorded IDs, path, size, payload digest and unchanged anchor evidence. At the source-only checkpoint, the records omitted model-required effective-rights and exact-stream evidence; the later hosted observation below does not close those gaps or prove crash replay, hostile-rights resistance, or production publication. Hosted PR #103 run 36090975621 at source 7540aef110078fcfc89adb38dc31c11da31961c2 on Windows build 10.0.20348.0 observed exact held-journal readback of 4,491-byte prepared and 4,471-byte visible canonical records on a fresh NTFS VHD. The visible record links the prepared SHA-256; both structured trees preserve the staged/visible root file ID and payload digest. The independent runner checked schema, phase, protected anchor roles, volume, descendant path/size/hash and record linkage; the receipt reports service stop/deletion request and VHD dismount/backing-file removal. Retained receipt SHA-256 4a0caac176a15b28723ea17048dedb2f4196523ad6b64b8c4db31eb8103b9782. These lab records omit effective-rights and exact-stream evidence, have no crash replay, and do not qualify production publication. A WU-006 lab-only multi-file selected ZIP candidate stages up to 4,096 canonical selected files and directories through held protected parents, seals exact file-set and tree closure, and links v2 prepared/visible/completion records while retaining v1 one-file compatibility. Its VM power-off replay is source/binary-specific evidence; general reviewed-plan authority, production installed state, leases, hostile-race qualification and OD-001 remain open. A later WU-006 lab-only source candidate durably stores a bounded reviewed-plan snapshot and binds its hash into prepared and completion records. The owned Windows VM observed exact post-power-off snapshot, journal and payload hashes, forward completion and idempotent repeat; a fresh VHD observed clean completion with the corrected binary. Public ownership, installed state, audit, general production authority and OD-001 remain open. A later controlled Windows VM candidate completed an authored two-file protected laboratory publication into the shared public ownership, installed-state and audit records; public inspect and verify passed. Repeated visible-bound recovery retained the ten recorded file hashes. The finalizer remains private and laboratory-bound. Path-based public writes permit an unqualified concurrent namespace-remapping interval; strict production authority, hostile-race and lease qualification, and OD-001 remain open. A subsequent source candidate replaces ZIP reinspection with exact reviewed selected readers and adds a scoped restricted-service metadata writer using explicit descriptors, held-parent pending record publication and private root initialization. Transaction/source/visible-root bindings are strengthened. Focused native compilation and backend regressions passed; the synthetic readback oracle passed one positive and twelve refusals. Current-binary VM transport/resource attempts did not qualify successful service publication or crash/hostile-rights behavior. Ordinary production availability and OD-001 remain unchanged. The concrete protected service engine is now extracted into the private lifecycle implementation. An opaque operation-scoped context connects ordinary install_local.apply validation and caller transaction/time to the existing protected staging, durable records, publication and public-state finalization. The same request outside that context retains strict refusal. Candidate source and hosted tests do not establish external client transport, complete crash/hostile qualification, per-install fencing or production availability. Candidate visible-only read/execute policy is durably bound in private snapshot v4 with post-completion grants and partial-grant replay; actual non-admin hosted execution and broader production qualification remain outstanding.",
+      "note": "At PR #98 source head 6d3a73910df3f672efcde13e6d3f7e40c0c6097b, hosted run 36083054549 on Windows build 10.0.20348.0 positively observed a newly provisioned NTFS VHD, exact VHD-backed volume device SID ACL, a restricted own-process service, and six protected SYSTEM/service-SID anchors with distinct file IDs and stable second-phase observations. Retained receipt SHA-256 862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8. The receipt binds service/volume/anchor observations only. No durable publish-prepared receipt, target-bound rename, visible-closure receipt, independent attacker/fault evidence, or qualified publisher exists; OD-001 remains open. A dependent source candidate creates and flushes a protected staged directory/file through retained handles and reobserves the staged closure. Hosted PR #100 run 36083996703 at source 487d994d43fb5df8123b86f7d526d4e0a75bde83 observed the 25-byte payload digest and eight distinct protected IDs on a disposable NTFS VHD; retained receipt SHA-256 b344d102c4ae5139b7eeb0095fbd91eead4a262dc61151cf308cf4cfd66d28e0. No durable publish intent, visible no-replace rename, hostile-rights proof, crash recovery, or production enablement follows from this staged probe. A lab-only candidate creates protected files with FILE_WRITE_THROUGH and flushes two summary markers around a held-handle no-replace rename, with source/parent and visible-tree checks. The markers are not model-compliant publish_prepared or visible_bound records because they omit full closure evidence and replay. An ordinary-user smoke exercises success and refusals. Initial hosted run 36086635337 stopped before rename when the restricted service received Win32 5 on a VHD volume flush; retained failed receipt SHA-256 c867f68bd26dc3930e805d0fe2a7287687340ccbea1d7bf488c1a95ee43. A second hosted run 36087096515 reached the bound native rename but returned NTSTATUS 0xc0000043 (sharing violation) while the staged payload handle remained open; its failed receipt SHA-256 is 3e6e77b917bb7851b99197a3db25a542cbdc427bbd8e93dbfea0df430b15570. Third hosted run 36087498601 still returned 0xc0000043 after that handle closed; failed receipt SHA-256 723b561b53c3c8ee6c57155b72131b00643e6f78dce42d699f6ba4b359fd7a1. An ordinary-user write-through create-only source succeeds on Windows 10 C: NTFS, so a bounded same-VHD diagnostic now compares separate empty held, reopened, and Win32 absolute-name objects to isolate the target failure; the absolute-name case is diagnostic only and cannot become a publisher fallback. Power-loss durability, hostile-rights/fault proof, recovery, and production capability remain unqualified. Hosted PR #102 run 36088974062 at source ef95390e61f3b42e1796caf9375b4a3b02820a90 on Windows build 10.0.20348.0 observed a successful handle-relative no-replace rename by the generated restricted service on a fresh NTFS VHD; the held source and independently reopened visible root retained the same composite file ID and the visible payload SHA-256 92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f. Both lab summary markers were file-flushed and independently checked, then service/VHD cleanup was reported. Retained receipt SHA-256 1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1. The markers omit full durable closure evidence/replay; hostile-rights, crash recovery, production enablement and OD-001 remain open. A dependent WU-006 lab candidate now writes canonical JSON records with a 4 MiB accepted/written byte limit, containing structured protected-anchor, volume, staged/visible root and descendant observations; its one-descendant fixture does not qualify general peak serialization memory. It closes each file, reopens it through the retained journal handle, and compares exact stored bytes before continuing. The independent runner checks the recorded IDs, path, size, payload digest and unchanged anchor evidence. At the source-only checkpoint, the records omitted model-required effective-rights and exact-stream evidence; the later hosted observation below does not close those gaps or prove crash replay, hostile-rights resistance, or production publication. Hosted PR #103 run 36090975621 at source 7540aef110078fcfc89adb38dc31c11da31961c2 on Windows build 10.0.20348.0 observed exact held-journal readback of 4,491-byte prepared and 4,471-byte visible canonical records on a fresh NTFS VHD. The visible record links the prepared SHA-256; both structured trees preserve the staged/visible root file ID and payload digest. The independent runner checked schema, phase, protected anchor roles, volume, descendant path/size/hash and record linkage; the receipt reports service stop/deletion request and VHD dismount/backing-file removal. Retained receipt SHA-256 4a0caac176a15b28723ea17048dedb2f4196523ad6b64b8c4db31eb8103b9782. These lab records omit effective-rights and exact-stream evidence, have no crash replay, and do not qualify production publication. A WU-006 lab-only multi-file selected ZIP candidate stages up to 4,096 canonical selected files and directories through held protected parents, seals exact file-set and tree closure, and links v2 prepared/visible/completion records while retaining v1 one-file compatibility. Its VM power-off replay is source/binary-specific evidence; general reviewed-plan authority, production installed state, leases, hostile-race qualification and OD-001 remain open. A later WU-006 lab-only source candidate durably stores a bounded reviewed-plan snapshot and binds its hash into prepared and completion records. The owned Windows VM observed exact post-power-off snapshot, journal and payload hashes, forward completion and idempotent repeat; a fresh VHD observed clean completion with the corrected binary. Public ownership, installed state, audit, general production authority and OD-001 remain open. A later controlled Windows VM candidate completed an authored two-file protected laboratory publication into the shared public ownership, installed-state and audit records; public inspect and verify passed. Repeated visible-bound recovery retained the ten recorded file hashes. The finalizer remains private and laboratory-bound. Path-based public writes permit an unqualified concurrent namespace-remapping interval; strict production authority, hostile-race and lease qualification, and OD-001 remain open. A subsequent source candidate replaces ZIP reinspection with exact reviewed selected readers and adds a scoped restricted-service metadata writer using explicit descriptors, held-parent pending record publication and private root initialization. Transaction/source/visible-root bindings are strengthened. Focused native compilation and backend regressions passed; the synthetic readback oracle passed one positive and twelve refusals. Current-binary VM transport/resource attempts did not qualify successful service publication or crash/hostile-rights behavior. Ordinary production availability and OD-001 remain unchanged. The concrete protected service engine is now extracted into the private lifecycle implementation. An opaque operation-scoped context connects ordinary install_local.apply validation and caller transaction/time to the existing protected staging, durable records, publication and public-state finalization. The same request outside that context retains strict refusal. Candidate source and hosted tests do not establish external client transport, complete crash/hostile qualification, per-install fencing or production availability. Candidate visible-only read/execute policy is durably bound in private snapshot v4 with post-completion grants and partial-grant replay; actual non-admin hosted execution and broader production qualification remain outstanding. The packaged publisher client now distinguishes post-send/response/output uncertainty with exit 5 from complete failed/recovery-required responses with exit 3; hosted execution at this new source remains to be checked.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
         "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
@@ -4315,7 +4315,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "6cd5d735113ae7abe1655544adece7b7ac68a1ad9598dd33af27c28a26e51fbb"
+          "sha256": "883cfaf57e006e193ade9876e926593b5095711dac3a611a8afd00367381afec"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
@@ -4355,7 +4355,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
-          "sha256": "9925f0044eb03d481b059211c15218487a9b1b4f92a8d7850032a9205f827ecf"
+          "sha256": "244e1dbcfc45d38a4123b76bbed9fb284dbbc76c8fc47ca7a2097a3b40aebb99"
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
@@ -4375,7 +4375,7 @@
         },
         {
           "path": "tests/windows_publisher_owned_process.ps1",
-          "sha256": "e779b95b21c2e2cfce5302074b15daad99fbebfe768c75d3d3af9f6421833683"
+          "sha256": "dafac18b6c3ddcad0be81397ffeb233530f0b3570628521d07ce1bc7c04263c6"
         }
       ],
       "acceptance_ids": [

@@ -17,6 +17,7 @@ param(
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish,
     [switch]$InterruptAfterStage,
+    [switch]$TerminateAtPoststage,
     [switch]$ReviewedSource,
     [switch]$RegisteredService,
     [switch]$MachineRequestClient,
@@ -38,6 +39,7 @@ if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[in
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
 if($InterruptAfterStage -and -not $ClientBinary){throw 'Snapshot-only replay requires an authenticated client'}
+if($TerminateAtPoststage -and (-not $InterruptAfterStage -or -not $RegisteredService -or $MachineRequestClient -or $NonAdminClient -or $ConsumerAccess)){throw 'Poststage process termination requires the registered publisher client and its exclusive interruption window'}
 if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection requires an authenticated client'}
 if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or $HostileRights -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
@@ -555,6 +557,31 @@ try {
             if((Get-Service $service).Status -ne 'Stopped'){throw}
         }
     }
+    if($TerminateAtPoststage) {
+        # Hold the exact service process before sending the request. The
+        # handle prevents a later PID from becoming our termination target.
+        $serviceAtStart=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($serviceAtStart.State -cne 'Running' -or $serviceAtStart.ProcessId -le 0 -or
+            $serviceAtStart.PathName -cne $testCommand) {
+            throw 'Owned fault-test service did not start with its exact configuration'
+        }
+        $heldServiceProcess=Get-Process -Id $serviceAtStart.ProcessId -ErrorAction Stop
+        $null=$heldServiceProcess.Handle
+        $serviceProcessAtStart=Get-CimInstance Win32_Process -Filter ('ProcessId='+$serviceAtStart.ProcessId) -ErrorAction Stop
+        if(-not $serviceProcessAtStart -or -not $serviceProcessAtStart.CreationDate -or
+            $serviceProcessAtStart.CommandLine -cne $testCommand -or
+            -not [string]::Equals([IO.Path]::GetFullPath($serviceProcessAtStart.ExecutablePath),
+                [IO.Path]::GetFullPath($ServiceBinary),[StringComparison]::OrdinalIgnoreCase) -or
+            [math]::Abs(($serviceProcessAtStart.CreationDate.ToUniversalTime()-
+                $heldServiceProcess.StartTime.ToUniversalTime()).Ticks) -gt 10000) {
+            throw 'Owned fault-test process differs before client submission'
+        }
+        $heldServiceIdentity=[pscustomobject]@{pid=$serviceAtStart.ProcessId;
+            created=$serviceProcessAtStart.CreationDate;
+            executable=$serviceProcessAtStart.ExecutablePath;
+            command=$serviceProcessAtStart.CommandLine;
+            started_utc=$heldServiceProcess.StartTime.ToUniversalTime().ToString('o')}
+    }
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ExpectUnprotectedRefusal) {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
@@ -647,22 +674,59 @@ try {
                 '; service_exit_code='+$serviceInfo.ServiceSpecificExitCode+
                 '; native='+$nativeError+'; client='+$clientError)
         }
-        Stop-Service $service -ErrorAction Stop
+        if($TerminateAtPoststage) {
+            # This deliberately kills only the held, exact campaign service
+            # process. It is a transport-loss test, never power-loss evidence.
+            $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+            $serviceProcessAtGate=Get-CimInstance Win32_Process -Filter ('ProcessId='+$heldServiceIdentity.pid) -ErrorAction Stop
+            if($heldServiceProcess.HasExited -or $serviceInfo.State -cne 'Running' -or
+                $serviceInfo.ProcessId -ne $heldServiceIdentity.pid -or
+                $serviceInfo.PathName -cne $testCommand -or
+                -not $serviceProcessAtGate -or
+                $serviceProcessAtGate.CreationDate -ne $heldServiceIdentity.created -or
+                $serviceProcessAtGate.ExecutablePath -cne $heldServiceIdentity.executable -or
+                $serviceProcessAtGate.CommandLine -cne $heldServiceIdentity.command) {
+                throw 'Held owned service process changed before required termination'
+            }
+            $terminated=Stop-OwnedPublisherProcessTree $heldServiceProcess -RequireLiveKill
+            if(-not $terminated.confirmed -or -not $terminated.kill_invoked -or
+                $terminated.terminated -lt 1) {
+                throw 'Owned fault-test service was not killed and confirmed'
+            }
+            $deadline=[DateTime]::UtcNow.AddSeconds(30)
+            while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+            if((Get-Service $service).Status -ne 'Stopped'){throw 'SCM retained the terminated test service'}
+        } else {
+            Stop-Service $service -ErrorAction Stop
+        }
         if($requestClient) {
             $receipt['interrupted_client']=Complete-RequestClient $requestClient $false
             $requestClient=$null
+            if($TerminateAtPoststage -and
+                ($receipt.interrupted_client.exit_code -ne 5 -or
+                 $receipt.interrupted_client.delivery -cne 'outcome_unknown')) {
+                throw 'Terminated poststage client did not report unknown outcome'
+            }
         }
-        $deadline=[DateTime]::UtcNow.AddSeconds(30)
-        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
-        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
-        $interrupted=Read-NativeReceipt $nativePath
-        $expectedInterruption=if($InterruptAfterStage){'poststage gate stopped before forced VM poweroff'}else{$gate+' gate interrupted'}
-        if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch $expectedInterruption -or
-            $interrupted.error -notmatch '"code":"recovery_required"') {
-            throw 'Interrupted ordinary apply did not truthfully retain recovery material'
+        if($TerminateAtPoststage) {
+            if(Test-Path -LiteralPath $nativePath){throw 'Killed service wrote a terminal native receipt'}
+            $receipt['interruption']=[ordered]@{kind='controlled_process_termination';window=$gate;
+                service_pid=$heldServiceIdentity.pid;service_started_utc=$heldServiceIdentity.started_utc;
+                service_executable_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
+                readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant()}
+        } else {
+            $deadline=[DateTime]::UtcNow.AddSeconds(30)
+            while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+            if(-not (Test-Path -LiteralPath $nativePath)){throw 'Interrupted operation receipt absent'}
+            $interrupted=Read-NativeReceipt $nativePath
+            $expectedInterruption=if($InterruptAfterStage){'poststage gate stopped before forced VM poweroff'}else{$gate+' gate interrupted'}
+            if($interrupted.status -ne 'recovery_required' -or $interrupted.error -notmatch $expectedInterruption -or
+                $interrupted.error -notmatch '"code":"recovery_required"') {
+                throw 'Interrupted ordinary apply did not truthfully retain recovery material'
+            }
+            $receipt['interruption']=[ordered]@{kind='controlled_service_cancellation';window=$gate;native=$interrupted;
+                readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant()}
         }
-        $receipt['interruption']=[ordered]@{kind='controlled_service_cancellation';window=$gate;native=$interrupted;
-            readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant()}
         $before=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) `
             -RunId ([guid]::NewGuid().ToString('N'))
         $receipt['interrupted_independent']=$before.independent

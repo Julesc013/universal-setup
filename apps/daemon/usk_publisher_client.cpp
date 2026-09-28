@@ -22,11 +22,17 @@ int wmain(int argc, wchar_t** argv) {
         }
         const auto bytes=file.read(0,static_cast<std::size_t>(file.identity().size_bytes));
         file.verify_unchanged();
-        const auto request=usk::json::canonical(usk::json::parse(std::string(bytes.begin(),bytes.end())));
+        usk::json::ParseLimits limits;
+        limits.max_bytes=1024u*1024u;
+        limits.max_string_bytes=512u*1024u;
+        const auto request=usk::json::canonical(
+            usk::json::parse(std::string(bytes.begin(),bytes.end()),limits));
         const auto response=usk::platform::windows::submit_publisher_request(argv[2],request,120000);
+        limits.max_bytes=4u*1024u*1024u;
+        limits.max_string_bytes=2u*1024u*1024u;
         const auto result=[&] {
             try {
-                const auto parsed=usk::json::parse(response);
+                const auto parsed=usk::json::parse(response,limits);
                 const auto status=parsed.at("status").as_string();
                 if(parsed.at("schema").as_string()!= "usk.publisher_lab_service_observation.v1" ||
                     (status!="pass" && status!="failed" && status!="recovery_required")) {
@@ -37,9 +43,20 @@ int wmain(int argc, wchar_t** argv) {
                 throw usk::platform::windows::PublisherRequestOutcomeUnknown(error.what());
             }
         }();
-        if (_setmode(_fileno(stdout),_O_BINARY) == -1) throw std::runtime_error("binary output unavailable");
+        if (_setmode(_fileno(stdout),_O_BINARY) == -1) {
+            throw usk::platform::windows::PublisherRequestOutcomeUnknown(
+                "binary output unavailable");
+        }
         std::cout << response;
+        std::cout.flush();
+        if (!std::cout) {
+            throw usk::platform::windows::PublisherRequestOutcomeUnknown(
+                "publisher response output failed");
+        }
         return result.at("status").as_string() == "pass" ? 0 : 3;
+    } catch (const usk::platform::windows::PublisherRequestOutcomeUnknown&) {
+        std::cerr << "usk_publisher_client: outcome unknown; retry the same reviewed request\n";
+        return 5;
     } catch (const std::exception& error) {
         std::cerr << "usk_publisher_client: " << error.what() << '\n';
         return 2;
