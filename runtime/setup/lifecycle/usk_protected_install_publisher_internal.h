@@ -24,6 +24,9 @@ struct CandidatePublisherConfiguration {
     // Authenticated transport bytes, compared to the independently reviewed
     // request and durable snapshot before any publication/recovery effect.
     std::optional<std::string> submitted_apply_request;
+    // Minimal authenticated recovery request. The protected snapshot supplies
+    // the original plan, source and consumer policy; this carries no new plan.
+    std::optional<std::string> submitted_recovery_request;
     // Distinct read-only request; it cannot act as an install apply grant.
     std::optional<std::string> submitted_verify_request;
     // Opt-in account from the authenticated request channel, durably bound in

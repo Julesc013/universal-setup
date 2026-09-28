@@ -275,8 +275,13 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             request_channel=std::make_unique<usk::platform::windows::PublisherRequestChannel>(
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
                 authorized_client_sid, stop_event, 120000);
-            if (verify_installed) config.submitted_verify_request=request_channel->receive();
-            else config.submitted_apply_request=request_channel->receive();
+            const std::string request=request_channel->receive();
+            if (verify_installed) config.submitted_verify_request=request;
+            else if (recover_reviewed &&
+                    usk::json::parse(request).at("schema").as_string() ==
+                        "usk.publisher_recovery_request.v1")
+                config.submitted_recovery_request=request;
+            else config.submitted_apply_request=request;
             if (grant_client_read) config.consumer_read_sid=ascii(authorized_client_sid);
             config.interrupt_consumer_grant=interrupt_consumer_grant;
         }

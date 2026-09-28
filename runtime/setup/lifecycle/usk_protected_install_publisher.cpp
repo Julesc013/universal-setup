@@ -71,6 +71,7 @@ thread_local std::string selected_archive_sha256;
 thread_local std::wstring reviewed_plan_envelope_path;
 thread_local std::string reviewed_plan_envelope_sha256;
 thread_local std::optional<std::string> submitted_apply_request;
+thread_local std::optional<std::string> submitted_recovery_request;
 thread_local std::optional<std::string> submitted_verify_request;
 thread_local std::string consumer_read_sid;
 thread_local bool interrupt_consumer_grant = false;
@@ -2451,11 +2452,17 @@ struct ScopedExecution {
         submitted_apply_request=config.submitted_apply_request ?
             std::optional<std::string>{usk::json::canonical(usk::json::parse(*config.submitted_apply_request))} :
             std::nullopt;
+        submitted_recovery_request=config.submitted_recovery_request ?
+            std::optional<std::string>{usk::json::canonical(usk::json::parse(*config.submitted_recovery_request))} :
+            std::nullopt;
         submitted_verify_request=config.submitted_verify_request ?
             std::optional<std::string>{usk::json::canonical(usk::json::parse(*config.submitted_verify_request))} :
             std::nullopt;
         if (verify_installed_request != submitted_verify_request.has_value() ||
-            (verify_installed_request && (submitted_apply_request ||
+            (submitted_recovery_request && (!recover_reviewed ||
+                submitted_apply_request || submitted_verify_request ||
+                !reviewed_plan_envelope_path.empty() || !selected_archive_path.empty())) ||
+            (verify_installed_request && (submitted_apply_request || submitted_recovery_request ||
                 recover_prepared || recover_reviewed || recover_snapshot_only ||
                 !reviewed_plan_envelope_path.empty() || !selected_archive_path.empty() ||
                 config.prepare_disposable_boundary || config.interrupt_consumer_grant))) {
@@ -2465,7 +2472,7 @@ struct ScopedExecution {
         interrupt_consumer_grant=config.interrupt_consumer_grant;
         if (!consumer_read_sid.empty()) {
             usk::platform::windows::require_publisher_consumer_sid(consumer_read_sid);
-            if (!submitted_apply_request &&
+            if (!submitted_apply_request && !submitted_recovery_request &&
                 !(verify_installed_request && submitted_verify_request)) {
                 throw std::runtime_error("consumer policy requires an authenticated operation");
             }
@@ -2474,7 +2481,8 @@ struct ScopedExecution {
         reviewed_install_reentry=false;
         execution_active=true;
     }
-    ~ScopedExecution() { submitted_apply_request.reset(); submitted_verify_request.reset();
+    ~ScopedExecution() { submitted_apply_request.reset(); submitted_recovery_request.reset();
+        submitted_verify_request.reset();
         consumer_read_sid.clear(); execution_active=false; }
 };
 } // namespace
@@ -2794,8 +2802,25 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 // while the volume guard is held, before recovery can mutate.
                 OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
                 OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
-                const auto plan = restore_reviewed_install_plan(
-                    read_phase_record(journal.get(), L"lab-reviewed-plan.json"));
+                const std::string record = read_phase_record(
+                    journal.get(), L"lab-reviewed-plan.json");
+                const auto plan = restore_reviewed_install_plan(record);
+                if (submitted_recovery_request) {
+                    const auto request = usk::json::parse(*submitted_recovery_request);
+                    const auto snapshot = usk::json::parse(record);
+                    if (request.as_object().size() != 4u ||
+                        request.at("schema").as_string() != "usk.publisher_recovery_request.v1" ||
+                        !usk::record_io::valid_identifier(request.at("request_id").as_string()) ||
+                        (snapshot.at("schema").as_string() !=
+                            "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
+                         snapshot.at("schema").as_string() !=
+                            "usk.publisher.lab_reviewed_plan_snapshot.v4") ||
+                        request.at("install_id").as_string() != plan.install_id ||
+                        request.at("transaction_id").as_string() !=
+                            snapshot.at("transaction_id").as_string()) {
+                        throw StaleReviewedInstallRequest();
+                    }
+                }
                 install_guard.emplace(volume_root, plan.install_id);
             }
             if (verify_installed_request) {

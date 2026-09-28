@@ -384,6 +384,12 @@ try {
         throw 'Authored apply binding output differs'
     }
     $applyRequest=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
+    $recoveryRequest=[ordered]@{
+        schema='usk.publisher_recovery_request.v1'
+        request_id='recover.'+$id
+        install_id=$applyRequest.plan_request.install_id
+        transaction_id=$applyRequest.transaction_id
+    }
     if($RegisteredService) {
         $envelope=$binding.envelope_file
     } else {
@@ -719,7 +725,7 @@ try {
             }
             $nativePath=$recoveryPath
             Start-RegisteredPublisher
-            $requestClient=Start-RequestClient
+            $requestClient=Start-RequestClient $recoveryRequest
         } else {
             & sc.exe config $service binPath= $recoveryCommand|Out-Null
             if($LASTEXITCODE -ne 0){throw 'Owned service recovery configuration failed'}
@@ -907,7 +913,8 @@ try {
             throw 'Product service control did not configure source-free recovery'
         }
         Start-RegisteredPublisher
-        $requestClient=Start-RequestClient
+        $submittedRecovery=if($MachineRequestClient){$applyRequest}else{$recoveryRequest}
+        $requestClient=Start-RequestClient $submittedRecovery
         if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered recovery client timed out'}
         $requestClient.process.WaitForExit()
         if($requestClient.process.ExitCode -ne 0 -or
@@ -926,6 +933,7 @@ try {
         }
         $receipt['registered_source_free_reentry']=[ordered]@{
             status=$recovered.status;decision=$recovered.recovery_observation.decision;
+            request_schema=$submittedRecovery.schema;
             client_exit_code=$requestClient.process.ExitCode;
             response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         $requestClient=$null
@@ -937,6 +945,35 @@ try {
             throw 'Registered source-free reentry changed independently observed installed rows'
         }
         $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
+        if(-not $MachineRequestClient) {
+            $staleRecovery=[ordered]@{
+                schema='usk.publisher_recovery_request.v1'
+                request_id='recover.stale.'+$id
+                install_id=$recoveryRequest.install_id
+                transaction_id=$recoveryRequest.transaction_id+'.changed'
+            }
+            Start-RegisteredPublisher
+            $requestClient=Start-RequestClient $staleRecovery
+            if(-not $requestClient.process.WaitForExit(120000)) {
+                throw 'Stale recovery client timed out'
+            }
+            $requestClient.process.WaitForExit()
+            $stale=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+            if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
+                $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
+                throw 'Changed minimal recovery request was admitted'
+            }
+            $receipt['stale_minimal_recovery_refused']=[ordered]@{
+                status=$stale.status;response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $requestClient=$null
+            if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+            $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+            if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
+                ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+                ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+                throw 'Changed minimal recovery request altered installed state'
+            }
+        }
     }
     if($RegisteredService -and -not $InterruptAfterStage) {
         # The ordinary packaged client asks the restricted service to verify

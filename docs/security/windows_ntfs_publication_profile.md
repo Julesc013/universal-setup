@@ -1256,10 +1256,14 @@ Request and response limits are 1 MiB and 4 MiB; overlapped I/O has a deadline
 and server stop cancellation. A transport timeout is not proof that an
 operation failed: reconnect with the same reviewed request.
 
-The submitted request must match the independently reviewed apply request
-before fresh effects, and must match the protected v3 snapshot before replay.
-A client cannot select new source/target roots, mint publisher authority, or
-change the caller transaction merely by connecting. Local native transport
+The submitted apply request must match the independently reviewed envelope
+before fresh effects. Registered source-free recovery can instead submit
+`usk.publisher_recovery_request.v1` with only a request ID, install ID and
+transaction ID. The service restores the plan, source and consumer policy from
+its protected v3/v4 snapshot and compares those IDs before replay effects.
+The original apply-request replay remains compatible. A client cannot select
+new source/target roots, mint publisher authority, or change the caller
+transaction merely by connecting. Local native transport
 tests exercise request/reply, identity reversion, access refusal, impostor
 service refusal, exclusivity, cancellation, timeout and oversized messages.
 The disposable Windows runner harness additionally exercises client-driven
@@ -1268,8 +1272,8 @@ independent readback. Harness definition is not execution evidence.
 
 This remains the private candidate backend: its service/volume/lab admission
 is retained, replies preserve the actual apply versus recovery observation,
-and public production availability remains false. Consumer read/execute
-grants, practical ordinary-location deployment, per-install fencing and
+and public production availability remains false. General consumer policy,
+practical ordinary-location deployment, per-install revision fencing and
 full hostile-rights/crash qualification are still outstanding. No additional
 file ACL grant or user-volume provisioning is introduced by the transport.
 
