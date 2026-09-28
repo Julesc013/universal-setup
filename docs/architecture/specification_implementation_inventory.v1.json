@@ -4835,11 +4835,11 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "9f6bc6f10ec40d4657bf2e3fad704b5e03ae347594c9d8ed3565e567bb83272e"
+          "sha256": "efcd81862ce3467dcb0090d41cc2e223886e95e4873a7d17768b5fa04c1e6119"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
-          "sha256": "a237d255e937fdd7e86f322853c007feaa7525a947e7ad79001aaa0d6914f6e4"
+          "sha256": "f20ae91251b13ce7e8f19b823e4750f7d2db50c782dbdf649835fcd1b28603d6"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_observations.v1.json",

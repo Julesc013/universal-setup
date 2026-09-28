@@ -154,6 +154,8 @@ def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int
                     if operation.startswith("legacy_") else
                     (("source prepared outside measured child; install includes plan and apply"
                       if operation == "install" else
+                      "interrupted install prepared outside measured child; source removed; plan reconstruction and recovery finalization measured"
+                      if operation == "recovery" else
                       "installed state prepared outside measured child; operation only")
                      if fixture_kind == "isolated" else
                      "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source")),
@@ -170,7 +172,7 @@ def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int
 def measure(binary: Path, operation: str, payload_bytes: int, entries: int,
             materialized: bool, isolated: bool = False,
             prepared_root: Path | None = None) -> dict:
-    isolated_operations = {"install", "verify", "repair", "move", "update"}
+    isolated_operations = {"install", "verify", "repair", "move", "update", "recovery"}
     if isolated or prepared_root is not None:
         if os.name != "nt":
             raise RuntimeError("isolated operation peaks require Windows per-process counters")
