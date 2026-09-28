@@ -155,7 +155,10 @@ DWORD await_service_process(SC_HANDLE service, ULONGLONG until) {
             status.dwServiceType != SERVICE_WIN32_OWN_PROCESS) {
             throw std::runtime_error("publisher server is not an own-process service");
         }
-        if (status.dwCurrentState == SERVICE_RUNNING) return service_process(service);
+        if (status.dwCurrentState == SERVICE_RUNNING) {
+            if (!remaining(until)) throw std::runtime_error("publisher server startup timed out");
+            return service_process(service);
+        }
         if (status.dwCurrentState != SERVICE_START_PENDING) {
             throw std::runtime_error("publisher server stopped before becoming ready");
         }
@@ -294,6 +297,7 @@ std::string submit_publisher_request(const std::wstring& service_name,
     }
     DWORD mode = PIPE_READMODE_MESSAGE;
     if (!SetNamedPipeHandleState(pipe.value, &mode, nullptr, nullptr)) throw std::runtime_error("publisher endpoint message mode unavailable");
+    if (!remaining(until)) throw std::runtime_error("publisher endpoint ready after request deadline");
     try {
         write_message(pipe.value, request, request_limit, nullptr, until);
         return read_message(pipe.value, response_limit, nullptr, until);
