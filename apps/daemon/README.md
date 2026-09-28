@@ -8,16 +8,21 @@ receipt path. Registration takes an already protected dedicated NTFS volume,
 a reviewed plan envelope, its exact SHA-256, and the authorized caller SID:
 
 ```text
-usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID [--admit-client-observer]
-usk_publisher_service_control --recover USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer]
-usk_publisher_service_control --start USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer]
+usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --recover USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --verify USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --start USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 ```
 
 The second command changes only a stopped, matching own-process LocalSystem
 service with a restricted service SID. It keeps that service name and SID for
 source-free recovery. The optional observer flag permits a specifically bound
 non-admin caller to verify the service process; it grants no installed payload
-access. Start requests require a stopped service and recheck its own-process,
+access. The separate `--grant-client-read` mode binds the authorized caller SID
+into the durable reviewed snapshot and grants only read and execute access to
+the completed visible payload. Use the same mode for source-free recovery and
+installed verification; the latter requires every visible object to retain
+the exact grant. Start requests require a stopped service and recheck its own-process,
 restricted-SID, executable, volume, caller, and observer configuration. A
 successful start request does not claim the setup operation succeeded; the
 authenticated client must inspect its terminal response. Registration and

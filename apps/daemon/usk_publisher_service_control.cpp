@@ -82,8 +82,11 @@ std::wstring command_prefix(const std::wstring& service,
         L" --no-receipt " + volume;
 }
 
-std::wstring command_suffix(const std::wstring& caller, bool observer) {
-    return (observer ? L" --admit-client-observer" : L"") +
+std::wstring command_suffix(const std::wstring& caller, const std::wstring& mode) {
+    if (mode == L"--grant-client-read") {
+        return L" --authorized-client-sid " + caller + L" --grant-client-read";
+    }
+    return (mode.empty() ? L"" : L" " + mode) +
         std::wstring(L" --authorized-client-sid ") + caller;
 }
 
@@ -138,7 +141,8 @@ void require_profile(const ServiceConfiguration& config) {
 
 void require_existing_command(const std::wstring& command,
     const std::wstring& service, const std::wstring& binary,
-    const std::wstring& volume, const std::wstring& caller, bool observer) {
+    const std::wstring& volume, const std::wstring& caller,
+    const std::wstring& mode) {
     const auto args = command_arguments(command);
     if (args.size() < 8 || args[0] != binary || args[1] != L"--service" ||
         args[2] != service || args[3] != L"--no-receipt" || args[4] != volume) {
@@ -156,12 +160,14 @@ void require_existing_command(const std::wstring& command,
     } else {
         throw std::runtime_error("existing service mode differs");
     }
-    if (observer) {
-        if (index >= args.size() || args[index++] != L"--admit-client-observer")
-            throw std::runtime_error("existing caller observer mode differs");
+    if (mode == L"--admit-client-observer") {
+        if (index >= args.size() || args[index++] != mode)
+            throw std::runtime_error("existing caller access mode differs");
     }
-    if (args.size() != index + 2 || args[index] != L"--authorized-client-sid" ||
-        args[index + 1] != caller) {
+    const bool grant = mode == L"--grant-client-read";
+    if (args.size() != index + 2 + static_cast<std::size_t>(grant) ||
+        args[index] != L"--authorized-client-sid" || args[index + 1] != caller ||
+        (grant && args[index + 2] != mode)) {
         throw std::runtime_error("existing authorized caller differs");
     }
 }
@@ -178,13 +184,14 @@ void require_stopped(SC_HANDLE service) {
 
 void register_service(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& envelope,
-    const std::wstring& digest, const std::wstring& caller, bool observer) {
+    const std::wstring& digest, const std::wstring& caller,
+    const std::wstring& mode) {
     require_file(binary);
     require_file(envelope);
     if (!lower_sha256(digest)) throw std::runtime_error("envelope digest is invalid");
     const std::wstring command = command_prefix(name, binary, volume) +
         L" --reviewed-plan-envelope \"" + envelope + L"\" " + digest +
-        command_suffix(caller, observer);
+        command_suffix(caller, mode);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE));
     if (!manager.get()) throw std::runtime_error("service manager creation access unavailable");
     ServiceHandle service(CreateServiceW(manager.get(), name.c_str(), name.c_str(),
@@ -211,7 +218,8 @@ void register_service(const std::wstring& name, const std::wstring& binary,
 }
 
 void configure_recovery(const std::wstring& name, const std::wstring& binary,
-    const std::wstring& volume, const std::wstring& caller, bool observer) {
+    const std::wstring& volume, const std::wstring& caller,
+    const std::wstring& mode) {
     require_file(binary);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
@@ -221,9 +229,9 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
     require_stopped(service.get());
     const auto before = query_configuration(service.get());
     require_profile(before);
-    require_existing_command(before.binary_path, name, binary, volume, caller, observer);
+    require_existing_command(before.binary_path, name, binary, volume, caller, mode);
     const std::wstring command = command_prefix(name, binary, volume) +
-        L" --recover-reviewed" + command_suffix(caller, observer);
+        L" --recover-reviewed" + command_suffix(caller, mode);
     if (!ChangeServiceConfigW(service.get(), SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
             SERVICE_NO_CHANGE, command.c_str(), nullptr, nullptr, nullptr,
             nullptr, nullptr, nullptr)) {
@@ -236,7 +244,8 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
 }
 
 void configure_verify(const std::wstring& name, const std::wstring& binary,
-    const std::wstring& volume, const std::wstring& caller, bool observer) {
+    const std::wstring& volume, const std::wstring& caller,
+    const std::wstring& mode) {
     require_file(binary);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
@@ -246,9 +255,9 @@ void configure_verify(const std::wstring& name, const std::wstring& binary,
     require_stopped(service.get());
     const auto before = query_configuration(service.get());
     require_profile(before);
-    require_existing_command(before.binary_path, name, binary, volume, caller, observer);
+    require_existing_command(before.binary_path, name, binary, volume, caller, mode);
     const std::wstring command = command_prefix(name, binary, volume) +
-        L" --verify-installed" + command_suffix(caller, observer);
+        L" --verify-installed" + command_suffix(caller, mode);
     if (!ChangeServiceConfigW(service.get(), SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
             SERVICE_NO_CHANGE, command.c_str(), nullptr, nullptr, nullptr,
             nullptr, nullptr, nullptr)) {
@@ -261,7 +270,8 @@ void configure_verify(const std::wstring& name, const std::wstring& binary,
 }
 
 void request_start(const std::wstring& name, const std::wstring& binary,
-    const std::wstring& volume, const std::wstring& caller, bool observer) {
+    const std::wstring& volume, const std::wstring& caller,
+    const std::wstring& mode) {
     require_file(binary);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
@@ -271,7 +281,7 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     require_stopped(service.get());
     const auto config = query_configuration(service.get());
     require_profile(config);
-    require_existing_command(config.binary_path, name, binary, volume, caller, observer);
+    require_existing_command(config.binary_path, name, binary, volume, caller, mode);
     if (!StartServiceW(service.get(), 0, nullptr))
         throw std::runtime_error("matching publisher service could not start");
 }
@@ -287,7 +297,7 @@ int wmain(int argc, wchar_t** argv) {
         (!recovery || (argc != 6 && argc != 7)) &&
         (!verify || (argc != 6 && argc != 7)) &&
         (!start || (argc != 6 && argc != 7))) {
-        std::wcerr << L"usage: usk_publisher_service_control --register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID [--admit-client-observer] | --recover NAME BINARY VOLUME CALLER_SID [--admit-client-observer] | --verify NAME BINARY VOLUME CALLER_SID [--admit-client-observer] | --start NAME BINARY VOLUME CALLER_SID [--admit-client-observer]\n";
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID | --recover NAME BINARY VOLUME CALLER_SID | --verify NAME BINARY VOLUME CALLER_SID | --start NAME BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read]\n";
         return 2;
     }
     try {
@@ -295,21 +305,23 @@ int wmain(int argc, wchar_t** argv) {
         const std::wstring binary(argv[3]);
         const std::wstring volume(argv[4]);
         const std::wstring caller(argv[registration ? 7 : 5]);
-        const bool observer = argc == (registration ? 9 : 7);
+        const bool has_mode = argc == (registration ? 9 : 7);
+        const std::wstring mode = has_mode ? argv[argc - 1] : L"";
         if (!generated_name(name) ||
-            (observer && std::wstring(argv[argc - 1]) != L"--admit-client-observer")) {
-            throw std::runtime_error("service name or observer mode is invalid");
+            (has_mode && mode != L"--admit-client-observer" &&
+                mode != L"--grant-client-read")) {
+            throw std::runtime_error("service name or caller access mode is invalid");
         }
         require_volume(volume);
         require_canonical_sid(caller);
         if (registration) {
-            register_service(name, binary, volume, argv[5], argv[6], caller, observer);
+            register_service(name, binary, volume, argv[5], argv[6], caller, mode);
         } else if (recovery) {
-            configure_recovery(name, binary, volume, caller, observer);
+            configure_recovery(name, binary, volume, caller, mode);
         } else if (verify) {
-            configure_verify(name, binary, volume, caller, observer);
+            configure_verify(name, binary, volume, caller, mode);
         } else {
-            request_start(name, binary, volume, caller, observer);
+            request_start(name, binary, volume, caller, mode);
         }
         std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\",\"status\":\""
             << (registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : L"start_requested")

@@ -2458,14 +2458,17 @@ struct ScopedExecution {
             (verify_installed_request && (submitted_apply_request ||
                 recover_prepared || recover_reviewed || recover_snapshot_only ||
                 !reviewed_plan_envelope_path.empty() || !selected_archive_path.empty() ||
-                config.prepare_disposable_boundary))) {
+                config.prepare_disposable_boundary || config.interrupt_consumer_grant))) {
             throw std::runtime_error("read-only verify mode has incompatible publisher authority");
         }
         consumer_read_sid=config.consumer_read_sid;
         interrupt_consumer_grant=config.interrupt_consumer_grant;
         if (!consumer_read_sid.empty()) {
             usk::platform::windows::require_publisher_consumer_sid(consumer_read_sid);
-            if (!submitted_apply_request) throw std::runtime_error("consumer policy requires authenticated apply");
+            if (!submitted_apply_request &&
+                !(verify_installed_request && submitted_verify_request)) {
+                throw std::runtime_error("consumer policy requires an authenticated operation");
+            }
         } else if (interrupt_consumer_grant) throw std::runtime_error("consumer fault requires admitted consumer policy");
         stop_event=config.stop_event;
         reviewed_install_reentry=false;
@@ -2587,7 +2590,20 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
     const auto visible_tree = observe_publisher_tree(visible.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
     require_publisher_tree_security_shape(state_tree, service_sid);
-    require_publisher_tree_security_shape(visible_tree, service_sid);
+    const auto snapshot_schema = snapshot.at("schema").as_string();
+    const bool consumer_bound = snapshot_schema ==
+        "usk.publisher.lab_reviewed_plan_snapshot.v4";
+    if ((consumer_bound != !consumer_read_sid.empty()) ||
+        (consumer_bound && snapshot.at("consumer_read_sid").as_string() != consumer_read_sid)) {
+        throw std::runtime_error("verification caller differs from durable consumer policy");
+    }
+    // A completed v4 install has granted every visible object to its exact
+    // consumer. Project that one read-only ACE away before checking the
+    // protected seal; a missing or broader grant is never accepted.
+    const auto protected_visible = consumer_bound ?
+        publisher_consumer_read_projection(visible_tree, service_sid,
+            consumer_read_sid, true) : visible_tree;
+    require_publisher_tree_security_shape(protected_visible, service_sid);
     const std::string prepared_digest = record_sha256(prepared_record);
     const std::string snapshot_digest = record_sha256(snapshot_record);
     const std::string visible_digest = record_sha256(visible_record);
@@ -2604,7 +2620,8 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         state_tree.descendants.size() != 1 ||
         state_tree.descendants[0].relative_path != L"lab-installed-state.json" ||
         state_tree.descendants[0].sha256 != completion_digest ||
-        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" ||
+        (snapshot_schema != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
+            !consumer_bound) ||
         prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
         prepared.at("phase").as_string() != "lab_prepared_evidence" ||
         prepared.at("service_sid").as_string() != service_sid ||
@@ -2678,7 +2695,8 @@ std::string verify_completed_install_in_service(HANDLE volume,
     const auto boundary = observe_completed_verification_boundary(volume, service_sid);
     const std::string snapshot_record = boundary.snapshot_record;
     const auto snapshot = usk::json::parse(snapshot_record);
-    if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3") {
+    if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") {
         throw std::runtime_error("read-only verify requires caller-bound installed snapshot");
     }
     const auto plan = restore_reviewed_install_plan(snapshot_record);
