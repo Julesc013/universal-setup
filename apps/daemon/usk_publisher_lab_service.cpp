@@ -464,7 +464,7 @@ int wmain(int argc, wchar_t** argv) {
         campaign_vm_selected && argc == 11 ? argv[10] :
         campaign_vm_selected_plan && argc == 14 ? argv[13] :
         campaign_vm_reviewed_source && argc == 11 ? argv[10] : L"";
-    prepublish_gate = argc == 6 || campaign_vm ||
+    prepublish_gate = (hosted && argc == 6) || campaign_vm ||
         selected_gate == L"--prepublish-gate";
     poststage_gate = selected_gate == L"--poststage-gate";
     postrename_gate = campaign_vm_postrename ||
