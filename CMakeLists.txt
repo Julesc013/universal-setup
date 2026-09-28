@@ -430,6 +430,9 @@ if(USK_BUILD_APPS)
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
   target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
+  if(WIN32)
+    target_link_libraries(usk_machine PRIVATE usk_publisher_windows_static)
+  endif()
   usk_enable_strict_warnings(usk_machine)
 
   if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)

@@ -39,3 +39,14 @@ The current host admits only read-only inspection and planning commands. It reje
 mutations, oversized input, trailing framed bytes, and unknown request fields.
 Diagnostics go to stderr without echoing request content. Human interaction,
 setup mutation commands, and general response-file expansion are still pending.
+
+On Windows, the separate `--candidate-service USK_PUB_<32 lowercase hex>
+--request-file path` mode forwards one reviewed `install_local.apply` or
+installed-verification request to an already running, registered restricted
+publisher service. It prints that service's actual JSON observation; exit 0
+means the service reported `pass`, exit 3 means a reported failure or recovery
+requirement, and exit 5 means the reply could not establish the operation's
+outcome. Retry the same reviewed request after exit 5. This mode cannot
+register a service, choose a source or target, or enable the unqualified
+general publisher. The existing read-only `--machine` and `--framed` protocols
+remain unchanged.

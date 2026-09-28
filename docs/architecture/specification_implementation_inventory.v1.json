@@ -802,7 +802,7 @@
       "source_observations": [
         {
           "path": "apps/cli/usk_machine.cpp",
-          "sha256": "01cb5f22f89395b1c3ef0b9f42624497065e00f0f7e618b285eac709801ce386"
+          "sha256": "51fba0ebdc8cf6940ff048568ccc1d4f5e2e291ee29bf0c8efd437138ee1fc83"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
@@ -870,7 +870,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -902,7 +902,7 @@
       "source_observations": [
         {
           "path": "apps/cli/usk_machine.cpp",
-          "sha256": "01cb5f22f89395b1c3ef0b9f42624497065e00f0f7e618b285eac709801ce386"
+          "sha256": "51fba0ebdc8cf6940ff048568ccc1d4f5e2e291ee29bf0c8efd437138ee1fc83"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
@@ -994,7 +994,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -1458,11 +1458,11 @@
         },
         {
           "path": "apps/cli/usk_machine.cpp",
-          "sha256": "01cb5f22f89395b1c3ef0b9f42624497065e00f0f7e618b285eac709801ce386"
+          "sha256": "51fba0ebdc8cf6940ff048568ccc1d4f5e2e291ee29bf0c8efd437138ee1fc83"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "428a9a6103f56047198847ee0a3f01a290ecf1027d827a17fc1ffdd3ed11346d"
+          "sha256": "989be980ba02c48742fe076702ad37a6371a7e0a43b626b3bfd70d3e2d711668"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
@@ -1752,7 +1752,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "9559b497421c93ded01aada299104590a85c55b98b3f1823874e379632dc0b67"
+          "sha256": "d4ad48a29ed7b0ce9a99c080916a04b352db4155a66fb2e4581f1cd80c7f5941"
         }
       ],
       "acceptance_ids": [
@@ -1784,7 +1784,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "9559b497421c93ded01aada299104590a85c55b98b3f1823874e379632dc0b67"
+          "sha256": "d4ad48a29ed7b0ce9a99c080916a04b352db4155a66fb2e4581f1cd80c7f5941"
         }
       ],
       "acceptance_ids": [
@@ -1816,7 +1816,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "9559b497421c93ded01aada299104590a85c55b98b3f1823874e379632dc0b67"
+          "sha256": "d4ad48a29ed7b0ce9a99c080916a04b352db4155a66fb2e4581f1cd80c7f5941"
         }
       ],
       "acceptance_ids": [
@@ -1848,7 +1848,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "9559b497421c93ded01aada299104590a85c55b98b3f1823874e379632dc0b67"
+          "sha256": "d4ad48a29ed7b0ce9a99c080916a04b352db4155a66fb2e4581f1cd80c7f5941"
         }
       ],
       "acceptance_ids": [
@@ -2685,7 +2685,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2720,7 +2720,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2755,7 +2755,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -3496,7 +3496,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         }
       ],
       "acceptance_ids": [
@@ -3532,7 +3532,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         }
       ],
       "acceptance_ids": [
@@ -3568,7 +3568,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         }
       ],
       "acceptance_ids": [
@@ -3644,7 +3644,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "3a54621b5ad2b7064125b9c859ed545526d0dec46632e534abfd5e7a16d7fc82"
+          "sha256": "a66c31f783741acb6aff01abfed24ae4f2408231bbeb9be661e7add67abbd4f4"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -5664,7 +5664,7 @@
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "428a9a6103f56047198847ee0a3f01a290ecf1027d827a17fc1ffdd3ed11346d"
+          "sha256": "989be980ba02c48742fe076702ad37a6371a7e0a43b626b3bfd70d3e2d711668"
         }
       ],
       "acceptance_ids": [
@@ -5736,7 +5736,7 @@
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "428a9a6103f56047198847ee0a3f01a290ecf1027d827a17fc1ffdd3ed11346d"
+          "sha256": "989be980ba02c48742fe076702ad37a6371a7e0a43b626b3bfd70d3e2d711668"
         }
       ],
       "acceptance_ids": [
