@@ -52,6 +52,7 @@ bool recover_reviewed = false;
 bool recover_sealed_journal = false;
 bool recover_visible_bound = false;
 bool reviewed_install_reentry = false;
+bool require_preprotected_boundary = false;
 
 bool selected_archive_mode = false;
 std::wstring selected_archive_path;
@@ -275,7 +276,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             if (grant_client_read) config.consumer_read_sid=ascii(authorized_client_sid);
             config.interrupt_consumer_grant=interrupt_consumer_grant;
         }
-        config.prepare_disposable_boundary=[](HANDLE volume,const std::string& sid) {
+        // The reviewed-source candidate admits only an already protected
+        // target. Its restricted service must not repair the volume ACL.
+        if (!require_preprotected_boundary) config.prepare_disposable_boundary=[](HANDLE volume,const std::string& sid) {
             const auto descriptor=usk::platform::windows::make_publisher_directory_security_descriptor(
                 std::wstring(sid.begin(),sid.end()));
             PSID owner=nullptr; BOOL owner_defaulted=FALSE, present=FALSE, dacl_defaulted=FALSE; PACL dacl=nullptr;
@@ -438,6 +441,7 @@ int wmain(int argc, wchar_t** argv) {
         campaign_vm_sealed_journal;
     recover_snapshot_only = campaign_vm_snapshot_recovery;
     recover_reviewed = campaign_vm_reviewed_recovery;
+    require_preprotected_boundary = campaign_vm_reviewed_source;
     recover_sealed_journal = campaign_vm_sealed_journal;
     recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||

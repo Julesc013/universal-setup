@@ -17,6 +17,7 @@ param(
     [switch]$InterruptBeforePublish,
     [switch]$InterruptAfterStage,
     [switch]$ReviewedSource,
+    [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
@@ -25,6 +26,10 @@ if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfter
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
 if($InterruptAfterStage -and -not $ClientBinary){throw 'Snapshot-only replay requires an authenticated client'}
 if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection requires an authenticated client'}
+if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or $HostileRights -or
+    $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
+    throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
+}
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
 $gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
@@ -283,14 +288,35 @@ try {
     }
     Assert-OwnedVolume
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
-    $acl=[Security.AccessControl.DirectorySecurity]::new()
-    $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
-    Set-Acl -LiteralPath $VolumeRoot -AclObject $acl
+    if(-not $ExpectUnprotectedRefusal) {
+        $acl=[Security.AccessControl.DirectorySecurity]::new()
+        $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
+        Set-Acl -LiteralPath $VolumeRoot -AclObject $acl
+    }
+    $receipt['root_acl_at_service_start']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
     Assert-OwnedVolume
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
     if($ClientBinary){$requestClient=Start-RequestClient}
+    if($ExpectUnprotectedRefusal) {
+        $deadline=[DateTime]::UtcNow.AddSeconds(90)
+        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Unprotected-root refusal receipt absent'}
+        $receipt.native=Read-NativeReceipt $nativePath
+        $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
+        $requestClient=$null
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+        $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+        if($receipt.native.status -ne 'failed' -or
+            $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
+            $receipt.root_acl_before -cne $receipt.root_acl_after -or
+            (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Test-Path -LiteralPath ($drive+'setup-state'))) {
+            throw 'Unprotected boundary was changed or admitted before publication'
+        }
+        $receipt.status='preprotected_boundary_refusal_observed'
+    } else {
     if($HostileRights) {
         $attackRelative=if($ConsumerAccess){'bin/core.exe'}else{'bin/core.bin'}
         if(@($plan.planned_entries|Where-Object relative_path -ceq $attackRelative).Count -ne 1){
@@ -652,7 +678,14 @@ try {
         $receipt['consumer_attempts_unchanged_rows']=$afterAccess.independent.rows
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
+    if($ReviewedSource) {
+        $receipt['root_acl_after_service']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+        if($receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service) {
+            throw 'Reviewed-source service changed the preprotected volume root ACL'
+        }
+    }
     $receipt.status='protected_metadata_observed'
+    }
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
 } finally {
@@ -680,7 +713,7 @@ try {
             $receipt.service_removed=$true
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
-    if($receipt.status -eq 'protected_metadata_observed' -and $receipt.service_removed) {
+    if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed') -and $receipt.service_removed) {
         try {
             if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
             $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
