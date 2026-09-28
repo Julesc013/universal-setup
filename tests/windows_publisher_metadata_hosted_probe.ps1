@@ -1435,7 +1435,8 @@ try {
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
         if(-not $HostileRights) {
             $damageEntries=@($plan.planned_entries|Where-Object {
-                $_.entry_type -ceq 'file' -and $_.relative_path -ceq $(if($ConsumerAccess){'bin/addon.bin'}else{'bin/core.bin'})
+                $_.entry_type -ceq 'file' -and $_.relative_path -ceq $(
+                    if($ConsumerAccess -or $ProductionConcurrentRights){'bin/addon.bin'}else{'bin/core.bin'})
             })
             if($damageEntries.Count -ne 1){throw 'Selected owned damage file is absent from reviewed plan'}
             Assert-OwnedVolume
