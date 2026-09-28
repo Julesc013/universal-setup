@@ -194,6 +194,10 @@ $consumerCreated=$false
 $consumerCredential=$null
 $consumerSid=''
 $consumerProcess=$null
+$concurrentAttacker=$null
+$concurrentOutput=''
+$concurrentError=''
+$concurrentCompleted=''
 $clientCleanupConfirmed=$true
 $consumerOutput=Join-Path $root 'consumer-output'
 $consumerScript=Join-Path $root 'consumer-client.ps1'
@@ -663,6 +667,75 @@ try {
             ($pausedAfter.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
             throw 'Selected prepublish hostile attempts changed protected state'
         }
+        if($RegisteredService -and $NonAdminClient) {
+            # Sample the submitting account's attempted mutations from the
+            # prepublish gate through the observed reply. This does not prove
+            # that a sample occurred during the instantaneous native rename.
+            $concurrentOutput=Join-Path $consumerOutput 'concurrent-attack.json'
+            $concurrentError=Join-Path $consumerOutput 'concurrent-stderr.txt'
+            $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
+            $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
+            if((Test-Path -LiteralPath $concurrentOutput) -or
+                (Test-Path -LiteralPath $concurrentError) -or
+                (Test-Path -LiteralPath $concurrentReady) -or
+                (Test-Path -LiteralPath $concurrentCompleted)) {
+                throw 'Concurrent attacker output is not fresh'
+            }
+            $attackArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+                '-File',('"'+(Join-Path $PSScriptRoot 'windows_publisher_unprivileged_probe.ps1')+'"'),
+                '-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),'-ExpectedUserSid',$consumerSid,
+                '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
+                '-Stage','Concurrent','-ReleasePath',('"'+$release+'"'),
+                '-PayloadRelativePath',$attackRelative)
+            $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+                -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
+                -WindowStyle Hidden -WorkingDirectory $consumerOutput `
+                -RedirectStandardError $concurrentError -ErrorAction Stop
+            $attackerDeadline=[DateTime]::UtcNow.AddSeconds(30)
+            while(-not (Test-Path -LiteralPath $concurrentReady) -and
+                [DateTime]::UtcNow -lt $attackerDeadline) {
+                if($concurrentAttacker.HasExited){
+                    $concurrentAttacker.WaitForExit()
+                    $receipt['concurrent_attacker_exit_code']=$concurrentAttacker.ExitCode
+                    if((Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -and
+                        (Get-Item -LiteralPath $concurrentOutput).Length -le 16KB) {
+                        try {
+                            $receipt['concurrent_attacker_early_receipt']=
+                                Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+                        } catch {
+                            $receipt['concurrent_attacker_receipt_parse_error']=$_.Exception.Message
+                        }
+                    }
+                    if((Test-Path -LiteralPath $concurrentError -PathType Leaf) -and
+                        (Get-Item -LiteralPath $concurrentError).Length -le 16KB) {
+                        $receipt['concurrent_attacker_stderr']=
+                            [IO.File]::ReadAllText($concurrentError)
+                    }
+                    $reason=if($receipt.concurrent_attacker_early_receipt){
+                        $receipt.concurrent_attacker_early_receipt.failure
+                    }elseif($receipt.concurrent_attacker_stderr){
+                        $receipt.concurrent_attacker_stderr
+                    }elseif($receipt.concurrent_attacker_receipt_parse_error){
+                        $receipt.concurrent_attacker_receipt_parse_error
+                    }else{'exit_code='+$concurrentAttacker.ExitCode}
+                    throw ('Concurrent attacker exited before readiness: '+$reason)
+                }
+                Start-Sleep -Milliseconds 25
+            }
+            if(-not (Test-Path -LiteralPath $concurrentReady) -or
+                [IO.File]::ReadAllText($concurrentReady) -cne "usk.publisher.concurrent_ready.v1`n") {
+                throw 'Concurrent attacker did not establish prepublish denial'
+            }
+            $attackerProcess=Get-CimInstance Win32_Process -Filter ('ProcessId='+$concurrentAttacker.Id) -ErrorAction Stop
+            $attackerOwner=Invoke-CimMethod -InputObject $attackerProcess -MethodName GetOwnerSid
+            if(-not $attackerProcess -or $attackerOwner.ReturnValue -ne 0 -or
+                $attackerOwner.Sid -cne $consumerSid -or
+                -not $attackerProcess.CommandLine.Contains('windows_publisher_unprivileged_probe.ps1')) {
+                throw 'Concurrent attacker differs from the submitting non-admin process'
+            }
+            $receipt['concurrent_attacker_process_id']=$concurrentAttacker.Id
+            $receipt['concurrent_attacker_sid']=$attackerOwner.Sid
+        }
         Assert-OwnedVolume
         $releaseTemp=$release+'.tmp'
         $releaseBytes=[Text.Encoding]::ASCII.GetBytes("usk.publisher.lab_continue.v1`n")
@@ -903,6 +976,36 @@ try {
             delivery='response_received'}
         $receipt['native_response_sha256']=$receipt.authenticated_client.response_sha256
         $requestClient=$null
+        if($concurrentAttacker) {
+            [IO.File]::WriteAllText($concurrentCompleted,
+                "usk.publisher.concurrent_completed.v1`n",[Text.UTF8Encoding]::new($false))
+            if(-not $concurrentAttacker.WaitForExit(30000)) {
+                throw 'Concurrent attacker remained after terminal publisher reply'
+            }
+            $concurrentAttacker.WaitForExit()
+            if($concurrentAttacker.ExitCode -ne 0 -or
+                -not (Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -or
+                (Get-Item -LiteralPath $concurrentOutput).Length -gt 16KB) {
+                throw 'Concurrent attacker did not produce a bounded successful receipt'
+            }
+            $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+            if($concurrent.schema -cne 'usk.publisher.unprivileged_access_probe.v1' -or
+                $concurrent.status -cne 'access_denied_observed' -or
+                $concurrent.stage -cne 'Concurrent' -or
+                $concurrent.user_sid -cne $consumerSid -or $concurrent.administrator -or
+                $concurrent.service_sid_present -or
+                $concurrent.process_id -ne $concurrentAttacker.Id -or
+                $concurrent.concurrent.staged_write.denied -lt 1 -or
+                $concurrent.concurrent.destination_create.denied -lt 4 -or
+                $concurrent.concurrent.destination_create.denied_after_gate_before_observed_reply -lt 1 -or
+                $concurrent.concurrent.cycles_after_gate_before_observed_reply -lt 1 -or
+                $concurrent.concurrent.visible_write.denied_after_completion -lt 3 -or
+                $concurrent.concurrent.cycles_after_completion -lt 3) {
+                throw 'Concurrent hostile-rights observation differs from the actual client'
+            }
+            $receipt['concurrent_hostile_rights']=$concurrent
+            $concurrentAttacker=$null
+        }
     } else {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
@@ -1413,6 +1516,10 @@ try {
     if($consumerProcess) {
         try {Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null}
         catch {$clientCleanupConfirmed=$false;$failure='Consumer payload process cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
+    }
+    if($concurrentAttacker) {
+        try {Stop-OwnedPublisherProcessTree $concurrentAttacker|Out-Null}
+        catch {$clientCleanupConfirmed=$false;$failure='Concurrent attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
     if($consumerCreated -and $clientCleanupConfirmed) {
