@@ -2741,6 +2741,17 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
         const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root);
+        std::optional<usk::platform::windows::PublisherInstallOperationGuard> install_guard;
+        if (submitted_apply_request) {
+            const auto request = usk::json::parse(*submitted_apply_request);
+            install_guard.emplace(volume_root,
+                request.at("plan_request").at("install_id").as_string());
+        } else if (submitted_verify_request) {
+            const auto request = usk::json::parse(*submitted_verify_request);
+            install_guard.emplace(volume_root, request.at("install_id").as_string());
+        }
+        // Both guards are held before source/installed-state revalidation and
+        // before effects. Source-free legacy replay retains the volume guard.
         const DWORD root_access = recover_prepared || verify_installed_request ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
@@ -2947,6 +2958,11 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             ",\"volume_root\":" + json_quote(ascii(volume_root)) +
             ",\"volume_operation_guard_abandoned\":" +
             std::string(operation_guard.previous_owner_abandoned() ? "true" : "false") +
+            ",\"install_operation_guard_held\":" +
+            std::string(install_guard.has_value() ? "true" : "false") +
+            ",\"install_operation_guard_abandoned\":" +
+            (install_guard ? std::string(install_guard->previous_owner_abandoned() ?
+                "true" : "false") : std::string("null")) +
             ",\"volume_filesystem\":" +
             json_quote(ascii(volume_observation.filesystem_name)) +
             ",\"volume_serial\":" +

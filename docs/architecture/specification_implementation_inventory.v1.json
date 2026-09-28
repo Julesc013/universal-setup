@@ -4003,15 +4003,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
-          "sha256": "042f89bf7faddd29f3c7701b823dd71f520cc61e8923057c17f6996d89b099a1"
+          "sha256": "2fd916bf1a0ef325fbfb735586095f3f445a76ff5abe6fc9130e7a3ddbc7edfe"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
-          "sha256": "f80f40ed3d3aaaa692a0d98f64c45e30201b900eb3780520ff1ba8b30f14d488"
+          "sha256": "1e8ead54b671f1f10b3d0075ac0548a5c92ec57ea784c03fcec28b97e61e2138"
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "052529c4dbff4db4db5888d0dfe2960ad02c99694ca5d88f9e8fb8278d7964e5"
+          "sha256": "5af909c268150a7ab1e130674caf2a7791f7204c41d6f66fa5ff82feca5647cb"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
@@ -4039,7 +4039,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "7551aab40d64306b142290dfa95442c39f6b1da3a5f01bf454c44b37e5ad3853"
+          "sha256": "f15240e61f9513945330e1d15cf2a387d1cbc04a7bf3f46ed1b44fa38f88d357"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
@@ -4059,7 +4059,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "38c424d936974a139ab2ae8cab891aeab3e6174b3b6229f068dd0f83dc9e53fb"
+          "sha256": "74367fe9fa79545f85fae68b73d19f6536866013236040211ea6a30253b3a330"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4279,15 +4279,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
-          "sha256": "042f89bf7faddd29f3c7701b823dd71f520cc61e8923057c17f6996d89b099a1"
+          "sha256": "2fd916bf1a0ef325fbfb735586095f3f445a76ff5abe6fc9130e7a3ddbc7edfe"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
-          "sha256": "f80f40ed3d3aaaa692a0d98f64c45e30201b900eb3780520ff1ba8b30f14d488"
+          "sha256": "1e8ead54b671f1f10b3d0075ac0548a5c92ec57ea784c03fcec28b97e61e2138"
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "052529c4dbff4db4db5888d0dfe2960ad02c99694ca5d88f9e8fb8278d7964e5"
+          "sha256": "5af909c268150a7ab1e130674caf2a7791f7204c41d6f66fa5ff82feca5647cb"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
@@ -4315,7 +4315,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "7551aab40d64306b142290dfa95442c39f6b1da3a5f01bf454c44b37e5ad3853"
+          "sha256": "f15240e61f9513945330e1d15cf2a387d1cbc04a7bf3f46ed1b44fa38f88d357"
         },
         {
           "path": "tests/windows_publisher_owned_payload_damage.ps1",
@@ -4335,7 +4335,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "38c424d936974a139ab2ae8cab891aeab3e6174b3b6229f068dd0f83dc9e53fb"
+          "sha256": "74367fe9fa79545f85fae68b73d19f6536866013236040211ea6a30253b3a330"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
