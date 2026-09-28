@@ -261,15 +261,15 @@ binary rather than being relabelled as this measurement.
 
 ## Isolated 4,096-entry source-free recovery finalization
 
-`m1_lifecycle_memory_4096_source_free_recovery_65ed95a.v1.json` is the raw
-Windows process observation at clean source
+`m1_lifecycle_memory_4096_source_free_recovery_65ed95a.v1.json` retains the
+Windows process observation with LF line endings at clean source
 `65ed95aa19a5522f1d51c8e86da41af14dcc50cd` (tree
 `86545040d8bdf2cbe1de0cea98390552686ee173`). The Release native binary
 SHA-256 was `67656d2fec68865a47d2376333286343f0290360cdc3bb75825eebfade40fc4a`;
 the exact WU005 repository-development binding SHA-256 was
 `8c7a826d43e7f799279f32b2dd11adda31bc5b3d98add2a56e1f6e3dba675e96`.
-The raw receipt SHA-256 is
-`dc10d96d8cd80c8667e1b7deb3ddea8b2bc575577289000765d66ba4ed272d20`.
+The committed receipt SHA-256 is
+`ee9250269714b1f97cf7a69f9f6556abf2e2a8c81510803c682be7f2e95b549d`.
 The host reported Windows 10 build 19045 and `D:` NTFS serial `1b6df063`.
 
 Fixture preparation applied a 1 MiB, 4,096-entry streamed install and
