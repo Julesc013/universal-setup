@@ -123,6 +123,8 @@ if(-not $image.Attached -or $disk.Count -ne 1 -or $disk[0].IsBoot -or $disk[0].I
     (Get-Volume -Partition $partitions[0]).FileSystem -ne 'NTFS') { throw 'Owned NTFS VHD identity differs' }
 $disk=$disk[0]
 $drive=[string]$partitions[0].DriveLetter+':\'
+$visibleLeaf=if($ProductionConcurrentRights){'selected-app'}else{'visible'}
+$visibleRoot=$drive+'publication\destination\'+$visibleLeaf
 function Assert-OwnedVolume {
     $liveImage=Get-DiskImage -ImagePath $vhd
     $live=@($liveImage|Get-Disk)
@@ -427,7 +429,7 @@ try {
     $fixtureArgs=if($ConsumerAccess){@('--application-binary',$PayloadBinary)}
         elseif($ProductionConcurrentRights){@('--core-bytes','33554432')}else{@()}
     $generated=& python -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
-        --output $fixture --target ($drive+'publication\destination\visible') --request-id ('metadata.'+$id) @fixtureArgs
+        --output $fixture --target $visibleRoot --request-id ('metadata.'+$id) @fixtureArgs
     if($LASTEXITCODE -ne 0){throw 'Public authoring input generation failed'}
     $inputs=$generated|ConvertFrom-Json
     $packageRoot=''
@@ -1064,8 +1066,8 @@ try {
         $visibleRecords=@($before.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
         $expectedVisibleRecords=if($InterruptAfterVisibleRecord){1}else{0}
         if($visibleRecords.Count -ne $expectedVisibleRecords){throw 'Interrupted visible-journal boundary differs from selected window'}
-        $payloadPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$drive+'publication\staging\candidate\'}else{$drive+'publication\destination\visible\'}
-        $absentPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$drive+'publication\destination\visible'}else{$drive+'publication\staging\candidate'}
+        $payloadPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$drive+'publication\staging\candidate\'}else{$visibleRoot+'\'}
+        $absentPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$visibleRoot}else{$drive+'publication\staging\candidate'}
         if(@($before.independent.rows|Where-Object {$_.path -ceq $absentPrefix -or $_.path.StartsWith($absentPrefix+'\',[StringComparison]::Ordinal)}).Count -ne 0){throw 'Interrupted payload namespace differs from selected window'}
         foreach($entry in $plan.planned_entries|Where-Object entry_type -eq 'file') {
             $path=$payloadPrefix+$entry.relative_path.Replace('/','\')
@@ -1144,7 +1146,7 @@ try {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $before=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt['partial_before_replay_independent']=$before.independent
-        Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid -ConsumerSid $consumerSid -VisibleRoot ($drive+'publication\destination\visible') -AllowPartial
+        Assert-IndependentProtectedRows -Rows $before.independent.rows -ServiceSid $sid -ConsumerSid $consumerSid -VisibleRoot $visibleRoot -AllowPartial
         $granted=@($before.independent.rows|Where-Object {@($_.aces|Where-Object sid -eq $consumerSid).Count -eq 1})
         if($granted.Count -ne 1){throw 'First-grant interruption did not leave exactly one readable payload object'}
         $partialWitness=[pscustomobject]@{volume_drive_root=$drive;native=$partial;service_sid=$sid;consumer_sid=$consumerSid;
@@ -1326,7 +1328,7 @@ try {
             $completedPath=$row.path
             if($row.path -ceq $stagedRoot -or
                 $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal)) {
-                $completedPath=$drive+'publication\destination\visible'+$row.path.Substring($stagedRoot.Length)
+                $completedPath=$visibleRoot+$row.path.Substring($stagedRoot.Length)
             }
             $matching=@($receipt.independent.rows|Where-Object path -ceq $completedPath)
             if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or
@@ -1520,7 +1522,7 @@ try {
             if($damageEntries.Count -ne 1){throw 'Selected owned damage file is absent from reviewed plan'}
             Assert-OwnedVolume
             $damaged=Invoke-IndependentOwnedPayloadDamage -VhdPath $vhd -VolumeRoot $VolumeRoot `
-                -DriveRoot $drive -PayloadRelativePath $damageEntries[0].relative_path `
+                -DriveRoot $drive -VisibleRoot $visibleRoot -PayloadRelativePath $damageEntries[0].relative_path `
                 -ExpectedSha256 $damageEntries[0].sha256
             $damageVerify=[ordered]@{}
             foreach($key in $verifyRequest.Keys){$damageVerify[$key]=$verifyRequest[$key]}
@@ -1609,7 +1611,7 @@ try {
             $completedPath=$row.path
             $stagedRoot=$drive+'publication\staging\candidate'
             if(($InterruptBeforePublish -or $InterruptAfterStage) -and ($row.path -ceq $stagedRoot -or $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal))) {
-                $completedPath=$drive+'publication\destination\visible'+$row.path.Substring($stagedRoot.Length)
+                $completedPath=$visibleRoot+$row.path.Substring($stagedRoot.Length)
             }
             $matching=@($receipt.independent.rows|Where-Object path -ceq $completedPath)
             if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or $matching[0].bytes -ne $row.bytes) {
@@ -1738,7 +1740,7 @@ try {
         $consumerProcess=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @(
             '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
             '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,
-            '-PayloadRoot',($drive+'publication\destination\visible'),'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput
+            '-PayloadRoot',$visibleRoot,'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput
         if(-not $consumerProcess.WaitForExit(45000)){Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null;throw 'Consumer payload probe timed out'}
         $consumerProcess.WaitForExit()
         if($consumerProcess.ExitCode -ne 0){throw 'Non-admin payload access probe failed'}

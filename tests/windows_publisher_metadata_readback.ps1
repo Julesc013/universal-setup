@@ -26,11 +26,16 @@ function Assert-IndependentMetadataProbe {
     param($Result,[switch]$AllowPartialConsumerGrant)
     $drive=$Result.volume_drive_root
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
+    $visibleRoot=([string]$Result.plan.target.root).Replace('/','\')
+    if($visibleRoot -cnotmatch '^[A-Z]:\\publication\\destination\\[A-Za-z0-9_.-]+$' -or
+        -not $visibleRoot.StartsWith($drive+'publication\destination\',[StringComparison]::Ordinal)) {
+        throw 'Reviewed visible target is outside the observed protected destination'
+    }
     $expectedStatus=if($AllowPartialConsumerGrant){'recovery_required'}else{'pass'}
     if($AllowPartialConsumerGrant -and (-not $Result.consumer_sid -or $Result.native.error -notmatch 'injected interruption after first consumer grant')){throw 'Partial-grant witness is not the admitted injected failure'}
     if ($Result.native.status -ne $expectedStatus -or -not $Result.observer_task_removed -or
         $Result.independent.identity -ne 'S-1-5-18') { throw 'Service, observer identity or confirmed task cleanup differs' }
-    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid -ConsumerSid ([string]$Result.consumer_sid) -VisibleRoot ($drive+'publication\destination\visible') -AllowPartial:$AllowPartialConsumerGrant
+    Assert-IndependentProtectedRows -Rows $Result.independent.rows -ServiceSid $Result.service_sid -ConsumerSid ([string]$Result.consumer_sid) -VisibleRoot $visibleRoot -AllowPartial:$AllowPartialConsumerGrant
     function Get-ExactRecord([string]$Path) {
         $found=@($Result.independent.rows|Where-Object { $_.path -ceq $Path -and -not $_.directory })
         if ($found.Count -ne 1 -or -not $found[0].content_json) { throw ('Missing independent record: ' + $Path) }
@@ -91,7 +96,6 @@ function Assert-IndependentMetadataProbe {
     }
     $entries=@($Result.plan.planned_entries|Where-Object entry_type -eq file)
     if ($ownership.files.Count -ne $entries.Count) { throw 'Independent ownership file count differs' }
-    $visibleRoot=$drive+'publication\destination\visible'
     $expectedPaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $expectedDirectories=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     [void]$expectedDirectories.Add($visibleRoot)
@@ -112,7 +116,7 @@ function Assert-IndependentMetadataProbe {
         throw 'Independent visible payload closure differs'
     }
     foreach ($entry in $entries) {
-        $path=($drive + 'publication\destination\visible\')+$entry.relative_path.Replace('/','\')
+        $path=$visibleRoot+'\'+$entry.relative_path.Replace('/','\')
         $found=@($Result.independent.rows|Where-Object path -ceq $path)
         $owned=@($ownership.files|Where-Object relative_path -ceq $entry.relative_path)
         if ($found.Count -ne 1 -or $owned.Count -ne 1 -or $found[0].sha256 -ne $entry.sha256 -or

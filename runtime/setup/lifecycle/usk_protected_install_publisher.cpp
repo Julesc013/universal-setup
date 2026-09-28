@@ -52,6 +52,7 @@ struct OwnedHandle {
 thread_local std::wstring service_name;
 thread_local std::wstring receipt_path;
 thread_local std::wstring volume_root;
+thread_local std::wstring visible_component = L"visible";
 thread_local bool prepublish_gate = false;
 thread_local bool poststage_gate = false;
 thread_local bool postrename_gate = false;
@@ -310,6 +311,23 @@ std::string ascii(const std::wstring& value) {
         result.push_back(static_cast<char>(ch));
     }
     return result;
+}
+
+std::wstring selected_visible_component(const std::string& target) {
+    const std::filesystem::path path(target);
+    const std::filesystem::path root = path.root_path();
+    const std::wstring root_name = root.wstring();
+    if (!path.is_absolute() || path.lexically_normal() != path ||
+        root_name.size() != 3 || root_name[1] != L':' || root_name[2] != L'\\' ||
+        path.parent_path() != root / L"publication" / L"destination") {
+        throw std::runtime_error("reviewed target is outside the protected destination parent");
+    }
+    const std::wstring component = path.filename().wstring();
+    if (!usk::platform::windows::is_publisher_canonical_component(component)) {
+        throw std::runtime_error("reviewed visible target component is not canonical");
+    }
+    (void)ascii(component); // The current durable evidence format records ASCII names.
+    return component;
 }
 
 std::string json_quote(const std::string& value) {
@@ -782,6 +800,7 @@ void require_reviewed_plan_snapshot(const std::string& record,
     if (selected_file_set_digest(std::move(files)) != selected_digest) {
         throw std::runtime_error("recovery reviewed plan file closure differs");
     }
+    visible_component = selected_visible_component(snapshot.at("target_root").as_string());
 }
 
 usk::lifecycle::InstallPlan restore_reviewed_install_plan(
@@ -1132,7 +1151,7 @@ std::string lab_visible_record(
         json_quote(source_file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(destination_parent_file_id) +
-        ",\"destination_name\":\"visible\"," +
+        ",\"destination_name\":" + json_quote(ascii(visible_component)) + "," +
         (selected_digest.empty() ?
             "\"payload_sha256\":" +
                 json_quote(visible.descendants.front().sha256) :
@@ -1170,7 +1189,7 @@ std::string lab_selected_installed_record(
         ",\"visible_root_file_id\":" + json_quote(visible.root.file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(anchors.destination_parent.object.file_id) +
-        ",\"destination_name\":\"visible\"," +
+        ",\"destination_name\":" + json_quote(ascii(visible_component)) + "," +
         (selected_digest.empty() ?
             "\"payload_sha256\":" +
                 json_quote(visible.descendants.front().sha256) :
@@ -1291,11 +1310,21 @@ std::string observe_prepared_recovery(HANDLE volume,
     const std::string prepared_schema = prepared.at("schema").as_string();
     const bool selected_v2 = prepared_schema ==
         "usk.publisher.lab_phase_evidence.v2";
+    if (has_reviewed_snapshot) {
+        if (!prepared.contains("source_binding") ||
+            !prepared.at("source_binding").contains("reviewed_plan_snapshot_sha256") ||
+            record_sha256(stored_snapshot) != prepared.at("source_binding")
+                .at("reviewed_plan_snapshot_sha256").as_string()) {
+            throw std::runtime_error("recovery target has no durable reviewed snapshot binding");
+        }
+        visible_component = selected_visible_component(
+            usk::json::parse(stored_snapshot).at("target_root").as_string());
+    }
     if ((!selected_v2 && prepared_schema !=
             "usk.publisher.lab_phase_evidence.v1") ||
         prepared.at("phase").as_string() != "lab_prepared_evidence" ||
         prepared.at("service_sid").as_string() != service_sid ||
-        prepared.at("destination_name").as_string() != "visible" ||
+        prepared.at("destination_name").as_string() != ascii(visible_component) ||
         prepared.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
         prepared.at("volume_serial").as_unsigned() !=
@@ -1370,7 +1399,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         staged_entries.front().name == L"candidate" && destination_entries.empty();
     const bool visible = staged_entries.empty() &&
         destination_entries.size() == 1 &&
-        destination_entries.front().name == L"visible";
+        destination_entries.front().name == visible_component;
     if (!staged && !visible) {
         throw std::runtime_error("recovery namespace is neither prepared nor visible");
     }
@@ -1379,7 +1408,7 @@ std::string observe_prepared_recovery(HANDLE volume,
     }
     OwnedHandle root(open_exact_lab_child(
         staged ? staging.get() : destination.get(),
-        staged ? L"candidate" : L"visible", false,
+        staged ? L"candidate" : visible_component, false,
         bind_visible_forward && staged));
     const auto actual_tree = observe_publisher_tree(root.get());
     const bool consumer_bound = has_reviewed_snapshot && visible &&
@@ -1413,7 +1442,7 @@ std::string observe_prepared_recovery(HANDLE volume,
     const std::string staged_name =
         ascii(anchors.staging.object.native_name) + "\\candidate";
     const std::string visible_name =
-        ascii(anchors.destination_parent.object.native_name) + "\\visible";
+        ascii(anchors.destination_parent.object.native_name) + "\\" + ascii(visible_component);
     const std::string expected_tree = staged ?
         usk::json::canonical(prepared.at("sealed_tree")) :
         prepared_tree_at_visible_name(
@@ -1434,7 +1463,7 @@ std::string observe_prepared_recovery(HANDLE volume,
                 observed_tree.root.file_id ||
             bound.at("destination_parent_file_id").as_string() !=
                 anchors.destination_parent.object.file_id ||
-            bound.at("destination_name").as_string() != "visible" ||
+            bound.at("destination_name").as_string() != ascii(visible_component) ||
             (selected_v2 ?
                 bound.at("selected_file_set_digest").as_string() !=
                     selected_digest :
@@ -1478,7 +1507,7 @@ std::string observe_prepared_recovery(HANDLE volume,
             (staged_after.size() != 1 || staged_after.front().name != L"candidate" ||
                 !destination_after.empty()) :
             (!staged_after.empty() || destination_after.size() != 1 ||
-                destination_after.front().name != L"visible")) {
+                destination_after.front().name != visible_component)) {
         throw std::runtime_error("recovery namespace changed during observation");
     }
     if (observe_publisher_directory_entries(publication.get()).size() != 4) {
@@ -1495,10 +1524,10 @@ std::string observe_prepared_recovery(HANDLE volume,
             require_publisher_tree_phase_match(actual_tree,
                 observe_publisher_tree(root.get()));
             (void)probe_publisher_bound_rename_no_replace(root.get(),
-                destination.get(), L"visible", observed_tree.root,
+                destination.get(), visible_component, observed_tree.root,
                 anchors.destination_parent.object);
             forward_visible = observe_visible_publisher_tree_against_seal(
-                destination.get(), L"visible", observed_tree);
+                destination.get(), visible_component, observed_tree);
         }
         require_publisher_tree_security_shape(forward_visible, service_sid);
         require_publisher_anchor_set_phase_match(anchors,
@@ -1558,7 +1587,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         const auto final_destination =
             observe_publisher_directory_entries(destination.get());
         if (!final_staging.empty() || final_destination.size() != 1 ||
-            final_destination.front().name != L"visible") {
+            final_destination.front().name != visible_component) {
             throw std::runtime_error("forward recovery namespace changed after journal write");
         }
         if (selected_source &&
@@ -1615,7 +1644,7 @@ std::string observe_prepared_recovery(HANDLE volume,
         const auto final_destination =
             observe_publisher_directory_entries(destination.get());
         if (!final_staging.empty() || final_destination.size() != 1 ||
-            final_destination.front().name != L"visible" ||
+            final_destination.front().name != visible_component ||
             observe_publisher_directory_entries(publication.get()).size() != 4) {
             throw std::runtime_error("recovery namespace changed after completion");
         }
@@ -1863,9 +1892,11 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
     }
     const std::string expected_root =
         std::filesystem::path(acceptance).lexically_normal().generic_u8string();
+    visible_component = selected_visible_component(
+        envelope.at("plan_request").at("target").at("root").as_string());
     const std::string expected_target =
         (std::filesystem::path(acceptance) / L"publication" /
-            L"destination" / L"visible").lexically_normal().generic_u8string();
+            L"destination" / visible_component).lexically_normal().generic_u8string();
     const std::string plan_digest =
         envelope.at("reviewed_plan_digest").as_string();
     const auto& request = envelope.at("plan_request");
@@ -2245,7 +2276,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         ",\"source_file_id\":" + json_quote(sealed.root.file_id) +
         ",\"destination_parent_file_id\":" +
         json_quote(first.destination_parent.object.file_id) +
-        ",\"destination_name\":\"visible\"," +
+        ",\"destination_name\":" + json_quote(ascii(visible_component)) + "," +
         (selected_v2 ?
             "\"selected_file_set_digest\":" + json_quote(selected_digest) :
             "\"payload_sha256\":" +
@@ -2284,11 +2315,11 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         observe_publisher_anchor_set(volume, {L"publication"}, names));
     PublisherBoundRenameObservation renamed;
     renamed = probe_publisher_bound_rename_no_replace(candidate.get(),
-        destination.get(), L"visible", sealed.root,
+        destination.get(), visible_component, sealed.root,
         first.destination_parent.object);
     if (postrename_gate) wait_for_postrename_gate();
     const auto visible = observe_visible_publisher_tree_against_seal(
-        destination.get(), L"visible", sealed);
+        destination.get(), visible_component, sealed);
     require_publisher_tree_security_shape(visible, service_sid);
     const auto after = observe_publisher_anchor_set(
         volume, {L"publication"}, names);
@@ -2318,7 +2349,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             usk::json::parse(prepared), prepared_digest, bound, after, visible,
             service_sid, true, selected_digest);
         OwnedHandle visible_root(open_exact_lab_child(
-            destination.get(), L"visible"));
+            destination.get(), visible_component));
         require_publisher_tree_phase_match(visible,
             observe_publisher_tree(visible_root.get()));
         require_publisher_tree_phase_match(journal_tree,
@@ -2334,7 +2365,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             read_phase_record(journal.get(), L"lab-visible-evidence.json") != bound ||
             !observe_publisher_directory_entries(staging.get()).empty() ||
             final_destination.size() != 1 ||
-            final_destination.front().name != L"visible" ||
+            final_destination.front().name != visible_component ||
             observe_publisher_directory_entries(publication.get()).size() != 4 ||
             complete_selected_lab_state(state.get(), usk::json::parse(prepared),
                 prepared_digest, bound, after, visible, service_sid, false,
@@ -2434,6 +2465,7 @@ struct ScopedExecution {
         service_name=config.service_name;
         receipt_path=config.receipt_path;
         volume_root=config.volume_root;
+        visible_component=L"visible";
         prepublish_gate=config.prepublish_gate;
         poststage_gate=config.poststage_gate;
         postrename_gate=config.postrename_gate;
@@ -2483,7 +2515,7 @@ struct ScopedExecution {
     }
     ~ScopedExecution() { submitted_apply_request.reset(); submitted_recovery_request.reset();
         submitted_verify_request.reset();
-        consumer_read_sid.clear(); execution_active=false; }
+        consumer_read_sid.clear(); visible_component=L"visible"; execution_active=false; }
 };
 } // namespace
 
@@ -2578,19 +2610,26 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
     OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
     OwnedHandle state(open_exact_lab_child(publication.get(), L"state"));
     OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
+    const std::string prepared_record = read_phase_record(journal.get(), L"lab-prepared-evidence.json");
+    const std::string snapshot_record = read_phase_record(journal.get(), L"lab-reviewed-plan.json");
+    const auto prepared = usk::json::parse(prepared_record);
+    const auto snapshot = usk::json::parse(snapshot_record);
+    if (!prepared.contains("source_binding") ||
+        !prepared.at("source_binding").contains("reviewed_plan_snapshot_sha256") ||
+        record_sha256(snapshot_record) != prepared.at("source_binding")
+            .at("reviewed_plan_snapshot_sha256").as_string()) {
+        throw std::runtime_error("verification target has no durable reviewed snapshot binding");
+    }
+    visible_component = selected_visible_component(snapshot.at("target_root").as_string());
     const auto destination_entries = observe_publisher_directory_entries(destination.get());
     if (observe_publisher_directory_entries(publication.get()).size() != 4 ||
         !observe_publisher_directory_entries(staging.get()).empty() ||
-        destination_entries.size() != 1 || destination_entries.front().name != L"visible") {
+        destination_entries.size() != 1 || destination_entries.front().name != visible_component) {
         throw std::runtime_error("verification requires a completed protected namespace");
     }
-    OwnedHandle visible(open_exact_lab_child(destination.get(), L"visible"));
-    const std::string prepared_record = read_phase_record(journal.get(), L"lab-prepared-evidence.json");
-    const std::string snapshot_record = read_phase_record(journal.get(), L"lab-reviewed-plan.json");
+    OwnedHandle visible(open_exact_lab_child(destination.get(), visible_component));
     const std::string visible_record = read_phase_record(journal.get(), L"lab-visible-evidence.json");
     const std::string completion_record = read_phase_record(state.get(), L"lab-installed-state.json");
-    const auto prepared = usk::json::parse(prepared_record);
-    const auto snapshot = usk::json::parse(snapshot_record);
     const auto bound = usk::json::parse(visible_record);
     const auto completion = usk::json::parse(completion_record);
     const auto journal_tree = observe_publisher_tree(journal.get());
@@ -2633,7 +2672,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
         prepared.at("phase").as_string() != "lab_prepared_evidence" ||
         prepared.at("service_sid").as_string() != service_sid ||
-        prepared.at("destination_name").as_string() != "visible" ||
+        prepared.at("destination_name").as_string() != ascii(visible_component) ||
         prepared.at("source_file_id").as_string() != visible_tree.root.file_id ||
         prepared.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
@@ -2648,7 +2687,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
     const std::string staged_name =
         ascii(anchors.staging.object.native_name) + "\\candidate";
     const std::string visible_name =
-        ascii(anchors.destination_parent.object.native_name) + "\\visible";
+        ascii(anchors.destination_parent.object.native_name) + "\\" + ascii(visible_component);
     const std::string sealed_visible = prepared_tree_at_visible_name(
         prepared.at("sealed_tree"), staged_name, visible_name);
     if (bound.as_object().size() != 9 ||
@@ -2657,7 +2696,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         bound.at("source_file_id").as_string() != visible_tree.root.file_id ||
         bound.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
-        bound.at("destination_name").as_string() != "visible" ||
+        bound.at("destination_name").as_string() != ascii(visible_component) ||
         bound.at("selected_file_set_digest").as_string() != selected_digest ||
         bound.at("prepared_record_sha256").as_string() != prepared_digest ||
         usk::json::canonical(bound.at("protected_anchors")) !=
@@ -2674,7 +2713,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         completion.at("visible_root_file_id").as_string() != visible_tree.root.file_id ||
         completion.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
-        completion.at("destination_name").as_string() != "visible" ||
+        completion.at("destination_name").as_string() != ascii(visible_component) ||
         completion.at("selected_file_set_digest").as_string() != selected_digest ||
         usk::json::canonical(completion.at("source_binding")) !=
             usk::json::canonical(prepared.at("source_binding"))) {
@@ -2937,7 +2976,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             OwnedHandle destination(open_exact_lab_child(publication.get(),L"destination"));
             OwnedHandle journal(open_exact_lab_child(publication.get(),L"journal"));
             OwnedHandle state(open_exact_lab_child(publication.get(),L"state"));
-            OwnedHandle visible(open_exact_lab_child(destination.get(),L"visible",false,false,false,true));
+            OwnedHandle visible(open_exact_lab_child(destination.get(),visible_component,false,false,false,true));
             const auto snapshot_record = read_phase_record(journal.get(),L"lab-reviewed-plan.json");
             const auto snapshot = usk::json::parse(snapshot_record);
             usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot);

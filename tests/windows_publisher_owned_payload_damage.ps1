@@ -6,6 +6,7 @@ function Invoke-IndependentOwnedPayloadDamage {
         [Parameter(Mandatory=$true)][string]$VhdPath,
         [Parameter(Mandatory=$true)][string]$VolumeRoot,
         [Parameter(Mandatory=$true)][string]$DriveRoot,
+        [Parameter(Mandatory=$true)][string]$VisibleRoot,
         [Parameter(Mandatory=$true)][string]$PayloadRelativePath,
         [Parameter(Mandatory=$true)][string]$ExpectedSha256
     )
@@ -17,6 +18,8 @@ function Invoke-IndependentOwnedPayloadDamage {
         -not $vhd.StartsWith($runnerTemp+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or
         -not (Test-Path -LiteralPath $vhd -PathType Leaf) -or
         $DriveRoot -cnotmatch '^[A-Z]:\\$' -or
+        $VisibleRoot -cnotmatch '^[A-Z]:\\publication\\destination\\[A-Za-z0-9_.-]+$' -or
+        -not $VisibleRoot.StartsWith($DriveRoot+'publication\destination\',[StringComparison]::Ordinal) -or
         $PayloadRelativePath -cnotmatch '^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*$' -or
         @($PayloadRelativePath.Split('/')|Where-Object {$_ -eq '.' -or $_ -eq '..'}).Count -ne 0 -or
         $ExpectedSha256 -cnotmatch '^[0-9a-f]{64}$') {
@@ -30,7 +33,7 @@ function Invoke-IndependentOwnedPayloadDamage {
         (Get-Volume -Partition $partition[0] -ErrorAction Stop).UniqueId -ne $VolumeRoot) {
         throw 'Owned payload damage volume differs from the disposable VHD'
     }
-    $target=$DriveRoot+'publication\destination\visible\'+$PayloadRelativePath.Replace('/','\')
+    $target=$VisibleRoot+'\'+$PayloadRelativePath.Replace('/','\')
     $id=[guid]::NewGuid().ToString('N')
     $name='USK_PAYLOAD_DAMAGE_'+$id
     $outputRoot=Split-Path -Parent $vhd
@@ -40,7 +43,7 @@ function Invoke-IndependentOwnedPayloadDamage {
         throw 'Owned payload damage task or output collision'
     }
     $body=@'
-param([string]$Target,[string]$ExpectedSha256,[string]$VhdPath,[string]$VolumeRoot,[string]$DriveRoot,[string]$Output)
+param([string]$Target,[string]$ExpectedSha256,[string]$VhdPath,[string]$VolumeRoot,[string]$DriveRoot,[string]$VisibleRoot,[string]$Output)
 $ErrorActionPreference='Stop'
 if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne 'S-1-5-18') {throw 'SYSTEM payload damage identity required'}
 $image=Get-DiskImage -ImagePath $VhdPath -ErrorAction Stop
@@ -49,7 +52,8 @@ $partition=@($disk|Get-Partition -ErrorAction Stop|Where-Object DriveLetter)
 if(-not $image.Attached -or $disk.Count -ne 1 -or $disk[0].IsBoot -or $disk[0].IsSystem -or
     $partition.Count -ne 1 -or $partition[0].DriveLetter -cne $DriveRoot[0] -or
     (Get-Volume -Partition $partition[0] -ErrorAction Stop).UniqueId -ne $VolumeRoot -or
-    -not $Target.StartsWith($DriveRoot+'publication\destination\visible\',[StringComparison]::Ordinal)) {
+    -not $VisibleRoot.StartsWith($DriveRoot+'publication\destination\',[StringComparison]::Ordinal) -or
+    -not $Target.StartsWith($VisibleRoot+'\',[StringComparison]::Ordinal)) {
     throw 'SYSTEM payload damage volume or target changed'
 }
 $item=Get-Item -LiteralPath $Target -Force -ErrorAction Stop
@@ -77,7 +81,8 @@ if($after -ceq $before){throw 'Selected payload damage did not change content'}
     $command='& ([scriptblock]::Create('+(& $quote $body)+'))'+
         ' -Target '+(& $quote $target)+' -ExpectedSha256 '+(& $quote $ExpectedSha256)+
         ' -VhdPath '+(& $quote $vhd)+' -VolumeRoot '+(& $quote $VolumeRoot)+
-        ' -DriveRoot '+(& $quote $DriveRoot)+' -Output '+(& $quote $output)
+        ' -DriveRoot '+(& $quote $DriveRoot)+' -VisibleRoot '+(& $quote $VisibleRoot)+
+        ' -Output '+(& $quote $output)
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
     $registered=$false
