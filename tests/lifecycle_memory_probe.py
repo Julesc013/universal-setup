@@ -154,6 +154,8 @@ def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int
                     if operation.startswith("legacy_") else
                     (("source prepared outside measured child; install includes plan and apply"
                       if operation == "install" else
+                      "interrupted install prepared outside measured child; recovery finalization only"
+                      if operation == "recovery" else
                       "installed state prepared outside measured child; operation only")
                      if fixture_kind == "isolated" else
                      "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source")),
