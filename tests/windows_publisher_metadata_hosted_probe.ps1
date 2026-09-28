@@ -557,6 +557,31 @@ try {
             if((Get-Service $service).Status -ne 'Stopped'){throw}
         }
     }
+    if($TerminateAtPoststage) {
+        # Hold the exact service process before sending the request. The
+        # handle prevents a later PID from becoming our termination target.
+        $serviceAtStart=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($serviceAtStart.State -cne 'Running' -or $serviceAtStart.ProcessId -le 0 -or
+            $serviceAtStart.PathName -cne $testCommand) {
+            throw 'Owned fault-test service did not start with its exact configuration'
+        }
+        $heldServiceProcess=Get-Process -Id $serviceAtStart.ProcessId -ErrorAction Stop
+        $null=$heldServiceProcess.Handle
+        $serviceProcessAtStart=Get-CimInstance Win32_Process -Filter ('ProcessId='+$serviceAtStart.ProcessId) -ErrorAction Stop
+        if(-not $serviceProcessAtStart -or -not $serviceProcessAtStart.CreationDate -or
+            $serviceProcessAtStart.CommandLine -cne $testCommand -or
+            -not [string]::Equals([IO.Path]::GetFullPath($serviceProcessAtStart.ExecutablePath),
+                [IO.Path]::GetFullPath($ServiceBinary),[StringComparison]::OrdinalIgnoreCase) -or
+            [math]::Abs(($serviceProcessAtStart.CreationDate.ToUniversalTime()-
+                $heldServiceProcess.StartTime.ToUniversalTime()).Ticks) -gt 10000) {
+            throw 'Owned fault-test process differs before client submission'
+        }
+        $heldServiceIdentity=[pscustomobject]@{pid=$serviceAtStart.ProcessId;
+            created=$serviceProcessAtStart.CreationDate;
+            executable=$serviceProcessAtStart.ExecutablePath;
+            command=$serviceProcessAtStart.CommandLine;
+            started_utc=$heldServiceProcess.StartTime.ToUniversalTime().ToString('o')}
+    }
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ExpectUnprotectedRefusal) {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
@@ -653,19 +678,21 @@ try {
             # This deliberately kills only the held, exact campaign service
             # process. It is a transport-loss test, never power-loss evidence.
             $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
-            if($serviceInfo.State -cne 'Running' -or $serviceInfo.ProcessId -le 0 -or
-                $serviceInfo.PathName -cne $testCommand) {
-                throw 'Owned fault-test service identity differs before termination'
+            $serviceProcessAtGate=Get-CimInstance Win32_Process -Filter ('ProcessId='+$heldServiceIdentity.pid) -ErrorAction Stop
+            if($heldServiceProcess.HasExited -or $serviceInfo.State -cne 'Running' -or
+                $serviceInfo.ProcessId -ne $heldServiceIdentity.pid -or
+                $serviceInfo.PathName -cne $testCommand -or
+                -not $serviceProcessAtGate -or
+                $serviceProcessAtGate.CreationDate -ne $heldServiceIdentity.created -or
+                $serviceProcessAtGate.ExecutablePath -cne $heldServiceIdentity.executable -or
+                $serviceProcessAtGate.CommandLine -cne $heldServiceIdentity.command) {
+                throw 'Held owned service process changed before required termination'
             }
-            $serviceProcess=Get-Process -Id $serviceInfo.ProcessId -ErrorAction Stop
-            if(-not [string]::Equals([IO.Path]::GetFullPath($serviceProcess.Path),
-                    [IO.Path]::GetFullPath($ServiceBinary),
-                    [StringComparison]::OrdinalIgnoreCase)) {
-                throw 'Owned fault-test service executable differs before termination'
+            $terminated=Stop-OwnedPublisherProcessTree $heldServiceProcess -RequireLiveKill
+            if(-not $terminated.confirmed -or -not $terminated.kill_invoked -or
+                $terminated.terminated -lt 1) {
+                throw 'Owned fault-test service was not killed and confirmed'
             }
-            $serviceStart=$serviceProcess.StartTime.ToUniversalTime().ToString('o')
-            $terminated=Stop-OwnedPublisherProcessTree $serviceProcess
-            if(-not $terminated.confirmed){throw 'Owned fault-test service did not terminate'}
             $deadline=[DateTime]::UtcNow.AddSeconds(30)
             while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
             if((Get-Service $service).Status -ne 'Stopped'){throw 'SCM retained the terminated test service'}
@@ -684,7 +711,7 @@ try {
         if($TerminateAtPoststage) {
             if(Test-Path -LiteralPath $nativePath){throw 'Killed service wrote a terminal native receipt'}
             $receipt['interruption']=[ordered]@{kind='controlled_process_termination';window=$gate;
-                service_pid=$serviceInfo.ProcessId;service_started_utc=$serviceStart;
+                service_pid=$heldServiceIdentity.pid;service_started_utc=$heldServiceIdentity.started_utc;
                 service_executable_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
                 readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant()}
         } else {

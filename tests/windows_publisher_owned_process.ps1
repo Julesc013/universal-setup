@@ -1,10 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 function Stop-OwnedPublisherProcessTree {
-    param([Parameter(Mandatory=$true)][Diagnostics.Process]$Process)
+    param([Parameter(Mandatory=$true)][Diagnostics.Process]$Process,
+        [switch]$RequireLiveKill)
     $tracked=$Process.PSObject.Properties['UskOwnedTree']
     if($tracked){$owned=$tracked.Value} else {
-    if($Process.HasExited){return [pscustomobject]@{confirmed=$true;terminated=0}}
+    if($Process.HasExited){
+        if($RequireLiveKill){throw 'Owned process exited before required termination'}
+        return [pscustomobject]@{confirmed=$true;terminated=0;kill_invoked=$false}
+    }
     $started=$Process.StartTime.ToUniversalTime()
     $rows=@(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine)
     if($rows.Count -gt 4096){throw 'Owned process observation exceeds bound'}
@@ -29,9 +33,13 @@ function Stop-OwnedPublisherProcessTree {
     # The held root and these start-time-bound descendants are ours. Kill(true)
     # includes descendants created after the observation; confirm recorded
     # instances have gone before removing their account or owned resources.
+    $killInvoked=$false
     if(-not $Process.HasExited){
         $Process.Kill($true)
+        $killInvoked=$true
         if(-not $Process.WaitForExit(5000)){throw 'Owned process root did not terminate'}
+    } elseif($RequireLiveKill){
+        throw 'Owned process exited before required termination'
     }
     $until=[DateTime]::UtcNow.AddSeconds(5)
     do {
@@ -56,7 +64,7 @@ function Stop-OwnedPublisherProcessTree {
                 $remaining++
             }
         }
-        if(-not $remaining){return [pscustomobject]@{confirmed=$true;terminated=$owned.Count}}
+        if(-not $remaining){return [pscustomobject]@{confirmed=$true;terminated=$owned.Count;kill_invoked=$killInvoked}}
         Start-Sleep -Milliseconds 50
     } while([DateTime]::UtcNow -lt $until)
     throw 'Owned process descendants remain; retain account and lab material'
