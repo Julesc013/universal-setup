@@ -178,6 +178,19 @@ def main() -> int:
         assert from_file.returncode == 0, from_file.stderr
         assert json.loads(from_file.stdout) == document
         assert b"SECRET_CANARY_FROM_STDIN" not in from_file.stdout + from_file.stderr
+
+        if sys.platform == "win32":
+            invalid_service = subprocess.run(
+                [executable, "--candidate-service", "invalid", "--request-file", str(source)],
+                capture_output=True, timeout=20, check=False)
+            assert invalid_service.returncode == 2 and not invalid_service.stdout
+            invalid_request = Path(temporary) / "invalid-candidate.json"
+            invalid_request.write_bytes(b'{"schema":"usk.unknown_request.v1"}')
+            missing_service = subprocess.run(
+                [executable, "--candidate-service", "USK_PUB_" + "0" * 32,
+                 "--request-file", str(invalid_request)],
+                capture_output=True, timeout=20, check=False)
+            assert missing_service.returncode == 2 and not missing_service.stdout
         source.write_bytes(struct.pack(">I", len(encoded)) + encoded)
         framed_file = run(executable, "--framed", b"")
         assert framed_file.returncode != 0

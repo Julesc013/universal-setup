@@ -19,6 +19,7 @@ param(
     [switch]$InterruptAfterStage,
     [switch]$ReviewedSource,
     [switch]$RegisteredService,
+    [switch]$MachineRequestClient,
     [switch]$NonAdminClient,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
@@ -48,6 +49,10 @@ if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not
     $InterruptBeforePublish -or
     $InterruptDuringConsumerAccess)) {
     throw 'Registered service probe requires a reviewed-source request and at most the poststage interruption'
+}
+if($MachineRequestClient -and (-not $RegisteredService -or -not $MachineBinary -or
+    $ConsumerAccess -or $NonAdminClient -or $InterruptAfterStage -or $HostileRights)) {
+    throw 'Packaged machine request client requires uninterrupted registered same-user service profile'
 }
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
     throw 'Registered hostile-rights proof requires the same owned non-admin client identity'
@@ -215,7 +220,9 @@ function Start-RequestClient($submitted=$applyRequest) {
     $prefix=Join-Path $(if($ConsumerAccess -or $NonAdminClient){$consumerOutput}else{$root}) ('client-'+$clientNumber)
     $clientRequest=$prefix+'-request.json'
     [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
-    $options=@{FilePath=$ClientBinary;ArgumentList=@('--service',$service,'--request-file',('"'+$clientRequest+'"'));
+    $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
+    $requestArgs=if($MachineRequestClient){@('--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}else{@('--service',$service,'--request-file',('"'+$clientRequest+'"'))}
+    $options=@{FilePath=$requestBinary;ArgumentList=$requestArgs;
         WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$prefix+'-response.json';RedirectStandardError=$prefix+'-error.txt'}
     $identityPath=$prefix+'-identity.json'
     if($ConsumerAccess -or $NonAdminClient) {
@@ -237,7 +244,8 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     if(($client.process.ExitCode -eq 0) -ne $expectSuccess) {
         throw ('Request client exit differs: '+$client.process.ExitCode+'; '+[IO.File]::ReadAllText($client.error))
     }
-    $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
+    $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
+    $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant();
         caller_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
     if($ConsumerAccess -or $NonAdminClient) {
         $actual=Get-Content -LiteralPath $client.identity -Raw|ConvertFrom-Json
@@ -786,8 +794,9 @@ try {
             }
             $receipt['registered_client_identity']=$actual
         }
+        $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
         $receipt['authenticated_client']=[ordered]@{exit_code=0;caller_sid=$callerSid;
-            binary_sha256=(Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash.ToLowerInvariant();
+            binary_sha256=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant();
             response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant();
             delivery='response_received'}
         $receipt['native_response_sha256']=$receipt.authenticated_client.response_sha256

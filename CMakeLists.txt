@@ -430,6 +430,9 @@ if(USK_BUILD_APPS)
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
   target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
+  if(WIN32)
+    target_link_libraries(usk_machine PRIVATE usk_publisher_windows_static shell32)
+  endif()
   usk_enable_strict_warnings(usk_machine)
 
   if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -600,6 +603,24 @@ if(USK_BUILD_TESTS)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
       target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
       usk_enable_strict_warnings(usk_publisher_lab_device_acl)
+      if(TARGET usk_machine AND DEFINED ENV{GITHUB_ACTIONS} AND
+          "$ENV{RUNNER_ENVIRONMENT}" STREQUAL "github-hosted" AND
+          "$ENV{GITHUB_HEAD_REF}" MATCHES "^task/usk-wu-013-")
+        add_test(NAME usk_machine_registered_candidate_hosted
+          COMMAND pwsh -NoProfile -NonInteractive -File
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
+            -OutputPath "$ENV{RUNNER_TEMP}/usk-wu013-machine-bridge.json"
+            -ServiceBinary "$<TARGET_FILE:usk_publisher_lab_service>"
+            -ServiceControlBinary "$<TARGET_FILE:usk_publisher_service_control>"
+            -DeviceAclBinary "$<TARGET_FILE:usk_publisher_lab_device_acl>"
+            -MachineBinary "$<TARGET_FILE:usk_machine>"
+            -PublicApplyBinary "$<TARGET_FILE:usk_publisher_candidate_context_smoke>"
+            -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
+            -PayloadBinary "$<TARGET_FILE:usk_neutral_payload>"
+            -ReviewedSource -RegisteredService -MachineRequestClient)
+        set_tests_properties(usk_machine_registered_candidate_hosted
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
+      endif()
     endif()
 
     add_executable(usk_publisher_handle_observation_smoke

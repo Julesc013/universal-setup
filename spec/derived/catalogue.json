@@ -650,7 +650,7 @@
       "path": "plan/tasks/usk-wu-013.md",
       "title": "Add exact one-shot command host and machine CLI",
       "description": "Proposed M2 WorkUnit; no implementation authority is granted.",
-      "sha256": "f90ebd1bd6926114637cb3997a6203afce3f86c2fe07192d1f1124d4e6772366",
+      "sha256": "49cc4f8028cd2c4ce23a12d3d75fafdfdd5f318c80f15b218d22f5f2f071f344",
       "depends_on": [
         "USK-S-WIRE",
         "USK-S-CLI",
@@ -3968,6 +3968,7 @@
         "spec/**"
       ],
       "allowed_paths": [
+        ".github/workflows/ci.yml",
         "CMakeLists.txt",
         "apps/cli/**",
         "runtime/command/**",
