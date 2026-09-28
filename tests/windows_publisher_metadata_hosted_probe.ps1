@@ -336,13 +336,23 @@ try {
         $package=$packed|ConvertFrom-Json
         if($package.schema -ne 'usk.selected_ntfs_candidate_package.v1' -or
             $package.installation_mode -ne 'selected_ntfs_candidate' -or
+            $package.service_mode -ne 'requires_executable_probe' -or
             $package.product_id -ne 'org.example.metadata') {
             throw 'Selected candidate package identity differs'
         }
         $MachineBinary=Join-Path $packageRoot 'inspect\usk_machine.exe'
-        $ServiceBinary=Join-Path $packageRoot 'publisher\usk_publisher_lab_service.exe'
+        $ServiceBinary=Join-Path $packageRoot 'publisher\usk_publisher_service.exe'
         $ServiceControlBinary=Join-Path $packageRoot 'publisher\usk_publisher_service_control.exe'
         $ClientBinary=Join-Path $packageRoot 'publisher\usk_publisher_client.exe'
+        $packagedServiceHash=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+        if($packagedServiceHash -cne $package.entries.'publisher/usk_publisher_service.exe'.sha256) {
+            throw 'Packaged service bytes differ from candidate manifest'
+        }
+        & python -B (Join-Path $PSScriptRoot 'native\usk_publisher_service_mode_probe.py') $ServiceBinary
+        if($LASTEXITCODE -ne 0) {throw 'Packaged service did not enforce production grammar'}
+        if((Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+            $packagedServiceHash) {throw 'Packaged service changed after production grammar probe'}
+        $receipt['candidate_service_mode_probe']=[ordered]@{status='passed';service_sha256=$packagedServiceHash}
         if($ConsumerAccess) {
             Copy-Item -LiteralPath $ClientBinary -Destination $clientCopy
             if((Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash -cne
