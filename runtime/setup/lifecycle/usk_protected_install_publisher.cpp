@@ -2458,14 +2458,17 @@ struct ScopedExecution {
             (verify_installed_request && (submitted_apply_request ||
                 recover_prepared || recover_reviewed || recover_snapshot_only ||
                 !reviewed_plan_envelope_path.empty() || !selected_archive_path.empty() ||
-                config.prepare_disposable_boundary))) {
+                config.prepare_disposable_boundary || config.interrupt_consumer_grant))) {
             throw std::runtime_error("read-only verify mode has incompatible publisher authority");
         }
         consumer_read_sid=config.consumer_read_sid;
         interrupt_consumer_grant=config.interrupt_consumer_grant;
         if (!consumer_read_sid.empty()) {
             usk::platform::windows::require_publisher_consumer_sid(consumer_read_sid);
-            if (!submitted_apply_request) throw std::runtime_error("consumer policy requires authenticated apply");
+            if (!submitted_apply_request &&
+                !(verify_installed_request && submitted_verify_request)) {
+                throw std::runtime_error("consumer policy requires an authenticated operation");
+            }
         } else if (interrupt_consumer_grant) throw std::runtime_error("consumer fault requires admitted consumer policy");
         stop_event=config.stop_event;
         reviewed_install_reentry=false;
