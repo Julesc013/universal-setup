@@ -953,7 +953,7 @@ int isolated_memory_scenario(const std::string& operation, const fs::path& root,
     if (payload_bytes == 0 || payload_bytes > 2ull * 1024ull * 1024ull * 1024ull ||
         entries == 0 || entries > 4096 ||
         (operation != "install" && operation != "verify" && operation != "repair" &&
-         operation != "move" && operation != "update")) {
+         operation != "move" && operation != "update" && operation != "recovery")) {
         throw std::runtime_error("isolated memory scenario dimensions are invalid");
     }
     const usk::lifecycle::LifecycleRoots roots{
@@ -996,7 +996,19 @@ int isolated_memory_scenario(const std::string& operation, const fs::path& root,
         return files;
     };
     if (prepare) {
-        if (operation != "install") {
+        if (operation == "recovery") {
+            const auto plan = usk::lifecycle::plan_install(
+                "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
+                target, roots, recipe(), make_files());
+            if (!refuses([&] {
+                    (void)usk::lifecycle::apply_install(plan, plan.plan_digest,
+                        "tx.memory.install", "2026-07-14T01:00:01Z",
+                        [](const std::string&, const std::string& point) {
+                            if (point == "after_target_commit")
+                                throw std::runtime_error("injected recovery boundary");
+                        });
+                }) || !fs::is_directory(target)) return 76;
+        } else if (operation != "install") {
             const auto plan = usk::lifecycle::plan_install(
                 "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
                 target, roots, recipe(), make_files());
@@ -1005,6 +1017,7 @@ int isolated_memory_scenario(const std::string& operation, const fs::path& root,
             if (installed.verification.status != "pass") return 65;
         }
         const std::string ownership_digest = operation == "install" ? "pending" :
+            operation == "recovery" ? "recovery_pending" :
             usk::state::StateRepository(roots.state_root)
                 .read_installed("install.memory").ownership_manifest_digest;
         write_isolated_fixture_manifest(manifest_path, payload_bytes, entries,
@@ -1034,6 +1047,28 @@ int isolated_memory_scenario(const std::string& operation, const fs::path& root,
     if (operation == "install") {
         if (ownership_digest != "pending" || fs::exists(target)) {
             throw std::runtime_error("isolated install fixture has prior effects");
+        }
+    } else if (operation == "recovery") {
+        if (ownership_digest != "recovery_pending" || !fs::is_directory(target)) {
+            throw std::runtime_error("isolated recovery fixture is not pending");
+        }
+        std::unordered_set<std::string> expected_paths;
+        expected_paths.reserve(entries);
+        expected_paths.insert("app/bin/program.exe");
+        for (std::size_t index = 1; index < entries; ++index) {
+            expected_paths.insert("app/data/entry-" + std::to_string(index) + ".bin");
+        }
+        for (const auto& item : fs::recursive_directory_iterator(target)) {
+            if (item.is_directory()) continue;
+            const auto relative = fs::relative(item.path(), target).generic_u8string();
+            if (!item.is_regular_file() || expected_paths.erase(relative) != 1 ||
+                item.file_size() != bytes_per_entry ||
+                usk::base::StableFile(item.path()).sha256_hex() != source_digest) {
+                throw std::runtime_error("isolated recovery payload closure differs");
+            }
+        }
+        if (!expected_paths.empty()) {
+            throw std::runtime_error("isolated recovery payload closure is incomplete");
         }
     } else {
         const usk::state::StateRepository repository(roots.state_root);
@@ -1101,6 +1136,17 @@ int isolated_memory_scenario(const std::string& operation, const fs::path& root,
         const auto installed = usk::lifecycle::apply_install(
             plan, plan.plan_digest, "tx.memory.install", "2026-07-14T01:00:01Z");
         if (installed.verification.status != "pass") return 66;
+        write_isolated_fixture_manifest(manifest_path, payload_bytes, entries,
+            bytes_per_entry, source_digest,
+            usk::state::StateRepository(roots.state_root)
+                .read_installed("install.memory").ownership_manifest_digest);
+    } else if (operation == "recovery") {
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
+            target, roots, recipe(), make_files());
+        const auto recovered = usk::lifecycle::recover_install_finalization(
+            plan, "tx.memory.install", "2026-07-14T01:00:02Z");
+        if (recovered.verification.status != "pass") return 77;
         write_isolated_fixture_manifest(manifest_path, payload_bytes, entries,
             bytes_per_entry, source_digest,
             usk::state::StateRepository(roots.state_root)
@@ -1197,6 +1243,25 @@ int isolated_memory_fixture_smoke()
         throw;
     }
     fs::remove_all(root);
+    const fs::path recovery_root = fs::temp_directory_path() /
+        ("usk-isolated-probe-" + std::to_string(nonce) + "-recovery");
+    if (!fs::create_directory(recovery_root)) {
+        throw std::runtime_error("isolated recovery fixture root already exists");
+    }
+    try {
+        const auto admitted = isolated_memory_probe_root(recovery_root.string(), true);
+        if (isolated_memory_scenario("recovery", admitted, 2, 2, true) ||
+            !refuses([&] { (void)isolated_memory_scenario(
+                "recovery", admitted, 2, 3, false); }) ||
+            isolated_memory_scenario("recovery", admitted, 2, 2, false)) {
+            fs::remove_all(recovery_root);
+            return 78;
+        }
+    } catch (...) {
+        fs::remove_all(recovery_root);
+        throw;
+    }
+    fs::remove_all(recovery_root);
     return 0;
 }
 

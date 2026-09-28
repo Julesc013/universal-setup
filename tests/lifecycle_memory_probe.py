@@ -170,7 +170,7 @@ def measure_child(binary: Path, operation: str, payload_bytes: int, entries: int
 def measure(binary: Path, operation: str, payload_bytes: int, entries: int,
             materialized: bool, isolated: bool = False,
             prepared_root: Path | None = None) -> dict:
-    isolated_operations = {"install", "verify", "repair", "move", "update"}
+    isolated_operations = {"install", "verify", "repair", "move", "update", "recovery"}
     if isolated or prepared_root is not None:
         if os.name != "nt":
             raise RuntimeError("isolated operation peaks require Windows per-process counters")
