@@ -432,6 +432,21 @@ int wmain(int argc, wchar_t** argv) {
                 envelope.lexically_normal() == envelope && !envelope.empty();
         } catch (const std::exception&) { registered_reviewed = false; }
     }
+#if defined(USK_TEST_REGISTERED_FAULT_GATE)
+    // Only the separately built disposable-test executable accepts this
+    // receipt-backed interruption grammar. The normal service stays gate-free.
+    const bool registered_fault = argc == 11 && external_client &&
+        !grant_client_read && !interrupt_consumer_grant &&
+        generated_service_name(name, L"USK_PUB_") &&
+        std::wstring(argv[3]) == L"--no-receipt" &&
+        std::wstring(argv[5]) == L"--reviewed-plan-envelope" &&
+        lower_sha256(argv[7]) &&
+        std::wstring(argv[8]) == L"--test-gate-receipt" &&
+        campaign_selected_receipt_path(argv[9]) &&
+        std::wstring(argv[10]) == L"--poststage-gate";
+#else
+    const bool registered_fault = false;
+#endif
     const bool registered_recovery = argc == 6 && external_client &&
         !grant_client_read && !interrupt_consumer_grant &&
         generated_service_name(name, L"USK_PUB_") &&
@@ -443,7 +458,8 @@ int wmain(int argc, wchar_t** argv) {
                 return true;
             } catch (const std::exception&) { return false; }
         }();
-    const bool registered_mode = registered_reviewed || registered_recovery;
+    const bool registered_mode = registered_reviewed || registered_fault ||
+        registered_recovery;
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
@@ -458,12 +474,13 @@ int wmain(int argc, wchar_t** argv) {
         !external_client) return 2;
     if (admit_client_observer && !registered_mode) return 2;
     service_name = argv[2];
-    receipt_path = registered_mode ? L"" : argv[3];
+    receipt_path = registered_fault ? argv[9] : registered_mode ? L"" : argv[3];
     volume_root = argv[4];
     const std::wstring selected_gate =
         campaign_vm_selected && argc == 11 ? argv[10] :
         campaign_vm_selected_plan && argc == 14 ? argv[13] :
-        campaign_vm_reviewed_source && argc == 11 ? argv[10] : L"";
+        campaign_vm_reviewed_source && argc == 11 ? argv[10] :
+        registered_fault ? argv[10] : L"";
     prepublish_gate = (hosted && argc == 6) || campaign_vm ||
         selected_gate == L"--prepublish-gate";
     poststage_gate = selected_gate == L"--poststage-gate";
@@ -481,6 +498,7 @@ int wmain(int argc, wchar_t** argv) {
     recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
         campaign_vm_snapshot_recovery || campaign_vm_reviewed_source ||
+        registered_fault ||
         registered_reviewed;
     if (campaign_vm_selected || campaign_vm_selected_plan) {
         selected_archive_path = argv[6];
@@ -490,7 +508,7 @@ int wmain(int argc, wchar_t** argv) {
         reviewed_plan_envelope_path = campaign_vm_selected_plan ? argv[11] : argv[6];
         reviewed_plan_envelope_sha256 = ascii(campaign_vm_selected_plan ? argv[12] : argv[7]);
     }
-    if (registered_reviewed) {
+    if (registered_reviewed || registered_fault) {
         reviewed_plan_envelope_path = argv[6];
         reviewed_plan_envelope_sha256 = ascii(argv[7]);
     }

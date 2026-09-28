@@ -36,9 +36,13 @@ if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or 
 if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not $ServiceControlBinary -or
     $ConsumerAccess -or $HostileRights -or $ExpectUnprotectedRefusal -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or
-    $InterruptBeforePublish -or $InterruptAfterStage -or
+    $InterruptBeforePublish -or
     $InterruptDuringConsumerAccess)) {
-    throw 'Registered service probe requires one uninterrupted reviewed-source request'
+    throw 'Registered service probe requires a reviewed-source request and at most the poststage interruption'
+}
+if($RegisteredService -and $InterruptAfterStage -and
+    (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
+    throw 'Registered poststage interruption requires the separately built fault-test service'
 }
 if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
     throw 'Non-admin client requires the registered service without consumer payload rights'
@@ -401,7 +405,19 @@ try {
             throw 'Registered publisher accepted a different start caller'
         }
         $receipt['wrong_caller_start_refused']=$true
-        Start-RegisteredPublisher
+        if($InterruptAfterStage) {
+            $testCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
+                ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
+                ' --test-gate-receipt "'+$nativePath+'" --poststage-gate'+
+                $(if($NonAdminClient){' --admit-client-observer'}else{''})+
+                ' --authorized-client-sid '+$callerSid
+            & sc.exe config $service binPath= $testCommand|Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Owned fault-test service configuration failed'}
+            if((Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $testCommand) {
+                throw 'Owned fault-test service command readback differs'
+            }
+            try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        } else { Start-RegisteredPublisher }
     } else {
         try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
     }
@@ -552,11 +568,31 @@ try {
             $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$recoveryPath+'" '+$VolumeRoot+
                 ' --recover-reviewed --campaign-vm-id '+$vmId+$clientArguments
         }
-        & sc.exe config $service binPath= $recoveryCommand|Out-Null
-        if($LASTEXITCODE -ne 0){throw 'Owned service recovery configuration failed'}
-        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
-        $nativePath=$recoveryPath
-        if($ClientBinary){$requestClient=Start-RequestClient}
+        if($RegisteredService) {
+            # Remove only the test-only gate from the exact generated service.
+            # The ordinary control then validates the original binding and
+            # configures its source-free recovery command.
+            & sc.exe config $service binPath= $expectedRegisteredCommand|Out-Null
+            if($LASTEXITCODE -ne 0 -or
+                (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
+                throw 'Owned fault-test command could not be restored'
+            }
+            $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+            if($NonAdminClient){$controlArgs+='--admit-client-observer'}
+            $configuredRecovery=& $ServiceControlBinary @controlArgs
+            if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
+                throw 'Product service control did not configure incomplete-phase recovery'
+            }
+            $nativePath=$recoveryPath
+            Start-RegisteredPublisher
+            $requestClient=Start-RequestClient
+        } else {
+            & sc.exe config $service binPath= $recoveryCommand|Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Owned service recovery configuration failed'}
+            try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+            $nativePath=$recoveryPath
+            if($ClientBinary){$requestClient=Start-RequestClient}
+        }
     }
     if($InterruptDuringConsumerAccess) {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
@@ -646,6 +682,24 @@ try {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
     Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
+    if($RegisteredService -and $recover) {
+        $stagedRoot=$drive+'publication\staging\candidate'
+        foreach($row in $before.independent.rows) {
+            $completedPath=$row.path
+            if($row.path -ceq $stagedRoot -or
+                $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal)) {
+                $completedPath=$drive+'publication\destination\visible'+$row.path.Substring($stagedRoot.Length)
+            }
+            $matching=@($receipt.independent.rows|Where-Object path -ceq $completedPath)
+            if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or
+                $matching[0].bytes -ne $row.bytes) {
+                throw 'Registered recovery changed retained payload or durable intent'
+            }
+        }
+        $receipt['source_free_recovery']=[ordered]@{action=$recoveryDecision;
+            interrupted_independent=$before.independent;completed_independent=$receipt.independent;
+            completed_row_count=@($receipt.independent.rows).Count}
+    }
     if($NonAdminClient -and @($receipt.independent.rows|Where-Object {
         @($_.aces|Where-Object sid -eq $consumerSid).Count -ne 0
     }).Count -ne 0) {
@@ -655,19 +709,25 @@ try {
         # Keep the same SCM service identity and durable request while withholding
         # every original authoring/source input. This exercises the production
         # service grammar against the existing source-free recovery engine.
-        $removed=[Collections.Generic.List[string]]::new()
-        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
-            $exact=[IO.Path]::GetFullPath($path)
-            $item=Get-Item -LiteralPath $exact -Force
-            if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or
-                $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                throw 'Registered recovery source removal escaped owned input root'
+        if(-not $recover) {
+            $removed=[Collections.Generic.List[string]]::new()
+            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+                $exact=[IO.Path]::GetFullPath($path)
+                $item=Get-Item -LiteralPath $exact -Force
+                if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or
+                    $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                    throw 'Registered recovery source removal escaped owned input root'
+                }
+                Remove-Item -LiteralPath $exact -Force
+                if(Test-Path -LiteralPath $exact){throw 'Registered recovery source input remains'}
+                $removed.Add($exact)
             }
-            Remove-Item -LiteralPath $exact -Force
-            if(Test-Path -LiteralPath $exact){throw 'Registered recovery source input remains'}
-            $removed.Add($exact)
+            $receipt['removed_source_inputs']=$removed.ToArray()
+        } else {
+            foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+                if(Test-Path -LiteralPath $path){throw 'Original source returned before registered replay'}
+            }
         }
-        $receipt['removed_source_inputs']=$removed.ToArray()
         if($callerSid -eq 'S-1-5-18'){throw 'Registered client unexpectedly uses SYSTEM identity'}
         $beforeControl=(Get-CimInstance Win32_Service -Filter "Name='$service'").PathName
         $wrongCallerError=Join-Path $root ('wrong-caller-'+$id+'.txt')
@@ -731,7 +791,7 @@ try {
             throw 'Selected postpublish hostile attempts changed published state'
         }
     }
-    if($recover) {
+    if($recover -and -not $RegisteredService) {
         foreach($row in $before.independent.rows) {
             $completedPath=$row.path
             $stagedRoot=$drive+'publication\staging\candidate'
@@ -827,7 +887,7 @@ try {
             independent_repeat=$after.independent;repeat_observer_task_removed=$after.observer_task_removed;
             unchanged_row_count=$after.independent.rows.Count}
     }
-    if($recover -and $ClientBinary) {
+    if($recover -and $ClientBinary -and -not $RegisteredService) {
         # A genuine authenticated peer cannot change the durable request merely
         # by reusing this endpoint after successful recovery.
         $tampered=$applyRequest|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
