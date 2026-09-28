@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "424adb0352461fbac909220724e5e34988b6006f4ecb2a13b99e33b72275e761"
+          "sha256": "bdbc2a999f0fce2cb05e4ba8871939ac978af1e690748d2a78a8365dd8d384ee"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4071,7 +4071,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "ea4c52944af734ccd947569f5179acd1ee7a2a0d24232f6e695657ce3cc2a8c0"
+          "sha256": "2ebd3bde5727032d32a1b5812a5550ac67716cda0e51a21ab4f508d720d0a7ed"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4335,7 +4335,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "424adb0352461fbac909220724e5e34988b6006f4ecb2a13b99e33b72275e761"
+          "sha256": "bdbc2a999f0fce2cb05e4ba8871939ac978af1e690748d2a78a8365dd8d384ee"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4359,7 +4359,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "ea4c52944af734ccd947569f5179acd1ee7a2a0d24232f6e695657ce3cc2a8c0"
+          "sha256": "2ebd3bde5727032d32a1b5812a5550ac67716cda0e51a21ab4f508d720d0a7ed"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",

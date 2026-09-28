@@ -740,6 +740,8 @@ std::string read_phase_record(HANDLE journal, const std::wstring& name) {
 void require_reviewed_plan_snapshot(const std::string& record,
     const usk::json::Value& prepared, const std::string& selected_digest) {
     const auto snapshot = usk::json::parse(record);
+    const std::wstring selected_name =
+        selected_visible_component(snapshot.at("target_root").as_string());
     const auto& binding = prepared.at("source_binding");
     const std::string schema = snapshot.at("schema").as_string();
     const bool consumer_bound = schema == "usk.publisher.lab_reviewed_plan_snapshot.v4";
@@ -762,6 +764,7 @@ void require_reviewed_plan_snapshot(const std::string& record,
         snapshot.at("entry_set_digest").as_string() !=
             binding.at("entry_set_digest").as_string() ||
         snapshot.at("selected_file_set_digest").as_string() != selected_digest ||
+        prepared.at("destination_name").as_string() != ascii(selected_name) ||
         std::filesystem::path(snapshot.at("target_root").as_string())
             .lexically_normal().generic_u8string() !=
         std::filesystem::path(snapshot.at("plan_request").at("target")
@@ -800,7 +803,7 @@ void require_reviewed_plan_snapshot(const std::string& record,
     if (selected_file_set_digest(std::move(files)) != selected_digest) {
         throw std::runtime_error("recovery reviewed plan file closure differs");
     }
-    visible_component = selected_visible_component(snapshot.at("target_root").as_string());
+    visible_component = selected_name;
 }
 
 usk::lifecycle::InstallPlan restore_reviewed_install_plan(
@@ -949,6 +952,16 @@ ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
             std::filesystem::path(acceptance_root) / "setup-state") {
         throw std::runtime_error("snapshot-only setup root is outside lab profile");
     }
+    const std::wstring selected_name =
+        selected_visible_component(snapshot.at("target_root").as_string());
+    const std::string expected_target =
+        (std::filesystem::path(acceptance_root) / L"publication" /
+            L"destination" / selected_name).lexically_normal().generic_u8string();
+    if (std::filesystem::path(snapshot.at("target_root").as_string())
+            .lexically_normal().generic_u8string() != expected_target) {
+        throw std::runtime_error("snapshot-only target differs from the reviewed acceptance root");
+    }
+    visible_component = selected_name;
     return {snapshot.at("plan_digest").as_string(),
         snapshot.at("plan_envelope_sha256").as_string(),
         snapshot.at("selected_file_set_digest").as_string(), record,

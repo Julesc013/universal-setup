@@ -123,7 +123,7 @@ if(-not $image.Attached -or $disk.Count -ne 1 -or $disk[0].IsBoot -or $disk[0].I
     (Get-Volume -Partition $partitions[0]).FileSystem -ne 'NTFS') { throw 'Owned NTFS VHD identity differs' }
 $disk=$disk[0]
 $drive=[string]$partitions[0].DriveLetter+':\'
-$visibleLeaf=if($ProductionConcurrentRights){'selected-app'}else{'visible'}
+$visibleLeaf=if($ProductionConcurrentRights -or ($RegisteredService -and $InterruptAfterStage)){'selected-app'}else{'visible'}
 $visibleRoot=$drive+'publication\destination\'+$visibleLeaf
 function Assert-OwnedVolume {
     $liveImage=Get-DiskImage -ImagePath $vhd
