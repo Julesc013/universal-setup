@@ -895,7 +895,31 @@ try {
         $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     $receipt['consumer_sid']=if($ConsumerAccess){$consumerSid}else{''}
-    if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+    if($RegisteredService -and -not $HostileRights -and -not $recover) {
+        # After the authenticated terminal reply, use the packaged control
+        # path for the install-to-verify transition. A mismatched caller must
+        # leave this exact running service alone.
+        $wrongStopError=Join-Path $root ('wrong-stop-'+$id+'.txt')
+        $wrongStopArgs=@('--stop',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
+        if($registeredMode){$wrongStopArgs+=$registeredMode}
+        & $ServiceControlBinary @wrongStopArgs 2>$wrongStopError|Out-Null
+        if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Running') {
+            throw 'Registered publisher accepted a different stop caller'
+        }
+        $stopArgs=@('--stop',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+        if($registeredMode){$stopArgs+=$registeredMode}
+        $stopped=& $ServiceControlBinary @stopArgs
+        if($LASTEXITCODE -ne 0 -or ($stopped|ConvertFrom-Json).status -ne 'stopped' -or
+            (Get-Service $service).Status -ne 'Stopped') {
+            throw 'Product service control did not stop the completed publisher'
+        }
+        $stoppedAgain=& $ServiceControlBinary @stopArgs
+        if($LASTEXITCODE -ne 0 -or ($stoppedAgain|ConvertFrom-Json).status -ne 'already_stopped') {
+            throw 'Product service control repeated stop differs'
+        }
+        $receipt['registered_service_stop']=[ordered]@{
+            wrong_caller_refused=$true;first_status='stopped';repeat_status='already_stopped'}
+    } elseif((Get-Service $service).Status -ne 'Stopped') {Stop-Service $service}
     if($RegisteredService -and $HostileRights) {
         # Restore the registered command before using product recovery/verify
         # control. Only the separately built fault-test binary admits the gate.
