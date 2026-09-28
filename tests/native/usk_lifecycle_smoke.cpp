@@ -12,6 +12,10 @@
 #include "usk_transaction_session.h"
 #if defined(_WIN32)
 #include "usk_protected_publisher_finalization_internal.h"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 #include <algorithm>
@@ -25,7 +29,13 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
+#if !defined(_WIN32)
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -422,6 +432,122 @@ fs::path legacy_probe_root(const std::string& value, bool require_empty)
         throw std::runtime_error("legacy probe root must be a disposable empty temporary directory");
     }
     return root;
+}
+
+fs::path isolated_memory_probe_root(const std::string& value, bool require_empty)
+{
+    const fs::path root = fs::absolute(fs::path(value)).lexically_normal();
+    if (root.filename().string().rfind("usk-isolated-probe-", 0) != 0 ||
+        !fs::equivalent(root.parent_path(), fs::temp_directory_path()) ||
+        !fs::is_directory(root) || fs::is_symlink(fs::symlink_status(root)) ||
+        (require_empty && !fs::is_empty(root))) {
+        throw std::runtime_error("isolated memory root must be a disposable temporary directory");
+    }
+    return root;
+}
+
+void reject_isolated_fixture_links(const fs::path& root)
+{
+    const auto reject_link = [](const fs::path& path) {
+        if (fs::is_symlink(fs::symlink_status(path))) {
+            throw std::runtime_error("isolated memory fixture contains a link");
+        }
+#if defined(_WIN32)
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES ||
+            (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+            throw std::runtime_error("isolated memory fixture contains a reparse point");
+        }
+#endif
+    };
+    reject_link(root);
+    for (const auto& item : fs::recursive_directory_iterator(root)) {
+        reject_link(item.path());
+        if (item.is_regular_file() && fs::hard_link_count(item.path()) != 1) {
+            throw std::runtime_error("isolated memory fixture contains a hard link");
+        }
+    }
+}
+
+void write_isolated_fixture_manifest(const fs::path& path,
+    std::uint64_t payload_bytes, std::size_t entries, std::uint64_t bytes_per_entry,
+    const std::string& source_digest, const std::string& ownership_digest)
+{
+    std::ofstream manifest(path, std::ios::binary | std::ios::trunc);
+    manifest << "usk-isolated-fixture-v1 " << payload_bytes << ' ' << entries << ' '
+             << bytes_per_entry << ' ' << source_digest << ' ' << ownership_digest
+             << " install.memory\n";
+    if (!manifest) throw std::runtime_error("isolated fixture manifest write failed");
+}
+
+void damage_isolated_owned_file(const fs::path& root, std::uint64_t expected_size)
+{
+    const fs::path relative = fs::path("targets") / "portable" / "app" / "bin" / "program.exe";
+#if defined(_WIN32)
+    const auto close_handle = [](HANDLE handle) { CloseHandle(handle); };
+    const HANDLE root_raw = CreateFileW(root.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    if (root_raw == INVALID_HANDLE_VALUE) throw std::runtime_error("cannot hold isolated root");
+    std::unique_ptr<void, decltype(close_handle)> root_handle(root_raw, close_handle);
+    const HANDLE file_raw = CreateFileW((root / relative).c_str(),
+        GENERIC_WRITE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (file_raw == INVALID_HANDLE_VALUE) throw std::runtime_error("cannot hold isolated payload");
+    std::unique_ptr<void, decltype(close_handle)> file_handle(file_raw, close_handle);
+    const auto final_path = [](HANDLE handle) {
+        const DWORD length = GetFinalPathNameByHandleW(handle, nullptr, 0, FILE_NAME_NORMALIZED);
+        if (length == 0) throw std::runtime_error("cannot resolve isolated handle");
+        std::wstring result(length + 1, L'\0');
+        const DWORD written = GetFinalPathNameByHandleW(
+            handle, result.data(), static_cast<DWORD>(result.size()), FILE_NAME_NORMALIZED);
+        if (written == 0 || written > length) {
+            throw std::runtime_error("cannot resolve isolated handle");
+        }
+        result.resize(written);
+        return result;
+    };
+    const std::wstring expected = final_path(root_raw) + L"\\" + relative.wstring();
+    BY_HANDLE_FILE_INFORMATION info{};
+    LARGE_INTEGER actual_size{};
+    if (CompareStringOrdinal(final_path(file_raw).c_str(), -1,
+            expected.c_str(), -1, TRUE) != CSTR_EQUAL ||
+        !GetFileInformationByHandle(file_raw, &info) ||
+        (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        info.nNumberOfLinks != 1 || !GetFileSizeEx(file_raw, &actual_size) ||
+        actual_size.QuadPart != static_cast<LONGLONG>(expected_size)) {
+        throw std::runtime_error("isolated payload handle is outside fixture identity");
+    }
+    DWORD written = 0;
+    if (!WriteFile(file_raw, "!", 1, &written, nullptr) || written != 1) {
+        throw std::runtime_error("isolated payload damage failed");
+    }
+#else
+    std::vector<int> held;
+    try {
+        int current = ::open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+        if (current < 0) throw std::runtime_error("cannot hold isolated root");
+        held.push_back(current);
+        for (const char* component : {"targets", "portable", "app", "bin"}) {
+            current = ::openat(current, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+            if (current < 0) throw std::runtime_error("isolated payload parent changed");
+            held.push_back(current);
+        }
+        const int file = ::openat(current, "program.exe", O_WRONLY | O_NOFOLLOW);
+        if (file < 0) throw std::runtime_error("cannot hold isolated payload");
+        held.push_back(file);
+        struct stat info{};
+        if (::fstat(file, &info) != 0 || !S_ISREG(info.st_mode) ||
+            info.st_nlink != 1 || static_cast<std::uint64_t>(info.st_size) != expected_size ||
+            ::pwrite(file, "!", 1, 0) != 1) {
+            throw std::runtime_error("isolated payload handle is outside fixture identity");
+        }
+    } catch (...) {
+        for (const int descriptor : held) ::close(descriptor);
+        throw;
+    }
+    for (const int descriptor : held) ::close(descriptor);
+#endif
 }
 
 int run()
@@ -821,6 +947,259 @@ int memory_scenario(const std::string& operation, std::uint64_t payload_bytes,
     return 0;
 }
 
+int isolated_memory_scenario(const std::string& operation, const fs::path& root,
+    std::uint64_t payload_bytes, std::size_t entries, bool prepare)
+{
+    if (payload_bytes == 0 || payload_bytes > 2ull * 1024ull * 1024ull * 1024ull ||
+        entries == 0 || entries > 4096 ||
+        (operation != "install" && operation != "verify" && operation != "repair" &&
+         operation != "move" && operation != "update")) {
+        throw std::runtime_error("isolated memory scenario dimensions are invalid");
+    }
+    const usk::lifecycle::LifecycleRoots roots{
+        root / "staging", root / "state", root / "audit"};
+    const fs::path target = root / "targets/portable";
+    const fs::path source_path = root / "source.bin";
+    const fs::path manifest_path = root / "isolated-fixture.v1";
+    const std::uint64_t bytes_per_entry = (payload_bytes + entries - 1u) / entries;
+    if (prepare) {
+        Fixture fixture(root, false);
+        fs::create_directories(target.parent_path());
+        std::ofstream output(source_path, std::ios::binary);
+        if (!output) throw std::runtime_error("isolated source create failed");
+        const std::vector<char> chunk(64u * 1024u, 'x');
+        for (std::uint64_t offset = 0; offset < bytes_per_entry;) {
+            const auto count = static_cast<std::streamsize>(
+                std::min<std::uint64_t>(chunk.size(), bytes_per_entry - offset));
+            output.write(chunk.data(), count);
+            if (!output) throw std::runtime_error("isolated source write failed");
+            offset += static_cast<std::uint64_t>(count);
+        }
+        output.close();
+    }
+    const auto make_files = [&] {
+        auto source = std::make_shared<usk::base::StableFile>(source_path);
+        const std::string digest = source->sha256_hex();
+        std::vector<usk::lifecycle::PayloadFile> files;
+        files.reserve(entries);
+        for (std::size_t index = 0; index < entries; ++index) {
+            const std::string relative = index == 0 ? "app/bin/program.exe" :
+                "app/data/entry-" + std::to_string(index) + ".bin";
+            files.push_back({relative, {}, digest, bytes_per_entry,
+                [source](std::uint64_t offset, unsigned char* output, std::size_t capacity) {
+                    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(
+                        capacity, source->identity().size_bytes - offset));
+                    if (count != 0) source->read_into(offset, output, count);
+                    return count;
+                }, 64u * 1024u});
+        }
+        return files;
+    };
+    if (prepare) {
+        if (operation != "install") {
+            const auto plan = usk::lifecycle::plan_install(
+                "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
+                target, roots, recipe(), make_files());
+            const auto installed = usk::lifecycle::apply_install(
+                plan, plan.plan_digest, "tx.memory.install", "2026-07-14T01:00:01Z");
+            if (installed.verification.status != "pass") return 65;
+        }
+        const std::string ownership_digest = operation == "install" ? "pending" :
+            usk::state::StateRepository(roots.state_root)
+                .read_installed("install.memory").ownership_manifest_digest;
+        write_isolated_fixture_manifest(manifest_path, payload_bytes, entries,
+            bytes_per_entry, usk::base::StableFile(source_path).sha256_hex(),
+            ownership_digest);
+        std::cout << "memory-fixture-prepared " << operation << ' ' <<
+            (bytes_per_entry * entries) << ' ' << entries << '\n';
+        return 0;
+    }
+    reject_isolated_fixture_links(root);
+    if (!fs::is_regular_file(source_path) || !fs::is_directory(roots.state_root) ||
+        !fs::is_regular_file(manifest_path) || fs::file_size(source_path) != bytes_per_entry) {
+        throw std::runtime_error("isolated memory fixture is incomplete");
+    }
+    std::ifstream manifest(manifest_path, std::ios::binary);
+    std::string schema, source_digest, ownership_digest, install_id, extra;
+    std::uint64_t recorded_payload = 0, recorded_bytes_per_entry = 0;
+    std::size_t recorded_entries = 0;
+    if (!(manifest >> schema >> recorded_payload >> recorded_entries >>
+          recorded_bytes_per_entry >> source_digest >> ownership_digest >> install_id) ||
+        (manifest >> extra) || schema != "usk-isolated-fixture-v1" ||
+        recorded_payload != payload_bytes || recorded_entries != entries ||
+        recorded_bytes_per_entry != bytes_per_entry || install_id != "install.memory" ||
+        source_digest != usk::base::StableFile(source_path).sha256_hex()) {
+        throw std::runtime_error("isolated memory fixture identity mismatch");
+    }
+    if (operation == "install") {
+        if (ownership_digest != "pending" || fs::exists(target)) {
+            throw std::runtime_error("isolated install fixture has prior effects");
+        }
+    } else {
+        const usk::state::StateRepository repository(roots.state_root);
+        const auto installed = repository.read_installed("install.memory");
+        if (ownership_digest == "pending" ||
+            installed.ownership_manifest_digest != ownership_digest) {
+            throw std::runtime_error("isolated installed-state digest mismatch");
+        }
+        if (fs::path(installed.target_root).make_preferred().lexically_normal() !=
+            fs::path(target).make_preferred().lexically_normal()) {
+            throw std::runtime_error("isolated installed target mismatch: " +
+                installed.target_root + " vs " + target.string());
+        }
+        if (installed.ownership_manifest_ref.rfind("ownership/", 0) != 0 ||
+            installed.ownership_manifest_ref.size() <= 15 ||
+            installed.ownership_manifest_ref.substr(
+                installed.ownership_manifest_ref.size() - 5) != ".json") {
+            throw std::runtime_error("isolated installed-state ownership reference mismatch");
+        }
+        const auto ownership = repository.read_ownership(
+            installed.ownership_manifest_ref.substr(10,
+                installed.ownership_manifest_ref.size() - 15));
+        if (ownership.manifest_digest != ownership_digest ||
+            ownership.install_id != "install.memory" ||
+            fs::path(ownership.target_root).make_preferred().lexically_normal() !=
+                fs::path(target).make_preferred().lexically_normal() ||
+            ownership.files.size() != entries) {
+            throw std::runtime_error("isolated ownership identity mismatch");
+        }
+        std::unordered_set<std::string> expected_paths;
+        expected_paths.reserve(entries);
+        expected_paths.insert("app/bin/program.exe");
+        for (std::size_t index = 1; index < entries; ++index) {
+            expected_paths.insert("app/data/entry-" + std::to_string(index) + ".bin");
+        }
+        for (const auto& file : ownership.files) {
+            if (expected_paths.erase(file.relative_path) != 1 ||
+                file.size_bytes != bytes_per_entry || file.sha256 != source_digest) {
+                throw std::runtime_error("isolated ownership file closure mismatch");
+            }
+        }
+        if (!expected_paths.empty()) {
+            throw std::runtime_error("isolated ownership file closure is incomplete");
+        }
+        std::size_t observed_entries = 0;
+        if (!fs::is_directory(target)) {
+            throw std::runtime_error("isolated installed target is missing");
+        }
+        for (const auto& item : fs::recursive_directory_iterator(target)) {
+            if (item.is_regular_file()) {
+                if (item.file_size() != bytes_per_entry) {
+                    throw std::runtime_error("isolated installed payload identity mismatch");
+                }
+                ++observed_entries;
+            }
+        }
+        if (observed_entries != entries) {
+            throw std::runtime_error("isolated installed entry count mismatch");
+        }
+    }
+    if (operation == "install") {
+        const auto plan = usk::lifecycle::plan_install(
+            "plan.memory.install", "install.memory", "2026-07-14T01:00:00Z",
+            target, roots, recipe(), make_files());
+        const auto installed = usk::lifecycle::apply_install(
+            plan, plan.plan_digest, "tx.memory.install", "2026-07-14T01:00:01Z");
+        if (installed.verification.status != "pass") return 66;
+        write_isolated_fixture_manifest(manifest_path, payload_bytes, entries,
+            bytes_per_entry, source_digest,
+            usk::state::StateRepository(roots.state_root)
+                .read_installed("install.memory").ownership_manifest_digest);
+    } else if (operation == "verify") {
+        if (usk::lifecycle::verify_installed(roots, "install.memory",
+                "verify.memory", "2026-07-14T01:00:02Z").status != "pass") return 67;
+    } else if (operation == "repair") {
+        damage_isolated_owned_file(root, bytes_per_entry);
+        const auto plan = usk::lifecycle::plan_repair(roots, "install.memory",
+            "plan.memory.repair", "2026-07-14T01:00:02Z", make_files());
+        if (usk::lifecycle::apply_repair(plan, plan.plan_digest,
+                "tx.memory.repair", "2026-07-14T01:00:03Z").after.status != "pass") return 69;
+        write_isolated_fixture_manifest(manifest_path, payload_bytes, entries,
+            bytes_per_entry, source_digest,
+            usk::state::StateRepository(roots.state_root)
+                .read_installed("install.memory").ownership_manifest_digest);
+    } else if (operation == "move") {
+        const fs::path destination = root / "targets/moved";
+        const auto plan = usk::lifecycle::plan_move(roots, "install.memory",
+            "plan.memory.move", "2026-07-14T01:00:04Z", destination);
+        const auto result = usk::lifecycle::apply_move(plan, plan.plan_digest,
+            "tx.memory.move", "2026-07-14T01:00:05Z");
+        if (result.verification.status != "pass" || !fs::is_directory(destination)) return 70;
+    } else {
+        auto next = recipe();
+        next.product_version = "2.0.0";
+        const auto plan = usk::lifecycle::plan_update(roots, "install.memory",
+            "plan.memory.update", "2026-07-14T01:00:02Z", "upgrade", target,
+            next, make_files());
+        if (!refuses([&] { (void)usk::lifecycle::apply_update(plan, plan.plan_digest,
+                "tx.memory.update", "2026-07-14T01:00:03Z"); }) ||
+            !fs::is_directory(target)) return 71;
+    }
+    std::cout << "memory-scenario-pass " << operation << " isolated_streaming " <<
+        (bytes_per_entry * entries) << ' ' << entries << '\n';
+    return 0;
+}
+
+int isolated_memory_fixture_smoke()
+{
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path root = fs::temp_directory_path() /
+        ("usk-isolated-probe-" + std::to_string(nonce));
+    if (!fs::create_directory(root)) {
+        throw std::runtime_error("isolated memory fixture root already exists");
+    }
+    try {
+        const auto admitted = isolated_memory_probe_root(root.string(), true);
+        for (const auto& [operation, prepare] :
+                std::vector<std::pair<std::string, bool>>{{"install", true},
+                    {"install", false}, {"verify", false}, {"update", false},
+                    {"repair", false}, {"move", false}}) {
+            if (operation == "repair") {
+                if (!refuses([&] { (void)isolated_memory_scenario(
+                        "repair", admitted, 2, 3, false); })) {
+                    fs::remove_all(root);
+                    return 73;
+                }
+                const auto source_digest = usk::base::StableFile(root / "source.bin").sha256_hex();
+                const auto ownership_digest = usk::state::StateRepository(root / "state")
+                    .read_installed("install.memory").ownership_manifest_digest;
+                write_isolated_fixture_manifest(root / "isolated-fixture.v1", 2, 2, 1,
+                    source_digest, std::string(64, '0'));
+                const bool rejected_identity = refuses([&] { (void)isolated_memory_scenario(
+                    "repair", admitted, 2, 2, false); });
+                write_isolated_fixture_manifest(root / "isolated-fixture.v1", 2, 2, 1,
+                    source_digest, ownership_digest);
+                if (!rejected_identity) {
+                    fs::remove_all(root);
+                    return 75;
+                }
+                const fs::path alias = root / "linked-program";
+                std::error_code link_error;
+                fs::create_hard_link(root / "targets/portable/app/bin/program.exe",
+                    alias, link_error);
+                if (!link_error) {
+                    const bool rejected = refuses([&] { (void)isolated_memory_scenario(
+                        "repair", admitted, 2, 2, false); });
+                    fs::remove(alias);
+                    if (!rejected) {
+                        fs::remove_all(root);
+                        return 74;
+                    }
+                }
+            }
+            if (isolated_memory_scenario(operation, admitted, 2, 2, prepare)) {
+                fs::remove_all(root);
+                return 72;
+            }
+        }
+    } catch (...) {
+        fs::remove_all(root);
+        throw;
+    }
+    fs::remove_all(root);
+    return 0;
+}
+
 int report_budget_scenario()
 {
     Fixture fixture;
@@ -942,6 +1321,13 @@ int main(int argc, char** argv)
             return memory_scenario(argv[2], std::stoull(argv[3]),
                 static_cast<std::size_t>(std::stoull(argv[4])), materialized);
         }
+        if (argc == 6 && (std::string(argv[1]) == "--prepare-isolated-memory" ||
+                          std::string(argv[1]) == "--observe-isolated-memory")) {
+            const bool prepare = std::string(argv[1]) == "--prepare-isolated-memory";
+            const auto root = isolated_memory_probe_root(argv[3], prepare);
+            return isolated_memory_scenario(argv[2], root, std::stoull(argv[4]),
+                static_cast<std::size_t>(std::stoull(argv[5])), prepare);
+        }
         if (argc == 2 && std::string(argv[1]) == "--report-budget-smoke") {
             return report_budget_scenario();
         }
@@ -954,6 +1340,9 @@ int main(int argc, char** argv)
         }
         if (const int legacy = legacy_ownership_compatibility_proof()) {
             return legacy;
+        }
+        if (const int isolated = isolated_memory_fixture_smoke()) {
+            return isolated;
         }
         return run();
     } catch (const std::exception& error) {
