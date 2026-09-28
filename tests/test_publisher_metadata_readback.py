@@ -13,6 +13,30 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_incomplete_cim_creation_time_waits_for_disappearance(self):
+        root = Path(__file__).resolve().parents[1]
+        shell = shutil.which("pwsh")
+        self.assertIsNotNone(shell)
+        child = base64.b64encode("Start-Sleep -Seconds 30".encode("utf-16-le")).decode("ascii")
+        environment = dict(os.environ, USK_CHILD_COMMAND=child,
+                           USK_PROCESS_HELPER=str(root / "tests/windows_publisher_owned_process.ps1"))
+        code = """$ErrorActionPreference='Stop'
+. ([scriptblock]::Create([IO.File]::ReadAllText($env:USK_PROCESS_HELPER)))
+$p=Start-Process (Get-Command pwsh).Source -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand',$env:USK_CHILD_COMMAND) -PassThru -WindowStyle Hidden
+try {
+ $p|Add-Member -NotePropertyName UskOwnedTree -NotePropertyValue @([pscustomobject]@{ProcessId=$p.Id;CreationDate=$p.StartTime.ToUniversalTime();ExecutablePath='recorded';CommandLine='recorded'})
+ $script:reads=0
+ function Get-CimInstance {param([string]$Filter) $script:reads++; if($script:reads -eq 1){[pscustomobject]@{CreationDate=$null;ExecutablePath=$null;CommandLine=$null}}}
+ $result=Stop-OwnedPublisherProcessTree $p
+ if(-not $result.confirmed -or $script:reads -ne 2){throw 'Incomplete live CIM row was counted as an exited process'}
+ $result|ConvertTo-Json -Compress
+} finally {if(-not $p.HasExited){$p.Kill($true);$p.WaitForExit()}}
+"""
+        result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", code],
+                                env=environment, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["confirmed"])
+
     def test_owned_wrapper_and_child_termination_is_confirmed(self):
         root = Path(__file__).resolve().parents[1]
         shell = shutil.which("pwsh")
