@@ -615,6 +615,57 @@ try {
     }).Count -ne 0) {
         throw 'Non-admin request caller acquired published payload or private-state ACL rights'
     }
+    if($RegisteredService) {
+        # Keep the same SCM service identity and durable request while withholding
+        # every original authoring/source input. This exercises the production
+        # service grammar against the existing source-free recovery engine.
+        $removed=[Collections.Generic.List[string]]::new()
+        foreach($path in @($archive,$envelope,$inputs.archive_file,$inputs.request_file,$requestPath,$ordinaryPath)) {
+            $exact=[IO.Path]::GetFullPath($path)
+            $item=Get-Item -LiteralPath $exact -Force
+            if(-not $exact.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase) -or
+                $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw 'Registered recovery source removal escaped owned input root'
+            }
+            Remove-Item -LiteralPath $exact -Force
+            if(Test-Path -LiteralPath $exact){throw 'Registered recovery source input remains'}
+            $removed.Add($exact)
+        }
+        $receipt['removed_source_inputs']=$removed.ToArray()
+        $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
+            ' --recover-reviewed'+$(if($NonAdminClient){' --admit-client-observer'}else{''})+$clientArguments
+        & sc.exe config $service binPath= $recoveryCommand|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Registered source-free recovery configuration failed'}
+        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        $requestClient=Start-RequestClient
+        if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered recovery client timed out'}
+        $requestClient.process.WaitForExit()
+        if($requestClient.process.ExitCode -ne 0 -or
+            (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB) {
+            throw ('Registered recovery client failed: '+[IO.File]::ReadAllText($requestClient.error))
+        }
+        $recovered=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        if($recovered.status -ne 'pass' -or
+            $recovered.recovery_observation.decision -ne 'already_visible_bound' -or
+            $recovered.recovery_installed_response.status -ne 'ok' -or
+            $recovered.recovery_installed_response.payload.transaction_id -ne $applyRequest.transaction_id -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw 'Registered source-free recovery did not preserve the bound installed result'
+        }
+        $receipt['registered_source_free_reentry']=[ordered]@{
+            status=$recovered.status;decision=$recovered.recovery_observation.decision;
+            client_exit_code=$requestClient.process.ExitCode;
+            response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
+        $requestClient=$null
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+        $repeat=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        if($repeat.independent.identity -ne 'S-1-5-18' -or -not $repeat.observer_task_removed -or
+            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Registered source-free reentry changed independently observed installed rows'
+        }
+        $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
+    }
     if($HostileRights) {
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
         & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative
