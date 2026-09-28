@@ -441,7 +441,8 @@ int wmain(int argc, wchar_t** argv) {
         campaign_vm_sealed_journal;
     recover_snapshot_only = campaign_vm_snapshot_recovery;
     recover_reviewed = campaign_vm_reviewed_recovery;
-    require_preprotected_boundary = campaign_vm_reviewed_source;
+    require_preprotected_boundary = campaign_vm_reviewed_source ||
+        campaign_vm_selected_plan;
     recover_sealed_journal = campaign_vm_sealed_journal;
     recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
