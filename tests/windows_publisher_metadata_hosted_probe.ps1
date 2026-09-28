@@ -989,7 +989,7 @@ try {
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
         if(-not $HostileRights) {
             $damageEntries=@($plan.planned_entries|Where-Object {
-                $_.entry_type -ceq 'file' -and $_.relative_path -ceq $(if($ConsumerAccess){'bin/core.exe'}else{'bin/core.bin'})
+                $_.entry_type -ceq 'file' -and $_.relative_path -ceq $(if($ConsumerAccess){'bin/addon.bin'}else{'bin/core.bin'})
             })
             if($damageEntries.Count -ne 1){throw 'Selected owned damage file is absent from reviewed plan'}
             Assert-OwnedVolume
@@ -1203,6 +1203,10 @@ try {
         $receipt['stale_observer_task_removed']=$unchanged.observer_task_removed
     }
     if($ConsumerAccess) {
+        # The registered path has already damaged only the non-executable
+        # addon and independently recorded that new state. Keep the neutral
+        # executable intact for the non-admin execution check.
+        $accessBaseline=if($RegisteredService){$damageRows.independent.rows}elseif($recover){$after.independent.rows}else{$receipt.independent.rows}
         $identityPath=Join-Path $consumerOutput 'payload-identity.json'
         $accessPath=Join-Path $consumerOutput 'payload-access.json'
         $consumerProcess=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @(
@@ -1215,12 +1219,11 @@ try {
         $access=Get-Content -LiteralPath $accessPath -Raw|ConvertFrom-Json
         if($access.status -ne 'pass' -or $access.identity.user_sid -cne $consumerSid -or $access.identity.administrator){throw 'Consumer access identity/result differs'}
         foreach($file in $access.files) {
-            $row=@($receipt.independent.rows|Where-Object path -ceq $file.path)
+            $row=@($accessBaseline|Where-Object path -ceq $file.path)
             if($row.Count -ne 1 -or $row[0].sha256 -cne $file.sha256){throw 'Consumer-read bytes differ from independent SYSTEM readback'}
         }
         $receipt['consumer_access_observation']=$access
         $afterAccess=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        $accessBaseline=if($recover){$after.independent.rows}else{$receipt.independent.rows}
         if(($accessBaseline|ConvertTo-Json -Depth 32 -Compress) -cne ($afterAccess.independent.rows|ConvertTo-Json -Depth 32 -Compress)){throw 'Consumer access attempts changed installed bytes/ACLs'}
         $receipt['consumer_attempts_unchanged_rows']=$afterAccess.independent.rows
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
