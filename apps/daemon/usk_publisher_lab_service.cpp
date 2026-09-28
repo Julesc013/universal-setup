@@ -396,21 +396,37 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[13]) == L"--postrename-gate" ||
             std::wstring(argv[13]) == L"--postjournal-gate" ||
             std::wstring(argv[13]) == L"--poststage-gate");
+    const bool campaign_vm_reviewed_source = (argc == 10 || argc == 11) &&
+        generated_service_name(name, L"USK_VM_") &&
+        campaign_selected_receipt_path(argv[3]) &&
+        std::wstring(argv[5]) == L"--reviewed-plan-envelope" &&
+        campaign_reviewed_plan_envelope_path(argv[6]) &&
+        lower_sha256(argv[7]) &&
+        std::wstring(argv[8]) == L"--campaign-vm-id" &&
+        campaign_vm_id_matches(argv[9]) &&
+        (argc == 10 || std::wstring(argv[10]) == L"--prepublish-gate" ||
+            std::wstring(argv[10]) == L"--postrename-gate" ||
+            std::wstring(argv[10]) == L"--postjournal-gate" ||
+            std::wstring(argv[10]) == L"--poststage-gate");
     if (!hosted && !campaign_vm && !campaign_vm_recovery &&
         !campaign_vm_replay &&
         !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
         !campaign_vm_sealed_journal &&
         !campaign_vm_postrename && !campaign_vm_postjournal &&
-        !campaign_vm_selected && !campaign_vm_selected_plan) return 2;
+        !campaign_vm_selected && !campaign_vm_selected_plan &&
+        !campaign_vm_reviewed_source) return 2;
     if (external_client && !campaign_vm_selected_plan &&
-        !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery) return 2;
-    if (campaign_vm_reviewed_recovery && !external_client) return 2;
+        !campaign_vm_snapshot_recovery && !campaign_vm_reviewed_recovery &&
+        !campaign_vm_reviewed_source) return 2;
+    if ((campaign_vm_reviewed_recovery || campaign_vm_reviewed_source) &&
+        !external_client) return 2;
     service_name = argv[2];
     receipt_path = argv[3];
     volume_root = argv[4];
     const std::wstring selected_gate =
         campaign_vm_selected && argc == 11 ? argv[10] :
-        campaign_vm_selected_plan && argc == 14 ? argv[13] : L"";
+        campaign_vm_selected_plan && argc == 14 ? argv[13] :
+        campaign_vm_reviewed_source && argc == 11 ? argv[10] : L"";
     prepublish_gate = argc == 6 || campaign_vm ||
         selected_gate == L"--prepublish-gate";
     poststage_gate = selected_gate == L"--poststage-gate";
@@ -425,14 +441,14 @@ int wmain(int argc, wchar_t** argv) {
     recover_sealed_journal = campaign_vm_sealed_journal;
     recover_visible_bound = campaign_vm_replay || campaign_vm_sealed_journal;
     selected_archive_mode = campaign_vm_selected || campaign_vm_selected_plan ||
-        campaign_vm_snapshot_recovery;
+        campaign_vm_snapshot_recovery || campaign_vm_reviewed_source;
     if (campaign_vm_selected || campaign_vm_selected_plan) {
         selected_archive_path = argv[6];
         selected_archive_sha256 = ascii(argv[7]);
     }
-    if (campaign_vm_selected_plan) {
-        reviewed_plan_envelope_path = argv[11];
-        reviewed_plan_envelope_sha256 = ascii(argv[12]);
+    if (campaign_vm_selected_plan || campaign_vm_reviewed_source) {
+        reviewed_plan_envelope_path = campaign_vm_selected_plan ? argv[11] : argv[6];
+        reviewed_plan_envelope_sha256 = ascii(campaign_vm_selected_plan ? argv[12] : argv[7]);
     }
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;

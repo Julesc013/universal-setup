@@ -1866,6 +1866,31 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
     const std::string plan_digest =
         envelope.at("reviewed_plan_digest").as_string();
     const auto& request = envelope.at("plan_request");
+    if (submitted_apply_request && (!apply_envelope ||
+        usk::json::canonical(envelope.at("apply_request")) !=
+            *submitted_apply_request)) {
+        throw StaleReviewedInstallRequest();
+    }
+    if (selected_archive_path.empty()) {
+        // The restricted service may take its local source only from the
+        // digest-checked envelope and the independently authenticated apply
+        // request. A second SCM pathname is not publication authority.
+        if (!submitted_apply_request) {
+            throw std::runtime_error("reviewed source requires authenticated apply");
+        }
+        const std::filesystem::path source(
+            request.at("archive").at("path").as_string());
+        const std::wstring source_root = source.root_path().wstring();
+        const std::string source_sha =
+            request.at("archive").at("expected_sha256").as_string();
+        if (!source.is_absolute() || source.lexically_normal() != source ||
+            source_root.size() != 3 || source_root[1] != L':' ||
+            source_root[2] != L'\\' || !lower_sha256_ascii(source_sha)) {
+            throw std::runtime_error("reviewed source path or digest is invalid");
+        }
+        selected_archive_path = source.wstring();
+        selected_archive_sha256 = source_sha;
+    }
     if (normalized(acceptance) != expected_root ||
         !lower_sha256_ascii(plan_digest) ||
         request.at("schema").as_string() !=
@@ -1968,9 +1993,8 @@ ReviewedPlanBinding require_reviewed_selected_plan() {
     selected_payload.validate_source();
     const std::string apply_request = apply_envelope ?
         usk::json::canonical(envelope.at("apply_request")) : std::string{};
-    if (submitted_apply_request && *submitted_apply_request != apply_request) {
+    if (submitted_apply_request && *submitted_apply_request != apply_request)
         throw StaleReviewedInstallRequest();
-    }
     if (apply_envelope && (envelope.at("apply_request").at("schema").as_string() !=
             "usk.install_local_apply_request.v1" ||
         usk::json::canonical(envelope.at("apply_request").at("plan_request")) != canonical_request ||
@@ -2550,7 +2574,11 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         publication_present = true;
                     }
                 }
-                if (recover_snapshot_only || recover_reviewed) {
+                const bool reviewed_source_reentry = publication_present &&
+                    selected_archive_mode && selected_archive_path.empty() &&
+                    !reviewed_plan_envelope_path.empty() && submitted_apply_request;
+                if (reviewed_source_reentry) reviewed_install_reentry = true;
+                if (recover_snapshot_only || recover_reviewed || reviewed_source_reentry) {
                     publication_effects_may_exist = publication_present;
                     if (!publication_present) {
                         throw std::runtime_error(
@@ -2568,7 +2596,10 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         reviewed_plan_envelope_sha256 = reviewed_plan.envelope_sha256;
                         anchors = observe_protected_anchors(volume,
                             observed.service_sid, reviewed_plan, true, nullptr, &recovery_installed_response);
-                    } else if (recover_reviewed) {
+                    } else if (recover_reviewed || reviewed_source_reentry) {
+                        // A completed durable snapshot needs no source handle.
+                        // Do not emit an empty archive digest as source evidence.
+                        selected_archive_mode = false;
                         anchors = observe_prepared_recovery(volume,
                             observed.service_sid, true, {}, {}, true,
                             &recovery_installed_response);

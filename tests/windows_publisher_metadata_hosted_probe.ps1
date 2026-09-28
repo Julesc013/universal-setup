@@ -16,6 +16,7 @@ param(
     [switch]$InterruptAfterRename,
     [switch]$InterruptBeforePublish,
     [switch]$InterruptAfterStage,
+    [switch]$ReviewedSource,
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
@@ -23,6 +24,7 @@ if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[in
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
 if($InterruptAfterStage -and -not $ClientBinary){throw 'Snapshot-only replay requires an authenticated client'}
+if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection requires an authenticated client'}
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
 $gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
@@ -68,7 +70,9 @@ New-Item -ItemType Directory -Path $root|Out-Null
 $fixture=Join-Path $root ('metadata-inputs-'+$id)
 New-Item -ItemType Directory -Path $fixture|Out-Null
 $nativePath=Join-Path $root ('vm-selected-'+$id+'.json')
-$archive=Join-Path $root ('selected-'+$id+'.zip')
+$sourceDir=if($ReviewedSource){Join-Path $root 'authored-product'}else{$root}
+if($ReviewedSource){New-Item -ItemType Directory -Path $sourceDir|Out-Null}
+$archive=Join-Path $sourceDir ($(if($ReviewedSource){'product-'+$id+'.zip'}else{'selected-'+$id+'.zip'}))
 $envelope=Join-Path $root ('plan-'+$id+'.json')
 $out=[IO.Path]::GetFullPath($OutputPath)
 if(Test-Path -LiteralPath $out){throw 'Metadata receipt collision'}
@@ -204,6 +208,7 @@ try {
         throw 'Actual selected native plan differs'
     }
     $receipt.request=$request.payload;$receipt.plan=$plan;$receipt.archive_sha256=$inputs.archive_sha256
+    $receipt['source_mode']=if($ReviewedSource){'authenticated_reviewed_envelope'}else{'legacy_scm_source_binding'}
     $applyRequest=[ordered]@{schema='usk.install_local_apply_request.v1';plan_request=$request.payload;
         reviewed_plan_id=$plan.plan_id;reviewed_plan_digest=$plan.plan_digest;transaction_id='install.'+$id;
         applied_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ');confirmation='APPLY'}
@@ -227,11 +232,13 @@ try {
         reviewed_plan_digest=$plan.plan_digest;plan_request=$request.payload;apply_request=$applyRequest}|
         ConvertTo-Json -Depth 32 -Compress)+"`n",$utf8)
     $receipt['envelope_sha256']=(Get-FileHash -LiteralPath $envelope -Algorithm SHA256).Hash.ToLowerInvariant()
-    $command='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+
+    $selectedClientArguments=if($ReviewedSource){
+        ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+' --campaign-vm-id '+$vmId
+    }else{
         ' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
-        ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
-    $selectedClientArguments=' --selected-zip "'+$archive+'" '+$inputs.archive_sha256+' --campaign-vm-id '+$vmId+
-        ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
+            ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256
+    }
+    $command='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+$selectedClientArguments
     if($recover -and -not $InterruptDuringConsumerAccess){$command+=' --'+$gate+'-gate'}
     if($HostileRights){$command+=' --prepublish-gate'}
     if($InterruptDuringConsumerAccess){$command+=' --interrupt-consumer-grant'}
@@ -256,6 +263,13 @@ try {
         [Security.Principal.SecurityIdentifier]::new($sid),'Modify',
         'ContainerInherit,ObjectInherit','None','Allow'))
     Set-Acl -LiteralPath $root -AclObject $acl
+    if($ReviewedSource) {
+        $sourceAcl=Get-Acl -LiteralPath $sourceDir
+        $sourceAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($sid),'ReadAndExecute',
+            'ContainerInherit,ObjectInherit','None','Allow'))
+        Set-Acl -LiteralPath $sourceDir -AclObject $sourceAcl
+    }
     $configured=Get-CimInstance Win32_Service -Filter "Name='$service'"
     if($configured.ServiceType -ne 'Own Process' -or $configured.StartName -ne 'LocalSystem' -or
         (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$service").ServiceSidType -ne 3) {
@@ -544,6 +558,44 @@ try {
             if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or $matching[0].bytes -ne $row.bytes) {
                 throw 'Repeated recovery changed a completed record or payload'
             }
+        }
+        if($ReviewedSource) {
+            # Reissue the original source-derived service command after both
+            # input files were removed. Its durable request must select the
+            # same completed generation without reopening those paths.
+            $reentryPath=Join-Path $root ('vm-selected-reconnect-'+$id+'.json')
+            $reentryCommand='"'+$ServiceBinary+'" --service '+$service+' "'+$reentryPath+'" '+$VolumeRoot+
+                $selectedClientArguments+$clientArguments
+            & sc.exe config $service binPath= $reentryCommand|Out-Null
+            if($LASTEXITCODE -ne 0){throw 'Reviewed source reentry configuration failed'}
+            try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+            $nativePath=$reentryPath
+            $requestClient=Start-RequestClient
+            $receipt['reviewed_source_reentry_client']=Complete-RequestClient $requestClient $true
+            $requestClient=$null
+            $reentry=Read-NativeReceipt $reentryPath
+            if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+            if($reentry.status -ne 'pass' -or
+                $reentry.recovery_observation.decision -ne 'already_visible_bound' -or
+                $reentry.recovery_installed_response.payload.transaction_id -ne $applyRequest.transaction_id) {
+                throw 'Source-derived command did not reenter completed durable request'
+            }
+            $reentryReadback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+            if($after.independent.rows.Count -ne $reentryReadback.independent.rows.Count -or
+                -not $reentryReadback.observer_task_removed) {
+                throw 'Source-derived reentry changed completed record count or observer state'
+            }
+            foreach($row in $after.independent.rows) {
+                $matching=@($reentryReadback.independent.rows|Where-Object path -ceq $row.path)
+                if($matching.Count -ne 1 -or $matching[0].sha256 -ne $row.sha256 -or
+                    $matching[0].bytes -ne $row.bytes -or
+                    ($matching[0].aces|ConvertTo-Json -Depth 10 -Compress) -cne
+                    ($row.aces|ConvertTo-Json -Depth 10 -Compress)) {
+                    throw 'Source-derived reentry changed completed protected or public state'
+                }
+            }
+            $receipt['reviewed_source_reentry']=[ordered]@{native=$reentry;unchanged_rows=$reentryReadback.independent.rows.Count;
+                observer_task_removed=$reentryReadback.observer_task_removed}
         }
         $receipt['source_free_recovery']=[ordered]@{action=$recoveryDecision;repeat=$repeat;
             independent_repeat=$after.independent;repeat_observer_task_removed=$after.observer_task_removed;
