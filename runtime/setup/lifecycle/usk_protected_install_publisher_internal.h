@@ -16,6 +16,7 @@ struct CandidatePublisherConfiguration {
     std::wstring service_name, receipt_path, volume_root;
     bool prepublish_gate=false, poststage_gate=false, postrename_gate=false,
         postjournal_gate=false, recover_prepared=false, recover_snapshot_only=false,
+        recover_reviewed=false,
         recover_sealed_journal=false, recover_visible_bound=false,
         selected_archive_mode=false;
     std::wstring selected_archive_path, reviewed_plan_envelope_path;
