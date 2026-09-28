@@ -226,9 +226,12 @@ SHA-256 `0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0`.
 The exact WU005 task-binding SHA-256 was
 `171a80277432251115a4ec758267f7f0ad734fad33972238531cd84869149e79`.
 The host reported Windows 10 build 19045 and `D:` NTFS serial `1b6df063`.
-A single 1 MiB/4,096-entry fixture was prepared outside the five measured
-children. Each row records the OS peak working set of its own child, native
-exit code, elapsed time, source and binary identities, and fixture path.
+The task-local runner prepared a 1 MiB/4,096-entry fixture outside the
+five measured children, then passed its root to each child. The receipt records
+the preparation time and common temporary parent, but omits the exact prepared
+root and a fixture digest. It therefore does not independently establish a
+cross-row fixture identity. Each row records its own OS peak working set,
+native exit code, elapsed time, source and binary identities.
 
 | Isolated child | Peak working set (bytes) | Elapsed (ms) | Result |
 | --- | ---: | ---: | --- |
