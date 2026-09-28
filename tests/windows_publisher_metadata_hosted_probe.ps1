@@ -484,7 +484,10 @@ try {
             try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
         } else { Start-RegisteredPublisher }
     } else {
-        try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        try{Start-Service $service}catch{
+            if($recover){throw ('Interruption service start failed: '+$_.Exception.Message)}
+            if((Get-Service $service).Status -ne 'Stopped'){throw}
+        }
     }
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ExpectUnprotectedRefusal) {
