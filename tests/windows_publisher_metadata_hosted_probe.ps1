@@ -51,7 +51,7 @@ if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not
     throw 'Registered service probe requires a reviewed-source request and at most the poststage interruption'
 }
 if($MachineRequestClient -and (-not $RegisteredService -or -not $MachineBinary -or
-    $ConsumerAccess -or $NonAdminClient -or $InterruptAfterStage -or $HostileRights)) {
+    $NonAdminClient -or $InterruptAfterStage -or $HostileRights)) {
     throw 'Packaged machine request client requires uninterrupted registered same-user service profile'
 }
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
@@ -221,6 +221,8 @@ function Start-RequestClient($submitted=$applyRequest) {
     $clientRequest=$prefix+'-request.json'
     [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
     $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
+    $clientMode=if($MachineRequestClient){'candidate-service'}else{'service'}
+    $binaryDigest=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant()
     $requestArgs=if($MachineRequestClient){@('--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}else{@('--service',$service,'--request-file',('"'+$clientRequest+'"'))}
     $options=@{FilePath=$requestBinary;ArgumentList=$requestArgs;
         WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$prefix+'-response.json';RedirectStandardError=$prefix+'-error.txt'}
@@ -228,13 +230,27 @@ function Start-RequestClient($submitted=$applyRequest) {
     if($ConsumerAccess -or $NonAdminClient) {
         $options.FilePath=(Get-Command pwsh).Source
         $options.ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
-            '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,'-ClientBinary',$ClientBinary,
+            '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,'-ClientBinary',$requestBinary,
+            '-ClientMode',$clientMode,'-ExpectedClientSha256',$binaryDigest,
             '-ServiceName',$service,'-RequestFile',$clientRequest)
         $options['Credential']=$consumerCredential
         $options['WorkingDirectory']=$consumerOutput
     }
     $process=Start-Process @options
-    return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt';identity=$identityPath}
+    return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt';
+        identity=$identityPath;binary_path=[IO.Path]::GetFullPath($requestBinary);
+        binary_sha256=$binaryDigest;client_mode=$clientMode}
+}
+function Assert-RequestClientImage($client) {
+    if(-not ($ConsumerAccess -or $NonAdminClient)){return $null}
+    $actual=Get-Content -LiteralPath $client.identity -Raw|ConvertFrom-Json
+    if($actual.user_sid -cne $consumerSid -or $actual.administrator -or
+        $actual.client_binary_path -cne $client.binary_path -or
+        $actual.client_binary_sha256 -cne $client.binary_sha256 -or
+        $actual.client_mode -cne $client.client_mode) {
+        throw 'Actual client identity, executable or request mode differs'
+    }
+    return $actual
 }
 function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailureResponse=$false) {
     if(-not $client.process.WaitForExit(120000)) {
@@ -248,8 +264,7 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant();
         caller_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
     if($ConsumerAccess -or $NonAdminClient) {
-        $actual=Get-Content -LiteralPath $client.identity -Raw|ConvertFrom-Json
-        if($actual.user_sid -cne $consumerSid -or $actual.administrator){throw 'Actual client did not run as admitted non-admin user'}
+        $actual=Assert-RequestClientImage $client
         $result.caller_sid=$actual.user_sid
         $result['caller_observation']=$actual
     }
@@ -793,11 +808,8 @@ try {
                 throw 'Registered recovery absence marker already exists'
             }
         }
-        if($NonAdminClient) {
-            $actual=Get-Content -LiteralPath $requestClient.identity -Raw|ConvertFrom-Json
-            if($actual.user_sid -cne $consumerSid -or $actual.administrator){
-                throw 'Registered client did not run as the admitted non-admin user'
-            }
+        if($ConsumerAccess -or $NonAdminClient) {
+            $actual=Assert-RequestClientImage $requestClient
             $receipt['registered_client_identity']=$actual
         }
         $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
@@ -913,10 +925,11 @@ try {
             throw 'Product service control did not configure source-free recovery'
         }
         Start-RegisteredPublisher
-        $submittedRecovery=if($MachineRequestClient){$applyRequest}else{$recoveryRequest}
+        $submittedRecovery=$recoveryRequest
         $requestClient=Start-RequestClient $submittedRecovery
         if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered recovery client timed out'}
         $requestClient.process.WaitForExit()
+        $recoveryClientIdentity=Assert-RequestClientImage $requestClient
         if($requestClient.process.ExitCode -ne 0 -or
             (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB) {
             throw ('Registered recovery client failed: '+[IO.File]::ReadAllText($requestClient.error))
@@ -935,6 +948,9 @@ try {
             status=$recovered.status;decision=$recovered.recovery_observation.decision;
             request_schema=$submittedRecovery.schema;
             client_exit_code=$requestClient.process.ExitCode;
+            client_mode=$requestClient.client_mode;
+            client_binary_sha256=$requestClient.binary_sha256;
+            client_observation=$recoveryClientIdentity;
             response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
@@ -945,34 +961,36 @@ try {
             throw 'Registered source-free reentry changed independently observed installed rows'
         }
         $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
-        if(-not $MachineRequestClient) {
-            $staleRecovery=[ordered]@{
-                schema='usk.publisher_recovery_request.v1'
-                request_id='recover.stale.'+$id
-                install_id=$recoveryRequest.install_id
-                transaction_id=$recoveryRequest.transaction_id+'.changed'
-            }
-            Start-RegisteredPublisher
-            $requestClient=Start-RequestClient $staleRecovery
-            if(-not $requestClient.process.WaitForExit(120000)) {
-                throw 'Stale recovery client timed out'
-            }
-            $requestClient.process.WaitForExit()
-            $stale=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
-            if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
-                $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
-                throw 'Changed minimal recovery request was admitted'
-            }
-            $receipt['stale_minimal_recovery_refused']=[ordered]@{
-                status=$stale.status;response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
-            $requestClient=$null
-            if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
-            $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-            if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
-                ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-                ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-                throw 'Changed minimal recovery request altered installed state'
-            }
+        $staleRecovery=[ordered]@{
+            schema='usk.publisher_recovery_request.v1'
+            request_id='recover.stale.'+$id
+            install_id=$recoveryRequest.install_id
+            transaction_id=$recoveryRequest.transaction_id+'.changed'
+        }
+        Start-RegisteredPublisher
+        $requestClient=Start-RequestClient $staleRecovery
+        if(-not $requestClient.process.WaitForExit(120000)) {
+            throw 'Stale recovery client timed out'
+        }
+        $requestClient.process.WaitForExit()
+        $staleClientIdentity=Assert-RequestClientImage $requestClient
+        $stale=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
+            $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
+            throw 'Changed minimal recovery request was admitted'
+        }
+        $receipt['stale_minimal_recovery_refused']=[ordered]@{
+            status=$stale.status;client_mode=$requestClient.client_mode;
+            client_binary_sha256=$requestClient.binary_sha256;
+            client_observation=$staleClientIdentity;
+            response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
+        $requestClient=$null
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+        $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
+            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+            throw 'Changed minimal recovery request altered installed state'
         }
     }
     if($RegisteredService -and -not $InterruptAfterStage) {
