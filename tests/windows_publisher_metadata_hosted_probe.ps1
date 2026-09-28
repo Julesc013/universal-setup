@@ -17,6 +17,7 @@ param(
     [switch]$InterruptBeforePublish,
     [switch]$InterruptAfterStage,
     [switch]$ReviewedSource,
+    [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
@@ -25,6 +26,10 @@ if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfter
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
 if($InterruptAfterStage -and -not $ClientBinary){throw 'Snapshot-only replay requires an authenticated client'}
 if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection requires an authenticated client'}
+if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or $HostileRights -or
+    $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
+    throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
+}
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
 $gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
@@ -60,6 +65,44 @@ function Assert-OwnedVolume {
         throw 'Owned VHD changed before privileged operation'
     }
 }
+function Get-OwnedVolumeRootSddl([string]$Phase) {
+    if($Phase -notin @('service-start','service-end') -or
+        $VolumeRoot -notmatch '^\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\$') {
+        throw 'Owned root ACL observer arguments differ'
+    }
+    Assert-OwnedVolume
+    $taskName='USK_ROOT_ACL_'+$id+'_'+$Phase
+    $observation=Join-Path $observerRoot ('root-acl-'+$Phase+'.json')
+    if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $observation)) { throw 'Owned root ACL observer collision' }
+    $command='$ErrorActionPreference=''Stop'';if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne ''S-1-5-18''){throw ''SYSTEM root ACL observer required''};'+
+        '$sddl=(Get-Acl -LiteralPath '''+$VolumeRoot.Replace("'","''")+''').Sddl;'+
+        '[IO.File]::WriteAllText('''+$observation.Replace("'","''")+''',(@{identity=''S-1-5-18'';sddl=$sddl}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))'
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
+    $registered=$false
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -User SYSTEM -RunLevel Highest|Out-Null
+        $registered=$true
+        Start-ScheduledTask -TaskName $taskName
+        $deadline=[DateTime]::UtcNow.AddSeconds(45)
+        while(-not (Test-Path -LiteralPath $observation) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $observation)){throw 'Owned root ACL observer receipt absent'}
+        $result=Get-Content -LiteralPath $observation -Raw|ConvertFrom-Json
+        if($result.identity -ne 'S-1-5-18' -or [string]::IsNullOrWhiteSpace($result.sddl)) {
+            throw 'Owned root ACL observer identity or descriptor differs'
+        }
+        return $result.sddl
+    } finally {
+        if($registered) {
+            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+            if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned root ACL observer cleanup failed'}
+        }
+        if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
+    }
+}
 $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
 $id=[guid]::NewGuid().ToString('N')
@@ -76,6 +119,22 @@ $archive=Join-Path $sourceDir ($(if($ReviewedSource){'product-'+$id+'.zip'}else{
 $envelope=Join-Path $root ('plan-'+$id+'.json')
 $out=[IO.Path]::GetFullPath($OutputPath)
 if(Test-Path -LiteralPath $out){throw 'Metadata receipt collision'}
+$observerRoot=Join-Path (Split-Path -Parent $vhd) ('root-acl-observer-'+$id)
+if((Split-Path -Parent $out) -ine (Split-Path -Parent $vhd) -or
+    (Test-Path -LiteralPath $observerRoot)) { throw 'Owned root ACL observer output root differs' }
+New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
+$runnerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$observerAcl=[Security.AccessControl.DirectorySecurity]::new()
+$observerAcl.SetSecurityDescriptorSddlForm('O:'+$runnerSid+'G:'+$runnerSid+
+    'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;'+$runnerSid+')')
+Set-Acl -LiteralPath $observerRoot -AclObject $observerAcl
+$observedAcl=Get-Acl -LiteralPath $observerRoot
+$observerRules=@($observedAcl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]))
+if(-not $observedAcl.AreAccessRulesProtected -or $observerRules.Count -ne 2 -or
+    @($observerRules|Where-Object {$_.IdentityReference.Value -eq 'S-1-5-18'}).Count -ne 1 -or
+    @($observerRules|Where-Object {$_.IdentityReference.Value -eq $runnerSid}).Count -ne 1) {
+    throw 'Owned SYSTEM observer output directory has an unexpected ACL'
+}
 $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run';vm_id=$vmId;
     runner_environment=$env:RUNNER_ENVIRONMENT;os_build=[Environment]::OSVersion.Version.ToString();
     disk_unique_id=$disk.UniqueId;volume_guid_root=$VolumeRoot;volume_drive_root=$drive;service=$service;
@@ -283,14 +342,35 @@ try {
     }
     Assert-OwnedVolume
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
-    $acl=[Security.AccessControl.DirectorySecurity]::new()
-    $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
-    Set-Acl -LiteralPath $VolumeRoot -AclObject $acl
+    if(-not $ExpectUnprotectedRefusal) {
+        $acl=[Security.AccessControl.DirectorySecurity]::new()
+        $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
+        Set-Acl -LiteralPath $VolumeRoot -AclObject $acl
+    }
+    $receipt['root_acl_at_service_start']=Get-OwnedVolumeRootSddl 'service-start'
     Assert-OwnedVolume
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
     if($ClientBinary){$requestClient=Start-RequestClient}
+    if($ExpectUnprotectedRefusal) {
+        $deadline=[DateTime]::UtcNow.AddSeconds(90)
+        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Unprotected-root refusal receipt absent'}
+        $receipt.native=Read-NativeReceipt $nativePath
+        $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
+        $requestClient=$null
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+        $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+        if($receipt.native.status -ne 'failed' -or
+            $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
+            $receipt.root_acl_before -cne $receipt.root_acl_after -or
+            (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Test-Path -LiteralPath ($drive+'setup-state'))) {
+            throw 'Unprotected boundary was changed or admitted before publication'
+        }
+        $receipt.status='preprotected_boundary_refusal_observed'
+    } else {
     if($HostileRights) {
         $attackRelative=if($ConsumerAccess){'bin/core.exe'}else{'bin/core.bin'}
         if(@($plan.planned_entries|Where-Object relative_path -ceq $attackRelative).Count -ne 1){
@@ -652,7 +732,16 @@ try {
         $receipt['consumer_attempts_unchanged_rows']=$afterAccess.independent.rows
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
+    if($ReviewedSource) {
+        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
+        if((Get-Service $service).Status -ne 'Stopped') { throw 'Reviewed service remains active during root ACL observation' }
+        $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
+        if($receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service) {
+            throw 'Reviewed-source service changed the preprotected volume root ACL'
+        }
+    }
     $receipt.status='protected_metadata_observed'
+    }
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
 } finally {
@@ -680,7 +769,7 @@ try {
             $receipt.service_removed=$true
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
-    if($receipt.status -eq 'protected_metadata_observed' -and $receipt.service_removed) {
+    if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed') -and $receipt.service_removed) {
         try {
             if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
             $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
@@ -698,6 +787,10 @@ try {
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     $receipt['observed_utc']=[DateTime]::UtcNow.ToString('o')
+    if(Test-Path -LiteralPath $observerRoot){
+        try { Remove-Item -LiteralPath $observerRoot -ErrorAction Stop }
+        catch { $failure='Owned root ACL observer directory cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
     $receipt|ConvertTo-Json -Depth 32|Set-Content -LiteralPath $out -Encoding UTF8
     # The existing outer harness dismounts/deletes only its identified VHD.
     # This entire hosted VM is disposable; no workstation resources are used.
