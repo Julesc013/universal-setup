@@ -272,8 +272,10 @@ try {
         $receipt['consumer_account_sid']=$consumerSid
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_consumer_client.ps1') -Destination $consumerScript
         $clientCopy=Join-Path $root 'consumer-client.exe'
-        Copy-Item -LiteralPath $ClientBinary -Destination $clientCopy
-        $ClientBinary=$clientCopy
+        if(-not ($RegisteredService -and $ConsumerAccess)) {
+            Copy-Item -LiteralPath $ClientBinary -Destination $clientCopy
+            $ClientBinary=$clientCopy
+        }
         New-Item -ItemType Directory -Path $consumerOutput|Out-Null
         $rootAcl=Get-Acl -LiteralPath $root
         $rootAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
@@ -312,6 +314,14 @@ try {
         $ServiceBinary=Join-Path $packageRoot 'publisher\usk_publisher_lab_service.exe'
         $ServiceControlBinary=Join-Path $packageRoot 'publisher\usk_publisher_service_control.exe'
         $ClientBinary=Join-Path $packageRoot 'publisher\usk_publisher_client.exe'
+        if($ConsumerAccess) {
+            Copy-Item -LiteralPath $ClientBinary -Destination $clientCopy
+            if((Get-FileHash -LiteralPath $ClientBinary -Algorithm SHA256).Hash -cne
+                (Get-FileHash -LiteralPath $clientCopy -Algorithm SHA256).Hash) {
+                throw 'Non-admin client copy differs from emitted package'
+            }
+            $ClientBinary=$clientCopy
+        }
         $archive=Join-Path $packageRoot 'inspect\payload.zip'
         $inputs.archive_sha256=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt['strip_prefix']=''
