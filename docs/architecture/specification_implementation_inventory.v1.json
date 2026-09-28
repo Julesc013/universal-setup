@@ -4039,7 +4039,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "79bc48bf8070ba50542dbf80e4e8636ea7b92987cfe038bdf17120bb977a8f23"
+          "sha256": "7551aab40d64306b142290dfa95442c39f6b1da3a5f01bf454c44b37e5ad3853"
+        },
+        {
+          "path": "tests/windows_publisher_owned_payload_damage.ps1",
+          "sha256": "a8ef15760c90637131631b95d880c758b2ac101e170d54f777af7a59db779dad"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -4311,7 +4315,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "79bc48bf8070ba50542dbf80e4e8636ea7b92987cfe038bdf17120bb977a8f23"
+          "sha256": "7551aab40d64306b142290dfa95442c39f6b1da3a5f01bf454c44b37e5ad3853"
+        },
+        {
+          "path": "tests/windows_publisher_owned_payload_damage.ps1",
+          "sha256": "a8ef15760c90637131631b95d880c758b2ac101e170d54f777af7a59db779dad"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",

@@ -62,6 +62,7 @@ $gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prep
 $readyContent=if($InterruptAfterStage){"usk.publisher.lab_snapshot_and_stage_sealed.v1`n"}elseif($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
 $recoveryDecision=if($InterruptAfterStage){'snapshot_only_completed_forward'}elseif($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_owned_payload_damage.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -924,6 +925,73 @@ try {
             throw 'Read-only verification changed independently observed installed rows'
         }
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
+        if(-not $HostileRights) {
+            $damageEntries=@($plan.planned_entries|Where-Object {
+                $_.entry_type -ceq 'file' -and $_.relative_path -ceq 'bin/core.bin'
+            })
+            if($damageEntries.Count -ne 1){throw 'Selected owned damage file is absent from reviewed plan'}
+            Assert-OwnedVolume
+            $damaged=Invoke-IndependentOwnedPayloadDamage -VhdPath $vhd -VolumeRoot $VolumeRoot `
+                -DriveRoot $drive -PayloadRelativePath $damageEntries[0].relative_path `
+                -ExpectedSha256 $damageEntries[0].sha256
+            $damageVerify=[ordered]@{}
+            foreach($key in $verifyRequest.Keys){$damageVerify[$key]=$verifyRequest[$key]}
+            $damageVerify.request_id='verify.damaged.'+$id
+            $damageVerify.report_id='verify.damaged.'+$id
+            Start-RegisteredPublisher
+            $requestClient=Start-RequestClient $damageVerify
+            $damageClient=$requestClient
+            if(-not $damageClient.process.WaitForExit(120000)){throw 'Damaged verification client timed out'}
+            $damageClient.process.WaitForExit()
+            $requestClient=$null
+            if((Get-Item -LiteralPath $damageClient.response).Length -gt 4MB){
+                throw 'Damaged verification response exceeds client budget'
+            }
+            $damageResponse=Get-Content -LiteralPath $damageClient.response -Raw|ConvertFrom-Json
+            $damagedFiles=@($damageResponse.verify_response.payload.files|Where-Object {
+                $_.relative_path -ceq $damageEntries[0].relative_path
+            })
+            if($damageClient.process.ExitCode -ne 3 -or $damageResponse.status -cne 'failed' -or
+                $damageResponse.transaction_id -cne $applyRequest.transaction_id -or
+                $damageResponse.verify_response.status -cne 'ok' -or
+                $damageResponse.verify_response.payload.status -cne 'fail' -or
+                $damageResponse.verify_response.payload.install_id -cne $verifyRequest.install_id -or
+                $damageResponse.verify_response.payload.report_id -cne $damageVerify.report_id -or
+                $damageResponse.verify_response.payload.summary.modified_files -ne 1 -or
+                $damageResponse.verify_response.payload.summary.missing_files -ne 0 -or
+                $damageResponse.verify_response.payload.summary.unknown_paths -ne 0 -or
+                $damagedFiles.Count -ne 1 -or $damagedFiles[0].status -cne 'modified' -or
+                $damagedFiles[0].expected_sha256 -cne $damaged.before_sha256 -or
+                $damagedFiles[0].actual_sha256 -cne $damaged.after_sha256) {
+                throw ('Authenticated damaged-file verification did not report exact drift: '+
+                    [IO.File]::ReadAllText($damageClient.error))
+            }
+            if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
+            $damageRows=Invoke-IndependentMetadataReadback -DriveRoot $drive `
+                -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+            $beforeFile=@($verifyRows.independent.rows|Where-Object path -ceq $damaged.path)
+            $afterFile=@($damageRows.independent.rows|Where-Object path -ceq $damaged.path)
+            $otherBefore=@($verifyRows.independent.rows|Where-Object path -cne $damaged.path)
+            $otherAfter=@($damageRows.independent.rows|Where-Object path -cne $damaged.path)
+            if($damageRows.independent.identity -cne 'S-1-5-18' -or
+                -not $damageRows.observer_task_removed -or $beforeFile.Count -ne 1 -or
+                $afterFile.Count -ne 1 -or $beforeFile[0].sha256 -cne $damaged.before_sha256 -or
+                $afterFile[0].sha256 -cne $damaged.after_sha256 -or
+                $afterFile[0].bytes -ne $beforeFile[0].bytes -or
+                ($beforeFile[0].aces|ConvertTo-Json -Depth 8 -Compress) -cne
+                    ($afterFile[0].aces|ConvertTo-Json -Depth 8 -Compress) -or
+                $beforeFile[0].owner -cne $afterFile[0].owner -or
+                $beforeFile[0].protected -ne $afterFile[0].protected -or
+                ($otherBefore|ConvertTo-Json -Depth 32 -Compress) -cne
+                    ($otherAfter|ConvertTo-Json -Depth 32 -Compress)) {
+                throw 'Damaged verification changed protected metadata or another installed object'
+            }
+            $receipt.registered_installed_verify['damaged_owned_file']=[ordered]@{
+                path=$damageEntries[0].relative_path;before_sha256=$damaged.before_sha256;
+                after_sha256=$damaged.after_sha256;report_digest=$damageResponse.verify_response.payload.report_digest;
+                status=$damageResponse.verify_response.payload.status;
+                unchanged_other_rows=$otherAfter.Count;client_exit_code=$damageClient.process.ExitCode}
+        }
     }
     if($HostileRights) {
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
