@@ -59,9 +59,11 @@ function Observe-ConcurrentDenial {
     param([string]$Name, [scriptblock]$Action, [bool]$AllowMissing,
         [bool]$AfterCompletion, [bool]$AfterRelease)
     try {
+        $attemptStart=[DateTime]::UtcNow.Ticks
         & $Action
         throw "concurrent $Name unexpectedly obtained mutation access"
     } catch {
+        $attemptEnd=[DateTime]::UtcNow.Ticks
         $cause = $_.Exception
         while ($cause.InnerException) { $cause = $cause.InnerException }
         if ($cause.HResult -eq -2147024891) {
@@ -70,9 +72,15 @@ function Observe-ConcurrentDenial {
             if ($AfterRelease -and -not $AfterCompletion) {
                 if ($Stage -eq 'ProductionConcurrent') {
                     $receipt.concurrent[$Name].denied_after_start_before_observed_reply++
-                    if ($Name -eq 'staged_write' -and
-                        $receipt.concurrent.staged_write.denied_ticks.Count -lt 512) {
-                        $receipt.concurrent.staged_write.denied_ticks += [DateTime]::UtcNow.Ticks
+                    if ($Name -eq 'staged_write') {
+                        $samples=$receipt.concurrent.staged_write.denied_attempts
+                        $sample=[ordered]@{start_tick=$attemptStart;end_tick=$attemptEnd}
+                        if($samples.Count -lt 1024){
+                            $receipt.concurrent.staged_write.denied_attempts += $sample
+                        }else{
+                            $samples[$receipt.concurrent.staged_write.denied_attempt_count % 1024]=$sample
+                        }
+                        $receipt.concurrent.staged_write.denied_attempt_count++
                     }
                 } else {
                     $receipt.concurrent[$Name].denied_after_gate_before_observed_reply++
@@ -126,7 +134,7 @@ try {
         $visibleFile = $destination + '\visible\' + $payloadPath
         $receipt['concurrent'] = [ordered]@{
             destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
-            staged_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_ticks = @() }
+            staged_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             visible_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
             cycles = 0; cycles_after_gate_before_observed_reply = 0; cycles_after_start_before_observed_reply = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
             ready_utc = $null; release_seen_utc = $null; started_seen_utc = $null; completed_seen_utc = $null
@@ -257,6 +265,6 @@ try {
     $receipt.status = 'failed'
     $receipt.failure = $_.Exception.Message
 } finally {
-    $receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+    $receipt | ConvertTo-Json -Depth 6 -Compress | Set-Content -LiteralPath $OutputPath -Encoding utf8
 }
 if ($receipt.status -ne 'access_denied_observed') { exit 1 }

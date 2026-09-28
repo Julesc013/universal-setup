@@ -1138,7 +1138,8 @@ try {
             $concurrentAttacker.WaitForExit()
             if($concurrentAttacker.ExitCode -ne 0 -or
                 -not (Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -or
-                (Get-Item -LiteralPath $concurrentOutput).Length -gt 16KB) {
+                (Get-Item -LiteralPath $concurrentOutput).Length -gt
+                    $(if($ProductionConcurrentRights){128KB}else{16KB})) {
                 throw 'Concurrent attacker did not produce a bounded successful receipt'
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
@@ -1149,9 +1150,12 @@ try {
                 $overlap=$false
                 foreach($run in @($stageObservation.runs)) {
                     if($run.samples -lt 2 -or $run.maximum_gap_ticks -gt 2000000){continue}
-                    foreach($tick in @($concurrent.concurrent.staged_write.denied_ticks)) {
-                        if([long]$tick -gt [long]$run.first_tick -and
-                            [long]$tick -lt [long]$run.last_tick) {$overlap=$true;break}
+                    foreach($attempt in @($concurrent.concurrent.staged_write.denied_attempts)) {
+                        if([long]$attempt.start_tick -gt [long]$run.first_tick -and
+                            [long]$attempt.end_tick -ge [long]$attempt.start_tick -and
+                            [long]$attempt.end_tick -lt [long]$run.last_tick) {
+                            $overlap=$true;break
+                        }
                     }
                     if($overlap){break}
                 }
