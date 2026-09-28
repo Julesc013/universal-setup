@@ -431,6 +431,27 @@ if(USK_BUILD_APPS)
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
   target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
   usk_enable_strict_warnings(usk_machine)
+
+  if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    add_executable(usk_publisher_lab_service
+      apps/daemon/usk_publisher_lab_service.cpp)
+    target_compile_features(usk_publisher_lab_service PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_lab_service PRIVATE
+      usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
+    usk_enable_strict_warnings(usk_publisher_lab_service)
+
+    add_executable(usk_publisher_client apps/daemon/usk_publisher_client.cpp)
+    target_compile_features(usk_publisher_client PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_client PRIVATE usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_client)
+
+    add_executable(usk_publisher_service_control
+      apps/daemon/usk_publisher_service_control.cpp)
+    target_compile_features(usk_publisher_service_control PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_service_control PRIVATE
+      usk_publisher_windows_static advapi32 shell32)
+    usk_enable_strict_warnings(usk_publisher_service_control)
+  endif()
 endif()
 
 if(USK_BUILD_TESTS)
@@ -565,18 +586,6 @@ if(USK_BUILD_TESTS)
       set_tests_properties(usk_publisher_candidate_apply_process_smoke PROPERTIES TIMEOUT 60)
     endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-      add_executable(usk_publisher_lab_service
-        apps/daemon/usk_publisher_lab_service.cpp)
-      target_compile_features(usk_publisher_lab_service PRIVATE cxx_std_17)
-      target_link_libraries(usk_publisher_lab_service PRIVATE
-        usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
-      usk_enable_strict_warnings(usk_publisher_lab_service)
-
-      add_executable(usk_publisher_client apps/daemon/usk_publisher_client.cpp)
-      target_compile_features(usk_publisher_client PRIVATE cxx_std_17)
-      target_link_libraries(usk_publisher_client PRIVATE usk_publisher_windows_static)
-      usk_enable_strict_warnings(usk_publisher_client)
-
       add_executable(usk_publisher_lab_device_acl
         tests/native/usk_publisher_lab_device_acl.cpp)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)

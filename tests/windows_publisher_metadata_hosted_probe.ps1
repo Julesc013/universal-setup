@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory=$true)][string]$VhdPath,
     [Parameter(Mandatory=$true)][string]$VolumeRoot,
     [Parameter(Mandatory=$true)][string]$ServiceBinary,
+    [string]$ServiceControlBinary = '',
     [Parameter(Mandatory=$true)][string]$DeviceAclBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
     [Parameter(Mandatory=$true)][string]$PublicApplyBinary,
@@ -32,7 +33,7 @@ if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or 
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
     throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
 }
-if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or
+if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not $ServiceControlBinary -or
     $ConsumerAccess -or $HostileRights -or $ExpectUnprotectedRefusal -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or
     $InterruptBeforePublish -or $InterruptAfterStage -or
@@ -155,6 +156,8 @@ $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run'
     archive_sha256=$null;strip_prefix='pkg';request=$null;plan=$null;native=$null;independent=$null;
     observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false}
 $created=$false
+$registrationAttempted=$false
+$expectedRegisteredCommand=''
 $failure=$null
 $requestClient=$null
 $clientNumber=0
@@ -319,17 +322,30 @@ try {
         if($ConsumerAccess){$clientArguments+=' --grant-client-read'}
         $command+=$clientArguments
     }
-    if($RegisteredService) {
-        $command='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
-            ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
-            $(if($NonAdminClient){' --admit-client-observer'}else{''})+$clientArguments
-    }
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
-    & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Owned service creation failed'}
+    if($RegisteredService) {
+        $expectedRegisteredCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
+            ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
+            $(if($NonAdminClient){' --admit-client-observer'}else{''})+
+            ' --authorized-client-sid '+$callerSid
+        $controlArgs=@('--register',$service,$ServiceBinary,$VolumeRoot,$envelope,
+            $receipt.envelope_sha256,$callerSid)
+        if($NonAdminClient){$controlArgs+='--admit-client-observer'}
+        $registrationAttempted=$true
+        $registered=& $ServiceControlBinary @controlArgs
+        if($LASTEXITCODE -ne 0){throw 'Product service control did not register the reviewed publisher'}
+        $created=$true
+        if(($registered|ConvertFrom-Json).status -ne 'registered') {
+            throw 'Product service control did not register the reviewed publisher'
+        }
+        $receipt['service_control_binary_sha256']=(Get-FileHash -LiteralPath $ServiceControlBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+    } else {
+        & sc.exe create $service type= own start= demand obj= LocalSystem binPath= $command|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Owned service creation failed'}
+        & sc.exe sidtype $service restricted|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Restricted service configuration failed'}
+    }
     $created=$true
-    & sc.exe sidtype $service restricted|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Restricted service configuration failed'}
     $sid=[Security.Principal.NTAccount]::new('NT SERVICE\'+$service).Translate([Security.Principal.SecurityIdentifier]).Value
     $receipt.service_sid=$sid
     # Only this newly created input directory in the disposable hosted VM is
@@ -632,10 +648,23 @@ try {
             $removed.Add($exact)
         }
         $receipt['removed_source_inputs']=$removed.ToArray()
-        $recoveryCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
-            ' --recover-reviewed'+$(if($NonAdminClient){' --admit-client-observer'}else{''})+$clientArguments
-        & sc.exe config $service binPath= $recoveryCommand|Out-Null
-        if($LASTEXITCODE -ne 0){throw 'Registered source-free recovery configuration failed'}
+        if($callerSid -eq 'S-1-5-18'){throw 'Registered client unexpectedly uses SYSTEM identity'}
+        $beforeControl=(Get-CimInstance Win32_Service -Filter "Name='$service'").PathName
+        $wrongCallerError=Join-Path $root ('wrong-caller-'+$id+'.txt')
+        $wrongArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
+        if($NonAdminClient){$wrongArgs+='--admit-client-observer'}
+        & $ServiceControlBinary @wrongArgs 2>$wrongCallerError|Out-Null
+        if($LASTEXITCODE -eq 0 -or
+            (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $beforeControl) {
+            throw 'Registered recovery accepted a different caller or changed service configuration'
+        }
+        $receipt['wrong_caller_recovery_refused']=$true
+        $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+        if($NonAdminClient){$controlArgs+='--admit-client-observer'}
+        $configuredRecovery=& $ServiceControlBinary @controlArgs
+        if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
+            throw 'Product service control did not configure source-free recovery'
+        }
         try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
         $requestClient=Start-RequestClient
         if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered recovery client timed out'}
@@ -857,6 +886,17 @@ try {
     }
     if($consumerCreated -and -not $clientCleanupConfirmed){$receipt['consumer_account_retained']=$consumerName}
     $consumerCredential=$null
+    if($registrationAttempted -and -not $created) {
+        try {
+            $pendingService=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+            if($pendingService) {
+                if($pendingService.PathName -cne $expectedRegisteredCommand) {
+                    throw 'Failed registration left a service with an unexpected command; retain for inspection'
+                }
+                $created=$true
+            }
+        } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
