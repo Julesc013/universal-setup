@@ -1623,6 +1623,7 @@ try {
             install_id=$recoveryRequest.install_id
             transaction_id=$recoveryRequest.transaction_id+'.changed'
         }
+        if($ControllerApply){$script:controllerPending=$true}
         Start-RegisteredPublisher
         $requestClient=Start-RequestClient $staleRecovery
         if(-not $requestClient.process.WaitForExit(120000)) {
@@ -1706,6 +1707,7 @@ try {
         $staleVerify=[ordered]@{}
         foreach($key in $verifyRequest.Keys){$staleVerify[$key]=$verifyRequest[$key]}
         $staleVerify.transaction_id='install.'+[guid]::NewGuid().ToString('N')
+        if($ControllerApply){$script:controllerPending=$true}
         Start-RegisteredPublisher
         $requestClient=Start-RequestClient $staleVerify
         $staleClient=$requestClient
@@ -1740,6 +1742,7 @@ try {
             foreach($key in $verifyRequest.Keys){$damageVerify[$key]=$verifyRequest[$key]}
             $damageVerify.request_id='verify.damaged.'+$id
             $damageVerify.report_id='verify.damaged.'+$id
+            if($ControllerApply){$script:controllerPending=$true}
             Start-RegisteredPublisher
             $requestClient=Start-RequestClient $damageVerify
             $damageClient=$requestClient
