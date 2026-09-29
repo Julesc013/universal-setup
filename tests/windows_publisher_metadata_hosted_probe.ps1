@@ -1505,6 +1505,7 @@ try {
             $verified.verify_response.payload.status -ne 'pass' -or
             $verified.verify_response.payload.install_id -cne $verifyRequest.install_id -or
             $verified.verify_response.payload.report_id -cne $verifyRequest.report_id -or
+            $verified.bound_report_digest -cne $verified.verify_response.payload.report_digest -or
             (Test-Path -LiteralPath $nativePath)) {
             throw 'Authenticated read-only verification differs from completed installation'
         }
@@ -1514,6 +1515,7 @@ try {
         }
         $receipt['registered_installed_verify']=[ordered]@{status=$verified.status;
             report_digest=$verified.verify_response.payload.report_digest;
+            bound_report_digest=$verified.bound_report_digest;
             client_exit_code=$verifyClient.process.ExitCode;
             response_sha256=(Get-FileHash -LiteralPath $verifyClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
@@ -1573,6 +1575,7 @@ try {
                 $damageResponse.verify_response.payload.status -cne 'fail' -or
                 $damageResponse.verify_response.payload.install_id -cne $verifyRequest.install_id -or
                 $damageResponse.verify_response.payload.report_id -cne $damageVerify.report_id -or
+                $damageResponse.bound_report_digest -cne $damageResponse.verify_response.payload.report_digest -or
                 $damageResponse.verify_response.payload.summary.modified_files -ne 1 -or
                 $damageResponse.verify_response.payload.summary.missing_files -ne 0 -or
                 $damageResponse.verify_response.payload.summary.unknown_paths -ne 0 -or
@@ -1605,6 +1608,7 @@ try {
             $receipt.registered_installed_verify['damaged_owned_file']=[ordered]@{
                 path=$damageEntries[0].relative_path;before_sha256=$damaged.before_sha256;
                 after_sha256=$damaged.after_sha256;report_digest=$damageResponse.verify_response.payload.report_digest;
+                bound_report_digest=$damageResponse.bound_report_digest;
                 status=$damageResponse.verify_response.payload.status;
                 unchanged_other_rows=$otherAfter.Count;client_exit_code=$damageClient.process.ExitCode}
         }

@@ -1509,6 +1509,33 @@ void require_completed_consumer_install(const InstallPlan& plan,
     }
 }
 
+VerificationReport verify_completed_install_on_bound_volume(
+    const InstallPlan& plan, const std::string& report_id,
+    const std::string& verified_at, const std::wstring& volume_guid_root,
+    HANDLE volume, const std::wstring& service_name)
+{
+    if (!record_io::valid_identifier(report_id) || !valid_timestamp(verified_at)) {
+        throw std::runtime_error("protected verification identity is invalid");
+    }
+    const fs::path bound_state = publisher_volume_bound_path(
+        plan.roots.state_root, volume_guid_root);
+    const fs::path bound_target = publisher_volume_bound_path(
+        plan.target_root, volume_guid_root);
+    platform::windows::PublisherMetadataSession metadata(volume, volume_guid_root,
+        bound_state.parent_path(), service_name, true);
+    state::StateRepository repository(bound_state);
+    const auto installed = repository.read_installed(plan.install_id);
+    const auto ownership = repository.read_ownership(
+        ownership_id_from_ref(installed.ownership_manifest_ref));
+    if (installed.install_id != plan.install_id ||
+        installed.target_root != plan.target_root.string() ||
+        installed.recipe_digest != plan.recipe.recipe_digest ||
+        installed.ownership_manifest_digest != ownership.manifest_digest) {
+        throw std::runtime_error("protected verification metadata differs from reviewed install");
+    }
+    return verify_manifest(installed, ownership, report_id, verified_at, bound_target);
+}
+
 static std::string require_held_publisher_evidence(
     const InstallPlan& plan, const std::string& transaction_id,
     const std::string& applied_at, const ProtectedPublisherEvidence& evidence)
