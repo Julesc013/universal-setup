@@ -457,7 +457,7 @@ public static class USKPublisherRenameRace {
             [IO.Directory]::CreateDirectory($destination + '\visible') | Out-Null
         }
     } else {
-        $file = $destination + '\visible\' + $payloadPath
+        $file = $destination + '\' + $VisibleLeaf + '\' + $payloadPath
         Require-Denied 'visible_read' {
             $handle = [IO.File]::Open($file, [IO.FileMode]::Open,
                 [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor

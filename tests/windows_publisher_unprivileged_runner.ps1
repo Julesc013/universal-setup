@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputPath,
     [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish',
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin',
+    [ValidateSet('visible', 'selected-app')][string]$VisibleLeaf = 'visible',
     [Management.Automation.PSCredential]$ExistingCredential,
     [string]$ExistingSid = ''
 )
@@ -57,6 +58,7 @@ $receipt = [ordered]@{
     account_origin = $(if ($reuseAccount) { 'existing_owned_client' } else { 'created_attacker' })
     stage = $Stage
     payload_relative_path = $PayloadRelativePath
+    visible_leaf = $VisibleLeaf
     volume_root = $VolumeRoot
     vhd_disk_number = $disk[0].Number
     process_exit_code = $null
@@ -109,7 +111,8 @@ try {
         '" -ExpectedUserSid "' + $receipt.account_sid +
         '" -ServiceSid "' + $ServiceSid +
         '" -OutputPath "' + $childOutput + '" -Stage ' + $Stage +
-        ' -PayloadRelativePath ' + $PayloadRelativePath
+        ' -PayloadRelativePath ' + $PayloadRelativePath +
+        ' -VisibleLeaf ' + $VisibleLeaf
     $process = Start-Process -FilePath (Get-Command pwsh).Source `
         -ArgumentList $arguments -Credential $credential -PassThru `
         -WindowStyle Hidden -WorkingDirectory $attackFolder -ErrorAction Stop
@@ -137,6 +140,7 @@ try {
         $observation.volume_root -ne $VolumeRoot -or
         $observation.stage -ne $Stage -or
         $observation.payload_relative_path -cne $PayloadRelativePath -or
+        $observation.visible_leaf -cne $VisibleLeaf -or
         $observation.process_id -ne $process.Id -or
         @($observation.attempts).Count -ne 4 -or
         @($observation.attempts | Where-Object {

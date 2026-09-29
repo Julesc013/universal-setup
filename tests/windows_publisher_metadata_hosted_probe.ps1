@@ -26,6 +26,7 @@ param(
     [switch]$ControllerApply,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
+    [switch]$ProductionPostpublishRights,
     [switch]$ProductionPostrenameTermination,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights,
@@ -102,6 +103,10 @@ if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedS
     $InterruptAfterStage -or $TerminateAtPoststage -or $TerminateAtPostrename -or
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
     throw 'Production concurrent rights probe requires the registered service and its non-admin client'
+}
+if($ProductionPostpublishRights -and (-not $ProductionConcurrentRights -or -not $NonAdminClient -or
+    $ConsumerAccess -or $HostileRights -or $ProductionPostrenameTermination)) {
+    throw 'Production postpublish rights probe requires the exact non-admin production operation'
 }
 if($ProductionPostrenameTermination -and (-not $RegisteredService -or -not $ReviewedSource -or
     -not $ClientBinary -or $NonAdminClient -or $ConsumerAccess -or $MachineRequestClient -or
@@ -2177,15 +2182,18 @@ try {
                 unchanged_other_rows=$otherAfter.Count;client_exit_code=$damageClient.process.ExitCode}
         }
     }
-    if($HostileRights) {
+    if($HostileRights -or $ProductionPostpublishRights) {
         $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-attack.json'
         $attackIdentity=if($RegisteredService -and $NonAdminClient){
             @{ExistingCredential=$consumerCredential;ExistingSid=$consumerSid}
         }else{@{}}
-        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative @attackIdentity
+        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Postpublish -PayloadRelativePath $attackRelative -VisibleLeaf $visibleLeaf @attackIdentity
         $attack=Get-Content -LiteralPath $attackOutput -Raw|ConvertFrom-Json
-        $receipt['postpublish_hostile_rights']=$attack
-        if($attack.status -ne 'unprivileged_access_denied_observed' -or $attack.payload_relative_path -cne $attackRelative){
+        $attackReceiptKey=if($ProductionPostpublishRights){'production_postpublish_hostile_rights'}else{'postpublish_hostile_rights'}
+        $receipt[$attackReceiptKey]=$attack
+        if($attack.status -ne 'unprivileged_access_denied_observed' -or
+            $attack.payload_relative_path -cne $attackRelative -or
+            $attack.observation.visible_leaf -cne $visibleLeaf){
             throw 'Selected postpublish attacker result differs'
         }
         if($RegisteredService -and ($attack.account_sid -cne $consumerSid -or
@@ -2194,8 +2202,13 @@ try {
         }
         $afterAttack=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt['postpublish_after_attack']=$afterAttack.independent
+        # The production run intentionally damages addon.bin for its later
+        # verification probe. Compare the hostile attempt against that exact
+        # independently observed state, not the earlier intact install.
+        $beforeAttackRows=if($ProductionPostpublishRights){$damageRows.independent.rows}else{$receipt.independent.rows}
         if($afterAttack.independent.identity -ne 'S-1-5-18' -or -not $afterAttack.observer_task_removed -or
-            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+            (-not $beforeAttackRows) -or
+            ($beforeAttackRows|ConvertTo-Json -Depth 32 -Compress) -cne
             ($afterAttack.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
             throw 'Selected postpublish hostile attempts changed published state'
         }
