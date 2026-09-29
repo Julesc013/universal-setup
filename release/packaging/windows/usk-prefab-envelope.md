@@ -52,6 +52,13 @@ python tools/usk_prefab_envelope.py inspect --path <envelope-output>
 For the carrier profile, use `--profile one_file_carrier`, inspect
 `<envelope-output>/setup.carrier.zip`, extract it to a new directory, and run
 the extracted `usk_machine.exe --product-info <extracted>/product.bundle.json`.
+When the carrier is on read-only media, supply an existing writable scratch
+directory explicitly:
+
+```text
+python tools/usk_prefab_envelope.py inspect --path <read-only-media>/setup.carrier.zip --scratch-dir <writable-scratch-dir>
+```
+
 The builder validates the compiled
 bundle before and after composition, streams the supplied runtime and payload
 without changing their bytes, and reopens the emitted closure. The reopened
@@ -65,5 +72,10 @@ source audit and runtime dependency inventory are required before product use.
 Inspection checks the entire ZIP carrier against a disposable canonical
 reconstruction, including bytes outside declared ZIP members. It also runs the
 existing product-bundle inspector on the emitted sidecar or on named members
-extracted to a disposable directory. Large carrier inspection therefore needs
-temporary disk space for its canonical copy and extracted payload.
+extracted to a disposable directory. The canonical copy and extracted payload
+are created beside the carrier by default and removed after inspection,
+including on failure. For read-only media, `--scratch-dir` places both copies
+in the explicitly chosen writable directory. The inspector checks that chosen
+volume for twice the carrier size plus 256 MiB of free space before creating
+scratch files. It never silently spills into the machine's default temporary
+drive.
