@@ -22,6 +22,7 @@ param(
     [switch]$ControllerApply,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
+    [switch]$ProductionPostrenameTermination,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
@@ -49,6 +50,13 @@ if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedS
     -not ($NonAdminClient -or ($ConsumerAccess -and $MachineRequestClient)) -or $HostileRights -or
     $InterruptAfterStage -or (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
     throw 'Production rights probe requires the registered service and non-admin client'
+}
+if($ProductionPostrenameTermination -and (-not $RegisteredService -or -not $ReviewedSource -or
+    -not $ClientBinary -or $NonAdminClient -or $ConsumerAccess -or $MachineRequestClient -or
+    $ProductionConcurrentRights -or $HostileRights -or $InterruptAfterStage -or
+    $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterVisibleRecord -or
+    (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
+    throw 'Production rename-loss probe requires the uninterrupted registered production service'
 }
 
 # This script is deliberately limited to a fresh GitHub-hosted Windows VM.
@@ -171,7 +179,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
