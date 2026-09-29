@@ -58,6 +58,7 @@ bool recover_visible_bound = false;
 bool verify_installed = false;
 bool reviewed_install_reentry = false;
 bool require_preprotected_boundary = false;
+bool registered_reviewed_mode = false;
 
 bool selected_archive_mode = false;
 std::wstring selected_archive_path;
@@ -280,10 +281,31 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
                 authorized_client_sid, stop_event, 120000);
             const std::string request=request_channel->receive();
-            if (verify_installed) config.submitted_verify_request=request;
-            else if (recover_reviewed &&
-                    usk::json::parse(request).at("schema").as_string() ==
-                        "usk.publisher_recovery_request.v1")
+            const auto schema=usk::json::parse(request).at("schema").as_string();
+            if (registered_reviewed_mode) {
+                // The registered command binds the original reviewed envelope.
+                // Later requests may select only verification or source-free
+                // recovery of that protected installation. Neither mode may
+                // inherit the envelope as fresh publication authority.
+                if (schema == "usk.publisher_installed_verify_request.v1") {
+                    config.verify_installed=true;
+                    config.selected_archive_mode=false;
+                    config.reviewed_plan_envelope_path.clear();
+                    config.reviewed_plan_envelope_sha256.clear();
+                    config.submitted_verify_request=request;
+                } else if (schema == "usk.publisher_recovery_request.v1") {
+                    config.recover_reviewed=true;
+                    config.selected_archive_mode=false;
+                    config.reviewed_plan_envelope_path.clear();
+                    config.reviewed_plan_envelope_sha256.clear();
+                    config.submitted_recovery_request=request;
+                } else if (schema == "usk.install_local_apply_request.v1") {
+                    config.submitted_apply_request=request;
+                } else {
+                    throw std::runtime_error("registered publisher request schema is unavailable");
+                }
+            } else if (verify_installed) config.submitted_verify_request=request;
+            else if (recover_reviewed && schema == "usk.publisher_recovery_request.v1")
                 config.submitted_recovery_request=request;
             else config.submitted_apply_request=request;
             if (grant_client_read) config.consumer_read_sid=ascii(authorized_client_sid);
@@ -553,6 +575,7 @@ int wmain(int argc, wchar_t** argv) {
         reviewed_plan_envelope_path = argv[6];
         reviewed_plan_envelope_sha256 = ascii(argv[7]);
     }
+    registered_reviewed_mode = registered_reviewed;
     SERVICE_TABLE_ENTRYW table[] = {{service_name.data(), service_main}, {nullptr, nullptr}};
     if (!StartServiceCtrlDispatcherW(table)) return 3;
     return service_exit_code == ERROR_SUCCESS ? 0 : 4;

@@ -20,6 +20,7 @@ param(
     [switch]$TerminateAtPoststage,
     [switch]$ReviewedSource,
     [switch]$RegisteredService,
+    [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
@@ -27,6 +28,9 @@ param(
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
+if($ReuseRegistration -and $InterruptAfterStage) {
+    throw 'Poststage fault injection restores the owned service command before recovery'
+}
 function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
     $stream=[IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,
         [IO.FileShare]::ReadWrite)
@@ -1379,11 +1383,18 @@ try {
             throw 'Registered recovery accepted a different caller or changed service configuration'
         }
         $receipt['wrong_caller_recovery_refused']=$true
-        $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-        if($registeredMode){$controlArgs+=$registeredMode}
-        $configuredRecovery=& $ServiceControlBinary @controlArgs
-        if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
-            throw 'Product service control did not configure source-free recovery'
+        if($ReuseRegistration) {
+            if($beforeControl -cne $expectedRegisteredCommand) {
+                throw 'Registered publisher command changed before source-free recovery'
+            }
+            $receipt['source_free_recovery_without_reconfiguration']=$true
+        } else {
+            $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+            if($registeredMode){$controlArgs+=$registeredMode}
+            $configuredRecovery=& $ServiceControlBinary @controlArgs
+            if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
+                throw 'Product service control did not configure source-free recovery'
+            }
         }
         Start-RegisteredPublisher
         $submittedRecovery=$recoveryRequest
@@ -1404,6 +1415,10 @@ try {
             $recovered.recovery_installed_response.payload.transaction_id -ne $applyRequest.transaction_id -or
             (Test-Path -LiteralPath $nativePath)) {
             throw 'Registered source-free recovery did not preserve the bound installed result'
+        }
+        if($ReuseRegistration -and
+            (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
+            throw 'Registered publisher command changed during source-free recovery'
         }
         $receipt['registered_source_free_reentry']=[ordered]@{
             status=$recovered.status;decision=$recovered.recovery_observation.decision;
@@ -1461,11 +1476,18 @@ try {
             request_id='verify.'+$id;install_id=$applyRequest.plan_request.install_id;
             transaction_id=$applyRequest.transaction_id;report_id='verify.'+$id;
             verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
-        $verifyArgs=@('--verify',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-        if($registeredMode){$verifyArgs+=$registeredMode}
-        $configuredVerify=& $ServiceControlBinary @verifyArgs
-        if($LASTEXITCODE -ne 0 -or ($configuredVerify|ConvertFrom-Json).status -ne 'verify_configured') {
-            throw 'Product service control did not configure read-only verification'
+        if($ReuseRegistration) {
+            if((Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
+                throw 'Registered publisher command changed before bound verification'
+            }
+            $receipt['verification_without_reconfiguration']=$true
+        } else {
+            $verifyArgs=@('--verify',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+            if($registeredMode){$verifyArgs+=$registeredMode}
+            $configuredVerify=& $ServiceControlBinary @verifyArgs
+            if($LASTEXITCODE -ne 0 -or ($configuredVerify|ConvertFrom-Json).status -ne 'verify_configured') {
+                throw 'Product service control did not configure read-only verification'
+            }
         }
         Start-RegisteredPublisher
         $requestClient=Start-RequestClient $verifyRequest
@@ -1485,6 +1507,10 @@ try {
             $verified.verify_response.payload.report_id -cne $verifyRequest.report_id -or
             (Test-Path -LiteralPath $nativePath)) {
             throw 'Authenticated read-only verification differs from completed installation'
+        }
+        if($ReuseRegistration -and
+            (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
+            throw 'Registered publisher command changed during read-only verification'
         }
         $receipt['registered_installed_verify']=[ordered]@{status=$verified.status;
             report_digest=$verified.verify_response.payload.report_digest;

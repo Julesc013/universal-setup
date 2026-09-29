@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "6267420f282c356c6988243a874d4e41848c0731bd9ec1db20eae8168cecebe0"
+          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "6267420f282c356c6988243a874d4e41848c0731bd9ec1db20eae8168cecebe0"
+          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "6267420f282c356c6988243a874d4e41848c0731bd9ec1db20eae8168cecebe0"
+          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3943,11 +3943,11 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "c111b8d97826b63a8fe98b36540a9ee1dc46dc029aeb7248b75df8e260489457"
+          "sha256": "f1ac6e5f432a00c282fb276bd953d0829608431a55777fbf9a40eda1f31e865f"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "3f83a127b84ae31cc0e10045eba3363eca054ee1377227f332f576615f8e9d78"
+          "sha256": "35f8cd20849ac9ce5c4957a04e6291c6f359402251394db565af079841503f55"
         },
         {
           "path": "CMakeLists.txt",
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "bdbc2a999f0fce2cb05e4ba8871939ac978af1e690748d2a78a8365dd8d384ee"
+          "sha256": "24730067d29ef3e579722598d03a7730e456e307af9756c068e9b3f1b5c672ce"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4243,7 +4243,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "3f83a127b84ae31cc0e10045eba3363eca054ee1377227f332f576615f8e9d78"
+          "sha256": "35f8cd20849ac9ce5c4957a04e6291c6f359402251394db565af079841503f55"
         },
         {
           "path": "CMakeLists.txt",
@@ -4335,7 +4335,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "bdbc2a999f0fce2cb05e4ba8871939ac978af1e690748d2a78a8365dd8d384ee"
+          "sha256": "24730067d29ef3e579722598d03a7730e456e307af9756c068e9b3f1b5c672ce"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
