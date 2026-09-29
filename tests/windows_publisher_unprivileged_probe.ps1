@@ -159,7 +159,10 @@ try {
             # checks the source bytes before and after the attempted rename.
             Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 public static class USKPublisherAncestorAttack {
     [DllImport("kernel32.dll", EntryPoint="MoveFileExW", CharSet=CharSet.Unicode,
         ExactSpelling=true, SetLastError=true)]
@@ -169,6 +172,97 @@ public static class USKPublisherAncestorAttack {
     public static extern IntPtr CreateFileW(string path, uint access, uint share,
         IntPtr security, uint disposition, uint flags, IntPtr template);
     [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+}
+public static class USKPublisherRenameRace {
+    // Two 8 MiB timestamp arrays retain at least ten seconds at the
+    // 100,000-attempt/second cap without growing with publisher duration.
+    const int Capacity = 1048576;
+    const int MaximumAttemptsPerSecond = 100000;
+    static readonly long[] Starts = new long[Capacity];
+    static readonly long[] Ends = new long[Capacity];
+    static readonly ManualResetEventSlim Started = new ManualResetEventSlim(false);
+    static Thread worker;
+    static volatile bool stopping;
+    static long attempts;
+    static long missingBeforeProtectedRoot;
+    static string failure;
+    static string source;
+    static string destination;
+    [DllImport("kernel32.dll", EntryPoint="MoveFileExW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+    static extern bool MoveFileExW(string source, string destination, uint flags);
+    public static void Start(string sourcePath, string destinationPath) {
+        if (worker != null) throw new InvalidOperationException("rename race already started");
+        source = sourcePath;
+        destination = destinationPath;
+        stopping = false;
+        worker = new Thread(Loop);
+        worker.IsBackground = true;
+        worker.Start();
+        if (!Started.Wait(5000)) throw new TimeoutException("rename race worker did not start");
+    }
+    static void Loop() {
+        try {
+            Started.Set();
+            long minimumInterval = Math.Max(1, Stopwatch.Frequency / MaximumAttemptsPerSecond);
+            while (!stopping) {
+                long start = Stopwatch.GetTimestamp();
+                bool succeeded = MoveFileExW(source, destination, 0);
+                // Keep managed error extraction outside the measured native call.
+                long end = Stopwatch.GetTimestamp();
+                int error = Marshal.GetLastWin32Error();
+                if (!succeeded && (error == 2 || error == 3) && attempts == 0) {
+                    missingBeforeProtectedRoot++;
+                    Thread.Sleep(1);
+                    continue;
+                }
+                if (succeeded || error != 5) {
+                    failure = succeeded ? "unexpected_success" : "unexpected_win32_" + error;
+                    break;
+                }
+                long index = attempts % Capacity;
+                Starts[index] = start;
+                Ends[index] = end;
+                attempts++;
+                while (!stopping && Stopwatch.GetTimestamp() - start < minimumInterval)
+                    Thread.SpinWait(16);
+            }
+        } catch (Exception error) { failure = error.GetType().FullName; }
+    }
+    public static bool HasPositiveOverlap(long attemptStart, long attemptEnd,
+        long nativeStart, long nativeEnd) {
+        return nativeStart > 0 && nativeEnd > nativeStart &&
+            attemptEnd > attemptStart &&
+            attemptStart < nativeEnd && attemptEnd > nativeStart;
+    }
+    public static Dictionary<string, object> Stop(long nativeStart, long nativeEnd) {
+        if (worker == null) throw new InvalidOperationException("rename race did not start");
+        stopping = true;
+        if (!worker.Join(5000)) throw new TimeoutException("rename race worker did not stop");
+        long first = Math.Max(0, attempts - Capacity);
+        long overlapCount = 0;
+        long[] overlap = null;
+        for (long i = first; i < attempts; ++i) {
+            int slot = (int)(i % Capacity);
+            if (HasPositiveOverlap(Starts[slot], Ends[slot], nativeStart, nativeEnd)) {
+                overlapCount++;
+                if (overlap == null) overlap = new long[] { Starts[slot], Ends[slot] };
+            }
+        }
+        return new Dictionary<string, object> {
+            { "operation", "publication_rename" },
+            { "clock", "qpc" },
+            { "clock_frequency", Stopwatch.Frequency },
+            { "maximum_attempts_per_second", MaximumAttemptsPerSecond },
+            { "attempt_count", attempts },
+            { "missing_before_protected_root", missingBeforeProtectedRoot },
+            { "retained_first_tick", first < attempts ? Starts[first % Capacity] : 0 },
+            { "retained_last_tick", attempts > first ? Ends[(attempts - 1) % Capacity] : 0 },
+            { "overlap_count", overlapCount },
+            { "overlap_attempt", overlap },
+            { "failure", failure }
+        };
+    }
 }
 '@
         }
@@ -187,6 +281,15 @@ public static class USKPublisherAncestorAttack {
         }
         $deadline = [DateTime]::UtcNow.AddSeconds(120)
         $prior = [DateTime]::UtcNow
+        $renameRaceStarted = $false
+        $renameRaceSummary = $null
+        if ($Stage -eq 'ProductionConcurrent') {
+            # The controller starts the client only after seeing the ready
+            # marker below, so the native attacker is live before publication.
+            [USKPublisherRenameRace]::Start($root+'publication',
+                $root+'hostile-publication')
+            $renameRaceStarted = $true
+        }
         while ([DateTime]::UtcNow -lt $deadline) {
             $now = [DateTime]::UtcNow
             $gap = ($now - $prior).TotalMilliseconds
@@ -196,6 +299,25 @@ public static class USKPublisherAncestorAttack {
             $prior = $now
             $afterCompletion = Test-Path -LiteralPath $completed
             $afterRelease = Test-Path -LiteralPath $releaseMarker
+            if ($Stage -eq 'ProductionConcurrent' -and $afterCompletion -and
+                $renameRaceStarted -and -not $renameRaceSummary) {
+                $completedLines=[IO.File]::ReadAllLines($completed)
+                if($completedLines.Count -ne 2 -or
+                    $completedLines[0] -cne 'usk.publisher.concurrent_completed.v2') {
+                    throw 'production rename race target is malformed'
+                }
+                $renameTarget=$completedLines[1]|ConvertFrom-Json
+                if($renameTarget.schema -cne 'usk.publisher.rename_race_target.v1' -or
+                    $renameTarget.clock -cne 'qpc' -or
+                    [long]$renameTarget.frequency -ne [Diagnostics.Stopwatch]::Frequency -or
+                    [long]$renameTarget.start_tick -le 0 -or
+                    [long]$renameTarget.end_tick -lt [long]$renameTarget.start_tick) {
+                    throw 'production rename race target clock is invalid'
+                }
+                $renameRaceSummary=[USKPublisherRenameRace]::Stop(
+                    [long]$renameTarget.start_tick,[long]$renameTarget.end_tick)
+                $receipt.concurrent['native_rename_overlap']=$renameRaceSummary
+            }
             if ($afterRelease -and $Stage -eq 'ProductionConcurrent' -and
                 -not $receipt.concurrent.started_seen_utc) {
                 $receipt.concurrent.started_seen_utc = $now.ToString('o')
@@ -279,6 +401,17 @@ public static class USKPublisherAncestorAttack {
             Start-Sleep -Milliseconds 1
         }
         if ($Stage -eq 'ProductionConcurrent') {
+            if (-not $renameRaceStarted -or -not $renameRaceSummary -or
+                $renameRaceSummary.failure -or $renameRaceSummary.attempt_count -lt 1) {
+                throw 'production native rename attacker did not retain denied attempts'
+            }
+            if ([long]$renameRaceSummary.retained_first_tick -gt
+                [long]$renameTarget.start_tick) {
+                throw 'production native rename attacker history no longer covers publisher call'
+            }
+            if ($renameRaceSummary.overlap_count -lt 1) {
+                throw 'production native rename attacker did not overlap the publisher call'
+            }
             if (-not $receipt.concurrent.ready_utc -or
                 $receipt.concurrent.destination_create.denied -lt 4 -or
                 $receipt.concurrent.destination_create.denied_after_start_before_observed_reply -lt 1 -or
@@ -349,6 +482,9 @@ public static class USKPublisherAncestorAttack {
     $receipt.status = 'failed'
     $receipt.failure = $_.Exception.Message
 } finally {
+    if ($renameRaceStarted -and -not $renameRaceSummary) {
+        try { [USKPublisherRenameRace]::Stop(0,0)|Out-Null } catch {}
+    }
     $receipt | ConvertTo-Json -Depth 6 -Compress | Set-Content -LiteralPath $OutputPath -Encoding utf8
 }
 if ($receipt.status -ne 'access_denied_observed') { exit 1 }

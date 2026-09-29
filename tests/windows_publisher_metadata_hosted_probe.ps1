@@ -1639,8 +1639,24 @@ try {
         }
         $requestClient=$null
         if($concurrentAttacker) {
-            [IO.File]::WriteAllText($concurrentCompleted,
-                "usk.publisher.concurrent_completed.v1`n",[Text.UTF8Encoding]::new($false))
+            if($ProductionConcurrentRights) {
+                $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
+                if(-not $nativeCall -or $nativeCall.clock -cne 'qpc') {
+                    throw 'Production native rename call interval is unavailable'
+                }
+                $raceTarget=[ordered]@{schema='usk.publisher.rename_race_target.v1';
+                    clock='qpc';frequency=$nativeCall.frequency;
+                    start_tick=$nativeCall.start_tick;end_tick=$nativeCall.end_tick}
+                $completedBytes="usk.publisher.concurrent_completed.v2`n"+
+                    ($raceTarget|ConvertTo-Json -Compress)+"`n"
+                $completedTemp=$concurrentCompleted+'.tmp'
+                [IO.File]::WriteAllText($completedTemp,$completedBytes,
+                    [Text.UTF8Encoding]::new($false))
+                [IO.File]::Move($completedTemp,$concurrentCompleted)
+            }else{
+                [IO.File]::WriteAllText($concurrentCompleted,
+                    "usk.publisher.concurrent_completed.v1`n",[Text.UTF8Encoding]::new($false))
+            }
             if($ProductionConcurrentRights) {
                 $stageObservation=Complete-StageObserver $stageObserver
                 $receipt['production_stage_observation']=$stageObservation
@@ -1658,17 +1674,60 @@ try {
                 -not (Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -or
                 (Get-Item -LiteralPath $concurrentOutput).Length -gt
                     $(if($ProductionConcurrentRights){256KB}else{16KB})) {
-                throw 'Concurrent attacker did not produce a bounded successful receipt'
+                $attackDiagnostic=[ordered]@{
+                    exit_code=$concurrentAttacker.ExitCode;
+                    receipt_present=(Test-Path -LiteralPath $concurrentOutput -PathType Leaf);
+                    receipt_bytes=if(Test-Path -LiteralPath $concurrentOutput -PathType Leaf){
+                        (Get-Item -LiteralPath $concurrentOutput).Length}else{$null};
+                    receipt_prefix=if(Test-Path -LiteralPath $concurrentOutput -PathType Leaf){
+                        Read-BoundedDiagnostic $concurrentOutput 512}else{$null};
+                    stderr_prefix=if(Test-Path -LiteralPath $concurrentError -PathType Leaf){
+                        Read-BoundedDiagnostic $concurrentError 2048}else{$null}}
+                if($attackDiagnostic.receipt_present -and
+                    $attackDiagnostic.receipt_bytes -le 256KB) {
+                    try {
+                        $attackReceipt=Get-Content -LiteralPath $concurrentOutput -Raw|
+                            ConvertFrom-Json
+                        $attackDiagnostic['receipt_summary']=[ordered]@{
+                            status=$attackReceipt.status;
+                            failure=$attackReceipt.failure;
+                            rename_race=$attackReceipt.concurrent.native_rename_overlap;
+                            ready_utc=$attackReceipt.concurrent.ready_utc;
+                            started_seen_utc=$attackReceipt.concurrent.started_seen_utc;
+                            completed_seen_utc=$attackReceipt.concurrent.completed_seen_utc;
+                            cycles_after_start=$attackReceipt.concurrent.cycles_after_start_before_observed_reply;
+                            destination_denied_after_start=$attackReceipt.concurrent.destination_create.denied_after_start_before_observed_reply;
+                            staged_denied_after_start=$attackReceipt.concurrent.staged_write.denied_after_start_before_observed_reply}
+                    }catch{
+                        $attackDiagnostic['receipt_parse_failure']=$_.Exception.Message
+                    }
+                }
+                $receipt['concurrent_attacker_failure']=$attackDiagnostic
+                throw ('Concurrent attacker did not produce a bounded successful receipt: '+
+                    ($attackDiagnostic|ConvertTo-Json -Compress -Depth 5))
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
             $coverage=if($ProductionConcurrentRights) {
                 $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
                 $nativeStart=[long]$nativeCall.start_tick
                 $nativeEnd=[long]$nativeCall.end_tick
+                $nativeOverlap=$concurrent.concurrent.native_rename_overlap
+                $overlapAttempt=@($nativeOverlap.overlap_attempt)
+                $nativeOverlapCovered=$nativeOverlap.operation -ceq 'publication_rename' -and
+                    $nativeOverlap.clock -ceq 'qpc' -and
+                    [long]$nativeOverlap.clock_frequency -eq [long]$nativeCall.frequency -and
+                    -not $nativeOverlap.failure -and
+                    $nativeEnd -gt $nativeStart -and
+                    [long]$nativeOverlap.attempt_count -ge 1 -and
+                    [long]$nativeOverlap.overlap_count -ge 1 -and
+                    $overlapAttempt.Count -eq 2 -and
+                    [long]$overlapAttempt[0] -lt $nativeEnd -and
+                    [long]$overlapAttempt[1] -gt $nativeStart -and
+                    [long]$overlapAttempt[1] -gt [long]$overlapAttempt[0]
                 $transitionCoverage=[ordered]@{}
                 $transitionCovered=$nativeCall.clock -ceq 'qpc' -and
                     [long]$nativeCall.frequency -eq [long]$stageObservation.clock_frequency -and
-                    $nativeStart -gt 0 -and $nativeEnd -ge $nativeStart -and
+                    $nativeStart -gt 0 -and $nativeEnd -gt $nativeStart -and
                     $nativeEnd-$nativeStart -le [long]($stageObservation.clock_frequency/2) -and
                     $nativeStart -ge [long]$stageObservation.transition.last_staged_only_start_tick -and
                     $nativeEnd -le [long]$stageObservation.transition.first_visible_end_tick -and
@@ -1690,6 +1749,7 @@ try {
                     first_visible_start_tick=$stageObservation.transition.first_visible_start_tick;
                     first_visible_end_tick=$stageObservation.transition.first_visible_end_tick;
                     native_call=$nativeCall;
+                    hostile_rename_overlap=$nativeOverlap;
                     denied_attempts=$transitionCoverage}
                 # The protected ancestor masks absence as ACCESS_DENIED for
                 # this caller. Correlate its denied writes with independent
@@ -1708,7 +1768,7 @@ try {
                     $concurrent.concurrent.publication_write_dac.denied_attempts
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
-                $stageObserver.removed -and $transitionCovered -and
+                $stageObserver.removed -and $transitionCovered -and $nativeOverlapCovered -and
                 $overlap -and $replaceOverlap -and
                 $insertOverlap -and $streamOverlap -and
                 $renameOverlap -and $dacOverlap -and
@@ -1741,7 +1801,7 @@ try {
             }
             $receipt['concurrent_hostile_rights']=$concurrent
             if($ProductionConcurrentRights) {
-                $receipt['concurrent_qualification_limit']='native_rename_call_bracketed_by_independent_system_samples_with_nearby_denials_not_exact_syscall_overlap'
+                $receipt['concurrent_qualification_limit']='nonadmin_publication_rename_denial_overlaps_native_call_with_independent_system_bracket_other_profile_cases_not_yet_qualified'
             }
             $concurrentAttacker=$null
         }
