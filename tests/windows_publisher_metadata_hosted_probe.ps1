@@ -309,6 +309,8 @@ $consumerCredential=$null
 $consumerSid=''
 $consumerProcess=$null
 $concurrentAttacker=$null
+$preopenedRootProcess=$null
+$preopenedClient=$null
 $concurrentOutput=''
 $concurrentError=''
 $concurrentCompleted=''
@@ -724,6 +726,45 @@ try {
             sha256=$scratchSha256}
     }
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+    if($ProductionConcurrentRights) {
+        $preopenedReady=Join-Path $consumerOutput 'preopened-root-ready.txt'
+        $preopenedRelease=Join-Path $consumerOutput 'preopened-root-release.txt'
+        if((Test-Path -LiteralPath $preopenedReady) -or
+            (Test-Path -LiteralPath $preopenedRelease)) {
+            throw 'Preopened-root attacker markers are not fresh'
+        }
+        $preopenedScript=Join-Path $PSScriptRoot 'windows_publisher_preopened_root_probe.ps1'
+        $preopenedRootProcess=Start-Process -FilePath (Get-Command pwsh).Source `
+            -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+                '-File',('"'+$preopenedScript+'"'),'-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),
+                '-ExpectedUserSid',$consumerSid,'-ServiceSid',$sid,
+                '-ReadyPath',('"'+$preopenedReady+'"'),
+                '-ReleasePath',('"'+$preopenedRelease+'"')) `
+            -Credential $consumerCredential -PassThru -WindowStyle Hidden `
+            -WorkingDirectory $consumerOutput -ErrorAction Stop
+        $preopenedDeadline=[DateTime]::UtcNow.AddSeconds(30)
+        while(-not (Test-Path -LiteralPath $preopenedReady) -and
+            [DateTime]::UtcNow -lt $preopenedDeadline) {
+            if($preopenedRootProcess.HasExited) {
+                throw 'Non-admin preopened-root attacker exited before readiness'
+            }
+            Start-Sleep -Milliseconds 25
+        }
+        if(-not (Test-Path -LiteralPath $preopenedReady) -or
+            [IO.File]::ReadAllText($preopenedReady) -cne
+                ("usk.publisher.preopened_root.v1 "+$preopenedRootProcess.Id+" "+$consumerSid+"`n")) {
+            throw 'Non-admin preopened-root attacker did not hold the exact volume root'
+        }
+        $preopenedIdentity=Get-CimInstance Win32_Process -Filter `
+            ('ProcessId='+$preopenedRootProcess.Id) -ErrorAction Stop
+        $preopenedOwner=Invoke-CimMethod -InputObject $preopenedIdentity -MethodName GetOwnerSid
+        if($preopenedOwner.ReturnValue -ne 0 -or $preopenedOwner.Sid -cne $consumerSid -or
+            -not $preopenedIdentity.CommandLine.Contains('windows_publisher_preopened_root_probe.ps1')) {
+            throw 'Preopened-root process differs from the non-admin client identity'
+        }
+        $receipt['preopened_root_process_id']=$preopenedRootProcess.Id
+        $receipt['preopened_root_user_sid']=$consumerSid
+    }
     if(-not $ExpectUnprotectedRefusal) {
         $acl=[Security.AccessControl.DirectorySecurity]::new()
         $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
@@ -770,6 +811,51 @@ try {
             if($recover){throw ('Interruption service start failed: '+$_.Exception.Message)}
             if((Get-Service $service).Status -ne 'Stopped'){throw}
         }
+    }
+    if($ProductionConcurrentRights) {
+        # The ordinary registered service receives the same reviewed apply
+        # while the outside-service handle from before ACL hardening is live.
+        # It must refuse before any protected or public installed-state effect.
+        $preopenedClient=Start-RequestClient
+        if(-not $preopenedClient.process.WaitForExit(45000)) {
+            Stop-OwnedPublisherProcessTree $preopenedClient.process|Out-Null
+            throw 'Preopened-root refusal client timed out'
+        }
+        $preopenedClient.process.WaitForExit()
+        if($preopenedClient.process.ExitCode -eq 0 -or
+            -not (Test-Path -LiteralPath $preopenedClient.response -PathType Leaf) -or
+            (Get-Item -LiteralPath $preopenedClient.response).Length -gt 16KB) {
+            throw 'Publisher accepted the preopened-root request or omitted bounded refusal'
+        }
+        $preopenedResponse=Get-Content -LiteralPath $preopenedClient.response -Raw|ConvertFrom-Json
+        if($preopenedResponse.status -cne 'failed' -or
+            $preopenedResponse.error -notmatch 'pre-opened file or cannot be locked' -or
+            (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Test-Path -LiteralPath ($drive+'setup-state'))) {
+            throw 'Preopened-root handle did not fail closed before effects'
+        }
+        $receipt['preopened_root_refusal']=[ordered]@{
+            status='failed_before_effects';service_error=$preopenedResponse.error;
+            caller=Assert-RequestClientImage $preopenedClient}
+        $stopDeadline=[DateTime]::UtcNow.AddSeconds(30)
+        while((Get-Service $service).Status -ne 'Stopped' -and
+            [DateTime]::UtcNow -lt $stopDeadline) {Start-Sleep -Milliseconds 100}
+        if((Get-Service $service).Status -ne 'Stopped') {
+            throw 'Refusing publisher service did not stop before retry'
+        }
+        [IO.File]::WriteAllText($preopenedRelease,
+            "usk.publisher.release_preopened_root.v1`n",[Text.UTF8Encoding]::new($false))
+        if(-not $preopenedRootProcess.WaitForExit(30000)) {
+            throw 'Preopened-root attacker did not release its held handle'
+        }
+        $preopenedRootProcess.WaitForExit()
+        if($preopenedRootProcess.ExitCode -ne 0) {
+            throw 'Preopened-root attacker failed after release'
+        }
+        $preopenedRootProcess=$null
+        $preopenedClient=$null
+        Start-RegisteredPublisher
+        $receipt['preopened_root_clean_retry_started']=$true
     }
     if($TerminateAtPoststage) {
         # Hold the exact service process before sending the request. The
@@ -1848,6 +1934,14 @@ try {
     if($concurrentAttacker) {
         try {Stop-OwnedPublisherProcessTree $concurrentAttacker|Out-Null}
         catch {$clientCleanupConfirmed=$false;$failure='Concurrent attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
+    }
+    if($preopenedClient) {
+        try {Stop-OwnedPublisherProcessTree $preopenedClient.process|Out-Null}
+        catch {$clientCleanupConfirmed=$false;$failure='Preopened-root client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
+    }
+    if($preopenedRootProcess) {
+        try {Stop-OwnedPublisherProcessTree $preopenedRootProcess|Out-Null}
+        catch {$clientCleanupConfirmed=$false;$failure='Preopened-root attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($stageObserver -and -not $stageObserver.removed) {
         try {
