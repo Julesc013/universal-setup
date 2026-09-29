@@ -1238,10 +1238,10 @@ try {
             ($pausedAfter.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
             throw ('Selected '+$hostilePhase+' hostile attempts changed protected state')
         }
-        if($RegisteredService -and $NonAdminClient) {
-            # Sample the submitting account's attempted mutations from the
-            # prepublish gate through the observed reply. This does not prove
-            # that a sample occurred during the instantaneous native rename.
+        if($RegisteredService -and $NonAdminClient -and -not $HostilePostrename) {
+            # The existing concurrent runner is bound to the prepublish
+            # release marker and a still-staged payload. The postrename mode
+            # instead challenges the actual visible tree while it is paused.
             $concurrentOutput=Join-Path $consumerOutput 'concurrent-attack.json'
             $concurrentError=Join-Path $consumerOutput 'concurrent-stderr.txt'
             $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
