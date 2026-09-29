@@ -1674,7 +1674,18 @@ try {
                 -not (Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -or
                 (Get-Item -LiteralPath $concurrentOutput).Length -gt
                     $(if($ProductionConcurrentRights){256KB}else{16KB})) {
-                throw 'Concurrent attacker did not produce a bounded successful receipt'
+                $attackDiagnostic=[ordered]@{
+                    exit_code=$concurrentAttacker.ExitCode;
+                    receipt_present=(Test-Path -LiteralPath $concurrentOutput -PathType Leaf);
+                    receipt_bytes=if(Test-Path -LiteralPath $concurrentOutput -PathType Leaf){
+                        (Get-Item -LiteralPath $concurrentOutput).Length}else{$null};
+                    receipt_prefix=if(Test-Path -LiteralPath $concurrentOutput -PathType Leaf){
+                        Read-BoundedDiagnostic $concurrentOutput 4096}else{$null};
+                    stderr_prefix=if(Test-Path -LiteralPath $concurrentError -PathType Leaf){
+                        Read-BoundedDiagnostic $concurrentError 2048}else{$null}}
+                $receipt['concurrent_attacker_failure']=$attackDiagnostic
+                throw ('Concurrent attacker did not produce a bounded successful receipt: '+
+                    ($attackDiagnostic|ConvertTo-Json -Compress -Depth 5))
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
             $coverage=if($ProductionConcurrentRights) {
