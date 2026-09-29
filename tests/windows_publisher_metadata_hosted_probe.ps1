@@ -527,7 +527,8 @@ try {
     if($LASTEXITCODE -ne 0){throw 'Public authoring input generation failed'}
     $inputs=$generated|ConvertFrom-Json
     $packageRoot=''
-    if($RegisteredService -and -not $NonAdminClient -and -not $InterruptAfterStage -and -not $HostileRights) {
+    if($RegisteredService -and -not $NonAdminClient -and -not $InterruptAfterStage -and
+        -not $TerminateAtPostrename -and -not $HostileRights) {
         # Exercise the actual emitted native package through installation.
         # The fault-test service and externally admitted VHD ACL helper are
         # deliberately outside this ordinary candidate package.
