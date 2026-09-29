@@ -12,7 +12,9 @@
 #include <aclapi.h>
 
 #include "usk_publisher_volume_operation_guard.h"
+#include "usk_sha256.h"
 
+#include <array>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -39,6 +41,7 @@ public:
     FileHandle& operator=(const FileHandle&) = delete;
     HANDLE get() const noexcept { return value_; }
     HANDLE release() noexcept { const HANDLE value = value_; value_ = INVALID_HANDLE_VALUE; return value; }
+    void close() noexcept { if (value_ != INVALID_HANDLE_VALUE) CloseHandle(release()); }
 private:
     HANDLE value_;
 };
@@ -131,7 +134,7 @@ void create_protected_directory(const std::wstring& path, SECURITY_ATTRIBUTES& a
 
 class ServiceControlGuard {
 public:
-    ServiceControlGuard(const std::wstring& volume, const std::wstring& service) {
+    explicit ServiceControlGuard(const std::wstring& service) {
         LocalDescriptor directory_descriptor(
             L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
         SECURITY_ATTRIBUTES directory_attributes{sizeof(SECURITY_ATTRIBUTES),
@@ -159,9 +162,9 @@ public:
         LocalDescriptor file_descriptor(L"O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)");
         SECURITY_ATTRIBUTES file_attributes{sizeof(SECURITY_ATTRIBUTES),
             file_descriptor.get(), FALSE};
-        // The volume syntax and generated service name were checked by wmain.
-        const auto guid = volume.substr(std::wstring(L"\\\\?\\Volume{").size(), 36u);
-        const auto path = locks / (guid + L"." + service + L".lock");
+        // The generated SCM name is the global identity; a volume-specific
+        // lock would allow two registrations to race over one executable.
+        const auto path = locks / (service + L".lock");
         FileHandle file(CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
             0, &file_attributes, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
             FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
@@ -221,6 +224,260 @@ void require_file(const std::wstring& value) {
         (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0) {
         throw std::runtime_error("service input is not an ordinary file");
     }
+}
+
+std::filesystem::path publisher_binary_path(const std::wstring& name) {
+    PWSTR raw = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramFilesX64, 0, nullptr, &raw)) || !raw) {
+        if (raw) CoTaskMemFree(raw);
+        throw std::runtime_error("protected Program Files location unavailable");
+    }
+    const std::filesystem::path root(raw);
+    CoTaskMemFree(raw);
+    return root / L"Universal Setup" / L"Publisher" / (name + L".exe");
+}
+
+std::vector<BYTE> publisher_service_sid(const std::wstring& name) {
+    const std::wstring account = L"NT SERVICE\\" + name;
+    std::vector<BYTE> sid(SECURITY_MAX_SID_SIZE);
+    std::array<wchar_t, 256> domain{};
+    DWORD sid_size = static_cast<DWORD>(sid.size());
+    DWORD domain_size = static_cast<DWORD>(domain.size());
+    SID_NAME_USE use{};
+    if (!LookupAccountNameW(nullptr, account.c_str(), sid.data(), &sid_size,
+            domain.data(), &domain_size, &use) || !IsValidSid(sid.data()) ||
+        *GetSidSubAuthorityCount(sid.data()) != 6 ||
+        *GetSidSubAuthority(sid.data(), 0) != SECURITY_SERVICE_ID_BASE_RID) {
+        throw std::runtime_error("publisher service SID is unavailable");
+    }
+    sid.resize(sid_size);
+    return sid;
+}
+
+void require_protected_binary(const std::wstring& name,
+    const std::wstring& binary, bool service_grant = true) {
+    const auto expected = publisher_binary_path(name);
+    if (CompareStringOrdinal(binary.c_str(), -1, expected.c_str(), -1, TRUE) !=
+            CSTR_EQUAL) {
+        throw std::runtime_error("publisher executable is outside the protected installation directory");
+    }
+    require_file(binary);
+    const auto publisher = expected.parent_path();
+    const auto root = publisher.parent_path();
+    for (const auto& directory : {root, publisher}) {
+        FileHandle handle(CreateFileW(directory.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        if (handle.get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("protected publisher directory is unavailable");
+        require_control_lock_shape(handle.get(), true);
+    }
+    FileHandle handle(CreateFileW(binary.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (handle.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("protected publisher executable is unavailable");
+    FILE_ATTRIBUTE_TAG_INFO tag{};
+    if (!GetFileInformationByHandleEx(handle.get(), FileAttributeTagInfo,
+            &tag, sizeof(tag)) ||
+        (tag.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0)
+        throw std::runtime_error("protected publisher executable is not an ordinary file");
+    if (!service_grant) {
+        require_control_lock_shape(handle.get(), false);
+        return;
+    }
+    auto service_sid = publisher_service_sid(name);
+    PSID owner = nullptr;
+    PACL dacl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD error = GetSecurityInfo(handle.get(), SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        &owner, nullptr, &dacl, nullptr, &descriptor);
+    if (error != ERROR_SUCCESS || !descriptor || !dacl) {
+        if (descriptor) LocalFree(descriptor);
+        throw std::runtime_error("protected publisher executable security is unavailable");
+    }
+    const auto release = [&] { LocalFree(descriptor); };
+    BYTE administrators[SECURITY_MAX_SID_SIZE]{};
+    BYTE system[SECURITY_MAX_SID_SIZE]{};
+    DWORD administrators_size = sizeof(administrators);
+    DWORD system_size = sizeof(system);
+    SECURITY_DESCRIPTOR_CONTROL control{};
+    DWORD revision = 0;
+    ACL_SIZE_INFORMATION size{};
+    const bool valid = CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr,
+            administrators, &administrators_size) &&
+        CreateWellKnownSid(WinLocalSystemSid, nullptr, system, &system_size) &&
+        owner && EqualSid(owner, administrators) &&
+        GetSecurityDescriptorControl(descriptor, &control, &revision) &&
+        (control & SE_DACL_PROTECTED) != 0 &&
+        GetAclInformation(dacl, &size, sizeof(size), AclSizeInformation) &&
+        size.AceCount == 3;
+    bool exact = valid;
+    bool saw_system = false, saw_administrators = false, saw_service = false;
+    for (DWORD index = 0; exact && index < 3; ++index) {
+        void* raw = nullptr;
+        if (!GetAce(dacl, index, &raw)) { exact = false; break; }
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw);
+        if (ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE ||
+            ace->Header.AceFlags != 0) { exact = false; break; }
+        PSID sid = const_cast<DWORD*>(&ace->SidStart);
+        if (ace->Mask == FILE_ALL_ACCESS && EqualSid(sid, system)) saw_system = true;
+        else if (ace->Mask == FILE_ALL_ACCESS && EqualSid(sid, administrators))
+            saw_administrators = true;
+        else if (ace->Mask == (FILE_GENERIC_READ | FILE_GENERIC_EXECUTE) &&
+            EqualSid(sid, service_sid.data())) saw_service = true;
+        else exact = false;
+    }
+    release();
+    if (!exact || !saw_system || !saw_administrators || !saw_service)
+        throw std::runtime_error("protected publisher executable ACL differs");
+}
+
+void grant_service_binary_read(const std::wstring& name,
+    const std::wstring& binary) {
+    const auto sid = publisher_service_sid(name);
+    FileHandle handle(CreateFileW(binary.c_str(), READ_CONTROL | WRITE_DAC,
+        0, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (handle.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("protected publisher executable cannot be secured");
+    PACL previous = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD observed = GetSecurityInfo(handle.get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, &previous, nullptr,
+        &descriptor);
+    if (observed != ERROR_SUCCESS || !descriptor || !previous) {
+        if (descriptor) LocalFree(descriptor);
+        throw std::runtime_error("protected publisher executable DACL is unavailable");
+    }
+    EXPLICIT_ACCESS_W entry{};
+    entry.grfAccessPermissions = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
+    entry.grfAccessMode = GRANT_ACCESS;
+    entry.grfInheritance = NO_INHERITANCE;
+    entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    entry.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    entry.Trustee.ptstrName = reinterpret_cast<LPWSTR>(const_cast<BYTE*>(sid.data()));
+    PACL updated = nullptr;
+    const DWORD composed = SetEntriesInAclW(1, &entry, previous, &updated);
+    LocalFree(descriptor);
+    if (composed != ERROR_SUCCESS || !updated)
+        throw std::runtime_error("publisher service executable grant could not be composed");
+    const DWORD applied = SetSecurityInfo(handle.get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, updated, nullptr);
+    LocalFree(updated);
+    if (applied != ERROR_SUCCESS)
+        throw std::runtime_error("publisher service executable read grant failed");
+    handle.close();
+    require_protected_binary(name, binary);
+}
+
+struct InstalledBinary {
+    std::wstring path;
+    bool created_here = false;
+};
+
+InstalledBinary install_protected_binary(const std::wstring& name,
+    const std::wstring& source, const std::wstring& expected_sha256) {
+    require_file(source);
+    if (!lower_sha256(expected_sha256))
+        throw std::runtime_error("publisher executable digest is invalid");
+    std::string expected_digest;
+    expected_digest.reserve(expected_sha256.size());
+    for (const wchar_t character : expected_sha256)
+        expected_digest.push_back(static_cast<char>(character));
+    const auto target = publisher_binary_path(name);
+    LocalDescriptor directory_descriptor(L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
+    SECURITY_ATTRIBUTES directory_attributes{sizeof(SECURITY_ATTRIBUTES),
+        directory_descriptor.get(), FALSE};
+    create_protected_directory(target.parent_path().wstring(), directory_attributes);
+    const auto pending = target.wstring() + L".pending";
+    const DWORD pending_attributes = GetFileAttributesW(pending.c_str());
+    if (pending_attributes != INVALID_FILE_ATTRIBUTES) {
+        FileHandle orphan(CreateFileW(pending.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+            0, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        if (orphan.get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("orphan publisher copy is active or inaccessible");
+        require_control_lock_shape(orphan.get(), false);
+        orphan.close();
+        if (!DeleteFileW(pending.c_str()))
+            throw std::runtime_error("orphan publisher copy could not be removed");
+    } else if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+        throw std::runtime_error("orphan publisher copy absence is uncertain");
+    }
+    const DWORD target_attributes = GetFileAttributesW(target.c_str());
+    if (target_attributes != INVALID_FILE_ATTRIBUTES) {
+        require_protected_binary(name, target.wstring(), false);
+        if (usk::base::sha256_hex_file(target) != expected_digest)
+            throw std::runtime_error("orphan publisher executable digest differs");
+        return {target.wstring(), false};
+    }
+    if (GetLastError() != ERROR_FILE_NOT_FOUND)
+        throw std::runtime_error("protected publisher executable absence is uncertain");
+    LocalDescriptor file_descriptor(L"O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)");
+    SECURITY_ATTRIBUTES file_attributes{sizeof(SECURITY_ATTRIBUTES),
+        file_descriptor.get(), FALSE};
+    FileHandle input(CreateFileW(source.c_str(), GENERIC_READ | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (input.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("publisher executable source cannot be opened");
+    FILE_ATTRIBUTE_TAG_INFO source_tag{};
+    LARGE_INTEGER source_size{};
+    if (!GetFileInformationByHandleEx(input.get(), FileAttributeTagInfo,
+            &source_tag, sizeof(source_tag)) ||
+        (source_tag.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0 ||
+        !GetFileSizeEx(input.get(), &source_size) || source_size.QuadPart <= 0 ||
+        source_size.QuadPart > 256ll * 1024 * 1024) {
+        throw std::runtime_error("publisher executable source has an invalid shape or size");
+    }
+    FileHandle output(CreateFileW(pending.c_str(), GENERIC_WRITE | READ_CONTROL |
+        FILE_READ_ATTRIBUTES, 0, &file_attributes, CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (output.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("protected publisher executable already exists or cannot be created");
+    bool promoted = false;
+    try {
+        usk::base::Sha256 hash;
+        std::array<unsigned char, 64 * 1024> buffer{};
+        LONGLONG copied = 0;
+        for (;;) {
+            DWORD read = 0;
+            if (!ReadFile(input.get(), buffer.data(), static_cast<DWORD>(buffer.size()),
+                    &read, nullptr))
+                throw std::runtime_error("publisher executable source read failed");
+            if (read == 0) break;
+            copied += read;
+            if (copied > source_size.QuadPart)
+                throw std::runtime_error("publisher executable source grew while copying");
+            hash.update(buffer.data(), read);
+            DWORD written = 0;
+            if (!WriteFile(output.get(), buffer.data(), read, &written, nullptr) ||
+                written != read)
+                throw std::runtime_error("protected publisher executable write failed");
+        }
+        if (copied != source_size.QuadPart ||
+            hash.finish() != expected_digest ||
+            !FlushFileBuffers(output.get())) {
+            throw std::runtime_error("protected publisher executable digest, length or flush differs");
+        }
+        output.close();
+        FileHandle staged(CreateFileW(pending.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        if (staged.get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("protected publisher copy readback is unavailable");
+        require_control_lock_shape(staged.get(), false);
+        staged.close();
+        if (!MoveFileExW(pending.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("protected publisher executable no-replace promotion failed");
+        promoted = true;
+        require_protected_binary(name, target.wstring(), false);
+    } catch (...) {
+        output.close();
+        const auto cleanup = promoted ? target.c_str() : pending.c_str();
+        if (!DeleteFileW(cleanup))
+            throw std::runtime_error("publisher executable installation failed and its owned file could not be removed");
+        throw;
+    }
+    return {target.wstring(), true};
 }
 
 void require_volume(const std::wstring& value) {
@@ -336,25 +593,40 @@ void require_stopped(SC_HANDLE service) {
 void register_service(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& envelope,
     const std::wstring& digest, const std::wstring& caller,
+    const std::wstring& binary_digest,
     const std::wstring& mode) {
-    require_file(binary);
     require_file(envelope);
     if (!lower_sha256(digest)) throw std::runtime_error("envelope digest is invalid");
-    ServiceControlGuard control(volume, name);
-    const std::wstring command = command_prefix(name, binary, volume) +
+    ServiceControlGuard control(name);
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr,
+        SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT));
+    if (!manager.get()) throw std::runtime_error("service manager creation access unavailable");
+    ServiceHandle existing(OpenServiceW(manager.get(), name.c_str(), SERVICE_QUERY_CONFIG));
+    if (existing.get() || GetLastError() != ERROR_SERVICE_DOES_NOT_EXIST)
+        throw std::runtime_error("publisher service name is already present or uncertain");
+    const auto installed = install_protected_binary(name, binary, binary_digest);
+    const std::wstring command = command_prefix(name, installed.path, volume) +
         L" --reviewed-plan-envelope \"" + envelope + L"\" " + digest +
         command_suffix(caller, mode);
-    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE));
-    if (!manager.get()) throw std::runtime_error("service manager creation access unavailable");
     ServiceHandle service(CreateServiceW(manager.get(), name.c_str(), name.c_str(),
         SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | DELETE,
         SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
         command.c_str(), nullptr, nullptr, nullptr, L"LocalSystem", nullptr));
-    if (!service.get()) throw std::runtime_error("new publisher service could not be created");
+    if (!service.get()) {
+        ServiceHandle concurrent(OpenServiceW(manager.get(), name.c_str(),
+            SERVICE_QUERY_CONFIG));
+        const bool absent = !concurrent.get() &&
+            GetLastError() == ERROR_SERVICE_DOES_NOT_EXIST;
+        if (absent && installed.created_here &&
+            !DeleteFileW(installed.path.c_str()))
+            throw std::runtime_error("service creation failed and installed executable could not be removed");
+        throw std::runtime_error("new publisher service could not be created");
+    }
     try {
         SERVICE_SID_INFO sid{SERVICE_SID_TYPE_RESTRICTED};
         if (!ChangeServiceConfig2W(service.get(), SERVICE_CONFIG_SERVICE_SID_INFO, &sid))
             throw std::runtime_error("restricted service SID configuration failed");
+        grant_service_binary_read(name, installed.path);
         const auto observed = query_configuration(service.get());
         require_profile(observed);
         if (observed.binary_path != command)
@@ -365,6 +637,8 @@ void register_service(const std::wstring& name, const std::wstring& binary,
             throw std::runtime_error("registration failed and created service deletion failed (Win32 error " +
                 std::to_string(deletion_error) + ")");
         }
+        if (!DeleteFileW(installed.path.c_str()))
+            throw std::runtime_error("registration failed and installed executable deletion failed");
         throw;
     }
 }
@@ -372,8 +646,8 @@ void register_service(const std::wstring& name, const std::wstring& binary,
 void configure_recovery(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
-    require_file(binary);
-    ServiceControlGuard control(volume, name);
+    require_protected_binary(name, binary);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -399,8 +673,8 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
 void configure_verify(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
-    require_file(binary);
-    ServiceControlGuard control(volume, name);
+    require_protected_binary(name, binary);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -426,8 +700,8 @@ void configure_verify(const std::wstring& name, const std::wstring& binary,
 void request_start(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
-    require_file(binary);
-    ServiceControlGuard control(volume, name);
+    require_protected_binary(name, binary);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -444,8 +718,8 @@ void request_start(const std::wstring& name, const std::wstring& binary,
 void request_unregister(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
-    require_file(binary);
-    ServiceControlGuard control(volume, name);
+    require_protected_binary(name, binary);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -468,12 +742,12 @@ int wmain(int argc, wchar_t** argv) {
     const bool verify = argc >= 2 && std::wstring(argv[1]) == L"--verify";
     const bool start = argc >= 2 && std::wstring(argv[1]) == L"--start";
     const bool unregister = argc >= 2 && std::wstring(argv[1]) == L"--unregister";
-    if ((!registration || (argc != 8 && argc != 9)) &&
+    if ((!registration || (argc != 9 && argc != 10)) &&
         (!recovery || (argc != 6 && argc != 7)) &&
         (!verify || (argc != 6 && argc != 7)) &&
         (!start || (argc != 6 && argc != 7)) &&
         (!unregister || (argc != 6 && argc != 7))) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME BINARY VOLUME ENVELOPE SHA256 CALLER_SID | --recover NAME BINARY VOLUME CALLER_SID | --verify NAME BINARY VOLUME CALLER_SID | --start NAME BINARY VOLUME CALLER_SID | --unregister NAME BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read]\n";
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read]\n";
         return 2;
     }
     try {
@@ -481,7 +755,7 @@ int wmain(int argc, wchar_t** argv) {
         const std::wstring binary(argv[3]);
         const std::wstring volume(argv[4]);
         const std::wstring caller(argv[registration ? 7 : 5]);
-        const bool has_mode = argc == (registration ? 9 : 7);
+        const bool has_mode = argc == (registration ? 10 : 7);
         const std::wstring mode = has_mode ? argv[argc - 1] : L"";
         if (!generated_name(name) ||
             (has_mode && mode != L"--admit-client-observer" &&
@@ -491,7 +765,8 @@ int wmain(int argc, wchar_t** argv) {
         require_volume(volume);
         require_canonical_sid(caller);
         if (registration) {
-            register_service(name, binary, volume, argv[5], argv[6], caller, mode);
+            register_service(name, binary, volume, argv[5], argv[6], caller,
+                argv[8], mode);
         } else if (recovery) {
             configure_recovery(name, binary, volume, caller, mode);
         } else if (verify) {
