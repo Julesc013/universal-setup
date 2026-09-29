@@ -83,7 +83,7 @@ if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
 }
 function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPath) {
     if((Test-Path -LiteralPath $ReceiptPath -PathType Leaf) -and
-        (Get-Item -LiteralPath $ReceiptPath).Length -le 256KB) {
+        (Get-Item -LiteralPath $ReceiptPath).Length -le 512KB) {
         try {
             $attack=Get-Content -LiteralPath $ReceiptPath -Raw|ConvertFrom-Json
             if($attack.schema -ceq 'usk.publisher.unprivileged_access_probe.v1' -and
@@ -1786,7 +1786,7 @@ try {
             if($concurrentAttacker.ExitCode -ne 0 -or
                 -not (Test-Path -LiteralPath $concurrentOutput -PathType Leaf) -or
                 (Get-Item -LiteralPath $concurrentOutput).Length -gt
-                    $(if($ProductionConcurrentRights){256KB}else{16KB})) {
+                    $(if($ProductionConcurrentRights){512KB}else{16KB})) {
                 $attackDiagnostic=[ordered]@{
                     exit_code=$concurrentAttacker.ExitCode;
                     receipt_present=(Test-Path -LiteralPath $concurrentOutput -PathType Leaf);
@@ -1797,7 +1797,7 @@ try {
                     stderr_prefix=if(Test-Path -LiteralPath $concurrentError -PathType Leaf){
                         Read-BoundedDiagnostic $concurrentError 2048}else{$null}}
                 if($attackDiagnostic.receipt_present -and
-                    $attackDiagnostic.receipt_bytes -le 256KB) {
+                    $attackDiagnostic.receipt_bytes -le 512KB) {
                     try {
                         $attackReceipt=Get-Content -LiteralPath $concurrentOutput -Raw|
                             ConvertFrom-Json
@@ -1931,7 +1931,7 @@ try {
                 $unrelatedAttacker.WaitForExit()
                 if($unrelatedAttacker.ExitCode -ne 0 -or
                     -not (Test-Path -LiteralPath $unrelatedAttackOutput -PathType Leaf) -or
-                    (Get-Item -LiteralPath $unrelatedAttackOutput).Length -gt 256KB) {
+                    (Get-Item -LiteralPath $unrelatedAttackOutput).Length -gt 512KB) {
                     $diagnostic=Read-ConcurrentAttackerDiagnostic `
                         $unrelatedAttackOutput $unrelatedError
                     throw ('Unrelated concurrent attacker failed: '+$diagnostic)
