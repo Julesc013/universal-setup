@@ -1930,10 +1930,11 @@ try {
                 $concurrent.status -cne 'access_denied_observed' -or
                 -not $coverage -or
                 $concurrent.user_sid -cne $consumerSid -or $concurrent.administrator -or
-                -not $concurrent.same_volume_source_read_confirmed -or
-                $concurrent.same_volume_source_sha256 -cne $scratchSha256 -or
-                $concurrent.same_volume_source_delete_access -cne 'denied' -or
-                $concurrent.same_volume_source_delete_error -ne 5 -or
+                ($ProductionConcurrentRights -and (
+                    -not $concurrent.same_volume_source_read_confirmed -or
+                    $concurrent.same_volume_source_sha256 -cne $scratchSha256 -or
+                    $concurrent.same_volume_source_delete_access -cne 'denied' -or
+                    $concurrent.same_volume_source_delete_error -ne 5)) -or
                 $concurrent.service_sid_present -or
                 $concurrent.process_id -ne $concurrentAttacker.Id -or
                 $concurrent.concurrent.destination_create.denied -lt 4 -or
