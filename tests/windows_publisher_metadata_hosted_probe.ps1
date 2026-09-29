@@ -1348,16 +1348,36 @@ try {
             "usk.publisher.production_request_start.v1`n",[Text.UTF8Encoding]::new($false))
     }
     if($ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal) {
-        $deadline=[DateTime]::UtcNow.AddSeconds(90)
-        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
-        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Protected-boundary refusal receipt absent'}
-        $receipt.native=Read-NativeReceipt $nativePath
-        $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
-        $requestClient=$null
-        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         if($ExpectPreexistingAnchorRefusal) {
+            # The registered production service deliberately uses --no-receipt.
+            # Its authenticated client response is the terminal observation.
+            if(-not $requestClient.process.WaitForExit(120000)) {
+                throw 'Registered preexisting-anchor client timed out'
+            }
+            $requestClient.process.WaitForExit()
+            if($requestClient.process.ExitCode -ne 3 -or
+                -not (Test-Path -LiteralPath $requestClient.response -PathType Leaf) -or
+                (Get-Item -LiteralPath $requestClient.response).Length -eq 0 -or
+                (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB -or
+                (Test-Path -LiteralPath $nativePath)) {
+                throw 'Registered preexisting-anchor refusal was not delivered by the client'
+            }
+            $receipt.native=(Read-ClientObservation $requestClient).service
+            $receipt['refused_client']=[ordered]@{exit_code=3;caller_sid=$callerSid;
+                binary_sha256=$requestClient.binary_sha256;
+                response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant();
+                delivery='response_received'}
+            $requestClient=$null
+            if(-not $terminalServiceProcess.WaitForExit(30000)) {
+                throw 'Registered preexisting-anchor service retained after terminal refusal'
+            }
+            $terminalAtEnd=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+            if($terminalAtEnd.State -cne 'Stopped' -or $terminalAtEnd.ProcessId -ne 0) {
+                throw 'Registered preexisting-anchor service did not stop after refusal'
+            }
             $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
-            if($receipt.native.status -ne 'failed' -or
+            if($receipt.native.schema -cne 'usk.publisher_lab_service_observation.v1' -or
+                $receipt.native.status -ne 'failed' -or
                 $receipt.native.error -notmatch 'publisher exact anchor sibling is unavailable|publisher parent-bound child open failed' -or
                 $receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service -or
                 -not (Test-Path -LiteralPath $poisonedAnchor -PathType Container) -or
@@ -1375,6 +1395,13 @@ try {
                 anchor_sddl=$poisonedAnchorAcl;marker_sddl=$poisonedMarkerAcl;unchanged=$true}
             $receipt.status='preexisting_anchor_refusal_observed'
         } else {
+            $deadline=[DateTime]::UtcNow.AddSeconds(90)
+            while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+            if(-not (Test-Path -LiteralPath $nativePath)){throw 'Unprotected-root refusal receipt absent'}
+            $receipt.native=Read-NativeReceipt $nativePath
+            $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
+            $requestClient=$null
+            if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
             $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
             if($receipt.native.status -ne 'failed' -or
                 $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
