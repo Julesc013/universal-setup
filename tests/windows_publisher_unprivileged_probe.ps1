@@ -75,13 +75,15 @@ function Observe-ConcurrentDenial {
             if ($AfterRelease -and -not $AfterCompletion) {
                 if ($Stage -eq 'ProductionConcurrent') {
                     $receipt.concurrent[$Name].denied_after_start_before_observed_reply++
-                    if ($Name -in @('staged_write','staged_replace')) {
+                    if ($Name -in @('staged_write','staged_replace',
+                            'publication_rename','publication_write_dac')) {
                         $samples=$receipt.concurrent[$Name].denied_attempts
                         $sample=[ordered]@{start_tick=$attemptStart;end_tick=$attemptEnd}
-                        if($samples.Count -lt 1024){
+                        $limit=if($Name -in @('staged_write','staged_replace')){1024}else{256}
+                        if($samples.Count -lt $limit){
                             $receipt.concurrent[$Name].denied_attempts += $sample
                         }else{
-                            $samples[$receipt.concurrent[$Name].denied_attempt_count % 1024]=$sample
+                            $samples[$receipt.concurrent[$Name].denied_attempt_count % $limit]=$sample
                         }
                         $receipt.concurrent[$Name].denied_attempt_count++
                     }
@@ -98,6 +100,16 @@ function Observe-ConcurrentDenial {
                 $receipt.concurrent[$Name].missing_after_completion++
             }
         } else { throw }
+    }
+}
+
+function Throw-NativeMutationError {
+    param([string]$Name, [int]$Code)
+    switch($Code) {
+        5 { throw [UnauthorizedAccessException]::new("$Name was denied by Windows") }
+        2 { throw [IO.FileNotFoundException]::new("$Name source is absent") }
+        3 { throw [IO.DirectoryNotFoundException]::new("$Name parent is absent") }
+        default { throw "$Name failed with unexpected Win32 error $Code" }
     }
 }
 
@@ -144,11 +156,27 @@ try {
             # The protected volume-root ACL deliberately prevents this caller
             # from reopening even its own scratch file. SYSTEM independently
             # checks the source bytes before and after the attempted rename.
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class USKPublisherAncestorAttack {
+    [DllImport("kernel32.dll", EntryPoint="MoveFileExW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+    public static extern bool MoveFileExW(string source, string destination, uint flags);
+    [DllImport("kernel32.dll", EntryPoint="CreateFileW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+    public static extern IntPtr CreateFileW(string path, uint access, uint share,
+        IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+}
+'@
         }
         $receipt['concurrent'] = [ordered]@{
             destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
             staged_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             staged_replace = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            publication_rename = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            publication_write_dac = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             visible_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
             cycles = 0; cycles_after_gate_before_observed_reply = 0; cycles_after_start_before_observed_reply = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
             ready_utc = $null; release_seen_utc = $null; started_seen_utc = $null; completed_seen_utc = $null
@@ -187,6 +215,25 @@ try {
                 Observe-ConcurrentDenial 'staged_replace' {
                     [IO.File]::Move($SameVolumeSource,$stagedFile,$true)
                 } $true $afterCompletion $afterRelease
+                Observe-ConcurrentDenial 'publication_rename' {
+                    if([USKPublisherAncestorAttack]::MoveFileExW(
+                            $root+'publication',$root+'hostile-publication',0)) {
+                        throw 'publication root was renamed by the non-admin attacker'
+                    }
+                    $nativeError=[Runtime.InteropServices.Marshal]::GetLastWin32Error()
+                    Throw-NativeMutationError 'publication rename' $nativeError
+                } $true $afterCompletion $afterRelease
+                Observe-ConcurrentDenial 'publication_write_dac' {
+                    $handle=[USKPublisherAncestorAttack]::CreateFileW(
+                        $root+'publication',0x40000,7,[IntPtr]::Zero,3,
+                        0x02200000,[IntPtr]::Zero)
+                    if($handle -ne [IntPtr]::new(-1)) {
+                        [USKPublisherAncestorAttack]::CloseHandle($handle)|Out-Null
+                        throw 'publication WRITE_DAC was acquired by the non-admin attacker'
+                    }
+                    $nativeError=[Runtime.InteropServices.Marshal]::GetLastWin32Error()
+                    Throw-NativeMutationError 'publication WRITE_DAC' $nativeError
+                } $true $afterCompletion $afterRelease
             }
             Observe-ConcurrentDenial 'visible_write' {
                 $handle = [IO.File]::Open($visibleFile, [IO.FileMode]::Open,
@@ -224,6 +271,8 @@ try {
                 $receipt.concurrent.destination_create.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_write.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_replace.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.publication_rename.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.publication_write_dac.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.cycles_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.visible_write.denied_after_completion -lt 3 -or
                 $receipt.concurrent.cycles_after_completion -lt 3) {
