@@ -93,6 +93,42 @@ int main()
             "\"command\":\"policy.inspect\",\"payload\":{\"a\":1,\"a\":2},"
             "\"dry_run\":true}", "invalid_request")) return 3;
 
+    const std::string candidate_request =
+        "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"candidate-1\","
+        "\"command\":\"install_local.apply\",\"payload\":{\"schema\":"
+        "\"usk.install_local_apply_request.v1\"},\"dry_run\":false}";
+    std::string forwarded;
+    const auto admitted = usk::command::run_candidate_one_shot(candidate_request,
+        [&forwarded](const std::string& request_body) {
+            forwarded = request_body;
+            return "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+                "\"status\":\"pass\",\"apply_response\":{\"schema\":"
+                "\"usk.command_response.v1\",\"status\":\"ok\"}}";
+        });
+    if (admitted.exit_code != 0 || forwarded !=
+            "{\"schema\":\"usk.install_local_apply_request.v1\"}" ||
+        usk::json::parse(admitted.document).at("status").as_string() != "ok") return 15;
+    const auto unresolved = usk::command::run_candidate_one_shot(candidate_request,
+        [](const std::string&) -> std::string { throw std::runtime_error("lost reply"); });
+    if (unresolved.exit_code != 5 ||
+        usk::json::parse(unresolved.document).at("status").as_string() != "unknown")
+        return 16;
+    const auto retained = usk::command::run_candidate_one_shot(candidate_request,
+        [](const std::string&) {
+            return "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+                "\"status\":\"recovery_required\"}";
+        });
+    if (retained.exit_code != 5 ||
+        usk::json::parse(retained.document).at("status").as_string() !=
+            "recovery_required") return 17;
+    const auto unavailable = usk::command::run_candidate_one_shot(
+        "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"candidate-1\","
+        "\"command\":\"repair.apply\",\"payload\":{},\"dry_run\":false}",
+        [&forwarded](const std::string&) { forwarded = "incorrectly dispatched"; return ""; });
+    if (unavailable.exit_code == 0 || forwarded == "incorrectly dispatched" ||
+        usk::json::parse(unavailable.document).at("error").at("code").as_string() !=
+            "command_unavailable") return 18;
+
     const std::string plan_request =
         "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"plan-1\","
         "\"command\":\"install_local.plan\",\"payload\":{},\"dry_run\":true}";

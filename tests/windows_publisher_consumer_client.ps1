@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedUserSid,
     [Parameter(Mandatory=$true)][string]$IdentityPath,
     [string]$ClientBinary='', [string]$ServiceName='', [string]$RequestFile='',
-    [ValidateSet('service','candidate-service')][string]$ClientMode='service',
+    [ValidateSet('service','candidate-service','machine-one-shot')][string]$ClientMode='service',
     [string]$ExpectedClientSha256='',
     [string]$PayloadRoot='', [string]$AccessReceipt=''
 )
@@ -83,5 +83,9 @@ $observed['client_binary_path']=$clientPath
 $observed['client_binary_sha256']=$clientDigest
 $observed['client_mode']=$ClientMode
 $observed|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $IdentityPath -Encoding utf8
-& $clientPath ('--'+$ClientMode) $ServiceName --request-file $RequestFile
+if($ClientMode -eq 'machine-one-shot') {
+    & $clientPath --machine --candidate-service $ServiceName --request-file $RequestFile
+} else {
+    & $clientPath ('--'+$ClientMode) $ServiceName --request-file $RequestFile
+}
 exit $LASTEXITCODE

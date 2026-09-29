@@ -147,7 +147,7 @@ int main(int argc, char** argv)
     if (argc < 2 ||
         (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed")) {
         std::cerr << "usage: usk_machine --machine|--framed [--request-file path]"
-            " [--context-file path]"
+            " [--context-file path] [--candidate-service NAME]"
             " | --product-info product.bundle.json"
             " | --product-select product.bundle.json [--select ID ...]"
             " | --candidate-service NAME --request-file path (Windows only)\n";
@@ -156,6 +156,9 @@ int main(int argc, char** argv)
     const bool framed = std::string(argv[1]) == "--framed";
     const char* request_file = nullptr;
     const char* context_file = nullptr;
+#ifdef _WIN32
+    std::wstring candidate_service;
+#endif
     for (int index = 2; index < argc; index += 2) {
         if (index + 1 >= argc || argv[index + 1][0] == '\0') {
             std::cerr << "usk_machine: invalid options\n";
@@ -166,11 +169,26 @@ int main(int argc, char** argv)
             request_file = argv[index + 1];
         } else if (option == "--context-file" && context_file == nullptr) {
             context_file = argv[index + 1];
+#ifdef _WIN32
+        } else if (option == "--candidate-service" && candidate_service.empty()) {
+            const std::string value(argv[index + 1]);
+            candidate_service.assign(value.begin(), value.end());
+            if (!generated_service_name(candidate_service)) {
+                std::cerr << "usk_machine: invalid candidate service name\n";
+                return 2;
+            }
+#endif
         } else {
             std::cerr << "usk_machine: invalid options\n";
             return 2;
         }
     }
+#ifdef _WIN32
+    if (!candidate_service.empty() && context_file != nullptr) {
+        std::cerr << "usk_machine: candidate service and planning context are incompatible\n";
+        return 2;
+    }
+#endif
 #ifdef _WIN32
     // A frame is bytes, not CRT text: Ctrl+Z and newline translation corrupt it.
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
@@ -202,6 +220,15 @@ int main(int argc, char** argv)
             }
         }
         if (context_file == nullptr || configured != nullptr) {
+#ifdef _WIN32
+            if (!candidate_service.empty()) {
+                result = usk::command::run_candidate_one_shot(request,
+                    [&candidate_service](const std::string& payload) {
+                        return usk::platform::windows::submit_publisher_request(
+                            candidate_service, payload, 120000);
+                    });
+            } else
+#endif
             result = usk::command::run_one_shot(request, configured);
         }
     } catch (const std::exception&) {
@@ -210,6 +237,12 @@ int main(int argc, char** argv)
     try {
         usk::command::write_result(std::cout, result.document, framed);
     } catch (const std::exception&) {
+#ifdef _WIN32
+        if (!candidate_service.empty()) {
+            std::cerr << "usk_machine: candidate publisher outcome unknown; recover the reviewed request\n";
+            return 5;
+        }
+#endif
         std::cerr << "usk_machine: output failed\n";
         return 3;
     }

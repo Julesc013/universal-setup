@@ -32,6 +32,25 @@ OneShotResult failure(const std::string& request_id, const char* code)
     return {usk::json::canonical(envelope), "request refused", 2};
 }
 
+OneShotResult candidate_outcome(const std::string& request_id, const char* status,
+    const Value& result, const char* error_code, int exit_code)
+{
+    const Value error = error_code == nullptr ? Value() :
+        Value(Value::Object{{"code", Value(error_code)}});
+    const Value envelope(Value::Object{
+        {"schema", Value("usk.oneshot_response.v1")},
+        {"request_id", Value(request_id)},
+        {"status", Value(status)},
+        {"result", result},
+        {"error", error}
+    });
+    const std::string document = usk::json::canonical(envelope);
+    if (document.size() > max_response_bytes)
+        return candidate_outcome(request_id, "unknown", Value(),
+            "publisher_outcome_unknown", 5);
+    return {document, "", exit_code};
+}
+
 bool safe_id(const std::string& value)
 {
     if (value.empty() || value.size() > 128) return false;
@@ -188,6 +207,82 @@ OneShotResult run_one_shot(const std::string& request_json,
         // Parser and provider diagnostics may include input; never echo them.
         return failure(request_id, "invalid_request");
     }
+}
+
+OneShotResult run_candidate_one_shot(const std::string& request_json,
+    const CandidateTransport& transport)
+{
+    std::string request_id;
+    std::string request;
+    std::string response_field;
+    try {
+        usk::json::ParseLimits limits;
+        limits.max_bytes = max_request_bytes;
+        limits.max_string_bytes = max_request_bytes / 2;
+        const Value input = usk::json::parse(request_json, limits);
+        const auto& fields = input.as_object();
+        if (fields.size() != 5 || !input.contains("schema") ||
+            !input.contains("request_id") || !input.contains("command") ||
+            !input.contains("payload") || !input.contains("dry_run") ||
+            input.at("schema").as_string() != "usk.oneshot_request.v1")
+            return failure("", "invalid_request");
+        request_id = input.at("request_id").as_string();
+        if (!safe_id(request_id)) return failure("", "invalid_request_id");
+        const std::string command = input.at("command").as_string();
+        std::string expected_schema;
+        if (command == "install_local.apply") {
+            expected_schema = "usk.install_local_apply_request.v1";
+            response_field = "apply_response";
+        } else if (command == "installed.verify") {
+            expected_schema = "usk.publisher_installed_verify_request.v1";
+            response_field = "verify_response";
+        } else if (command == "install_local.recover") {
+            expected_schema = "usk.publisher_recovery_request.v1";
+            response_field = "recovery_installed_response";
+        } else {
+            return failure(request_id, "command_unavailable");
+        }
+        if (input.at("dry_run").as_boolean() ||
+            input.at("payload").type() != Value::Type::object ||
+            input.at("payload").at("schema").as_string() != expected_schema)
+            return failure(request_id, "invalid_request");
+        request = usk::json::canonical(input.at("payload"));
+    } catch (const std::exception&) {
+        return failure(request_id, "invalid_request");
+    }
+
+    // Dispatch may have changed the target even when its reply is lost. Never
+    // translate transport failure or malformed service output into refusal.
+    try {
+        if (!transport) return failure(request_id, "transport_unavailable");
+        const std::string response = transport(request);
+        usk::json::ParseLimits limits;
+        limits.max_bytes = max_response_bytes;
+        limits.max_string_bytes = max_response_bytes / 2;
+        const Value observed = usk::json::parse(response, limits);
+        if (observed.at("schema").as_string() !=
+                "usk.publisher_lab_service_observation.v1")
+            throw std::runtime_error("candidate response schema differs");
+        const std::string status = observed.at("status").as_string();
+        if (status == "pass") {
+            if (observed.at(response_field).at("schema").as_string() !=
+                    "usk.command_response.v1" ||
+                observed.at(response_field).at("status").as_string() != "ok")
+                throw std::runtime_error("candidate public response differs");
+            return candidate_outcome(request_id, "ok", observed, nullptr, 0);
+        }
+        if (status == "failed")
+            return candidate_outcome(request_id, "refused", observed,
+                "publisher_failed", 4);
+        if (status == "recovery_required")
+            return candidate_outcome(request_id, "recovery_required", observed,
+                "recovery_required", 5);
+    } catch (const std::exception&) {
+        return candidate_outcome(request_id, "unknown", Value(),
+            "publisher_outcome_unknown", 5);
+    }
+    return candidate_outcome(request_id, "unknown", Value(),
+        "publisher_outcome_unknown", 5);
 }
 
 OneShotResult invalid_frame_result()

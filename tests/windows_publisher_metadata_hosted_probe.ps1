@@ -351,10 +351,20 @@ function Start-RequestClient($submitted=$applyRequest) {
     $script:clientNumber++
     $prefix=Join-Path $(if($ConsumerAccess -or $NonAdminClient){$consumerOutput}else{$root}) ('client-'+$clientNumber)
     $clientRequest=$prefix+'-request.json'
-    [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
+    $clientDocument=if($MachineRequestClient -and -not $script:controllerPending) {
+        $command=switch([string]$submitted.schema) {
+            'usk.install_local_apply_request.v1' {'install_local.apply'}
+            'usk.publisher_installed_verify_request.v1' {'installed.verify'}
+            'usk.publisher_recovery_request.v1' {'install_local.recover'}
+            default {throw 'Machine candidate request schema is unavailable'}
+        }
+        [ordered]@{schema='usk.oneshot_request.v1';request_id=('hosted-'+$script:clientNumber);
+            command=$command;payload=$submitted;dry_run=$false}
+    } else {$submitted}
+    [IO.File]::WriteAllText($clientRequest,($clientDocument|ConvertTo-Json -Depth 32 -Compress),$utf8)
     $controllerRequest=$script:controllerPending
     $requestBinary=if($controllerRequest){$ServiceControlBinary}elseif($MachineRequestClient){$MachineBinary}else{$ClientBinary}
-    $clientMode=if($controllerRequest){'controller_'+$script:controllerMode+'_registered'}elseif($MachineRequestClient){'candidate-service'}else{'service'}
+    $clientMode=if($controllerRequest){'controller_'+$script:controllerMode+'_registered'}elseif($MachineRequestClient){'machine-one-shot'}else{'service'}
     $binaryDigest=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant()
     $requestArgs=if($controllerRequest){
         if($script:controllerMode -eq 'apply') {
@@ -366,7 +376,7 @@ function Start-RequestClient($submitted=$applyRequest) {
                 $VolumeRoot,$callerSid,$sourceServiceHash,('"'+$clientRequest+'"'))
         }
     }
-        elseif($MachineRequestClient){@('--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}
+        elseif($MachineRequestClient){@('--machine','--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}
         else{@('--service',$service,'--request-file',('"'+$clientRequest+'"'))}
     if($controllerRequest) {
         $expectedArgs=if($script:controllerMode -eq 'apply'){9}else{7}
@@ -419,8 +429,17 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     }
     $hasResponse=(Get-Item -LiteralPath $client.response).Length -gt 0
     if($expectSuccess -or $hasResponse) {
-        if((Get-Item -LiteralPath $client.response).Length -gt 4MB -or
-            [IO.File]::ReadAllText($client.response).Trim() -cne [IO.File]::ReadAllText($nativePath).Trim()) {
+        if((Get-Item -LiteralPath $client.response).Length -gt 4MB) {
+            throw 'Authenticated client result exceeds the response bound'
+        }
+        $matching=if($client.client_mode -eq 'machine-one-shot') {
+            $check='import json,sys; c=json.load(open(sys.argv[1],encoding="utf-8")); n=json.load(open(sys.argv[2],encoding="utf-8")); expected=("ok",) if sys.argv[3]=="true" else ("refused","recovery_required"); sys.exit(0 if c.get("schema")=="usk.oneshot_response.v1" and c.get("status") in expected and c.get("result")==n else 1)'
+            & python -c $check $client.response $nativePath ([string]$expectSuccess).ToLowerInvariant()
+            $LASTEXITCODE -eq 0
+        } else {
+            [IO.File]::ReadAllText($client.response).Trim() -ceq [IO.File]::ReadAllText($nativePath).Trim()
+        }
+        if(-not $matching) {
             throw 'Authenticated client result differs from independently retained service result'
         }
         $result['response_sha256']=(Get-FileHash -LiteralPath $client.response -Algorithm SHA256).Hash.ToLowerInvariant()

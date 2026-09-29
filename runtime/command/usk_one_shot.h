@@ -5,6 +5,7 @@
 #define USK_ONE_SHOT_H
 
 #include <iosfwd>
+#include <functional>
 #include <string>
 
 namespace usk::command {
@@ -27,6 +28,11 @@ struct OneShotContextConfig {
 // Planning inspects an explicitly accepted target and source but makes no changes.
 OneShotResult run_one_shot(const std::string& request_json,
                            const OneShotContextConfig* context_config = nullptr);
+// The candidate transport is supplied only by a caller that has selected an
+// authenticated restricted service. The service revalidates all effect inputs.
+using CandidateTransport = std::function<std::string(const std::string&)>;
+OneShotResult run_candidate_one_shot(const std::string& request_json,
+                                     const CandidateTransport& transport);
 OneShotContextConfig read_context_config(std::istream& input);
 OneShotResult invalid_frame_result();
 OneShotResult invalid_context_result();
