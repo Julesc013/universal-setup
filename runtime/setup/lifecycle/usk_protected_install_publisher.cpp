@@ -2800,7 +2800,8 @@ std::string verify_completed_install_in_service(HANDLE volume,
         throw std::runtime_error("installed verification response identity differs");
     }
     const std::string status = report.at("status").as_string();
-    if (status != "pass" && status != "fail" && status != "unknown") {
+    if (status != "pass" && status != "fail" && status != "warn" &&
+        status != "unknown") {
         throw std::runtime_error("installed verification result is unsupported");
     }
     const auto bound_report = usk::lifecycle::verify_completed_install_on_bound_volume(
