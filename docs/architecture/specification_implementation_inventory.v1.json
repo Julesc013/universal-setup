@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-29T20:30:24Z",
+  "generated_at": "2026-09-29T20:42:12Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "6f49b99b0cd0ddedea25e84f2c9ed4570dfd7ddd",
   "repository_base_tree": "ba83f7d37e9106fe5f5430e283e2b98d74596e79",
@@ -3979,7 +3979,7 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
-          "sha256": "2fb12f3e15b5bbf189562d5521e09222bba5bdfd8db3ee5f1f53904a4ee02ff1"
+          "sha256": "4ecdc3a327b766908e045999b06d45e35fe5f48571477d3d9b3536cba027d68b"
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",
@@ -4295,7 +4295,7 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
-          "sha256": "2fb12f3e15b5bbf189562d5521e09222bba5bdfd8db3ee5f1f53904a4ee02ff1"
+          "sha256": "4ecdc3a327b766908e045999b06d45e35fe5f48571477d3d9b3536cba027d68b"
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",

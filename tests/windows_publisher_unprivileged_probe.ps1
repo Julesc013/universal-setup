@@ -502,7 +502,22 @@ public static class USKPublisherRenameRace {
                 $receipt.concurrent.cycles_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.visible_write.denied_after_completion -lt 3 -or
                 $receipt.concurrent.cycles_after_completion -lt 3) {
-                throw 'production attacker did not observe live staging and completed visibility'
+                $missing=@()
+                if(-not $receipt.concurrent.ready_utc){$missing+='ready'}
+                if($receipt.concurrent.destination_create.denied -lt 4){$missing+='destination_total'}
+                foreach($name in @('destination_create','staged_write','staged_replace',
+                        'staged_insert','staged_ads_write','staged_delete','staged_rename',
+                        'staged_hardlink','staged_write_owner','staged_write_attributes',
+                        'candidate_delete_child','publication_rename','publication_write_dac')) {
+                    if($receipt.concurrent[$name].denied_after_start_before_observed_reply -lt 1) {
+                        $missing+=$name
+                    }
+                }
+                if($receipt.concurrent.cycles_after_start_before_observed_reply -lt 1){$missing+='start_cycles'}
+                if($receipt.concurrent.visible_write.denied_after_completion -lt 3){$missing+='visible_denied'}
+                if($receipt.concurrent.cycles_after_completion -lt 3){$missing+='completion_cycles'}
+                if(-not $missing){$missing+='unclassified_predicate'}
+                throw ('production attacker coverage missing: '+($missing -join ','))
             }
         } elseif (-not $receipt.concurrent.ready_utc -or
             $receipt.concurrent.destination_create.denied -lt 4 -or
