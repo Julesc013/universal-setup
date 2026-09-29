@@ -1648,8 +1648,13 @@ std::string observe_prepared_recovery(HANDLE volume,
             throw std::runtime_error("forward recovery completion changed after closure check");
         }
         if (has_reviewed_snapshot && !completion_digest.empty()) {
+            OwnedHandle final_visible(open_exact_lab_child(
+                destination.get(), visible_component));
+            require_publisher_tree_phase_match(forward_visible,
+                observe_publisher_tree(final_visible.get()));
+            if (staged) root.close_checked();
             finalize_reviewed_public_state(stored_snapshot, completion_digest,
-                volume, journal.get(), state.get(), root.get(),
+                volume, journal.get(), state.get(), final_visible.get(),
                 forward_visible.root.file_id, installed_response);
         }
         return "{\"decision\":\"visible_bound_forward\",\"prepared_sha256\":" +
