@@ -103,11 +103,31 @@ int main()
             forwarded = request_body;
             return "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":\"pass\",\"apply_response\":{\"schema\":"
-                "\"usk.command_response.v1\",\"status\":\"ok\"}}";
+                "\"usk.command_response.v1\",\"status\":\"ok\"},"
+                "\"recovery_installed_response\":null}";
         });
     if (admitted.exit_code != 0 || forwarded !=
             "{\"schema\":\"usk.install_local_apply_request.v1\"}" ||
         usk::json::parse(admitted.document).at("status").as_string() != "ok") return 15;
+    const auto reentered = usk::command::run_candidate_one_shot(candidate_request,
+        [](const std::string&) {
+            return "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+                "\"status\":\"pass\",\"apply_response\":null,"
+                "\"recovery_installed_response\":{\"schema\":"
+                "\"usk.command_response.v1\",\"status\":\"ok\"}}";
+        });
+    if (reentered.exit_code != 0 ||
+        usk::json::parse(reentered.document).at("status").as_string() != "ok") return 21;
+    const auto ambiguous = usk::command::run_candidate_one_shot(candidate_request,
+        [](const std::string&) {
+            return "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+                "\"status\":\"pass\",\"apply_response\":{\"schema\":"
+                "\"usk.command_response.v1\",\"status\":\"ok\"},"
+                "\"recovery_installed_response\":{\"schema\":"
+                "\"usk.command_response.v1\",\"status\":\"ok\"}}";
+        });
+    if (ambiguous.exit_code != 5 ||
+        usk::json::parse(ambiguous.document).at("status").as_string() != "unknown") return 22;
     const auto unresolved = usk::command::run_candidate_one_shot(candidate_request,
         [](const std::string&) -> std::string { throw std::runtime_error("lost reply"); });
     if (unresolved.exit_code != 5 ||

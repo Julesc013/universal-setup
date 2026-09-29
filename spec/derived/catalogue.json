@@ -570,7 +570,7 @@
       "path": "plan/tasks/usk-wu-006.md",
       "title": "Implement the qualified staged-child publisher",
       "description": "Proposed M1 WorkUnit; no implementation authority is granted.",
-      "sha256": "098579f1b1eca1fad6cb6906ffdcfc644d7c5bc74379c5d9b2c07d971e2365a6",
+      "sha256": "d9b26cda950e2958738ff626cdd0c334572f3ca06a97f0311f175ea8b848c54c",
       "depends_on": [
         "USK-S-PUB",
         "USK-S-PLAT"
@@ -3090,6 +3090,7 @@
         "cmake/**",
         "apps/daemon/**",
         "runtime/base/**",
+        "runtime/command/usk_one_shot.cpp",
         "runtime/setup/kernel/**",
         "runtime/setup/lifecycle/**",
         "runtime/setup/policy/**",
