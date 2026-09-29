@@ -33,9 +33,36 @@ bool rejects(const std::wstring& root)
     return false;
 }
 
+int child_guard_result(const std::wstring& mode, const std::wstring& root,
+    const std::wstring& install_id = L"")
+{
+    std::wstring executable(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, executable.data(),
+        static_cast<DWORD>(executable.size()));
+    if (!length || length >= executable.size()) return -1;
+    executable.resize(length);
+    std::wstring command = L"\"" + executable + L"\" " + mode + L" " + root;
+    if (!install_id.empty()) command += L" " + install_id;
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION child{};
+    if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr,
+            FALSE, 0, nullptr, nullptr, &startup, &child)) return -2;
+    const DWORD waited = WaitForSingleObject(child.hProcess, 10000);
+    DWORD code = 0;
+    if (waited != WAIT_OBJECT_0 || !GetExitCodeProcess(child.hProcess, &code)) {
+        TerminateProcess(child.hProcess, 99);
+        WaitForSingleObject(child.hProcess, 10000);
+        code = 99;
+    }
+    CloseHandle(child.hThread);
+    CloseHandle(child.hProcess);
+    return static_cast<int>(code);
+}
+
 } // namespace
 
-int main()
+int wmain(int argc, wchar_t** argv)
 {
     using usk::platform::windows::PublisherVolumeBusy;
     using usk::platform::windows::PublisherVolumeOperationGuard;
@@ -43,6 +70,31 @@ int main()
     using usk::platform::windows::PublisherInstallOperationGuard;
     using usk::platform::windows::publisher_install_operation_guard_name;
     using usk::platform::windows::publisher_volume_operation_guard_name;
+
+    if (argc == 3 && std::wstring(argv[1]) == L"--contend-volume") {
+        try { PublisherVolumeOperationGuard guard(argv[2]); return 2; }
+        catch (const PublisherVolumeBusy&) { return 0; }
+        catch (...) { return 3; }
+    }
+    if (argc == 3 && std::wstring(argv[1]) == L"--abandon-volume") {
+        try {
+            PublisherVolumeOperationGuard guard(argv[2]);
+            ExitProcess(0); // Deliberately skip guard destruction in the child.
+        } catch (...) { return 3; }
+    }
+    if (argc == 4 && std::wstring(argv[1]) == L"--contend-install") {
+        try {
+            const std::wstring id(argv[3]);
+            if (id != L"org.example.setup" && id != L"org.example.other") return 3;
+            std::string ascii_id;
+            for (const wchar_t ch : id) ascii_id.push_back(static_cast<char>(ch));
+            PublisherInstallOperationGuard guard(argv[2],
+                ascii_id);
+            return 2;
+        } catch (const PublisherInstallBusy&) { return 0; }
+        catch (...) { return 3; }
+    }
+    if (argc != 1) return 16;
 
     const std::wstring root = fresh_root();
     if (!rejects(L"E:\\") || !rejects(root + L"child") ||
@@ -84,15 +136,22 @@ int main()
         if (contender_result != 1) return 13;
         PublisherInstallOperationGuard independent(root, "org.example.other");
         if (independent.previous_owner_abandoned()) return 14;
+        if (child_guard_result(L"--contend-install", root,
+                L"org.example.setup") != 0 ||
+            child_guard_result(L"--contend-install", root,
+                L"org.example.other") != 0) return 17;
     }
     {
         PublisherInstallOperationGuard successor(root, "org.example.setup");
         if (successor.previous_owner_abandoned()) return 15;
     }
+    if (child_guard_result(L"--contend-install", root,
+            L"org.example.setup") != 2) return 19;
 
     {
         PublisherVolumeOperationGuard owner(root);
         if (owner.previous_owner_abandoned()) return 3;
+        if (child_guard_result(L"--contend-volume", root) != 0) return 18;
         std::atomic<int> contender_result{0};
         std::thread contender([&] {
             try {
@@ -111,6 +170,24 @@ int main()
         PublisherVolumeOperationGuard successor(root);
         if (successor.previous_owner_abandoned()) return 5;
     }
+    if (child_guard_result(L"--contend-volume", root) != 2) return 20;
+
+    const std::wstring abandoned_root = fresh_root();
+    const std::wstring abandoned_name = publisher_volume_operation_guard_name(abandoned_root);
+    HANDLE retained_name = CreateMutexW(nullptr, FALSE, abandoned_name.c_str());
+    if (!retained_name) return 21;
+    if (child_guard_result(L"--abandon-volume", abandoned_root) != 0) {
+        CloseHandle(retained_name);
+        return 22;
+    }
+    {
+        PublisherVolumeOperationGuard recovery(abandoned_root);
+        if (!recovery.previous_owner_abandoned()) {
+            CloseHandle(retained_name);
+            return 23;
+        }
+    }
+    CloseHandle(retained_name);
 
     HANDLE raw = nullptr;
     DWORD first_wait = WAIT_FAILED;
