@@ -98,6 +98,22 @@ class SelectedCandidatePackageTests(unittest.TestCase):
             self.assertEqual(Path(inputs["bundle_file"]),
                              fixture / "selected" / "product.bundle.json")
 
+    def test_hosted_fixture_keeps_executable_and_large_selected_addon(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "neutral.exe"
+            executable.write_bytes(b"MZ\x00neutral-product")
+            fixture = root / "fixture"
+            fixture.mkdir()
+            inputs = create_inputs(fixture, root / "target", "package.concurrent.probe",
+                                   application_binary=executable, addon_bytes=1024 * 1024)
+            self.assertEqual((fixture / "product" / "core.exe").read_bytes(),
+                             executable.read_bytes())
+            self.assertEqual((fixture / "product" / "addon.bin").stat().st_size,
+                             1024 * 1024)
+            self.assertIn(str(fixture / "product" / "addon.bin"),
+                          inputs["source_files"])
+
 
 if __name__ == "__main__":
     unittest.main()

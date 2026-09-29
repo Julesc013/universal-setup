@@ -83,10 +83,10 @@ function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPa
     return 'bounded attacker diagnostic absent'
 }
 if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedSource -or
-    -not $NonAdminClient -or $HostileRights -or $ConsumerAccess -or $MachineRequestClient -or
+    -not ($NonAdminClient -or ($ConsumerAccess -and $MachineRequestClient)) -or $HostileRights -or
     $InterruptAfterStage -or $TerminateAtPoststage -or
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
-    throw 'Production concurrent rights probe requires the ordinary registered service and its non-admin client'
+    throw 'Production concurrent rights probe requires the registered service and its non-admin client'
 }
 if($RegisteredService -and $InterruptAfterStage -and
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
@@ -183,7 +183,7 @@ function Start-StageObserver {
     $readyPath=Join-Path $observerRoot 'stage-ready.txt'
     $stopPath=Join-Path $observerRoot 'stage-stop.txt'
     $outputPath=Join-Path $observerRoot 'stage-observation.json'
-    $stagePath=$VolumeRoot+'publication\staging\candidate\bin\core.bin'
+    $stagePath=$VolumeRoot+'publication\staging\candidate\'+$attackRelative.Replace('/','\')
     if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
         (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $readyPath) -or
         (Test-Path -LiteralPath $stopPath) -or (Test-Path -LiteralPath $outputPath)) {
@@ -433,7 +433,11 @@ try {
     }
     Assert-OwnedVolume
     if(Test-Path -LiteralPath ($drive+'publication')){throw 'Hosted metadata disk is not fresh'}
-    $fixtureArgs=if($ConsumerAccess){@('--application-binary',$PayloadBinary)}
+    $fixtureArgs=if($ConsumerAccess){
+        @('--application-binary',$PayloadBinary)+$(if($ProductionConcurrentRights){
+            @('--addon-bytes','33554432')
+        }else{@()})
+    }
         elseif($ProductionConcurrentRights){@('--core-bytes','33554432')}else{@()}
     $generated=& python -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
         --output $fixture --target $visibleRoot --request-id ('metadata.'+$id) @fixtureArgs
@@ -888,7 +892,7 @@ try {
         $receipt['terminal_service_process_id']=$terminalAtStart.ProcessId
     }
     if($ProductionConcurrentRights) {
-        $attackRelative='bin/core.bin'
+        $attackRelative=if($ConsumerAccess){'bin/addon.bin'}else{'bin/core.bin'}
         if(@($plan.planned_entries|Where-Object relative_path -ceq $attackRelative).Count -ne 1) {
             throw 'Production concurrent payload is absent from the reviewed plan'
         }
@@ -907,7 +911,7 @@ try {
             '-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),'-ExpectedUserSid',$consumerSid,
             '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
             '-Stage','ProductionConcurrent','-ReleasePath',('"'+$productionStart+'"'),
-            '-PayloadRelativePath',$attackRelative,
+            '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
             '-SameVolumeSource',('"'+$attackSource+'"'))
         $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
             -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `

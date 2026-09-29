@@ -6,7 +6,8 @@ param(
     [ValidateSet('Prepublish', 'Postpublish', 'Concurrent', 'ProductionConcurrent')][string]$Stage = 'Postpublish',
     [string]$ReleasePath = '',
     [string]$SameVolumeSource = '',
-    [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin'
+    [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe', 'bin/addon.bin')][string]$PayloadRelativePath = 'payload.bin',
+    [ValidateSet('visible', 'selected-app')][string]$VisibleLeaf = 'visible'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +27,7 @@ $receipt = [ordered]@{
     volume_root = $root
     stage = $Stage
     payload_relative_path = $PayloadRelativePath
+    visible_leaf = $VisibleLeaf
     attempts = @()
     failure = $null
 }
@@ -132,10 +134,11 @@ try {
         }
         $candidate = $root + 'publication\staging\candidate'
         $stagedFile = $candidate + '\' + $payloadPath
-        $visibleFile = $destination + '\visible\' + $payloadPath
+        $visibleFile = $destination + '\' + $VisibleLeaf + '\' + $payloadPath
         if($Stage -eq 'ProductionConcurrent') {
             if($SameVolumeSource -cne $root+'attacker-scratch\replacement.bin' -or
-                $PayloadRelativePath -cne 'bin/core.bin') {
+                $VisibleLeaf -cne 'selected-app' -or
+                $PayloadRelativePath -notin @('bin/core.bin','bin/addon.bin')) {
                 throw 'production attacker source is not on the exact owned volume'
             }
             # The protected volume-root ACL deliberately prevents this caller

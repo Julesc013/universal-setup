@@ -41,9 +41,9 @@ if($ReuseRegistration -and $InterruptAfterStage) {
     throw 'Poststage fault injection restores the owned service command before recovery'
 }
 if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedSource -or
-    -not $NonAdminClient -or $HostileRights -or $ConsumerAccess -or $MachineRequestClient -or
+    -not ($NonAdminClient -or ($ConsumerAccess -and $MachineRequestClient)) -or $HostileRights -or
     $InterruptAfterStage -or (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
-    throw 'Production rights probe requires the ordinary registered service and non-admin client'
+    throw 'Production rights probe requires the registered service and non-admin client'
 }
 
 # This script is deliberately limited to a fresh GitHub-hosted Windows VM.
