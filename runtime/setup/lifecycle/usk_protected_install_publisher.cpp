@@ -47,6 +47,16 @@ struct OwnedHandle {
     OwnedHandle(const OwnedHandle&) = delete;
     OwnedHandle& operator=(const OwnedHandle&) = delete;
     HANDLE get() const { return value; }
+    void close_checked() {
+        if (value && value != INVALID_HANDLE_VALUE) {
+            const HANDLE closing = value;
+            value = INVALID_HANDLE_VALUE;
+            if (!CloseHandle(closing)) {
+                throw std::runtime_error("publisher handle close failed; Win32 " +
+                    std::to_string(GetLastError()));
+            }
+        }
+    }
 };
 
 thread_local std::wstring service_name;
@@ -1011,9 +1021,12 @@ void with_public_roots_bound(HANDLE volume, const usk::lifecycle::InstallPlan& p
                 FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     };
     OwnedHandle setup(open_directory(plan.roots.state_root.parent_path()));
+    const DWORD setup_error = setup.get() == INVALID_HANDLE_VALUE ? GetLastError() : 0;
     OwnedHandle target(open_directory(plan.target_root));
+    const DWORD target_error = target.get() == INVALID_HANDLE_VALUE ? GetLastError() : 0;
     if (setup.get() == INVALID_HANDLE_VALUE || target.get() == INVALID_HANDLE_VALUE) {
-        throw std::runtime_error("public install root handle is unavailable");
+        throw std::runtime_error("public install root handle is unavailable; setup Win32 " +
+            std::to_string(setup_error) + ", target Win32 " + std::to_string(target_error));
     }
     FILE_ID_INFO held{}, setup_id{}, target_id{};
     if (!GetFileInformationByHandleEx(volume, FileIdInfo, &held, sizeof(held)) ||
@@ -1038,10 +1051,16 @@ void with_public_roots_bound(HANDLE volume, const usk::lifecycle::InstallPlan& p
     const auto after_setup = observe_publisher_directory_handle(setup.get());
     const auto after_target = observe_publisher_directory_handle(target.get());
     OwnedHandle reopened_setup(open_directory(plan.roots.state_root.parent_path()));
+    const DWORD reopened_setup_error = reopened_setup.get() == INVALID_HANDLE_VALUE ?
+        GetLastError() : 0;
     OwnedHandle reopened_target(open_directory(plan.target_root));
+    const DWORD reopened_target_error = reopened_target.get() == INVALID_HANDLE_VALUE ?
+        GetLastError() : 0;
     if (reopened_setup.get() == INVALID_HANDLE_VALUE ||
         reopened_target.get() == INVALID_HANDLE_VALUE) {
-        throw std::runtime_error("public install path disappeared during finalization");
+        throw std::runtime_error("public install path disappeared during finalization; setup Win32 " +
+            std::to_string(reopened_setup_error) + ", target Win32 " +
+            std::to_string(reopened_target_error));
     }
     const auto path_setup = observe_publisher_directory_handle(reopened_setup.get());
     const auto path_target = observe_publisher_directory_handle(reopened_target.get());
@@ -2405,6 +2424,10 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             throw std::runtime_error("selected lab closure changed after completion");
         }
         if (reviewed_plan) {
+            // The creation handle needed DELETE for the bound rename. The
+            // re-opened visible root above now retains the same verified
+            // identity without DELETE while public path writes are pinned.
+            candidate.close_checked();
             const auto finalized = finalize_reviewed_public_state(
                 reviewed_plan->durable_snapshot, completion_digest, volume,
                 journal.get(), state.get(), visible_root.get(), visible.root.file_id, installed_response);
