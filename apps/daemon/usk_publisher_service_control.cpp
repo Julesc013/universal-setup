@@ -371,7 +371,12 @@ void grant_service_binary_read(const std::wstring& name,
     require_protected_binary(name, binary);
 }
 
-std::wstring install_protected_binary(const std::wstring& name,
+struct InstalledBinary {
+    std::wstring path;
+    bool created_here = false;
+};
+
+InstalledBinary install_protected_binary(const std::wstring& name,
     const std::wstring& source, const std::wstring& expected_sha256) {
     require_file(source);
     if (!lower_sha256(expected_sha256))
@@ -385,6 +390,29 @@ std::wstring install_protected_binary(const std::wstring& name,
     SECURITY_ATTRIBUTES directory_attributes{sizeof(SECURITY_ATTRIBUTES),
         directory_descriptor.get(), FALSE};
     create_protected_directory(target.parent_path().wstring(), directory_attributes);
+    const auto pending = target.wstring() + L".pending";
+    const DWORD pending_attributes = GetFileAttributesW(pending.c_str());
+    if (pending_attributes != INVALID_FILE_ATTRIBUTES) {
+        FileHandle orphan(CreateFileW(pending.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+            0, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        if (orphan.get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("orphan publisher copy is active or inaccessible");
+        require_control_lock_shape(orphan.get(), false);
+        orphan.close();
+        if (!DeleteFileW(pending.c_str()))
+            throw std::runtime_error("orphan publisher copy could not be removed");
+    } else if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+        throw std::runtime_error("orphan publisher copy absence is uncertain");
+    }
+    const DWORD target_attributes = GetFileAttributesW(target.c_str());
+    if (target_attributes != INVALID_FILE_ATTRIBUTES) {
+        require_protected_binary(name, target.wstring(), false);
+        if (usk::base::sha256_hex_file(target) != expected_digest)
+            throw std::runtime_error("orphan publisher executable digest differs");
+        return {target.wstring(), false};
+    }
+    if (GetLastError() != ERROR_FILE_NOT_FOUND)
+        throw std::runtime_error("protected publisher executable absence is uncertain");
     LocalDescriptor file_descriptor(L"O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)");
     SECURITY_ATTRIBUTES file_attributes{sizeof(SECURITY_ATTRIBUTES),
         file_descriptor.get(), FALSE};
@@ -401,11 +429,12 @@ std::wstring install_protected_binary(const std::wstring& name,
         source_size.QuadPart > 256ll * 1024 * 1024) {
         throw std::runtime_error("publisher executable source has an invalid shape or size");
     }
-    FileHandle output(CreateFileW(target.c_str(), GENERIC_WRITE | READ_CONTROL |
+    FileHandle output(CreateFileW(pending.c_str(), GENERIC_WRITE | READ_CONTROL |
         FILE_READ_ATTRIBUTES, 0, &file_attributes, CREATE_NEW,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     if (output.get() == INVALID_HANDLE_VALUE)
         throw std::runtime_error("protected publisher executable already exists or cannot be created");
+    bool promoted = false;
     try {
         usk::base::Sha256 hash;
         std::array<unsigned char, 64 * 1024> buffer{};
@@ -431,14 +460,24 @@ std::wstring install_protected_binary(const std::wstring& name,
             throw std::runtime_error("protected publisher executable digest, length or flush differs");
         }
         output.close();
+        FileHandle staged(CreateFileW(pending.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        if (staged.get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("protected publisher copy readback is unavailable");
+        require_control_lock_shape(staged.get(), false);
+        staged.close();
+        if (!MoveFileExW(pending.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("protected publisher executable no-replace promotion failed");
+        promoted = true;
         require_protected_binary(name, target.wstring(), false);
     } catch (...) {
         output.close();
-        if (!DeleteFileW(target.c_str()))
-            throw std::runtime_error("publisher executable installation failed and partial file could not be removed");
+        const auto cleanup = promoted ? target.c_str() : pending.c_str();
+        if (!DeleteFileW(cleanup))
+            throw std::runtime_error("publisher executable installation failed and its owned file could not be removed");
         throw;
     }
-    return target.wstring();
+    return {target.wstring(), true};
 }
 
 void require_volume(const std::wstring& value) {
@@ -559,10 +598,14 @@ void register_service(const std::wstring& name, const std::wstring& binary,
     require_file(envelope);
     if (!lower_sha256(digest)) throw std::runtime_error("envelope digest is invalid");
     ServiceControlGuard control(volume, name);
-    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE));
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr,
+        SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager creation access unavailable");
-    const std::wstring installed = install_protected_binary(name, binary, binary_digest);
-    const std::wstring command = command_prefix(name, installed, volume) +
+    ServiceHandle existing(OpenServiceW(manager.get(), name.c_str(), SERVICE_QUERY_CONFIG));
+    if (existing.get() || GetLastError() != ERROR_SERVICE_DOES_NOT_EXIST)
+        throw std::runtime_error("publisher service name is already present or uncertain");
+    const auto installed = install_protected_binary(name, binary, binary_digest);
+    const std::wstring command = command_prefix(name, installed.path, volume) +
         L" --reviewed-plan-envelope \"" + envelope + L"\" " + digest +
         command_suffix(caller, mode);
     ServiceHandle service(CreateServiceW(manager.get(), name.c_str(), name.c_str(),
@@ -570,7 +613,12 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
         command.c_str(), nullptr, nullptr, nullptr, L"LocalSystem", nullptr));
     if (!service.get()) {
-        if (!DeleteFileW(installed.c_str()))
+        ServiceHandle concurrent(OpenServiceW(manager.get(), name.c_str(),
+            SERVICE_QUERY_CONFIG));
+        const bool absent = !concurrent.get() &&
+            GetLastError() == ERROR_SERVICE_DOES_NOT_EXIST;
+        if (absent && installed.created_here &&
+            !DeleteFileW(installed.path.c_str()))
             throw std::runtime_error("service creation failed and installed executable could not be removed");
         throw std::runtime_error("new publisher service could not be created");
     }
@@ -578,7 +626,7 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         SERVICE_SID_INFO sid{SERVICE_SID_TYPE_RESTRICTED};
         if (!ChangeServiceConfig2W(service.get(), SERVICE_CONFIG_SERVICE_SID_INFO, &sid))
             throw std::runtime_error("restricted service SID configuration failed");
-        grant_service_binary_read(name, installed);
+        grant_service_binary_read(name, installed.path);
         const auto observed = query_configuration(service.get());
         require_profile(observed);
         if (observed.binary_path != command)
@@ -589,7 +637,7 @@ void register_service(const std::wstring& name, const std::wstring& binary,
             throw std::runtime_error("registration failed and created service deletion failed (Win32 error " +
                 std::to_string(deletion_error) + ")");
         }
-        if (!DeleteFileW(installed.c_str()))
+        if (!DeleteFileW(installed.path.c_str()))
             throw std::runtime_error("registration failed and installed executable deletion failed");
         throw;
     }

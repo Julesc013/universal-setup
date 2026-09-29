@@ -609,6 +609,11 @@ try {
             throw 'Publisher registration retained a mismatched executable'
         }
         $receipt['wrong_binary_digest_refused']=$true
+        $orphanPending=$installedServiceBinary+'.pending'
+        [IO.File]::WriteAllBytes($orphanPending,[byte[]]@(0x4d,0x5a))
+        $orphanAcl=[Security.AccessControl.FileSecurity]::new()
+        $orphanAcl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)')
+        Set-Acl -LiteralPath $orphanPending -AclObject $orphanAcl
         $registrationAttempted=$true
         $registered=& $ServiceControlBinary @controlArgs
         if($LASTEXITCODE -ne 0){throw 'Product service control did not register the reviewed publisher'}
@@ -618,6 +623,8 @@ try {
         }
         if((Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
             $sourceServiceHash){throw 'Protected installed service differs from packaged source'}
+        if(Test-Path -LiteralPath $orphanPending){throw 'Interrupted publisher copy was not reclaimed'}
+        $receipt['interrupted_copy_reclaimed']=$true
         $ServiceBinary=$installedServiceBinary
         $receipt['protected_service_binary_sha256']=$sourceServiceHash
         $receipt['service_control_binary_sha256']=(Get-FileHash -LiteralPath $ServiceControlBinary -Algorithm SHA256).Hash.ToLowerInvariant()

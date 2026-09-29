@@ -7,9 +7,12 @@ restricted-service publisher without using a campaign VM identity or a lab
 receipt path. Registration takes an already protected dedicated NTFS volume,
 a reviewed plan envelope, its exact SHA-256, the authorized caller SID, and
 the expected SHA-256 of the publisher executable. Registration streams the
-executable into a newly created, protected per-service file under
-`Program Files/Universal Setup/Publisher`, verifies its digest and flushes it
-before creating the LocalSystem service. Later commands take that installed
+executable into a protected `.pending` file under
+`Program Files/Universal Setup/Publisher`, verifies its digest, flushes it,
+and promotes it without replacement to the per-service executable before
+creating the LocalSystem service. A retry with no existing SCM service removes
+only an exact protected pending file; it may reuse a complete final file only
+when its protected ACL and digest match. Later commands take that installed
 path. The source executable may be in an untrusted staging directory, but its
 expected digest must come from the reviewed package identity:
 
