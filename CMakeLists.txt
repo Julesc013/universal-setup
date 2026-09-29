@@ -638,7 +638,7 @@ if(USK_BUILD_TESTS)
             -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
             -PayloadBinary "$<TARGET_FILE:usk_neutral_payload>"
             -ReviewedSource -RegisteredService -ConsumerAccess
-            -MachineRequestClient -ReuseRegistration)
+            -MachineRequestClient -ReuseRegistration -ProductionConcurrentRights)
         set_tests_properties(usk_machine_registered_candidate_hosted
           PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
       endif()
