@@ -2800,8 +2800,16 @@ std::string verify_completed_install_in_service(HANDLE volume,
         throw std::runtime_error("installed verification response identity differs");
     }
     const std::string status = report.at("status").as_string();
-    if (status != "pass" && status != "fail" && status != "unknown") {
+    if (status != "pass" && status != "fail" && status != "warn" &&
+        status != "unknown") {
         throw std::runtime_error("installed verification result is unsupported");
+    }
+    const auto bound_report = usk::lifecycle::verify_completed_install_on_bound_volume(
+        plan, request.at("report_id").as_string(),
+        request.at("verified_at").as_string(), volume_root, volume, service_name);
+    if (report.at("report_digest").as_string() != bound_report.report_digest ||
+        status != bound_report.status) {
+        throw std::runtime_error("public verification differs from held-volume payload");
     }
     const auto after = observe_completed_verification_boundary(volume, service_sid);
     if (after.snapshot_record != snapshot_record ||
@@ -2813,6 +2821,7 @@ std::string verify_completed_install_in_service(HANDLE volume,
     return "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
         json_quote(status == "pass" ? "pass" : "failed") +
         ",\"transaction_id\":" + json_quote(snapshot.at("transaction_id").as_string()) +
+        ",\"bound_report_digest\":" + json_quote(bound_report.report_digest) +
         ",\"verify_response\":" + response + "}\n";
 }
 } // namespace
