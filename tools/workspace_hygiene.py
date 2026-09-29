@@ -578,8 +578,9 @@ def retirement_record(record: dict[str, Any]) -> dict[str, Any]:
     return observed
 
 
-def ref_records(base: str) -> dict[str, Any]:
+def ref_records(base: str, checked_out_branches: set[str] | None = None) -> dict[str, Any]:
     current = git("branch", "--show-current").stdout.strip()
+    checked_out_branches = checked_out_branches or set()
     local_names = [
         line.strip()
         for line in git(
@@ -624,6 +625,7 @@ def ref_records(base: str) -> dict[str, Any]:
             {
                 "name": name,
                 "current": name == current,
+                "checked_out": name in checked_out_branches,
                 "core": name in {"main", "dev"},
                 "declared_target": target,
                 "contained_in_target": contained,
@@ -631,6 +633,7 @@ def ref_records(base: str) -> dict[str, Any]:
                 "cleanup_candidate": bool(
                     task_like
                     and name != current
+                    and name not in checked_out_branches
                     and name not in {"main", "dev"}
                     and contained
                 ),
@@ -1052,7 +1055,9 @@ def command_doctor(args: argparse.Namespace) -> int:
         for path in task_roots(CONTROL_ROOT)
     ]
     worktrees = worktree_records(args.base)
-    refs = ref_records(args.base)
+    refs = ref_records(args.base, {
+        str(record["branch"]) for record in worktrees if record.get("branch")
+    })
     in_tree_outputs = [
         str((ROOT / name).resolve())
         for name in IN_TREE_OUTPUT_NAMES

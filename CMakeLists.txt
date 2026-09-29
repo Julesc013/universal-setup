@@ -621,9 +621,8 @@ if(USK_BUILD_TESTS)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
       target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
       usk_enable_strict_warnings(usk_publisher_lab_device_acl)
-      # Keep the packaged machine-client journey in the normal hosted gate.
-      # Its prior branch-prefix condition omitted this real install/verify
-      # path from integrated dev and every later publisher candidate.
+      # Keep the packaged machine-client and non-admin consumer journey in the
+      # normal hosted gate, including actual payload execution and recovery.
       if(TARGET usk_machine AND DEFINED ENV{GITHUB_ACTIONS} AND
           "$ENV{RUNNER_ENVIRONMENT}" STREQUAL "github-hosted" AND
           "$ENV{USK_TRUSTED_HOSTED_LAB}" STREQUAL "true")
@@ -638,7 +637,8 @@ if(USK_BUILD_TESTS)
             -PublicApplyBinary "$<TARGET_FILE:usk_publisher_candidate_context_smoke>"
             -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
             -PayloadBinary "$<TARGET_FILE:usk_neutral_payload>"
-            -ReviewedSource -RegisteredService -MachineRequestClient)
+            -ReviewedSource -RegisteredService -ConsumerAccess
+            -MachineRequestClient -ReuseRegistration)
         set_tests_properties(usk_machine_registered_candidate_hosted
           PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
       endif()
