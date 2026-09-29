@@ -17,6 +17,54 @@ template<class Action> void refuses(Action action) {
     try { action(); } catch (const std::exception&) { refused=true; }
     require(refused,"required refusal absent");
 }
+std::string replaced(std::string source, const std::string& from, const std::string& to) {
+    const auto position = source.find(from);
+    require(position != std::string::npos, "test replacement token absent");
+    source.replace(position, from.size(), to);
+    return source;
+}
+void test_terminal_response_binding() {
+    using usk::platform::windows::require_publisher_response_binding;
+    const std::wstring service = L"USK_PUB_0123456789abcdef0123456789abcdef";
+    const std::string apply_request = R"({"schema":"usk.install_local_apply_request.v1","transaction_id":"tx.apply","plan_request":{"install_id":"install.one"}})";
+    const std::string apply_response = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","service_name":"USK_PUB_0123456789abcdef0123456789abcdef","apply_response":{"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.installed_state.v1","lifecycle_status":"installed","install_id":"install.one","transaction_id":"tx.apply"}}})";
+    require_publisher_response_binding(service, apply_request, apply_response);
+    refuses([&] { require_publisher_response_binding(service, apply_request,
+        replaced(apply_response, "\"transaction_id\":\"tx.apply\"", "\"transaction_id\":\"other\"")); });
+    refuses([&] { require_publisher_response_binding(service, apply_request,
+        replaced(apply_response, "\"install_id\":\"install.one\"", "\"install_id\":\"other\"")); });
+    refuses([&] { require_publisher_response_binding(service, apply_request,
+        replaced(apply_response, "\"service_name\":\"USK_PUB_0123456789abcdef0123456789abcdef\"",
+            "\"service_name\":\"USK_PUB_ffffffffffffffffffffffffffffffff\"")); });
+    refuses([&] { require_publisher_response_binding(service, apply_request,
+        replaced(apply_response, "\"apply_response\":{", "\"apply_response\":null,\"unused\":{") ); });
+
+    const std::string recovery_request = R"({"schema":"usk.publisher_recovery_request.v1","install_id":"install.one","transaction_id":"tx.apply"})";
+    const std::string recovery_response = replaced(apply_response,
+        "\"apply_response\"", "\"recovery_installed_response\"");
+    require_publisher_response_binding(service, recovery_request, recovery_response);
+    refuses([&] { require_publisher_response_binding(service, recovery_request,
+        replaced(recovery_response, "\"transaction_id\":\"tx.apply\"", "\"transaction_id\":\"stale\"")); });
+
+    const std::string verify_request = R"({"schema":"usk.publisher_installed_verify_request.v1","install_id":"install.one","transaction_id":"tx.apply","report_id":"report.one"})";
+    const std::string verify_response = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","transaction_id":"tx.apply","bound_report_digest":"digest.one","verify_response":{"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.verification_report.v1","status":"pass","install_id":"install.one","report_id":"report.one","report_digest":"digest.one"}}})";
+    require_publisher_response_binding(service, verify_request, verify_response);
+    refuses([&] { require_publisher_response_binding(service, verify_request,
+        replaced(verify_response, "\"report_id\":\"report.one\"", "\"report_id\":\"other\"")); });
+    refuses([&] { require_publisher_response_binding(service, verify_request,
+        replaced(verify_response, "\"report_digest\":\"digest.one\"", "\"report_digest\":\"other\"")); });
+    const std::string drift_response = replaced(replaced(verify_response,
+        "\"status\":\"pass\",\"transaction_id\"", "\"status\":\"failed\",\"transaction_id\""),
+        "\"schema\":\"usk.verification_report.v1\",\"status\":\"pass\"",
+        "\"schema\":\"usk.verification_report.v1\",\"status\":\"fail\"");
+    require_publisher_response_binding(service, verify_request, drift_response);
+    refuses([&] { require_publisher_response_binding(service, verify_request,
+        replaced(drift_response, "\"install_id\":\"install.one\"", "\"install_id\":\"other\"")); });
+    require_publisher_response_binding(service, apply_request,
+        R"({"schema":"usk.publisher_lab_service_observation.v1","status":"recovery_required","error":"retained"})");
+    require_publisher_response_binding(service, verify_request,
+        R"({"schema":"usk.publisher_lab_service_observation.v1","status":"failed","error":"verify refused"})");
+}
 std::wstring current_sid() {
     HANDLE token=nullptr;
     require(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)!=FALSE,"process token unavailable");
@@ -64,6 +112,7 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
 }
 int main() {
     try {
+        test_terminal_response_binding();
         const auto name=L"USK_transport_test_"+std::to_wstring(GetCurrentProcessId());
         const auto sid=current_sid();
         const std::wstring service_sid=L"S-1-5-80-1-2-3-4-5";

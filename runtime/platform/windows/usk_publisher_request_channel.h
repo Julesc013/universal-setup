@@ -39,6 +39,11 @@ private:
 // service before sending bytes. The caller never impersonates as the service.
 std::string submit_publisher_request(const std::wstring& service_name,
     const std::string& request, DWORD timeout_ms = 30000);
+// A terminal success must identify the submitted install or verification.
+// Failure and recovery-required replies may omit those IDs, but must retain
+// their exact response schema and status. A mismatch after dispatch is unknown.
+void require_publisher_response_binding(const std::wstring& service_name,
+    const std::string& request, const std::string& response);
 std::wstring publisher_request_pipe_name(const std::wstring& service_name);
 // Current restricted SYSTEM service only: grant the admitted consumer enough
 // process rights to hold/query our identity, preserving every existing ACE.

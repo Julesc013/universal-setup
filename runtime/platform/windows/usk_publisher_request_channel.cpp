@@ -6,6 +6,7 @@
 #include <aclapi.h>
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_security_descriptor.h"
+#include "usk_json.h"
 #include <algorithm>
 #include <exception>
 #include <stdexcept>
@@ -263,6 +264,93 @@ void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
         // timeout and broken-pipe outcomes cannot change the operation result.
     }
 }
+void require_publisher_response_binding(const std::wstring& service_name,
+    const std::string& request, const std::string& response) {
+    usk::json::ParseLimits limits;
+    limits.max_bytes = response_limit;
+    limits.max_string_bytes = response_limit / 2u;
+    const auto observed = usk::json::parse(response, limits);
+    if (observed.at("schema").as_string() !=
+            "usk.publisher_lab_service_observation.v1") {
+        throw std::runtime_error("publisher response schema differs");
+    }
+    const std::string status = observed.at("status").as_string();
+    const bool completed_drift_report = status == "failed" &&
+        observed.contains("verify_response");
+    if (status == "recovery_required" ||
+        (status == "failed" && !completed_drift_report)) return;
+    if (status != "pass" && !completed_drift_report) {
+        throw std::runtime_error("publisher response status differs");
+    }
+
+    limits.max_bytes = request_limit;
+    limits.max_string_bytes = request_limit / 2u;
+    const auto submitted = usk::json::parse(request, limits);
+    const std::string schema = submitted.at("schema").as_string();
+    std::string expected_service;
+    expected_service.reserve(service_name.size());
+    for (const wchar_t ch : service_name) {
+        if (ch < 0x20 || ch > 0x7e) {
+            throw std::runtime_error("publisher service name is not ASCII");
+        }
+        expected_service.push_back(static_cast<char>(ch));
+    }
+    if (observed.contains("service_name")) {
+        if (observed.at("service_name").as_string() != expected_service) {
+            throw std::runtime_error("publisher response service identity differs");
+        }
+    } else if (schema != "usk.publisher_installed_verify_request.v1") {
+        throw std::runtime_error("publisher response service identity is absent");
+    }
+
+    if (schema == "usk.install_local_apply_request.v1" ||
+        schema == "usk.publisher_recovery_request.v1") {
+        if (status != "pass") {
+            throw std::runtime_error("publisher installation has a nonterminal success shape");
+        }
+        const std::string install_id = schema == "usk.install_local_apply_request.v1" ?
+            submitted.at("plan_request").at("install_id").as_string() :
+            submitted.at("install_id").as_string();
+        const std::string field = schema == "usk.install_local_apply_request.v1" ?
+            "apply_response" : "recovery_installed_response";
+        const auto& public_response = observed.at(field);
+        const auto& installed = public_response.at("payload");
+        if (public_response.at("schema").as_string() != "usk.command_response.v1" ||
+            public_response.at("status").as_string() != "ok" ||
+            installed.at("schema").as_string() != "usk.installed_state.v1" ||
+            installed.at("lifecycle_status").as_string() != "installed" ||
+            installed.at("install_id").as_string() != install_id ||
+            installed.at("transaction_id").as_string() !=
+                submitted.at("transaction_id").as_string()) {
+            throw std::runtime_error("publisher completed installation differs from request");
+        }
+        return;
+    }
+    if (schema == "usk.publisher_installed_verify_request.v1") {
+        const auto& public_response = observed.at("verify_response");
+        const auto& report = public_response.at("payload");
+        if (observed.at("transaction_id").as_string() !=
+                submitted.at("transaction_id").as_string() ||
+            public_response.at("schema").as_string() != "usk.command_response.v1" ||
+            public_response.at("status").as_string() != "ok" ||
+            report.at("schema").as_string() != "usk.verification_report.v1" ||
+            (status == "pass" ? report.at("status").as_string() != "pass" :
+                (report.at("status").as_string() != "fail" &&
+                 report.at("status").as_string() != "warn" &&
+                 report.at("status").as_string() != "unknown")) ||
+            report.at("install_id").as_string() !=
+                submitted.at("install_id").as_string() ||
+            report.at("report_id").as_string() !=
+                submitted.at("report_id").as_string() ||
+            report.at("report_digest").as_string() !=
+                observed.at("bound_report_digest").as_string()) {
+            throw std::runtime_error("publisher completed verification differs from request");
+        }
+        return;
+    }
+    throw std::runtime_error("publisher success has no admitted request schema");
+}
+
 std::string submit_publisher_request(const std::wstring& service_name,
     const std::string& request, DWORD timeout_ms) {
     const auto until = deadline(timeout_ms);
@@ -300,7 +388,9 @@ std::string submit_publisher_request(const std::wstring& service_name,
     if (!remaining(until)) throw std::runtime_error("publisher endpoint ready after request deadline");
     try {
         write_message(pipe.value, request, request_limit, nullptr, until);
-        return read_message(pipe.value, response_limit, nullptr, until);
+        const std::string response = read_message(pipe.value, response_limit, nullptr, until);
+        require_publisher_response_binding(service_name, request, response);
+        return response;
     } catch(const std::exception& error) {
         throw PublisherRequestOutcomeUnknown(error.what());
     }
