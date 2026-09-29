@@ -16,6 +16,7 @@
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_publisher_volume_operation_guard.h"
+#include "usk_publisher_device_acl.h"
 #include "usk_sha256.h"
 
 #include <array>
@@ -567,36 +568,22 @@ void require_volume_device_service_access(const std::wstring& device,
     if (volume.get() == INVALID_HANDLE_VALUE)
         throw std::runtime_error("remounted publisher device cannot be secured; Win32 " +
             std::to_string(GetLastError()));
-    const auto inspect = [&](PACL dacl) {
-        if (!dacl) throw std::runtime_error("publisher volume device has a null DACL");
-        unsigned matching = 0;
-        for (DWORD index = 0; index < dacl->AceCount; ++index) {
-            void* entry = nullptr;
-            if (!GetAce(dacl, index, &entry))
-                throw std::runtime_error("publisher volume device ACE is unreadable");
-            const auto* header = static_cast<ACE_HEADER*>(entry);
-            if (header->AceType != ACCESS_ALLOWED_ACE_TYPE) continue;
-            const auto* ace = static_cast<ACCESS_ALLOWED_ACE*>(entry);
-            if (EqualSid(const_cast<SID*>(reinterpret_cast<const SID*>(&ace->SidStart)),
-                    const_cast<BYTE*>(service_sid.data()))) {
-                if (header->AceFlags != 0 || ace->Mask != FILE_ALL_ACCESS)
-                    throw std::runtime_error("publisher volume device service ACE differs");
-                ++matching;
-            }
-        }
-        if (matching > 1) throw std::runtime_error("publisher volume device service ACE repeats");
-        return matching == 1;
+    const auto inspect = [&](PSID owner, PACL dacl) {
+        return usk::platform::windows::require_publisher_device_acl_shape(
+            owner, dacl, const_cast<BYTE*>(service_sid.data()));
     };
+    PSID before_owner = nullptr;
     PACL before = nullptr;
     PSECURITY_DESCRIPTOR before_descriptor = nullptr;
     const DWORD read_error = GetSecurityInfo(volume.get(), SE_FILE_OBJECT,
-        DACL_SECURITY_INFORMATION, nullptr, nullptr, &before, nullptr,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        &before_owner, nullptr, &before, nullptr,
         &before_descriptor);
     if (read_error != ERROR_SUCCESS)
         throw std::runtime_error("publisher volume device DACL is unavailable; Win32 " +
             std::to_string(read_error));
     bool already_granted = false;
-    try { already_granted = inspect(before); }
+    try { already_granted = inspect(before_owner, before); }
     catch (...) { LocalFree(before_descriptor); throw; }
     if (!already_granted) {
         EXPLICIT_ACCESS_W grant{};
@@ -623,15 +610,17 @@ void require_volume_device_service_access(const std::wstring& device,
         }
     }
     LocalFree(before_descriptor);
+    PSID after_owner = nullptr;
     PACL after = nullptr;
     PSECURITY_DESCRIPTOR after_descriptor = nullptr;
     const DWORD confirm_error = GetSecurityInfo(volume.get(), SE_FILE_OBJECT,
-        DACL_SECURITY_INFORMATION, nullptr, nullptr, &after, nullptr,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        &after_owner, nullptr, &after, nullptr,
         &after_descriptor);
     if (confirm_error != ERROR_SUCCESS)
         throw std::runtime_error("publisher volume device service ACE cannot be read back");
     try {
-        if (!inspect(after))
+        if (!inspect(after_owner, after))
             throw std::runtime_error("publisher volume device service ACE was not retained");
     } catch (...) { LocalFree(after_descriptor); throw; }
     LocalFree(after_descriptor);
