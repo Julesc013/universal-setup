@@ -6,6 +6,7 @@ param(
     [ValidateSet('Prepublish', 'Postpublish', 'Concurrent', 'ProductionConcurrent')][string]$Stage = 'Postpublish',
     [string]$ReleasePath = '',
     [string]$SameVolumeSource = '',
+    [string]$ExpectedSameVolumeSourceSha256 = '',
     [switch]$UnrelatedConcurrent,
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe', 'bin/addon.bin')][string]$PayloadRelativePath = 'payload.bin',
     [ValidateSet('visible', 'selected-app')][string]$VisibleLeaf = 'visible'
@@ -165,9 +166,8 @@ try {
                 $PayloadRelativePath -notin @('bin/core.bin','bin/addon.bin')) {
                 throw 'production attacker source is not on the exact owned volume'
             }
-            # The protected volume-root ACL deliberately prevents this caller
-            # from reopening even its own scratch file. SYSTEM independently
-            # checks the source bytes before and after the attempted rename.
+            # A replacement denial only challenges staging if this login can
+            # first open the exact same-volume source with DELETE access.
             Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -280,6 +280,25 @@ public static class USKPublisherRenameRace {
     }
 }
 '@
+            if($ExpectedSameVolumeSourceSha256 -cnotmatch '^[0-9a-f]{64}$') {
+                throw 'production replacement source digest is not bound'
+            }
+            $sourceBytes=[IO.File]::ReadAllBytes($SameVolumeSource)
+            $sourceSha256=[Convert]::ToHexString(
+                [Security.Cryptography.SHA256]::HashData($sourceBytes)).ToLowerInvariant()
+            if($sourceBytes.Length -ne 1 -or $sourceBytes[0] -ne 0x42 -or
+                $sourceSha256 -cne $ExpectedSameVolumeSourceSha256) {
+                throw 'production replacement source differs under attacker login'
+            }
+            $sourceHandle=[USKPublisherAncestorAttack]::CreateFileW(
+                $SameVolumeSource,0x10080,7,[IntPtr]::Zero,3,0x00200000,[IntPtr]::Zero)
+            if($sourceHandle -eq [IntPtr]::new(-1)) {
+                throw ('production replacement source lacks DELETE access: Win32 '+
+                    [Runtime.InteropServices.Marshal]::GetLastWin32Error())
+            }
+            [USKPublisherAncestorAttack]::CloseHandle($sourceHandle)|Out-Null
+            $receipt['same_volume_source_open_confirmed']=$true
+            $receipt['same_volume_source_sha256']=$sourceSha256
         }
         $receipt['concurrent'] = [ordered]@{
             destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }

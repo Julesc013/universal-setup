@@ -1239,7 +1239,8 @@ try {
             '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
             '-Stage','ProductionConcurrent','-ReleasePath',('"'+$productionStart+'"'),
             '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
-            '-SameVolumeSource',('"'+$attackSource+'"'))
+            '-SameVolumeSource',('"'+$attackSource+'"'),
+            '-ExpectedSameVolumeSourceSha256',$scratchSha256)
         $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
             -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $consumerOutput `
@@ -1250,7 +1251,8 @@ try {
             '-ServiceSid',$sid,'-OutputPath',('"'+$unrelatedAttackOutput+'"'),
             '-Stage','ProductionConcurrent','-ReleasePath',('"'+$unrelatedStart+'"'),
             '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
-            '-SameVolumeSource',('"'+$attackSource+'"'),'-UnrelatedConcurrent')
+            '-SameVolumeSource',('"'+$attackSource+'"'),
+            '-ExpectedSameVolumeSourceSha256',$scratchSha256,'-UnrelatedConcurrent')
         $unrelatedAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
             -ArgumentList $unrelatedArgs -Credential $unrelatedCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $unrelatedOutputRoot `
@@ -1930,6 +1932,8 @@ try {
                 $concurrent.status -cne 'access_denied_observed' -or
                 -not $coverage -or
                 $concurrent.user_sid -cne $consumerSid -or $concurrent.administrator -or
+                -not $concurrent.same_volume_source_open_confirmed -or
+                $concurrent.same_volume_source_sha256 -cne $scratchSha256 -or
                 $concurrent.service_sid_present -or
                 $concurrent.process_id -ne $concurrentAttacker.Id -or
                 $concurrent.concurrent.destination_create.denied -lt 4 -or
@@ -1968,6 +1972,8 @@ try {
                 if($unrelated.schema -cne 'usk.publisher.unprivileged_access_probe.v1' -or
                     $unrelated.status -cne 'access_denied_observed' -or
                     $unrelated.user_sid -cne $unrelatedSid -or
+                    -not $unrelated.same_volume_source_open_confirmed -or
+                    $unrelated.same_volume_source_sha256 -cne $scratchSha256 -or
                     $unrelated.user_sid -ceq $consumerSid -or
                     $unrelated.process_id -ne $unrelatedAttacker.Id -or
                     $unrelated.administrator -or $unrelated.service_sid_present -or
