@@ -26,6 +26,7 @@ param(
     [switch]$ControllerApply,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
+    [switch]$ProductionPostrenameTermination,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights
 )
@@ -97,6 +98,14 @@ if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedS
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
     throw 'Production concurrent rights probe requires the registered service and its non-admin client'
 }
+if($ProductionPostrenameTermination -and (-not $RegisteredService -or -not $ReviewedSource -or
+    -not $ClientBinary -or $NonAdminClient -or $ConsumerAccess -or $MachineRequestClient -or
+    $ProductionConcurrentRights -or $HostileRights -or $ControllerApply -or
+    $InterruptAfterStage -or $InterruptAfterRename -or $InterruptBeforePublish -or
+    $InterruptAfterVisibleRecord -or $TerminateAtPoststage -or $TerminateAtPostrename -or
+    (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
+    throw 'Production postrename termination requires the registered production service'
+}
 if($RegisteredService -and ($InterruptAfterStage -or $TerminateAtPostrename) -and
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
     throw 'Registered interruption requires the separately built fault-test service'
@@ -111,9 +120,9 @@ if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
 $registeredMode=if($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
 $script:controllerPending=[bool]$ControllerApply
 $script:controllerMode='apply'
-$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
+$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess -or $ProductionPostrenameTermination
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
-$gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
+$gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename -or $ProductionPostrenameTermination){'postrename'}else{'postjournal'}
 $readyContent=if($InterruptAfterStage){"usk.publisher.lab_snapshot_and_stage_sealed.v1`n"}elseif($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
 $recoveryDecision=if($InterruptAfterStage){'snapshot_only_completed_forward'}elseif($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
@@ -255,6 +264,102 @@ function Complete-StageObserver($Observer) {
     }
     return $result
 }
+function Start-ProductionRenameObserver {
+    Assert-OwnedVolume
+    $taskName='USK_RENAME_OBSERVER_'+$id
+    $scriptPath=Join-Path $observerRoot 'production-rename-observer.ps1'
+    $ownedProcessPath=Join-Path $observerRoot 'owned-process.ps1'
+    $configPath=Join-Path $observerRoot 'production-rename-config.json'
+    $readyPath=Join-Path $observerRoot 'production-rename-ready.txt'
+    $outputPath=Join-Path $observerRoot 'production-rename-observation.json'
+    if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $configPath) -or
+        (Test-Path -LiteralPath $readyPath) -or (Test-Path -LiteralPath $outputPath)) {
+        throw 'Owned production rename observer collision'
+    }
+    $serviceRow=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+    $processRow=Get-CimInstance Win32_Process -Filter ('ProcessId='+$serviceRow.ProcessId) -ErrorAction Stop
+    if($serviceRow.State -cne 'Running' -or $serviceRow.ProcessId -le 0 -or
+        $serviceRow.PathName -cne $expectedRegisteredCommand -or
+        -not $processRow -or -not $processRow.CreationDate -or
+        -not $processRow.ExecutablePath -or -not $processRow.CommandLine -or
+        (Get-FileHash -LiteralPath $processRow.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+            $sourceServiceHash) {
+        throw 'Production rename observer service identity differs before request'
+    }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_production_rename_observer.ps1') `
+        -Destination $scriptPath -ErrorAction Stop
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1') `
+        -Destination $ownedProcessPath -ErrorAction Stop
+    $config=[ordered]@{schema='usk.publisher.production_rename_observer_config.v1';
+        service_name=$service;service_command=$serviceRow.PathName;
+        process_id=$serviceRow.ProcessId;process_command=$processRow.CommandLine;
+        process_executable=$processRow.ExecutablePath;
+        process_creation_ticks=$processRow.CreationDate.ToUniversalTime().Ticks;
+        service_binary_sha256=$sourceServiceHash;
+        drive_letter=$drive.Substring(0,1);volume_guid_root=$VolumeRoot;
+        visible_path=$visibleRoot;journal_path=($drive+'publication\journal\lab-visible-evidence.json');
+        ready_path=$readyPath;output_path=$outputPath}
+    [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
+    # The shared owned-process helper needs PowerShell 7's .NET Kill(true)
+    # overload to terminate the exact held process tree.
+    $action=New-ScheduledTaskAction -Execute (Get-Command pwsh -ErrorAction Stop).Source -Argument (
+        '-NoProfile -NonInteractive -File "'+$scriptPath+'" -ConfigPath "'+$configPath+'"')
+    $registered=$false
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -User SYSTEM -RunLevel Highest|Out-Null
+        $registered=$true
+        Start-ScheduledTask -TaskName $taskName
+        $deadline=[DateTime]::UtcNow.AddSeconds(30)
+        while(-not (Test-Path -LiteralPath $readyPath) -and
+            -not (Test-Path -LiteralPath $outputPath) -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 25
+        }
+        if(-not (Test-Path -LiteralPath $readyPath) -or
+            [IO.File]::ReadAllText($readyPath) -cne "usk.publisher.production_rename_observer_ready.v1`n") {
+            $reason=if(Test-Path -LiteralPath $outputPath){
+                (Get-Content -LiteralPath $outputPath -Raw|ConvertFrom-Json).failure
+            }else{'bounded observer output absent'}
+            throw ('Production rename observer did not become ready: '+$reason)
+        }
+        return [pscustomobject]@{task=$taskName;output=$outputPath;ready=$readyPath;
+            config=$configPath;removed=$false}
+    } catch {
+        if($registered) {
+            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if($task -and $task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+        }
+        throw
+    }
+}
+function Complete-ProductionRenameObserver($Observer) {
+    $deadline=[DateTime]::UtcNow.AddSeconds(150)
+    while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 25
+    }
+    if(-not (Test-Path -LiteralPath $Observer.output) -or
+        (Get-Item -LiteralPath $Observer.output).Length -gt 16KB) {
+        throw 'Production rename observer did not produce bounded output'
+    }
+    $result=Get-Content -LiteralPath $Observer.output -Raw|ConvertFrom-Json
+    $task=Get-ScheduledTask -TaskName $Observer.task -ErrorAction Stop
+    if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $Observer.task -ErrorAction Stop}
+    Unregister-ScheduledTask -TaskName $Observer.task -Confirm:$false -ErrorAction Stop
+    if(Get-ScheduledTask -TaskName $Observer.task -ErrorAction SilentlyContinue) {
+        throw 'Owned production rename observer task remains registered'
+    }
+    $Observer.removed=$true
+    if($result.schema -cne 'usk.publisher.production_rename_observer.v1' -or
+        $result.identity -cne 'S-1-5-18' -or
+        $result.status -cne 'terminated_postrename_prejournal' -or
+        -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
+        $result.journal_before_kill -or $result.journal_after_kill) {
+        throw ('Production rename observer did not capture the required window: '+
+            ($result|ConvertTo-Json -Depth 5 -Compress))
+    }
+    return $result
+}
 function Test-LiveStageAttemptOverlap($Observation,$Attempts) {
     foreach($run in @($Observation.runs)) {
         if($run.samples -lt 2 -or $run.maximum_gap_ticks -gt 2000000){continue}
@@ -325,6 +430,7 @@ $concurrentOutput=''
 $concurrentError=''
 $concurrentCompleted=''
 $stageObserver=$null
+$postrenameObserver=$null
 $clientCleanupConfirmed=$true
 $consumerOutput=Join-Path $root 'consumer-output'
 $consumerScript=Join-Path $root 'consumer-client.ps1'
@@ -516,7 +622,9 @@ try {
     }
     Assert-OwnedVolume
     if(Test-Path -LiteralPath ($drive+'publication')){throw 'Hosted metadata disk is not fresh'}
-    $fixtureArgs=if($ConsumerAccess){
+    $fixtureArgs=if($ProductionPostrenameTermination){
+        @('--core-bytes','33554432','--addon-bytes','33554432')
+    }elseif($ConsumerAccess){
         @('--application-binary',$PayloadBinary)+$(if($ProductionConcurrentRights){
             @('--addon-bytes','33554432')
         }else{@()})
@@ -1043,6 +1151,11 @@ try {
         $receipt['concurrent_attacker_sid']=$attackerOwner.Sid
         Assert-OwnedVolume
     }
+    if($ProductionPostrenameTermination) {
+        $postrenameObserver=Start-ProductionRenameObserver
+        $receipt['production_rename_observer_ready_sha256']=(Get-FileHash `
+            -LiteralPath $postrenameObserver.ready -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ProductionConcurrentRights) {
         if(-not $requestClient -or $requestClient.process.HasExited) {
@@ -1188,30 +1301,46 @@ try {
         [IO.File]::Move($releaseTemp,$release)
     }
     if($recover -and -not $InterruptDuringConsumerAccess) {
-        # Controlled service cancellation at the selected flushed readiness window.
-        # This is neither VM power loss nor physical-host power-loss evidence.
-        $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$gate+'-ready.txt'
-        $deadline=[DateTime]::UtcNow.AddSeconds(90)
-        while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){
-            if((Test-Path -LiteralPath $nativePath) -and
-                (Get-Service $service -ErrorAction SilentlyContinue).Status -eq 'Stopped'){break}
-            Start-Sleep -Milliseconds 250
+        # An external SYSTEM observer can terminate the uninstrumented
+        # production service only after seeing the visible rename. It records
+        # a missed window rather than treating a late kill as evidence.
+        if($ProductionPostrenameTermination) {
+            $observedTermination=Complete-ProductionRenameObserver $postrenameObserver
+            $receipt['production_rename_observer']=$observedTermination
+            $receipt['production_rename_observer_task_removed']=$postrenameObserver.removed
+            $ready=$postrenameObserver.output
+        } else {
+            # Controlled service cancellation at a flushed test readiness marker.
+            # Neither path is physical-host power-loss evidence.
+            $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$gate+'-ready.txt'
+            $deadline=[DateTime]::UtcNow.AddSeconds(90)
+            while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){
+                if((Test-Path -LiteralPath $nativePath) -and
+                    (Get-Service $service -ErrorAction SilentlyContinue).Status -eq 'Stopped'){break}
+                Start-Sleep -Milliseconds 250
+            }
+            if(-not (Test-Path -LiteralPath $ready) -or
+                [IO.File]::ReadAllText($ready) -cne $readyContent) {
+                $nativeError=if(Test-Path -LiteralPath $nativePath){
+                    Read-BoundedDiagnostic $nativePath 2048
+                }else{'native receipt absent'}
+                $clientError=if($requestClient -and (Test-Path -LiteralPath $requestClient.error)){
+                    Read-BoundedDiagnostic $requestClient.error 1024
+                }else{'client error absent'}
+                $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction SilentlyContinue
+                throw ('Selected interruption window was not reached: '+$gate+
+                    '; service='+$serviceInfo.State+'; exit_code='+$serviceInfo.ExitCode+
+                    '; service_exit_code='+$serviceInfo.ServiceSpecificExitCode+
+                    '; native='+$nativeError+'; client='+$clientError)
+            }
         }
-        if(-not (Test-Path -LiteralPath $ready) -or
-            [IO.File]::ReadAllText($ready) -cne $readyContent) {
-            $nativeError=if(Test-Path -LiteralPath $nativePath){
-                Read-BoundedDiagnostic $nativePath 2048
-            }else{'native receipt absent'}
-            $clientError=if($requestClient -and (Test-Path -LiteralPath $requestClient.error)){
-                Read-BoundedDiagnostic $requestClient.error 1024
-            }else{'client error absent'}
-            $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction SilentlyContinue
-            throw ('Selected interruption window was not reached: '+$gate+
-                '; service='+$serviceInfo.State+'; exit_code='+$serviceInfo.ExitCode+
-                '; service_exit_code='+$serviceInfo.ServiceSpecificExitCode+
-                '; native='+$nativeError+'; client='+$clientError)
-        }
-        if($TerminateAtPoststage -or $TerminateAtPostrename) {
+        if($ProductionPostrenameTermination) {
+            $deadline=[DateTime]::UtcNow.AddSeconds(30)
+            while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+            if((Get-Service $service).Status -ne 'Stopped'){
+                throw 'SCM retained externally terminated production service'
+            }
+        } elseif($TerminateAtPoststage -or $TerminateAtPostrename) {
             # This deliberately kills only the held, exact campaign service
             # process. It is a transport-loss test, never power-loss evidence.
             $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
@@ -1239,13 +1368,21 @@ try {
         if($requestClient) {
             $receipt['interrupted_client']=Complete-RequestClient $requestClient $false
             $requestClient=$null
-            if(($TerminateAtPoststage -or $TerminateAtPostrename) -and
+            if(($TerminateAtPoststage -or $TerminateAtPostrename -or
+                $ProductionPostrenameTermination) -and
                 ($receipt.interrupted_client.exit_code -ne 5 -or
                  $receipt.interrupted_client.delivery -cne 'outcome_unknown')) {
                 throw 'Terminated client did not report unknown outcome'
             }
         }
-        if($TerminateAtPoststage -or $TerminateAtPostrename) {
+        if($ProductionPostrenameTermination) {
+            if(Test-Path -LiteralPath $nativePath){throw 'Terminated production service wrote a lab receipt'}
+            $receipt['interruption']=[ordered]@{kind='controlled_process_termination';window=$gate;
+                service_pid=$observedTermination.service_pid;
+                service_executable_sha256=$observedTermination.service_binary_sha256;
+                readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant();
+                observer='independent_system_visible_namespace'}
+        } elseif($TerminateAtPoststage -or $TerminateAtPostrename) {
             if(Test-Path -LiteralPath $nativePath){throw 'Killed service wrote a terminal native receipt'}
             $receipt['interruption']=[ordered]@{kind='controlled_process_termination';window=$gate;
                 service_pid=$heldServiceIdentity.pid;service_started_utc=$heldServiceIdentity.started_utc;
@@ -2110,6 +2247,24 @@ try {
             $stageObserver.removed=$true
         } catch {$failure='Owned stage observer cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
+    if($postrenameObserver -and -not $postrenameObserver.removed) {
+        try {
+            $task=Get-ScheduledTask -TaskName $postrenameObserver.task -ErrorAction SilentlyContinue
+            if($task) {
+                if($task.State -eq 'Running'){
+                    Stop-ScheduledTask -TaskName $postrenameObserver.task -ErrorAction Stop
+                }
+                Unregister-ScheduledTask -TaskName $postrenameObserver.task -Confirm:$false -ErrorAction Stop
+            }
+            if(Get-ScheduledTask -TaskName $postrenameObserver.task -ErrorAction SilentlyContinue) {
+                throw 'Owned production rename observer task remains registered'
+            }
+            $postrenameObserver.removed=$true
+        } catch {
+            $failure='Owned production rename observer cleanup failed: '+$_.Exception.Message
+            $receipt.failure=$failure;$receipt.status='failed'
+        }
+    }
     $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
     if($consumerCreated -and $clientCleanupConfirmed) {
         try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
@@ -2237,6 +2392,25 @@ try {
             if($stageObserver -and $stageObserver.removed) {
                 foreach($path in @($stageObserver.script,$stageObserver.ready,$stageObserver.stop,$stageObserver.output)) {
                     if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
+                }
+            }
+            if($ProductionPostrenameTermination) {
+                if(Get-ScheduledTask -TaskName ('USK_RENAME_OBSERVER_'+$id) -ErrorAction SilentlyContinue) {
+                    throw 'Production rename observer task remains registered; retain its inputs'
+                }
+                foreach($leaf in @('production-rename-observer.ps1','owned-process.ps1',
+                    'production-rename-config.json','production-rename-ready.txt',
+                    'production-rename-observation.json','production-rename-observation.json.tmp')) {
+                    $path=Join-Path $observerRoot $leaf
+                    if(Test-Path -LiteralPath $path) {
+                        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+                        if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                            -not [string]::Equals((Split-Path -Parent $item.FullName),$observerRoot,
+                                [StringComparison]::OrdinalIgnoreCase)) {
+                            throw 'Production rename observer cleanup target differs'
+                        }
+                        Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+                    }
                 }
             }
             Remove-Item -LiteralPath $observerRoot -ErrorAction Stop

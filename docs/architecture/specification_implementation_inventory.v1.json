@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "ecd8cb58f6a71a00c927c0e1515a4c7215ed78c92a7aa094cd6b48098d8792e1"
+          "sha256": "80e1849994f2f12ca401a37667749ad3c4106f8417456768198c7667c9b5346a"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "ecd8cb58f6a71a00c927c0e1515a4c7215ed78c92a7aa094cd6b48098d8792e1"
+          "sha256": "80e1849994f2f12ca401a37667749ad3c4106f8417456768198c7667c9b5346a"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "ecd8cb58f6a71a00c927c0e1515a4c7215ed78c92a7aa094cd6b48098d8792e1"
+          "sha256": "80e1849994f2f12ca401a37667749ad3c4106f8417456768198c7667c9b5346a"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3943,7 +3943,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "580496680e53e760414814e4a0a1841a21a466eb4f00654ba4b558a4cecdbaec"
+          "sha256": "3eb771075283c14efd8f021fa777c42659b6be8d47ae80e0a0737006171756cc"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "c777028982b4f7ea211be5ffd4556b43d0c8cdd9ff7cb7cfdaf11aa891087388"
+          "sha256": "78e092922e4c4407156ff359e4944d9ff4c7521fb3b04514cdca6dada7b59c59"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4116,6 +4116,10 @@
         {
           "path": "tests/native/usk_publisher_device_acl_smoke.cpp",
           "sha256": "1d19aa237b64f0b50dcc40506baf1cbd0fde43be9ba665c730c371f697feeaf4"
+        },
+        {
+          "path": "tests/windows_publisher_production_rename_observer.ps1",
+          "sha256": "ed776fd18d70ef9388570d2db87b3c15df7f93a583055da94a0ba5db882c8ff9"
         }
       ],
       "acceptance_ids": [
@@ -4351,7 +4355,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "c777028982b4f7ea211be5ffd4556b43d0c8cdd9ff7cb7cfdaf11aa891087388"
+          "sha256": "78e092922e4c4407156ff359e4944d9ff4c7521fb3b04514cdca6dada7b59c59"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4432,6 +4436,10 @@
         {
           "path": "tests/native/usk_publisher_device_acl_smoke.cpp",
           "sha256": "1d19aa237b64f0b50dcc40506baf1cbd0fde43be9ba665c730c371f697feeaf4"
+        },
+        {
+          "path": "tests/windows_publisher_production_rename_observer.ps1",
+          "sha256": "ed776fd18d70ef9388570d2db87b3c15df7f93a583055da94a0ba5db882c8ff9"
         }
       ],
       "acceptance_ids": [
