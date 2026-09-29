@@ -68,5 +68,5 @@ The service still
 checks the selected source, plan, target, caller and registered identity;
 choosing a candidate service does not grant publisher authority. Planning
 contexts cannot be combined with this mode. The hosted machine-client check
-exercises this envelope through the restricted service and compares it with
-the service's independently retained observation.
+exercises this envelope through the restricted service, validates its result,
+and independently reads the installed resources.

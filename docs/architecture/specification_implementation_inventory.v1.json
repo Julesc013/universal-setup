@@ -1752,7 +1752,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "b4db644c9cc03eecedfbcc4aa62688408a62781e159ddfdad67a6325044e8d17"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
@@ -1784,7 +1784,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "b4db644c9cc03eecedfbcc4aa62688408a62781e159ddfdad67a6325044e8d17"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
@@ -1816,7 +1816,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "b4db644c9cc03eecedfbcc4aa62688408a62781e159ddfdad67a6325044e8d17"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
@@ -1848,7 +1848,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "b4db644c9cc03eecedfbcc4aa62688408a62781e159ddfdad67a6325044e8d17"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
