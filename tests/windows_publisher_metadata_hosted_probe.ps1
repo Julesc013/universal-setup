@@ -1377,7 +1377,7 @@ try {
             }
             $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
             if($receipt.native.schema -cne 'usk.publisher_lab_service_observation.v1' -or
-                $receipt.native.status -ne 'failed' -or
+                $receipt.native.status -cne 'recovery_required' -or
                 $receipt.native.error -notmatch 'publisher exact anchor sibling is unavailable|publisher parent-bound child open failed' -or
                 $receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service -or
                 -not (Test-Path -LiteralPath $poisonedAnchor -PathType Container) -or
@@ -1393,7 +1393,7 @@ try {
             $receipt['preexisting_anchor_after']=[ordered]@{path=$poisonedAnchor;
                 marker_sha256=$poisonedMarkerHash;marker_bytes=7;
                 anchor_sddl=$poisonedAnchorAcl;marker_sddl=$poisonedMarkerAcl;unchanged=$true}
-            $receipt.status='preexisting_anchor_refusal_observed'
+            $receipt.status='preexisting_anchor_recovery_required_observed'
         } else {
             $deadline=[DateTime]::UtcNow.AddSeconds(90)
             while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
@@ -2848,7 +2848,7 @@ try {
         }
     }
     if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed',
-        'preexisting_anchor_refusal_observed') -and $receipt.service_removed) {
+        'preexisting_anchor_recovery_required_observed') -and $receipt.service_removed) {
         try {
             if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
             $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
