@@ -1960,15 +1960,10 @@ try {
         } catch {
             $failure='Protected service binary cleanup failed: '+$_.Exception.Message
             $receipt.failure=$failure;$receipt.status='failed'
-            # Preserve the failure, but reclaim only the exact owned hosted file.
-            if($installedServiceBinary -ceq $expectedInstalled -and
-                -not (Get-Service $service -ErrorAction SilentlyContinue) -and
-                (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf) -and
-                (Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -ceq
-                    $sourceServiceHash) {
-                Remove-Item -LiteralPath $installedServiceBinary -Force -ErrorAction Stop
-                $receipt['protected_service_binary_fallback_removed']=$true
-            }
+            # Keep uncertain material for the disposable runner's teardown.
+            # A second cleanup failure must not suppress this receipt.
+            $receipt['protected_service_binary_retained_on_failure']=
+                [bool](Test-Path -LiteralPath $installedServiceBinary -ErrorAction SilentlyContinue)
         }
     }
     if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed') -and $receipt.service_removed) {
