@@ -62,11 +62,11 @@ function Observe-ConcurrentDenial {
     param([string]$Name, [scriptblock]$Action, [bool]$AllowMissing,
         [bool]$AfterCompletion, [bool]$AfterRelease)
     try {
-        $attemptStart=[DateTime]::UtcNow.Ticks
+        $attemptStart=[Diagnostics.Stopwatch]::GetTimestamp()
         & $Action
         throw "concurrent $Name unexpectedly obtained mutation access"
     } catch {
-        $attemptEnd=[DateTime]::UtcNow.Ticks
+        $attemptEnd=[Diagnostics.Stopwatch]::GetTimestamp()
         $cause = $_.Exception
         while ($cause.InnerException) { $cause = $cause.InnerException }
         if ($cause.HResult -eq -2147024891) {
@@ -75,7 +75,7 @@ function Observe-ConcurrentDenial {
             if ($AfterRelease -and -not $AfterCompletion) {
                 if ($Stage -eq 'ProductionConcurrent') {
                     $receipt.concurrent[$Name].denied_after_start_before_observed_reply++
-                    if ($Name -in @('staged_write','staged_replace',
+                    if ($Name -in @('destination_create','staged_write','staged_replace',
                             'staged_insert','staged_ads_write',
                             'publication_rename','publication_write_dac')) {
                         $samples=$receipt.concurrent[$Name].denied_attempts
@@ -173,7 +173,7 @@ public static class USKPublisherAncestorAttack {
 '@
         }
         $receipt['concurrent'] = [ordered]@{
-            destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
+            destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             staged_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             staged_replace = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             staged_insert = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
@@ -182,6 +182,7 @@ public static class USKPublisherAncestorAttack {
             publication_write_dac = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             visible_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
             cycles = 0; cycles_after_gate_before_observed_reply = 0; cycles_after_start_before_observed_reply = 0; cycles_after_completion = 0; max_cycle_gap_ms = 0
+            clock = 'qpc'; clock_frequency = [Diagnostics.Stopwatch]::Frequency
             ready_utc = $null; release_seen_utc = $null; started_seen_utc = $null; completed_seen_utc = $null
         }
         $deadline = [DateTime]::UtcNow.AddSeconds(120)
