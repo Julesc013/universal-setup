@@ -26,6 +26,7 @@
 #include <windows.h>
 #include <aclapi.h>
 #include <sddl.h>
+#include <winioctl.h>
 
 #include <stdexcept>
 #include <algorithm>
@@ -48,6 +49,34 @@ struct OwnedHandle {
     OwnedHandle& operator=(const OwnedHandle&) = delete;
     HANDLE get() const { return value; }
 };
+
+// A protected DACL does not revoke access through a handle opened before the
+// DACL was installed. On this dedicated-volume candidate, a successful NTFS
+// volume lock establishes that no file or directory handle survived from
+// provisioning. Release it before opening the root; the later protected-root
+// check prevents a new untrusted open in that interval. Never dismount a
+// volume as a substitute for this check: dismount does not reject open files.
+void require_no_preopened_volume_files(const std::wstring& root) {
+    (void)usk::platform::windows::publisher_volume_operation_guard_name(root);
+    const std::wstring device = root.substr(0, root.size() - 1);
+    OwnedHandle volume(CreateFileW(device.c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
+    if (volume.get() == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("cannot open dedicated publisher volume for exclusive admission; Win32 " +
+            std::to_string(GetLastError()));
+    }
+    DWORD returned = 0;
+    if (!DeviceIoControl(volume.get(), FSCTL_LOCK_VOLUME, nullptr, 0,
+            nullptr, 0, &returned, nullptr)) {
+        throw std::runtime_error("publisher volume has a pre-opened file or cannot be locked; Win32 " +
+            std::to_string(GetLastError()));
+    }
+    if (!DeviceIoControl(volume.get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
+            nullptr, 0, &returned, nullptr)) {
+        throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
+            std::to_string(GetLastError()));
+    }
+}
 
 thread_local std::wstring service_name;
 thread_local std::wstring receipt_path;
@@ -2843,6 +2872,9 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         }
         // Both guards are held before source/installed-state revalidation and
         // before effects. Source-free legacy replay retains the volume guard.
+        // Verification is read-only and may coexist with a running consumer;
+        // every publication/recovery mutation must first exclude old handles.
+        if (!verify_installed_request) require_no_preopened_volume_files(volume_root);
         const DWORD root_access = recover_prepared || verify_installed_request ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
