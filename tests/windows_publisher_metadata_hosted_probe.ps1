@@ -1194,6 +1194,20 @@ try {
         $unrelatedAccountCreated=$true
         $unrelatedSid=$unrelatedAccount.SID.Value
         if($unrelatedSid -ceq $consumerSid){throw 'Unrelated attacker reused the client SID'}
+        # The same-volume replacement source was initially granted only to
+        # the submitting login. Give the second login the identical narrow
+        # source grant; the protected publication subtree remains unchanged.
+        $unrelatedIdentity=[Security.Principal.SecurityIdentifier]::new($unrelatedSid)
+        foreach($path in @($scratch,$scratchFile)) {
+            $sourceAcl=Get-Acl -LiteralPath $path
+            $inherit=if($path -ceq $scratch){'ContainerInherit,ObjectInherit'}else{'None'}
+            $sourceAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $unrelatedIdentity,'Modify',$inherit,'None','Allow'))
+            Set-Acl -LiteralPath $path -AclObject $sourceAcl
+        }
+        $receipt['unrelated_same_volume_source_acl']=[ordered]@{
+            directory=(Get-Acl -LiteralPath $scratch).Sddl;
+            file=(Get-Acl -LiteralPath $scratchFile).Sddl}
         Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545').Name `
             -Member $unrelatedAccount -ErrorAction Stop
         $unrelatedCredential=[Management.Automation.PSCredential]::new(
