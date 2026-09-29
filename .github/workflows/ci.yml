@@ -250,6 +250,13 @@ jobs:
           name: usk-wu006-packaged-machine-bridge
           path: ${{ runner.temp }}\usk-wu006-packaged-machine-bridge.json
           if-no-files-found: error
+      - name: Retain registered controller apply observation
+        if: ${{ always() && runner.os == 'Windows' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu006-controller-apply-bridge
+          path: ${{ runner.temp }}\usk-wu006-controller-apply-bridge.json
+          if-no-files-found: error
       - run: python tools/strict_check.py
       - name: Static analysis
         if: runner.os == 'Linux'

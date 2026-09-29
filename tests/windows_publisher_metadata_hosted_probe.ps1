@@ -22,6 +22,7 @@ param(
     [switch]$RegisteredService,
     [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
+    [switch]$ControllerApply,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
     [switch]$ExpectUnprotectedRefusal,
@@ -60,6 +61,12 @@ if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not
 if($MachineRequestClient -and (-not $RegisteredService -or -not $MachineBinary -or
     $NonAdminClient -or $InterruptAfterStage -or $HostileRights)) {
     throw 'Packaged machine request client requires uninterrupted registered same-user service profile'
+}
+if($ControllerApply -and (-not $RegisteredService -or $MachineRequestClient -or
+    $NonAdminClient -or $ConsumerAccess -or $ProductionConcurrentRights -or
+    $HostileRights -or $InterruptAfterStage -or $InterruptAfterVisibleRecord -or
+    $InterruptAfterRename -or $InterruptBeforePublish)) {
+    throw 'Controller apply requires uninterrupted registered same-user service profile'
 }
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
     throw 'Registered hostile-rights proof requires the same owned non-admin client identity'
@@ -100,6 +107,7 @@ if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
     throw 'Non-admin client requires the registered service without consumer payload rights'
 }
 $registeredMode=if($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
+$script:controllerPending=[bool]$ControllerApply
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
 $gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
@@ -330,6 +338,7 @@ function Read-NativeReceipt([string]$Path) {
     return $raw|ConvertFrom-Json
 }
 function Start-RegisteredPublisher {
+    if($script:controllerPending){return}
     $startArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
     if($registeredMode){$startArgs+=$registeredMode}
     $started=& $ServiceControlBinary @startArgs
@@ -342,10 +351,14 @@ function Start-RequestClient($submitted=$applyRequest) {
     $prefix=Join-Path $(if($ConsumerAccess -or $NonAdminClient){$consumerOutput}else{$root}) ('client-'+$clientNumber)
     $clientRequest=$prefix+'-request.json'
     [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
-    $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
-    $clientMode=if($MachineRequestClient){'candidate-service'}else{'service'}
+    $controllerRequest=$script:controllerPending
+    $requestBinary=if($controllerRequest){$ServiceControlBinary}elseif($MachineRequestClient){$MachineBinary}else{$ClientBinary}
+    $clientMode=if($controllerRequest){'controller_apply_registered'}elseif($MachineRequestClient){'candidate-service'}else{'service'}
     $binaryDigest=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant()
-    $requestArgs=if($MachineRequestClient){@('--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}else{@('--service',$service,'--request-file',('"'+$clientRequest+'"'))}
+    $requestArgs=if($controllerRequest){@('--apply-registered',$service,('"'+$ServiceBinary+'"'),$VolumeRoot,
+        ('"'+$envelope+'"'),$receipt.envelope_sha256,$callerSid,$sourceServiceHash,('"'+$clientRequest+'"'))}
+        elseif($MachineRequestClient){@('--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}
+        else{@('--service',$service,'--request-file',('"'+$clientRequest+'"'))}
     $options=@{FilePath=$requestBinary;ArgumentList=$requestArgs;
         WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$prefix+'-response.json';RedirectStandardError=$prefix+'-error.txt'}
     $identityPath=$prefix+'-identity.json'
@@ -359,6 +372,7 @@ function Start-RequestClient($submitted=$applyRequest) {
         $options['WorkingDirectory']=$consumerOutput
     }
     $process=Start-Process @options
+    if($controllerRequest){$script:controllerPending=$false}
     return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt';
         identity=$identityPath;binary_path=[IO.Path]::GetFullPath($requestBinary);
         binary_sha256=$binaryDigest;client_mode=$clientMode}
@@ -382,8 +396,7 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     if(($client.process.ExitCode -eq 0) -ne $expectSuccess) {
         throw ('Request client exit differs: '+$client.process.ExitCode+'; '+[IO.File]::ReadAllText($client.error))
     }
-    $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
-    $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant();
+    $result=[ordered]@{exit_code=$client.process.ExitCode;binary_sha256=(Get-FileHash -LiteralPath $client.binary_path -Algorithm SHA256).Hash.ToLowerInvariant();
         caller_sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
     if($ConsumerAccess -or $NonAdminClient) {
         $actual=Assert-RequestClientImage $client
@@ -777,6 +790,23 @@ try {
     Assert-OwnedVolume
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
+    if($ControllerApply) {
+        $changedApply=Join-Path $root ('changed-apply-'+$id+'.json')
+        $changedError=Join-Path $root ('changed-apply-'+$id+'.txt')
+        $changed=$applyRequest|ConvertTo-Json -Depth 32|ConvertFrom-Json
+        $changed.transaction_id=$changed.transaction_id+'.substituted'
+        [IO.File]::WriteAllText($changedApply,
+            ($changed|ConvertTo-Json -Depth 32 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+        & $ServiceControlBinary --apply-registered $service $ServiceBinary $VolumeRoot `
+            $envelope $receipt.envelope_sha256 $callerSid $sourceServiceHash $changedApply `
+            2>$changedError|Out-Null
+        if($LASTEXITCODE -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
+            (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Get-Content -LiteralPath $changedError -Raw) -notmatch 'apply request differs') {
+            throw 'Changed reviewed apply reached the protected publisher'
+        }
+        $receipt['changed_controller_apply_refused_before_start']=$true
+    }
     if($RegisteredService) {
         $wrongStartError=Join-Path $root ('wrong-start-'+$id+'.txt')
         $wrongStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
@@ -872,7 +902,7 @@ try {
             started_utc=$heldServiceProcess.StartTime.ToUniversalTime().ToString('o')}
     }
     $terminalServiceProcess=$null
-    if($RegisteredService -and -not $HostileRights -and -not $recover) {
+    if($RegisteredService -and -not $HostileRights -and -not $recover -and -not $script:controllerPending) {
         $terminalAtStart=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
         if($terminalAtStart.State -cne 'Running' -or $terminalAtStart.ProcessId -le 0 -or
             $terminalAtStart.PathName -cne $expectedRegisteredCommand) {
@@ -1321,7 +1351,7 @@ try {
             $actual=Assert-RequestClientImage $requestClient
             $receipt['registered_client_identity']=$actual
         }
-        $requestBinary=if($MachineRequestClient){$MachineBinary}else{$ClientBinary}
+        $requestBinary=$requestClient.binary_path
         $receipt['authenticated_client']=[ordered]@{exit_code=0;caller_sid=$callerSid;
             binary_sha256=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant();
             response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -1414,7 +1444,11 @@ try {
         # The packaged client has received the terminal reply and closed its
         # authenticated pipe. The one-request service must now stop itself
         # before install-to-verify reconfiguration, without an SCM stop call.
-        if(-not $terminalServiceProcess.WaitForExit(30000)) {
+        if($ControllerApply) {
+            $stopDeadline=[DateTime]::UtcNow.AddSeconds(30)
+            while((Get-Service $service).Status -ne 'Stopped' -and
+                [DateTime]::UtcNow -lt $stopDeadline){Start-Sleep -Milliseconds 100}
+        } elseif(-not $terminalServiceProcess.WaitForExit(30000)) {
             throw 'Original registered publisher process retained after terminal client disconnect'
         }
         $terminalAtEnd=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
@@ -1423,7 +1457,7 @@ try {
             throw 'Registered publisher did not stop cleanly after terminal client disconnect'
         }
         $receipt['registered_terminal_shutdown']=[ordered]@{
-            original_process_exited=$true;scm_state=$terminalAtEnd.State;
+            original_process_exited=if($ControllerApply){$null}else{$true};scm_state=$terminalAtEnd.State;
             scm_exit_code=$terminalAtEnd.ExitCode}
     } elseif((Get-Service $service).Status -ne 'Stopped') {Stop-Service $service}
     if($RegisteredService -and $HostileRights) {

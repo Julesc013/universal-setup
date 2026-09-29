@@ -18,6 +18,7 @@ param(
     [switch]$RegisteredService,
     [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
+    [switch]$ControllerApply,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
     [switch]$ExpectUnprotectedRefusal,
@@ -166,7 +167,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
