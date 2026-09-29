@@ -226,8 +226,10 @@ function Get-OwnedPreexistingAnchorObservation {
     $taskName='USK_ANCHOR_'+$id
     $observation=Join-Path $observerRoot 'preexisting-anchor-end.json'
     $pending=$observation+'.pending'
+    $failurePath=$observation+'.failure.json'
     if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $observation) -or (Test-Path -LiteralPath $pending)) {
+        (Test-Path -LiteralPath $observation) -or (Test-Path -LiteralPath $pending) -or
+        (Test-Path -LiteralPath $failurePath)) {
         throw 'Owned anchor observer collision'
     }
     $anchor=$drive+'publication'
@@ -254,7 +256,14 @@ function Get-OwnedPreexistingAnchorObservation {
         '$final='''+$observation.Replace("'","''")+''';'+
         '[IO.File]::WriteAllText($pending,($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));'+
         '[IO.File]::Move($pending,$final)'
-    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $failureCommand='$failurePath='''+$failurePath.Replace("'","''")+''';'+
+        'try{'+$command+'}catch{'+
+        '$message=$_.Exception.Message;'+
+        'if($message.Length -gt 512){$message=$message.Substring(0,512)};'+
+        '$result=@{schema=''usk.publisher.anchor_observer_failure.v1'';message=$message};'+
+        '[IO.File]::WriteAllText($failurePath,($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));'+
+        'exit 2}'
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($failureCommand))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
     $registered=$false
     try {
@@ -263,7 +272,21 @@ function Get-OwnedPreexistingAnchorObservation {
         Start-ScheduledTask -TaskName $taskName
         $deadline=[DateTime]::UtcNow.AddSeconds(45)
         while(-not (Test-Path -LiteralPath $observation) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
-        if(-not (Test-Path -LiteralPath $observation)){throw 'Owned anchor observer receipt absent'}
+        if(-not (Test-Path -LiteralPath $observation)){
+            $taskResult=(Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop).LastTaskResult
+            $detail=''
+            if(Test-Path -LiteralPath $failurePath){
+                if((Get-Item -LiteralPath $failurePath).Length -gt 2KB){
+                    throw 'Owned anchor observer failure record exceeds bound'
+                }
+                $record=Get-Content -LiteralPath $failurePath -Raw|ConvertFrom-Json
+                if($record.schema -cne 'usk.publisher.anchor_observer_failure.v1'){
+                    throw 'Owned anchor observer failure record differs'
+                }
+                $detail=': '+$record.message
+            }
+            throw ('Owned anchor observer receipt absent; task result '+$taskResult+$detail)
+        }
         if((Get-Item -LiteralPath $observation).Length -gt 16KB){throw 'Owned anchor observation exceeds bound'}
         $result=Get-Content -LiteralPath $observation -Raw|ConvertFrom-Json
         if($result.identity -cne 'S-1-5-18') {throw 'Owned anchor observer identity differs'}
@@ -276,6 +299,7 @@ function Get-OwnedPreexistingAnchorObservation {
             if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned anchor observer cleanup failed'}
         }
         if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Force -ErrorAction Stop}
+        if(Test-Path -LiteralPath $failurePath){Remove-Item -LiteralPath $failurePath -Force -ErrorAction Stop}
         if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
     }
 }
