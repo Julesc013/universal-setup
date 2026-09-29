@@ -58,7 +58,7 @@ if(-not $image.Attached -or $disk.Count -ne 1 -or $disk[0].IsBoot -or $disk[0].I
 }
 $item=Get-Item -LiteralPath $Target -Force -ErrorAction Stop
 if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-    $item.Length -lt 1 -or $item.Length -gt 16MB) {throw 'Selected damage target is not a bounded regular file'}
+    $item.Length -lt 1 -or $item.Length -gt 32MB) {throw 'Selected damage target is not a bounded regular file'}
 $before=(Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash.ToLowerInvariant()
 if($before -cne $ExpectedSha256) {throw 'Selected damage target no longer has reviewed bytes'}
 $stream=[IO.File]::Open($Target,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
@@ -92,7 +92,12 @@ if($after -ceq $before){throw 'Selected payload damage did not change content'}
         Start-ScheduledTask -TaskName $name
         $deadline=[DateTime]::UtcNow.AddSeconds(45)
         while(-not (Test-Path -LiteralPath $output) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
-        if(-not (Test-Path -LiteralPath $output)){throw 'Owned SYSTEM payload damage receipt absent'}
+        if(-not (Test-Path -LiteralPath $output)){
+            $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $taskInfo=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+            throw ('Owned SYSTEM payload damage receipt absent; task_state='+$task.State+
+                '; last_task_result='+$taskInfo.LastTaskResult)
+        }
         $result=Get-Content -LiteralPath $output -Raw|ConvertFrom-Json
         if($result.schema -cne 'usk.publisher.owned_payload_damage.v1' -or
             $result.identity -cne 'S-1-5-18' -or $result.path -cne $target -or
