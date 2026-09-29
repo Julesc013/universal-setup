@@ -22,6 +22,7 @@ usk_publisher_service_control --recover USK_PUB_<same name> INSTALLED_SERVICE_EX
 usk_publisher_service_control --verify USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --start USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --unregister USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --retire-binary USK_PUB_<same name> INSTALLED_SERVICE_EXE SERVICE_EXE_SHA256 RETAINED_SERVICE_SID
 ```
 
 The second command changes only a stopped, matching own-process LocalSystem
@@ -52,8 +53,13 @@ Unregister requires the service to be stopped and rechecks its generated name,
 executable path, volume, authorized caller, access mode, own-process account,
 and restricted service SID. Its `removal_requested` reply means Windows accepted
 the deletion request; callers must independently wait until the service is
-absent before reclaiming its owned volume or installed executable. A failed
-registration removes only the per-service executable it created.
+absent before reclaiming its owned volume or installed executable. Once SCM
+confirms absence, `--retire-binary` verifies the protected path, same-handle
+owner/DACL and exact expected digest against the service SID retained from
+registration, then marks that held executable for
+deletion. It refuses while the service exists or deletion remains uncertain,
+and leaves a mismatched executable intact for inspection. A failed registration
+removes only the per-service executable it created.
 Registration, configuration, start, and removal hold one empty per-service
 lock file beneath the protected `Program Files/Universal Setup/PublisherControl`
 directory. The controller verifies its owner, protected ACL, and ordinary-file

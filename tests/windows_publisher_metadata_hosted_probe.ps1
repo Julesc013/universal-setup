@@ -1902,6 +1902,12 @@ try {
                 if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
                     throw 'Publisher service accepted a different unregister caller'
                 }
+                & $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $sid 2>$null|Out-Null
+                if($LASTEXITCODE -eq 0 -or
+                    -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
+                    throw 'Publisher service binary retired while its service was registered'
+                }
+                $receipt['service_binary_live_retirement_refusal']=$true
                 $remove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid)
                 if($registeredMode){$remove+=$registeredMode}
                 $removed=& $ServiceControlBinary @remove
@@ -1930,9 +1936,35 @@ try {
             if($installedServiceBinary -cne $expectedInstalled -or
                 (Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
                     $sourceServiceHash){throw 'Protected service cleanup identity differs'}
-            Remove-Item -LiteralPath $installedServiceBinary -Force -ErrorAction Stop
+            $wrongDigest=if($sourceServiceHash -cne ('0'*64)){'0'*64}else{'1'*64}
+            & $ServiceControlBinary --retire-binary $service $installedServiceBinary $wrongDigest $sid 2>$null|Out-Null
+            if($LASTEXITCODE -eq 0 -or
+                -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
+                throw 'Protected service retirement accepted an incorrect digest'
+            }
+            $wrongSid='S-1-5-80-1-2-3-4-5'
+            if($wrongSid -ceq $sid){$wrongSid='S-1-5-80-5-4-3-2-1'}
+            & $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $wrongSid 2>$null|Out-Null
+            if($LASTEXITCODE -eq 0 -or
+                -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
+                throw 'Protected service retirement accepted a different service SID'
+            }
+            $retired=& $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $sid
+            if($LASTEXITCODE -ne 0 -or
+                ($retired|ConvertFrom-Json).status -cne 'binary_retired' -or
+                (Test-Path -LiteralPath $installedServiceBinary)) {
+                throw 'Product control did not retire its protected service binary'
+            }
+            $receipt['product_service_binary_retirement']=$retired|ConvertFrom-Json
             $receipt['protected_service_binary_removed']=$true
-        } catch { $failure='Protected service binary cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+        } catch {
+            $failure='Protected service binary cleanup failed: '+$_.Exception.Message
+            $receipt.failure=$failure;$receipt.status='failed'
+            # Keep uncertain material for the disposable runner's teardown.
+            # A second cleanup failure must not suppress this receipt.
+            $receipt['protected_service_binary_retained_on_failure']=
+                [bool](Test-Path -LiteralPath $installedServiceBinary -ErrorAction SilentlyContinue)
+        }
     }
     if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed') -and $receipt.service_removed) {
         try {
