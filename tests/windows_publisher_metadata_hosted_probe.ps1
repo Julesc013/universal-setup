@@ -1717,16 +1717,17 @@ try {
                     $nativeOverlap.clock -ceq 'qpc' -and
                     [long]$nativeOverlap.clock_frequency -eq [long]$nativeCall.frequency -and
                     -not $nativeOverlap.failure -and
+                    $nativeEnd -gt $nativeStart -and
                     [long]$nativeOverlap.attempt_count -ge 1 -and
                     [long]$nativeOverlap.overlap_count -ge 1 -and
                     $overlapAttempt.Count -eq 2 -and
-                    [long]$overlapAttempt[0] -le $nativeEnd -and
-                    [long]$overlapAttempt[1] -ge $nativeStart -and
-                    [long]$overlapAttempt[1] -ge [long]$overlapAttempt[0]
+                    [long]$overlapAttempt[0] -lt $nativeEnd -and
+                    [long]$overlapAttempt[1] -gt $nativeStart -and
+                    [long]$overlapAttempt[1] -gt [long]$overlapAttempt[0]
                 $transitionCoverage=[ordered]@{}
                 $transitionCovered=$nativeCall.clock -ceq 'qpc' -and
                     [long]$nativeCall.frequency -eq [long]$stageObservation.clock_frequency -and
-                    $nativeStart -gt 0 -and $nativeEnd -ge $nativeStart -and
+                    $nativeStart -gt 0 -and $nativeEnd -gt $nativeStart -and
                     $nativeEnd-$nativeStart -le [long]($stageObservation.clock_frequency/2) -and
                     $nativeStart -ge [long]$stageObservation.transition.last_staged_only_start_tick -and
                     $nativeEnd -le [long]$stageObservation.transition.first_visible_end_tick -and

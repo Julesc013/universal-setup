@@ -223,6 +223,12 @@ public static class USKPublisherRenameRace {
             }
         } catch (Exception error) { failure = error.GetType().FullName; }
     }
+    public static bool HasPositiveOverlap(long attemptStart, long attemptEnd,
+        long nativeStart, long nativeEnd) {
+        return nativeStart > 0 && nativeEnd > nativeStart &&
+            attemptEnd > attemptStart &&
+            attemptStart < nativeEnd && attemptEnd > nativeStart;
+    }
     public static Dictionary<string, object> Stop(long nativeStart, long nativeEnd) {
         if (worker == null) throw new InvalidOperationException("rename race did not start");
         stopping = true;
@@ -232,7 +238,7 @@ public static class USKPublisherRenameRace {
         long[] overlap = null;
         for (long i = first; i < attempts; ++i) {
             int slot = (int)(i % Capacity);
-            if (nativeStart > 0 && Starts[slot] <= nativeEnd && Ends[slot] >= nativeStart) {
+            if (HasPositiveOverlap(Starts[slot], Ends[slot], nativeStart, nativeEnd)) {
                 overlapCount++;
                 if (overlap == null) overlap = new long[] { Starts[slot], Ends[slot] };
             }
