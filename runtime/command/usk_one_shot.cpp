@@ -269,12 +269,14 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
         if (status == "pass") {
             const Value* public_response = &observed.at(response_field);
             if (candidate_command == "install_local.apply") {
-                const auto& replayed = observed.at("recovery_installed_response");
                 const bool direct_present = public_response->type() != Value::Type::null_value;
-                const bool replay_present = replayed.type() != Value::Type::null_value;
+                const bool replay_present =
+                    observed.at("recovery_installed_response").type() !=
+                    Value::Type::null_value;
                 if (direct_present == replay_present)
                     throw std::runtime_error("candidate apply completion is ambiguous");
-                if (replay_present) public_response = &replayed;
+                if (replay_present)
+                    public_response = &observed.at("recovery_installed_response");
             }
             if (public_response->at("schema").as_string() !=
                     "usk.command_response.v1" ||

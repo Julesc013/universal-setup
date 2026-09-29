@@ -357,7 +357,7 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "fd1ad19eb88159128e26c4b9504fc8f728ae398b06a93d863c7831a25a8e9ab0"
+          "sha256": "44e93f70b8c084fb8dc5b5e6f410d845a85db2802cde085390d365085a1b71fc"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
@@ -5732,7 +5732,7 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "fd1ad19eb88159128e26c4b9504fc8f728ae398b06a93d863c7831a25a8e9ab0"
+          "sha256": "44e93f70b8c084fb8dc5b5e6f410d845a85db2802cde085390d365085a1b71fc"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
@@ -5804,7 +5804,7 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "fd1ad19eb88159128e26c4b9504fc8f728ae398b06a93d863c7831a25a8e9ab0"
+          "sha256": "44e93f70b8c084fb8dc5b5e6f410d845a85db2802cde085390d365085a1b71fc"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
