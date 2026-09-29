@@ -1680,9 +1680,28 @@ try {
                     receipt_bytes=if(Test-Path -LiteralPath $concurrentOutput -PathType Leaf){
                         (Get-Item -LiteralPath $concurrentOutput).Length}else{$null};
                     receipt_prefix=if(Test-Path -LiteralPath $concurrentOutput -PathType Leaf){
-                        Read-BoundedDiagnostic $concurrentOutput 4096}else{$null};
+                        Read-BoundedDiagnostic $concurrentOutput 512}else{$null};
                     stderr_prefix=if(Test-Path -LiteralPath $concurrentError -PathType Leaf){
                         Read-BoundedDiagnostic $concurrentError 2048}else{$null}}
+                if($attackDiagnostic.receipt_present -and
+                    $attackDiagnostic.receipt_bytes -le 256KB) {
+                    try {
+                        $attackReceipt=Get-Content -LiteralPath $concurrentOutput -Raw|
+                            ConvertFrom-Json
+                        $attackDiagnostic['receipt_summary']=[ordered]@{
+                            status=$attackReceipt.status;
+                            failure=$attackReceipt.failure;
+                            rename_race=$attackReceipt.concurrent.native_rename_overlap;
+                            ready_utc=$attackReceipt.concurrent.ready_utc;
+                            started_seen_utc=$attackReceipt.concurrent.started_seen_utc;
+                            completed_seen_utc=$attackReceipt.concurrent.completed_seen_utc;
+                            cycles_after_start=$attackReceipt.concurrent.cycles_after_start_before_observed_reply;
+                            destination_denied_after_start=$attackReceipt.concurrent.destination_create.denied_after_start_before_observed_reply;
+                            staged_denied_after_start=$attackReceipt.concurrent.staged_write.denied_after_start_before_observed_reply}
+                    }catch{
+                        $attackDiagnostic['receipt_parse_failure']=$_.Exception.Message
+                    }
+                }
                 $receipt['concurrent_attacker_failure']=$attackDiagnostic
                 throw ('Concurrent attacker did not produce a bounded successful receipt: '+
                     ($attackDiagnostic|ConvertTo-Json -Compress -Depth 5))

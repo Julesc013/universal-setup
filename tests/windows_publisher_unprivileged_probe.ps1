@@ -177,6 +177,7 @@ public static class USKPublisherRenameRace {
     const int Capacity = 262144;
     static readonly long[] Starts = new long[Capacity];
     static readonly long[] Ends = new long[Capacity];
+    static readonly ManualResetEventSlim Started = new ManualResetEventSlim(false);
     static Thread worker;
     static volatile bool stopping;
     static long attempts;
@@ -195,9 +196,11 @@ public static class USKPublisherRenameRace {
         worker = new Thread(Loop);
         worker.IsBackground = true;
         worker.Start();
+        if (!Started.Wait(5000)) throw new TimeoutException("rename race worker did not start");
     }
     static void Loop() {
         try {
+            Started.Set();
             while (!stopping) {
                 long start = Stopwatch.GetTimestamp();
                 bool succeeded = MoveFileExW(source, destination, 0);
@@ -267,6 +270,13 @@ public static class USKPublisherRenameRace {
         $prior = [DateTime]::UtcNow
         $renameRaceStarted = $false
         $renameRaceSummary = $null
+        if ($Stage -eq 'ProductionConcurrent') {
+            # The controller starts the client only after seeing the ready
+            # marker below, so the native attacker is live before publication.
+            [USKPublisherRenameRace]::Start($root+'publication',
+                $root+'hostile-publication')
+            $renameRaceStarted = $true
+        }
         while ([DateTime]::UtcNow -lt $deadline) {
             $now = [DateTime]::UtcNow
             $gap = ($now - $prior).TotalMilliseconds
@@ -276,12 +286,6 @@ public static class USKPublisherRenameRace {
             $prior = $now
             $afterCompletion = Test-Path -LiteralPath $completed
             $afterRelease = Test-Path -LiteralPath $releaseMarker
-            if ($Stage -eq 'ProductionConcurrent' -and $afterRelease -and
-                -not $afterCompletion -and -not $renameRaceStarted) {
-                [USKPublisherRenameRace]::Start($root+'publication',
-                    $root+'hostile-publication')
-                $renameRaceStarted = $true
-            }
             if ($Stage -eq 'ProductionConcurrent' -and $afterCompletion -and
                 $renameRaceStarted -and -not $renameRaceSummary) {
                 $completedLines=[IO.File]::ReadAllLines($completed)
@@ -385,9 +389,13 @@ public static class USKPublisherRenameRace {
         }
         if ($Stage -eq 'ProductionConcurrent') {
             if (-not $renameRaceStarted -or -not $renameRaceSummary -or
-                $renameRaceSummary.failure -or $renameRaceSummary.attempt_count -lt 1 -or
-                $renameRaceSummary.overlap_count -lt 1 -or
-                -not $receipt.concurrent.ready_utc -or
+                $renameRaceSummary.failure -or $renameRaceSummary.attempt_count -lt 1) {
+                throw 'production native rename attacker did not retain denied attempts'
+            }
+            if ($renameRaceSummary.overlap_count -lt 1) {
+                throw 'production native rename attacker did not overlap the publisher call'
+            }
+            if (-not $receipt.concurrent.ready_utc -or
                 $receipt.concurrent.destination_create.denied -lt 4 -or
                 $receipt.concurrent.destination_create.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_write.denied_after_start_before_observed_reply -lt 1 -or
