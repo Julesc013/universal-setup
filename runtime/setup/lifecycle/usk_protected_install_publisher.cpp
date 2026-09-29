@@ -1004,7 +1004,9 @@ void with_public_roots_bound(HANDLE volume, const usk::lifecycle::InstallPlan& p
     const auto open_directory = [](const std::filesystem::path& path) {
         return OwnedHandle(CreateFileW(path.wstring().c_str(),
             FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            // The public metadata path is still pathname based. Keep both
+            // roots open without delete sharing until those writes finish.
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS |
                 FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     };
@@ -1035,10 +1037,22 @@ void with_public_roots_bound(HANDLE volume, const usk::lifecycle::InstallPlan& p
     require_public_mount_mapping(volume, setup_root, target_root);
     const auto after_setup = observe_publisher_directory_handle(setup.get());
     const auto after_target = observe_publisher_directory_handle(target.get());
+    OwnedHandle reopened_setup(open_directory(plan.roots.state_root.parent_path()));
+    OwnedHandle reopened_target(open_directory(plan.target_root));
+    if (reopened_setup.get() == INVALID_HANDLE_VALUE ||
+        reopened_target.get() == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("public install path disappeared during finalization");
+    }
+    const auto path_setup = observe_publisher_directory_handle(reopened_setup.get());
+    const auto path_target = observe_publisher_directory_handle(reopened_target.get());
     if (after_setup.file_id != before_setup.file_id ||
         after_target.file_id != before_target.file_id ||
         after_setup.native_name != before_setup.native_name ||
-        after_target.native_name != before_target.native_name) {
+        after_target.native_name != before_target.native_name ||
+        path_setup.file_id != before_setup.file_id ||
+        path_target.file_id != before_target.file_id ||
+        path_setup.native_name != before_setup.native_name ||
+        path_target.native_name != before_target.native_name) {
         throw std::runtime_error("public install root identity changed during finalization");
     }
 }
