@@ -28,6 +28,7 @@ param(
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostpublishRights,
     [switch]$ProductionPostrenameTermination,
+    [switch]$ProductionPreparedTermination,
     [switch]$ExpectUnprotectedRefusal,
     [switch]$HostileRights,
     [switch]$HostilePostrename
@@ -108,13 +109,15 @@ if($ProductionPostpublishRights -and (-not $ProductionConcurrentRights -or -not 
     $ConsumerAccess -or $HostileRights -or $ProductionPostrenameTermination)) {
     throw 'Production postpublish rights probe requires the exact non-admin production operation'
 }
-if($ProductionPostrenameTermination -and (-not $RegisteredService -or -not $ReviewedSource -or
+if(($ProductionPostrenameTermination -or $ProductionPreparedTermination) -and
+    (-not $RegisteredService -or -not $ReviewedSource -or
     -not $ClientBinary -or $NonAdminClient -or $ConsumerAccess -or $MachineRequestClient -or
     $ProductionConcurrentRights -or $HostileRights -or $ControllerApply -or
     $InterruptAfterStage -or $InterruptAfterRename -or $InterruptBeforePublish -or
     $InterruptAfterVisibleRecord -or $TerminateAtPoststage -or $TerminateAtPostrename -or
+    ($ProductionPostrenameTermination -and $ProductionPreparedTermination) -or
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
-    throw 'Production postrename termination requires the registered production service'
+    throw 'Production boundary termination requires the registered production service'
 }
 if($RegisteredService -and ($InterruptAfterStage -or $TerminateAtPostrename) -and
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
@@ -130,9 +133,9 @@ if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
 $registeredMode=if($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
 $script:controllerPending=[bool]$ControllerApply
 $script:controllerMode='apply'
-$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess -or $ProductionPostrenameTermination
+$recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess -or $ProductionPostrenameTermination -or $ProductionPreparedTermination
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
-$gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename -or $ProductionPostrenameTermination){'postrename'}else{'postjournal'}
+$gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish -or $ProductionPreparedTermination){'prepublish'}elseif($InterruptAfterRename -or $ProductionPostrenameTermination){'postrename'}else{'postjournal'}
 $readyContent=if($InterruptAfterStage){"usk.publisher.lab_snapshot_and_stage_sealed.v1`n"}elseif($InterruptBeforePublish){"usk.publisher.lab_prepared.v1`n"}elseif($InterruptAfterRename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_visible_recorded.v1`n"}
 $recoveryDecision=if($InterruptAfterStage){'snapshot_only_completed_forward'}elseif($InterruptDuringConsumerAccess){'already_visible_bound'}elseif($InterruptAfterVisibleRecord){'installed_state_completed_forward'}else{'visible_bound_forward'}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
@@ -286,7 +289,8 @@ function Complete-StageObserver($Observer) {
     }
     return $result
 }
-function Start-ProductionRenameObserver {
+function Start-ProductionRenameObserver([string]$Phase='postrename') {
+    if($Phase -cnotin @('prepublish','postrename')){throw 'Unknown production boundary phase'}
     Assert-OwnedVolume
     $taskName='USK_RENAME_OBSERVER_'+$id
     $scriptPath=Join-Path $observerRoot 'production-rename-observer.ps1'
@@ -313,14 +317,15 @@ function Start-ProductionRenameObserver {
         -Destination $scriptPath -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1') `
         -Destination $ownedProcessPath -ErrorAction Stop
-    $config=[ordered]@{schema='usk.publisher.production_rename_observer_config.v1';
+    $config=[ordered]@{schema='usk.publisher.production_rename_observer_config.v1';phase=$Phase;
         service_name=$service;service_command=$serviceRow.PathName;
         process_id=$serviceRow.ProcessId;process_command=$processRow.CommandLine;
         process_executable=$processRow.ExecutablePath;
         process_creation_ticks=$processRow.CreationDate.ToUniversalTime().Ticks;
         service_binary_sha256=$sourceServiceHash;
         drive_letter=$drive.Substring(0,1);volume_guid_root=$VolumeRoot;
-        visible_path=$visibleRoot;journal_path=($drive+'publication\journal\lab-visible-evidence.json');
+        visible_path=$visibleRoot;journal_path=($drive+'publication\journal\lab-'+
+            $(if($Phase -ceq 'prepublish'){'prepared'}else{'visible'})+'-evidence.json');
         ready_path=$readyPath;output_path=$outputPath}
     [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
     # The shared owned-process helper needs PowerShell 7's .NET Kill(true)
@@ -355,7 +360,7 @@ function Start-ProductionRenameObserver {
         throw
     }
 }
-function Complete-ProductionRenameObserver($Observer) {
+function Complete-ProductionRenameObserver($Observer,[string]$Phase='postrename') {
     $deadline=[DateTime]::UtcNow.AddSeconds(150)
     while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 25
@@ -372,11 +377,21 @@ function Complete-ProductionRenameObserver($Observer) {
         throw 'Owned production rename observer task remains registered'
     }
     $Observer.removed=$true
+    $expectedStatus=if($Phase -ceq 'prepublish'){
+        'terminated_prepared_prerename'
+    }else{'terminated_postrename_prejournal'}
     if($result.schema -cne 'usk.publisher.production_rename_observer.v1' -or
         $result.identity -cne 'S-1-5-18' -or
-        $result.status -cne 'terminated_postrename_prejournal' -or
+        $result.phase -cne $Phase -or $result.status -cne $expectedStatus -or
         -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
-        $result.journal_before_kill -or $result.journal_after_kill) {
+        ($Phase -ceq 'prepublish' -and
+            (-not $result.prepared_exclusive_observed -or
+                -not $result.journal_before_kill -or -not $result.journal_after_kill -or
+                $result.visible_after_kill -or
+                $result.prepared_record_sha256 -cnotmatch '^[0-9a-f]{64}$')) -or
+        ($Phase -ceq 'postrename' -and
+            ($result.journal_before_kill -or $result.journal_after_kill -or
+                -not $result.visible_after_kill))) {
         throw ('Production rename observer did not capture the required window: '+
             ($result|ConvertTo-Json -Depth 5 -Compress))
     }
@@ -668,7 +683,7 @@ try {
     }
     Assert-OwnedVolume
     if(Test-Path -LiteralPath ($drive+'publication')){throw 'Hosted metadata disk is not fresh'}
-    $fixtureArgs=if($ProductionPostrenameTermination){
+    $fixtureArgs=if($ProductionPostrenameTermination -or $ProductionPreparedTermination){
         @('--core-bytes','33554432','--addon-bytes','33554432')
     }elseif($ConsumerAccess){
         @('--application-binary',$PayloadBinary)+$(if($ProductionConcurrentRights){
@@ -1197,8 +1212,8 @@ try {
         $receipt['concurrent_attacker_sid']=$attackerOwner.Sid
         Assert-OwnedVolume
     }
-    if($ProductionPostrenameTermination) {
-        $postrenameObserver=Start-ProductionRenameObserver
+    if($ProductionPostrenameTermination -or $ProductionPreparedTermination) {
+        $postrenameObserver=Start-ProductionRenameObserver -Phase $gate
         $receipt['production_rename_observer_ready_sha256']=(Get-FileHash `
             -LiteralPath $postrenameObserver.ready -Algorithm SHA256).Hash.ToLowerInvariant()
     }
@@ -1370,8 +1385,8 @@ try {
         # An external SYSTEM observer can terminate the uninstrumented
         # production service only after seeing the visible rename. It records
         # a missed window rather than treating a late kill as evidence.
-        if($ProductionPostrenameTermination) {
-            $observedTermination=Complete-ProductionRenameObserver $postrenameObserver
+        if($ProductionPostrenameTermination -or $ProductionPreparedTermination) {
+            $observedTermination=Complete-ProductionRenameObserver $postrenameObserver $gate
             $receipt['production_rename_observer']=$observedTermination
             $receipt['production_rename_observer_task_removed']=$postrenameObserver.removed
             $ready=$postrenameObserver.output
@@ -1400,7 +1415,7 @@ try {
                     '; native='+$nativeError+'; client='+$clientError)
             }
         }
-        if($ProductionPostrenameTermination) {
+        if($ProductionPostrenameTermination -or $ProductionPreparedTermination) {
             $deadline=[DateTime]::UtcNow.AddSeconds(30)
             while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
             if((Get-Service $service).Status -ne 'Stopped'){
@@ -1435,19 +1450,19 @@ try {
             $receipt['interrupted_client']=Complete-RequestClient $requestClient $false
             $requestClient=$null
             if(($TerminateAtPoststage -or $TerminateAtPostrename -or
-                $ProductionPostrenameTermination) -and
+                $ProductionPostrenameTermination -or $ProductionPreparedTermination) -and
                 ($receipt.interrupted_client.exit_code -ne 5 -or
                  $receipt.interrupted_client.delivery -cne 'outcome_unknown')) {
                 throw 'Terminated client did not report unknown outcome'
             }
         }
-        if($ProductionPostrenameTermination) {
+        if($ProductionPostrenameTermination -or $ProductionPreparedTermination) {
             if(Test-Path -LiteralPath $nativePath){throw 'Terminated production service wrote a lab receipt'}
             $receipt['interruption']=[ordered]@{kind='controlled_process_termination';window=$gate;
                 service_pid=$observedTermination.service_pid;
                 service_executable_sha256=$observedTermination.service_binary_sha256;
                 readiness_sha256=(Get-FileHash -LiteralPath $ready -Algorithm SHA256).Hash.ToLowerInvariant();
-                observer='independent_system_visible_namespace'}
+                observer='independent_system_protected_namespace'}
         } elseif($TerminateAtPoststage -or $TerminateAtPostrename) {
             if(Test-Path -LiteralPath $nativePath){throw 'Killed service wrote a terminal native receipt'}
             $receipt['interruption']=[ordered]@{kind='controlled_process_termination';window=$gate;
@@ -1487,8 +1502,16 @@ try {
         $visibleRecords=@($before.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
         $expectedVisibleRecords=if($InterruptAfterVisibleRecord){1}else{0}
         if($visibleRecords.Count -ne $expectedVisibleRecords){throw 'Interrupted visible-journal boundary differs from selected window'}
-        $payloadPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$drive+'publication\staging\candidate\'}else{$visibleRoot+'\'}
-        $absentPrefix=if($InterruptBeforePublish -or $InterruptAfterStage){$visibleRoot}else{$drive+'publication\staging\candidate'}
+        if($ProductionPreparedTermination) {
+            $preparedRecords=@($before.independent.rows|Where-Object {
+                $_.path -ceq ($drive+'publication\journal\lab-prepared-evidence.json')})
+            if($preparedRecords.Count -ne 1 -or
+                $preparedRecords[0].sha256 -cne $observedTermination.prepared_record_sha256) {
+                throw 'Independent prepared intent differs from terminated production observer'
+            }
+        }
+        $payloadPrefix=if($InterruptBeforePublish -or $InterruptAfterStage -or $ProductionPreparedTermination){$drive+'publication\staging\candidate\'}else{$visibleRoot+'\'}
+        $absentPrefix=if($InterruptBeforePublish -or $InterruptAfterStage -or $ProductionPreparedTermination){$visibleRoot}else{$drive+'publication\staging\candidate'}
         if(@($before.independent.rows|Where-Object {$_.path -ceq $absentPrefix -or $_.path.StartsWith($absentPrefix+'\',[StringComparison]::Ordinal)}).Count -ne 0){throw 'Interrupted payload namespace differs from selected window'}
         foreach($entry in $plan.planned_entries|Where-Object entry_type -eq 'file') {
             $path=$payloadPrefix+$entry.relative_path.Replace('/','\')
@@ -2247,7 +2270,7 @@ try {
         foreach($row in $before.independent.rows) {
             $completedPath=$row.path
             $stagedRoot=$drive+'publication\staging\candidate'
-            if(($InterruptBeforePublish -or $InterruptAfterStage) -and ($row.path -ceq $stagedRoot -or $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal))) {
+            if(($InterruptBeforePublish -or $InterruptAfterStage -or $ProductionPreparedTermination) -and ($row.path -ceq $stagedRoot -or $row.path.StartsWith($stagedRoot+'\',[StringComparison]::Ordinal))) {
                 $completedPath=$visibleRoot+$row.path.Substring($stagedRoot.Length)
             }
             $matching=@($receipt.independent.rows|Where-Object path -ceq $completedPath)
@@ -2588,7 +2611,7 @@ try {
                     if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
                 }
             }
-            if($ProductionPostrenameTermination) {
+            if($ProductionPostrenameTermination -or $ProductionPreparedTermination) {
                 if(Get-ScheduledTask -TaskName ('USK_RENAME_OBSERVER_'+$id) -ErrorAction SilentlyContinue) {
                     throw 'Production rename observer task remains registered; retain its inputs'
                 }
