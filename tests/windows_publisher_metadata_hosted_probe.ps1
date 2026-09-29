@@ -1639,8 +1639,24 @@ try {
         }
         $requestClient=$null
         if($concurrentAttacker) {
-            [IO.File]::WriteAllText($concurrentCompleted,
-                "usk.publisher.concurrent_completed.v1`n",[Text.UTF8Encoding]::new($false))
+            if($ProductionConcurrentRights) {
+                $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
+                if(-not $nativeCall -or $nativeCall.clock -cne 'qpc') {
+                    throw 'Production native rename call interval is unavailable'
+                }
+                $raceTarget=[ordered]@{schema='usk.publisher.rename_race_target.v1';
+                    clock='qpc';frequency=$nativeCall.frequency;
+                    start_tick=$nativeCall.start_tick;end_tick=$nativeCall.end_tick}
+                $completedBytes="usk.publisher.concurrent_completed.v2`n"+
+                    ($raceTarget|ConvertTo-Json -Compress)+"`n"
+                $completedTemp=$concurrentCompleted+'.tmp'
+                [IO.File]::WriteAllText($completedTemp,$completedBytes,
+                    [Text.UTF8Encoding]::new($false))
+                [IO.File]::Move($completedTemp,$concurrentCompleted)
+            }else{
+                [IO.File]::WriteAllText($concurrentCompleted,
+                    "usk.publisher.concurrent_completed.v1`n",[Text.UTF8Encoding]::new($false))
+            }
             if($ProductionConcurrentRights) {
                 $stageObservation=Complete-StageObserver $stageObserver
                 $receipt['production_stage_observation']=$stageObservation
@@ -1665,6 +1681,18 @@ try {
                 $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
                 $nativeStart=[long]$nativeCall.start_tick
                 $nativeEnd=[long]$nativeCall.end_tick
+                $nativeOverlap=$concurrent.concurrent.native_rename_overlap
+                $overlapAttempt=@($nativeOverlap.overlap_attempt)
+                $nativeOverlapCovered=$nativeOverlap.operation -ceq 'publication_rename' -and
+                    $nativeOverlap.clock -ceq 'qpc' -and
+                    [long]$nativeOverlap.clock_frequency -eq [long]$nativeCall.frequency -and
+                    -not $nativeOverlap.failure -and
+                    [long]$nativeOverlap.attempt_count -ge 1 -and
+                    [long]$nativeOverlap.overlap_count -ge 1 -and
+                    $overlapAttempt.Count -eq 2 -and
+                    [long]$overlapAttempt[0] -le $nativeEnd -and
+                    [long]$overlapAttempt[1] -ge $nativeStart -and
+                    [long]$overlapAttempt[1] -ge [long]$overlapAttempt[0]
                 $transitionCoverage=[ordered]@{}
                 $transitionCovered=$nativeCall.clock -ceq 'qpc' -and
                     [long]$nativeCall.frequency -eq [long]$stageObservation.clock_frequency -and
@@ -1690,6 +1718,7 @@ try {
                     first_visible_start_tick=$stageObservation.transition.first_visible_start_tick;
                     first_visible_end_tick=$stageObservation.transition.first_visible_end_tick;
                     native_call=$nativeCall;
+                    hostile_rename_overlap=$nativeOverlap;
                     denied_attempts=$transitionCoverage}
                 # The protected ancestor masks absence as ACCESS_DENIED for
                 # this caller. Correlate its denied writes with independent
@@ -1708,7 +1737,7 @@ try {
                     $concurrent.concurrent.publication_write_dac.denied_attempts
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
-                $stageObserver.removed -and $transitionCovered -and
+                $stageObserver.removed -and $transitionCovered -and $nativeOverlapCovered -and
                 $overlap -and $replaceOverlap -and
                 $insertOverlap -and $streamOverlap -and
                 $renameOverlap -and $dacOverlap -and
@@ -1741,7 +1770,7 @@ try {
             }
             $receipt['concurrent_hostile_rights']=$concurrent
             if($ProductionConcurrentRights) {
-                $receipt['concurrent_qualification_limit']='native_rename_call_bracketed_by_independent_system_samples_with_nearby_denials_not_exact_syscall_overlap'
+                $receipt['concurrent_qualification_limit']='nonadmin_publication_rename_denial_overlaps_native_call_with_independent_system_bracket_other_profile_cases_not_yet_qualified'
             }
             $concurrentAttacker=$null
         }
