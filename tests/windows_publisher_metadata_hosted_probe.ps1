@@ -486,6 +486,17 @@ $consumerCredential=$null
 $consumerSid=''
 $consumerProcess=$null
 $concurrentAttacker=$null
+$unrelatedAttacker=$null
+$unrelatedAccountCreated=$false
+$unrelatedAccountName=''
+$unrelatedSid=''
+$unrelatedCredential=$null
+$unrelatedOutputRoot=Join-Path $root 'unrelated-output'
+$unrelatedAttackOutput=Join-Path $unrelatedOutputRoot 'concurrent-attack.json'
+$unrelatedReady=Join-Path $unrelatedOutputRoot 'concurrent-ready.txt'
+$unrelatedCompleted=Join-Path $unrelatedOutputRoot 'concurrent-completed.txt'
+$unrelatedStart=Join-Path $unrelatedOutputRoot 'production-start.txt'
+$unrelatedError=Join-Path $unrelatedOutputRoot 'concurrent-stderr.txt'
 $preopenedRootProcess=$null
 $concurrentOutput=''
 $concurrentError=''
@@ -1172,8 +1183,40 @@ try {
         $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
         $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
         $stageObserver=Start-StageObserver
+        $unrelatedAccountName='USKATK_'+[guid]::NewGuid().ToString('N').Substring(0,13)
+        if(Get-LocalUser -Name $unrelatedAccountName -ErrorAction SilentlyContinue){
+            throw 'Unrelated production attacker account collision'
+        }
+        $unrelatedPassword=ConvertTo-SecureString `
+            ('Aa1!'+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
+        $unrelatedAccount=New-LocalUser -Name $unrelatedAccountName `
+            -Password $unrelatedPassword -PasswordNeverExpires -ErrorAction Stop
+        $unrelatedAccountCreated=$true
+        $unrelatedSid=$unrelatedAccount.SID.Value
+        if($unrelatedSid -ceq $consumerSid){throw 'Unrelated attacker reused the client SID'}
+        Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545').Name `
+            -Member $unrelatedAccount -ErrorAction Stop
+        $unrelatedCredential=[Management.Automation.PSCredential]::new(
+            $env:COMPUTERNAME+'\'+$unrelatedAccountName,$unrelatedPassword)
+        $unrelatedPassword=$null
+        $rootAcl=Get-Acl -LiteralPath $root
+        $rootAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($unrelatedSid),'Traverse',
+            'None','None','Allow'))
+        Set-Acl -LiteralPath $root -AclObject $rootAcl
+        if(Test-Path -LiteralPath $unrelatedOutputRoot){
+            throw 'Unrelated attacker output root is not fresh'
+        }
+        New-Item -ItemType Directory -Path $unrelatedOutputRoot -ErrorAction Stop|Out-Null
+        $unrelatedAcl=Get-Acl -LiteralPath $unrelatedOutputRoot
+        $unrelatedAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($unrelatedSid),'Modify',
+            'ContainerInherit,ObjectInherit','None','Allow'))
+        Set-Acl -LiteralPath $unrelatedOutputRoot -AclObject $unrelatedAcl
+        $receipt['unrelated_concurrent_attacker_sid']=$unrelatedSid
         foreach($path in @($productionStart,$concurrentOutput,$concurrentError,
-            $concurrentReady,$concurrentCompleted)) {
+            $concurrentReady,$concurrentCompleted,$unrelatedAttackOutput,
+            $unrelatedReady,$unrelatedCompleted,$unrelatedStart,$unrelatedError)) {
             if(Test-Path -LiteralPath $path){throw 'Production concurrent attacker input is not fresh'}
         }
         $attackArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
@@ -1187,6 +1230,17 @@ try {
             -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $consumerOutput `
             -RedirectStandardError $concurrentError -ErrorAction Stop
+        $unrelatedArgs=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File',('"'+(Join-Path $PSScriptRoot 'windows_publisher_unprivileged_probe.ps1')+'"'),
+            '-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),'-ExpectedUserSid',$unrelatedSid,
+            '-ServiceSid',$sid,'-OutputPath',('"'+$unrelatedAttackOutput+'"'),
+            '-Stage','ProductionConcurrent','-ReleasePath',('"'+$unrelatedStart+'"'),
+            '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
+            '-SameVolumeSource',('"'+$attackSource+'"'),'-UnrelatedConcurrent')
+        $unrelatedAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+            -ArgumentList $unrelatedArgs -Credential $unrelatedCredential -PassThru `
+            -WindowStyle Hidden -WorkingDirectory $unrelatedOutputRoot `
+            -RedirectStandardError $unrelatedError -ErrorAction Stop
         $attackerDeadline=[DateTime]::UtcNow.AddSeconds(30)
         while(-not (Test-Path -LiteralPath $concurrentReady) -and
             [DateTime]::UtcNow -lt $attackerDeadline) {
@@ -1210,6 +1264,31 @@ try {
         }
         $receipt['concurrent_attacker_process_id']=$concurrentAttacker.Id
         $receipt['concurrent_attacker_sid']=$attackerOwner.Sid
+        $attackerDeadline=[DateTime]::UtcNow.AddSeconds(30)
+        while(-not (Test-Path -LiteralPath $unrelatedReady) -and
+            [DateTime]::UtcNow -lt $attackerDeadline) {
+            if($unrelatedAttacker.HasExited) {
+                $diagnostic=Read-ConcurrentAttackerDiagnostic $unrelatedAttackOutput $unrelatedError
+                throw ('Unrelated concurrent attacker exited before readiness: '+$diagnostic)
+            }
+            Start-Sleep -Milliseconds 25
+        }
+        if(-not (Test-Path -LiteralPath $unrelatedReady) -or
+            [IO.File]::ReadAllText($unrelatedReady) -cne "usk.publisher.concurrent_ready.v1`n") {
+            $diagnostic=Read-ConcurrentAttackerDiagnostic $unrelatedAttackOutput $unrelatedError
+            throw ('Unrelated concurrent attacker did not become ready: '+$diagnostic)
+        }
+        $unrelatedProcess=Get-CimInstance Win32_Process -Filter `
+            ('ProcessId='+$unrelatedAttacker.Id) -ErrorAction Stop
+        $unrelatedOwner=Invoke-CimMethod -InputObject $unrelatedProcess -MethodName GetOwnerSid
+        if(-not $unrelatedProcess -or $unrelatedOwner.ReturnValue -ne 0 -or
+            $unrelatedOwner.Sid -cne $unrelatedSid -or
+            $unrelatedOwner.Sid -ceq $consumerSid -or
+            -not $unrelatedProcess.CommandLine.Contains(
+                'windows_publisher_unprivileged_probe.ps1')) {
+            throw 'Unrelated concurrent attacker differs from its owned local login'
+        }
+        $receipt['unrelated_concurrent_attacker_process_id']=$unrelatedAttacker.Id
         Assert-OwnedVolume
     }
     if($ProductionPostrenameTermination -or $ProductionPreparedTermination) {
@@ -1223,6 +1302,8 @@ try {
             throw 'Production request client did not remain live at attacker marker'
         }
         [IO.File]::WriteAllText($productionStart,
+            "usk.publisher.production_request_start.v1`n",[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($unrelatedStart,
             "usk.publisher.production_request_start.v1`n",[Text.UTF8Encoding]::new($false))
     }
     if($ExpectUnprotectedRefusal) {
@@ -1681,6 +1762,10 @@ try {
                 [IO.File]::WriteAllText($completedTemp,$completedBytes,
                     [Text.UTF8Encoding]::new($false))
                 [IO.File]::Move($completedTemp,$concurrentCompleted)
+                $unrelatedCompletedTemp=$unrelatedCompleted+'.tmp'
+                [IO.File]::WriteAllText($unrelatedCompletedTemp,$completedBytes,
+                    [Text.UTF8Encoding]::new($false))
+                [IO.File]::Move($unrelatedCompletedTemp,$unrelatedCompleted)
             }else{
                 [IO.File]::WriteAllText($concurrentCompleted,
                     "usk.publisher.concurrent_completed.v1`n",[Text.UTF8Encoding]::new($false))
@@ -1794,12 +1879,23 @@ try {
                     $concurrent.concurrent.publication_rename.denied_attempts
                 $dacOverlap=Test-LiveStageAttemptOverlap $stageObservation `
                     $concurrent.concurrent.publication_write_dac.denied_attempts
+                $extendedStageCovered=$true
+                $extendedStageCoverage=[ordered]@{}
+                foreach($operation in @('staged_delete','staged_rename','staged_hardlink',
+                        'staged_write_owner','staged_write_attributes',
+                        'candidate_delete_child')) {
+                    $attempts=$concurrent.concurrent.PSObject.Properties[$operation].Value.denied_attempts
+                    $matched=Test-LiveStageAttemptOverlap $stageObservation $attempts
+                    $extendedStageCoverage[$operation]=$matched
+                    if(-not $matched){$extendedStageCovered=$false}
+                }
+                $receipt['production_extended_stage_coverage']=$extendedStageCoverage
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
                 $stageObserver.removed -and $transitionCovered -and $nativeOverlapCovered -and
                 $overlap -and $replaceOverlap -and
                 $insertOverlap -and $streamOverlap -and
-                $renameOverlap -and $dacOverlap -and
+                $renameOverlap -and $dacOverlap -and $extendedStageCovered -and
                 $stageObservation.source_sha256_at_start -ceq $scratchSha256 -and
                 $stageObservation.source_sha256_at_stop -ceq $scratchSha256 -and
                 $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
@@ -1829,7 +1925,55 @@ try {
             }
             $receipt['concurrent_hostile_rights']=$concurrent
             if($ProductionConcurrentRights) {
-                $receipt['concurrent_qualification_limit']='nonadmin_publication_rename_denial_overlaps_native_call_with_independent_system_bracket_other_profile_cases_not_yet_qualified'
+                if(-not $unrelatedAttacker.WaitForExit(30000)) {
+                    throw 'Unrelated concurrent attacker retained after publisher reply'
+                }
+                $unrelatedAttacker.WaitForExit()
+                if($unrelatedAttacker.ExitCode -ne 0 -or
+                    -not (Test-Path -LiteralPath $unrelatedAttackOutput -PathType Leaf) -or
+                    (Get-Item -LiteralPath $unrelatedAttackOutput).Length -gt 256KB) {
+                    $diagnostic=Read-ConcurrentAttackerDiagnostic `
+                        $unrelatedAttackOutput $unrelatedError
+                    throw ('Unrelated concurrent attacker failed: '+$diagnostic)
+                }
+                $unrelated=Get-Content -LiteralPath $unrelatedAttackOutput -Raw|ConvertFrom-Json
+                $unrelatedOverlap=$unrelated.concurrent.native_rename_overlap
+                $unrelatedAttempt=@($unrelatedOverlap.overlap_attempt)
+                $unrelatedStageCoverage=[ordered]@{}
+                $unrelatedStageCovered=$true
+                foreach($operation in @('staged_write','staged_replace','staged_insert',
+                        'staged_ads_write','staged_delete','staged_rename',
+                        'staged_hardlink','staged_write_owner',
+                        'staged_write_attributes','candidate_delete_child',
+                        'publication_rename','publication_write_dac')) {
+                    $matched=Test-LiveStageAttemptOverlap $stageObservation `
+                        $unrelated.concurrent.PSObject.Properties[$operation].Value.denied_attempts
+                    $unrelatedStageCoverage[$operation]=$matched
+                    if(-not $matched){$unrelatedStageCovered=$false}
+                }
+                if($unrelated.schema -cne 'usk.publisher.unprivileged_access_probe.v1' -or
+                    $unrelated.status -cne 'access_denied_observed' -or
+                    $unrelated.user_sid -cne $unrelatedSid -or
+                    $unrelated.user_sid -ceq $consumerSid -or
+                    $unrelated.process_id -ne $unrelatedAttacker.Id -or
+                    $unrelated.administrator -or $unrelated.service_sid_present -or
+                    $unrelated.concurrent.started_seen_utc -eq $null -or
+                    $unrelated.concurrent.visible_write.denied_after_completion -lt 3 -or
+                    $unrelatedOverlap.operation -cne 'publication_rename' -or
+                    $unrelatedOverlap.clock -cne 'qpc' -or
+                    [long]$unrelatedOverlap.clock_frequency -ne [long]$nativeCall.frequency -or
+                    [long]$unrelatedOverlap.overlap_count -lt 1 -or
+                    $unrelatedAttempt.Count -ne 2 -or
+                    [long]$unrelatedAttempt[0] -ge $nativeEnd -or
+                    [long]$unrelatedAttempt[1] -le $nativeStart -or
+                    -not $unrelatedStageCovered) {
+                    throw 'Unrelated attacker did not cover live staging and native rename'
+                }
+                $receipt['production_unrelated_concurrent_stage_coverage']=$unrelatedStageCoverage
+                $receipt['production_unrelated_concurrent_hostile_rights']=$unrelated
+                $receipt['concurrent_qualification_limit']=
+                    'two_local_nonadmin_sids_denied_during_staging_and_native_rename_other_profile_cases_remain'
+                $unrelatedAttacker=$null
             }
             $concurrentAttacker=$null
         }
@@ -2447,6 +2591,10 @@ try {
         try {Stop-OwnedPublisherProcessTree $concurrentAttacker|Out-Null}
         catch {$clientCleanupConfirmed=$false;$failure='Concurrent attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
+    if($unrelatedAttacker) {
+        try {Stop-OwnedPublisherProcessTree $unrelatedAttacker|Out-Null}
+        catch {$clientCleanupConfirmed=$false;$failure='Unrelated attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
+    }
     if($preopenedRootProcess) {
         try {Stop-OwnedPublisherProcessTree $preopenedRootProcess|Out-Null}
         catch {$clientCleanupConfirmed=$false;$failure='Preopened-root attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
@@ -2489,6 +2637,23 @@ try {
     }
     if($consumerCreated -and -not $clientCleanupConfirmed){$receipt['consumer_account_retained']=$consumerName}
     $consumerCredential=$null
+    if($unrelatedAccountCreated -and $clientCleanupConfirmed) {
+        try {
+            Remove-LocalUser -Name $unrelatedAccountName -ErrorAction Stop
+            if(Get-LocalUser -Name $unrelatedAccountName -ErrorAction SilentlyContinue) {
+                throw 'Unrelated attacker account remains after deletion'
+            }
+            $receipt['unrelated_concurrent_account_removed']=$true
+        } catch {
+            $failure='Unrelated attacker account cleanup failed: '+$_.Exception.Message
+            $receipt.failure=$failure;$receipt.status='failed'
+        }
+    }
+    if($unrelatedAccountCreated -and -not $clientCleanupConfirmed) {
+        $receipt['unrelated_concurrent_account_retained']=$unrelatedAccountName
+        $receipt.status='failed'
+    }
+    $unrelatedCredential=$null
     if($registrationAttempted -and -not $created) {
         try {
             $pendingService=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop

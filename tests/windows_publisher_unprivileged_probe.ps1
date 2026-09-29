@@ -6,6 +6,7 @@ param(
     [ValidateSet('Prepublish', 'Postpublish', 'Concurrent', 'ProductionConcurrent')][string]$Stage = 'Postpublish',
     [string]$ReleasePath = '',
     [string]$SameVolumeSource = '',
+    [switch]$UnrelatedConcurrent,
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe', 'bin/addon.bin')][string]$PayloadRelativePath = 'payload.bin',
     [ValidateSet('visible', 'selected-app')][string]$VisibleLeaf = 'visible'
 )
@@ -30,6 +31,9 @@ $receipt = [ordered]@{
     visible_leaf = $VisibleLeaf
     attempts = @()
     failure = $null
+}
+if($UnrelatedConcurrent -and $Stage -cne 'ProductionConcurrent') {
+    throw 'Unrelated concurrent attacker requires the production stage'
 }
 
 function Require-Denied {
@@ -76,7 +80,9 @@ function Observe-ConcurrentDenial {
                 if ($Stage -eq 'ProductionConcurrent') {
                     $receipt.concurrent[$Name].denied_after_start_before_observed_reply++
                     if ($Name -in @('destination_create','staged_write','staged_replace',
-                            'staged_insert','staged_ads_write',
+                            'staged_insert','staged_ads_write','staged_delete',
+                            'staged_rename','staged_hardlink','staged_write_owner',
+                            'staged_write_attributes','candidate_delete_child',
                             'publication_rename','publication_write_dac')) {
                         $samples=$receipt.concurrent[$Name].denied_attempts
                         $sample=[ordered]@{start_tick=$attemptStart;end_tick=$attemptEnd}
@@ -130,12 +136,17 @@ try {
         if ($env:GITHUB_ACTIONS -ne 'true' -or
             $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
             [IO.Path]::GetFileName($output) -cne 'concurrent-attack.json' -or
-            [IO.Path]::GetFileName($folder) -cne 'consumer-output' -or
+            [IO.Path]::GetFileName($folder) -cne
+                $(if($UnrelatedConcurrent){'unrelated-output'}else{'consumer-output'}) -or
             [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($folder)) -cne 'C:\USK-Lab' -or
-            [IO.Path]::GetDirectoryName($releaseMarker) -cne 'C:\USK-Lab' -or
-            -not [IO.Path]::GetFileName($releaseMarker).EndsWith(
-                $(if ($Stage -eq 'ProductionConcurrent') {'-production-start.txt'}
-                  else {'-prepublish-release.txt'}), [StringComparison]::Ordinal)) {
+            $(if($UnrelatedConcurrent) {
+                $releaseMarker -cne [IO.Path]::Combine($folder,'production-start.txt')
+              } else {
+                [IO.Path]::GetDirectoryName($releaseMarker) -cne 'C:\USK-Lab' -or
+                -not [IO.Path]::GetFileName($releaseMarker).EndsWith(
+                    $(if ($Stage -eq 'ProductionConcurrent') {'-production-start.txt'}
+                      else {'-prepublish-release.txt'}), [StringComparison]::Ordinal)
+              })) {
             throw 'concurrent attacker requires the owned hosted consumer output'
         }
         $ready = Join-Path $folder 'concurrent-ready.txt'
@@ -164,6 +175,10 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 public static class USKPublisherAncestorAttack {
+    [DllImport("kernel32.dll", EntryPoint="CreateHardLinkW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+    public static extern bool CreateHardLinkW(string newLink, string existing,
+        IntPtr security);
     [DllImport("kernel32.dll", EntryPoint="MoveFileExW", CharSet=CharSet.Unicode,
         ExactSpelling=true, SetLastError=true)]
     public static extern bool MoveFileExW(string source, string destination, uint flags);
@@ -272,6 +287,12 @@ public static class USKPublisherRenameRace {
             staged_replace = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             staged_insert = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             staged_ads_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_delete = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_rename = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_hardlink = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_write_owner = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_write_attributes = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            candidate_delete_child = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             publication_rename = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             publication_write_dac = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             visible_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
@@ -350,6 +371,57 @@ public static class USKPublisherRenameRace {
                         [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
                     $handle.Dispose()
                 } $true $afterCompletion $afterRelease
+                Observe-ConcurrentDenial 'staged_delete' {
+                    $handle=[USKPublisherAncestorAttack]::CreateFileW(
+                        $stagedFile,0x10000,7,[IntPtr]::Zero,3,0x00200000,[IntPtr]::Zero)
+                    if($handle -ne [IntPtr]::new(-1)) {
+                        [USKPublisherAncestorAttack]::CloseHandle($handle)|Out-Null
+                        throw 'staged DELETE handle was acquired by the non-admin attacker'
+                    }
+                    Throw-NativeMutationError 'staged DELETE' `
+                        ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+                } $true $afterCompletion $afterRelease
+                Observe-ConcurrentDenial 'staged_rename' {
+                    if([USKPublisherAncestorAttack]::MoveFileExW(
+                            $stagedFile,$candidate+'\hostile-moved.bin',0)) {
+                        throw 'staged file was renamed by the non-admin attacker'
+                    }
+                    Throw-NativeMutationError 'staged rename' `
+                        ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+                } $true $afterCompletion $afterRelease
+                Observe-ConcurrentDenial 'staged_hardlink' {
+                    if([USKPublisherAncestorAttack]::CreateHardLinkW(
+                            $candidate+'\hostile-link.bin',$stagedFile,[IntPtr]::Zero)) {
+                        throw 'staged hard link was created by the non-admin attacker'
+                    }
+                    Throw-NativeMutationError 'staged hard link' `
+                        ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+                } $true $afterCompletion $afterRelease
+                foreach($right in @(@('staged_write_owner',0x80000),
+                        @('staged_write_attributes',0x100))) {
+                    $name=[string]$right[0]
+                    $access=[uint32]$right[1]
+                    Observe-ConcurrentDenial $name {
+                        $handle=[USKPublisherAncestorAttack]::CreateFileW(
+                            $stagedFile,$access,7,[IntPtr]::Zero,3,0x00200000,[IntPtr]::Zero)
+                        if($handle -ne [IntPtr]::new(-1)) {
+                            [USKPublisherAncestorAttack]::CloseHandle($handle)|Out-Null
+                            throw "$name handle was acquired by the non-admin attacker"
+                        }
+                        Throw-NativeMutationError $name `
+                            ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+                    } $true $afterCompletion $afterRelease
+                }
+                Observe-ConcurrentDenial 'candidate_delete_child' {
+                    $handle=[USKPublisherAncestorAttack]::CreateFileW(
+                        $candidate,0x40,7,[IntPtr]::Zero,3,0x02200000,[IntPtr]::Zero)
+                    if($handle -ne [IntPtr]::new(-1)) {
+                        [USKPublisherAncestorAttack]::CloseHandle($handle)|Out-Null
+                        throw 'candidate DELETE_CHILD handle was acquired by the non-admin attacker'
+                    }
+                    Throw-NativeMutationError 'candidate DELETE_CHILD' `
+                        ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+                } $true $afterCompletion $afterRelease
                 Observe-ConcurrentDenial 'publication_rename' {
                     if([USKPublisherAncestorAttack]::MoveFileExW(
                             $root+'publication',$root+'hostile-publication',0)) {
@@ -419,6 +491,12 @@ public static class USKPublisherRenameRace {
                 $receipt.concurrent.staged_replace.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_insert.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_ads_write.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_delete.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_rename.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_hardlink.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_write_owner.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_write_attributes.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.candidate_delete_child.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.publication_rename.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.publication_write_dac.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.cycles_after_start_before_observed_reply -lt 1 -or
