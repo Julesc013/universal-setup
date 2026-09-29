@@ -45,7 +45,7 @@ try {
     $actualHash=(Get-FileHash -LiteralPath $process.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
     $result.service_binary_sha256=$actualHash
     if($actualHash -cne $config.service_binary_sha256 -or
-        (Split-Path -Leaf $process.ExecutablePath) -cne 'usk_publisher_service.exe') {
+        (Split-Path -Leaf $process.ExecutablePath) -cne ($config.service_name+'.exe')) {
         throw 'Production rename observer executable differs'
     }
     $held=Get-Process -Id $config.process_id -ErrorAction Stop

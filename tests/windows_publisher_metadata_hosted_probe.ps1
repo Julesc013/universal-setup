@@ -2392,6 +2392,25 @@ try {
                     if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction Stop}
                 }
             }
+            if($ProductionPostrenameTermination) {
+                if(Get-ScheduledTask -TaskName ('USK_RENAME_OBSERVER_'+$id) -ErrorAction SilentlyContinue) {
+                    throw 'Production rename observer task remains registered; retain its inputs'
+                }
+                foreach($leaf in @('production-rename-observer.ps1','owned-process.ps1',
+                    'production-rename-config.json','production-rename-ready.txt',
+                    'production-rename-observation.json','production-rename-observation.json.tmp')) {
+                    $path=Join-Path $observerRoot $leaf
+                    if(Test-Path -LiteralPath $path) {
+                        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+                        if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                            -not [string]::Equals((Split-Path -Parent $item.FullName),$observerRoot,
+                                [StringComparison]::OrdinalIgnoreCase)) {
+                            throw 'Production rename observer cleanup target differs'
+                        }
+                        Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+                    }
+                }
+            }
             Remove-Item -LiteralPath $observerRoot -ErrorAction Stop
         }
         catch { $failure='Owned root ACL observer directory cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
