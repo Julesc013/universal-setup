@@ -1503,8 +1503,8 @@ try {
         $expectedVisibleRecords=if($InterruptAfterVisibleRecord){1}else{0}
         if($visibleRecords.Count -ne $expectedVisibleRecords){throw 'Interrupted visible-journal boundary differs from selected window'}
         if($ProductionPreparedTermination) {
-            $preparedRecords=@($before.independent.rows|Where-Object path -ceq
-                ($drive+'publication\journal\lab-prepared-evidence.json'))
+            $preparedRecords=@($before.independent.rows|Where-Object {
+                $_.path -ceq ($drive+'publication\journal\lab-prepared-evidence.json')})
             if($preparedRecords.Count -ne 1 -or
                 $preparedRecords[0].sha256 -cne $observedTermination.prepared_record_sha256) {
                 throw 'Independent prepared intent differs from terminated production observer'
