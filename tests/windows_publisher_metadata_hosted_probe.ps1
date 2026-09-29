@@ -301,7 +301,9 @@ function Start-ProductionRenameObserver {
         visible_path=$visibleRoot;journal_path=($drive+'publication\journal\lab-visible-evidence.json');
         ready_path=$readyPath;output_path=$outputPath}
     [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
-    $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
+    # The shared owned-process helper needs PowerShell 7's .NET Kill(true)
+    # overload to terminate the exact held process tree.
+    $action=New-ScheduledTaskAction -Execute (Get-Command pwsh -ErrorAction Stop).Source -Argument (
         '-NoProfile -NonInteractive -File "'+$scriptPath+'" -ConfigPath "'+$configPath+'"')
     $registered=$false
     try {
