@@ -28,6 +28,12 @@ def main() -> int:
            r"C:\USK-Lab\plan.json", digest,
            "--authorized-client-sid", "S-1-5-18") != 3:
         raise AssertionError("production service did not recognize registered grammar")
+    if run(binary, "--service", "USK_PUB_" + "a" * 32,
+           "--no-receipt", volume, "--reviewed-plan-envelope",
+           r"C:\USK-Lab\plan.json", digest,
+           "--test-gate-receipt", r"C:\USK-Lab\vm-selected-abc.json",
+           "--postrename-gate", "--authorized-client-sid", "S-1-5-18") != 2:
+        raise AssertionError("production service admitted the test-only rename gate")
     return 0
 
 
