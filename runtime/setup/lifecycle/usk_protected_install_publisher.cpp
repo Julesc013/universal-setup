@@ -2872,9 +2872,27 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         }
         // Both guards are held before source/installed-state revalidation and
         // before effects. Source-free legacy replay retains the volume guard.
-        // Verification is read-only and may coexist with a running consumer;
-        // every publication/recovery mutation must first exclude old handles.
-        if (!verify_installed_request) require_no_preopened_volume_files(volume_root);
+        // Verification is read-only and may coexist with a running consumer.
+        // On the already protected profile, check the root before the volume
+        // lock: an unrelated or unprotected volume must not be dismounted by
+        // this candidate. Close our root handle so the lock can detect every
+        // surviving handle, including one opened before ACL hardening.
+        if (!verify_installed_request && !config.prepare_disposable_boundary) {
+            OwnedHandle admission_root(CreateFileW(volume_root.c_str(),
+                FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                nullptr));
+            if (admission_root.get() == INVALID_HANDLE_VALUE) {
+                throw std::runtime_error("cannot open protected volume root for exclusive admission; Win32 " +
+                    std::to_string(GetLastError()));
+            }
+            usk::platform::windows::require_publisher_object_security_shape(
+                usk::platform::windows::observe_publisher_directory_handle(admission_root.get()),
+                observed.service_sid);
+        }
+        if (!verify_installed_request && !config.prepare_disposable_boundary)
+            require_no_preopened_volume_files(volume_root);
         const DWORD root_access = recover_prepared || verify_installed_request ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
