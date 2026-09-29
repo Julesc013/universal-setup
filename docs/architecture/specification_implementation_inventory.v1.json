@@ -4047,7 +4047,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "b772252b146f3bdf550421d5438155ba33343a3700761e75d0b7caf0a114da06"
+          "sha256": "ecd81bfe2f292ad8b3c7bda54fd8347906657f0f302cf1b827d65b31c1ca2140"
+        },
+        {
+          "path": "tests/windows_publisher_preopened_root_probe.ps1",
+          "sha256": "aededf1bff6344378e1d27514fffeab5ca6812f16dd411710f732278592b5b86"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4083,7 +4087,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "c930b32cae00102f9ba7df001f8b8c82b296a0439fa43184acc348ff402007c8"
+          "sha256": "39d3207dbc0fce2ce8d5189465403c4a911aa6bec0dc94a9ae1a3c4b836356b5"
         },
         {
           "path": "tools/usk_selected_candidate_package.py",
@@ -4335,7 +4339,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "b772252b146f3bdf550421d5438155ba33343a3700761e75d0b7caf0a114da06"
+          "sha256": "ecd81bfe2f292ad8b3c7bda54fd8347906657f0f302cf1b827d65b31c1ca2140"
+        },
+        {
+          "path": "tests/windows_publisher_preopened_root_probe.ps1",
+          "sha256": "aededf1bff6344378e1d27514fffeab5ca6812f16dd411710f732278592b5b86"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4371,7 +4379,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "c930b32cae00102f9ba7df001f8b8c82b296a0439fa43184acc348ff402007c8"
+          "sha256": "39d3207dbc0fce2ce8d5189465403c4a911aa6bec0dc94a9ae1a3c4b836356b5"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
