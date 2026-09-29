@@ -82,6 +82,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_token_observation.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
     runtime/platform/windows/usk_publisher_volume_stream_observation.cpp
+    runtime/platform/windows/usk_publisher_device_acl.cpp
     runtime/platform/windows/usk_publisher_volume_operation_guard.cpp)
   target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
   target_include_directories(usk_publisher_windows_static PUBLIC
@@ -659,6 +660,16 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_volume_operation_guard_smoke
       COMMAND usk_publisher_volume_operation_guard_smoke)
     set_tests_properties(usk_publisher_volume_operation_guard_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_device_acl_smoke
+      tests/native/usk_publisher_device_acl_smoke.cpp)
+    target_compile_features(usk_publisher_device_acl_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_device_acl_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_device_acl_smoke)
+    add_test(NAME usk_publisher_device_acl_smoke
+      COMMAND usk_publisher_device_acl_smoke)
+    set_tests_properties(usk_publisher_device_acl_smoke PROPERTIES TIMEOUT 30)
 
     add_executable(usk_publisher_volume_bound_setup_smoke
       tests/native/usk_publisher_volume_bound_setup_smoke.cpp)
