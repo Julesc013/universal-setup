@@ -310,7 +310,6 @@ $consumerSid=''
 $consumerProcess=$null
 $concurrentAttacker=$null
 $preopenedRootProcess=$null
-$preopenedClient=$null
 $concurrentOutput=''
 $concurrentError=''
 $concurrentCompleted=''
@@ -805,57 +804,43 @@ try {
                 throw 'Owned fault-test service command readback differs'
             }
             try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
+        } elseif($ProductionConcurrentRights) {
+            # This elevated product controller must refuse SCM start while the
+            # non-admin process retains its pre-hardening volume-root handle.
+            $blockedStartError=Join-Path $root ('preopened-start-'+$id+'.txt')
+            $blockedStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+            if($registeredMode){$blockedStartArgs+=$registeredMode}
+            & $ServiceControlBinary @blockedStartArgs 2>$blockedStartError|Out-Null
+            if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped' -or
+                -not (Test-Path -LiteralPath $blockedStartError -PathType Leaf) -or
+                (Get-Item -LiteralPath $blockedStartError).Length -gt 16KB -or
+                (Get-Content -LiteralPath $blockedStartError -Raw) -notmatch
+                    'pre-opened file or cannot be locked' -or
+                (Test-Path -LiteralPath ($drive+'publication')) -or
+                (Test-Path -LiteralPath ($drive+'setup-state'))) {
+                throw 'Product control did not refuse a preopened-root handle before SCM start'
+            }
+            $receipt['preopened_root_refusal']=[ordered]@{
+                status='start_refused_before_effects';
+                controller_error=(Get-Content -LiteralPath $blockedStartError -Raw)}
+            [IO.File]::WriteAllText($preopenedRelease,
+                "usk.publisher.release_preopened_root.v1`n",[Text.UTF8Encoding]::new($false))
+            if(-not $preopenedRootProcess.WaitForExit(30000)) {
+                throw 'Preopened-root attacker did not release its held handle'
+            }
+            $preopenedRootProcess.WaitForExit()
+            if($preopenedRootProcess.ExitCode -ne 0) {
+                throw 'Preopened-root attacker failed after release'
+            }
+            $preopenedRootProcess=$null
+            Start-RegisteredPublisher
+            $receipt['preopened_root_clean_retry_started']=$true
         } else { Start-RegisteredPublisher }
     } else {
         try{Start-Service $service}catch{
             if($recover){throw ('Interruption service start failed: '+$_.Exception.Message)}
             if((Get-Service $service).Status -ne 'Stopped'){throw}
         }
-    }
-    if($ProductionConcurrentRights) {
-        # The ordinary registered service receives the same reviewed apply
-        # while the outside-service handle from before ACL hardening is live.
-        # It must refuse before any protected or public installed-state effect.
-        $preopenedClient=Start-RequestClient
-        if(-not $preopenedClient.process.WaitForExit(45000)) {
-            Stop-OwnedPublisherProcessTree $preopenedClient.process|Out-Null
-            throw 'Preopened-root refusal client timed out'
-        }
-        $preopenedClient.process.WaitForExit()
-        if($preopenedClient.process.ExitCode -eq 0 -or
-            -not (Test-Path -LiteralPath $preopenedClient.response -PathType Leaf) -or
-            (Get-Item -LiteralPath $preopenedClient.response).Length -gt 16KB) {
-            throw 'Publisher accepted the preopened-root request or omitted bounded refusal'
-        }
-        $preopenedResponse=Get-Content -LiteralPath $preopenedClient.response -Raw|ConvertFrom-Json
-        if($preopenedResponse.status -cne 'failed' -or
-            $preopenedResponse.error -notmatch 'pre-opened file or cannot be locked' -or
-            (Test-Path -LiteralPath ($drive+'publication')) -or
-            (Test-Path -LiteralPath ($drive+'setup-state'))) {
-            throw 'Preopened-root handle did not fail closed before effects'
-        }
-        $receipt['preopened_root_refusal']=[ordered]@{
-            status='failed_before_effects';service_error=$preopenedResponse.error;
-            caller=Assert-RequestClientImage $preopenedClient}
-        $stopDeadline=[DateTime]::UtcNow.AddSeconds(30)
-        while((Get-Service $service).Status -ne 'Stopped' -and
-            [DateTime]::UtcNow -lt $stopDeadline) {Start-Sleep -Milliseconds 100}
-        if((Get-Service $service).Status -ne 'Stopped') {
-            throw 'Refusing publisher service did not stop before retry'
-        }
-        [IO.File]::WriteAllText($preopenedRelease,
-            "usk.publisher.release_preopened_root.v1`n",[Text.UTF8Encoding]::new($false))
-        if(-not $preopenedRootProcess.WaitForExit(30000)) {
-            throw 'Preopened-root attacker did not release its held handle'
-        }
-        $preopenedRootProcess.WaitForExit()
-        if($preopenedRootProcess.ExitCode -ne 0) {
-            throw 'Preopened-root attacker failed after release'
-        }
-        $preopenedRootProcess=$null
-        $preopenedClient=$null
-        Start-RegisteredPublisher
-        $receipt['preopened_root_clean_retry_started']=$true
     }
     if($TerminateAtPoststage) {
         # Hold the exact service process before sending the request. The
@@ -1934,10 +1919,6 @@ try {
     if($concurrentAttacker) {
         try {Stop-OwnedPublisherProcessTree $concurrentAttacker|Out-Null}
         catch {$clientCleanupConfirmed=$false;$failure='Concurrent attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
-    }
-    if($preopenedClient) {
-        try {Stop-OwnedPublisherProcessTree $preopenedClient.process|Out-Null}
-        catch {$clientCleanupConfirmed=$false;$failure='Preopened-root client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($preopenedRootProcess) {
         try {Stop-OwnedPublisherProcessTree $preopenedRootProcess|Out-Null}

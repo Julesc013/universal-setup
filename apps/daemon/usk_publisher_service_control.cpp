@@ -10,7 +10,11 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <aclapi.h>
+#include <winioctl.h>
 
+#include "usk_publisher_handle_observation.h"
+#include "usk_publisher_tree_observation.h"
+#include "usk_publisher_volume_stream_observation.h"
 #include "usk_publisher_volume_operation_guard.h"
 #include "usk_sha256.h"
 
@@ -511,6 +515,63 @@ void require_volume(const std::wstring& value) {
     (void)usk::platform::windows::publisher_volume_operation_guard_name(value);
 }
 
+// Run in the elevated controller just before SCM start. The restricted
+// service cannot open a volume for direct DASD access. A protected root ACL
+// alone cannot revoke a handle opened during volume provisioning; Windows'
+// successful FSCTL_LOCK_VOLUME guarantees there are no open files on this
+// dedicated volume. First check its exact service-owned NTFS root, and close
+// that observation handle before requesting the lock.
+void require_exclusive_volume_admission(const std::wstring& name,
+    const std::wstring& root) {
+    require_volume(root);
+    auto sid = publisher_service_sid(name);
+    LPWSTR rendered = nullptr;
+    if (!ConvertSidToStringSidW(sid.data(), &rendered) || !rendered) {
+        throw std::runtime_error("publisher service SID cannot be rendered for volume admission");
+    }
+    const std::wstring service_sid(rendered);
+    LocalFree(rendered);
+    std::string service_sid_ascii;
+    service_sid_ascii.reserve(service_sid.size());
+    for (const wchar_t ch : service_sid) {
+        if (ch > 0x7f) throw std::runtime_error("publisher service SID is not ASCII");
+        service_sid_ascii.push_back(static_cast<char>(ch));
+    }
+    {
+        FileHandle held_root(CreateFileW(root.c_str(),
+            FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            nullptr));
+        if (held_root.get() == INVALID_HANDLE_VALUE) {
+            throw std::runtime_error("cannot open protected volume root for admission; Win32 " +
+                std::to_string(GetLastError()));
+        }
+        (void)usk::platform::windows::observe_local_ntfs_volume_handle(held_root.get());
+        usk::platform::windows::require_publisher_object_security_shape(
+            usk::platform::windows::observe_publisher_directory_handle(held_root.get()),
+            service_sid_ascii);
+    }
+    const std::wstring device = root.substr(0, root.size() - 1);
+    FileHandle volume(CreateFileW(device.c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
+    if (volume.get() == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("cannot open dedicated publisher volume for exclusive admission; Win32 " +
+            std::to_string(GetLastError()));
+    }
+    DWORD returned = 0;
+    if (!DeviceIoControl(volume.get(), FSCTL_LOCK_VOLUME, nullptr, 0,
+            nullptr, 0, &returned, nullptr)) {
+        throw std::runtime_error("publisher volume has a pre-opened file or cannot be locked; Win32 " +
+            std::to_string(GetLastError()));
+    }
+    if (!DeviceIoControl(volume.get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
+            nullptr, 0, &returned, nullptr)) {
+        throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
+            std::to_string(GetLastError()));
+    }
+}
+
 std::wstring command_prefix(const std::wstring& service,
     const std::wstring& binary, const std::wstring& volume) {
     return L"\"" + binary + L"\" --service " + service +
@@ -738,6 +799,8 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     const auto config = query_configuration(service.get());
     require_profile(config);
     require_existing_command(config.binary_path, name, binary, volume, caller, mode);
+    if (command_arguments(config.binary_path)[5] != L"--verify-installed")
+        require_exclusive_volume_admission(name, volume);
     if (!StartServiceW(service.get(), 0, nullptr))
         throw std::runtime_error("matching publisher service could not start");
 }

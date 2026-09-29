@@ -26,6 +26,8 @@ if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted
     (Test-Path -LiteralPath $ReadyPath) -or (Test-Path -LiteralPath $ReleasePath)) {
     throw 'Preopened-root probe requires the exact owned non-admin hosted identity and paths'
 }
+$env:TEMP=[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ReadyPath))
+$env:TMP=$env:TEMP
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;

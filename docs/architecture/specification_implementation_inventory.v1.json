@@ -4047,11 +4047,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "125ae68c9540a82ba3ade3255b58b27da7a78e88a24b80ec865cb4e15e2a161c"
+          "sha256": "94698458abd1b926e3b9b199d1de2a8ac2d42d23713397038224513b2f8fbdf4"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
-          "sha256": "b1d0454d0a6064ec35c47e28ae22e81710e38ce898fb8d3effe29f0e700c5ee0"
+          "sha256": "aededf1bff6344378e1d27514fffeab5ca6812f16dd411710f732278592b5b86"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4075,7 +4075,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "19884b9fb79c0ee4f66d48d1bee5c1f4b6d244ad10df1231c1eb030ee394c53a"
+          "sha256": "8505df84335ff3bde3a79078f1fb4eb85c57e6c6831aa3c2f41645e81be28681"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4087,7 +4087,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "c930b32cae00102f9ba7df001f8b8c82b296a0439fa43184acc348ff402007c8"
+          "sha256": "2c96c16eee9c1d3900fa270b4fad0e5a815fcf5a24d30ff9602cae6ca82f9a6c"
         },
         {
           "path": "tools/usk_selected_candidate_package.py",
@@ -4339,11 +4339,11 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "125ae68c9540a82ba3ade3255b58b27da7a78e88a24b80ec865cb4e15e2a161c"
+          "sha256": "94698458abd1b926e3b9b199d1de2a8ac2d42d23713397038224513b2f8fbdf4"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
-          "sha256": "b1d0454d0a6064ec35c47e28ae22e81710e38ce898fb8d3effe29f0e700c5ee0"
+          "sha256": "aededf1bff6344378e1d27514fffeab5ca6812f16dd411710f732278592b5b86"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4367,7 +4367,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "19884b9fb79c0ee4f66d48d1bee5c1f4b6d244ad10df1231c1eb030ee394c53a"
+          "sha256": "8505df84335ff3bde3a79078f1fb4eb85c57e6c6831aa3c2f41645e81be28681"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4379,7 +4379,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "c930b32cae00102f9ba7df001f8b8c82b296a0439fa43184acc348ff402007c8"
+          "sha256": "2c96c16eee9c1d3900fa270b4fad0e5a815fcf5a24d30ff9602cae6ca82f9a6c"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
