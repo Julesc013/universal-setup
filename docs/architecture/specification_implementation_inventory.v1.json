@@ -4019,7 +4019,7 @@
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "5af909c268150a7ab1e130674caf2a7791f7204c41d6f66fa5ff82feca5647cb"
+          "sha256": "29e422e1a7f567b4e0133d3a6077f3e24812910d5ebdd5928e50afc35847ef49"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
@@ -4307,7 +4307,7 @@
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "5af909c268150a7ab1e130674caf2a7791f7204c41d6f66fa5ff82feca5647cb"
+          "sha256": "29e422e1a7f567b4e0133d3a6077f3e24812910d5ebdd5928e50afc35847ef49"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
