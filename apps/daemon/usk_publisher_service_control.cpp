@@ -968,6 +968,7 @@ int apply_registered(const std::wstring& name, const std::wstring& installed_bin
     if (binary.sha256_hex() != expected_binary_digest) {
         throw std::runtime_error("installed publisher digest differs");
     }
+    binary.verify_unchanged();
     const std::wstring expected_command = command_prefix(name, installed_binary, volume) +
         L" --reviewed-plan-envelope \"" + envelope + L"\" " + envelope_digest +
         command_suffix(caller, mode);
@@ -1077,8 +1078,19 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     }
     if (command_arguments(config.binary_path)[5] != L"--verify-installed")
         require_exclusive_volume_admission(name, volume);
-    if (!StartServiceW(service.get(), 0, nullptr))
-        throw std::runtime_error("matching publisher service could not start");
+    if (!StartServiceW(service.get(), 0, nullptr)) {
+        const DWORD error = GetLastError();
+        if (exact_command) {
+            // SCM may have spawned the worker before returning a timeout.
+            // The reviewed caller must recover this same registration rather
+            // than interpreting an unconfirmed start as no publication effect.
+            throw usk::platform::windows::PublisherRequestOutcomeUnknown(
+                "reviewed publisher start outcome is uncertain; Win32 " +
+                std::to_string(error));
+        }
+        throw std::runtime_error("matching publisher service could not start; Win32 " +
+            std::to_string(error));
+    }
 }
 
 void request_unregister(const std::wstring& name, const std::wstring& binary,
