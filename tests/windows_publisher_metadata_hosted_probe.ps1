@@ -361,12 +361,17 @@ function Start-RequestClient($submitted=$applyRequest) {
             @('--apply-registered',$service,('"'+$ServiceBinary+'"'),$VolumeRoot,
                 ('"'+$envelope+'"'),$receipt.envelope_sha256,$callerSid,$sourceServiceHash,('"'+$clientRequest+'"'))
         } else {
-            @('--'+$script:controllerMode+'-registered',$service,('"'+$ServiceBinary+'"'),
+            $controllerVerb='--'+$script:controllerMode+'-registered'
+            @($controllerVerb,$service,('"'+$ServiceBinary+'"'),
                 $VolumeRoot,$callerSid,$sourceServiceHash,('"'+$clientRequest+'"'))
         }
     }
         elseif($MachineRequestClient){@('--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}
         else{@('--service',$service,'--request-file',('"'+$clientRequest+'"'))}
+    if($controllerRequest) {
+        $expectedArgs=if($script:controllerMode -eq 'apply'){9}else{7}
+        if($requestArgs.Count -ne $expectedArgs){throw 'Registered controller argument shape differs'}
+    }
     if($controllerRequest -and $registeredMode){$requestArgs+=$registeredMode}
     $options=@{FilePath=$requestBinary;ArgumentList=$requestArgs;
         WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$prefix+'-response.json';RedirectStandardError=$prefix+'-error.txt'}
