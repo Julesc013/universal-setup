@@ -28,9 +28,14 @@ param(
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostrenameTermination,
     [switch]$ExpectUnprotectedRefusal,
-    [switch]$HostileRights
+    [switch]$HostileRights,
+    [switch]$HostilePostrename
 )
 $ErrorActionPreference='Stop'
+if($HostilePostrename) {
+    if($HostileRights){throw 'Select one hostile-rights phase'}
+    $HostileRights=$true
+}
 if($ReuseRegistration -and ($InterruptAfterStage -or $TerminateAtPostrename)) {
     throw 'Fault injection restores the owned service command before recovery'
 }
@@ -775,7 +780,7 @@ try {
     }
     $command='"'+$ServiceBinary+'" --service '+$service+' "'+$nativePath+'" '+$VolumeRoot+$selectedClientArguments
     if($recover -and -not $InterruptDuringConsumerAccess){$command+=' --'+$gate+'-gate'}
-    if($HostileRights){$command+=' --prepublish-gate'}
+    if($HostileRights){$command+=$(if($HostilePostrename){' --postrename-gate'}else{' --prepublish-gate'})}
     if($InterruptDuringConsumerAccess){$command+=' --interrupt-consumer-grant'}
     if($ClientBinary) {
         $callerSid=if($ConsumerAccess -or $NonAdminClient){$consumerSid}else{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
@@ -1005,7 +1010,7 @@ try {
             $receipt['wrong_caller_mode_refused']=$true
         }
         if($InterruptAfterStage -or $HostileRights -or $TerminateAtPostrename) {
-            $registeredGate=if($HostileRights){'--prepublish-gate'}elseif($TerminateAtPostrename){'--postrename-gate'}else{'--poststage-gate'}
+            $registeredGate=if($HostilePostrename -or $TerminateAtPostrename){'--postrename-gate'}elseif($HostileRights){'--prepublish-gate'}else{'--poststage-gate'}
             $testCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
                 ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
                 ' --test-gate-receipt "'+$nativePath+'" '+$registeredGate+
@@ -1187,42 +1192,51 @@ try {
         if(@($plan.planned_entries|Where-Object relative_path -ceq $attackRelative).Count -ne 1){
             throw 'Selected hostile-rights payload is absent from the reviewed plan'
         }
-        $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-prepublish-ready.txt'
-        $release=$nativePath.Substring(0,$nativePath.Length-5)+'-prepublish-release.txt'
+        $hostilePhase=if($HostilePostrename){'postrename'}else{'prepublish'}
+        $hostileStage=if($HostilePostrename){'Postpublish'}else{'Prepublish'}
+        $hostileReady=if($HostilePostrename){"usk.publisher.lab_renamed_unconfirmed.v1`n"}else{"usk.publisher.lab_prepared.v1`n"}
+        $ready=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$hostilePhase+'-ready.txt'
+        $release=$nativePath.Substring(0,$nativePath.Length-5)+'-'+$hostilePhase+'-release.txt'
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $ready) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
         if(-not (Test-Path -LiteralPath $ready) -or
-            [IO.File]::ReadAllText($ready) -cne "usk.publisher.lab_prepared.v1`n" -or
-            (Test-Path -LiteralPath $release)) {throw 'Selected publisher did not pause at the protected prepublish phase'}
+            [IO.File]::ReadAllText($ready) -cne $hostileReady -or
+            (Test-Path -LiteralPath $release)) {throw ('Selected publisher did not pause at protected '+$hostilePhase)}
         Assert-OwnedVolume
         $pausedBefore=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if($pausedBefore.independent.identity -ne 'S-1-5-18' -or -not $pausedBefore.observer_task_removed){throw 'Prepublish independent observation unavailable'}
+        if($pausedBefore.independent.identity -ne 'S-1-5-18' -or -not $pausedBefore.observer_task_removed){throw ('Protected '+$hostilePhase+' observation unavailable')}
         Assert-IndependentProtectedRows -Rows $pausedBefore.independent.rows -ServiceSid $sid
-        $stagedPath=$drive+'publication\staging\candidate\'+$attackRelative.Replace('/','\')
-        if(@($pausedBefore.independent.rows|Where-Object path -ceq $stagedPath).Count -ne 1){
-            throw 'Selected staged payload was absent before the hostile-rights probe'
+        $hostilePayloadPath=if($HostilePostrename){
+            $drive+'publication\destination\visible\'+$attackRelative.Replace('/','\')
+        }else{$drive+'publication\staging\candidate\'+$attackRelative.Replace('/','\')}
+        if(@($pausedBefore.independent.rows|Where-Object path -ceq $hostilePayloadPath).Count -ne 1){
+            throw ('Selected '+$hostilePhase+' payload was absent before hostile-rights probe')
         }
-        $receipt['prepublish_before_attack']=$pausedBefore.independent
-        $attackOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-prepublish.json'
+        $receipt[$hostilePhase+'_before_attack']=$pausedBefore.independent
+        # The owned runner has fixed phase output names. Its later completed
+        # check may reuse the Postpublish file; keep this paused receipt here.
+        $attackOutput=Join-Path (Split-Path -Parent $vhd) $(if($HostilePostrename){
+            'unprivileged-attack.json'
+        }else{'unprivileged-prepublish.json'})
         $attackIdentity=if($RegisteredService -and $NonAdminClient){
             @{ExistingCredential=$consumerCredential;ExistingSid=$consumerSid}
         }else{@{}}
-        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage Prepublish -PayloadRelativePath $attackRelative @attackIdentity
+        & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid -OutputPath $attackOutput -Stage $hostileStage -PayloadRelativePath $attackRelative @attackIdentity
         $attack=Get-Content -LiteralPath $attackOutput -Raw|ConvertFrom-Json
-        $receipt['prepublish_hostile_rights']=$attack
+        $receipt[$hostilePhase+'_hostile_rights']=$attack
         if($attack.status -ne 'unprivileged_access_denied_observed' -or $attack.payload_relative_path -cne $attackRelative){
-            throw 'Selected prepublish attacker result differs'
+            throw ('Selected '+$hostilePhase+' attacker result differs')
         }
         if($RegisteredService -and ($attack.account_sid -cne $consumerSid -or
             $attack.account_origin -cne 'existing_owned_client')) {
-            throw 'Registered prepublish attacker did not use the submitting client identity'
+            throw ('Registered '+$hostilePhase+' attacker did not use the submitting client identity')
         }
         $pausedAfter=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        $receipt['prepublish_after_attack']=$pausedAfter.independent
+        $receipt[$hostilePhase+'_after_attack']=$pausedAfter.independent
         if($pausedAfter.independent.identity -ne 'S-1-5-18' -or -not $pausedAfter.observer_task_removed -or
             ($pausedBefore.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
             ($pausedAfter.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Selected prepublish hostile attempts changed protected state'
+            throw ('Selected '+$hostilePhase+' hostile attempts changed protected state')
         }
         if($RegisteredService -and $NonAdminClient) {
             # Sample the submitting account's attempted mutations from the

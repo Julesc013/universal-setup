@@ -24,10 +24,15 @@ param(
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostrenameTermination,
     [switch]$ExpectUnprotectedRefusal,
-    [switch]$HostileRights
+    [switch]$HostileRights,
+    [switch]$HostilePostrename
 )
 
 $ErrorActionPreference = 'Stop'
+if($HostilePostrename) {
+    if($HostileRights){throw 'Select one hostile-rights phase'}
+    $HostileRights=$true
+}
 if ($HostileRights -and (-not $MachineBinary -or -not $ClientBinary -or
     $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
     $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
@@ -179,7 +184,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:$HostileRights
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:($HostileRights -and -not $HostilePostrename) -HostilePostrename:$HostilePostrename
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
