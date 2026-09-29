@@ -461,8 +461,10 @@ if(USK_BUILD_APPS)
     add_executable(usk_publisher_service_control
       apps/daemon/usk_publisher_service_control.cpp)
     target_compile_features(usk_publisher_service_control PRIVATE cxx_std_17)
+    target_include_directories(usk_publisher_service_control PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base")
     target_link_libraries(usk_publisher_service_control PRIVATE
-      usk_publisher_windows_static advapi32 shell32)
+      usk_publisher_windows_static usk_base_static advapi32 shell32)
     usk_enable_strict_warnings(usk_publisher_service_control)
   endif()
 endif()
@@ -599,6 +601,13 @@ if(USK_BUILD_TESTS)
       set_tests_properties(usk_publisher_candidate_apply_process_smoke PROPERTIES TIMEOUT 60)
     endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      if(TARGET usk_publisher_service_control)
+        add_test(NAME usk_publisher_apply_control_preflight
+          COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_publisher_apply_control_probe.py"
+            "$<TARGET_FILE:usk_publisher_service_control>")
+        set_tests_properties(usk_publisher_apply_control_preflight PROPERTIES TIMEOUT 30)
+      endif()
       if(TARGET usk_publisher_service)
         add_test(NAME usk_publisher_service_mode_smoke
           COMMAND "${Python3_EXECUTABLE}"
@@ -640,6 +649,19 @@ if(USK_BUILD_TESTS)
             -ReviewedSource -RegisteredService -ConsumerAccess
             -MachineRequestClient -ReuseRegistration -ProductionConcurrentRights)
         set_tests_properties(usk_machine_registered_candidate_hosted
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
+        add_test(NAME usk_controller_registered_apply_hosted
+          COMMAND pwsh -NoProfile -NonInteractive -File
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
+            -OutputPath "$ENV{RUNNER_TEMP}/usk-wu006-controller-apply-bridge.json"
+            -ServiceBinary "$<TARGET_FILE:usk_publisher_service>"
+            -ServiceControlBinary "$<TARGET_FILE:usk_publisher_service_control>"
+            -DeviceAclBinary "$<TARGET_FILE:usk_publisher_lab_device_acl>"
+            -MachineBinary "$<TARGET_FILE:usk_machine>"
+            -PublicApplyBinary "$<TARGET_FILE:usk_publisher_candidate_context_smoke>"
+            -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
+            -ReviewedSource -RegisteredService -ControllerApply)
+        set_tests_properties(usk_controller_registered_apply_hosted
           PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
       endif()
     endif()

@@ -17,14 +17,20 @@
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_publisher_volume_operation_guard.h"
 #include "usk_publisher_device_acl.h"
+#include "usk_publisher_request_channel.h"
+#include "usk_stable_file.h"
+#include "usk_json.h"
 #include "usk_sha256.h"
 
 #include <array>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <fcntl.h>
+#include <io.h>
 
 namespace {
 class ServiceHandle {
@@ -257,6 +263,33 @@ void require_canonical_sid(const std::wstring& value) {
     if (canonical) LocalFree(canonical);
     LocalFree(parsed);
     if (!okay) throw std::runtime_error("caller SID is not canonical");
+}
+
+void require_current_caller_sid(const std::wstring& expected) {
+    HANDLE raw_token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw_token)) {
+        throw std::runtime_error("current caller token unavailable");
+    }
+    FileHandle token(raw_token);
+    DWORD needed = 0;
+    GetTokenInformation(token.get(), TokenUser, nullptr, 0, &needed);
+    if (!needed || needed > 64u * 1024u) {
+        throw std::runtime_error("current caller identity size is invalid");
+    }
+    std::vector<BYTE> bytes(needed);
+    if (!GetTokenInformation(token.get(), TokenUser, bytes.data(), needed, &needed)) {
+        throw std::runtime_error("current caller identity unavailable");
+    }
+    const auto* user = reinterpret_cast<const TOKEN_USER*>(bytes.data());
+    LPWSTR rendered = nullptr;
+    if (!ConvertSidToStringSidW(user->User.Sid, &rendered) || !rendered) {
+        throw std::runtime_error("current caller SID unavailable");
+    }
+    const bool matching = expected == rendered;
+    LocalFree(rendered);
+    if (!matching) {
+        throw std::runtime_error("reviewed apply caller differs from this process identity");
+    }
 }
 
 std::vector<BYTE> retained_service_sid(const std::wstring& value) {
@@ -865,6 +898,113 @@ void register_service(const std::wstring& name, const std::wstring& binary,
     }
 }
 
+void request_start(const std::wstring& name, const std::wstring& binary,
+    const std::wstring& volume, const std::wstring& caller,
+    const std::wstring& mode, const std::wstring* exact_command);
+
+std::string read_reviewed_apply(const std::wstring& envelope_path,
+    const std::wstring& envelope_sha256, const std::wstring& apply_path) {
+    if (!lower_sha256(envelope_sha256)) {
+        throw std::runtime_error("reviewed envelope digest is invalid");
+    }
+    std::string expected_digest;
+    expected_digest.reserve(envelope_sha256.size());
+    for (const wchar_t ch : envelope_sha256) {
+        expected_digest.push_back(static_cast<char>(ch));
+    }
+    usk::base::StableFile envelope{std::filesystem::path(envelope_path)};
+    if (!envelope.identity().size_bytes ||
+        envelope.identity().size_bytes > 1024u * 1024u ||
+        envelope.sha256_hex() != expected_digest) {
+        throw std::runtime_error("reviewed envelope identity differs before registration");
+    }
+    const auto envelope_bytes = envelope.read(0,
+        static_cast<std::size_t>(envelope.identity().size_bytes));
+    envelope.verify_unchanged();
+    usk::base::StableFile apply{std::filesystem::path(apply_path)};
+    if (!apply.identity().size_bytes || apply.identity().size_bytes > 1024u * 1024u) {
+        throw std::runtime_error("reviewed apply exceeds transport bound");
+    }
+    const auto apply_bytes = apply.read(0,
+        static_cast<std::size_t>(apply.identity().size_bytes));
+    apply.verify_unchanged();
+    usk::json::ParseLimits limits;
+    limits.max_bytes = 1024u * 1024u;
+    limits.max_string_bytes = 512u * 1024u;
+    const auto reviewed = usk::json::parse(
+        std::string(envelope_bytes.begin(), envelope_bytes.end()), limits);
+    const auto request = usk::json::parse(
+        std::string(apply_bytes.begin(), apply_bytes.end()), limits);
+    if (reviewed.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+        reviewed.at("activation").as_string() != "operator_acceptance_candidate" ||
+        request.at("schema").as_string() != "usk.install_local_apply_request.v1" ||
+        request.at("confirmation").as_string() != "APPLY" ||
+        usk::json::canonical(reviewed.at("apply_request")) !=
+            usk::json::canonical(request)) {
+        throw std::runtime_error("apply request differs from reviewed envelope");
+    }
+    return usk::json::canonical(request);
+}
+
+int apply_registered(const std::wstring& name, const std::wstring& installed_binary,
+    const std::wstring& volume, const std::wstring& envelope,
+    const std::wstring& envelope_digest, const std::wstring& caller,
+    const std::wstring& binary_digest, const std::wstring& apply_file,
+    const std::wstring& mode) {
+    require_current_caller_sid(caller);
+    require_file(apply_file);
+    const std::string request = read_reviewed_apply(envelope, envelope_digest, apply_file);
+    if (!lower_sha256(binary_digest)) {
+        throw std::runtime_error("installed publisher digest is invalid");
+    }
+    require_protected_binary(name, installed_binary);
+    usk::base::StableFile binary{std::filesystem::path(installed_binary)};
+    std::string expected_binary_digest;
+    expected_binary_digest.reserve(binary_digest.size());
+    for (const wchar_t ch : binary_digest) {
+        expected_binary_digest.push_back(static_cast<char>(ch));
+    }
+    if (binary.sha256_hex() != expected_binary_digest) {
+        throw std::runtime_error("installed publisher digest differs");
+    }
+    binary.verify_unchanged();
+    const std::wstring expected_command = command_prefix(name, installed_binary, volume) +
+        L" --reviewed-plan-envelope \"" + envelope + L"\" " + envelope_digest +
+        command_suffix(caller, mode);
+    request_start(name, installed_binary, volume, caller, mode, &expected_command);
+    std::string response;
+    std::string status;
+    try {
+        response = usk::platform::windows::submit_publisher_request(name, request, 120000);
+        usk::json::ParseLimits limits;
+        limits.max_bytes = 4u * 1024u * 1024u;
+        limits.max_string_bytes = 2u * 1024u * 1024u;
+        const auto parsed = usk::json::parse(response, limits);
+        if (parsed.at("schema").as_string() !=
+                "usk.publisher_lab_service_observation.v1") {
+            throw std::runtime_error("unexpected publisher response schema");
+        }
+        status = parsed.at("status").as_string();
+        if (status != "pass" && status != "failed" && status != "recovery_required") {
+            throw std::runtime_error("unexpected publisher response status");
+        }
+    } catch (const std::exception& error) {
+        throw usk::platform::windows::PublisherRequestOutcomeUnknown(error.what());
+    }
+    if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
+        throw usk::platform::windows::PublisherRequestOutcomeUnknown(
+            "binary output unavailable");
+    }
+    std::cout << response;
+    std::cout.flush();
+    if (!std::cout) {
+        throw usk::platform::windows::PublisherRequestOutcomeUnknown(
+            "publisher response output failed");
+    }
+    return status == "pass" ? 0 : 3;
+}
+
 void configure_recovery(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
@@ -921,7 +1061,7 @@ void configure_verify(const std::wstring& name, const std::wstring& binary,
 
 void request_start(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
-    const std::wstring& mode) {
+    const std::wstring& mode, const std::wstring* exact_command) {
     require_protected_binary(name, binary);
     ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
@@ -933,10 +1073,24 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     const auto config = query_configuration(service.get());
     require_profile(config);
     require_existing_command(config.binary_path, name, binary, volume, caller, mode);
+    if (exact_command && config.binary_path != *exact_command) {
+        throw std::runtime_error("registered reviewed source or caller differs");
+    }
     if (command_arguments(config.binary_path)[5] != L"--verify-installed")
         require_exclusive_volume_admission(name, volume);
-    if (!StartServiceW(service.get(), 0, nullptr))
-        throw std::runtime_error("matching publisher service could not start");
+    if (!StartServiceW(service.get(), 0, nullptr)) {
+        const DWORD error = GetLastError();
+        if (exact_command) {
+            // SCM may have spawned the worker before returning a timeout.
+            // The reviewed caller must recover this same registration rather
+            // than interpreting an unconfirmed start as no publication effect.
+            throw usk::platform::windows::PublisherRequestOutcomeUnknown(
+                "reviewed publisher start outcome is uncertain; Win32 " +
+                std::to_string(error));
+        }
+        throw std::runtime_error("matching publisher service could not start; Win32 " +
+            std::to_string(error));
+    }
 }
 
 void request_unregister(const std::wstring& name, const std::wstring& binary,
@@ -1018,26 +1172,28 @@ void retire_protected_binary(const std::wstring& name,
 
 int wmain(int argc, wchar_t** argv) {
     const bool registration = argc >= 2 && std::wstring(argv[1]) == L"--register";
+    const bool apply = argc >= 2 && std::wstring(argv[1]) == L"--apply-registered";
     const bool recovery = argc >= 2 && std::wstring(argv[1]) == L"--recover";
     const bool verify = argc >= 2 && std::wstring(argv[1]) == L"--verify";
     const bool start = argc >= 2 && std::wstring(argv[1]) == L"--start";
     const bool unregister = argc >= 2 && std::wstring(argv[1]) == L"--unregister";
     const bool retire = argc >= 2 && std::wstring(argv[1]) == L"--retire-binary";
     if ((!registration || (argc != 9 && argc != 10)) &&
+        (!apply || (argc != 10 && argc != 11)) &&
         (!recovery || (argc != 6 && argc != 7)) &&
         (!verify || (argc != 6 && argc != 7)) &&
         (!start || (argc != 6 && argc != 7)) &&
         (!unregister || (argc != 6 && argc != 7)) &&
         (!retire || argc != 6)) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID\n";
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID\n";
         return 2;
     }
     try {
         const std::wstring name(argv[2]);
         const std::wstring binary(argv[3]);
         const std::wstring volume(retire ? L"" : argv[4]);
-        const std::wstring caller(retire ? L"" : argv[registration ? 7 : 5]);
-        const bool has_mode = !retire && argc == (registration ? 10 : 7);
+        const std::wstring caller(retire ? L"" : argv[(registration || apply) ? 7 : 5]);
+        const bool has_mode = !retire && argc == (apply ? 11 : registration ? 10 : 7);
         const std::wstring mode = has_mode ? argv[argc - 1] : L"";
         if (!generated_name(name) ||
             (has_mode && mode != L"--admit-client-observer" &&
@@ -1050,6 +1206,9 @@ int wmain(int argc, wchar_t** argv) {
         }
         if (retire) {
             retire_protected_binary(name, binary, argv[4], argv[5]);
+        } else if (apply) {
+            return apply_registered(name, binary, volume, argv[5], argv[6],
+                caller, argv[8], argv[9], mode);
         } else if (registration) {
             register_service(name, binary, volume, argv[5], argv[6], caller,
                 argv[8], mode);
@@ -1058,7 +1217,7 @@ int wmain(int argc, wchar_t** argv) {
         } else if (verify) {
             configure_verify(name, binary, volume, caller, mode);
         } else if (start) {
-            request_start(name, binary, volume, caller, mode);
+            request_start(name, binary, volume, caller, mode, nullptr);
         } else {
             request_unregister(name, binary, volume, caller, mode);
         }
@@ -1066,6 +1225,9 @@ int wmain(int argc, wchar_t** argv) {
             << (retire ? L"binary_retired" : registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : start ? L"start_requested" : L"removal_requested")
             << L"\",\"service\":\"" << name << L"\"}\n";
         return 0;
+    } catch (const usk::platform::windows::PublisherRequestOutcomeUnknown&) {
+        std::cerr << "usk_publisher_service_control: outcome unknown; recover the registered service\n";
+        return 5;
     } catch (const std::exception& error) {
         std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
         return 3;

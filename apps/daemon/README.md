@@ -18,12 +18,30 @@ expected digest must come from the reviewed package identity:
 
 ```text
 usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SOURCE_SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID SERVICE_EXE_SHA256 [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --apply-registered USK_PUB_<32 lowercase hex> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID SERVICE_EXE_SHA256 APPLY_JSON [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --recover USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --verify USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --start USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --unregister USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --retire-binary USK_PUB_<same name> INSTALLED_SERVICE_EXE SERVICE_EXE_SHA256 RETAINED_SERVICE_SID
 ```
+
+`--apply-registered` joins volume admission, service start, and one
+authenticated `install_local.apply` request for an already registered,
+provisioned service. Registration and protection of the dedicated volume must
+precede this command so the service SID can own its exact boundary. The command
+first checks that the apply bytes match the v2 reviewed envelope, the process
+user SID is the admitted caller, and the stopped service command and protected
+executable match the expected envelope, volume and digest.
+The service independently revalidates the plan, source, target, and protected
+volume. The command prints the service's actual JSON observation and returns
+0 only for `pass`, 3 for a complete failure or recovery-required result, and
+5 when the submitted operation's outcome is unknown. It leaves the registered
+service and protected records in place on an uncertain outcome so the caller
+can use `--recover` and the same authenticated recovery request. The caller
+must retain the service name, volume identity, installed service path, request,
+and envelope for servicing. This selected candidate does not enable the public
+strict capability or qualify an arbitrary customer target.
 
 The second command changes only a stopped, matching own-process LocalSystem
 service with a restricted service SID. It keeps that service name and SID for
