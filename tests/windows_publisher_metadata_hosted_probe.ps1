@@ -268,9 +268,12 @@ function Complete-StageObserver($Observer) {
         throw 'SYSTEM stage observer identity or terminal marker differs'
     }
     if($result.clock -cne 'qpc' -or $result.clock_frequency -le 0 -or
+        $result.transition.last_staged_only_start_tick -le 0 -or
         $result.transition.last_staged_only_end_tick -le 0 -or
         $result.transition.first_visible_start_tick -le
             $result.transition.last_staged_only_end_tick -or
+        $result.transition.first_visible_end_tick -lt
+            $result.transition.first_visible_start_tick -or
         $result.transition.visible_before_stage -or
         $result.transition.stage_after_visible -or
         $result.transition.ambiguous_samples -gt 1) {
@@ -1659,8 +1662,17 @@ try {
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
             $coverage=if($ProductionConcurrentRights) {
+                $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
+                $nativeStart=[long]$nativeCall.start_tick
+                $nativeEnd=[long]$nativeCall.end_tick
                 $transitionCoverage=[ordered]@{}
-                $transitionCovered=$concurrent.concurrent.clock -ceq 'qpc' -and
+                $transitionCovered=$nativeCall.clock -ceq 'qpc' -and
+                    [long]$nativeCall.frequency -eq [long]$stageObservation.clock_frequency -and
+                    $nativeStart -gt 0 -and $nativeEnd -ge $nativeStart -and
+                    $nativeEnd-$nativeStart -le [long]($stageObservation.clock_frequency/2) -and
+                    $nativeStart -ge [long]$stageObservation.transition.last_staged_only_start_tick -and
+                    $nativeEnd -le [long]$stageObservation.transition.first_visible_end_tick -and
+                    $concurrent.concurrent.clock -ceq 'qpc' -and
                     [long]$concurrent.concurrent.clock_frequency -eq
                         [long]$stageObservation.clock_frequency
                 foreach($operation in @('destination_create','staged_replace',
@@ -1673,8 +1685,11 @@ try {
                 $receipt['production_transition_coverage']=[ordered]@{
                     schema='usk.publisher.production_transition_coverage.v1';
                     clock='qpc';clock_frequency=$stageObservation.clock_frequency;
+                    last_staged_only_start_tick=$stageObservation.transition.last_staged_only_start_tick;
                     last_staged_only_end_tick=$stageObservation.transition.last_staged_only_end_tick;
                     first_visible_start_tick=$stageObservation.transition.first_visible_start_tick;
+                    first_visible_end_tick=$stageObservation.transition.first_visible_end_tick;
+                    native_call=$nativeCall;
                     denied_attempts=$transitionCoverage}
                 # The protected ancestor masks absence as ACCESS_DENIED for
                 # this caller. Correlate its denied writes with independent
@@ -1726,7 +1741,7 @@ try {
             }
             $receipt['concurrent_hostile_rights']=$concurrent
             if($ProductionConcurrentRights) {
-                $receipt['concurrent_qualification_limit']='bracketed_stage_to_visible_denials_not_exact_native_rename_syscall_overlap'
+                $receipt['concurrent_qualification_limit']='native_rename_call_bracketed_by_independent_system_samples_with_nearby_denials_not_exact_syscall_overlap'
             }
             $concurrentAttacker=$null
         }

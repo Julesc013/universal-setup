@@ -234,7 +234,10 @@ int main() {
                 source.get(), parent.get(), L"visible", expected_source, expected_parent);
             check(result.root_file_id == expected_source.file_id &&
                 result.former_name == expected_source.native_name &&
-                result.visible_name == expected_parent.native_name + L"\\visible",
+                result.visible_name == expected_parent.native_name + L"\\visible" &&
+                result.native_call_start_tick > 0 &&
+                result.native_call_end_tick >= result.native_call_start_tick &&
+                result.clock_frequency > 0,
                 "bound rename returned wrong identity or path");
             const auto visible = observe_visible_publisher_tree_against_seal(
                 parent.get(), L"visible", sealed);

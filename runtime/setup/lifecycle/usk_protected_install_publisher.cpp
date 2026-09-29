@@ -2471,6 +2471,10 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         json_quote(renamed.root_file_id) +
         ",\"former_name\":" + json_quote(ascii(renamed.former_name)) +
         ",\"visible_name\":" + json_quote(ascii(renamed.visible_name)) +
+        ",\"native_rename_call\":{\"clock\":\"qpc\",\"start_tick\":" +
+            std::to_string(renamed.native_call_start_tick) +
+            ",\"end_tick\":" + std::to_string(renamed.native_call_end_tick) +
+            ",\"frequency\":" + std::to_string(renamed.clock_frequency) + "}" +
         ",\"visible_root\":" + json_protected_object(visible.root) +
         ",\"visible_file\":" + (selected_v2 ? "null" :
             json_protected_object(visible.descendants.front().object)) +

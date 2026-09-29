@@ -13,6 +13,7 @@
 #include "usk_publisher_handle_observation.h"
 
 #include <functional>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -30,6 +31,9 @@ struct PublisherBoundRenameObservation {
     std::string root_file_id;
     std::wstring former_name;
     std::wstring visible_name;
+    std::int64_t native_call_start_tick;
+    std::int64_t native_call_end_tick;
+    std::int64_t clock_frequency;
 };
 
 // Disposable native mechanism probe only. Production use would require a

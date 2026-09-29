@@ -144,8 +144,17 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
         GetProcAddress(ntdll, "NtSetInformationFile")) : nullptr;
     if (!nt_set) throw std::runtime_error("publisher native rename is unavailable");
     IO_STATUS_BLOCK io{};
+    LARGE_INTEGER frequency{}, started{}, ended{};
+    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0 ||
+        !QueryPerformanceCounter(&started)) {
+        throw std::runtime_error("publisher native rename clock is unavailable");
+    }
     const NTSTATUS status = nt_set(staged_root, &io, information.data(),
         information.size(), 10 /* FileRenameInformation */);
+    if (!QueryPerformanceCounter(&ended) || ended.QuadPart < started.QuadPart) {
+        throw PublisherRenameUnconfirmed(
+            "publisher native rename clock changed; retained recovery required");
+    }
     if (status != 0 || io.Status != 0) {
         throw PublisherRenameUnconfirmed("publisher native rename returned NTSTATUS " +
             std::to_string(static_cast<unsigned long>(status)) +
@@ -175,7 +184,8 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
             !same_object(observe_publisher_directory_handle(visible.get()), moved, true)) {
             throw std::runtime_error("publisher visible child did not rebind to staged root");
         }
-        return {staged.file_id, staged.native_name, moved.native_name};
+        return {staged.file_id, staged.native_name, moved.native_name,
+            started.QuadPart, ended.QuadPart, frequency.QuadPart};
     } catch (const std::exception& failure) {
         throw PublisherRenameUnconfirmed(std::string("publisher rename returned success but ") +
             failure.what() + "; retained recovery required");

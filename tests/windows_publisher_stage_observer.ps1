@@ -17,7 +17,8 @@ $sourceAtStart=if($SourcePath){
     (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
 }else{$null}
 $first=0L;$last=0L;$count=0;$maximumGap=0L
-$lastStagedOnlyEnd=0L;$firstVisibleStart=0L;$ambiguousSamples=0
+$lastStagedOnlyStart=0L;$lastStagedOnlyEnd=0L
+$firstVisibleStart=0L;$firstVisibleEnd=0L;$ambiguousSamples=0
 $sawStage=$false;$visibleBeforeStage=$false;$stageAfterVisible=$false
 $deadline=[DateTime]::UtcNow.AddSeconds(120)
 [IO.File]::WriteAllText($ReadyPath,"usk.publisher.stage_observer_ready.v1`n",[Text.UTF8Encoding]::new($false))
@@ -28,11 +29,15 @@ while(-not [IO.File]::Exists($StopPath) -and [DateTime]::UtcNow -lt $deadline) {
     $sampleEnd=[Diagnostics.Stopwatch]::GetTimestamp()
     if($staged -and -not $visible) {
         $sawStage=$true
+        $lastStagedOnlyStart=$tick
         $lastStagedOnlyEnd=$sampleEnd
         if($firstVisibleStart -gt 0){$stageAfterVisible=$true}
     } elseif(-not $staged -and $visible) {
         if(-not $sawStage){$visibleBeforeStage=$true}
-        if($sawStage -and $firstVisibleStart -eq 0){$firstVisibleStart=$tick}
+        if($sawStage -and $firstVisibleStart -eq 0){
+            $firstVisibleStart=$tick
+            $firstVisibleEnd=$sampleEnd
+        }
     } elseif($staged -and $visible) {
         $ambiguousSamples++
     }
@@ -58,8 +63,10 @@ $sourceAtStop=if($SourcePath){
 @{schema='usk.publisher.stage_observer.v1';identity='S-1-5-18';
   clock='qpc';clock_frequency=[Diagnostics.Stopwatch]::Frequency;
   stopped=[IO.File]::Exists($StopPath);runs=$runs.ToArray();
-  transition=@{last_staged_only_end_tick=$lastStagedOnlyEnd;
+  transition=@{last_staged_only_start_tick=$lastStagedOnlyStart;
+    last_staged_only_end_tick=$lastStagedOnlyEnd;
     first_visible_start_tick=$firstVisibleStart;
+    first_visible_end_tick=$firstVisibleEnd;
     ambiguous_samples=$ambiguousSamples;
     visible_before_stage=$visibleBeforeStage;
     stage_after_visible=$stageAfterVisible};
