@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "80e1849994f2f12ca401a37667749ad3c4106f8417456768198c7667c9b5346a"
+          "sha256": "bf67bd02fe2d308101da161d55986666515e4ff4807e375aab2a5302a1c975d4"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "80e1849994f2f12ca401a37667749ad3c4106f8417456768198c7667c9b5346a"
+          "sha256": "bf67bd02fe2d308101da161d55986666515e4ff4807e375aab2a5302a1c975d4"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "80e1849994f2f12ca401a37667749ad3c4106f8417456768198c7667c9b5346a"
+          "sha256": "bf67bd02fe2d308101da161d55986666515e4ff4807e375aab2a5302a1c975d4"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3943,7 +3943,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "3eb771075283c14efd8f021fa777c42659b6be8d47ae80e0a0737006171756cc"
+          "sha256": "5a592b1cf8cbf5a0266e52a44242aadc44bc06262bcfa7b186108346ccf3e126"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "78e092922e4c4407156ff359e4944d9ff4c7521fb3b04514cdca6dada7b59c59"
+          "sha256": "d1c7fc09e9f0325a6060d144059a7431298392c6a2aa1ffe0ab08176c56bef9b"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4355,7 +4355,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "78e092922e4c4407156ff359e4944d9ff4c7521fb3b04514cdca6dada7b59c59"
+          "sha256": "d1c7fc09e9f0325a6060d144059a7431298392c6a2aa1ffe0ab08176c56bef9b"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
