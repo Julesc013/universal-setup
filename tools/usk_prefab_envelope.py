@@ -16,6 +16,7 @@ from contextlib import ExitStack
 import hashlib
 import json
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from typing import Any
 from usk_bundle_author import AuthoringError, inspect_bundle
 
 BUFFER = 65536
+SCRATCH_RESERVE_BYTES = 256 * 1024 * 1024
 MAX_RUNTIME_BYTES = 256 * 1024 * 1024
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_BUNDLE_BYTES = 8 * 1024 * 1024
@@ -198,13 +200,25 @@ def build_envelope(bundle_path: Path, runtime: Path, profile: str, output_dir: P
 
 
 def _inspect_carrier(path: Path) -> tuple[bytes, dict[str, dict[str, Any]], bytes, dict[str, Any]]:
+    path = path.absolute()
+    parent = path.parent
+    if parent.is_symlink() or getattr(parent.lstat(), "st_file_attributes", 0) & 0x400:
+        raise EnvelopeError("carrier parent is redirected")
     _, before = _read_plain_file(path)
+    # A stored carrier needs at most one canonical copy and one extracted
+    # non-runtime member set. Leave headroom on that same volume before either
+    # copy is opened; this is a preflight, not a concurrent reservation.
+    if shutil.disk_usage(parent).free < 2 * before.st_size + SCRATCH_RESERVE_BYTES:
+        raise EnvelopeError("carrier volume lacks inspection scratch headroom")
     names = sorted((RUNTIME_NAME, *INPUT_NAMES, "prefab.manifest.json"))
     observed: dict[str, dict[str, Any]] = {}
     runtime_prefix = b""
-    with tempfile.TemporaryDirectory(prefix="usk-prefab-inspect-") as directory:
+    # Keep both disposable copies on the carrier's volume. The default system
+    # temp directory may be on a different, nearly full drive.
+    with tempfile.TemporaryDirectory(prefix="usk-prefab-inspect-", dir=parent) as directory:
         extracted_root = Path(directory)
-        with path.open("rb") as source, tempfile.TemporaryFile(mode="w+b") as rebuilt:
+        with path.open("rb") as source, tempfile.TemporaryFile(
+                mode="w+b", dir=extracted_root) as rebuilt:
             opened = os.fstat(source.fileno())
             if (opened.st_dev, opened.st_ino, opened.st_size) != (
                     before.st_dev, before.st_ino, before.st_size):

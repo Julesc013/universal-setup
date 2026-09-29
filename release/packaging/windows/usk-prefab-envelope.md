@@ -65,5 +65,9 @@ source audit and runtime dependency inventory are required before product use.
 Inspection checks the entire ZIP carrier against a disposable canonical
 reconstruction, including bytes outside declared ZIP members. It also runs the
 existing product-bundle inspector on the emitted sidecar or on named members
-extracted to a disposable directory. Large carrier inspection therefore needs
-temporary disk space for its canonical copy and extracted payload.
+extracted to a disposable directory. The canonical copy and extracted payload
+are created beside the carrier and removed after inspection, including on
+failure. The inspector checks for twice the carrier size plus 256 MiB of free
+space before creating scratch files. Large carrier inspection therefore needs
+temporary space on the carrier's volume; it does not spill into the machine's
+default temporary drive.

@@ -165,6 +165,44 @@ class PrefabEnvelopeTests(unittest.TestCase):
             carrier.write_bytes(original)
             self.assertEqual(inspect_envelope(carrier)["profile"], "one_file_carrier")
 
+    def test_carrier_scratch_stays_beside_carrier_and_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle, runtime = self._inputs(root)
+            output = root / "carrier"
+            output.mkdir()
+            build_envelope(bundle, runtime, "one_file_carrier", output)
+            carrier = output / "setup.carrier.zip"
+            original_bytes = carrier.read_bytes()
+            temporary_directory = tempfile.TemporaryDirectory
+            temporary_file = tempfile.TemporaryFile
+            observed: list[Path] = []
+
+            def local_directory(*args, **kwargs):
+                self.assertEqual(kwargs.get("dir"), output)
+                created = temporary_directory(*args, **kwargs)
+                observed.append(Path(created.name))
+                return created
+
+            def local_file(*args, **kwargs):
+                self.assertIn(Path(kwargs["dir"]), observed)
+                return temporary_file(*args, **kwargs)
+
+            with mock.patch.object(usk_prefab_envelope.tempfile, "TemporaryDirectory",
+                                   local_directory), mock.patch.object(
+                                       usk_prefab_envelope.tempfile, "TemporaryFile", local_file):
+                self.assertEqual(inspect_envelope(carrier)["profile"], "one_file_carrier")
+                with mock.patch.object(usk_prefab_envelope.shutil, "disk_usage",
+                                       return_value=mock.Mock(free=0)):
+                    with self.assertRaisesRegex(EnvelopeError, "scratch headroom"):
+                        inspect_envelope(carrier)
+                carrier.write_bytes(original_bytes + b"hidden suffix")
+                with self.assertRaises(EnvelopeError):
+                    inspect_envelope(carrier)
+            self.assertEqual(len(observed), 2)
+            self.assertTrue(all(not path.exists() for path in observed))
+            self.assertEqual({item.name for item in output.iterdir()}, {carrier.name})
+
     def test_self_consistent_but_invalid_bundle_is_refused_in_both_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
