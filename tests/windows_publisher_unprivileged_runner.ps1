@@ -6,6 +6,7 @@ param(
     [ValidateSet('Prepublish', 'Postpublish')][string]$Stage = 'Postpublish',
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe')][string]$PayloadRelativePath = 'payload.bin',
     [ValidateSet('visible', 'selected-app')][string]$VisibleLeaf = 'visible',
+    [switch]$UnrelatedProductionAccount,
     [Management.Automation.PSCredential]$ExistingCredential,
     [string]$ExistingSid = ''
 )
@@ -15,9 +16,16 @@ $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIde
 $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP)
 $vhd = [IO.Path]::GetFullPath($VhdPath)
 $output = [IO.Path]::GetFullPath($OutputPath)
-$expectedOutput = if ($Stage -eq 'Prepublish') {
+$expectedOutput = if ($UnrelatedProductionAccount) {
+    'unprivileged-unrelated.json'
+} elseif ($Stage -eq 'Prepublish') {
     'unprivileged-prepublish.json'
 } else { 'unprivileged-attack.json' }
+if($UnrelatedProductionAccount -and ($Stage -ne 'Postpublish' -or
+    $VisibleLeaf -cne 'selected-app' -or $PayloadRelativePath -cne 'bin/core.bin' -or
+    $null -ne $ExistingCredential -or $ExistingSid -ne '')) {
+    throw 'Unrelated production attacker requires a fresh account and selected visible file'
+}
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
     -not $vhd.StartsWith($runnerTemp + [IO.Path]::DirectorySeparatorChar,
@@ -131,6 +139,8 @@ try {
     $receipt.observation = $observation
     $expectedAttempts = if ($Stage -eq 'Prepublish') {
         'staged_read,staged_write,staged_insert,destination_precreate'
+    } elseif($VisibleLeaf -eq 'selected-app') {
+        'visible_read,visible_write,destination_create,visible_delete,visible_write_dac,visible_ads_write,visible_hardlink,visible_rename'
     } else { 'visible_read,visible_write,destination_create,visible_delete' }
     if ($process.ExitCode -ne 0 -or
         $observation.schema -ne 'usk.publisher.unprivileged_access_probe.v1' -or
@@ -142,7 +152,7 @@ try {
         $observation.payload_relative_path -cne $PayloadRelativePath -or
         $observation.visible_leaf -cne $VisibleLeaf -or
         $observation.process_id -ne $process.Id -or
-        @($observation.attempts).Count -ne 4 -or
+        @($observation.attempts).Count -ne @($expectedAttempts.Split(',')).Count -or
         @($observation.attempts | Where-Object {
             $_.outcome -ne 'access_denied' -or $_.hresult -ne -2147024891
         }).Count -ne 0 -or
