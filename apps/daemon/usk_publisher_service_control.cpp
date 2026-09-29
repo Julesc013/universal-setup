@@ -947,32 +947,7 @@ std::string read_reviewed_apply(const std::wstring& envelope_path,
     return usk::json::canonical(request);
 }
 
-int apply_registered(const std::wstring& name, const std::wstring& installed_binary,
-    const std::wstring& volume, const std::wstring& envelope,
-    const std::wstring& envelope_digest, const std::wstring& caller,
-    const std::wstring& binary_digest, const std::wstring& apply_file,
-    const std::wstring& mode) {
-    require_current_caller_sid(caller);
-    require_file(apply_file);
-    const std::string request = read_reviewed_apply(envelope, envelope_digest, apply_file);
-    if (!lower_sha256(binary_digest)) {
-        throw std::runtime_error("installed publisher digest is invalid");
-    }
-    require_protected_binary(name, installed_binary);
-    usk::base::StableFile binary{std::filesystem::path(installed_binary)};
-    std::string expected_binary_digest;
-    expected_binary_digest.reserve(binary_digest.size());
-    for (const wchar_t ch : binary_digest) {
-        expected_binary_digest.push_back(static_cast<char>(ch));
-    }
-    if (binary.sha256_hex() != expected_binary_digest) {
-        throw std::runtime_error("installed publisher digest differs");
-    }
-    binary.verify_unchanged();
-    const std::wstring expected_command = command_prefix(name, installed_binary, volume) +
-        L" --reviewed-plan-envelope \"" + envelope + L"\" " + envelope_digest +
-        command_suffix(caller, mode);
-    request_start(name, installed_binary, volume, caller, mode, &expected_command);
+int report_registered_response(const std::wstring& name, const std::string& request) {
     std::string response;
     std::string status;
     try {
@@ -1003,6 +978,35 @@ int apply_registered(const std::wstring& name, const std::wstring& installed_bin
             "publisher response output failed");
     }
     return status == "pass" ? 0 : 3;
+}
+
+int apply_registered(const std::wstring& name, const std::wstring& installed_binary,
+    const std::wstring& volume, const std::wstring& envelope,
+    const std::wstring& envelope_digest, const std::wstring& caller,
+    const std::wstring& binary_digest, const std::wstring& apply_file,
+    const std::wstring& mode) {
+    require_current_caller_sid(caller);
+    require_file(apply_file);
+    const std::string request = read_reviewed_apply(envelope, envelope_digest, apply_file);
+    if (!lower_sha256(binary_digest)) {
+        throw std::runtime_error("installed publisher digest is invalid");
+    }
+    require_protected_binary(name, installed_binary);
+    usk::base::StableFile binary{std::filesystem::path(installed_binary)};
+    std::string expected_binary_digest;
+    expected_binary_digest.reserve(binary_digest.size());
+    for (const wchar_t ch : binary_digest) {
+        expected_binary_digest.push_back(static_cast<char>(ch));
+    }
+    if (binary.sha256_hex() != expected_binary_digest) {
+        throw std::runtime_error("installed publisher digest differs");
+    }
+    binary.verify_unchanged();
+    const std::wstring expected_command = command_prefix(name, installed_binary, volume) +
+        L" --reviewed-plan-envelope \"" + envelope + L"\" " + envelope_digest +
+        command_suffix(caller, mode);
+    request_start(name, installed_binary, volume, caller, mode, &expected_command);
+    return report_registered_response(name, request);
 }
 
 void configure_recovery(const std::wstring& name, const std::wstring& binary,
@@ -1093,6 +1097,90 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     }
 }
 
+int run_registered_operation(const std::wstring& name, const std::wstring& binary_path,
+    const std::wstring& volume, const std::wstring& caller,
+    const std::wstring& binary_digest, const std::wstring& request_path,
+    const std::wstring& access_mode, bool recovery) {
+    require_current_caller_sid(caller);
+    require_file(request_path);
+    if (!lower_sha256(binary_digest)) {
+        throw std::runtime_error("installed publisher digest is invalid");
+    }
+    usk::base::StableFile request_file{std::filesystem::path(request_path)};
+    if (!request_file.identity().size_bytes ||
+        request_file.identity().size_bytes > 1024u * 1024u) {
+        throw std::runtime_error("registered request exceeds transport bound");
+    }
+    const auto request_bytes = request_file.read(0,
+        static_cast<std::size_t>(request_file.identity().size_bytes));
+    request_file.verify_unchanged();
+    usk::json::ParseLimits limits;
+    limits.max_bytes = 1024u * 1024u;
+    limits.max_string_bytes = 512u * 1024u;
+    const auto parsed = usk::json::parse(
+        std::string(request_bytes.begin(), request_bytes.end()), limits);
+    const std::string expected_schema = recovery ?
+        "usk.publisher_recovery_request.v1" :
+        "usk.publisher_installed_verify_request.v1";
+    if (parsed.at("schema").as_string() != expected_schema) {
+        throw std::runtime_error("registered request mode differs");
+    }
+    const std::string request = usk::json::canonical(parsed);
+    require_protected_binary(name, binary_path);
+    usk::base::StableFile binary{std::filesystem::path(binary_path)};
+    std::string expected_digest;
+    expected_digest.reserve(binary_digest.size());
+    for (const wchar_t ch : binary_digest) {
+        expected_digest.push_back(static_cast<char>(ch));
+    }
+    if (binary.sha256_hex() != expected_digest) {
+        throw std::runtime_error("installed publisher digest differs");
+    }
+    binary.verify_unchanged();
+    {
+        // Reconfiguration and start share the same controller lock. No other
+        // cooperating controller can swap the mode between these steps.
+        ServiceControlGuard control(name);
+        ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+        if (!manager.get()) {
+            throw std::runtime_error("service manager connection unavailable");
+        }
+        ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
+            SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS |
+                SERVICE_START));
+        if (!service.get()) {
+            throw std::runtime_error("registered publisher service unavailable");
+        }
+        require_stopped(service.get());
+        const auto before = query_configuration(service.get());
+        require_profile(before);
+        require_existing_command(before.binary_path, name, binary_path,
+            volume, caller, access_mode);
+        const std::wstring command = command_prefix(name, binary_path, volume) +
+            (recovery ? L" --recover-reviewed" : L" --verify-installed") +
+            command_suffix(caller, access_mode);
+        if (!ChangeServiceConfigW(service.get(), SERVICE_NO_CHANGE, SERVICE_NO_CHANGE,
+                SERVICE_NO_CHANGE, command.c_str(), nullptr, nullptr, nullptr,
+                nullptr, nullptr, nullptr)) {
+            throw std::runtime_error("registered operation configuration failed");
+        }
+        const auto after = query_configuration(service.get());
+        require_profile(after);
+        if (after.binary_path != command) {
+            throw std::runtime_error("registered operation command readback differs");
+        }
+        if (recovery) {
+            require_exclusive_volume_admission(name, volume);
+        }
+        if (!StartServiceW(service.get(), 0, nullptr)) {
+            throw usk::platform::windows::PublisherRequestOutcomeUnknown(
+                "registered operation start outcome is uncertain; Win32 " +
+                std::to_string(GetLastError()));
+        }
+    }
+    return report_registered_response(name, request);
+}
+
 void request_unregister(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
@@ -1173,6 +1261,8 @@ void retire_protected_binary(const std::wstring& name,
 int wmain(int argc, wchar_t** argv) {
     const bool registration = argc >= 2 && std::wstring(argv[1]) == L"--register";
     const bool apply = argc >= 2 && std::wstring(argv[1]) == L"--apply-registered";
+    const bool run_recovery = argc >= 2 && std::wstring(argv[1]) == L"--recover-registered";
+    const bool run_verify = argc >= 2 && std::wstring(argv[1]) == L"--verify-registered";
     const bool recovery = argc >= 2 && std::wstring(argv[1]) == L"--recover";
     const bool verify = argc >= 2 && std::wstring(argv[1]) == L"--verify";
     const bool start = argc >= 2 && std::wstring(argv[1]) == L"--start";
@@ -1180,12 +1270,14 @@ int wmain(int argc, wchar_t** argv) {
     const bool retire = argc >= 2 && std::wstring(argv[1]) == L"--retire-binary";
     if ((!registration || (argc != 9 && argc != 10)) &&
         (!apply || (argc != 10 && argc != 11)) &&
+        (!run_recovery || (argc != 8 && argc != 9)) &&
+        (!run_verify || (argc != 8 && argc != 9)) &&
         (!recovery || (argc != 6 && argc != 7)) &&
         (!verify || (argc != 6 && argc != 7)) &&
         (!start || (argc != 6 && argc != 7)) &&
         (!unregister || (argc != 6 && argc != 7)) &&
         (!retire || argc != 6)) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID\n";
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --verify-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID\n";
         return 2;
     }
     try {
@@ -1193,7 +1285,8 @@ int wmain(int argc, wchar_t** argv) {
         const std::wstring binary(argv[3]);
         const std::wstring volume(retire ? L"" : argv[4]);
         const std::wstring caller(retire ? L"" : argv[(registration || apply) ? 7 : 5]);
-        const bool has_mode = !retire && argc == (apply ? 11 : registration ? 10 : 7);
+        const bool has_mode = !retire && argc ==
+            (apply ? 11 : registration ? 10 : (run_recovery || run_verify) ? 9 : 7);
         const std::wstring mode = has_mode ? argv[argc - 1] : L"";
         if (!generated_name(name) ||
             (has_mode && mode != L"--admit-client-observer" &&
@@ -1209,6 +1302,9 @@ int wmain(int argc, wchar_t** argv) {
         } else if (apply) {
             return apply_registered(name, binary, volume, argv[5], argv[6],
                 caller, argv[8], argv[9], mode);
+        } else if (run_recovery || run_verify) {
+            return run_registered_operation(name, binary, volume, caller,
+                argv[6], argv[7], mode, run_recovery);
         } else if (registration) {
             register_service(name, binary, volume, argv[5], argv[6], caller,
                 argv[8], mode);

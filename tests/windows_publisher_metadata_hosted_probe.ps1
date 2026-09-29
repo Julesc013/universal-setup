@@ -108,6 +108,7 @@ if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
 }
 $registeredMode=if($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
 $script:controllerPending=[bool]$ControllerApply
+$script:controllerMode='apply'
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess
 if($HostileRights -and $recover){throw 'Hostile-rights observation requires an uninterrupted operation'}
 $gate=if($InterruptAfterStage){'poststage'}elseif($InterruptBeforePublish){'prepublish'}elseif($InterruptAfterRename){'postrename'}else{'postjournal'}
@@ -353,12 +354,25 @@ function Start-RequestClient($submitted=$applyRequest) {
     [IO.File]::WriteAllText($clientRequest,($submitted|ConvertTo-Json -Depth 32 -Compress),$utf8)
     $controllerRequest=$script:controllerPending
     $requestBinary=if($controllerRequest){$ServiceControlBinary}elseif($MachineRequestClient){$MachineBinary}else{$ClientBinary}
-    $clientMode=if($controllerRequest){'controller_apply_registered'}elseif($MachineRequestClient){'candidate-service'}else{'service'}
+    $clientMode=if($controllerRequest){'controller_'+$script:controllerMode+'_registered'}elseif($MachineRequestClient){'candidate-service'}else{'service'}
     $binaryDigest=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant()
-    $requestArgs=if($controllerRequest){@('--apply-registered',$service,('"'+$ServiceBinary+'"'),$VolumeRoot,
-        ('"'+$envelope+'"'),$receipt.envelope_sha256,$callerSid,$sourceServiceHash,('"'+$clientRequest+'"'))}
+    $requestArgs=if($controllerRequest){
+        if($script:controllerMode -eq 'apply') {
+            @('--apply-registered',$service,('"'+$ServiceBinary+'"'),$VolumeRoot,
+                ('"'+$envelope+'"'),$receipt.envelope_sha256,$callerSid,$sourceServiceHash,('"'+$clientRequest+'"'))
+        } else {
+            $controllerVerb='--'+$script:controllerMode+'-registered'
+            @($controllerVerb,$service,('"'+$ServiceBinary+'"'),
+                $VolumeRoot,$callerSid,$sourceServiceHash,('"'+$clientRequest+'"'))
+        }
+    }
         elseif($MachineRequestClient){@('--candidate-service',$service,'--request-file',('"'+$clientRequest+'"'))}
         else{@('--service',$service,'--request-file',('"'+$clientRequest+'"'))}
+    if($controllerRequest) {
+        $expectedArgs=if($script:controllerMode -eq 'apply'){9}else{7}
+        if($requestArgs.Count -ne $expectedArgs){throw 'Registered controller argument shape differs'}
+    }
+    if($controllerRequest -and $registeredMode){$requestArgs+=$registeredMode}
     $options=@{FilePath=$requestBinary;ArgumentList=$requestArgs;
         WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$prefix+'-response.json';RedirectStandardError=$prefix+'-error.txt'}
     $identityPath=$prefix+'-identity.json'
@@ -1546,7 +1560,10 @@ try {
             throw 'Registered recovery accepted a different caller or changed service configuration'
         }
         $receipt['wrong_caller_recovery_refused']=$true
-        if($ReuseRegistration) {
+        if($ControllerApply) {
+            $script:controllerMode='recover'
+            $script:controllerPending=$true
+        } elseif($ReuseRegistration) {
             if($beforeControl -cne $expectedRegisteredCommand) {
                 throw 'Registered publisher command changed before source-free recovery'
             }
@@ -1606,6 +1623,7 @@ try {
             install_id=$recoveryRequest.install_id
             transaction_id=$recoveryRequest.transaction_id+'.changed'
         }
+        if($ControllerApply){$script:controllerPending=$true}
         Start-RegisteredPublisher
         $requestClient=Start-RequestClient $staleRecovery
         if(-not $requestClient.process.WaitForExit(120000)) {
@@ -1639,7 +1657,10 @@ try {
             request_id='verify.'+$id;install_id=$applyRequest.plan_request.install_id;
             transaction_id=$applyRequest.transaction_id;report_id='verify.'+$id;
             verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
-        if($ReuseRegistration) {
+        if($ControllerApply) {
+            $script:controllerMode='verify'
+            $script:controllerPending=$true
+        } elseif($ReuseRegistration) {
             if((Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
                 throw 'Registered publisher command changed before bound verification'
             }
@@ -1680,11 +1701,13 @@ try {
             report_digest=$verified.verify_response.payload.report_digest;
             bound_report_digest=$verified.bound_report_digest;
             client_exit_code=$verifyClient.process.ExitCode;
+            client_mode=$verifyClient.client_mode;
             response_sha256=(Get-FileHash -LiteralPath $verifyClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         $staleVerify=[ordered]@{}
         foreach($key in $verifyRequest.Keys){$staleVerify[$key]=$verifyRequest[$key]}
         $staleVerify.transaction_id='install.'+[guid]::NewGuid().ToString('N')
+        if($ControllerApply){$script:controllerPending=$true}
         Start-RegisteredPublisher
         $requestClient=Start-RequestClient $staleVerify
         $staleClient=$requestClient
@@ -1719,6 +1742,7 @@ try {
             foreach($key in $verifyRequest.Keys){$damageVerify[$key]=$verifyRequest[$key]}
             $damageVerify.request_id='verify.damaged.'+$id
             $damageVerify.report_id='verify.damaged.'+$id
+            if($ControllerApply){$script:controllerPending=$true}
             Start-RegisteredPublisher
             $requestClient=Start-RequestClient $damageVerify
             $damageClient=$requestClient

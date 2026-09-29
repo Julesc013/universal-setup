@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
-"""A changed reviewed apply must refuse before starting an SCM service."""
+"""Changed registered requests must refuse before starting an SCM service."""
 
 from __future__ import annotations
 
@@ -51,6 +51,21 @@ def main() -> int:
                                 timeout=10, check=False)
         if result.returncode != 3 or "differs" not in result.stderr:
             raise AssertionError(f"reviewed apply substitution was admitted: {result}")
+        for operation, expected_schema in (
+            ("--recover-registered", "usk.publisher_recovery_request.v1"),
+            ("--verify-registered", "usk.publisher_installed_verify_request.v1"),
+        ):
+            wrong_request = root / (operation[2:] + ".json")
+            write_json(wrong_request, {"schema": "usk.install_local_apply_request.v1"})
+            result = subprocess.run(
+                [str(executable), operation, service, str(executable), volume,
+                 caller, "0" * 64, str(wrong_request)],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 3 or "mode differs" not in result.stderr:
+                raise AssertionError(
+                    f"{operation} accepted a request other than {expected_schema}: {result}"
+                )
         after = subprocess.run(["sc.exe", "query", service],
                                capture_output=True, timeout=10, check=False)
         if after.returncode != 1060:
