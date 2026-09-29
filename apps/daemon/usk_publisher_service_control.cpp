@@ -556,6 +556,87 @@ void require_volume(const std::wstring& value) {
     (void)usk::platform::windows::publisher_volume_operation_guard_name(value);
 }
 
+// Locking NTFS dismounts it. The remounted volume device can lose the
+// per-service ACE installed by the dedicated-volume provisioner. Reinstate
+// only that exact service SID after the lock and before starting SCM.
+void require_volume_device_service_access(const std::wstring& device,
+    const std::vector<BYTE>& service_sid) {
+    FileHandle volume(CreateFileW(device.c_str(), READ_CONTROL | WRITE_DAC,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, 0, nullptr));
+    if (volume.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("remounted publisher device cannot be secured; Win32 " +
+            std::to_string(GetLastError()));
+    const auto inspect = [&](PACL dacl) {
+        if (!dacl) throw std::runtime_error("publisher volume device has a null DACL");
+        unsigned matching = 0;
+        for (DWORD index = 0; index < dacl->AceCount; ++index) {
+            void* entry = nullptr;
+            if (!GetAce(dacl, index, &entry))
+                throw std::runtime_error("publisher volume device ACE is unreadable");
+            const auto* header = static_cast<ACE_HEADER*>(entry);
+            if (header->AceType != ACCESS_ALLOWED_ACE_TYPE) continue;
+            const auto* ace = static_cast<ACCESS_ALLOWED_ACE*>(entry);
+            if (EqualSid(const_cast<SID*>(reinterpret_cast<const SID*>(&ace->SidStart)),
+                    const_cast<BYTE*>(service_sid.data()))) {
+                if (header->AceFlags != 0 || ace->Mask != FILE_ALL_ACCESS)
+                    throw std::runtime_error("publisher volume device service ACE differs");
+                ++matching;
+            }
+        }
+        if (matching > 1) throw std::runtime_error("publisher volume device service ACE repeats");
+        return matching == 1;
+    };
+    PACL before = nullptr;
+    PSECURITY_DESCRIPTOR before_descriptor = nullptr;
+    const DWORD read_error = GetSecurityInfo(volume.get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, &before, nullptr,
+        &before_descriptor);
+    if (read_error != ERROR_SUCCESS)
+        throw std::runtime_error("publisher volume device DACL is unavailable; Win32 " +
+            std::to_string(read_error));
+    bool already_granted = false;
+    try { already_granted = inspect(before); }
+    catch (...) { LocalFree(before_descriptor); throw; }
+    if (!already_granted) {
+        EXPLICIT_ACCESS_W grant{};
+        grant.grfAccessPermissions = FILE_ALL_ACCESS;
+        grant.grfAccessMode = GRANT_ACCESS;
+        grant.grfInheritance = NO_INHERITANCE;
+        grant.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        grant.Trustee.TrusteeType = TRUSTEE_IS_USER;
+        grant.Trustee.ptstrName = reinterpret_cast<LPWSTR>(
+            const_cast<BYTE*>(service_sid.data()));
+        PACL updated = nullptr;
+        const DWORD compose_error = SetEntriesInAclW(1, &grant, before, &updated);
+        if (compose_error != ERROR_SUCCESS || !updated) {
+            LocalFree(before_descriptor);
+            throw std::runtime_error("publisher volume device service ACE cannot be composed");
+        }
+        const DWORD set_error = SetSecurityInfo(volume.get(), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION, nullptr, nullptr, updated, nullptr);
+        LocalFree(updated);
+        if (set_error != ERROR_SUCCESS) {
+            LocalFree(before_descriptor);
+            throw std::runtime_error("publisher volume device service ACE cannot be installed; Win32 " +
+                std::to_string(set_error));
+        }
+    }
+    LocalFree(before_descriptor);
+    PACL after = nullptr;
+    PSECURITY_DESCRIPTOR after_descriptor = nullptr;
+    const DWORD confirm_error = GetSecurityInfo(volume.get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, &after, nullptr,
+        &after_descriptor);
+    if (confirm_error != ERROR_SUCCESS)
+        throw std::runtime_error("publisher volume device service ACE cannot be read back");
+    try {
+        if (!inspect(after))
+            throw std::runtime_error("publisher volume device service ACE was not retained");
+    } catch (...) { LocalFree(after_descriptor); throw; }
+    LocalFree(after_descriptor);
+}
+
 // Run in the elevated controller just before SCM start. The restricted
 // service cannot open a volume for direct DASD access. A protected root ACL
 // alone cannot revoke a handle opened during volume provisioning; Windows'
@@ -578,7 +659,9 @@ void require_exclusive_volume_admission(const std::wstring& name,
         if (ch > 0x7f) throw std::runtime_error("publisher service SID is not ASCII");
         service_sid_ascii.push_back(static_cast<char>(ch));
     }
-    {
+    std::string root_file_id;
+    ULONGLONG root_volume_serial = 0;
+    const auto observe_root = [&] {
         ScopedBackupPrivilege backup_observation;
         FileHandle held_root(CreateFileW(root.c_str(),
             FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
@@ -589,11 +672,21 @@ void require_exclusive_volume_admission(const std::wstring& name,
             throw std::runtime_error("cannot open protected volume root for admission; Win32 " +
                 std::to_string(GetLastError()));
         }
-        (void)usk::platform::windows::observe_local_ntfs_volume_handle(held_root.get());
+        const auto volume_facts =
+            usk::platform::windows::observe_local_ntfs_volume_handle(held_root.get());
+        const auto root_facts =
+            usk::platform::windows::observe_publisher_directory_handle(held_root.get());
         usk::platform::windows::require_publisher_object_security_shape(
-            usk::platform::windows::observe_publisher_directory_handle(held_root.get()),
-            service_sid_ascii);
-    }
+            root_facts, service_sid_ascii);
+        if (root_file_id.empty()) {
+            root_file_id = root_facts.file_id;
+            root_volume_serial = volume_facts.file_id_volume_serial;
+        } else if (root_facts.file_id != root_file_id ||
+            volume_facts.file_id_volume_serial != root_volume_serial) {
+            throw std::runtime_error("publisher volume root changed across exclusive admission");
+        }
+    };
+    observe_root();
     const std::wstring device = root.substr(0, root.size() - 1);
     FileHandle volume(CreateFileW(device.c_str(), GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
@@ -612,6 +705,9 @@ void require_exclusive_volume_admission(const std::wstring& name,
         throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
             std::to_string(GetLastError()));
     }
+    volume.close();
+    observe_root(); // Remount through the same GUID and recheck the exact root.
+    require_volume_device_service_access(device, sid);
 }
 
 std::wstring command_prefix(const std::wstring& service,
