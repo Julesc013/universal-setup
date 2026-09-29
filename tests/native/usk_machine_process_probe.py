@@ -180,6 +180,32 @@ def main() -> int:
         assert b"SECRET_CANARY_FROM_STDIN" not in from_file.stdout + from_file.stderr
 
         if sys.platform == "win32":
+            candidate_name = "USK_PUB_" + "0" * 32
+            candidate_options = ("--candidate-service", candidate_name)
+            # The one-shot product surface must not dispatch read-only requests
+            # or silently treat a lost publisher reply as a refused mutation.
+            candidate_read = run(executable, "--machine", encoded, *candidate_options)
+            assert candidate_read.returncode != 0
+            assert json.loads(candidate_read.stdout)["error"]["code"] == \
+                "command_unavailable"
+            candidate_context = run(executable, "--machine", plan_bytes,
+                                    *candidate_options, "--context-file", str(context_file))
+            assert candidate_context.returncode == 2 and not candidate_context.stdout
+            candidate_apply = {
+                "schema": "usk.oneshot_request.v1", "request_id": "candidate-process",
+                "command": "install_local.apply", "dry_run": False,
+                "payload": {"schema": "usk.install_local_apply_request.v1"},
+            }
+            candidate_bytes = json.dumps(candidate_apply).encode("utf-8")
+            absent_service = run(executable, "--machine", candidate_bytes,
+                                 *candidate_options)
+            assert absent_service.returncode == 5
+            assert json.loads(absent_service.stdout)["status"] == "unknown"
+            absent_framed = run(executable, "--framed",
+                                struct.pack(">I", len(candidate_bytes)) + candidate_bytes,
+                                *candidate_options)
+            assert absent_framed.returncode == 5
+            assert json.loads(absent_framed.stdout[4:])["status"] == "unknown"
             invalid_service = subprocess.run(
                 [executable, "--candidate-service", "invalid", "--request-file", str(source)],
                 capture_output=True, timeout=20, check=False)
