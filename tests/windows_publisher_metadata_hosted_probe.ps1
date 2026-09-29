@@ -1355,11 +1355,10 @@ try {
         $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
-        $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
         if($ExpectPreexistingAnchorRefusal) {
             $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
             if($receipt.native.status -ne 'failed' -or
-                $receipt.native.error -notmatch 'Windows parent-bound create-only object failed' -or
+                $receipt.native.error -notmatch 'publisher exact anchor sibling is unavailable|publisher parent-bound child open failed' -or
                 $receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service -or
                 -not (Test-Path -LiteralPath $poisonedAnchor -PathType Container) -or
                 @(Get-ChildItem -LiteralPath $poisonedAnchor -Force).Count -ne 1 -or
@@ -1376,6 +1375,7 @@ try {
                 anchor_sddl=$poisonedAnchorAcl;marker_sddl=$poisonedMarkerAcl;unchanged=$true}
             $receipt.status='preexisting_anchor_refusal_observed'
         } else {
+            $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
             if($receipt.native.status -ne 'failed' -or
                 $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
                 $receipt.root_acl_before -cne $receipt.root_acl_after -or
