@@ -201,8 +201,9 @@ public static class USKPublisherRenameRace {
             while (!stopping) {
                 long start = Stopwatch.GetTimestamp();
                 bool succeeded = MoveFileExW(source, destination, 0);
-                int error = Marshal.GetLastWin32Error();
+                // Keep managed error extraction outside the measured native call.
                 long end = Stopwatch.GetTimestamp();
+                int error = Marshal.GetLastWin32Error();
                 if (!succeeded && (error == 2 || error == 3) && attempts == 0) {
                     missingBeforeProtectedRoot++;
                     Thread.Sleep(1);
