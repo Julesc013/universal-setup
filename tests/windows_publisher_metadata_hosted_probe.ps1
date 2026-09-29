@@ -225,8 +225,11 @@ function Get-OwnedPreexistingAnchorObservation {
     Assert-OwnedVolume
     $taskName='USK_ANCHOR_'+$id
     $observation=Join-Path $observerRoot 'preexisting-anchor-end.json'
+    $pending=$observation+'.pending'
     if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $observation)) {throw 'Owned anchor observer collision'}
+        (Test-Path -LiteralPath $observation) -or (Test-Path -LiteralPath $pending)) {
+        throw 'Owned anchor observer collision'
+    }
     $anchor=$drive+'publication'
     $marker=Join-Path $anchor 'preexisting-owner-marker.bin'
     $state=$drive+'setup-state'
@@ -247,7 +250,10 @@ function Get-OwnedPreexistingAnchorObservation {
         'anchor_sddl=(Get-Acl -LiteralPath $anchor).Sddl;'+
         'marker_sddl=(Get-Acl -LiteralPath $marker).Sddl;'+
         'setup_state_present=(Test-Path -LiteralPath $state)};'+
-        '[IO.File]::WriteAllText('''+$observation.Replace("'","''")+''',($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))'
+        '$pending='''+$pending.Replace("'","''")+''';'+
+        '$final='''+$observation.Replace("'","''")+''';'+
+        '[IO.File]::WriteAllText($pending,($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));'+
+        '[IO.File]::Move($pending,$final)'
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
     $registered=$false
@@ -269,6 +275,7 @@ function Get-OwnedPreexistingAnchorObservation {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
             if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned anchor observer cleanup failed'}
         }
+        if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Force -ErrorAction Stop}
         if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
     }
 }
