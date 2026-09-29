@@ -19,6 +19,8 @@ expected digest must come from the reviewed package identity:
 ```text
 usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SOURCE_SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID SERVICE_EXE_SHA256 [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --apply-registered USK_PUB_<32 lowercase hex> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID SERVICE_EXE_SHA256 APPLY_JSON [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --recover-registered USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID SERVICE_EXE_SHA256 RECOVERY_JSON [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --verify-registered USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID SERVICE_EXE_SHA256 VERIFY_JSON [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --recover USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --verify USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 usk_publisher_service_control --start USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
@@ -42,6 +44,13 @@ can use `--recover` and the same authenticated recovery request. The caller
 must retain the service name, volume identity, installed service path, request,
 and envelope for servicing. This selected candidate does not enable the public
 strict capability or qualify an arbitrary customer target.
+
+`--recover-registered` and `--verify-registered` accept a bounded request
+for the same registered caller and protected binary. They reconfigure and
+start the stopped service under one controller lock, then return its
+authenticated terminal response. An uncertain start or transport returns
+outcome unknown and retains the service for recovery. Volume provisioning
+and the selected-profile restriction remain separate obligations.
 
 The second command changes only a stopped, matching own-process LocalSystem
 service with a restricted service SID. It keeps that service name and SID for

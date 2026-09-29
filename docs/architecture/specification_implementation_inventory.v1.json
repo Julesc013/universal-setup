@@ -1026,7 +1026,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "6ba2c523e5a17e9be725451176b48e7fa0de827a30a20298f9763c5dcb6e86a2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         },
         {
           "path": "runtime/platform/README.md",
@@ -1057,7 +1057,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "6ba2c523e5a17e9be725451176b48e7fa0de827a30a20298f9763c5dcb6e86a2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         },
         {
           "path": "runtime/platform/README.md",
@@ -1088,7 +1088,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "6ba2c523e5a17e9be725451176b48e7fa0de827a30a20298f9763c5dcb6e86a2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         },
         {
           "path": "runtime/platform/README.md",
@@ -2168,7 +2168,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "6ba2c523e5a17e9be725451176b48e7fa0de827a30a20298f9763c5dcb6e86a2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         }
       ],
       "acceptance_ids": [
@@ -2199,7 +2199,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "6ba2c523e5a17e9be725451176b48e7fa0de827a30a20298f9763c5dcb6e86a2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         }
       ],
       "acceptance_ids": [
@@ -2230,7 +2230,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "6ba2c523e5a17e9be725451176b48e7fa0de827a30a20298f9763c5dcb6e86a2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         }
       ],
       "acceptance_ids": [
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "7a2a26bc58606154909edd781543b7f38ad061075d758ea4418db867b17ce152"
+          "sha256": "001bf74a93ef64b43a88154a83ac48d465db80842dcf08e4c5c9d7b9cf65326f"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4351,7 +4351,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "7a2a26bc58606154909edd781543b7f38ad061075d758ea4418db867b17ce152"
+          "sha256": "001bf74a93ef64b43a88154a83ac48d465db80842dcf08e4c5c9d7b9cf65326f"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
