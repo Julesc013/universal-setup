@@ -174,7 +174,10 @@ public static class USKPublisherAncestorAttack {
     [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
 }
 public static class USKPublisherRenameRace {
-    const int Capacity = 262144;
+    // Two 8 MiB timestamp arrays retain at least ten seconds at the
+    // 100,000-attempt/second cap without growing with publisher duration.
+    const int Capacity = 1048576;
+    const int MaximumAttemptsPerSecond = 100000;
     static readonly long[] Starts = new long[Capacity];
     static readonly long[] Ends = new long[Capacity];
     static readonly ManualResetEventSlim Started = new ManualResetEventSlim(false);
@@ -201,6 +204,7 @@ public static class USKPublisherRenameRace {
     static void Loop() {
         try {
             Started.Set();
+            long minimumInterval = Math.Max(1, Stopwatch.Frequency / MaximumAttemptsPerSecond);
             while (!stopping) {
                 long start = Stopwatch.GetTimestamp();
                 bool succeeded = MoveFileExW(source, destination, 0);
@@ -220,6 +224,8 @@ public static class USKPublisherRenameRace {
                 Starts[index] = start;
                 Ends[index] = end;
                 attempts++;
+                while (!stopping && Stopwatch.GetTimestamp() - start < minimumInterval)
+                    Thread.SpinWait(16);
             }
         } catch (Exception error) { failure = error.GetType().FullName; }
     }
@@ -247,6 +253,7 @@ public static class USKPublisherRenameRace {
             { "operation", "publication_rename" },
             { "clock", "qpc" },
             { "clock_frequency", Stopwatch.Frequency },
+            { "maximum_attempts_per_second", MaximumAttemptsPerSecond },
             { "attempt_count", attempts },
             { "missing_before_protected_root", missingBeforeProtectedRoot },
             { "retained_first_tick", first < attempts ? Starts[first % Capacity] : 0 },
@@ -397,6 +404,10 @@ public static class USKPublisherRenameRace {
             if (-not $renameRaceStarted -or -not $renameRaceSummary -or
                 $renameRaceSummary.failure -or $renameRaceSummary.attempt_count -lt 1) {
                 throw 'production native rename attacker did not retain denied attempts'
+            }
+            if ([long]$renameRaceSummary.retained_first_tick -gt
+                [long]$renameTarget.start_tick) {
+                throw 'production native rename attacker history no longer covers publisher call'
             }
             if ($renameRaceSummary.overlap_count -lt 1) {
                 throw 'production native rename attacker did not overlap the publisher call'
