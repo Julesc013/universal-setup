@@ -61,7 +61,10 @@ usk_machine --machine --candidate-service USK_PUB_<32 lowercase hex> --request-f
 Set `dry_run=false` and use the matching reviewed publisher request as
 `payload`. The bounded response retains the service observation in `result`.
 `ok` exits 0, a service refusal exits 4, and `recovery_required` or an unknown
-transport outcome exits 5 with distinct response statuses. The service still
+transport outcome exits 5 with distinct response statuses. A completed
+verification with file drift returns `ok` at the machine layer;
+read the nested verification report's `fail`, `warn`, or `unknown` status.
+The service still
 checks the selected source, plan, target, caller and registered identity;
 choosing a candidate service does not grant publisher authority. Planning
 contexts cannot be combined with this mode. The hosted machine-client check

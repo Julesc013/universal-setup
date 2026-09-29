@@ -338,6 +338,40 @@ function Read-NativeReceipt([string]$Path) {
     if(-not $raw -or $raw.Length -gt 4MB){throw 'Native service receipt is empty or exceeds bound'}
     return $raw|ConvertFrom-Json
 }
+function Read-ClientObservation($client) {
+    $replyFile=Get-Item -LiteralPath $client.response -ErrorAction Stop
+    if($replyFile.Length -eq 0 -or $replyFile.Length -gt 4MB) {
+        throw 'Authenticated client response is empty or exceeds its bound'
+    }
+    $parsed=Get-Content -LiteralPath $client.response -Raw|ConvertFrom-Json
+    if($client.client_mode -ne 'machine-one-shot') {
+        return [pscustomobject]@{service=$parsed;envelope=$null}
+    }
+    if($parsed.schema -cne 'usk.oneshot_response.v1' -or
+        $parsed.request_id -cne $client.request_id -or
+        $parsed.result.schema -cne 'usk.publisher_lab_service_observation.v1') {
+        throw 'Machine client envelope or service result differs'
+    }
+    $expectedExit=switch([string]$parsed.status) {
+        'ok' {0}
+        'refused' {4}
+        'recovery_required' {5}
+        default {throw 'Machine client response has an unknown or invalid terminal status'}
+    }
+    if($client.process.ExitCode -ne $expectedExit -or
+        ($parsed.status -eq 'refused' -and $parsed.result.status -cne 'failed') -or
+        ($parsed.status -eq 'recovery_required' -and
+            $parsed.result.status -cne 'recovery_required') -or
+        ($parsed.status -eq 'ok' -and $parsed.result.status -cne 'pass' -and
+            -not ($parsed.result.status -ceq 'failed' -and
+                $parsed.result.verify_response.status -ceq 'ok' -and
+                $parsed.result.verify_response.payload.status -in @('fail','warn','unknown') -and
+                $parsed.result.verify_response.payload.report_digest -ceq
+                    $parsed.result.bound_report_digest))) {
+        throw 'Machine client terminal status differs from authenticated service result'
+    }
+    return [pscustomobject]@{service=$parsed.result;envelope=$parsed}
+}
 function Start-RegisteredPublisher {
     if($script:controllerPending){return}
     $startArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
@@ -399,7 +433,8 @@ function Start-RequestClient($submitted=$applyRequest) {
     if($controllerRequest){$script:controllerPending=$false}
     return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt';
         identity=$identityPath;binary_path=[IO.Path]::GetFullPath($requestBinary);
-        binary_sha256=$binaryDigest;client_mode=$clientMode}
+        binary_sha256=$binaryDigest;client_mode=$clientMode;
+        request_id=if($clientMode -eq 'machine-one-shot'){'hosted-'+$script:clientNumber}else{''}}
 }
 function Assert-RequestClientImage($client) {
     if(-not ($ConsumerAccess -or $NonAdminClient)){return $null}
@@ -1367,7 +1402,14 @@ try {
             throw ('Registered service client failed or wrote a lab receipt: '+
                 ($diagnostic|ConvertTo-Json -Compress))
         }
-        $receipt.native=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        $clientObservation=Read-ClientObservation $requestClient
+        $receipt.native=$clientObservation.service
+        if($clientObservation.envelope) {
+            $receipt['machine_one_shot_apply']=[ordered]@{
+                request_id=$clientObservation.envelope.request_id;
+                status=$clientObservation.envelope.status;
+                response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
+        }
         if($HostileRights) {
             if(-not (Test-Path -LiteralPath $nativePath) -or
                 [IO.File]::ReadAllText($requestClient.response).Trim() -cne
@@ -1389,7 +1431,11 @@ try {
             binary_sha256=(Get-FileHash -LiteralPath $requestBinary -Algorithm SHA256).Hash.ToLowerInvariant();
             response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant();
             delivery='response_received'}
-        $receipt['native_response_sha256']=$receipt.authenticated_client.response_sha256
+        if($clientObservation.envelope) {
+            $receipt['machine_one_shot_response_sha256']=$receipt.authenticated_client.response_sha256
+        } else {
+            $receipt['native_response_sha256']=$receipt.authenticated_client.response_sha256
+        }
         $requestClient=$null
         if($concurrentAttacker) {
             [IO.File]::WriteAllText($concurrentCompleted,
@@ -1605,7 +1651,8 @@ try {
             (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB) {
             throw ('Registered recovery client failed: '+[IO.File]::ReadAllText($requestClient.error))
         }
-        $recovered=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        $recoveredResult=Read-ClientObservation $requestClient
+        $recovered=$recoveredResult.service
         if($recovered.status -ne 'pass' -or
             $recovered.recovery_observation.decision -ne 'already_visible_bound' -or
             $recovered.install_operation_guard_held -ne $true -or
@@ -1621,6 +1668,7 @@ try {
         }
         $receipt['registered_source_free_reentry']=[ordered]@{
             status=$recovered.status;decision=$recovered.recovery_observation.decision;
+            one_shot_status=$(if($recoveredResult.envelope){$recoveredResult.envelope.status}else{$null});
             request_schema=$submittedRecovery.schema;
             client_exit_code=$requestClient.process.ExitCode;
             client_mode=$requestClient.client_mode;
@@ -1650,13 +1698,15 @@ try {
         }
         $requestClient.process.WaitForExit()
         $staleClientIdentity=Assert-RequestClientImage $requestClient
-        $stale=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
+        $staleResult=Read-ClientObservation $requestClient
+        $stale=$staleResult.service
         if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
             $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
             throw 'Changed minimal recovery request was admitted'
         }
         $receipt['stale_minimal_recovery_refused']=[ordered]@{
             status=$stale.status;client_mode=$requestClient.client_mode;
+            one_shot_status=$(if($staleResult.envelope){$staleResult.envelope.status}else{$null});
             client_binary_sha256=$requestClient.binary_sha256;
             client_observation=$staleClientIdentity;
             response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
@@ -1702,7 +1752,8 @@ try {
             (Get-Item -LiteralPath $verifyClient.response).Length -gt 4MB) {
             throw ('Registered verification client failed: '+[IO.File]::ReadAllText($verifyClient.error))
         }
-        $verified=Get-Content -LiteralPath $verifyClient.response -Raw|ConvertFrom-Json
+        $verifiedResult=Read-ClientObservation $verifyClient
+        $verified=$verifiedResult.service
         if($verified.status -ne 'pass' -or $verified.transaction_id -cne $applyRequest.transaction_id -or
             $verified.verify_response.status -ne 'ok' -or
             $verified.verify_response.payload.status -ne 'pass' -or
@@ -1717,6 +1768,7 @@ try {
             throw 'Registered publisher command changed during read-only verification'
         }
         $receipt['registered_installed_verify']=[ordered]@{status=$verified.status;
+            one_shot_status=$(if($verifiedResult.envelope){$verifiedResult.envelope.status}else{$null});
             report_digest=$verified.verify_response.payload.report_digest;
             bound_report_digest=$verified.bound_report_digest;
             client_exit_code=$verifyClient.process.ExitCode;
@@ -1733,12 +1785,16 @@ try {
         if(-not $staleClient.process.WaitForExit(120000)){throw 'Stale verification client timed out'}
         $staleClient.process.WaitForExit()
         $requestClient=$null
-        $staleResponse=Get-Content -LiteralPath $staleClient.response -Raw|ConvertFrom-Json
+        $staleVerifyResult=Read-ClientObservation $staleClient
+        $staleResponse=$staleVerifyResult.service
         if($staleClient.process.ExitCode -eq 0 -or $staleResponse.status -ne 'failed' -or
             $staleResponse.error -notmatch 'differs from completed install') {
             throw 'Stale authenticated verification request was not refused'
         }
         $receipt.registered_installed_verify['stale_transaction_refused']=$true
+        if($staleVerifyResult.envelope) {
+            $receipt.registered_installed_verify['stale_one_shot_status']=$staleVerifyResult.envelope.status
+        }
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         if($verifyRows.independent.identity -ne 'S-1-5-18' -or -not $verifyRows.observer_task_removed -or
@@ -1771,11 +1827,14 @@ try {
             if((Get-Item -LiteralPath $damageClient.response).Length -gt 4MB){
                 throw 'Damaged verification response exceeds client budget'
             }
-            $damageResponse=Get-Content -LiteralPath $damageClient.response -Raw|ConvertFrom-Json
+            $damageResult=Read-ClientObservation $damageClient
+            $damageResponse=$damageResult.service
             $damagedFiles=@($damageResponse.verify_response.payload.files|Where-Object {
                 $_.relative_path -ceq $damageEntries[0].relative_path
             })
-            if($damageClient.process.ExitCode -ne 3 -or $damageResponse.status -cne 'failed' -or
+            $expectedDamageExit=if($damageClient.client_mode -eq 'machine-one-shot'){0}else{3}
+            if($damageClient.process.ExitCode -ne $expectedDamageExit -or
+                $damageResponse.status -cne 'failed' -or
                 $damageResponse.transaction_id -cne $applyRequest.transaction_id -or
                 $damageResponse.verify_response.status -cne 'ok' -or
                 $damageResponse.verify_response.payload.status -cne 'fail' -or
@@ -1816,6 +1875,7 @@ try {
                 after_sha256=$damaged.after_sha256;report_digest=$damageResponse.verify_response.payload.report_digest;
                 bound_report_digest=$damageResponse.bound_report_digest;
                 status=$damageResponse.verify_response.payload.status;
+                one_shot_status=$(if($damageResult.envelope){$damageResult.envelope.status}else{$null});
                 unchanged_other_rows=$otherAfter.Count;client_exit_code=$damageClient.process.ExitCode}
         }
     }

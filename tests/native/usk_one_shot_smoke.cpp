@@ -121,6 +121,29 @@ int main()
     if (retained.exit_code != 5 ||
         usk::json::parse(retained.document).at("status").as_string() !=
             "recovery_required") return 17;
+    const std::string verify_request =
+        "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"verify-1\","
+        "\"command\":\"installed.verify\",\"payload\":{\"schema\":"
+        "\"usk.publisher_installed_verify_request.v1\"},\"dry_run\":false}";
+    const auto drift = usk::command::run_candidate_one_shot(verify_request,
+        [](const std::string&) {
+            return "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+                "\"status\":\"failed\",\"bound_report_digest\":\"digest\","
+                "\"verify_response\":{\"schema\":\"usk.command_response.v1\","
+                "\"status\":\"ok\",\"payload\":{\"schema\":"
+                "\"usk.verification_report.v1\",\"status\":\"fail\","
+                "\"report_digest\":\"digest\"}}}";
+        });
+    if (drift.exit_code != 0 ||
+        usk::json::parse(drift.document).at("status").as_string() != "ok") return 19;
+    const auto verify_refusal = usk::command::run_candidate_one_shot(verify_request,
+        [](const std::string&) {
+            return "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
+                "\"status\":\"failed\",\"error\":\"stale request\"}";
+        });
+    if (verify_refusal.exit_code != 4 ||
+        usk::json::parse(verify_refusal.document).at("status").as_string() !=
+            "refused") return 20;
     const auto unavailable = usk::command::run_candidate_one_shot(
         "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"candidate-1\","
         "\"command\":\"repair.apply\",\"payload\":{},\"dry_run\":false}",

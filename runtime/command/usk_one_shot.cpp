@@ -215,6 +215,7 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
     std::string request_id;
     std::string request;
     std::string response_field;
+    std::string candidate_command;
     try {
         usk::json::ParseLimits limits;
         limits.max_bytes = max_request_bytes;
@@ -229,6 +230,7 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
         request_id = input.at("request_id").as_string();
         if (!safe_id(request_id)) return failure("", "invalid_request_id");
         const std::string command = input.at("command").as_string();
+        candidate_command = command;
         std::string expected_schema;
         if (command == "install_local.apply") {
             expected_schema = "usk.install_local_apply_request.v1";
@@ -269,6 +271,25 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
                     "usk.command_response.v1" ||
                 observed.at(response_field).at("status").as_string() != "ok")
                 throw std::runtime_error("candidate public response differs");
+            return candidate_outcome(request_id, "ok", observed, nullptr, 0);
+        }
+        if (status == "failed" && candidate_command == "installed.verify" &&
+            observed.contains("verify_response")) {
+            const auto& public_response = observed.at("verify_response");
+            if (public_response.at("schema").as_string() !=
+                    "usk.command_response.v1" ||
+                public_response.at("status").as_string() != "ok" ||
+                public_response.at("payload").at("schema").as_string() !=
+                    "usk.verification_report.v1")
+                throw std::runtime_error("candidate verification response differs");
+            const std::string report_status =
+                public_response.at("payload").at("status").as_string();
+            if ((report_status != "fail" && report_status != "warn" &&
+                    report_status != "unknown") ||
+                public_response.at("payload").at("report_digest").as_string() !=
+                    observed.at("bound_report_digest").as_string())
+                throw std::runtime_error("candidate verification report differs");
+            // A valid drift report is a completed diagnosis, not a refusal.
             return candidate_outcome(request_id, "ok", observed, nullptr, 0);
         }
         if (status == "failed")
