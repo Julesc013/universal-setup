@@ -621,13 +621,16 @@ if(USK_BUILD_TESTS)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
       target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
       usk_enable_strict_warnings(usk_publisher_lab_device_acl)
+      # Keep the packaged machine-client journey in the normal hosted gate.
+      # Its prior branch-prefix condition omitted this real install/verify
+      # path from integrated dev and every later publisher candidate.
       if(TARGET usk_machine AND DEFINED ENV{GITHUB_ACTIONS} AND
           "$ENV{RUNNER_ENVIRONMENT}" STREQUAL "github-hosted" AND
-          "$ENV{GITHUB_HEAD_REF}" MATCHES "^task/usk-wu-013-")
+          "$ENV{USK_TRUSTED_HOSTED_LAB}" STREQUAL "true")
         add_test(NAME usk_machine_registered_candidate_hosted
           COMMAND pwsh -NoProfile -NonInteractive -File
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
-            -OutputPath "$ENV{RUNNER_TEMP}/usk-wu013-machine-bridge.json"
+            -OutputPath "$ENV{RUNNER_TEMP}/usk-wu006-packaged-machine-bridge.json"
             -ServiceBinary "$<TARGET_FILE:usk_publisher_service>"
             -ServiceControlBinary "$<TARGET_FILE:usk_publisher_service_control>"
             -DeviceAclBinary "$<TARGET_FILE:usk_publisher_lab_device_acl>"

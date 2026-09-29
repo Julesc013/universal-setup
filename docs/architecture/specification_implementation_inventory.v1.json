@@ -870,7 +870,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -994,7 +994,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -2685,7 +2685,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2720,7 +2720,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2755,7 +2755,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
+          "sha256": "93bb9cd142b3da37f72bab621cf0fd8d4b4fb365f4f9b6bd83ee3cf2d8a80a06"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3496,7 +3496,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         }
       ],
       "acceptance_ids": [
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
+          "sha256": "93bb9cd142b3da37f72bab621cf0fd8d4b4fb365f4f9b6bd83ee3cf2d8a80a06"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3532,7 +3532,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         }
       ],
       "acceptance_ids": [
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
+          "sha256": "93bb9cd142b3da37f72bab621cf0fd8d4b4fb365f4f9b6bd83ee3cf2d8a80a06"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3568,7 +3568,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         }
       ],
       "acceptance_ids": [
@@ -3644,7 +3644,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -3951,7 +3951,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -4263,7 +4263,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "a2c63e9b0fb7001668bedcac534d743b123ff6fe6b17cf22bf17d5c1446de5e8"
+          "sha256": "c6d286273978aa6307f41491edbef20727294e2f30ae8bd816eda228a6bc0640"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
