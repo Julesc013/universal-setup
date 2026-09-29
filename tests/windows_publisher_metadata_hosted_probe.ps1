@@ -218,6 +218,60 @@ function Get-OwnedVolumeRootSddl([string]$Phase) {
         if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
     }
 }
+function Get-OwnedPreexistingAnchorObservation {
+    if($VolumeRoot -notmatch '^\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\$') {
+        throw 'Owned anchor observer volume argument differs'
+    }
+    Assert-OwnedVolume
+    $taskName='USK_ANCHOR_'+$id
+    $observation=Join-Path $observerRoot 'preexisting-anchor-end.json'
+    if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $observation)) {throw 'Owned anchor observer collision'}
+    $anchor=$drive+'publication'
+    $marker=Join-Path $anchor 'preexisting-owner-marker.bin'
+    $state=$drive+'setup-state'
+    $command='$ErrorActionPreference=''Stop'';'+
+        '$who=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;'+
+        'if($who -ne ''S-1-5-18''){throw ''SYSTEM anchor observer required''};'+
+        '$anchor='''+$anchor.Replace("'","''")+''';'+
+        '$marker='''+$marker.Replace("'","''")+''';'+
+        '$state='''+$state.Replace("'","''")+''';'+
+        '$a=Get-Item -LiteralPath $anchor -Force;'+
+        '$m=Get-Item -LiteralPath $marker -Force;'+
+        'if(-not $a.PSIsContainer -or ($a.Attributes -band [IO.FileAttributes]::ReparsePoint) -or '+
+        '$m.PSIsContainer -or ($m.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw ''Anchor shape changed''};'+
+        '$result=@{identity=$who;anchor_path=$a.FullName;'+
+        'child_count=@(Get-ChildItem -LiteralPath $anchor -Force).Count;'+
+        'marker_bytes=$m.Length;'+
+        'marker_sha256=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash.ToLowerInvariant();'+
+        'anchor_sddl=(Get-Acl -LiteralPath $anchor).Sddl;'+
+        'marker_sddl=(Get-Acl -LiteralPath $marker).Sddl;'+
+        'setup_state_present=(Test-Path -LiteralPath $state)};'+
+        '[IO.File]::WriteAllText('''+$observation.Replace("'","''")+''',($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))'
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
+    $registered=$false
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -User SYSTEM -RunLevel Highest|Out-Null
+        $registered=$true
+        Start-ScheduledTask -TaskName $taskName
+        $deadline=[DateTime]::UtcNow.AddSeconds(45)
+        while(-not (Test-Path -LiteralPath $observation) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $observation)){throw 'Owned anchor observer receipt absent'}
+        if((Get-Item -LiteralPath $observation).Length -gt 16KB){throw 'Owned anchor observation exceeds bound'}
+        $result=Get-Content -LiteralPath $observation -Raw|ConvertFrom-Json
+        if($result.identity -cne 'S-1-5-18') {throw 'Owned anchor observer identity differs'}
+        return $result
+    } finally {
+        if($registered) {
+            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+            if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned anchor observer cleanup failed'}
+        }
+        if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
+    }
+}
 function Start-StageObserver {
     Assert-OwnedVolume
     $taskName='USK_STAGE_OBSERVER_'+$id
@@ -1376,23 +1430,21 @@ try {
                 throw 'Registered preexisting-anchor service did not stop after refusal'
             }
             $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
+            $anchorAfter=Get-OwnedPreexistingAnchorObservation
             if($receipt.native.schema -cne 'usk.publisher_lab_service_observation.v1' -or
                 $receipt.native.status -cne 'recovery_required' -or
                 $receipt.native.error -notmatch 'publisher exact anchor sibling is unavailable|publisher parent-bound child open failed' -or
                 $receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service -or
-                -not (Test-Path -LiteralPath $poisonedAnchor -PathType Container) -or
-                @(Get-ChildItem -LiteralPath $poisonedAnchor -Force).Count -ne 1 -or
-                -not (Test-Path -LiteralPath $poisonedMarker -PathType Leaf) -or
-                (Get-Item -LiteralPath $poisonedMarker).Length -ne 7 -or
-                (Get-FileHash -LiteralPath $poisonedMarker -Algorithm SHA256).Hash.ToLowerInvariant() -cne $poisonedMarkerHash -or
-                (Get-Acl -LiteralPath $poisonedAnchor).Sddl -cne $poisonedAnchorAcl -or
-                (Get-Acl -LiteralPath $poisonedMarker).Sddl -cne $poisonedMarkerAcl -or
-                (Test-Path -LiteralPath ($drive+'setup-state'))) {
+                -not [string]::Equals($anchorAfter.anchor_path,$poisonedAnchor,[StringComparison]::OrdinalIgnoreCase) -or
+                $anchorAfter.child_count -ne 1 -or
+                $anchorAfter.marker_bytes -ne 7 -or
+                $anchorAfter.marker_sha256 -cne $poisonedMarkerHash -or
+                $anchorAfter.anchor_sddl -cne $poisonedAnchorAcl -or
+                $anchorAfter.marker_sddl -cne $poisonedMarkerAcl -or
+                $anchorAfter.setup_state_present) {
                 throw 'Preexisting publication anchor was changed or admitted'
             }
-            $receipt['preexisting_anchor_after']=[ordered]@{path=$poisonedAnchor;
-                marker_sha256=$poisonedMarkerHash;marker_bytes=7;
-                anchor_sddl=$poisonedAnchorAcl;marker_sddl=$poisonedMarkerAcl;unchanged=$true}
+            $receipt['preexisting_anchor_after']=$anchorAfter
             $receipt.status='preexisting_anchor_recovery_required_observed'
         } else {
             $deadline=[DateTime]::UtcNow.AddSeconds(90)
