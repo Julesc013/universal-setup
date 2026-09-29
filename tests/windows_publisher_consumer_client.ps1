@@ -22,7 +22,7 @@ if($observed.user_sid -cne $ExpectedUserSid -or $observed.administrator -or
 }
 $observed|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $IdentityPath -Encoding utf8
 if($PayloadRoot) {
-    if($PayloadRoot -cnotmatch '^[A-Z]:\\publication\\destination\\visible$') {
+    if($PayloadRoot -cnotmatch '^[A-Z]:\\publication\\destination\\(?:visible|selected-app)$') {
         throw 'Exact admitted visible fixture path required'
     }
     Add-Type -TypeDefinition @'

@@ -1889,13 +1889,19 @@ try {
         $accessBaseline=if($RegisteredService){$damageRows.independent.rows}elseif($recover){$after.independent.rows}else{$receipt.independent.rows}
         $identityPath=Join-Path $consumerOutput 'payload-identity.json'
         $accessPath=Join-Path $consumerOutput 'payload-access.json'
+        $accessError=Join-Path $consumerOutput 'payload-access-error.txt'
+        $accessStdout=Join-Path $consumerOutput 'payload-access-output.txt'
         $consumerProcess=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @(
             '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
             '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,
-            '-PayloadRoot',$visibleRoot,'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput
+            '-PayloadRoot',$visibleRoot,'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput `
+            -RedirectStandardError $accessError -RedirectStandardOutput $accessStdout
         if(-not $consumerProcess.WaitForExit(45000)){Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null;throw 'Consumer payload probe timed out'}
         $consumerProcess.WaitForExit()
-        if($consumerProcess.ExitCode -ne 0){throw 'Non-admin payload access probe failed'}
+        if($consumerProcess.ExitCode -ne 0){
+            throw ('Non-admin payload access probe failed: '+
+                (Read-BoundedDiagnostic $accessError 2048))
+        }
         $access=Get-Content -LiteralPath $accessPath -Raw|ConvertFrom-Json
         if($access.status -ne 'pass' -or $access.identity.user_sid -cne $consumerSid -or $access.identity.administrator){throw 'Consumer access identity/result differs'}
         foreach($file in $access.files) {
