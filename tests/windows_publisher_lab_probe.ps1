@@ -26,6 +26,7 @@ param(
     [switch]$ProductionPostrenameTermination,
     [switch]$ProductionPreparedTermination,
     [switch]$ExpectUnprotectedRefusal,
+    [switch]$ExpectPreexistingAnchorRefusal,
     [switch]$HostileRights,
     [switch]$HostilePostrename
 )
@@ -197,7 +198,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostpublishRights:$ProductionPostpublishRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ProductionPreparedTermination:$ProductionPreparedTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -HostileRights:($HostileRights -and -not $HostilePostrename) -HostilePostrename:$HostilePostrename
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostpublishRights:$ProductionPostpublishRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ProductionPreparedTermination:$ProductionPreparedTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -ExpectPreexistingAnchorRefusal:$ExpectPreexistingAnchorRefusal -HostileRights:($HostileRights -and -not $HostilePostrename) -HostilePostrename:$HostilePostrename
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
@@ -206,11 +207,11 @@ try {
         }
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
-        $expected = if ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
+        $expected = if ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_refusal_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
         if ($receipt.service_observation.status -ne $expected) {
             throw 'protected publish service probe did not pass'
         }
-        $receipt.status = if ($ExpectUnprotectedRefusal) { 'unprotected_boundary_refusal_observed' } else { 'volume_and_protected_publish_observed' }
+        $receipt.status = if ($ExpectUnprotectedRefusal) { 'unprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_refusal_observed' } else { 'volume_and_protected_publish_observed' }
     }
 } catch {
     $failure = $_.Exception.Message

@@ -1,9 +1,9 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-29T21:25:15Z",
+  "generated_at": "2026-09-29T22:02:06Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "6f49b99b0cd0ddedea25e84f2c9ed4570dfd7ddd",
-  "repository_base_tree": "ba83f7d37e9106fe5f5430e283e2b98d74596e79",
+  "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
+  "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
   "spec_aggregate_sha256": "7cd3afe659d4e88186f56c3f89c80ac639b5d2669b18562953c41ed568c313d8",
   "source_hash_contract": "sha256-lf-text-v1",
@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "25ecaf518cf8171c6a84a0dca2e57c03d1ff0d433ecc6642811046dd0e59addc"
+          "sha256": "a22aa8bd6354ed9dc8b1291a53675586431e45fb81d3c64d5a0d7b6b46ed9075"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "25ecaf518cf8171c6a84a0dca2e57c03d1ff0d433ecc6642811046dd0e59addc"
+          "sha256": "a22aa8bd6354ed9dc8b1291a53675586431e45fb81d3c64d5a0d7b6b46ed9075"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "25ecaf518cf8171c6a84a0dca2e57c03d1ff0d433ecc6642811046dd0e59addc"
+          "sha256": "a22aa8bd6354ed9dc8b1291a53675586431e45fb81d3c64d5a0d7b6b46ed9075"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3943,7 +3943,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "411b9a1481e0b8220bf6e7e26c633586fcc90e5b57870e6274aa8e5f1aec8465"
+          "sha256": "009a7df00a7cf6d59a3d2293490735f6620f1b3d5f19143b5dee75dad10e375f"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "849e1773862a198b81eeaf96ce4d95fc47defdc8d6620e87b40b418936677408"
+          "sha256": "a1059c0020a24c5870c33078651330c84c944b389aabada91d9ee50279b4c0ae"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4355,7 +4355,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "849e1773862a198b81eeaf96ce4d95fc47defdc8d6620e87b40b418936677408"
+          "sha256": "a1059c0020a24c5870c33078651330c84c944b389aabada91d9ee50279b4c0ae"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",

@@ -30,6 +30,7 @@ param(
     [switch]$ProductionPostrenameTermination,
     [switch]$ProductionPreparedTermination,
     [switch]$ExpectUnprotectedRefusal,
+    [switch]$ExpectPreexistingAnchorRefusal,
     [switch]$HostileRights,
     [switch]$HostilePostrename
 )
@@ -60,6 +61,14 @@ if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection req
 if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or $HostileRights -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
     throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
+}
+if($ExpectPreexistingAnchorRefusal -and (-not $RegisteredService -or -not $ReviewedSource -or
+    $ExpectUnprotectedRefusal -or $ConsumerAccess -or $NonAdminClient -or $HostileRights -or
+    $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or
+    $InterruptAfterStage -or $ProductionConcurrentRights -or $ProductionPostpublishRights -or
+    $ProductionPostrenameTermination -or $ProductionPreparedTermination -or
+    $MachineRequestClient -or $ControllerApply -or $ReuseRegistration)) {
+    throw 'Preexisting-anchor refusal requires only the uninterrupted registered reviewed-source profile'
 }
 if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not $ServiceControlBinary -or
     $ExpectUnprotectedRefusal -or
@@ -993,6 +1002,22 @@ try {
             sha256=$scratchSha256}
     }
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+    if($ExpectPreexistingAnchorRefusal) {
+        # This object is created only on the newly formatted campaign VHD.
+        # Its marker makes an accidental replacement visible after refusal.
+        $poisonedAnchor=$drive+'publication'
+        $poisonedMarker=Join-Path $poisonedAnchor 'preexisting-owner-marker.bin'
+        if(Test-Path -LiteralPath $poisonedAnchor){throw 'Preexisting-anchor input is not fresh'}
+        New-Item -ItemType Directory -Path $poisonedAnchor -ErrorAction Stop|Out-Null
+        [IO.File]::WriteAllBytes($poisonedMarker,[byte[]]@(0x55,0x53,0x4b,0x2d,0x50,0x52,0x45))
+        $poisonedMarkerHash=(Get-FileHash -LiteralPath $poisonedMarker -Algorithm SHA256).Hash.ToLowerInvariant()
+        $poisonedAnchorAcl=(Get-Acl -LiteralPath $poisonedAnchor).Sddl
+        $poisonedMarkerAcl=(Get-Acl -LiteralPath $poisonedMarker).Sddl
+        $receipt['preexisting_anchor_before']=[ordered]@{path=$poisonedAnchor;
+            marker_sha256=$poisonedMarkerHash;marker_bytes=7;
+            anchor_sddl=$poisonedAnchorAcl;marker_sddl=$poisonedMarkerAcl}
+        Assert-OwnedVolume
+    }
     if($ProductionConcurrentRights) {
         $preopenedReady=Join-Path $consumerOutput 'preopened-root-ready.txt'
         $preopenedRelease=Join-Path $consumerOutput 'preopened-root-release.txt'
@@ -1322,23 +1347,44 @@ try {
         [IO.File]::WriteAllText($unrelatedStart,
             "usk.publisher.production_request_start.v1`n",[Text.UTF8Encoding]::new($false))
     }
-    if($ExpectUnprotectedRefusal) {
+    if($ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal) {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
         while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
-        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Unprotected-root refusal receipt absent'}
+        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Protected-boundary refusal receipt absent'}
         $receipt.native=Read-NativeReceipt $nativePath
         $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
-        if($receipt.native.status -ne 'failed' -or
-            $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
-            $receipt.root_acl_before -cne $receipt.root_acl_after -or
-            (Test-Path -LiteralPath ($drive+'publication')) -or
-            (Test-Path -LiteralPath ($drive+'setup-state'))) {
-            throw 'Unprotected boundary was changed or admitted before publication'
+        if($ExpectPreexistingAnchorRefusal) {
+            $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
+            if($receipt.native.status -ne 'failed' -or
+                $receipt.native.error -notmatch 'Windows parent-bound create-only object failed' -or
+                $receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service -or
+                -not (Test-Path -LiteralPath $poisonedAnchor -PathType Container) -or
+                @(Get-ChildItem -LiteralPath $poisonedAnchor -Force).Count -ne 1 -or
+                -not (Test-Path -LiteralPath $poisonedMarker -PathType Leaf) -or
+                (Get-Item -LiteralPath $poisonedMarker).Length -ne 7 -or
+                (Get-FileHash -LiteralPath $poisonedMarker -Algorithm SHA256).Hash.ToLowerInvariant() -cne $poisonedMarkerHash -or
+                (Get-Acl -LiteralPath $poisonedAnchor).Sddl -cne $poisonedAnchorAcl -or
+                (Get-Acl -LiteralPath $poisonedMarker).Sddl -cne $poisonedMarkerAcl -or
+                (Test-Path -LiteralPath ($drive+'setup-state'))) {
+                throw 'Preexisting publication anchor was changed or admitted'
+            }
+            $receipt['preexisting_anchor_after']=[ordered]@{path=$poisonedAnchor;
+                marker_sha256=$poisonedMarkerHash;marker_bytes=7;
+                anchor_sddl=$poisonedAnchorAcl;marker_sddl=$poisonedMarkerAcl;unchanged=$true}
+            $receipt.status='preexisting_anchor_refusal_observed'
+        } else {
+            if($receipt.native.status -ne 'failed' -or
+                $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
+                $receipt.root_acl_before -cne $receipt.root_acl_after -or
+                (Test-Path -LiteralPath ($drive+'publication')) -or
+                (Test-Path -LiteralPath ($drive+'setup-state'))) {
+                throw 'Unprotected boundary was changed or admitted before publication'
+            }
+            $receipt.status='preprotected_boundary_refusal_observed'
         }
-        $receipt.status='preprotected_boundary_refusal_observed'
     } else {
     if($HostileRights) {
         $attackRelative=if($ConsumerAccess){'bin/core.exe'}else{'bin/core.bin'}
@@ -2774,7 +2820,8 @@ try {
                 [bool](Test-Path -LiteralPath $installedServiceBinary -ErrorAction SilentlyContinue)
         }
     }
-    if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed') -and $receipt.service_removed) {
+    if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed',
+        'preexisting_anchor_refusal_observed') -and $receipt.service_removed) {
         try {
             if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
             $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
