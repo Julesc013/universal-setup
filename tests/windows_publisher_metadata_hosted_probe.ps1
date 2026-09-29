@@ -217,7 +217,7 @@ function Start-StageObserver {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_stage_observer.ps1') `
         -Destination $scriptPath -ErrorAction Stop
     $arguments='-NoProfile -NonInteractive -File "'+$scriptPath+'" -StagePath "'+
-        $stagePath+'" -ReadyPath "'+$readyPath+'" -StopPath "'+$stopPath+
+        $stagePath+'" -VisiblePath "'+$visibleRoot+'" -ReadyPath "'+$readyPath+'" -StopPath "'+$stopPath+
         '" -OutputPath "'+$outputPath+'" -SourcePath "'+$attackSource+'"'
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
     $registered=$false
@@ -266,6 +266,18 @@ function Complete-StageObserver($Observer) {
     if($result.schema -cne 'usk.publisher.stage_observer.v1' -or
         $result.identity -cne 'S-1-5-18' -or -not $result.stopped) {
         throw 'SYSTEM stage observer identity or terminal marker differs'
+    }
+    if($result.clock -cne 'qpc' -or $result.clock_frequency -le 0 -or
+        $result.transition.last_staged_only_start_tick -le 0 -or
+        $result.transition.last_staged_only_end_tick -le 0 -or
+        $result.transition.first_visible_start_tick -le
+            $result.transition.last_staged_only_end_tick -or
+        $result.transition.first_visible_end_tick -lt
+            $result.transition.first_visible_start_tick -or
+        $result.transition.visible_before_stage -or
+        $result.transition.stage_after_visible -or
+        $result.transition.ambiguous_samples -gt 1) {
+        throw 'SYSTEM stage-to-visible transition is absent or ambiguous'
     }
     return $result
 }
@@ -367,7 +379,8 @@ function Complete-ProductionRenameObserver($Observer) {
 }
 function Test-LiveStageAttemptOverlap($Observation,$Attempts) {
     foreach($run in @($Observation.runs)) {
-        if($run.samples -lt 2 -or $run.maximum_gap_ticks -gt 2000000){continue}
+        if($run.samples -lt 2 -or
+            $run.maximum_gap_ticks -gt [long]($Observation.clock_frequency/5)){continue}
         foreach($attempt in @($Attempts)) {
             if([long]$attempt.start_tick -gt [long]$run.first_tick -and
                 [long]$attempt.end_tick -ge [long]$attempt.start_tick -and
@@ -377,6 +390,29 @@ function Test-LiveStageAttemptOverlap($Observation,$Attempts) {
         }
     }
     return $false
+}
+function Get-TransitionAttemptCoverage($Observation,$Attempts) {
+    $transition=$Observation.transition
+    $frequency=[long]$Observation.clock_frequency
+    $last=[long]$transition.last_staged_only_end_tick
+    $first=[long]$transition.first_visible_start_tick
+    if($first -le $last -or $first-$last -gt [long]($frequency/2)) {
+        return $null
+    }
+    $before=0L;$after=[long]::MaxValue
+    foreach($attempt in @($Attempts)) {
+        $start=[long]$attempt.start_tick;$end=[long]$attempt.end_tick
+        if($end -lt $start){return $null}
+        if($end -le $last -and $end -gt $before){$before=$end}
+        if($start -ge $first -and $start -lt $after){$after=$start}
+    }
+    if($before -eq 0 -or $after -eq [long]::MaxValue -or
+        $last-$before -gt [long]($frequency/2) -or
+        $after-$first -gt [long]($frequency/2)) {
+        return $null
+    }
+    return [ordered]@{last_denied_before_tick=$before;
+        first_denied_after_tick=$after;gap_ticks=$after-$before}
 }
 $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Parameters').VirtualMachineId
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
@@ -1626,6 +1662,35 @@ try {
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
             $coverage=if($ProductionConcurrentRights) {
+                $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
+                $nativeStart=[long]$nativeCall.start_tick
+                $nativeEnd=[long]$nativeCall.end_tick
+                $transitionCoverage=[ordered]@{}
+                $transitionCovered=$nativeCall.clock -ceq 'qpc' -and
+                    [long]$nativeCall.frequency -eq [long]$stageObservation.clock_frequency -and
+                    $nativeStart -gt 0 -and $nativeEnd -ge $nativeStart -and
+                    $nativeEnd-$nativeStart -le [long]($stageObservation.clock_frequency/2) -and
+                    $nativeStart -ge [long]$stageObservation.transition.last_staged_only_start_tick -and
+                    $nativeEnd -le [long]$stageObservation.transition.first_visible_end_tick -and
+                    $concurrent.concurrent.clock -ceq 'qpc' -and
+                    [long]$concurrent.concurrent.clock_frequency -eq
+                        [long]$stageObservation.clock_frequency
+                foreach($operation in @('destination_create','staged_replace',
+                        'publication_rename','publication_write_dac')) {
+                    $matched=Get-TransitionAttemptCoverage $stageObservation `
+                        $concurrent.concurrent.PSObject.Properties[$operation].Value.denied_attempts
+                    $transitionCoverage[$operation]=$matched
+                    if(-not $matched){$transitionCovered=$false}
+                }
+                $receipt['production_transition_coverage']=[ordered]@{
+                    schema='usk.publisher.production_transition_coverage.v1';
+                    clock='qpc';clock_frequency=$stageObservation.clock_frequency;
+                    last_staged_only_start_tick=$stageObservation.transition.last_staged_only_start_tick;
+                    last_staged_only_end_tick=$stageObservation.transition.last_staged_only_end_tick;
+                    first_visible_start_tick=$stageObservation.transition.first_visible_start_tick;
+                    first_visible_end_tick=$stageObservation.transition.first_visible_end_tick;
+                    native_call=$nativeCall;
+                    denied_attempts=$transitionCoverage}
                 # The protected ancestor masks absence as ACCESS_DENIED for
                 # this caller. Correlate its denied writes with independent
                 # SYSTEM samples of the actual staged file.
@@ -1643,7 +1708,8 @@ try {
                     $concurrent.concurrent.publication_write_dac.denied_attempts
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
-                $stageObserver.removed -and $overlap -and $replaceOverlap -and
+                $stageObserver.removed -and $transitionCovered -and
+                $overlap -and $replaceOverlap -and
                 $insertOverlap -and $streamOverlap -and
                 $renameOverlap -and $dacOverlap -and
                 $stageObservation.source_sha256_at_start -ceq $scratchSha256 -and
@@ -1675,7 +1741,7 @@ try {
             }
             $receipt['concurrent_hostile_rights']=$concurrent
             if($ProductionConcurrentRights) {
-                $receipt['concurrent_qualification_limit']='sampled_live_staging_and_same_volume_replace_not_exact_rename_overlap'
+                $receipt['concurrent_qualification_limit']='native_rename_call_bracketed_by_independent_system_samples_with_nearby_denials_not_exact_syscall_overlap'
             }
             $concurrentAttacker=$null
         }
