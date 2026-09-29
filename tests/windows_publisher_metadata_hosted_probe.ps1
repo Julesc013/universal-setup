@@ -18,6 +18,7 @@ param(
     [switch]$InterruptBeforePublish,
     [switch]$InterruptAfterStage,
     [switch]$TerminateAtPoststage,
+    [switch]$TerminateAtPostrename,
     [switch]$ReviewedSource,
     [switch]$RegisteredService,
     [switch]$ReuseRegistration,
@@ -29,8 +30,8 @@ param(
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
-if($ReuseRegistration -and $InterruptAfterStage) {
-    throw 'Poststage fault injection restores the owned service command before recovery'
+if($ReuseRegistration -and ($InterruptAfterStage -or $TerminateAtPostrename)) {
+    throw 'Fault injection restores the owned service command before recovery'
 }
 function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
     $stream=[IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,
@@ -46,6 +47,7 @@ if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfter
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
 if($InterruptAfterStage -and -not $ClientBinary){throw 'Snapshot-only replay requires an authenticated client'}
 if($TerminateAtPoststage -and (-not $InterruptAfterStage -or -not $RegisteredService -or $MachineRequestClient -or $NonAdminClient -or $ConsumerAccess)){throw 'Poststage process termination requires the registered publisher client and its exclusive interruption window'}
+if($TerminateAtPostrename -and (-not $InterruptAfterRename -or -not $RegisteredService -or $MachineRequestClient -or $NonAdminClient -or $ConsumerAccess)){throw 'Postrename process termination requires the registered publisher client and its exclusive interruption window'}
 if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection requires an authenticated client'}
 if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or $HostileRights -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
@@ -53,10 +55,10 @@ if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or 
 }
 if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not $ServiceControlBinary -or
     $ExpectUnprotectedRefusal -or
-    $InterruptAfterVisibleRecord -or $InterruptAfterRename -or
+    $InterruptAfterVisibleRecord -or ($InterruptAfterRename -and -not $TerminateAtPostrename) -or
     $InterruptBeforePublish -or
     $InterruptDuringConsumerAccess)) {
-    throw 'Registered service probe requires a reviewed-source request and at most the poststage interruption'
+    throw 'Registered service probe requires a reviewed-source request and an admitted interruption window'
 }
 if($MachineRequestClient -and (-not $RegisteredService -or -not $MachineBinary -or
     $NonAdminClient -or $InterruptAfterStage -or $HostileRights)) {
@@ -91,13 +93,13 @@ function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPa
 }
 if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedSource -or
     -not ($NonAdminClient -or ($ConsumerAccess -and $MachineRequestClient)) -or $HostileRights -or
-    $InterruptAfterStage -or $TerminateAtPoststage -or
+    $InterruptAfterStage -or $TerminateAtPoststage -or $TerminateAtPostrename -or
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {
     throw 'Production concurrent rights probe requires the registered service and its non-admin client'
 }
-if($RegisteredService -and $InterruptAfterStage -and
+if($RegisteredService -and ($InterruptAfterStage -or $TerminateAtPostrename) -and
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
-    throw 'Registered poststage interruption requires the separately built fault-test service'
+    throw 'Registered interruption requires the separately built fault-test service'
 }
 if($RegisteredService -and $HostileRights -and
     (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_lab_service_fault.exe') {
@@ -893,8 +895,8 @@ try {
             }
             $receipt['wrong_caller_mode_refused']=$true
         }
-        if($InterruptAfterStage -or $HostileRights) {
-            $registeredGate=if($HostileRights){'--prepublish-gate'}else{'--poststage-gate'}
+        if($InterruptAfterStage -or $HostileRights -or $TerminateAtPostrename) {
+            $registeredGate=if($HostileRights){'--prepublish-gate'}elseif($TerminateAtPostrename){'--postrename-gate'}else{'--poststage-gate'}
             $testCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
                 ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
                 ' --test-gate-receipt "'+$nativePath+'" '+$registeredGate+
@@ -944,7 +946,7 @@ try {
             if((Get-Service $service).Status -ne 'Stopped'){throw}
         }
     }
-    if($TerminateAtPoststage) {
+    if($TerminateAtPoststage -or $TerminateAtPostrename) {
         # Hold the exact service process before sending the request. The
         # handle prevents a later PID from becoming our termination target.
         $serviceAtStart=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
@@ -1208,7 +1210,7 @@ try {
                 '; service_exit_code='+$serviceInfo.ServiceSpecificExitCode+
                 '; native='+$nativeError+'; client='+$clientError)
         }
-        if($TerminateAtPoststage) {
+        if($TerminateAtPoststage -or $TerminateAtPostrename) {
             # This deliberately kills only the held, exact campaign service
             # process. It is a transport-loss test, never power-loss evidence.
             $serviceInfo=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
@@ -1236,13 +1238,13 @@ try {
         if($requestClient) {
             $receipt['interrupted_client']=Complete-RequestClient $requestClient $false
             $requestClient=$null
-            if($TerminateAtPoststage -and
+            if(($TerminateAtPoststage -or $TerminateAtPostrename) -and
                 ($receipt.interrupted_client.exit_code -ne 5 -or
                  $receipt.interrupted_client.delivery -cne 'outcome_unknown')) {
-                throw 'Terminated poststage client did not report unknown outcome'
+                throw 'Terminated client did not report unknown outcome'
             }
         }
-        if($TerminateAtPoststage) {
+        if($TerminateAtPoststage -or $TerminateAtPostrename) {
             if(Test-Path -LiteralPath $nativePath){throw 'Killed service wrote a terminal native receipt'}
             $receipt['interruption']=[ordered]@{kind='controlled_process_termination';window=$gate;
                 service_pid=$heldServiceIdentity.pid;service_started_utc=$heldServiceIdentity.started_utc;
