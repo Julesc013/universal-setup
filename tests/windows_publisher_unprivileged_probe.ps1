@@ -76,6 +76,7 @@ function Observe-ConcurrentDenial {
                 if ($Stage -eq 'ProductionConcurrent') {
                     $receipt.concurrent[$Name].denied_after_start_before_observed_reply++
                     if ($Name -in @('staged_write','staged_replace',
+                            'staged_insert','staged_ads_write',
                             'publication_rename','publication_write_dac')) {
                         $samples=$receipt.concurrent[$Name].denied_attempts
                         $sample=[ordered]@{start_tick=$attemptStart;end_tick=$attemptEnd}
@@ -175,6 +176,8 @@ public static class USKPublisherAncestorAttack {
             destination_create = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
             staged_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             staged_replace = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_insert = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
+            staged_ads_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             publication_rename = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             publication_write_dac = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0; denied_attempt_count = 0; denied_attempts = @() }
             visible_write = [ordered]@{ denied = 0; missing = 0; missing_before_start = 0; missing_after_completion = 0; denied_after_completion = 0; denied_after_gate_before_observed_reply = 0; denied_after_start_before_observed_reply = 0 }
@@ -214,6 +217,15 @@ public static class USKPublisherAncestorAttack {
             if($Stage -eq 'ProductionConcurrent') {
                 Observe-ConcurrentDenial 'staged_replace' {
                     [IO.File]::Move($SameVolumeSource,$stagedFile,$true)
+                } $true $afterCompletion $afterRelease
+                Observe-ConcurrentDenial 'staged_insert' {
+                    [IO.Directory]::CreateDirectory($candidate+'\hostile-child') | Out-Null
+                } $true $afterCompletion $afterRelease
+                Observe-ConcurrentDenial 'staged_ads_write' {
+                    $handle=[IO.File]::Open($stagedFile+':usk-hostile',
+                        [IO.FileMode]::OpenOrCreate,[IO.FileAccess]::Write,
+                        [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+                    $handle.Dispose()
                 } $true $afterCompletion $afterRelease
                 Observe-ConcurrentDenial 'publication_rename' {
                     if([USKPublisherAncestorAttack]::MoveFileExW(
@@ -271,6 +283,8 @@ public static class USKPublisherAncestorAttack {
                 $receipt.concurrent.destination_create.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_write.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_replace.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_insert.denied_after_start_before_observed_reply -lt 1 -or
+                $receipt.concurrent.staged_ads_write.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.publication_rename.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.publication_write_dac.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.cycles_after_start_before_observed_reply -lt 1 -or
