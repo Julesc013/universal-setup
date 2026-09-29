@@ -311,9 +311,19 @@ void require_publisher_response_binding(const std::wstring& service_name,
         const std::string install_id = schema == "usk.install_local_apply_request.v1" ?
             submitted.at("plan_request").at("install_id").as_string() :
             submitted.at("install_id").as_string();
-        const std::string field = schema == "usk.install_local_apply_request.v1" ?
-            "apply_response" : "recovery_installed_response";
-        const auto& public_response = observed.at(field);
+        // A retry of the original apply request completes through the same
+        // source-free replay as an explicit recovery request. Exactly one
+        // completed public result may identify this terminal observation.
+        const bool direct = observed.at("apply_response").type() !=
+            usk::json::Value::Type::null_value;
+        const bool replayed = observed.at("recovery_installed_response").type() !=
+            usk::json::Value::Type::null_value;
+        if (direct == replayed ||
+            (schema == "usk.publisher_recovery_request.v1" && direct)) {
+            throw std::runtime_error("publisher completed installation result is ambiguous");
+        }
+        const auto& public_response = observed.at(direct ?
+            "apply_response" : "recovery_installed_response");
         const auto& installed = public_response.at("payload");
         if (public_response.at("schema").as_string() != "usk.command_response.v1" ||
             public_response.at("status").as_string() != "ok" ||
@@ -321,7 +331,10 @@ void require_publisher_response_binding(const std::wstring& service_name,
             installed.at("lifecycle_status").as_string() != "installed" ||
             installed.at("install_id").as_string() != install_id ||
             installed.at("transaction_id").as_string() !=
-                submitted.at("transaction_id").as_string()) {
+                submitted.at("transaction_id").as_string() ||
+            (schema == "usk.install_local_apply_request.v1" &&
+             installed.at("created_at").as_string() !=
+                submitted.at("applied_at").as_string())) {
             throw std::runtime_error("publisher completed installation differs from request");
         }
         return;
@@ -342,6 +355,8 @@ void require_publisher_response_binding(const std::wstring& service_name,
                 submitted.at("install_id").as_string() ||
             report.at("report_id").as_string() !=
                 submitted.at("report_id").as_string() ||
+            report.at("verified_at").as_string() !=
+                submitted.at("verified_at").as_string() ||
             report.at("report_digest").as_string() !=
                 observed.at("bound_report_digest").as_string()) {
             throw std::runtime_error("publisher completed verification differs from request");

@@ -26,31 +26,47 @@ std::string replaced(std::string source, const std::string& from, const std::str
 void test_terminal_response_binding() {
     using usk::platform::windows::require_publisher_response_binding;
     const std::wstring service = L"USK_PUB_0123456789abcdef0123456789abcdef";
-    const std::string apply_request = R"({"schema":"usk.install_local_apply_request.v1","transaction_id":"tx.apply","plan_request":{"install_id":"install.one"}})";
-    const std::string apply_response = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","service_name":"USK_PUB_0123456789abcdef0123456789abcdef","apply_response":{"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.installed_state.v1","lifecycle_status":"installed","install_id":"install.one","transaction_id":"tx.apply"}}})";
+    const std::string apply_request = R"({"schema":"usk.install_local_apply_request.v1","transaction_id":"tx.apply","applied_at":"2026-09-29T15:06:00Z","plan_request":{"install_id":"install.one"}})";
+    const std::string installed_response = R"({"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.installed_state.v1","lifecycle_status":"installed","install_id":"install.one","transaction_id":"tx.apply","created_at":"2026-09-29T15:06:00Z"}})";
+    const std::string response_prefix = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","service_name":"USK_PUB_0123456789abcdef0123456789abcdef",)";
+    const std::string apply_response = response_prefix +
+        "\"apply_response\":" + installed_response +
+        ",\"recovery_installed_response\":null}";
+    const std::string apply_reentry_response = response_prefix +
+        "\"apply_response\":null,\"recovery_installed_response\":" +
+        installed_response + "}";
     require_publisher_response_binding(service, apply_request, apply_response);
+    require_publisher_response_binding(service, apply_request, apply_reentry_response);
     refuses([&] { require_publisher_response_binding(service, apply_request,
         replaced(apply_response, "\"transaction_id\":\"tx.apply\"", "\"transaction_id\":\"other\"")); });
     refuses([&] { require_publisher_response_binding(service, apply_request,
         replaced(apply_response, "\"install_id\":\"install.one\"", "\"install_id\":\"other\"")); });
     refuses([&] { require_publisher_response_binding(service, apply_request,
+        replaced(apply_response, "\"created_at\":\"2026-09-29T15:06:00Z\"",
+            "\"created_at\":\"2026-09-29T15:06:01Z\"")); });
+    refuses([&] { require_publisher_response_binding(service, apply_request,
         replaced(apply_response, "\"service_name\":\"USK_PUB_0123456789abcdef0123456789abcdef\"",
             "\"service_name\":\"USK_PUB_ffffffffffffffffffffffffffffffff\"")); });
     refuses([&] { require_publisher_response_binding(service, apply_request,
         replaced(apply_response, "\"apply_response\":{", "\"apply_response\":null,\"unused\":{") ); });
+    refuses([&] { require_publisher_response_binding(service, apply_request,
+        replaced(apply_response, "\"recovery_installed_response\":null",
+            "\"recovery_installed_response\":" + installed_response)); });
 
     const std::string recovery_request = R"({"schema":"usk.publisher_recovery_request.v1","install_id":"install.one","transaction_id":"tx.apply"})";
-    const std::string recovery_response = replaced(apply_response,
-        "\"apply_response\"", "\"recovery_installed_response\"");
+    const std::string recovery_response = apply_reentry_response;
     require_publisher_response_binding(service, recovery_request, recovery_response);
     refuses([&] { require_publisher_response_binding(service, recovery_request,
         replaced(recovery_response, "\"transaction_id\":\"tx.apply\"", "\"transaction_id\":\"stale\"")); });
 
-    const std::string verify_request = R"({"schema":"usk.publisher_installed_verify_request.v1","install_id":"install.one","transaction_id":"tx.apply","report_id":"report.one"})";
-    const std::string verify_response = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","transaction_id":"tx.apply","bound_report_digest":"digest.one","verify_response":{"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.verification_report.v1","status":"pass","install_id":"install.one","report_id":"report.one","report_digest":"digest.one"}}})";
+    const std::string verify_request = R"({"schema":"usk.publisher_installed_verify_request.v1","install_id":"install.one","transaction_id":"tx.apply","report_id":"report.one","verified_at":"2026-09-29T15:08:00Z"})";
+    const std::string verify_response = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","transaction_id":"tx.apply","bound_report_digest":"digest.one","verify_response":{"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.verification_report.v1","status":"pass","install_id":"install.one","report_id":"report.one","verified_at":"2026-09-29T15:08:00Z","report_digest":"digest.one"}}})";
     require_publisher_response_binding(service, verify_request, verify_response);
     refuses([&] { require_publisher_response_binding(service, verify_request,
         replaced(verify_response, "\"report_id\":\"report.one\"", "\"report_id\":\"other\"")); });
+    refuses([&] { require_publisher_response_binding(service, verify_request,
+        replaced(verify_response, "\"verified_at\":\"2026-09-29T15:08:00Z\"",
+            "\"verified_at\":\"2026-09-29T15:09:00Z\"")); });
     refuses([&] { require_publisher_response_binding(service, verify_request,
         replaced(verify_response, "\"report_digest\":\"digest.one\"", "\"report_digest\":\"other\"")); });
     const std::string drift_response = replaced(replaced(verify_response,
