@@ -2212,6 +2212,36 @@ try {
             ($afterAttack.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
             throw 'Selected postpublish hostile attempts changed published state'
         }
+        if($ProductionPostpublishRights) {
+            # The submitting login and a second local login are distinct
+            # adversaries in the admitted profile. Reuse the same installed
+            # volume and binary; the runner owns and removes only its account.
+            $unrelatedOutput=Join-Path (Split-Path -Parent $vhd) 'unprivileged-unrelated.json'
+            & (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_runner.ps1') `
+                -VhdPath $vhd -VolumeRoot $VolumeRoot -ServiceSid $sid `
+                -OutputPath $unrelatedOutput -Stage Postpublish `
+                -PayloadRelativePath $attackRelative -VisibleLeaf $visibleLeaf `
+                -UnrelatedProductionAccount
+            $unrelated=Get-Content -LiteralPath $unrelatedOutput -Raw|ConvertFrom-Json
+            $receipt['production_unrelated_postpublish_hostile_rights']=$unrelated
+            if($unrelated.status -cne 'unprivileged_access_denied_observed' -or
+                $unrelated.account_origin -cne 'created_attacker' -or
+                $unrelated.account_sid -ceq $consumerSid -or
+                $unrelated.observation.visible_leaf -cne $visibleLeaf -or
+                $unrelated.observation.payload_relative_path -cne $attackRelative -or
+                $unrelated.cleanup -notmatch 'generated local account deleted') {
+                throw 'Unrelated postpublish attacker or owned cleanup differs'
+            }
+            $afterUnrelated=Invoke-IndependentMetadataReadback -DriveRoot $drive `
+                -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+            $receipt['postpublish_after_unrelated_attack']=$afterUnrelated.independent
+            if($afterUnrelated.independent.identity -cne 'S-1-5-18' -or
+                -not $afterUnrelated.observer_task_removed -or
+                ($afterAttack.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
+                ($afterUnrelated.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
+                throw 'Unrelated postpublish hostile attempts changed published state'
+            }
+        }
     }
     if($recover -and -not $RegisteredService) {
         foreach($row in $before.independent.rows) {

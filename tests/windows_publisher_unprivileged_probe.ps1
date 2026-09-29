@@ -476,6 +476,60 @@ public static class USKPublisherRenameRace {
         Require-Denied 'visible_delete' {
             [IO.File]::Delete($file)
         }
+        if($VisibleLeaf -eq 'selected-app') {
+            # These calls challenge the actual production-visible tree. The
+            # regular-file ACL and destination parent must deny every form of
+            # mutation, including a new name for the same file identity.
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class USKPublisherVisibleMutation {
+    [DllImport("kernel32.dll", EntryPoint="CreateFileW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+    public static extern IntPtr CreateFileW(string path, uint access, uint share,
+        IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", EntryPoint="CreateHardLinkW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+    public static extern bool CreateHardLinkW(string newLink, string existing,
+        IntPtr security);
+    [DllImport("kernel32.dll", EntryPoint="MoveFileExW", CharSet=CharSet.Unicode,
+        ExactSpelling=true, SetLastError=true)]
+    public static extern bool MoveFileExW(string source, string destination, uint flags);
+    [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+}
+'@
+            Require-Denied 'visible_write_dac' {
+                $handle=[USKPublisherVisibleMutation]::CreateFileW(
+                    $file,0x40000,7,[IntPtr]::Zero,3,0x00200000,[IntPtr]::Zero)
+                if($handle -ne [IntPtr]::new(-1)) {
+                    [USKPublisherVisibleMutation]::CloseHandle($handle)|Out-Null
+                    throw 'visible WRITE_DAC was acquired by the non-admin attacker'
+                }
+                Throw-NativeMutationError 'visible WRITE_DAC' `
+                    ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+            }
+            Require-Denied 'visible_ads_write' {
+                $handle=[IO.File]::Open($file+':usk-hostile',[IO.FileMode]::OpenOrCreate,
+                    [IO.FileAccess]::Write,[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+                $handle.Dispose()
+            }
+            Require-Denied 'visible_hardlink' {
+                if([USKPublisherVisibleMutation]::CreateHardLinkW(
+                    $destination+'\hostile-link.bin',$file,[IntPtr]::Zero)) {
+                    throw 'visible hard link was created by the non-admin attacker'
+                }
+                Throw-NativeMutationError 'visible hard link' `
+                    ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+            }
+            Require-Denied 'visible_rename' {
+                if([USKPublisherVisibleMutation]::MoveFileExW(
+                    $file,$destination+'\hostile-moved.bin',0)) {
+                    throw 'visible file was renamed by the non-admin attacker'
+                }
+                Throw-NativeMutationError 'visible rename' `
+                    ([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+            }
+        }
     }
     $receipt.status = 'access_denied_observed'
 } catch {

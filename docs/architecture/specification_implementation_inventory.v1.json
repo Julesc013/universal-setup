@@ -3979,11 +3979,11 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
-          "sha256": "f4b6530abc471f5cec5c53f3a57856165793c15f06454e35308d72dcc8063bb9"
+          "sha256": "81c8a22e957db1ae82e6b28a42684e613d538410a01608538a4c985a009c379d"
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",
-          "sha256": "5dda04b68a7f3d8c8eec21aa8a13f399c71cf2ce9e6b205bd1b3bd39fd8da2aa"
+          "sha256": "61b6fcfb33918518a715dc662d9f61b02b252102bb665c839a959a622d4e9ea8"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_staged_stream.h",
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "fd91d29d7e9e4e5ba5e7f61a11c4637beaf216246411711e422e8ae038e04b70"
+          "sha256": "5510d7e0fd8c854b460ca3f58ccc7b9dcccfe01ab408ec3a6dafe84219688aef"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4295,11 +4295,11 @@
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
-          "sha256": "f4b6530abc471f5cec5c53f3a57856165793c15f06454e35308d72dcc8063bb9"
+          "sha256": "81c8a22e957db1ae82e6b28a42684e613d538410a01608538a4c985a009c379d"
         },
         {
           "path": "tests/windows_publisher_unprivileged_runner.ps1",
-          "sha256": "5dda04b68a7f3d8c8eec21aa8a13f399c71cf2ce9e6b205bd1b3bd39fd8da2aa"
+          "sha256": "61b6fcfb33918518a715dc662d9f61b02b252102bb665c839a959a622d4e9ea8"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_publisher_finalization_internal.h",
@@ -4355,7 +4355,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "fd91d29d7e9e4e5ba5e7f61a11c4637beaf216246411711e422e8ae038e04b70"
+          "sha256": "5510d7e0fd8c854b460ca3f58ccc7b9dcccfe01ab408ec3a6dafe84219688aef"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
