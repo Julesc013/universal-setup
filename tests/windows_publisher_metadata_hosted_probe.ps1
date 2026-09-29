@@ -299,6 +299,8 @@ $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run'
 $created=$false
 $registrationAttempted=$false
 $expectedRegisteredCommand=''
+$installedServiceBinary=''
+$sourceServiceHash=''
 $failure=$null
 $requestClient=$null
 $clientNumber=0
@@ -586,14 +588,27 @@ try {
     }
     if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Service collision'}
     if($RegisteredService) {
-        $expectedRegisteredCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
+        if(-not $env:ProgramW6432){throw 'Protected Program Files root is unavailable'}
+        $installedServiceBinary=Join-Path $env:ProgramW6432 `
+            ('Universal Setup\Publisher\'+$service+'.exe')
+        $sourceServiceHash=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+        $expectedRegisteredCommand='"'+$installedServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
             ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
             $(if($NonAdminClient){' --admit-client-observer'}else{''})+
             ' --authorized-client-sid '+$callerSid+
             $(if($ConsumerAccess){' --grant-client-read'}else{''})
         $controlArgs=@('--register',$service,$ServiceBinary,$VolumeRoot,$envelope,
-            $receipt.envelope_sha256,$callerSid)
+            $receipt.envelope_sha256,$callerSid,$sourceServiceHash)
         if($registeredMode){$controlArgs+=$registeredMode}
+        $wrongBinaryHash=@($controlArgs)
+        $wrongBinaryHash[7]='0000000000000000000000000000000000000000000000000000000000000000'
+        & $ServiceControlBinary @wrongBinaryHash 2>$null|Out-Null
+        if($LASTEXITCODE -eq 0 -or
+            (Test-Path -LiteralPath $installedServiceBinary) -or
+            (Get-Service $service -ErrorAction SilentlyContinue)) {
+            throw 'Publisher registration retained a mismatched executable'
+        }
+        $receipt['wrong_binary_digest_refused']=$true
         $registrationAttempted=$true
         $registered=& $ServiceControlBinary @controlArgs
         if($LASTEXITCODE -ne 0){throw 'Product service control did not register the reviewed publisher'}
@@ -601,6 +616,10 @@ try {
         if(($registered|ConvertFrom-Json).status -ne 'registered') {
             throw 'Product service control did not register the reviewed publisher'
         }
+        if((Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+            $sourceServiceHash){throw 'Protected installed service differs from packaged source'}
+        $ServiceBinary=$installedServiceBinary
+        $receipt['protected_service_binary_sha256']=$sourceServiceHash
         $receipt['service_control_binary_sha256']=(Get-FileHash -LiteralPath $ServiceControlBinary -Algorithm SHA256).Hash.ToLowerInvariant()
         if($ProductionConcurrentRights) {
             if(-not $env:ProgramW6432){throw 'Protected Program Files root is unavailable'}
@@ -650,7 +669,8 @@ try {
         (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$service").ServiceSidType -ne 3) {
         throw 'Effective service configuration differs'
     }
-    foreach($path in @($ServiceBinary,$archive,$envelope)) {
+    $serviceInputs=if($RegisteredService){@($archive,$envelope)}else{@($ServiceBinary,$archive,$envelope)}
+    foreach($path in $serviceInputs) {
         $acl=Get-Acl -LiteralPath $path
         $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
             [Security.Principal.SecurityIdentifier]::new($sid),'ReadAndExecute','Allow'))
@@ -1882,6 +1902,19 @@ try {
             if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Owned service remains after deletion'}
             $receipt.service_removed=$true
         } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
+    if($RegisteredService -and $installedServiceBinary -and
+        -not (Get-Service $service -ErrorAction SilentlyContinue) -and
+        (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
+        try {
+            $expectedInstalled=Join-Path $env:ProgramW6432 `
+                ('Universal Setup\Publisher\'+$service+'.exe')
+            if($installedServiceBinary -cne $expectedInstalled -or
+                (Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                    $sourceServiceHash){throw 'Protected service cleanup identity differs'}
+            Remove-Item -LiteralPath $installedServiceBinary -Force -ErrorAction Stop
+            $receipt['protected_service_binary_removed']=$true
+        } catch { $failure='Protected service binary cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed') -and $receipt.service_removed) {
         try {

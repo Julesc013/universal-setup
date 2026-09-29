@@ -5,14 +5,20 @@ Universal Setup daemon/job-runner entrypoint. Mutation authority remains in `run
 On Windows x64, `usk_publisher_service_control` configures the selected
 restricted-service publisher without using a campaign VM identity or a lab
 receipt path. Registration takes an already protected dedicated NTFS volume,
-a reviewed plan envelope, its exact SHA-256, and the authorized caller SID:
+a reviewed plan envelope, its exact SHA-256, the authorized caller SID, and
+the expected SHA-256 of the publisher executable. Registration streams the
+executable into a newly created, protected per-service file under
+`Program Files/Universal Setup/Publisher`, verifies its digest and flushes it
+before creating the LocalSystem service. Later commands take that installed
+path. The source executable may be in an untrusted staging directory, but its
+expected digest must come from the reviewed package identity:
 
 ```text
-usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID [--admit-client-observer|--grant-client-read]
-usk_publisher_service_control --recover USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
-usk_publisher_service_control --verify USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
-usk_publisher_service_control --start USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
-usk_publisher_service_control --unregister USK_PUB_<same name> SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --register USK_PUB_<32 lowercase hex> SOURCE_SERVICE_EXE VOLUME_GUID_ROOT ENVELOPE_JSON ENVELOPE_SHA256 CALLER_SID SERVICE_EXE_SHA256 [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --recover USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --verify USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --start USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
+usk_publisher_service_control --unregister USK_PUB_<same name> INSTALLED_SERVICE_EXE VOLUME_GUID_ROOT CALLER_SID [--admit-client-observer|--grant-client-read]
 ```
 
 The second command changes only a stopped, matching own-process LocalSystem
@@ -43,7 +49,8 @@ Unregister requires the service to be stopped and rechecks its generated name,
 executable path, volume, authorized caller, access mode, own-process account,
 and restricted service SID. Its `removal_requested` reply means Windows accepted
 the deletion request; callers must independently wait until the service is
-absent before reclaiming its owned volume or files.
+absent before reclaiming its owned volume or installed executable. A failed
+registration removes only the per-service executable it created.
 Registration, configuration, start, and removal hold one empty per-service
 lock file beneath the protected `Program Files/Universal Setup/PublisherControl`
 directory. The controller verifies its owner, protected ACL, and ordinary-file
