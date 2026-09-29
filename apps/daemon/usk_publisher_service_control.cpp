@@ -50,6 +50,47 @@ private:
     HANDLE value_;
 };
 
+class ScopedBackupPrivilege {
+public:
+    ScopedBackupPrivilege() {
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+                &token_)) {
+            throw std::runtime_error("publisher controller cannot inspect its process token");
+        }
+        LUID backup{};
+        if (!LookupPrivilegeValueW(nullptr, L"SeBackupPrivilege", &backup)) {
+            CloseHandle(token_);
+            token_ = nullptr;
+            throw std::runtime_error("publisher controller backup privilege is unavailable");
+        }
+        TOKEN_PRIVILEGES enabled{};
+        enabled.PrivilegeCount = 1;
+        enabled.Privileges[0].Luid = backup;
+        enabled.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        DWORD previous_size = sizeof(previous_);
+        const BOOL adjusted = AdjustTokenPrivileges(token_, FALSE, &enabled,
+            sizeof(previous_), &previous_, &previous_size);
+        const DWORD error = GetLastError();
+        if (!adjusted || error != ERROR_SUCCESS) {
+            CloseHandle(token_);
+            token_ = nullptr;
+            throw std::runtime_error("publisher controller cannot enable scoped backup observation; Win32 " +
+                std::to_string(error));
+        }
+    }
+    ~ScopedBackupPrivilege() {
+        if (token_) {
+            AdjustTokenPrivileges(token_, FALSE, &previous_, 0, nullptr, nullptr);
+            CloseHandle(token_);
+        }
+    }
+    ScopedBackupPrivilege(const ScopedBackupPrivilege&) = delete;
+    ScopedBackupPrivilege& operator=(const ScopedBackupPrivilege&) = delete;
+private:
+    HANDLE token_ = nullptr;
+    TOKEN_PRIVILEGES previous_{};
+};
+
 class LocalDescriptor {
 public:
     explicit LocalDescriptor(const wchar_t* sddl) {
@@ -538,6 +579,7 @@ void require_exclusive_volume_admission(const std::wstring& name,
         service_sid_ascii.push_back(static_cast<char>(ch));
     }
     {
+        ScopedBackupPrivilege backup_observation;
         FileHandle held_root(CreateFileW(root.c_str(),
             FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,

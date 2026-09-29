@@ -4087,7 +4087,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "2c96c16eee9c1d3900fa270b4fad0e5a815fcf5a24d30ff9602cae6ca82f9a6c"
+          "sha256": "3fc43b09f5c5e772a00df41afb239b431e89772642b1c1c0bf41ce9fe0456f29"
         },
         {
           "path": "tools/usk_selected_candidate_package.py",
@@ -4379,7 +4379,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "2c96c16eee9c1d3900fa270b4fad0e5a815fcf5a24d30ff9602cae6ca82f9a6c"
+          "sha256": "3fc43b09f5c5e772a00df41afb239b431e89772642b1c1c0bf41ce9fe0456f29"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
