@@ -631,8 +631,7 @@ try {
         if($ProductionConcurrentRights) {
             if(-not $env:ProgramW6432){throw 'Protected Program Files root is unavailable'}
             $controlLocks=Join-Path $env:ProgramW6432 'Universal Setup\PublisherControl'
-            $controlLock=Join-Path $controlLocks `
-                ($VolumeRoot.Substring(11,36).ToLowerInvariant()+'.'+$service+'.lock')
+            $controlLock=Join-Path $controlLocks ($service+'.lock')
             if(-not (Test-Path -LiteralPath $controlLock -PathType Leaf)) {
                 throw 'Product service control lock file is absent'
             }
@@ -645,6 +644,18 @@ try {
                 if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
                     throw 'Publisher service start bypassed held control lock'
                 }
+                $otherFirstDigit=if($VolumeRoot[11] -ceq '0'){'1'}else{'0'}
+                $otherVolume=$VolumeRoot.Substring(0,11)+$otherFirstDigit+$VolumeRoot.Substring(12)
+                $crossVolumeError=Join-Path $root ('cross-volume-register-'+$id+'.txt')
+                $crossVolumeArgs=@('--register',$service,$ServiceBinary,$otherVolume,
+                    $envelope,$receipt.envelope_sha256,$callerSid,$sourceServiceHash)
+                if($registeredMode){$crossVolumeArgs+=$registeredMode}
+                & $ServiceControlBinary @crossVolumeArgs 2>$crossVolumeError|Out-Null
+                if($LASTEXITCODE -eq 0 -or
+                    -not ((Get-Content -LiteralPath $crossVolumeError -Raw) -clike '*control is active*')) {
+                    throw 'Cross-volume registration did not use the service-name lock'
+                }
+                $receipt['cross_volume_service_lock_refusal']=$true
             } finally { $held.Dispose() }
             $receipt['service_control_lock_start_refusal']=$true
         }

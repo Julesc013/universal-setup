@@ -134,7 +134,7 @@ void create_protected_directory(const std::wstring& path, SECURITY_ATTRIBUTES& a
 
 class ServiceControlGuard {
 public:
-    ServiceControlGuard(const std::wstring& volume, const std::wstring& service) {
+    explicit ServiceControlGuard(const std::wstring& service) {
         LocalDescriptor directory_descriptor(
             L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
         SECURITY_ATTRIBUTES directory_attributes{sizeof(SECURITY_ATTRIBUTES),
@@ -162,9 +162,9 @@ public:
         LocalDescriptor file_descriptor(L"O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)");
         SECURITY_ATTRIBUTES file_attributes{sizeof(SECURITY_ATTRIBUTES),
             file_descriptor.get(), FALSE};
-        // The volume syntax and generated service name were checked by wmain.
-        const auto guid = volume.substr(std::wstring(L"\\\\?\\Volume{").size(), 36u);
-        const auto path = locks / (guid + L"." + service + L".lock");
+        // The generated SCM name is the global identity; a volume-specific
+        // lock would allow two registrations to race over one executable.
+        const auto path = locks / (service + L".lock");
         FileHandle file(CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
             0, &file_attributes, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
             FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
@@ -597,7 +597,7 @@ void register_service(const std::wstring& name, const std::wstring& binary,
     const std::wstring& mode) {
     require_file(envelope);
     if (!lower_sha256(digest)) throw std::runtime_error("envelope digest is invalid");
-    ServiceControlGuard control(volume, name);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr,
         SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager creation access unavailable");
@@ -647,7 +647,7 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_protected_binary(name, binary);
-    ServiceControlGuard control(volume, name);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -674,7 +674,7 @@ void configure_verify(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_protected_binary(name, binary);
-    ServiceControlGuard control(volume, name);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -701,7 +701,7 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_protected_binary(name, binary);
-    ServiceControlGuard control(volume, name);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -719,7 +719,7 @@ void request_unregister(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& caller,
     const std::wstring& mode) {
     require_protected_binary(name, binary);
-    ServiceControlGuard control(volume, name);
+    ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
