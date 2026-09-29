@@ -194,7 +194,7 @@ class PrefabEnvelopeTests(unittest.TestCase):
                 self.assertEqual(inspect_envelope(carrier)["profile"], "one_file_carrier")
                 with mock.patch.object(usk_prefab_envelope.shutil, "disk_usage",
                                        return_value=mock.Mock(free=0)):
-                    with self.assertRaisesRegex(EnvelopeError, "scratch headroom"):
+                    with self.assertRaisesRegex(EnvelopeError, "scratch volume lacks headroom"):
                         inspect_envelope(carrier)
                 carrier.write_bytes(original_bytes + b"hidden suffix")
                 with self.assertRaises(EnvelopeError):
@@ -202,6 +202,38 @@ class PrefabEnvelopeTests(unittest.TestCase):
             self.assertEqual(len(observed), 2)
             self.assertTrue(all(not path.exists() for path in observed))
             self.assertEqual({item.name for item in output.iterdir()}, {carrier.name})
+
+    def test_read_only_carrier_uses_only_explicit_writable_scratch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle, runtime = self._inputs(root)
+            output = root / "read-only media"
+            output.mkdir()
+            build_envelope(bundle, runtime, "one_file_carrier", output)
+            carrier = output / "setup.carrier.zip"
+            scratch = root / "writable scratch"
+            scratch.mkdir()
+            original = tempfile.TemporaryDirectory
+            observed: list[Path] = []
+
+            def read_only_parent(*args, **kwargs):
+                if kwargs.get("dir") == output:
+                    raise PermissionError("simulated read-only media")
+                self.assertEqual(kwargs.get("dir"), scratch)
+                created = original(*args, **kwargs)
+                observed.append(Path(created.name))
+                return created
+
+            with mock.patch.object(usk_prefab_envelope.tempfile, "TemporaryDirectory",
+                                   read_only_parent):
+                with self.assertRaisesRegex(EnvelopeError, "supply --scratch-dir"):
+                    inspect_envelope(carrier)
+                self.assertEqual(inspect_envelope(carrier, scratch_dir=scratch)["profile"],
+                                 "one_file_carrier")
+            self.assertEqual(len(observed), 1)
+            self.assertFalse(observed[0].exists())
+            self.assertEqual({item.name for item in output.iterdir()}, {carrier.name})
+            self.assertEqual(list(scratch.iterdir()), [])
 
     def test_self_consistent_but_invalid_bundle_is_refused_in_both_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

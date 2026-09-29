@@ -199,23 +199,29 @@ def build_envelope(bundle_path: Path, runtime: Path, profile: str, output_dir: P
     return manifest
 
 
-def _inspect_carrier(path: Path) -> tuple[bytes, dict[str, dict[str, Any]], bytes, dict[str, Any]]:
+def _inspect_carrier(path: Path, scratch_dir: Path | None = None) -> tuple[
+        bytes, dict[str, dict[str, Any]], bytes, dict[str, Any]]:
     path = path.absolute()
-    parent = path.parent
-    if parent.is_symlink() or getattr(parent.lstat(), "st_file_attributes", 0) & 0x400:
-        raise EnvelopeError("carrier parent is redirected")
+    scratch_root = path.parent if scratch_dir is None else scratch_dir.absolute()
+    if not scratch_root.is_dir() or scratch_root.is_symlink() or \
+            getattr(scratch_root.lstat(), "st_file_attributes", 0) & 0x400:
+        raise EnvelopeError("inspection scratch root is absent or redirected")
     _, before = _read_plain_file(path)
     # A stored carrier needs at most one canonical copy and one extracted
     # non-runtime member set. Leave headroom on that same volume before either
     # copy is opened; this is a preflight, not a concurrent reservation.
-    if shutil.disk_usage(parent).free < 2 * before.st_size + SCRATCH_RESERVE_BYTES:
-        raise EnvelopeError("carrier volume lacks inspection scratch headroom")
+    if shutil.disk_usage(scratch_root).free < 2 * before.st_size + SCRATCH_RESERVE_BYTES:
+        raise EnvelopeError("inspection scratch volume lacks headroom")
     names = sorted((RUNTIME_NAME, *INPUT_NAMES, "prefab.manifest.json"))
     observed: dict[str, dict[str, Any]] = {}
     runtime_prefix = b""
-    # Keep both disposable copies on the carrier's volume. The default system
-    # temp directory may be on a different, nearly full drive.
-    with tempfile.TemporaryDirectory(prefix="usk-prefab-inspect-", dir=parent) as directory:
+    # Default to the carrier volume. A caller inspecting read-only media may
+    # choose an explicit writable scratch root; never silently use system temp.
+    try:
+        temporary = tempfile.TemporaryDirectory(prefix="usk-prefab-inspect-", dir=scratch_root)
+    except OSError as error:
+        raise EnvelopeError("inspection scratch root is not writable; supply --scratch-dir") from error
+    with temporary as directory:
         extracted_root = Path(directory)
         with path.open("rb") as source, tempfile.TemporaryFile(
                 mode="w+b", dir=extracted_root) as rebuilt:
@@ -280,7 +286,7 @@ def _inspect_carrier(path: Path) -> tuple[bytes, dict[str, dict[str, Any]], byte
     return data, observed, runtime_prefix, bundle
 
 
-def inspect_envelope(path: Path) -> dict[str, Any]:
+def inspect_envelope(path: Path, *, scratch_dir: Path | None = None) -> dict[str, Any]:
     if path.is_dir():
         if {item.name for item in path.iterdir()} != {
                 RUNTIME_NAME, *INPUT_NAMES, "prefab.manifest.json"}:
@@ -304,7 +310,7 @@ def inspect_envelope(path: Path) -> dict[str, Any]:
     else:
         if path.name != "setup.carrier.zip":
             raise EnvelopeError("one-file carrier name is invalid")
-        data, observed, runtime_prefix, bundle = _inspect_carrier(path)
+        data, observed, runtime_prefix, bundle = _inspect_carrier(path, scratch_dir)
         profile = "one_file_carrier"
     if not data.endswith(b"\n"):
         raise EnvelopeError("envelope manifest is oversized or not canonical")
@@ -343,10 +349,13 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--output-dir", required=True, type=Path)
     inspect = sub.add_parser("inspect")
     inspect.add_argument("--path", required=True, type=Path)
+    inspect.add_argument("--scratch-dir", type=Path,
+                         help="existing writable scratch root for a carrier on read-only media")
     args = parser.parse_args(argv)
     try:
         result = (build_envelope(args.bundle, args.runtime, args.profile, args.output_dir)
-                  if args.command == "build" else inspect_envelope(args.path))
+                  if args.command == "build" else inspect_envelope(
+                      args.path, scratch_dir=args.scratch_dir))
         print(_canonical(result).decode("ascii"), end="")
         return 0
     except (AuthoringError, EnvelopeError, OSError, zipfile.BadZipFile) as error:

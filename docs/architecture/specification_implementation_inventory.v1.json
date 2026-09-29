@@ -722,7 +722,7 @@
         },
         {
           "path": "release/packaging/windows/usk-prefab-envelope.md",
-          "sha256": "a8cf0f18e4211d14be9b0c7cac12eef7706764b491b5fc2229051262a3d66837"
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
         },
         {
           "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
@@ -742,7 +742,7 @@
         },
         {
           "path": "tests/test_prefab_envelope.py",
-          "sha256": "f705d88cd4fce4683288916ca314f13759c05d11df84b65af366456ca7c13c0a"
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
         },
         {
           "path": "tools/product_package_contract_check.py",
@@ -762,7 +762,7 @@
         },
         {
           "path": "tools/usk_prefab_envelope.py",
-          "sha256": "a3d61c350ff85b60cbac5527b37e37ff0c722db7f54f8ceb1b4987feb6df61ee"
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
         },
         {
           "path": "tools/usk_bundle_plan.py",
@@ -822,7 +822,7 @@
         },
         {
           "path": "release/packaging/windows/usk-prefab-envelope.md",
-          "sha256": "a8cf0f18e4211d14be9b0c7cac12eef7706764b491b5fc2229051262a3d66837"
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
         },
         {
           "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
@@ -838,7 +838,7 @@
         },
         {
           "path": "tests/test_prefab_envelope.py",
-          "sha256": "f705d88cd4fce4683288916ca314f13759c05d11df84b65af366456ca7c13c0a"
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
         },
         {
           "path": "tools/product_package_contract_check.py",
@@ -854,7 +854,7 @@
         },
         {
           "path": "tools/usk_prefab_envelope.py",
-          "sha256": "a3d61c350ff85b60cbac5527b37e37ff0c722db7f54f8ceb1b4987feb6df61ee"
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
         },
         {
           "path": "tools/usk_bundle_plan.py",
@@ -926,7 +926,7 @@
         },
         {
           "path": "release/packaging/windows/usk-prefab-envelope.md",
-          "sha256": "a8cf0f18e4211d14be9b0c7cac12eef7706764b491b5fc2229051262a3d66837"
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
         },
         {
           "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
@@ -958,7 +958,7 @@
         },
         {
           "path": "tests/test_prefab_envelope.py",
-          "sha256": "f705d88cd4fce4683288916ca314f13759c05d11df84b65af366456ca7c13c0a"
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
         },
         {
           "path": "tools/product_package_contract_check.py",
@@ -978,7 +978,7 @@
         },
         {
           "path": "tools/usk_prefab_envelope.py",
-          "sha256": "a3d61c350ff85b60cbac5527b37e37ff0c722db7f54f8ceb1b4987feb6df61ee"
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
         },
         {
           "path": "tools/usk_bundle_plan.py",
@@ -3604,7 +3604,7 @@
         },
         {
           "path": "release/packaging/windows/usk-prefab-envelope.md",
-          "sha256": "a8cf0f18e4211d14be9b0c7cac12eef7706764b491b5fc2229051262a3d66837"
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
         },
         {
           "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
@@ -3616,11 +3616,11 @@
         },
         {
           "path": "tests/test_prefab_envelope.py",
-          "sha256": "f705d88cd4fce4683288916ca314f13759c05d11df84b65af366456ca7c13c0a"
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
         },
         {
           "path": "tools/usk_prefab_envelope.py",
-          "sha256": "a3d61c350ff85b60cbac5527b37e37ff0c722db7f54f8ceb1b4987feb6df61ee"
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
