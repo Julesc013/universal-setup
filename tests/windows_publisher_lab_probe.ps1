@@ -37,6 +37,9 @@ if($TerminateAtPoststage -and (-not $InterruptAfterStage -or -not $RegisteredSer
 if($ReuseRegistration -and (-not $RegisteredService -or -not $ReviewedSource -or -not $ServiceControlBinary)) {
     throw 'Bound service request probe requires the registered reviewed publisher'
 }
+if($ReuseRegistration -and $InterruptAfterStage) {
+    throw 'Poststage fault injection restores the owned service command before recovery'
+}
 if($ProductionConcurrentRights -and (-not $RegisteredService -or -not $ReviewedSource -or
     -not $NonAdminClient -or $HostileRights -or $ConsumerAccess -or $MachineRequestClient -or
     $InterruptAfterStage -or (Split-Path -Leaf $ServiceBinary) -cne 'usk_publisher_service.exe')) {

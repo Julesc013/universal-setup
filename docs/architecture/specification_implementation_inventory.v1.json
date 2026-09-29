@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "06a477c38bf3272d160088898202cc51f6af4bee2097fdd58486fc4afd330e0c"
+          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "06a477c38bf3272d160088898202cc51f6af4bee2097fdd58486fc4afd330e0c"
+          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "06a477c38bf3272d160088898202cc51f6af4bee2097fdd58486fc4afd330e0c"
+          "sha256": "ab3ed47cc5507bae52cd327026e36cb54d50b0a1849afaaeb7b000bdc0813bf3"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3943,7 +3943,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "d3e22b18e4112d7637e769c7e183b787440f4f0dc189893d562d09e58b39129e"
+          "sha256": "f1ac6e5f432a00c282fb276bd953d0829608431a55777fbf9a40eda1f31e865f"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "37c9d0a53be2a8e8a07b0f961cc76a33e42adafe5727ac7514289815d17e4346"
+          "sha256": "24730067d29ef3e579722598d03a7730e456e307af9756c068e9b3f1b5c672ce"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",
@@ -4335,7 +4335,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "37c9d0a53be2a8e8a07b0f961cc76a33e42adafe5727ac7514289815d17e4346"
+          "sha256": "24730067d29ef3e579722598d03a7730e456e307af9756c068e9b3f1b5c672ce"
         },
         {
           "path": "tests/windows_publisher_stage_observer.ps1",

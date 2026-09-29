@@ -28,6 +28,9 @@ param(
     [switch]$HostileRights
 )
 $ErrorActionPreference='Stop'
+if($ReuseRegistration -and $InterruptAfterStage) {
+    throw 'Poststage fault injection restores the owned service command before recovery'
+}
 function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
     $stream=[IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,
         [IO.FileShare]::ReadWrite)
@@ -1116,18 +1119,11 @@ try {
                 (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
                 throw 'Owned fault-test command could not be restored'
             }
-            if($ReuseRegistration) {
-                if((Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $expectedRegisteredCommand) {
-                    throw 'Registered publisher command changed before bound recovery'
-                }
-                $receipt['incomplete_recovery_without_reconfiguration']=$true
-            } else {
-                $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
-                if($registeredMode){$controlArgs+=$registeredMode}
-                $configuredRecovery=& $ServiceControlBinary @controlArgs
-                if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
-                    throw 'Product service control did not configure incomplete-phase recovery'
-                }
+            $controlArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,$callerSid)
+            if($registeredMode){$controlArgs+=$registeredMode}
+            $configuredRecovery=& $ServiceControlBinary @controlArgs
+            if($LASTEXITCODE -ne 0 -or ($configuredRecovery|ConvertFrom-Json).status -ne 'recovery_configured') {
+                throw 'Product service control did not configure incomplete-phase recovery'
             }
             $nativePath=$recoveryPath
             Start-RegisteredPublisher
