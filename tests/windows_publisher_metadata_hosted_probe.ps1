@@ -1206,6 +1206,14 @@ try {
         $pausedBefore=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         if($pausedBefore.independent.identity -ne 'S-1-5-18' -or -not $pausedBefore.observer_task_removed){throw ('Protected '+$hostilePhase+' observation unavailable')}
         Assert-IndependentProtectedRows -Rows $pausedBefore.independent.rows -ServiceSid $sid
+        if($HostilePostrename) {
+            $preparedRow=$drive+'publication\journal\lab-prepared-evidence.json'
+            $visibleRow=$drive+'publication\journal\lab-visible-evidence.json'
+            if(@($pausedBefore.independent.rows|Where-Object path -ceq $preparedRow).Count -ne 1 -or
+                @($pausedBefore.independent.rows|Where-Object path -ceq $visibleRow).Count -ne 0) {
+                throw 'Independent journal rows do not bound the postrename prejournal window'
+            }
+        }
         $hostilePayloadPath=if($HostilePostrename){
             $drive+'publication\destination\visible\'+$attackRelative.Replace('/','\')
         }else{$drive+'publication\staging\candidate\'+$attackRelative.Replace('/','\')}
@@ -1309,7 +1317,10 @@ try {
         }
         Assert-OwnedVolume
         $releaseTemp=$release+'.tmp'
-        $releaseBytes=[Text.Encoding]::ASCII.GetBytes("usk.publisher.lab_continue.v1`n")
+        $releaseValue=if($HostilePostrename){
+            "usk.publisher.lab_continue_after_rename.v1`n"
+        }else{"usk.publisher.lab_continue.v1`n"}
+        $releaseBytes=[Text.Encoding]::ASCII.GetBytes($releaseValue)
         $stream=[IO.FileStream]::new($releaseTemp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
         try{$stream.Write($releaseBytes,0,$releaseBytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
         [IO.File]::Move($releaseTemp,$release)
