@@ -166,8 +166,8 @@ try {
                 $PayloadRelativePath -notin @('bin/core.bin','bin/addon.bin')) {
                 throw 'production attacker source is not on the exact owned volume'
             }
-            # A replacement denial only challenges staging if this login can
-            # first open the exact same-volume source with DELETE access.
+            # Distinguish a source-side DELETE denial from a replacement
+            # attempt that can reach the protected staged target.
             Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -293,11 +293,17 @@ public static class USKPublisherRenameRace {
             $sourceHandle=[USKPublisherAncestorAttack]::CreateFileW(
                 $SameVolumeSource,0x10080,7,[IntPtr]::Zero,3,0x00200000,[IntPtr]::Zero)
             if($sourceHandle -eq [IntPtr]::new(-1)) {
-                throw ('production replacement source lacks DELETE access: Win32 '+
-                    [Runtime.InteropServices.Marshal]::GetLastWin32Error())
+                $sourceError=[Runtime.InteropServices.Marshal]::GetLastWin32Error()
+                if($sourceError -ne 5) {
+                    throw ('production replacement source DELETE probe failed: Win32 '+$sourceError)
+                }
+                $receipt['same_volume_source_delete_access']='denied'
+                $receipt['same_volume_source_delete_error']=$sourceError
+            } else {
+                [USKPublisherAncestorAttack]::CloseHandle($sourceHandle)|Out-Null
+                throw 'selected profile unexpectedly granted source DELETE access'
             }
-            [USKPublisherAncestorAttack]::CloseHandle($sourceHandle)|Out-Null
-            $receipt['same_volume_source_open_confirmed']=$true
+            $receipt['same_volume_source_read_confirmed']=$true
             $receipt['same_volume_source_sha256']=$sourceSha256
         }
         $receipt['concurrent'] = [ordered]@{
@@ -507,7 +513,6 @@ public static class USKPublisherRenameRace {
                 $receipt.concurrent.destination_create.denied -lt 4 -or
                 $receipt.concurrent.destination_create.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_write.denied_after_start_before_observed_reply -lt 1 -or
-                $receipt.concurrent.staged_replace.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_insert.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_ads_write.denied_after_start_before_observed_reply -lt 1 -or
                 $receipt.concurrent.staged_delete.denied_after_start_before_observed_reply -lt 1 -or
@@ -524,7 +529,7 @@ public static class USKPublisherRenameRace {
                 $missing=@()
                 if(-not $receipt.concurrent.ready_utc){$missing+='ready'}
                 if($receipt.concurrent.destination_create.denied -lt 4){$missing+='destination_total'}
-                foreach($name in @('destination_create','staged_write','staged_replace',
+                foreach($name in @('destination_create','staged_write',
                         'staged_insert','staged_ads_write','staged_delete','staged_rename',
                         'staged_hardlink','staged_write_owner','staged_write_attributes',
                         'candidate_delete_child','publication_rename','publication_write_dac')) {

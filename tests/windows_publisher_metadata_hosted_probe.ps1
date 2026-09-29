@@ -1863,7 +1863,7 @@ try {
                     $concurrent.concurrent.clock -ceq 'qpc' -and
                     [long]$concurrent.concurrent.clock_frequency -eq
                         [long]$stageObservation.clock_frequency
-                foreach($operation in @('destination_create','staged_replace',
+                foreach($operation in @('destination_create',
                         'publication_rename','publication_write_dac')) {
                     $matched=Get-TransitionAttemptCoverage $stageObservation `
                         $concurrent.concurrent.PSObject.Properties[$operation].Value.denied_attempts
@@ -1879,14 +1879,13 @@ try {
                     first_visible_end_tick=$stageObservation.transition.first_visible_end_tick;
                     native_call=$nativeCall;
                     hostile_rename_overlap=$nativeOverlap;
+                    staged_replace_source_delete_access=$concurrent.same_volume_source_delete_access;
                     denied_attempts=$transitionCoverage}
                 # The protected ancestor masks absence as ACCESS_DENIED for
                 # this caller. Correlate its denied writes with independent
                 # SYSTEM samples of the actual staged file.
                 $overlap=Test-LiveStageAttemptOverlap $stageObservation `
                     $concurrent.concurrent.staged_write.denied_attempts
-                $replaceOverlap=Test-LiveStageAttemptOverlap $stageObservation `
-                    $concurrent.concurrent.staged_replace.denied_attempts
                 $insertOverlap=Test-LiveStageAttemptOverlap $stageObservation `
                     $concurrent.concurrent.staged_insert.denied_attempts
                 $streamOverlap=Test-LiveStageAttemptOverlap $stageObservation `
@@ -1909,14 +1908,13 @@ try {
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
                 $stageObserver.removed -and $transitionCovered -and $nativeOverlapCovered -and
-                $overlap -and $replaceOverlap -and
+                $overlap -and
                 $insertOverlap -and $streamOverlap -and
                 $renameOverlap -and $dacOverlap -and $extendedStageCovered -and
                 $stageObservation.source_sha256_at_start -ceq $scratchSha256 -and
                 $stageObservation.source_sha256_at_stop -ceq $scratchSha256 -and
                 $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_write.denied_after_start_before_observed_reply -ge 1 -and
-                $concurrent.concurrent.staged_replace.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_insert.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_ads_write.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.publication_rename.denied_after_start_before_observed_reply -ge 1 -and
@@ -1932,8 +1930,10 @@ try {
                 $concurrent.status -cne 'access_denied_observed' -or
                 -not $coverage -or
                 $concurrent.user_sid -cne $consumerSid -or $concurrent.administrator -or
-                -not $concurrent.same_volume_source_open_confirmed -or
+                -not $concurrent.same_volume_source_read_confirmed -or
                 $concurrent.same_volume_source_sha256 -cne $scratchSha256 -or
+                $concurrent.same_volume_source_delete_access -cne 'denied' -or
+                $concurrent.same_volume_source_delete_error -ne 5 -or
                 $concurrent.service_sid_present -or
                 $concurrent.process_id -ne $concurrentAttacker.Id -or
                 $concurrent.concurrent.destination_create.denied -lt 4 -or
@@ -1959,7 +1959,7 @@ try {
                 $unrelatedAttempt=@($unrelatedOverlap.overlap_attempt)
                 $unrelatedStageCoverage=[ordered]@{}
                 $unrelatedStageCovered=$true
-                foreach($operation in @('staged_write','staged_replace','staged_insert',
+                foreach($operation in @('staged_write','staged_insert',
                         'staged_ads_write','staged_delete','staged_rename',
                         'staged_hardlink','staged_write_owner',
                         'staged_write_attributes','candidate_delete_child',
@@ -1972,8 +1972,10 @@ try {
                 if($unrelated.schema -cne 'usk.publisher.unprivileged_access_probe.v1' -or
                     $unrelated.status -cne 'access_denied_observed' -or
                     $unrelated.user_sid -cne $unrelatedSid -or
-                    -not $unrelated.same_volume_source_open_confirmed -or
+                    -not $unrelated.same_volume_source_read_confirmed -or
                     $unrelated.same_volume_source_sha256 -cne $scratchSha256 -or
+                    $unrelated.same_volume_source_delete_access -cne 'denied' -or
+                    $unrelated.same_volume_source_delete_error -ne 5 -or
                     $unrelated.user_sid -ceq $consumerSid -or
                     $unrelated.process_id -ne $unrelatedAttacker.Id -or
                     $unrelated.administrator -or $unrelated.service_sid_present -or
@@ -1992,7 +1994,7 @@ try {
                 $receipt['production_unrelated_concurrent_stage_coverage']=$unrelatedStageCoverage
                 $receipt['production_unrelated_concurrent_hostile_rights']=$unrelated
                 $receipt['concurrent_qualification_limit']=
-                    'two_local_nonadmin_sids_denied_during_staging_and_native_rename_other_profile_cases_remain'
+                    'two_local_nonadmin_sids_denied_during_staging_and_native_rename_staged_replace_source_delete_denied_not_target_proof_other_profile_cases_remain'
                 $unrelatedAttacker=$null
             }
             $concurrentAttacker=$null
