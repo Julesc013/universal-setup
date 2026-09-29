@@ -1468,6 +1468,10 @@ try {
                     $concurrent.concurrent.staged_write.denied_attempts
                 $replaceOverlap=Test-LiveStageAttemptOverlap $stageObservation `
                     $concurrent.concurrent.staged_replace.denied_attempts
+                $insertOverlap=Test-LiveStageAttemptOverlap $stageObservation `
+                    $concurrent.concurrent.staged_insert.denied_attempts
+                $streamOverlap=Test-LiveStageAttemptOverlap $stageObservation `
+                    $concurrent.concurrent.staged_ads_write.denied_attempts
                 $renameOverlap=Test-LiveStageAttemptOverlap $stageObservation `
                     $concurrent.concurrent.publication_rename.denied_attempts
                 $dacOverlap=Test-LiveStageAttemptOverlap $stageObservation `
@@ -1475,12 +1479,15 @@ try {
                 $concurrent.stage -ceq 'ProductionConcurrent' -and
                 $concurrent.concurrent.started_seen_utc -and
                 $stageObserver.removed -and $overlap -and $replaceOverlap -and
+                $insertOverlap -and $streamOverlap -and
                 $renameOverlap -and $dacOverlap -and
                 $stageObservation.source_sha256_at_start -ceq $scratchSha256 -and
                 $stageObservation.source_sha256_at_stop -ceq $scratchSha256 -and
                 $concurrent.concurrent.destination_create.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_write.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.staged_replace.denied_after_start_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.staged_insert.denied_after_start_before_observed_reply -ge 1 -and
+                $concurrent.concurrent.staged_ads_write.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.publication_rename.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.publication_write_dac.denied_after_start_before_observed_reply -ge 1 -and
                 $concurrent.concurrent.cycles_after_start_before_observed_reply -ge 1
