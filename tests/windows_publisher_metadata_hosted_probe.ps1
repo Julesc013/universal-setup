@@ -1287,9 +1287,18 @@ try {
         if(-not $requestClient.process.WaitForExit(120000)){throw 'Registered service client timed out'}
         $requestClient.process.WaitForExit()
         if($requestClient.process.ExitCode -ne 0 -or
+            -not (Test-Path -LiteralPath $requestClient.response -PathType Leaf) -or
             (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB -or
             ((Test-Path -LiteralPath $nativePath) -and -not $HostileRights)) {
-            throw ('Registered service client failed or wrote a lab receipt: '+[IO.File]::ReadAllText($requestClient.error))
+            $diagnostic=[ordered]@{exit_code=$requestClient.process.ExitCode;
+                response=if(Test-Path -LiteralPath $requestClient.response -PathType Leaf){
+                    Read-BoundedDiagnostic $requestClient.response 4096}else{'response absent'};
+                stderr=if(Test-Path -LiteralPath $requestClient.error -PathType Leaf){
+                    Read-BoundedDiagnostic $requestClient.error 2048}else{'stderr absent'};
+                lab_receipt_present=(Test-Path -LiteralPath $nativePath)}
+            $receipt['registered_client_failure']=$diagnostic
+            throw ('Registered service client failed or wrote a lab receipt: '+
+                ($diagnostic|ConvertTo-Json -Compress))
         }
         $receipt.native=Get-Content -LiteralPath $requestClient.response -Raw|ConvertFrom-Json
         if($HostileRights) {
