@@ -245,12 +245,17 @@ function Get-OwnedPreexistingAnchorObservation {
         '$m=Get-Item -LiteralPath $marker -Force;'+
         'if(-not $a.PSIsContainer -or ($a.Attributes -band [IO.FileAttributes]::ReparsePoint) -or '+
         '$m.PSIsContainer -or ($m.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw ''Anchor shape changed''};'+
+        '$anchorSddl=(Get-Acl -LiteralPath $anchor).Sddl;'+
+        '$markerSddl=(Get-Acl -LiteralPath $marker).Sddl;'+
+        '$childCount=@(Get-ChildItem -LiteralPath $anchor -Force).Count;'+
+        '$hash=$null;$hashError=$null;'+
+        'try{$hash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash.ToLowerInvariant()}'+
+        'catch{$hashError=$_.Exception.Message;if($hashError.Length -gt 512){$hashError=$hashError.Substring(0,512)}};'+
         '$result=@{identity=$who;anchor_path=$a.FullName;'+
-        'child_count=@(Get-ChildItem -LiteralPath $anchor -Force).Count;'+
+        'child_count=$childCount;'+
         'marker_bytes=$m.Length;'+
-        'marker_sha256=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash.ToLowerInvariant();'+
-        'anchor_sddl=(Get-Acl -LiteralPath $anchor).Sddl;'+
-        'marker_sddl=(Get-Acl -LiteralPath $marker).Sddl;'+
+        'marker_sha256=$hash;marker_read_error=$hashError;'+
+        'anchor_sddl=$anchorSddl;marker_sddl=$markerSddl;'+
         'setup_state_present=(Test-Path -LiteralPath $state)};'+
         '$pending='''+$pending.Replace("'","''")+''';'+
         '$final='''+$observation.Replace("'","''")+''';'+
@@ -1471,6 +1476,7 @@ try {
             }
             $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
             $anchorAfter=Get-OwnedPreexistingAnchorObservation
+            $receipt['preexisting_anchor_after']=$anchorAfter
             if($receipt.native.schema -cne 'usk.publisher_lab_service_observation.v1' -or
                 $receipt.native.status -cne 'recovery_required' -or
                 $receipt.native.error -notmatch 'publisher exact anchor sibling is unavailable|publisher parent-bound child open failed' -or
@@ -1478,13 +1484,13 @@ try {
                 -not [string]::Equals($anchorAfter.anchor_path,$poisonedAnchor,[StringComparison]::OrdinalIgnoreCase) -or
                 $anchorAfter.child_count -ne 1 -or
                 $anchorAfter.marker_bytes -ne 7 -or
+                $anchorAfter.marker_read_error -or
                 $anchorAfter.marker_sha256 -cne $poisonedMarkerHash -or
                 $anchorAfter.anchor_sddl -cne $poisonedAnchorAcl -or
                 $anchorAfter.marker_sddl -cne $poisonedMarkerAcl -or
                 $anchorAfter.setup_state_present) {
                 throw 'Preexisting publication anchor was changed or admitted'
             }
-            $receipt['preexisting_anchor_after']=$anchorAfter
             $receipt.status='preexisting_anchor_recovery_required_observed'
         } else {
             $deadline=[DateTime]::UtcNow.AddSeconds(90)
