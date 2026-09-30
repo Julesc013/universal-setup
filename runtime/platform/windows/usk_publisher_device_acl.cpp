@@ -6,7 +6,9 @@
 #if defined(_WIN32)
 #include <array>
 #include <cstddef>
+#include <sddl.h>
 #include <stdexcept>
+#include <string>
 
 namespace usk::platform::windows {
 
@@ -35,6 +37,16 @@ PSID checked_ace_sid(const ACCESS_ALLOWED_ACE* ace) {
         throw std::runtime_error("publisher device ACE SID is malformed");
     }
     return sid;
+}
+
+std::string diagnostic_sid(PSID sid) {
+    LPSTR rendered = nullptr;
+    if (!ConvertSidToStringSidA(sid, &rendered) || !rendered) {
+        return "<unavailable>";
+    }
+    const std::string value(rendered);
+    LocalFree(rendered);
+    return value;
 }
 
 } // namespace
@@ -76,7 +88,9 @@ bool require_publisher_device_acl_shape(PSID owner, PACL dacl, PSID service_sid)
         } else if (!EqualSid(sid, const_cast<BYTE*>(system.data())) &&
             !EqualSid(sid, const_cast<BYTE*>(administrators.data())) &&
             (ace->Mask & mutating) != 0) {
-            throw std::runtime_error("publisher device grants raw-volume mutation outside trusted principals");
+            throw std::runtime_error(
+                "publisher device grants raw-volume mutation outside trusted principals: SID " +
+                diagnostic_sid(sid) + ", mask " + std::to_string(ace->Mask));
         }
     }
     return service_aces == 1;

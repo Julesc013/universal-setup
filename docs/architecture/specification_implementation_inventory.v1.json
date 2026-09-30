@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "99be0796a4caeec82008ab12fdb0ee625f65aecfba722f7f232e207222097e57"
+          "sha256": "825a58232651ac7527a0bc1df1ec135d4bb4866f52f496239a1bdf47a07a6e28"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4087,7 +4087,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "edb3cf374f68c82a2d19f7b308695bdbc79fb187a625b422265a9242086e3e25"
+          "sha256": "9c0388f6f6b544bcb3e2a97a29d08e06392db8a561405432c8d892cd24fe4f30"
         },
         {
           "path": "tools/usk_selected_candidate_package.py",
@@ -4111,7 +4111,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_device_acl.cpp",
-          "sha256": "d4031da0a50f8d994e40258ce6fe6f751b2d9fa6c16dd51a1822e9733e565ccd"
+          "sha256": "bf42a53da16aaaba44414042e823eb8da7dbcb4e718162adf259e77fb155d57f"
         },
         {
           "path": "tests/native/usk_publisher_device_acl_smoke.cpp",
@@ -4355,7 +4355,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "99be0796a4caeec82008ab12fdb0ee625f65aecfba722f7f232e207222097e57"
+          "sha256": "825a58232651ac7527a0bc1df1ec135d4bb4866f52f496239a1bdf47a07a6e28"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4395,7 +4395,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
-          "sha256": "edb3cf374f68c82a2d19f7b308695bdbc79fb187a625b422265a9242086e3e25"
+          "sha256": "9c0388f6f6b544bcb3e2a97a29d08e06392db8a561405432c8d892cd24fe4f30"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -4431,7 +4431,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_device_acl.cpp",
-          "sha256": "d4031da0a50f8d994e40258ce6fe6f751b2d9fa6c16dd51a1822e9733e565ccd"
+          "sha256": "bf42a53da16aaaba44414042e823eb8da7dbcb4e718162adf259e77fb155d57f"
         },
         {
           "path": "tests/native/usk_publisher_device_acl_smoke.cpp",

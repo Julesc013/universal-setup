@@ -1151,6 +1151,15 @@ try {
     Assert-OwnedVolume
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
+    $deviceText=$device -join "`n"
+    if($deviceText.Length -gt 16KB){throw 'Owned VHD device ACL receipt exceeds bound'}
+    $deviceAdmission=$deviceText|ConvertFrom-Json
+    if($deviceAdmission.service_sid -cne $sid -or
+        [string]::IsNullOrWhiteSpace($deviceAdmission.before_dacl) -or
+        [string]::IsNullOrWhiteSpace($deviceAdmission.after_dacl)) {
+        throw 'Owned VHD device ACL receipt differs'
+    }
+    $receipt['device_acl_admission']=$deviceAdmission
     if($ControllerApply) {
         $changedApply=Join-Path $root ('changed-apply-'+$id+'.json')
         $changedError=Join-Path $root ('changed-apply-'+$id+'.txt')
