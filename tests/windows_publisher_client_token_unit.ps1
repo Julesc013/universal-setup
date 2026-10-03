@@ -25,6 +25,23 @@ try {
  $owned=[Security.AccessControl.RawSecurityDescriptor]::new('O:'+$capture.caller_sid+'G:SYD:P(A;;FA;;;'+$capture.caller_sid+')')
  $bytes=[byte[]]::new($owned.BinaryLength);$owned.GetBinaryForm($bytes,0)
  if(-not $bridge.CheckDescriptor($bytes)['filtered']['write_or_add_file']['allowed']){throw 'Positive held-token control failed'}
+ $ownedLoginGuards=0
+ $secret=[Security.SecureString]::new()
+ foreach($character in 'OwnedUnitNoLogin123!'.ToCharArray()){$secret.AppendChar($character)}
+ $secret.MakeReadOnly()
+ try {
+  foreach($variant in 0..2) {
+   $account='USKOBS_0000000000000';$expectedSid='S-1-5-21-1-2-3-1001';$password=$secret
+   switch($variant) {0 {$account='foreign-account'};1 {$expectedSid='S-1-5-18'};2 {$password=$null}}
+   try {
+    $bridge.HoldOwnedLocalLogin($account,$password,$expectedSid,$capture.service_sid)|Out-Null
+    throw 'Invalid owned-login inputs were admitted'
+   } catch {
+    if($_.Exception.ToString() -notmatch 'Owned local-login binding is incomplete or already held'){throw}
+    ++$ownedLoginGuards
+   }
+  }
+ } finally {$secret.Dispose()}
 } finally {$bridge.Dispose()}
 $refused=0
 foreach($change in @(
@@ -41,7 +58,7 @@ foreach($change in @(
  catch {if($_.Exception.Message -ceq 'Contradictory held-token binding admitted'){throw};++$refused}
  finally {if($unexpected){$unexpected.Dispose()}}
 }
-[ordered]@{held_exited_client_observed=$true;positive_owned_control=$true;closed_actor_checks=18;contradictory_contexts_refused=$refused}|ConvertTo-Json -Compress
+[ordered]@{held_exited_client_observed=$true;positive_owned_control=$true;closed_actor_checks=18;contradictory_contexts_refused=$refused;invalid_owned_login_inputs_refused=$ownedLoginGuards}|ConvertTo-Json -Compress
 
 return
 }

@@ -1507,9 +1507,9 @@ passing verification. Private protected completion and public installed-state co
 are distinct observations; a metadata failure must not erase the former or
 invent the latter.
 
-### Actual machine-client and volume-boundary candidate
+### Actual machine-client and volume-boundary qualification
 
-The next source candidate starts each owned ordinary machine client with its
+The connected qualification starts each owned ordinary machine client with its
 primary thread suspended, captures its live PID, creation time, image name
 and actual token, creates the explicitly labelled filtered derivative, and
 then resumes that thread once. Only its three owned standard-I/O handles may
@@ -1529,7 +1529,7 @@ readback after exit, a real positive grant, closed-descriptor denial,
 contradictory bindings, resume-once and never-resumed termination under both
 PowerShell runtimes.
 
-The same source candidate observes the filesystem volume-root boundary
+The same qualification observes the filesystem volume-root boundary
 separately from the existing native rows. Its native identity, stored descriptor,
 attributes, case and stream facts must match the retained prepared boundary,
 and its filtered mutation access must be empty. The raw-volume observation
@@ -1540,9 +1540,58 @@ results separately, allowing the expected excluded administrator device rights.
 The filtered descriptor/token checks must deny the measured mutation bits.
 Both boundary observations must remain identical through recovery and replay.
 
-These additions require hosted execution and independent review. They are
+PR #221 passed all seven CI jobs at exact head
+`116ee95f6423afae5c5a98d6a6c5d9d8f79b42fa` in run `37153807155`, attempt 2,
+and integrated as `4207d17f063dbeb608d5304461ebc0c729835c20` after independent
+source review and the normal merge oracle. The first attempt passed all five
+public cases but a later concurrency fixture missed its required overlap
+window; the unchanged failed job passed on rerun. Artifacts `11285009507`,
+`11285660548` and `11285004820` retain all five final receipts. Ordinary
+installation binds four distinct client captures to four independent snapshots;
+each successful process-loss chain binds five. Both refusal cases bind the
+initial client and all three later public attempts. Every measured snapshot
+retains the same root/device boundary, and all 28 terminal native rows remain
+identical through recovery, replay and passing verification. These are
 read-only descriptor/token observations with file generic mapping, and do not
 establish mutating FILE_ANY_ACCESS device-control behaviour, a separate
 unrelated-login token, general hostile-race resistance, physical power-loss
 durability, a complete build attestation, or broader Windows/storage support.
 OD-001, strict availability and release acceptance remain unchanged.
+
+
+### Unrelated local-login source candidate
+
+The next consolidated qualification source creates one fresh, uniquely named
+local observation account only inside the independently bound hosted lab.
+It records the exact generated SID, adds that account to the ordinary Users
+group, and authenticates a local interactive
+[LogonUserW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-logonuserw)
+login. Its actual token is duplicated for read-only AccessCheck, with no
+impersonation or attempted filesystem/device mutation. The generated password
+is absent from requests, receipts and arguments; the native temporary password
+buffer is zeroed on release.
+
+A separate launcher lease retains this login across each actual machine-client
+capture. SYSTEM duplicates its non-inheritable handle and verifies User,
+groups, privileges, impersonation level, TokenId and AuthenticationId, distinct
+from the initiating client. Seven contradictory bindings must refuse before
+the valid binding is admitted. Every native row, filesystem root and raw-device
+descriptor must then deny all eight mutation bits and mutation in
+MAXIMUM_ALLOWED for both the filtered initiating token and the actual unrelated
+login. Missing principal or right observations refuse; the older pure two-actor
+controls are explicitly separate from unrelated-login evidence.
+
+The observer checks closure of every owned token/process duplicate before
+publishing its atomic success receipt. Only that acknowledgement permits
+normal generated-account removal, after the launcher's own lease closes and
+the current account SID still matches. A missed or failed observer without
+close acknowledgement marks cleanup incomplete and retains the generated
+account until owned runner disposal. Local controls cover the publication
+barrier and omitted evidence under both PowerShell runtimes, without local
+account, SCM or volume effects. Hosted execution and final independent review
+remain pending for this source candidate.
+
+This closes no production qualification by itself. Native predicate/profile
+reconciliation and target-bound capability reporting remain part of the same
+finite publisher integration; generic strict refusal, the published v1 plan
+contract, OD-001 and release acceptance remain unchanged.

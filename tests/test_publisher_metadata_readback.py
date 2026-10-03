@@ -13,6 +13,80 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_observer_publishes_only_after_token_close_acknowledgement(self):
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+class OwnedTokenClose {
+ [bool]$Fail
+ [bool]$Closed
+ OwnedTokenClose([bool]$fail){$this.Fail=$fail}
+ [void] Dispose(){if($this.Fail){throw 'owned token close failed'};$this.Closed=$true}
+}
+$source=[IO.File]::ReadAllText($env:USK_CLOSE_SOURCE)
+$start=$source.IndexOf("`$observer=@'`n",[StringComparison]::Ordinal)
+if($start -lt 0){$start=$source.IndexOf("`$observer=@'`r`n",[StringComparison]::Ordinal)}
+if($start -lt 0){throw 'Observer body is absent'}
+$body=$source.Substring($source.IndexOf("`n",$start)+1)
+$end=$body.IndexOf("`n'@",[StringComparison]::Ordinal)
+if($end -lt 0){throw 'Observer body is incomplete'}
+$t=$null;$e=$null
+$ast=[Management.Automation.Language.Parser]::ParseInput($body.Substring(0,$end),[ref]$t,[ref]$e)
+if($e){throw 'Observer source parse failed'}
+$statements=@($ast.EndBlock.Statements[-1].Body.Statements)
+$first=-1
+for($index=0;$index -lt $statements.Count;$index++) {
+ if($statements[$index] -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $statements[$index].Left.VariablePath.UserPath -ceq 'temporary'){$first=$index;break}
+}
+if($first -lt 0){throw 'Atomic observer publication is absent'}
+$tail=[scriptblock]::Create(($statements[$first..($statements.Count-1)].Extent.Text -join "`n"))
+foreach($fail in @($false,$true)) {
+ $Output=Join-Path $env:USK_CLOSE_ROOT ('result-'+$fail+'.json')
+ $result=@{owned_control=$true};$lease=[OwnedTokenClose]::new($fail);$effectiveRights=$lease
+ $failed=$false
+ try {& $tail}catch {if($_.Exception.Message -cne 'owned token close failed'){throw};$failed=$true}
+ if($failed -ne $fail){throw 'Token-close outcome differs'}
+ if($fail) {
+  if((Test-Path -LiteralPath $Output) -or (Test-Path -LiteralPath ($Output+'.pending'))){throw 'Failed token close exposed an observer receipt'}
+ } else {
+  $receipt=[IO.File]::ReadAllText($Output)|ConvertFrom-Json
+  if(-not $lease.Closed -or $receipt.observer_token_handles_closed -ne $true){throw 'Successful receipt lacks completed token close'}
+ }
+}
+$t=$null;$e=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_PUBLIC_CLOSE_SOURCE,[ref]$t,[ref]$e)
+if($e){throw 'Public cleanup source parse failed'}
+$main=@($ast.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.TryStatementAst]})
+if($main.Count -ne 1){throw 'Public cleanup is absent or ambiguous'}
+$cleanup=[scriptblock]::Create(($main[0].Finally.Statements.Extent.Text -join "`n"))
+$boundaryObserver=$null;$created=$false;$unrelatedAccountCreated=$true;$unrelatedObserversClosed=$true
+$receipt=[ordered]@{status='owned_control';unrelated_local_login=[ordered]@{cleanup='pending'}}
+$clientTokenLease=[OwnedTokenClose]::new($true);$unrelatedTokenLease=[OwnedTokenClose]::new($false)
+$OutputPath=Join-Path $env:USK_CLOSE_ROOT 'public-failed-close.json';$script:accountOperations=0
+function Get-LocalUser {$script:accountOperations++;throw 'Unexpected local-account lookup'}
+function Remove-LocalUser {$script:accountOperations++;throw 'Unexpected local-account removal'}
+function Write-Json([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))}
+& $cleanup
+$saved=[IO.File]::ReadAllText($OutputPath)|ConvertFrom-Json
+if(-not $unrelatedTokenLease.Closed -or $saved.status -cne 'failed' -or $saved.unrelated_observers_token_close_confirmed -ne $false -or
+ $saved.unrelated_local_login.cleanup -cnotmatch '^observer/token close unconfirmed' -or $script:accountOperations -ne 0) {
+ throw 'Failed client-token close skipped remaining cleanup or invented account retirement'
+}
+@{closed_before_publication=$true;failed_close_has_no_receipt=$true;failed_client_close_preserves_cleanup_receipt=$true}|ConvertTo-Json -Compress
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-token-close-') as temporary:
+                environment = dict(os.environ, USK_CLOSE_ROOT=temporary,
+                                   USK_CLOSE_SOURCE=str(root / 'tests/windows_publisher_metadata_readback.ps1'),
+                                   USK_PUBLIC_CLOSE_SOURCE=str(root / 'tests/windows_publisher_public_path_probe.ps1'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'closed_before_publication': True, 'failed_close_has_no_receipt': True,
+                    'failed_client_close_preserves_cleanup_receipt': True})
+
     def test_public_requests_capture_each_client_and_retire_only_owned_prior_binding(self):
         root = Path(__file__).resolve().parents[1]
         # Benign local console fixture: only reads its owned request and prints
@@ -150,7 +224,25 @@ try {
   if(-not $refused){throw 'Contradictory volume namespace/device facts were admitted'}
   ++$badBoundaries
  }
- @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries}|ConvertTo-Json -Compress
+ # These are explicit pure observation controls, not unrelated-login evidence.
+ $three=$boundary|ConvertTo-Json -Depth 16|ConvertFrom-Json
+ $three.root.effective_rights|Add-Member NoteProperty unrelated $three.root.effective_rights.filtered
+ $three.device.checks|Add-Member NoteProperty unrelated $three.device.checks.filtered
+ Assert-PublicVolumeBoundary $observed $three 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service -RequireUnrelated
+ $unrelatedRefusals=0
+ foreach($location in @('root','device')) {
+  foreach($missing in @('all','maximum_allowed','write_or_add_file','append_or_add_directory','write_ea','delete_child','write_attributes','delete','write_dac','write_owner')) {
+   $bad=$three|ConvertTo-Json -Depth 16|ConvertFrom-Json
+   $checks=if($location -ceq 'root'){$bad.root.effective_rights}else{$bad.device.checks}
+   if($missing -ceq 'all'){$checks.PSObject.Properties.Remove('unrelated')}
+   else {$checks.unrelated.PSObject.Properties.Remove($missing)}
+   $refused=$false
+   try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service -RequireUnrelated}catch {$refused=$true}
+   if(-not $refused){throw 'Missing unrelated boundary evidence was admitted'}
+   ++$unrelatedRefusals
+  }
+ }
+ @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries;missing_unrelated_refusals=$unrelatedRefusals}|ConvertTo-Json -Compress
 } finally {$rights.Dispose()}
 """
         for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
@@ -164,7 +256,8 @@ try {
                                         env=environment, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), {
-                    'owned_token_control': True, 'extent_refusals': 7, 'boundary_refusals': 8})
+                    'owned_token_control': True, 'extent_refusals': 7, 'boundary_refusals': 8,
+                    'missing_unrelated_refusals': 20})
 
     def test_real_client_token_is_captured_before_resume_and_read_after_exit(self):
         root = Path(__file__).resolve().parents[1]
@@ -183,7 +276,8 @@ try {
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual([json.loads(line) for line in result.stdout.splitlines()], [
                     {'held_exited_client_observed': True, 'positive_owned_control': True,
-                     'closed_actor_checks': 18, 'contradictory_contexts_refused': 7},
+                     'closed_actor_checks': 18, 'contradictory_contexts_refused': 7,
+                     'invalid_owned_login_inputs_refused': 3},
                     {'primary_thread_paused_during_capture': True, 'client_token_captured': True,
                      'resume_once_refused': True, 'stdout_observed': True},
                     {'never_resumed_client_termination_confirmed': True}])
