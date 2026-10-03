@@ -4143,7 +4143,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "537b176aa117e01022e4aeefa8ed0790a9757f1a4bda58ef72573dd5ac379ffa"
+          "sha256": "3d8ad7c8da1a257e83a5a5b2173875d9c6dc7d12a77c93e55d8d4c64e37b69e6"
         }
       ],
       "acceptance_ids": [
@@ -4487,7 +4487,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "537b176aa117e01022e4aeefa8ed0790a9757f1a4bda58ef72573dd5ac379ffa"
+          "sha256": "3d8ad7c8da1a257e83a5a5b2173875d9c6dc7d12a77c93e55d8d4c64e37b69e6"
         }
       ],
       "acceptance_ids": [

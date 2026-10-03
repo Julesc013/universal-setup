@@ -255,7 +255,7 @@ try {
         throw 'Source-free public recovery changed independently read target state'
     }
     $receipt['recovered_readback']=$after
-    $verify=@{schema='usk.publisher_installed_verify_request.v1';install_id=$installed.install_id;
+    $verify=@{schema='usk.publisher_installed_verify_request.v1';request_id='verify.'+$id;install_id=$installed.install_id;
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;
         verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
     $receipt['verification']=Invoke-PublicRequest 'installed.verify' $verify
