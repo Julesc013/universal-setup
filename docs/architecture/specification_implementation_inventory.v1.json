@@ -4043,7 +4043,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "915824b261e82e0955536917817d8dc944f8fd85c5d45badde572808c5c3fa0c"
+          "sha256": "5b04a93a8c73f207f19b5de2f6b37c31d625b0cb25a0838851ecd64bce93606d"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -4063,7 +4063,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "dc7ef012541c146576b5bbab566d1d126e0901d6897e44f1ae72ba4ae9907b1c"
+          "sha256": "26f48424288e0131323eaddd1abe4bfb819f4879d771730638cd03f408256980"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4143,7 +4143,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "8d89b643fd1c8d92b7705f8bf394a4d4355db9eaec1eef0f3798f0e797020153"
+          "sha256": "f669829918ac31467e7f1b81503f4e781b630f211d9ecfd02b9a6d835b93ee3c"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4387,7 +4387,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "915824b261e82e0955536917817d8dc944f8fd85c5d45badde572808c5c3fa0c"
+          "sha256": "5b04a93a8c73f207f19b5de2f6b37c31d625b0cb25a0838851ecd64bce93606d"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -4407,7 +4407,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "dc7ef012541c146576b5bbab566d1d126e0901d6897e44f1ae72ba4ae9907b1c"
+          "sha256": "26f48424288e0131323eaddd1abe4bfb819f4879d771730638cd03f408256980"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4499,7 +4499,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "8d89b643fd1c8d92b7705f8bf394a4d4355db9eaec1eef0f3798f0e797020153"
+          "sha256": "f669829918ac31467e7f1b81503f4e781b630f211d9ecfd02b9a6d835b93ee3c"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",

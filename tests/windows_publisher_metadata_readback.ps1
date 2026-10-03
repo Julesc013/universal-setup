@@ -736,6 +736,8 @@ if($CallerProcessId -ne 0) {
   if($capture.schema -cne 'usk.publisher.held_client_token.v1' -or
    $capture.owner_process_id -ne $CallerProcessId -or $capture.owner_creation_file_time -cne $CallerCreationFileTime -or
    $capture.client_creation_file_time -cnotmatch '^[1-9][0-9]{16,18}$' -or
+   $capture.request_id -cnotmatch '^public\.[0-9a-f]{32}$' -or
+   $capture.command -cnotin @('install_local.apply','install_local.recover','installed.verify') -or
    $capture.client_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
    (Get-FileHash -LiteralPath $capture.client_image_path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $capture.client_sha256) {
    throw 'Held client capture context differs'
@@ -744,7 +746,8 @@ if($CallerProcessId -ne 0) {
    [uint32]$capture.client_process_id,[long]$capture.client_creation_file_time,[long]$capture.client_process_handle,
    [long]$capture.initiating_handle,[long]$capture.filtered_handle,[string]$capture.initiating_token_id,[string]$capture.filtered_token_id)
   $effectiveRights.TokenFacts['capture_context']=[ordered]@{schema=$capture.schema;image_path=$capture.client_image_path;
-   image_sha256=$capture.client_sha256;capture_sha256=$ClientCaptureSha256;image_observation='live launcher capture; current file digest independently rechecked'}
+   image_sha256=$capture.client_sha256;capture_sha256=$ClientCaptureSha256;request_id=$capture.request_id;command=$capture.command;
+   image_observation='live launcher capture; current file digest independently rechecked'}
  } else {
   $effectiveRights=[UskPublisherEffectiveRights]::new($CallerProcessId,[long]$CallerCreationFileTime,$CallerSid,$ServiceSid)
  }

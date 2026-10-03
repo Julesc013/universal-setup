@@ -13,6 +13,76 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_public_requests_capture_each_client_and_retire_only_owned_prior_binding(self):
+        root = Path(__file__).resolve().parents[1]
+        # Benign local console fixture: only reads its owned request and prints
+        # a complete no-effect response. No SCM, volume or account operations.
+        stub = r'''using System;
+using System.IO;
+using System.Text.RegularExpressions;
+public static class OwnedClient {
+ public static int Main(string[] args) {
+  int index=Array.IndexOf(args,"--request-file");
+  if(index<0 || index+1>=args.Length)return 9;
+  string id=Regex.Match(File.ReadAllText(args[index+1]),"\\\"request_id\\\":\\\"([^\\\"]+)\\\"").Groups[1].Value;
+  Console.WriteLine("{\"schema\":\"usk.oneshot_response.v1\",\"request_id\":\""+id+"\",\"status\":\"failed\",\"result\":null,\"error\":{\"code\":\"owned_fixture_refusal\"}}");
+  return 3;
+ }
+}'''
+        code = r"""$ErrorActionPreference='Stop'
+& (Get-Command powershell.exe).Source -NoProfile -NonInteractive -Command 'Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_PUBLIC_STUB_SOURCE)) -OutputAssembly $env:USK_PUBLIC_STUB_EXE -OutputType ConsoleApplication'
+if($LASTEXITCODE -ne 0){throw 'Owned console fixture compilation failed'}
+. $env:USK_PUBLIC_READBACK
+. $env:USK_PUBLIC_PROCESS_HELPER
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_PUBLIC_PROBE,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Public request fixture parse failed'}
+foreach($name in @('Write-Json','Invoke-PublicRequest')) {
+ $function=$ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true)
+ if(@($function).Count -ne 1){throw 'Public request function absent or ambiguous'}
+ . ([scriptblock]::Create($function[0].Extent.Text))
+}
+function Get-Service {param([string]$Name) [pscustomobject]@{Status='Stopped'}}
+$lab=$env:USK_PUBLIC_ROOT;$MachineBinary=$env:USK_PUBLIC_STUB_EXE
+$service='USK_PUB_'+[guid]::NewGuid().ToString('N');$sid='S-1-5-80-1-2-3-4-5'
+$caller=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$owner=Get-Process -Id $PID;$invokingCreation=$owner.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
+$utf8=[Text.UTF8Encoding]::new($false);$clientTokenLease=$null
+$clientCaptureFile=Join-Path $lab 'public-client-token.json';$clientCaptureSha256=''
+$receipt=@{machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();machine_client_captures=[Collections.Generic.List[object]]::new()}
+try {
+ foreach($command in @('install_local.apply','install_local.recover','installed.verify')) {
+  Invoke-PublicRequest $command @{} 3|Out-Null
+  $capture=Get-Content -LiteralPath $clientCaptureFile -Raw|ConvertFrom-Json
+  if($capture.command -cne $command -or $capture.request_id -cne $receipt.machine_client_capture.request_id -or
+   $capture.initiating_token_id -cne $receipt.machine_client_capture.initiating_token_id){throw 'Current request capture differs'}
+ }
+ if($receipt.machine_client_captures.Count -ne 3 -or
+  @($receipt.machine_client_captures.initiating_token_id|Select-Object -Unique).Count -ne 3 -or
+  @(Get-ChildItem -LiteralPath $lab -Filter 'retired-client-token-*.json').Count -ne 2){throw 'Per-request capture/retirement sequence differs'}
+ [IO.File]::AppendAllText($clientCaptureFile,'changed')
+ $refused=$false
+ try {Invoke-PublicRequest 'install_local.recover' @{} 3|Out-Null}catch {$refused=$_.Exception.Message -ceq 'Prior owned client capture changed before retirement'}
+ if(-not $refused -or $receipt.machine_client_captures.Count -ne 3){throw 'Changed prior capture was reused or retired'}
+ @{captured_clients=3;archived_captures=2;changed_prior_capture_refused=$true}|ConvertTo-Json -Compress
+} finally {if($clientTokenLease){$clientTokenLease.Dispose()}}
+"""
+        shell = shutil.which('pwsh')
+        self.assertIsNotNone(shell)
+        with tempfile.TemporaryDirectory(prefix='usk-public-client-') as temporary:
+            native_path = Path(temporary) / 'owned-client.cs'
+            native_path.write_text(stub, encoding='utf-8')
+            environment = dict(os.environ, USK_PUBLIC_ROOT=temporary, USK_PUBLIC_STUB_SOURCE=str(native_path),
+                               USK_PUBLIC_STUB_EXE=str(Path(temporary) / 'owned-client.exe'),
+                               USK_PUBLIC_PROBE=str(root / 'tests/windows_publisher_public_path_probe.ps1'),
+                               USK_PUBLIC_READBACK=str(root / 'tests/windows_publisher_metadata_readback.ps1'),
+                               USK_PUBLIC_PROCESS_HELPER=str(root / 'tests/windows_publisher_owned_process.ps1'))
+            result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                    env=environment, capture_output=True, text=True, timeout=45)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {
+                'captured_clients': 3, 'archived_captures': 2, 'changed_prior_capture_refused': True})
+
     def test_volume_boundary_observation_rejects_foreign_and_mutating_facts(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')

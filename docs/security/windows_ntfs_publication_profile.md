@@ -1509,7 +1509,7 @@ invent the latter.
 
 ### Actual machine-client and volume-boundary candidate
 
-The next source candidate starts the owned ordinary machine client with its
+The next source candidate starts each owned ordinary machine client with its
 primary thread suspended, captures its live PID, creation time, image name
 and actual token, creates the explicitly labelled filtered derivative, and
 then resumes that thread once. Only its three owned standard-I/O handles may
@@ -1517,9 +1517,11 @@ be inherited. The launcher retains non-inheritable client process and token
 handles until all independent observations finish. A SYSTEM observer duplicates
 those handles from the still-live launcher, checks owner/client creation times,
 token IDs and identities, and evaluates the retained actual client token and
-derivative after the client has exited. They represent the initial apply client
-before its primary thread resumes; later recovery and replay snapshots reuse
-them rather than capturing each later client or endpoint-time impersonation.
+derivative after the client has exited. Each apply, recovery, replay and verify
+request has a fresh paused capture; its command and request ID bind subsequent
+independent snapshots. Previous observer tasks finish before the next capture
+retires the matching prior handles and archives its owned capture file.
+These are pre-resume client tokens, not endpoint-time impersonation tokens.
 Image identity is a live launcher
 capture with the current image-file digest independently rechecked; it is not
 an image query on the exited process. Local controls cover cross-process

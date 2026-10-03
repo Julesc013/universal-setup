@@ -50,7 +50,7 @@ $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run'
     partition_layout=@($disk|Get-Partition|Select-Object PartitionNumber,Offset,Size,GptType,MbrType,IsBoot,IsSystem);
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     service_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
-    client_cleanup_confirmed=$false}
+    client_cleanup_confirmed=$false;machine_client_captures=[Collections.Generic.List[object]]::new()}
 $created=$false
 $boundaryObserver=$null
 $clientTokenLease=$null
@@ -66,8 +66,18 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     $requestId='public.'+[guid]::NewGuid().ToString('N')
     Write-Json $request ([ordered]@{schema='usk.oneshot_request.v1';request_id=$requestId;
         command=$Command;payload=$Payload;dry_run=$false})
-    if($Command -ceq 'install_local.apply' -and $null -eq $clientTokenLease) {
+    if($Command -cin @('install_local.apply','install_local.recover','installed.verify')) {
         Initialize-PublisherMetadataNativeTypes
+        if($clientTokenLease) {
+            # Every prior observer returned and removed its task before the
+            # next request starts. Retire only our matching capture/handles.
+            if(-not (Test-Path -LiteralPath $clientCaptureFile -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $clientCaptureSha256) {
+                throw 'Prior owned client capture changed before retirement'
+            }
+            $clientTokenLease.Dispose();$script:clientTokenLease=$null
+            [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
+        }
         $stdout=Join-Path $lab ('public-client-'+[guid]::NewGuid().ToString('N')+'.stdout')
         $stderr=$stdout+'.stderr'
         $client=$null
@@ -83,13 +93,16 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
             $script:clientTokenLease=[UskPublisherEffectiveRights]::new($client.Id,$creation,$caller,$sid)
             $capture=$clientTokenLease.CaptureBinding($PID,[long]$invokingCreation,$MachineBinary)
             $capture['client_sha256']=$receipt.machine_sha256
+            $capture['request_id']=$requestId;$capture['command']=$Command
             if(Test-Path -LiteralPath $clientCaptureFile){throw 'Owned machine-client capture file already exists'}
             Write-Json $clientCaptureFile $capture
             $script:clientCaptureSha256=(Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant()
             $receipt['machine_client_capture']=[ordered]@{process_id=$client.Id;creation_file_time=$creation.ToString();
+                request_id=$requestId;command=$Command;
                 image_path=$capture.client_image_path;image_sha256=$capture.client_sha256;capture_sha256=$clientCaptureSha256;
                 captured_while_alive=$true;captured_before_primary_thread_resume=$true;
                 initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
+            $receipt.machine_client_captures.Add($receipt.machine_client_capture)
             $launch.Resume()
             if(-not $client.WaitForExit(120000)){throw 'Owned public machine client exceeded its request deadline'}
             $client.WaitForExit()
@@ -113,8 +126,7 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
             }
         }
     } else {
-        $output=& $MachineBinary --machine --publisher $service --request-file $request
-        $exit=$LASTEXITCODE
+        throw 'Public qualification client command is outside the closed captured set'
     }
     $result=($output -join "`n")|ConvertFrom-Json
     if($exit -ne $ExpectedExit -or $result.schema -cne 'usk.oneshot_response.v1' -or
@@ -202,7 +214,8 @@ function Read-IndependentPublicRows {
         $client.process_id -ne $capture.process_id -or $client.creation_file_time -cne $capture.creation_file_time -or
         $client.initiating_token_id -cne $capture.initiating_token_id -or $client.filtered_token_id -cne $capture.filtered_token_id -or
         $tokens.capture_context.image_sha256 -cne $receipt.machine_sha256 -or
-        $tokens.capture_context.capture_sha256 -cne $clientCaptureSha256) {
+        $tokens.capture_context.capture_sha256 -cne $clientCaptureSha256 -or
+        $tokens.capture_context.request_id -cne $capture.request_id -or $tokens.capture_context.command -cne $capture.command) {
         throw 'Independent held machine-client token binding differs'
     }
     $boundary=$readback.independent.volume_boundary
@@ -593,6 +606,11 @@ try {
     $recovery=@{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
         install_id=$installed.install_id;transaction_id=$installed.transaction_id}
     $receipt['recovery']=Invoke-PublicRequest 'install_local.recover' $recovery
+    $recoveryReadback=Read-IndependentState
+    if(($before.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($recoveryReadback.rows|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Source-free public recovery changed independently read target state'
+    }
+    $receipt['recovery_readback']=$recoveryReadback
     $receipt['replayed_apply']=Invoke-PublicRequest 'install_local.apply' $apply
     foreach($terminal in @($receipt.recovery,$receipt.replayed_apply)) {
         if(($terminal.result.payload|ConvertTo-Json -Depth 64 -Compress) -cne
@@ -611,6 +629,11 @@ try {
         $receipt.verification.result.payload.report_id -cne $verify.report_id) {
         throw 'Ordinary public verification did not return the bound passing report'
     }
+    $verificationReadback=Read-IndependentState
+    if(($after.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verificationReadback.rows|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Read-only public verification changed independently read target state'
+    }
+    $receipt['verification_readback']=$verificationReadback
     }
     if((Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command) {
         throw 'Public apply/recovery/verification reconfigured SCM'
