@@ -722,7 +722,12 @@ void require_exclusive_volume_admission(const std::wstring& name,
     // The locked volume is accessible only through this locking file object.
     // Inspect and repair its device ACL before any other process can acquire a
     // newly granted raw-volume handle after unlock.
-    require_volume_device_service_access(volume.get(), sid);
+    try {
+        require_volume_device_service_access(volume.get(), sid);
+    } catch (const std::exception& error) {
+        throw std::runtime_error(
+            std::string("locked publisher volume device ACL admission: ") + error.what());
+    }
     if (!DeviceIoControl(volume.get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
             nullptr, 0, &returned, nullptr)) {
         throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
@@ -736,7 +741,12 @@ void require_exclusive_volume_admission(const std::wstring& name,
     if (remounted.get() == INVALID_HANDLE_VALUE)
         throw std::runtime_error("remounted publisher device cannot be secured; Win32 " +
             std::to_string(GetLastError()));
-    require_volume_device_service_access(remounted.get(), sid);
+    try {
+        require_volume_device_service_access(remounted.get(), sid);
+    } catch (const std::exception& error) {
+        throw std::runtime_error(
+            std::string("remounted publisher volume device ACL admission: ") + error.what());
+    }
 }
 
 std::wstring command_prefix(const std::wstring& service,

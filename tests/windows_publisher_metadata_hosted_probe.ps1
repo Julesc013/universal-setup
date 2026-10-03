@@ -30,6 +30,7 @@ param(
     [switch]$ProductionPostrenameTermination,
     [switch]$ProductionPreparedTermination,
     [switch]$ExpectUnprotectedRefusal,
+    [switch]$ExpectPreexistingAnchorRefusal,
     [switch]$HostileRights,
     [switch]$HostilePostrename
 )
@@ -60,6 +61,14 @@ if($ReviewedSource -and -not $ClientBinary){throw 'Reviewed source selection req
 if($ExpectUnprotectedRefusal -and (-not $ReviewedSource -or $ConsumerAccess -or $HostileRights -or
     $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)) {
     throw 'Unprotected-root refusal requires only the reviewed-source hosted profile'
+}
+if($ExpectPreexistingAnchorRefusal -and (-not $RegisteredService -or -not $ReviewedSource -or
+    $ExpectUnprotectedRefusal -or $ConsumerAccess -or $NonAdminClient -or $HostileRights -or
+    $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or
+    $InterruptAfterStage -or $ProductionConcurrentRights -or $ProductionPostpublishRights -or
+    $ProductionPostrenameTermination -or $ProductionPreparedTermination -or
+    $MachineRequestClient -or $ControllerApply -or $ReuseRegistration)) {
+    throw 'Preexisting-anchor refusal requires only the uninterrupted registered reviewed-source profile'
 }
 if($RegisteredService -and (-not $ReviewedSource -or -not $ClientBinary -or -not $ServiceControlBinary -or
     $ExpectUnprotectedRefusal -or
@@ -206,6 +215,99 @@ function Get-OwnedVolumeRootSddl([string]$Phase) {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
             if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned root ACL observer cleanup failed'}
         }
+        if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
+    }
+}
+function Get-OwnedPreexistingAnchorObservation {
+    param([Parameter(Mandatory=$true)][ValidateSet('service-start','service-end')][string]$Phase)
+    if($VolumeRoot -notmatch '^\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\$') {
+        throw 'Owned anchor observer volume argument differs'
+    }
+    Assert-OwnedVolume
+    $taskName='USK_ANCHOR_'+$id+'_'+$Phase
+    $observation=Join-Path $observerRoot ('preexisting-anchor-'+$Phase+'.json')
+    $pending=$observation+'.pending'
+    $failurePath=$observation+'.failure.json'
+    if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $observation) -or (Test-Path -LiteralPath $pending) -or
+        (Test-Path -LiteralPath $failurePath)) {
+        throw 'Owned anchor observer collision'
+    }
+    $anchor=$drive+'publication'
+    $marker=Join-Path $anchor 'preexisting-owner-marker.bin'
+    $state=$drive+'setup-state'
+    $command='$ErrorActionPreference=''Stop'';'+
+        '$who=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;'+
+        'if($who -ne ''S-1-5-18''){throw ''SYSTEM anchor observer required''};'+
+        '$anchor='''+$anchor.Replace("'","''")+''';'+
+        '$marker='''+$marker.Replace("'","''")+''';'+
+        '$state='''+$state.Replace("'","''")+''';'+
+        '$a=Get-Item -LiteralPath $anchor -Force;'+
+        '$m=Get-Item -LiteralPath $marker -Force;'+
+        'if(-not $a.PSIsContainer -or ($a.Attributes -band [IO.FileAttributes]::ReparsePoint) -or '+
+        '$m.PSIsContainer -or ($m.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw ''Anchor shape changed''};'+
+        '$anchorSddl=(Get-Acl -LiteralPath $anchor).Sddl;'+
+        '$markerSddl=(Get-Acl -LiteralPath $marker).Sddl;'+
+        '$childCount=@(Get-ChildItem -LiteralPath $anchor -Force).Count;'+
+        '$hash=$null;$hashError=$null;'+
+        'try{$hash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash.ToLowerInvariant()}'+
+        'catch{$hashError=$_.Exception.Message;if($hashError.Length -gt 512){$hashError=$hashError.Substring(0,512)}};'+
+        '$result=@{identity=$who;phase='''+$Phase+''';anchor_path=$a.FullName;'+
+        'child_count=$childCount;'+
+        'marker_bytes=$m.Length;'+
+        'marker_sha256=$hash;marker_read_error=$hashError;'+
+        'anchor_sddl=$anchorSddl;marker_sddl=$markerSddl;'+
+        'setup_state_present=(Test-Path -LiteralPath $state)};'+
+        '$pending='''+$pending.Replace("'","''")+''';'+
+        '$final='''+$observation.Replace("'","''")+''';'+
+        '[IO.File]::WriteAllText($pending,($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));'+
+        '[IO.File]::Move($pending,$final)'
+    $failureCommand='$failurePath='''+$failurePath.Replace("'","''")+''';'+
+        'try{'+$command+'}catch{'+
+        '$message=$_.Exception.Message;'+
+        'if($message.Length -gt 512){$message=$message.Substring(0,512)};'+
+        '$result=@{schema=''usk.publisher.anchor_observer_failure.v1'';message=$message};'+
+        '[IO.File]::WriteAllText($failurePath,($result|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false));'+
+        'exit 2}'
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($failureCommand))
+    $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
+    $registered=$false
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -User SYSTEM -RunLevel Highest|Out-Null
+        $registered=$true
+        Start-ScheduledTask -TaskName $taskName
+        $deadline=[DateTime]::UtcNow.AddSeconds(45)
+        while(-not (Test-Path -LiteralPath $observation) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(-not (Test-Path -LiteralPath $observation)){
+            $taskResult=(Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop).LastTaskResult
+            $detail=''
+            if(Test-Path -LiteralPath $failurePath){
+                if((Get-Item -LiteralPath $failurePath).Length -gt 2KB){
+                    throw 'Owned anchor observer failure record exceeds bound'
+                }
+                $record=Get-Content -LiteralPath $failurePath -Raw|ConvertFrom-Json
+                if($record.schema -cne 'usk.publisher.anchor_observer_failure.v1'){
+                    throw 'Owned anchor observer failure record differs'
+                }
+                $detail=': '+$record.message
+            }
+            throw ('Owned anchor observer receipt absent; task result '+$taskResult+$detail)
+        }
+        if((Get-Item -LiteralPath $observation).Length -gt 16KB){throw 'Owned anchor observation exceeds bound'}
+        $result=Get-Content -LiteralPath $observation -Raw|ConvertFrom-Json
+        if($result.identity -cne 'S-1-5-18' -or $result.phase -cne $Phase) {
+            throw 'Owned anchor observer identity or phase differs'
+        }
+        return $result
+    } finally {
+        if($registered) {
+            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+            if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned anchor observer cleanup failed'}
+        }
+        if(Test-Path -LiteralPath $pending){Remove-Item -LiteralPath $pending -Force -ErrorAction Stop}
+        if(Test-Path -LiteralPath $failurePath){Remove-Item -LiteralPath $failurePath -Force -ErrorAction Stop}
         if(Test-Path -LiteralPath $observation){Remove-Item -LiteralPath $observation -Force -ErrorAction Stop}
     }
 }
@@ -993,6 +1095,33 @@ try {
             sha256=$scratchSha256}
     }
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+    if($ExpectPreexistingAnchorRefusal) {
+        # This object is created only on the newly formatted campaign VHD.
+        # Its marker makes an accidental replacement visible after refusal.
+        $poisonedAnchor=$drive+'publication'
+        $poisonedMarker=Join-Path $poisonedAnchor 'preexisting-owner-marker.bin'
+        if(Test-Path -LiteralPath $poisonedAnchor){throw 'Preexisting-anchor input is not fresh'}
+        New-Item -ItemType Directory -Path $poisonedAnchor -ErrorAction Stop|Out-Null
+        [IO.File]::WriteAllBytes($poisonedMarker,[byte[]]@(0x55,0x53,0x4b,0x2d,0x50,0x52,0x45))
+        # Preserve the fixture's existing grants before changing the volume root.
+        # Otherwise Windows removes inherited ACEs from these objects during
+        # fixture setup, before the publisher has received any request.
+        foreach($fixturePath in @($poisonedAnchor,$poisonedMarker)) {
+            $fixtureAcl=Get-Acl -LiteralPath $fixturePath
+            $fixtureAcl.SetAccessRuleProtection($true,$true)
+            Set-Acl -LiteralPath $fixturePath -AclObject $fixtureAcl
+            if(-not (Get-Acl -LiteralPath $fixturePath).AreAccessRulesProtected) {
+                throw 'Preexisting-anchor fixture ACL is not protected from parent propagation'
+            }
+        }
+        $poisonedMarkerHash=(Get-FileHash -LiteralPath $poisonedMarker -Algorithm SHA256).Hash.ToLowerInvariant()
+        $poisonedAnchorAcl=(Get-Acl -LiteralPath $poisonedAnchor).Sddl
+        $poisonedMarkerAcl=(Get-Acl -LiteralPath $poisonedMarker).Sddl
+        $receipt['preexisting_anchor_before']=[ordered]@{path=$poisonedAnchor;
+            marker_sha256=$poisonedMarkerHash;marker_bytes=7;
+            anchor_sddl=$poisonedAnchorAcl;marker_sddl=$poisonedMarkerAcl}
+        Assert-OwnedVolume
+    }
     if($ProductionConcurrentRights) {
         $preopenedReady=Join-Path $consumerOutput 'preopened-root-ready.txt'
         $preopenedRelease=Join-Path $consumerOutput 'preopened-root-release.txt'
@@ -1041,6 +1170,26 @@ try {
     Assert-OwnedVolume
     $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
+    $deviceText=$device -join "`n"
+    if($deviceText.Length -gt 16KB){throw 'Owned VHD device ACL receipt exceeds bound'}
+    $deviceAdmission=$deviceText|ConvertFrom-Json
+    if($deviceAdmission.service_sid -cne $sid -or
+        [string]::IsNullOrWhiteSpace($deviceAdmission.before_dacl) -or
+        [string]::IsNullOrWhiteSpace($deviceAdmission.after_dacl)) {
+        throw 'Owned VHD device ACL receipt differs'
+    }
+    $receipt['device_acl_admission']=$deviceAdmission
+    if($ExpectPreexistingAnchorRefusal) {
+        $anchorBefore=Get-OwnedPreexistingAnchorObservation -Phase 'service-start'
+        $receipt['preexisting_anchor_at_service_start']=$anchorBefore
+        if(-not [string]::Equals($anchorBefore.anchor_path,$poisonedAnchor,[StringComparison]::OrdinalIgnoreCase) -or
+            $anchorBefore.child_count -ne 1 -or $anchorBefore.marker_bytes -ne 7 -or
+            $anchorBefore.marker_read_error -or $anchorBefore.marker_sha256 -cne $poisonedMarkerHash -or
+            $anchorBefore.anchor_sddl -cne $poisonedAnchorAcl -or
+            $anchorBefore.marker_sddl -cne $poisonedMarkerAcl -or $anchorBefore.setup_state_present) {
+            throw 'Preexisting-anchor fixture changed before publisher start'
+        }
+    }
     if($ControllerApply) {
         $changedApply=Join-Path $root ('changed-apply-'+$id+'.json')
         $changedError=Join-Path $root ('changed-apply-'+$id+'.txt')
@@ -1322,23 +1471,70 @@ try {
         [IO.File]::WriteAllText($unrelatedStart,
             "usk.publisher.production_request_start.v1`n",[Text.UTF8Encoding]::new($false))
     }
-    if($ExpectUnprotectedRefusal) {
-        $deadline=[DateTime]::UtcNow.AddSeconds(90)
-        while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
-        if(-not (Test-Path -LiteralPath $nativePath)){throw 'Unprotected-root refusal receipt absent'}
-        $receipt.native=Read-NativeReceipt $nativePath
-        $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
-        $requestClient=$null
-        if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
-        $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
-        if($receipt.native.status -ne 'failed' -or
-            $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
-            $receipt.root_acl_before -cne $receipt.root_acl_after -or
-            (Test-Path -LiteralPath ($drive+'publication')) -or
-            (Test-Path -LiteralPath ($drive+'setup-state'))) {
-            throw 'Unprotected boundary was changed or admitted before publication'
+    if($ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal) {
+        if($ExpectPreexistingAnchorRefusal) {
+            # The registered production service deliberately uses --no-receipt.
+            # Its authenticated client response is the terminal observation.
+            if(-not $requestClient.process.WaitForExit(120000)) {
+                throw 'Registered preexisting-anchor client timed out'
+            }
+            $requestClient.process.WaitForExit()
+            if($requestClient.process.ExitCode -ne 3 -or
+                -not (Test-Path -LiteralPath $requestClient.response -PathType Leaf) -or
+                (Get-Item -LiteralPath $requestClient.response).Length -eq 0 -or
+                (Get-Item -LiteralPath $requestClient.response).Length -gt 4MB -or
+                (Test-Path -LiteralPath $nativePath)) {
+                throw 'Registered preexisting-anchor refusal was not delivered by the client'
+            }
+            $receipt.native=(Read-ClientObservation $requestClient).service
+            $receipt['refused_client']=[ordered]@{exit_code=3;caller_sid=$callerSid;
+                binary_sha256=$requestClient.binary_sha256;
+                response_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant();
+                delivery='response_received'}
+            $requestClient=$null
+            if(-not $terminalServiceProcess.WaitForExit(30000)) {
+                throw 'Registered preexisting-anchor service retained after terminal refusal'
+            }
+            $terminalAtEnd=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+            if($terminalAtEnd.State -cne 'Stopped' -or $terminalAtEnd.ProcessId -ne 0) {
+                throw 'Registered preexisting-anchor service did not stop after refusal'
+            }
+            $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
+            $anchorAfter=Get-OwnedPreexistingAnchorObservation -Phase 'service-end'
+            $receipt['preexisting_anchor_after']=$anchorAfter
+            if($receipt.native.schema -cne 'usk.publisher_lab_service_observation.v1' -or
+                $receipt.native.status -cne 'recovery_required' -or
+                $receipt.native.error -notmatch 'publisher exact anchor sibling is unavailable|publisher parent-bound child open failed' -or
+                $receipt.root_acl_at_service_start -cne $receipt.root_acl_after_service -or
+                -not [string]::Equals($anchorAfter.anchor_path,$poisonedAnchor,[StringComparison]::OrdinalIgnoreCase) -or
+                $anchorAfter.child_count -ne 1 -or
+                $anchorAfter.marker_bytes -ne 7 -or
+                $anchorAfter.marker_read_error -or
+                $anchorAfter.marker_sha256 -cne $poisonedMarkerHash -or
+                $anchorAfter.anchor_sddl -cne $poisonedAnchorAcl -or
+                $anchorAfter.marker_sddl -cne $poisonedMarkerAcl -or
+                $anchorAfter.setup_state_present) {
+                throw 'Preexisting publication anchor was changed or admitted'
+            }
+            $receipt.status='preexisting_anchor_recovery_required_observed'
+        } else {
+            $deadline=[DateTime]::UtcNow.AddSeconds(90)
+            while(-not (Test-Path -LiteralPath $nativePath) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+            if(-not (Test-Path -LiteralPath $nativePath)){throw 'Unprotected-root refusal receipt absent'}
+            $receipt.native=Read-NativeReceipt $nativePath
+            $receipt['refused_client']=Complete-RequestClient $requestClient $false $true
+            $requestClient=$null
+            if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
+            $receipt['root_acl_after']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+            if($receipt.native.status -ne 'failed' -or
+                $receipt.native.error -notmatch 'publisher protected object shape differs|publisher protected DACL ACEs differ|cannot open admitted publisher volume root' -or
+                $receipt.root_acl_before -cne $receipt.root_acl_after -or
+                (Test-Path -LiteralPath ($drive+'publication')) -or
+                (Test-Path -LiteralPath ($drive+'setup-state'))) {
+                throw 'Unprotected boundary was changed or admitted before publication'
+            }
+            $receipt.status='preprotected_boundary_refusal_observed'
         }
-        $receipt.status='preprotected_boundary_refusal_observed'
     } else {
     if($HostileRights) {
         $attackRelative=if($ConsumerAccess){'bin/core.exe'}else{'bin/core.bin'}
@@ -2774,7 +2970,8 @@ try {
                 [bool](Test-Path -LiteralPath $installedServiceBinary -ErrorAction SilentlyContinue)
         }
     }
-    if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed') -and $receipt.service_removed) {
+    if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed',
+        'preexisting_anchor_recovery_required_observed') -and $receipt.service_removed) {
         try {
             if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
             $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
