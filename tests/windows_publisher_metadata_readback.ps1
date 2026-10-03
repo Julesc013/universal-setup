@@ -136,9 +136,19 @@ function Assert-IndependentMetadataProbe {
     }
 }
 function Invoke-IndependentMetadataReadback {
-    param([string]$DriveRoot,[string]$OutputRoot,[string]$RunId,[switch]$MetadataOnly)
+    param([string]$DriveRoot,[string]$OutputRoot,[string]$RunId,[switch]$MetadataOnly,
+        [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',
+        [string]$CallerSid='',[string]$ServiceSid='')
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
+    }
+    if($CallerProcessId -ne 0 -and ($MetadataOnly -or $CallerCreationFileTime -cnotmatch '^[1-9][0-9]{16,18}$' -or
+        $CallerSid -cnotmatch '^S-1-5-21-([0-9]+-){3}[0-9]+$' -or
+        $ServiceSid -cnotmatch '^S-1-5-80-([0-9]+-){4}[0-9]+$')) {
+        throw 'Effective-right observation requires the exact live invoking process and account/service principals'
+    }
+    if($CallerProcessId -eq 0 -and ($CallerCreationFileTime -or $CallerSid -or $ServiceSid)) {
+        throw 'Partial effective-right process binding is unavailable'
     }
     $name='USK_METADATA_OBSERVER_'+$RunId
     $script=Join-Path $OutputRoot ('metadata-observer-'+$RunId+'.ps1')
@@ -146,7 +156,8 @@ function Invoke-IndependentMetadataReadback {
     if((Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) -or
         (Test-Path -LiteralPath $script) -or (Test-Path -LiteralPath $output)) { throw 'Observer collision' }
     $observer=@'
-param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly)
+param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
+    [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',[string]$CallerSid='',[string]$ServiceSid='')
 $ErrorActionPreference='Stop'
  Add-Type -TypeDefinition @"
 using System;
@@ -255,6 +266,9 @@ public static class UskMetadataFacts {
 }
 "@
 
+$effectiveRights=$null
+# USK_EFFECTIVE_RIGHTS_TYPE
+try {
 $rows=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
 if(-not $MetadataOnly) {
@@ -277,12 +291,21 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
   $aces=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) | ForEach-Object {
    [ordered]@{sid=$_.IdentityReference.Value;rights=[int]$_.FileSystemRights;type=$_.AccessControlType.ToString();inherited=$_.IsInherited;inheritance=[int]$_.InheritanceFlags;propagation=[int]$_.PropagationFlags}
   })
-  $rows.Add([ordered]@{path=$p.FullName;directory=$p.PSIsContainer;
+  $row=[ordered]@{path=$p.FullName;directory=$p.PSIsContainer;
    file_id=[string]$facts[0];native_name=[string]$facts[8];attributes=[uint32]$facts[2];
    link_count=[uint32]$facts[3];case_sensitive=[bool]$facts[4];streams=@($facts[5]);raw_aces=$rawAces;
    raw_security=$raw.GetSddlForm([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access);owner=$raw.Owner.Value;protected=[bool]($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected);aces=$aces;
    bytes=[long]$facts[7];sha256=$facts[6];
-   content_json=$(if(-not $p.PSIsContainer -and $p.Extension -eq '.json'){[IO.File]::ReadAllText($p.FullName)}else{$null})})
+   content_json=$(if(-not $p.PSIsContainer -and $p.Extension -eq '.json'){[IO.File]::ReadAllText($p.FullName)}else{$null})}
+  if($effectiveRights) {
+   $checked=$effectiveRights.Read($p.FullName)
+   if($checked['file_id'] -cne $row.file_id -or $checked['security'] -cne $row.raw_security) {
+    throw 'Effective-right descriptor observation differs from independent native closure'
+   }
+   $row['effective_rights']=$checked['checks']
+   $row['effective_right_group_sid']=$checked['group_sid']
+  }
+  $rows.Add($row)
   if($p.PSIsContainer){foreach($child in Get-ChildItem -LiteralPath $p.FullName -Force){$pending.Push($child)}}
  }
 }
@@ -312,6 +335,7 @@ if($MetadataOnly) {
 }
 $result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;volume_metadata=$volumeMetadata;
  runtime=@{powershell=$PSVersionTable.PSVersion.ToString();clr=[Environment]::Version.ToString()};observed_utc=[DateTime]::UtcNow.ToString('o')}
+if($effectiveRights){$result['effective_right_tokens']=$effectiveRights.TokenFacts}
 $temporary=$Output+'.pending'
 $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try {
@@ -322,13 +346,22 @@ try {
 # Only the closed, complete result becomes visible to the caller. File.Move
 # refuses an existing destination in the installed Windows PowerShell runtime.
 [IO.File]::Move($temporary,$Output)
+} finally {if($effectiveRights){$effectiveRights.Dispose()}}
 '@
+    $rightsSource=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows_publisher_effective_rights.cs'))
+    $rightsCode="if(`$CallerProcessId -ne 0) {`nAdd-Type -TypeDefinition @'`n"+$rightsSource+"`n'@`n"+
+        "`$effectiveRights=[UskPublisherEffectiveRights]::new(`$CallerProcessId,[long]`$CallerCreationFileTime,`$CallerSid,`$ServiceSid)`n}"
+    $observer=$observer.Replace('# USK_EFFECTIVE_RIGHTS_TYPE',$rightsCode)
     [IO.File]::WriteAllText($script,$observer,[Text.UTF8Encoding]::new($false))
     # Use the installed SYSTEM policy without changing execution policy. The
     # reviewed script is passed as data to a -Command script block.
     $command="& ([scriptblock]::Create([IO.File]::ReadAllText('"+$script.Replace("'","''")+"'))) -Output '"+
         $output.Replace("'","''")+"' -DriveRoot '"+$DriveRoot+"'"
     if($MetadataOnly){$command+=' -MetadataOnly'}
+    if($CallerProcessId -ne 0) {
+        $command+=' -CallerProcessId '+$CallerProcessId+' -CallerCreationFileTime '+$CallerCreationFileTime+
+            " -CallerSid '"+$CallerSid+"' -ServiceSid '"+$ServiceSid+"'"
+    }
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
     $registered=$false

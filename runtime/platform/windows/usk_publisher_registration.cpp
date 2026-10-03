@@ -133,14 +133,12 @@ void require_control_lock_shape(HANDLE handle, bool directory) {
     }
     PSID owner = nullptr;
     PACL dacl = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    const DWORD result = GetSecurityInfo(handle, SE_FILE_OBJECT,
-        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-        &owner, nullptr, &dacl, nullptr, &descriptor);
-    if (result != ERROR_SUCCESS) {
-        throw std::runtime_error("service control lock security observation failed");
-    }
-    const auto free_descriptor = [&] { LocalFree(descriptor); };
+    auto security = read_publisher_owner_dacl_from_handle(handle);
+    auto* descriptor = security.data();
+    BOOL present = FALSE, defaulted = FALSE;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present)
+        throw std::runtime_error("service control lock stored security observation failed");
     BYTE administrators[SECURITY_MAX_SID_SIZE]{};
     BYTE system[SECURITY_MAX_SID_SIZE]{};
     DWORD administrators_size = sizeof(administrators);
@@ -174,7 +172,6 @@ void require_control_lock_shape(HANDLE handle, bool directory) {
         else if (EqualSid(sid, administrators)) saw_administrators = true;
         else exact_aces = false;
     }
-    free_descriptor();
     if (!exact_aces || !saw_system || !saw_administrators) {
         throw std::runtime_error("service control lock owner or protected ACL differs");
     }
@@ -397,15 +394,12 @@ void require_protected_binary_handle(const std::wstring& name,
         publisher_service_sid(name);
     PSID owner = nullptr;
     PACL dacl = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    const DWORD error = GetSecurityInfo(file, SE_FILE_OBJECT,
-        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-        &owner, nullptr, &dacl, nullptr, &descriptor);
-    if (error != ERROR_SUCCESS || !descriptor || !dacl) {
-        if (descriptor) LocalFree(descriptor);
-        throw std::runtime_error("protected publisher executable security is unavailable");
-    }
-    const auto release = [&] { LocalFree(descriptor); };
+    auto security = read_publisher_owner_dacl_from_handle(file);
+    auto* descriptor = security.data();
+    BOOL present = FALSE, defaulted = FALSE;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present || !dacl)
+        throw std::runtime_error("protected publisher executable stored security is unavailable");
     BYTE administrators[SECURITY_MAX_SID_SIZE]{};
     BYTE system[SECURITY_MAX_SID_SIZE]{};
     DWORD administrators_size = sizeof(administrators);
@@ -437,7 +431,6 @@ void require_protected_binary_handle(const std::wstring& name,
             EqualSid(sid, service_sid.data())) saw_service = true;
         else exact = false;
     }
-    release();
     if (!exact || !saw_system || !saw_administrators || !saw_service)
         throw std::runtime_error("protected publisher executable ACL differs");
 }
@@ -460,14 +453,11 @@ void grant_service_binary_read(const std::wstring& name,
     if (handle.get() == INVALID_HANDLE_VALUE)
         throw std::runtime_error("protected publisher executable cannot be secured");
     PACL previous = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    const DWORD observed = GetSecurityInfo(handle.get(), SE_FILE_OBJECT,
-        DACL_SECURITY_INFORMATION, nullptr, nullptr, &previous, nullptr,
-        &descriptor);
-    if (observed != ERROR_SUCCESS || !descriptor || !previous) {
-        if (descriptor) LocalFree(descriptor);
-        throw std::runtime_error("protected publisher executable DACL is unavailable");
-    }
+    auto security = read_publisher_owner_dacl_from_handle(handle.get());
+    BOOL present = FALSE, defaulted = FALSE;
+    if (!GetSecurityDescriptorDacl(security.data(), &present, &previous, &defaulted) ||
+        !present || !previous)
+        throw std::runtime_error("protected publisher executable stored DACL is unavailable");
     EXPLICIT_ACCESS_W entry{};
     entry.grfAccessPermissions = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
     entry.grfAccessMode = GRANT_ACCESS;
@@ -477,7 +467,6 @@ void grant_service_binary_read(const std::wstring& name,
     entry.Trustee.ptstrName = reinterpret_cast<LPWSTR>(const_cast<BYTE*>(sid.data()));
     PACL updated = nullptr;
     const DWORD composed = SetEntriesInAclW(1, &entry, previous, &updated);
-    LocalFree(descriptor);
     if (composed != ERROR_SUCCESS || !updated)
         throw std::runtime_error("publisher service executable grant could not be composed");
     const DWORD applied = SetSecurityInfo(handle.get(), SE_FILE_OBJECT,
@@ -1093,21 +1082,6 @@ usk::json::Value dedicated_target_disk_identity(const std::wstring& volume) {
     });
 }
 
-std::vector<BYTE> native_owner_dacl_security(HANDLE object) {
-    constexpr auto requested = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
-    DWORD needed = 0;
-    if (GetKernelObjectSecurity(object, requested, nullptr, 0, &needed) ||
-        GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed < SECURITY_DESCRIPTOR_MIN_LENGTH || needed > 65536)
-        throw std::runtime_error("target stored security size is unavailable or exceeds its bound");
-    std::vector<BYTE> bytes(needed);
-    DWORD returned = 0;
-    if (!GetKernelObjectSecurity(object, requested, bytes.data(), needed, &returned) ||
-        returned != needed || !IsValidSecurityDescriptor(bytes.data()) ||
-        GetSecurityDescriptorLength(bytes.data()) != needed)
-        throw std::runtime_error("target stored security is unavailable or changed during observation");
-    return bytes;
-}
-
 std::string owner_dacl_sddl(const std::vector<BYTE>& bytes) {
     auto* descriptor = const_cast<BYTE*>(bytes.data());
     LPWSTR rendered = nullptr;
@@ -1121,7 +1095,7 @@ std::string owner_dacl_sddl(const std::vector<BYTE>& bytes) {
 }
 
 std::string owner_dacl_sddl(HANDLE object) {
-    return owner_dacl_sddl(native_owner_dacl_security(object));
+    return owner_dacl_sddl(read_publisher_owner_dacl_from_handle(object));
 }
 
 bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
@@ -1178,7 +1152,7 @@ usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_prote
             throw std::runtime_error("target volume contains preexisting user or publication state");
         FileHandle held(open_publisher_listed_child(root, entry, false, false, false, false, true));
         const auto tree = observe_publisher_tree(held.get(), true);
-        const auto native_security = native_owner_dacl_security(held.get());
+        const auto native_security = read_publisher_owner_dacl_from_handle(held.get());
         SECURITY_DESCRIPTOR_CONTROL metadata_control{}; DWORD metadata_revision = 0;
         if (!GetSecurityDescriptorControl(const_cast<BYTE*>(native_security.data()),
             &metadata_control, &metadata_revision))
@@ -1227,7 +1201,7 @@ usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_prote
             FileHandle child_handle(open_publisher_listed_child(held.get(), *listed,
                 false, false, false, false, true));
             const auto child_observation = observe_publisher_file_handle(child_handle.get());
-            const auto child_security = native_owner_dacl_security(child_handle.get());
+            const auto child_security = read_publisher_owner_dacl_from_handle(child_handle.get());
             if (child_observation.file_id != child.object.file_id || !trusted(child_observation) ||
                 !native_metadata_security_matches(child_security, child_observation, false))
                 throw std::runtime_error("target metadata child security or identity changed");
@@ -1276,7 +1250,7 @@ void protect_target_metadata(HANDLE root, const usk::json::Value& original,
     if (entries.size() != 1) throw std::runtime_error("target metadata namespace changed before protection");
     FileHandle held(open_publisher_metadata_dacl_child(root, entries.front()));
     const auto observation = observe_publisher_directory_handle(held.get());
-    const auto security = native_owner_dacl_security(held.get());
+    const auto security = read_publisher_owner_dacl_from_handle(held.get());
     const auto& retained = original.as_array().front();
     if (retained.at("path").as_string() != "System Volume Information" ||
         observation.file_id != retained.at("file_id").as_string() ||

@@ -1408,7 +1408,7 @@ independent target rows and passing final verification. Those rows established
 hash/ACL preservation; they did not independently bind payload file IDs or
 the complete native closure facts.
 
-The current qualification fixture adds held-handle native file IDs, names,
+The connected qualification fixture adds held-handle native file IDs, names,
 attributes, raw owner/DACL, link counts, directory case flags, exact streams
 and bounded content hashes to the independent SYSTEM observation. It compares
 that closure with the retained sealed and visible records. A local native
@@ -1421,9 +1421,16 @@ observer. The observer binds the exact owned VHD, SCM command, executable
 digest, PID and creation time, requires an actual live kill and fails a missed
 window. Each fixture requires public unknown/exit 5, absent completion, input
 removal, source-free recovery, exact retained native identity/content, repeat
-recovery/replay and verification without SCM reconfiguration. Hosted execution
-of this new batch remains required. Controlled process termination is not
-physical power-loss evidence.
+recovery/replay and verification without SCM reconfiguration. The ordinary
+chain and both loss cases passed exact-head run `37138897123` at
+`a9afd81839f6fb4e46cf8a73392095dc71c3a287`, integrated by PR #218 at
+`2fb9a4677254a3bef7f324470f66b4b65ddf5181`. Artifacts `11279009009` and
+`11279024188` retain the actual checkout/tree and separate PR head, Windows
+20348, SDK 26100, MSVC 19.44 and file-backed GPT/NTFS sector facts. Every
+interrupted native object was preserved through recovery, allowing only the
+prepared payload namespace move; all 28 terminal rows remained identical
+through repeat recovery/replay. Controlled process termination is not physical
+power-loss evidence, and this run does not qualify every Windows/storage profile.
 
 The finite remaining obligations are the existing PUB-001/002/003 and PLAT-002
 acceptance designs: complete initiating/untrusted-token effective-right
@@ -1432,3 +1439,31 @@ failure; reconciliation of the native predicate corpus; and exact source,
 SDK/runtime, Windows/storage assumptions plus unsupported-target refusals.
 The replacement-source DELETE denial still proves only that source failure.
 Strict availability and the release acceptance predicate remain unchanged.
+
+### Stored security and invoking-token qualification
+
+All publisher filesystem observations now read bounded stored owner/DACL
+bytes from the retained handle. Controller locks, retained executable checks,
+metadata admission and payload closure use the same reader. Protection is the
+stored SE_DACL_PROTECTED flag; it is not inferred from a normalized Win32
+file-security descriptor. Disposable native fixtures toggle that bit on files
+and directories while retaining the same identities, owner and ordered ACEs.
+
+The public qualification observer additionally binds the live invoking probe
+process by PID and creation time, holds its actual token, and records its user,
+groups and privileges. It creates a separately labelled filtered derivative
+with Administrators deny-only and DISABLE_MAX_PRIVILEGE, with no added
+restricting SID. Read-only AccessCheck evaluates each mutation right and
+MAXIMUM_ALLOWED against held raw owner/group/DACL observations, whose identity
+and owner/DACL must match the independent native closure. The filtered token
+must receive no mutation right on any protected row; elevated invoking-token
+results are retained separately. Local tests require a real owned-file grant,
+closed-descriptor denial and contradictory process/user refusal under both
+PowerShell runtimes. Hosted execution of this delta remains required.
+
+This measures the invoking probe token and its explicit derivative. It does
+not capture the exited machine client's token, qualify an unrelated account,
+or prove resistance to every privileged or untrusted actor. Actual initiating
+client and broader effective-right qualification remain on the finite list.
+AccessCheck is a descriptor/token observation, not an attempted filesystem
+mutation or a claim that independent native I/O would necessarily succeed.

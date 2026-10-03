@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_handle_observation.h"
+#include "usk_publisher_security_descriptor.h"
 
 #include <aclapi.h>
 #include <windows.h>
@@ -39,6 +40,44 @@ bool refused(HANDLE handle) {
     catch (const std::exception&) { return true; }
     return false;
 }
+
+void check_stored_protection(HANDLE handle, bool directory) {
+    using usk::platform::windows::read_publisher_owner_dacl_from_handle;
+    const auto observe = [&] { return directory ?
+        observe_publisher_directory_handle(handle) : observe_publisher_file_handle(handle); };
+    const auto before = observe();
+    const auto original = read_publisher_owner_dacl_from_handle(handle);
+    using NtSetSecurityObjectFn = LONG (NTAPI *)(HANDLE, SECURITY_INFORMATION, PSECURITY_DESCRIPTOR);
+    const auto module = GetModuleHandleW(L"ntdll.dll");
+    const auto set_security = module ? reinterpret_cast<NtSetSecurityObjectFn>(
+        GetProcAddress(module, "NtSetSecurityObject")) : nullptr;
+    check(set_security != nullptr, "fixture native security setter unavailable");
+    // This changes only the owned fixture's stored control bit. No parent or
+    // descendant ACL propagation, profile owner or publication authority.
+    for (const bool protect : {false, true, false}) {
+        auto descriptor = original;
+        check(SetSecurityDescriptorControl(descriptor.data(), SE_DACL_PROTECTED,
+            protect ? SE_DACL_PROTECTED : 0) != FALSE, "fixture control change failed");
+        check(set_security(handle, DACL_SECURITY_INFORMATION |
+            (protect ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION),
+            descriptor.data()) == 0, "fixture stored DACL change failed");
+        const auto after = observe();
+        check(after.dacl_protected == protect,
+            "same-handle observation differs from the stored DACL control bit");
+        check(after.file_id == before.file_id && after.native_name == before.native_name &&
+            after.attributes == before.attributes && after.link_count == before.link_count &&
+            after.case_sensitive == before.case_sensitive && after.owner_sid == before.owner_sid &&
+            after.dacl_aces.size() == before.dacl_aces.size(),
+            "stored protection observation changed other object facts");
+        for (std::size_t index = 0; index < before.dacl_aces.size(); ++index) {
+            const auto& expected = before.dacl_aces[index];
+            const auto& actual = after.dacl_aces[index];
+            check(expected.type == actual.type && expected.flags == actual.flags &&
+                expected.access_mask == actual.access_mask && expected.sid == actual.sid,
+                "stored protection operation changed ordered ACE facts");
+        }
+    }
+}
 } // namespace
 
 int main() {
@@ -66,6 +105,8 @@ int main() {
                 "same-handle owner and DACL were not observed");
             check(observed.owner_sid != "S-1-5-18",
                 "ordinary disposable fixture unexpectedly has the protected profile owner");
+
+            check_stored_protection(handle.get(), true);
 
             PACL original_dacl = nullptr;
             PSECURITY_DESCRIPTOR raw_descriptor = nullptr;
@@ -99,7 +140,7 @@ int main() {
                 FILE_ATTRIBUTE_NORMAL, nullptr));
         }
         {
-            Handle regular(CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+            Handle regular(CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             check(refused(regular.get()), "regular file was admitted as a directory");
@@ -112,6 +153,7 @@ int main() {
                 observed_file.native_name.substr(
                     observed_file.native_name.size() - 8) == L"file.bin",
                 "same-handle regular-file native name diverged");
+            check_stored_protection(regular.get(), false);
         }
         {
             Handle limited(CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES,

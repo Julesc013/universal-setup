@@ -17,6 +17,11 @@ namespace usk::platform::windows {
 
 DWORD publisher_directory_access_mask();
 DWORD publisher_consumer_read_access_mask();
+// Bounded stored owner/DACL bytes from the already-held object. This reads
+// SE_DACL_PROTECTED without Win32 file-security normalization. It grants no
+// authority; callers still admit the owner, ACEs, identity and namespace.
+std::vector<unsigned char> read_publisher_owner_dacl_from_handle(HANDLE object);
+
 // Canonical account-form SID; rejects privileged built-ins and service SIDs.
 // Actual account identity/group membership require independent TokenUser proof.
 void require_publisher_consumer_sid(const std::string& sid);
