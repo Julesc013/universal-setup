@@ -6,10 +6,12 @@ param(
     [Parameter(Mandatory=$true)][string]$ServiceBinary,
     [Parameter(Mandatory=$true)][string]$ServiceControlBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
-    [Parameter(Mandatory=$true)][string]$OutputPath
+    [Parameter(Mandatory=$true)][string]$OutputPath,
+    [ValidateSet('none','prepublish','postrename')][string]$PublicationLoss='none'
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'Public publisher qualification requires the owned hosted runner lab'
 }
@@ -35,12 +37,13 @@ $service='USK_PUB_'+$id
 $caller=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $utf8=[Text.UTF8Encoding]::new($false)
 $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run';
-    service=$service;volume_root=$VolumeRoot;volume_drive_root=$drive;
+    service=$service;volume_root=$VolumeRoot;volume_drive_root=$drive;publication_loss=$PublicationLoss;
     partition_layout=@($disk|Get-Partition|Select-Object PartitionNumber,Offset,Size,GptType,MbrType,IsBoot,IsSystem);
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     service_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     client_cleanup_confirmed=$false}
 $created=$false
+$boundaryObserver=$null
 $installedBinary=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$service+'.exe')
 function Write-Json([string]$Path,$Value) {
     [IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)
@@ -67,7 +70,7 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     if((Get-Service $service).Status -ne 'Stopped'){throw 'Public one-request service did not stop'}
     return $result
 }
-function Read-IndependentState {
+function Read-IndependentState([string]$PayloadRoot=([string]$plan.target.root).Replace('/','\')) {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab `
         -RunId ([guid]::NewGuid().ToString('N'))
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18') {
@@ -75,12 +78,13 @@ function Read-IndependentState {
     }
     Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid
     foreach($entry in @($plan.planned_entries|Where-Object entry_type -eq 'file')) {
-        $expected=([string]$plan.target.root).Replace('/','\')+'\'+$entry.relative_path.Replace('/','\')
+        $expected=$PayloadRoot+'\'+$entry.relative_path.Replace('/','\')
         $rows=@($readback.independent.rows|Where-Object path -ceq $expected)
         if($rows.Count -ne 1 -or $rows[0].sha256 -cne $entry.sha256 -or $rows[0].bytes -ne $entry.size_bytes) {
             throw 'Public install payload differs from independently read planned bytes'
         }
     }
+    Assert-IndependentNativeClosure -Observation $readback.independent -PayloadRoot $PayloadRoot
     return $readback.independent
 }
 function Read-VolumeMetadata {
@@ -103,11 +107,103 @@ function Assert-VolumeMetadataSnapshot($Observation,$Expected) {
         }
     }
 }
+function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
+    $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
+    if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
+    $record=$prepared[0].content_json|ConvertFrom-Json
+    if($record.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+        $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
+        $record.source_file_id -cne $record.sealed_tree.root.file_id) {
+        throw 'Independent prepared tree binding differs'
+    }
+    $members=@($Observation.rows|Where-Object {
+        $_.path -ceq $PayloadRoot -or $_.path.StartsWith($PayloadRoot+'\',[StringComparison]::Ordinal)
+    })
+    $ids=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach($row in $Observation.rows) {
+        if($row.file_id -cnotmatch '^[0-9a-f]{16}:[0-9a-f]{32}$' -or -not $ids.Add($row.file_id) -or
+            $row.link_count -ne 1 -or $row.case_sensitive -ne $false -or
+            $row.native_name -cne $row.path.Substring(2) -or
+            [bool]($row.attributes -band 16) -ne $row.directory -or ($row.attributes -band 1024) -or
+            ($row.directory -and @($row.streams).Count -ne 0) -or
+            (-not $row.directory -and (@($row.streams).Count -ne 1 -or
+                $row.streams[0].name -cne '::$DATA' -or $row.streams[0].size -ne $row.bytes))) {
+            throw ('Independent native closure facts differ: '+$row.path)
+        }
+    }
+    function Assert-NativeMember($Expected,$Streams,[string]$Path) {
+        $found=@($members|Where-Object path -ceq $Path)
+        if($found.Count -ne 1){throw 'Independent native member absent'}
+        $row=$found[0]
+        if($row.file_id -cne $Expected.file_id -or $row.attributes -ne $Expected.attributes -or
+            $row.link_count -ne $Expected.link_count -or $row.case_sensitive -ne $Expected.case_sensitive -or
+            $row.owner -cne $Expected.owner_sid -or $row.protected -ne $Expected.dacl_protected -or
+            $Expected.reparse_tag -ne 0 -or
+            @($row.raw_aces).Count -ne @($Expected.dacl_aces).Count -or
+            @($row.streams).Count -ne @($Streams).Count) {
+            throw 'Independent native member differs from sealed/visible evidence'
+        }
+        for($i=0;$i -lt @($row.raw_aces).Count;$i++) {
+            $a=$row.raw_aces[$i];$b=$Expected.dacl_aces[$i]
+            if($a.type -ne $b.type -or $a.flags -ne $b.flags -or $a.access_mask -ne $b.access_mask -or $a.sid -cne $b.sid) {
+                throw 'Independent ordered raw ACE differs from sealed/visible evidence'
+            }
+        }
+        for($i=0;$i -lt @($row.streams).Count;$i++) {
+            $a=$row.streams[$i];$b=$Streams[$i]
+            if($a.name -cne $b.name -or $a.size -ne $b.size -or $a.allocation_size -ne $b.allocation_size) {
+                throw 'Independent stream differs from sealed/visible evidence'
+            }
+        }
+    }
+    function Assert-NativeTree($Tree,[string]$OriginalRoot) {
+        # The retained legacy phase record escapes native names once before
+        # JSON serialization. The independent native name is the raw query.
+        if(([string]$Tree.root.native_name).Replace('\\','\') -cne $OriginalRoot.Substring(2) -or
+            $members.Count -ne 1+@($Tree.descendants).Count) {
+            throw 'Independent root name or closure membership differs'
+        }
+        Assert-NativeMember -Expected $Tree.root -Streams @($Tree.root_streams) -Path $PayloadRoot
+        foreach($entry in $Tree.descendants) {
+            $relative=$entry.relative_path.Replace('/','\')
+            $path=$PayloadRoot+'\'+$relative
+            if(([string]$entry.object.native_name).Replace('\\','\') -cne
+                ($OriginalRoot+'\'+$relative).Substring(2)) {throw 'Retained native child name differs'}
+            Assert-NativeMember -Expected $entry.object -Streams @($entry.streams) -Path $path
+            $row=@($members|Where-Object path -ceq $path)[0]
+            if($row.bytes -ne $entry.size -or (-not $row.directory -and $row.sha256 -cne $entry.sha256)) {
+                throw 'Independent payload bytes differ from sealed/visible evidence'
+            }
+        }
+    }
+    Assert-NativeTree $record.sealed_tree ($drive+'publication\staging\candidate')
+    $visible=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
+    if($visible.Count -eq 1) {
+        $value=$visible[0].content_json|ConvertFrom-Json
+        if($value.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+            $value.phase -cne 'lab_visible_evidence' -or
+            $value.prepared_record_sha256 -cne $prepared[0].sha256 -or
+            $value.source_file_id -cne $record.sealed_tree.root.file_id) {
+            throw 'Independent visible record differs from prepared binding'
+        }
+        Assert-NativeTree $value.visible_tree ($drive+'publication\destination\visible')
+    } elseif($visible.Count -ne 0){throw 'Independent visible record is ambiguous'}
+}
+function Remove-OwnedPublicSources {
+    $exactFixture=[IO.Path]::GetFullPath($fixture)
+    if($exactFixture -cne (Join-Path $lab 'authored-inputs') -or
+        (Get-Item -LiteralPath $exactFixture).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw 'Source-free recovery cleanup escaped the owned fixture'
+    }
+    Remove-Item -LiteralPath $exactFixture -Recurse -Force -ErrorAction Stop
+    if(Test-Path -LiteralPath $binding.envelope_file){throw 'Original reviewed source remains'}
+}
 try {
     $fixture=Join-Path $lab 'authored-inputs'
     New-Item -ItemType Directory -Path $fixture -ErrorAction Stop|Out-Null
+    $fixtureArgs=if($PublicationLoss -cne 'none'){@('--core-bytes','33554432','--addon-bytes','33554432')}else{@()}
     $generated=& python -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
-        --output $fixture --target ($drive+'publication\destination\visible') --request-id ('public.'+$id)
+        --output $fixture --target ($drive+'publication\destination\visible') --request-id ('public.'+$id) @fixtureArgs
     if($LASTEXITCODE -ne 0){throw 'Public-path authored fixture failed'}
     $inputs=($generated -join "`n")|ConvertFrom-Json
     $context=Join-Path $lab 'context.json'
@@ -219,13 +315,62 @@ try {
     }
     Assert-VolumeMetadataSnapshot (Read-VolumeMetadata) $targetIntent.identity.metadata
     $receipt['target_completion_reentry']='modelled missing completion; same immutable intent and protected metadata'
-    $receipt['apply']=Invoke-PublicRequest 'install_local.apply' $apply
-    $installed=$receipt.apply.result.payload
+    if($PublicationLoss -cne 'none') {
+        $observerRoot=Join-Path $lab 'production-boundary'
+        New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
+        & $ServiceControlBinary --start $service $installedBinary $VolumeRoot $caller|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Owned public service could not start before boundary observation'}
+        $boundaryObserver=Start-OwnedProductionBoundaryObserver -Phase $PublicationLoss -Service $service `
+            -ObserverRoot $observerRoot -VhdPath $VhdPath -VolumeRoot $VolumeRoot -DriveRoot $drive `
+            -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $command `
+            -ServiceBinarySha256 $receipt.service_sha256
+        $receipt['interrupted_apply']=Invoke-PublicRequest 'install_local.apply' $apply 5
+        if($receipt.interrupted_apply.status -cne 'unknown' -or
+            $receipt.interrupted_apply.error.code -cne 'publisher_outcome_unknown' -or
+            $null -ne $receipt.interrupted_apply.result) {throw 'Interrupted ordinary apply invented a terminal result'}
+        $receipt['production_boundary']=Complete-OwnedProductionBoundaryObserver $boundaryObserver $PublicationLoss
+        $receipt['production_boundary_task_removed']=$boundaryObserver.removed
+        $payloadRoot=if($PublicationLoss -ceq 'prepublish'){$drive+'publication\staging\candidate'}else{$drive+'publication\destination\visible'}
+        $interrupted=Read-IndependentState $payloadRoot
+        $receipt['interrupted_readback']=$interrupted
+        $publicFiles=@($interrupted.rows|Where-Object {-not $_.directory -and $_.path.StartsWith($drive+'setup-state\',[StringComparison]::Ordinal)})
+        if($publicFiles.Count -ne 1 -or $publicFiles[0].path -cne ($drive+'setup-state\.usk-owned-root.v1.json') -or
+            @($interrupted.rows|Where-Object path -ceq ($drive+'publication\state\lab-installed-state.json')).Count -ne 0 -or
+            @($interrupted.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json')).Count -ne 0) {
+            throw 'Interrupted ordinary install contains invented completion metadata'
+        }
+        if($PublicationLoss -ceq 'prepublish' -and
+            @($interrupted.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))[0].sha256 -cne
+                $receipt.production_boundary.prepared_record_sha256) {throw 'Independent prepared record differs from observed loss boundary'}
+        Remove-OwnedPublicSources
+        $recovery=@{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
+            install_id=$apply.plan_request.install_id;transaction_id=$apply.transaction_id}
+        $receipt['boundary_recovery']=Invoke-PublicRequest 'install_local.recover' $recovery
+        $installed=$receipt.boundary_recovery.result.payload
+        $before=Read-IndependentState
+        foreach($row in $interrupted.rows) {
+            $expected=$row|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+            if($PublicationLoss -ceq 'prepublish' -and ($expected.path -ceq $payloadRoot -or
+                $expected.path.StartsWith($payloadRoot+'\',[StringComparison]::Ordinal))) {
+                $expected.path=$drive+'publication\destination\visible'+$expected.path.Substring($payloadRoot.Length)
+                $expected.native_name=$expected.path.Substring(2)
+            }
+            $found=@($before.rows|Where-Object path -ceq $expected.path)
+            if($found.Count -ne 1 -or ($found[0]|ConvertTo-Json -Depth 64 -Compress) -cne
+                ($expected|ConvertTo-Json -Depth 64 -Compress)) {
+                throw ('Source-free boundary recovery changed retained native identity/content: '+$expected.path)
+            }
+        }
+    } else {
+        $receipt['apply']=Invoke-PublicRequest 'install_local.apply' $apply
+        $installed=$receipt.apply.result.payload
+        $before=Read-IndependentState
+    }
     if($installed.install_id -cne $apply.plan_request.install_id -or
-        $installed.transaction_id -cne $apply.transaction_id -or $installed.lifecycle_status -cne 'installed') {
+        $installed.transaction_id -cne $apply.transaction_id -or $installed.created_at -cne $apply.applied_at -or
+        $installed.lifecycle_status -cne 'installed') {
         throw 'Ordinary public installation identity differs'
     }
-    $before=Read-IndependentState
     $receipt['installed_readback']=$before
     & $ServiceControlBinary --unregister $service $installedBinary $VolumeRoot $caller|Out-Null
     if($LASTEXITCODE -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
@@ -234,14 +379,7 @@ try {
         throw 'Installed public publisher recovery authority was removed'
     }
     $receipt['installed_authority_retirement_refused']=$true
-    # Remove only the exact fresh fixture below this run's already checked lab.
-    $exactFixture=[IO.Path]::GetFullPath($fixture)
-    if($exactFixture -cne (Join-Path $lab 'authored-inputs') -or
-        (Get-Item -LiteralPath $exactFixture).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        throw 'Source-free recovery cleanup escaped the owned fixture'
-    }
-    Remove-Item -LiteralPath $exactFixture -Recurse -Force -ErrorAction Stop
-    if(Test-Path -LiteralPath $binding.envelope_file){throw 'Original reviewed source remains'}
+    if($PublicationLoss -ceq 'none'){Remove-OwnedPublicSources}
     $recovery=@{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
         install_id=$installed.install_id;transaction_id=$installed.transaction_id}
     $receipt['recovery']=Invoke-PublicRequest 'install_local.recover' $recovery
@@ -283,6 +421,17 @@ try {
         } catch {$receipt['target_intent_diagnostic_error']=$_.Exception.Message}
     }
 } finally {
+    if($boundaryObserver -and -not $receipt.Contains('production_boundary') -and
+        (Test-Path -LiteralPath $boundaryObserver.output -PathType Leaf)) {
+        try {
+            if((Get-Item -LiteralPath $boundaryObserver.output).Length -gt 16KB) {throw 'Boundary diagnostic exceeds its bound'}
+            $receipt['production_boundary']=Get-Content -LiteralPath $boundaryObserver.output -Raw|ConvertFrom-Json
+        } catch {$receipt['boundary_diagnostic_error']=$_.Exception.Message}
+    }
+    if($boundaryObserver -and -not $boundaryObserver.removed) {
+        try {Remove-OwnedProductionBoundaryObserver $boundaryObserver}
+        catch {$receipt.status='failed';$receipt['failure']='Owned boundary observer cleanup failed: '+$_.Exception.Message}
+    }
     if($created -and (Get-Service $service -ErrorAction SilentlyContinue)) {
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}

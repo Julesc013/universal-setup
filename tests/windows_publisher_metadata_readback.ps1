@@ -148,6 +148,113 @@ function Invoke-IndependentMetadataReadback {
     $observer=@'
 param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly)
 $ErrorActionPreference='Stop'
+ Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class UskMetadataFacts {
+ [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+ static extern SafeFileHandle CreateFile(string p,uint a,uint s,IntPtr sa,uint c,uint f,IntPtr t);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool GetFileInformationByHandleEx(SafeFileHandle h,int k,byte[] b,uint n);
+ [DllImport("advapi32.dll", SetLastError=true)]
+ static extern bool GetKernelObjectSecurity(SafeFileHandle h,uint i,byte[] b,uint n,out uint needed);
+ public static object[] Read(string path) {
+  using(var h=CreateFile(path,0x20080,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero)) {
+   return ReadHandle(h);
+  }
+ }
+ static object[] ReadHandle(SafeFileHandle h) {
+   if(h.IsInvalid) throw new InvalidOperationException("Independent metadata handle unavailable");
+   var id=new byte[24]; var tag=new byte[8]; uint needed;
+   if(!GetFileInformationByHandleEx(h,18,id,24) || !GetFileInformationByHandleEx(h,9,tag,8) ||
+      BitConverter.ToUInt32(tag,4)!=0 || (BitConverter.ToUInt32(tag,0)&0x400)!=0)
+    throw new InvalidOperationException("Independent metadata identity or ordinary-object facts unavailable");
+   if(GetKernelObjectSecurity(h,5,null,0,out needed) || Marshal.GetLastWin32Error()!=122 || needed<20 || needed>65536)
+    throw new InvalidOperationException("Independent metadata security size unavailable");
+   var security=new byte[needed]; uint returned;
+   if(!GetKernelObjectSecurity(h,5,security,needed,out returned) || returned!=needed)
+    throw new InvalidOperationException("Independent metadata security changed during observation");
+   return new object[]{BitConverter.ToUInt64(id,0).ToString("x16")+":"+
+    BitConverter.ToString(id,8,16).Replace("-","").ToLowerInvariant(),security,BitConverter.ToUInt32(tag,0)};
+ }
+ static byte[] Query(SafeFileHandle h,int kind,int size) {
+  var b=new byte[size];
+  if(!GetFileInformationByHandleEx(h,kind,b,(uint)size))
+   throw new InvalidOperationException("Independent native closure query failed: "+kind+"/"+Marshal.GetLastWin32Error());
+  return b;
+ }
+ static object[] Streams(SafeFileHandle h,bool directory) {
+  byte[] b=null;
+  for(int size=4096;size<=1048576;size*=2) {
+   b=new byte[size];
+   if(GetFileInformationByHandleEx(h,7,b,(uint)size)) break;
+   int error=Marshal.GetLastWin32Error();
+   if(directory && error==38) return new object[0];
+   if((error!=122 && error!=234) || size==1048576)
+    throw new InvalidOperationException("Independent stream query unavailable or exceeds bound: "+error);
+  }
+  var rows=new List<object>(); var names=new HashSet<string>(StringComparer.Ordinal); int offset=0;
+  while(true) {
+   if(offset<0 || b.Length-offset<24) throw new InvalidOperationException("Independent stream header truncated");
+   uint next=BitConverter.ToUInt32(b,offset), length=BitConverter.ToUInt32(b,offset+4);
+   long size=BitConverter.ToInt64(b,offset+8), allocated=BitConverter.ToInt64(b,offset+16);
+   long available=next==0 ? (long)(b.Length-offset) : next;
+   if(available<24 || available>b.Length-offset || length%2!=0 || length==0 ||
+      length>available-24 || size<0 || allocated<0 || (next!=0 && next%8!=0))
+    throw new InvalidOperationException("Independent stream record malformed");
+   string name=Encoding.Unicode.GetString(b,offset+24,(int)length);
+   if(!names.Add(name)) throw new InvalidOperationException("Independent stream name repeated");
+   rows.Add(new Dictionary<string,object>{{"name",name},{"size",size},{"allocation_size",allocated}});
+   if(next==0) break;
+   offset=checked(offset+(int)next);
+  }
+  return rows.ToArray();
+ }
+ public static object[] ReadClosure(string path) {
+  using(var h=CreateFile(path,0x20081,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero)) {
+   object[] facts=ReadHandle(h);
+   var standard=Query(h,1,24); uint attributes=(uint)facts[2];
+   bool directory=(attributes&16)!=0;
+   long bytes=BitConverter.ToInt64(standard,8); uint links=BitConverter.ToUInt32(standard,16);
+   if(standard[20]!=0 || (standard[21]!=0)!=directory || bytes<0 || (!directory && bytes>134217728))
+    throw new InvalidOperationException("Independent closure type/size exceeds fixture bound");
+   uint caseFlags=directory ? BitConverter.ToUInt32(Query(h,23,4),0) : 0;
+   if((caseFlags&~1U)!=0) throw new InvalidOperationException("Independent case flags unsupported");
+   bool caseSensitive=(caseFlags&1)!=0;
+   var filename=Query(h,2,4096); uint nameBytes=BitConverter.ToUInt32(filename,0);
+   if(nameBytes==0 || nameBytes%2!=0 || nameBytes>filename.Length-4)
+    throw new InvalidOperationException("Independent native name unavailable");
+   string nativeName=Encoding.Unicode.GetString(filename,4,(int)nameBytes);
+   object[] streams=Streams(h,directory); string digest=null;
+   if(!directory) {
+    using(var file=new FileStream(h,FileAccess.Read)) using(var sha=SHA256.Create()) {
+     var buffer=new byte[65536]; long total=0;
+     while(total<bytes) {
+      int count=file.Read(buffer,0,(int)Math.Min(buffer.Length,bytes-total));
+      if(count==0) throw new InvalidOperationException("Independent file truncated during hashing");
+      sha.TransformBlock(buffer,0,count,buffer,0); total+=count;
+     }
+     if(file.ReadByte()!=-1) throw new InvalidOperationException("Independent file grew during bounded hashing");
+     sha.TransformFinalBlock(new byte[0],0,0);
+     digest=BitConverter.ToString(sha.Hash).Replace("-","").ToLowerInvariant();
+     var after=Query(h,1,24);
+     if(file.Position!=bytes || BitConverter.ToInt64(after,8)!=bytes ||
+        BitConverter.ToUInt32(after,16)!=links)
+      throw new InvalidOperationException("Independent file size/link facts changed during hashing");
+    }
+   }
+   return new object[]{facts[0],facts[1],attributes,links,caseSensitive,streams,digest,
+    directory ? 0L : bytes,nativeName};
+  }
+ }
+}
+"@
+
 $rows=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
 if(-not $MetadataOnly) {
@@ -161,12 +268,20 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
   $p=$pending.Pop()
   if(($p.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Unexpected readback link' }
   if($rows.Count -ge 10000 -or (-not $p.PSIsContainer -and $p.Extension -eq '.json' -and $p.Length -gt 16MB)) {throw 'Independent readback exceeds its record budget'}
+  $facts=[UskMetadataFacts]::ReadClosure($p.FullName)
+  $raw=[Security.AccessControl.RawSecurityDescriptor]::new([byte[]]$facts[1],0)
+  $rawAces=@($raw.DiscretionaryAcl|ForEach-Object {
+   [ordered]@{type=[int]$_.AceType;flags=[int]$_.AceFlags;access_mask=$_.AccessMask;sid=$_.SecurityIdentifier.Value}
+  })
   $a=Get-Acl -LiteralPath $p.FullName
   $aces=@($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) | ForEach-Object {
    [ordered]@{sid=$_.IdentityReference.Value;rights=[int]$_.FileSystemRights;type=$_.AccessControlType.ToString();inherited=$_.IsInherited;inheritance=[int]$_.InheritanceFlags;propagation=[int]$_.PropagationFlags}
   })
-  $rows.Add([ordered]@{path=$p.FullName;directory=$p.PSIsContainer;owner=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value;protected=$a.AreAccessRulesProtected;aces=$aces;
-   bytes= $(if($p.PSIsContainer){0}else{$p.Length});sha256=$(if($p.PSIsContainer){$null}else{(Get-FileHash -LiteralPath $p.FullName -Algorithm SHA256).Hash.ToLowerInvariant()});
+  $rows.Add([ordered]@{path=$p.FullName;directory=$p.PSIsContainer;
+   file_id=[string]$facts[0];native_name=[string]$facts[8];attributes=[uint32]$facts[2];
+   link_count=[uint32]$facts[3];case_sensitive=[bool]$facts[4];streams=@($facts[5]);raw_aces=$rawAces;
+   raw_security=$raw.GetSddlForm([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access);owner=$raw.Owner.Value;protected=[bool]($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected);aces=$aces;
+   bytes=[long]$facts[7];sha256=$facts[6];
    content_json=$(if(-not $p.PSIsContainer -and $p.Extension -eq '.json'){[IO.File]::ReadAllText($p.FullName)}else{$null})})
   if($p.PSIsContainer){foreach($child in Get-ChildItem -LiteralPath $p.FullName -Force){$pending.Push($child)}}
  }
@@ -174,35 +289,6 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
 }
 $volumeMetadata=[Collections.Generic.List[object]]::new()
 if($MetadataOnly) {
- Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
-public static class UskMetadataFacts {
- [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
- static extern SafeFileHandle CreateFile(string p,uint a,uint s,IntPtr sa,uint c,uint f,IntPtr t);
- [DllImport("kernel32.dll", SetLastError=true)]
- static extern bool GetFileInformationByHandleEx(SafeFileHandle h,int k,byte[] b,uint n);
- [DllImport("advapi32.dll", SetLastError=true)]
- static extern bool GetKernelObjectSecurity(SafeFileHandle h,uint i,byte[] b,uint n,out uint needed);
- public static object[] Read(string path) {
-  using(var h=CreateFile(path,0x20080,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero)) {
-   if(h.IsInvalid) throw new InvalidOperationException("Independent metadata handle unavailable");
-   var id=new byte[24]; var tag=new byte[8]; uint needed;
-   if(!GetFileInformationByHandleEx(h,18,id,24) || !GetFileInformationByHandleEx(h,9,tag,8) ||
-      BitConverter.ToUInt32(tag,4)!=0 || (BitConverter.ToUInt32(tag,0)&0x400)!=0)
-    throw new InvalidOperationException("Independent metadata identity or ordinary-object facts unavailable");
-   if(GetKernelObjectSecurity(h,5,null,0,out needed) || Marshal.GetLastWin32Error()!=122 || needed<20 || needed>65536)
-    throw new InvalidOperationException("Independent metadata security size unavailable");
-   var security=new byte[needed]; uint returned;
-   if(!GetKernelObjectSecurity(h,5,security,needed,out returned) || returned!=needed)
-    throw new InvalidOperationException("Independent metadata security changed during observation");
-   return new object[]{BitConverter.ToUInt64(id,0).ToString("x16")+":"+
-    BitConverter.ToString(id,8,16).Replace("-","").ToLowerInvariant(),security,BitConverter.ToUInt32(tag,0)};
-  }
- }
-}
-"@
  $top=$DriveRoot+'System Volume Information'
  if(Test-Path -LiteralPath $top) {
   $objects=@((Get-Item -LiteralPath $top -Force))+@(Get-ChildItem -LiteralPath $top -Force)
@@ -224,7 +310,8 @@ public static class UskMetadataFacts {
   }
  }
 }
-$result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;volume_metadata=$volumeMetadata;observed_utc=[DateTime]::UtcNow.ToString('o')}
+$result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;volume_metadata=$volumeMetadata;
+ runtime=@{powershell=$PSVersionTable.PSVersion.ToString();clr=[Environment]::Version.ToString()};observed_utc=[DateTime]::UtcNow.ToString('o')}
 $temporary=$Output+'.pending'
 $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try {
