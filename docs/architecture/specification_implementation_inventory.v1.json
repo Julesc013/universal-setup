@@ -4047,7 +4047,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "ac58b49b1aee61a79ebe165305e8b7f3bfd5fb4cda6407bf71f397437cccb06d"
+          "sha256": "386f0b652e2bf83dcab759e7681ca9cd99892d479a785b07c3e9dabed2dab707"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -4355,7 +4355,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "ac58b49b1aee61a79ebe165305e8b7f3bfd5fb4cda6407bf71f397437cccb06d"
+          "sha256": "386f0b652e2bf83dcab759e7681ca9cd99892d479a785b07c3e9dabed2dab707"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",

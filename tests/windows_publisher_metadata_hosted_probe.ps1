@@ -219,12 +219,13 @@ function Get-OwnedVolumeRootSddl([string]$Phase) {
     }
 }
 function Get-OwnedPreexistingAnchorObservation {
+    param([Parameter(Mandatory=$true)][ValidateSet('service-start','service-end')][string]$Phase)
     if($VolumeRoot -notmatch '^\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\$') {
         throw 'Owned anchor observer volume argument differs'
     }
     Assert-OwnedVolume
-    $taskName='USK_ANCHOR_'+$id
-    $observation=Join-Path $observerRoot 'preexisting-anchor-end.json'
+    $taskName='USK_ANCHOR_'+$id+'_'+$Phase
+    $observation=Join-Path $observerRoot ('preexisting-anchor-'+$Phase+'.json')
     $pending=$observation+'.pending'
     $failurePath=$observation+'.failure.json'
     if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
@@ -251,7 +252,7 @@ function Get-OwnedPreexistingAnchorObservation {
         '$hash=$null;$hashError=$null;'+
         'try{$hash=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash.ToLowerInvariant()}'+
         'catch{$hashError=$_.Exception.Message;if($hashError.Length -gt 512){$hashError=$hashError.Substring(0,512)}};'+
-        '$result=@{identity=$who;anchor_path=$a.FullName;'+
+        '$result=@{identity=$who;phase='''+$Phase+''';anchor_path=$a.FullName;'+
         'child_count=$childCount;'+
         'marker_bytes=$m.Length;'+
         'marker_sha256=$hash;marker_read_error=$hashError;'+
@@ -294,7 +295,9 @@ function Get-OwnedPreexistingAnchorObservation {
         }
         if((Get-Item -LiteralPath $observation).Length -gt 16KB){throw 'Owned anchor observation exceeds bound'}
         $result=Get-Content -LiteralPath $observation -Raw|ConvertFrom-Json
-        if($result.identity -cne 'S-1-5-18') {throw 'Owned anchor observer identity differs'}
+        if($result.identity -cne 'S-1-5-18' -or $result.phase -cne $Phase) {
+            throw 'Owned anchor observer identity or phase differs'
+        }
         return $result
     } finally {
         if($registered) {
@@ -1100,6 +1103,17 @@ try {
         if(Test-Path -LiteralPath $poisonedAnchor){throw 'Preexisting-anchor input is not fresh'}
         New-Item -ItemType Directory -Path $poisonedAnchor -ErrorAction Stop|Out-Null
         [IO.File]::WriteAllBytes($poisonedMarker,[byte[]]@(0x55,0x53,0x4b,0x2d,0x50,0x52,0x45))
+        # Preserve the fixture's existing grants before changing the volume root.
+        # Otherwise Windows removes inherited ACEs from these objects during
+        # fixture setup, before the publisher has received any request.
+        foreach($fixturePath in @($poisonedAnchor,$poisonedMarker)) {
+            $fixtureAcl=Get-Acl -LiteralPath $fixturePath
+            $fixtureAcl.SetAccessRuleProtection($true,$true)
+            Set-Acl -LiteralPath $fixturePath -AclObject $fixtureAcl
+            if(-not (Get-Acl -LiteralPath $fixturePath).AreAccessRulesProtected) {
+                throw 'Preexisting-anchor fixture ACL is not protected from parent propagation'
+            }
+        }
         $poisonedMarkerHash=(Get-FileHash -LiteralPath $poisonedMarker -Algorithm SHA256).Hash.ToLowerInvariant()
         $poisonedAnchorAcl=(Get-Acl -LiteralPath $poisonedAnchor).Sddl
         $poisonedMarkerAcl=(Get-Acl -LiteralPath $poisonedMarker).Sddl
@@ -1165,6 +1179,17 @@ try {
         throw 'Owned VHD device ACL receipt differs'
     }
     $receipt['device_acl_admission']=$deviceAdmission
+    if($ExpectPreexistingAnchorRefusal) {
+        $anchorBefore=Get-OwnedPreexistingAnchorObservation -Phase 'service-start'
+        $receipt['preexisting_anchor_at_service_start']=$anchorBefore
+        if(-not [string]::Equals($anchorBefore.anchor_path,$poisonedAnchor,[StringComparison]::OrdinalIgnoreCase) -or
+            $anchorBefore.child_count -ne 1 -or $anchorBefore.marker_bytes -ne 7 -or
+            $anchorBefore.marker_read_error -or $anchorBefore.marker_sha256 -cne $poisonedMarkerHash -or
+            $anchorBefore.anchor_sddl -cne $poisonedAnchorAcl -or
+            $anchorBefore.marker_sddl -cne $poisonedMarkerAcl -or $anchorBefore.setup_state_present) {
+            throw 'Preexisting-anchor fixture changed before publisher start'
+        }
+    }
     if($ControllerApply) {
         $changedApply=Join-Path $root ('changed-apply-'+$id+'.json')
         $changedError=Join-Path $root ('changed-apply-'+$id+'.txt')
@@ -1475,7 +1500,7 @@ try {
                 throw 'Registered preexisting-anchor service did not stop after refusal'
             }
             $receipt['root_acl_after_service']=Get-OwnedVolumeRootSddl 'service-end'
-            $anchorAfter=Get-OwnedPreexistingAnchorObservation
+            $anchorAfter=Get-OwnedPreexistingAnchorObservation -Phase 'service-end'
             $receipt['preexisting_anchor_after']=$anchorAfter
             if($receipt.native.schema -cne 'usk.publisher_lab_service_observation.v1' -or
                 $receipt.native.status -cne 'recovery_required' -or
