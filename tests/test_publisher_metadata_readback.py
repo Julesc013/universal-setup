@@ -13,6 +13,198 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_public_fixture_exit_status_follows_final_assertions(self):
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$t=$null;$e=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_PUBLIC_SOURCE,[ref]$t,[ref]$e)
+if($e){throw 'Public probe parse failed'}
+$statements=@($ast.EndBlock.Statements)
+$tail=[scriptblock]::Create(($statements[-3..-1].Extent.Text -join "`n"))
+$positive=0;$refused=0
+foreach($profile in @('none','metadata_collision','payload_changed')) {
+ $PostRenameRefusal=$profile
+ $receipt=@{status=$(if($profile -ceq 'none'){'public_install_verified_recovered'}else{'public_refusal_retained'});client_cleanup_confirmed=$true;failure='controlled failed assertion'}
+ $global:LASTEXITCODE=3
+ & $tail
+ if($global:LASTEXITCODE -ne 0){throw 'Successful fixture leaked expected refusal exit code'}
+ ++$positive
+ foreach($change in @('status','cleanup')) {
+  $bad=@{};foreach($key in $receipt.Keys){$bad[$key]=$receipt[$key]}
+  if($change -ceq 'status'){$bad.status='failed'}else{$bad.client_cleanup_confirmed=$false}
+  $saved=$receipt;$receipt=$bad;$global:LASTEXITCODE=3
+  try {& $tail;throw 'Failed fixture assertion was suppressed'}
+  catch {if($_.Exception.Message -ceq 'Failed fixture assertion was suppressed'){throw};++$refused}
+  if($global:LASTEXITCODE -ne 3){throw 'Failure was converted into success exit status'}
+  $receipt=$saved
+ }
+}
+@{successful_profiles=$positive;failed_assertions_retained=$refused}|ConvertTo-Json -Compress
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell):
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=dict(os.environ, USK_PUBLIC_SOURCE=str(root / 'tests/windows_publisher_public_path_probe.ps1')),
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'successful_profiles': 3, 'failed_assertions_retained': 6})
+
+    def test_metadata_collision_worker_retains_guard_failure_without_target_access(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_owned_metadata_collision.ps1').read_text(encoding='utf-8')
+        worker = source.split("$observer=@'\n", 1)[1].split("\n'@", 1)[0]
+        code = r"""$ErrorActionPreference='Stop'
+if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ceq 'S-1-5-18') {
+ throw 'Non-SYSTEM owned unit fixture required'
+}
+$worker=[scriptblock]::Create([IO.File]::ReadAllText($env:USK_COLLISION_WORKER))
+& $worker -VhdPath 'invalid' -VolumeRoot 'invalid' -DriveRoot 'invalid' -ServiceName 'invalid' -ServiceSid 'invalid' -TransactionId 'invalid' -Output $env:USK_COLLISION_OUTPUT
+$item=Get-Item -LiteralPath $env:USK_COLLISION_OUTPUT
+$record=[IO.File]::ReadAllText($item.FullName)|ConvertFrom-Json
+if($item.Length -gt 16KB -or $record.schema -cne 'usk.publisher.owned_metadata_collision.v1' -or
+ $record.status -cne 'failed' -or $record.failure -cne 'Owned SYSTEM metadata collision context differs' -or
+ $record.identity -ceq 'S-1-5-18' -or (Test-Path -LiteralPath ($env:USK_COLLISION_OUTPUT+'.pending'))) {
+ throw 'Guard failure was lost or reached the target'
+}
+@{guard_failure_retained=$true;target_access=$false;pending_absent=$true}|ConvertTo-Json -Compress
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-collision-guard-') as temporary:
+                path = Path(temporary) / 'worker.ps1'
+                path.write_text(worker, encoding='utf-8')
+                environment = dict(os.environ, USK_COLLISION_WORKER=str(path),
+                                   USK_COLLISION_OUTPUT=str(Path(temporary) / 'failure.json'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'guard_failure_retained': True, 'target_access': False, 'pending_absent': True})
+
+    def test_metadata_collision_admits_only_bound_private_recovery_prefix(self):
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_READBACK_SOURCE,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Readback source parse failed'}
+foreach($name in @('Assert-IndependentRetainedMaterial','Assert-IndependentMetadataCollisionPrefix')) {
+ $function=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $n.Name -eq $name},$true)
+ . ([scriptblock]::Create($function.Extent.Text))
+}
+function Copy-PrefixFixture($value){$value|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json}
+$drive='E:\';$sid='S-1-5-80-1-2-3-4-5';$rootId='ffffffffffffffff:root';$destinationId='ffffffffffffffff:destination'
+$prepared=[ordered]@{schema='usk.publisher.lab_phase_evidence.v2';phase='lab_prepared_evidence';service_sid=$sid;
+ source_file_id=$rootId;destination_parent_file_id=$destinationId;destination_name='visible';
+ selected_file_set_digest=('c'*64);source_binding=[ordered]@{reviewed_plan_digest=('d'*64);reviewed_plan_snapshot_sha256=('e'*64)}}
+$before=[pscustomobject]@{rows=@(
+ [pscustomobject]@{path='E:\publication\journal\lab-prepared-evidence.json';directory=$false;sha256=('a'*64);content_json=($prepared|ConvertTo-Json -Depth 32 -Compress)},
+ [pscustomobject]@{path='E:\publication\destination';directory=$true;file_id=$destinationId},
+ [pscustomobject]@{path='E:\publication\destination\visible';directory=$true;file_id=$rootId})}
+$visible=[ordered]@{schema='usk.publisher.lab_phase_evidence.v2';phase='lab_visible_evidence';
+ prepared_record_sha256=('a'*64);source_file_id=$rootId;destination_parent_file_id=$destinationId;
+ destination_name='visible';selected_file_set_digest=('c'*64)}
+$visibleRow=[pscustomobject]@{path='E:\publication\journal\lab-visible-evidence.json';directory=$false;sha256=('b'*64);content_json=($visible|ConvertTo-Json -Compress)}
+$completion=[ordered]@{schema='usk.publisher.lab_installed_state.v2';phase='lab_installed_state';service_sid=$sid;
+ prepared_record_sha256=('a'*64);visible_record_sha256=('b'*64);visible_root_file_id=$rootId;
+ destination_parent_file_id=$destinationId;destination_name='visible';selected_file_set_digest=('c'*64);
+ source_binding=$prepared.source_binding;volume_serial=[uint64]::MaxValue}
+$completionRow=[pscustomobject]@{path='E:\publication\state\lab-installed-state.json';directory=$false;sha256=('f'*64);content_json=($completion|ConvertTo-Json -Depth 32 -Compress)}
+$visibleOnly=Copy-PrefixFixture $before;$visibleOnly.rows+=@(Copy-PrefixFixture $visibleRow)
+$both=Copy-PrefixFixture $visibleOnly;$both.rows+=@(Copy-PrefixFixture $completionRow)
+Assert-IndependentMetadataCollisionPrefix $before $before $drive $sid
+Assert-IndependentMetadataCollisionPrefix $before $visibleOnly $drive $sid
+Assert-IndependentMetadataCollisionPrefix $before $both $drive $sid
+Assert-IndependentRetainedMaterial $visibleOnly $both
+function Set-PrefixField($row,[string]$field,$value) {
+ $record=$row.content_json|ConvertFrom-Json;$record.$field=$value
+ $row.content_json=$record|ConvertTo-Json -Depth 32 -Compress
+}
+$refused=0
+foreach($mutation in @(
+ {param($r) $r.rows[3].path='E:\publication\journal\unexpected.json'},
+ {param($r) $r.rows[3].path='E:\setup-state\audit\chains\foreign'},
+ {param($r) $r.rows[3].path='E:\setup-state\state\ownership\foreign.json'},
+ {param($r) $r.rows[3].directory=$true},
+ {param($r) Set-PrefixField $r.rows[3] 'prepared_record_sha256' ('0'*64)},
+ {param($r) Set-PrefixField $r.rows[3] 'source_file_id' 'foreign'},
+ {param($r) Set-PrefixField $r.rows[3] 'destination_parent_file_id' 'foreign'},
+ {param($r) Set-PrefixField $r.rows[4] 'visible_record_sha256' ('0'*64)},
+ {param($r) Set-PrefixField $r.rows[4] 'service_sid' 'foreign'},
+ {param($r) Set-PrefixField $r.rows[4] 'visible_root_file_id' 'foreign'},
+ {param($r) Set-PrefixField $r.rows[4] 'selected_file_set_digest' ('0'*64)},
+ {param($r) Set-PrefixField $r.rows[4] 'source_binding' @{reviewed_plan_digest='foreign'}},
+ {param($r) $r.rows[4].content_json=$r.rows[4].content_json.Replace('18446744073709551615','18446744073709551614')},
+ {param($r) $r.rows=@($r.rows[0],$r.rows[1],$r.rows[2],$r.rows[4])})) {
+ $bad=Copy-PrefixFixture $both;& $mutation $bad
+ try {Assert-IndependentMetadataCollisionPrefix $before $bad $drive $sid;throw 'Foreign prefix admitted'}
+ catch {if($_.Exception.Message -ceq 'Foreign prefix admitted'){throw};++$refused}
+}
+$bad=Copy-PrefixFixture $both;Set-PrefixField $bad.rows[3] 'prepared_record_sha256' ('0'*64)
+try {Assert-IndependentRetainedMaterial $visibleOnly $bad;throw 'Admitted predecessor rewritten'}
+catch {if($_.Exception.Message -ceq 'Admitted predecessor rewritten'){throw};++$refused}
+@{positive=4;refused=$refused;scope='synthetic metadata collision prefix only'}|ConvertTo-Json -Compress
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell):
+                environment = dict(os.environ, USK_READBACK_SOURCE=str(root / 'tests/windows_publisher_metadata_readback.ps1'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'positive': 4, 'refused': 15, 'scope': 'synthetic metadata collision prefix only'})
+
+    def test_retained_material_comparison_limits_the_controlled_fault(self):
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_READBACK_SOURCE,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Readback source parse failed'}
+$function=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -eq 'Assert-IndependentRetainedMaterial'},$true)
+. ([scriptblock]::Create($function.Extent.Text))
+$before=[pscustomobject]@{rows=@([pscustomobject][ordered]@{path='E:\owned\payload.bin';directory=$false;
+ file_id='retained';sha256=('a'*64);bytes=3;link_count=1;raw_security='original';streams=@('::$DATA')})}
+function Copy-RetentionFixture($value){$value|ConvertTo-Json -Depth 16 -Compress|ConvertFrom-Json}
+$same=Copy-RetentionFixture $before
+Assert-IndependentRetainedMaterial $before $same -NoAdditionalRows
+$changed=Copy-RetentionFixture $before;$changed.rows[0].sha256='b'*64
+Assert-IndependentRetainedMaterial $before $changed -ChangedPayloadPath 'E:\owned\payload.bin' -ChangedPayloadSha256 ('b'*64) -NoAdditionalRows
+$more=Copy-RetentionFixture $before;$extra=Copy-RetentionFixture $before.rows[0];$extra.path='E:\owned\metadata';$more.rows=@($more.rows)+@($extra)
+Assert-IndependentRetainedMaterial $before $more
+$refused=0
+foreach($mutation in @(
+ {param($r) $r.rows[0].file_id='foreign'},
+ {param($r) $r.rows[0].sha256='c'*64},
+ {param($r) $r.rows[0].bytes=4},
+ {param($r) $r.rows[0].link_count=2},
+ {param($r) $r.rows[0].raw_security='different'},
+ {param($r) $r.rows[0].streams=@('::$DATA',':extra:$DATA')},
+ {param($r) $r.rows=@()},
+ {param($r) $r.rows=@($r.rows)+@($r.rows[0])})) {
+ $bad=Copy-RetentionFixture $before;& $mutation $bad
+ try {Assert-IndependentRetainedMaterial $before $bad -NoAdditionalRows;throw 'Invalid retention was accepted'}
+ catch {if($_.Exception.Message -ceq 'Invalid retention was accepted'){throw};++$refused}
+}
+try {Assert-IndependentRetainedMaterial $before $more -NoAdditionalRows;throw 'Extra rows admitted'}
+catch {if($_.Exception.Message -ceq 'Extra rows admitted'){throw};++$refused}
+try {Assert-IndependentRetainedMaterial $before $same -ChangedPayloadPath 'E:\owned\payload.bin' -ChangedPayloadSha256 ('a'*64);throw 'Non-drift admitted'}
+catch {if($_.Exception.Message -ceq 'Non-drift admitted'){throw};++$refused}
+@{positive=3;refused=$refused;scope='synthetic retention oracle only'}|ConvertTo-Json -Compress
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell):
+                environment = dict(os.environ, USK_READBACK_SOURCE=str(root / 'tests/windows_publisher_metadata_readback.ps1'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'positive': 3, 'refused': 10, 'scope': 'synthetic retention oracle only'})
+
     def test_effective_rights_bind_live_token_and_distinguish_grants_from_denials(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')

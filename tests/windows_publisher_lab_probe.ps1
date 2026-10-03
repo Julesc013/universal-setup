@@ -22,6 +22,7 @@ param(
     [switch]$ControllerApply,
     [switch]$PublicInstallation,
     [ValidateSet('none','prepublish','postrename')][string]$PublicPublicationLoss='none',
+    [ValidateSet('none','payload_changed','metadata_collision')][string]$PublicPostRenameRefusal='none',
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostpublishRights,
@@ -36,6 +37,9 @@ param(
 $ErrorActionPreference = 'Stop'
 if($PublicPublicationLoss -cne 'none' -and -not $PublicInstallation) {
     throw 'Ordinary public boundary loss requires the public installation probe'
+}
+if($PublicPostRenameRefusal -cne 'none' -and (-not $PublicInstallation -or $PublicPublicationLoss -cne 'postrename')) {
+    throw 'Public retained refusal requires the ordinary postrename loss fixture'
 }
 if($HostilePostrename) {
     if($HostileRights){throw 'Select one hostile-rights phase'}
@@ -239,7 +243,8 @@ try {
             & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
-                -MachineBinary $MachineBinary -OutputPath $serviceOutput -PublicationLoss $PublicPublicationLoss
+                -MachineBinary $MachineBinary -OutputPath $serviceOutput -PublicationLoss $PublicPublicationLoss `
+                -PostRenameRefusal $PublicPostRenameRefusal
         } elseif ($MachineBinary) {
             & (Join-Path $PSScriptRoot 'windows_publisher_metadata_hosted_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
@@ -254,11 +259,11 @@ try {
         }
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
-        $expected = if ($PublicInstallation) { 'public_install_verified_recovered' } elseif ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
+        $expected = if ($PublicPostRenameRefusal -cne 'none') { 'public_refusal_retained' } elseif ($PublicInstallation) { 'public_install_verified_recovered' } elseif ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
         if ($receipt.service_observation.status -ne $expected) {
             throw 'protected publish service probe did not pass'
         }
-        $receipt.status = if ($ExpectUnprotectedRefusal) { 'unprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } else { 'volume_and_protected_publish_observed' }
+        $receipt.status = if ($PublicPostRenameRefusal -cne 'none') { 'volume_and_retained_public_refusal_observed' } elseif ($ExpectUnprotectedRefusal) { 'unprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } else { 'volume_and_protected_publish_observed' }
     }
 } catch {
     $failure = $_.Exception.Message

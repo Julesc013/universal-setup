@@ -1459,7 +1459,12 @@ and owner/DACL must match the independent native closure. The filtered token
 must receive no mutation right on any protected row; elevated invoking-token
 results are retained separately. Local tests require a real owned-file grant,
 closed-descriptor denial and contradictory process/user refusal under both
-PowerShell runtimes. Hosted execution of this delta remains required.
+PowerShell runtimes. This batch passed all seven CI jobs in run `37142584691`
+at `463406ba6dc25151e77a5389b4a5b12e59b99863`, integrated by PR #219 at
+`352be49d6dfc8fb64eb3c6e1388a8b0d358b92b0`. Artifacts `11281480086` and
+`11281330850` retain ordinary installation and both source-free production-loss
+recoveries with the stored-security and token observations. Each terminal
+28-row snapshot denied all eight measured mutation bits to the derivative.
 
 This measures the invoking probe token and its explicit derivative. It does
 not capture the exited machine client's token, qualify an unrelated account,
@@ -1467,3 +1472,30 @@ or prove resistance to every privileged or untrusted actor. Actual initiating
 client and broader effective-right qualification remain on the finite list.
 AccessCheck is a descriptor/token observation, not an attempted filesystem
 mutation or a claim that independent native I/O would necessarily succeed.
+
+### Ordinary public retained-refusal fixtures
+
+The connected public probe now defines two controlled faults after the stock
+service has been terminated at the visible-before-journal boundary. One uses
+the existing bounded owned-payload helper to change a selected file's bytes.
+The other creates a fresh protected SYSTEM/service directory at the fixed
+public installed-state filename, blocking regular-record finalization without
+supplying any fabricated installed-state JSON. These are excluded privileged
+fixture actions on an independently bound disposable hosted VHD; they do not
+demonstrate a successful untrusted mutation or a production vulnerability.
+
+Both cases remove original inputs and require ordinary minimal recovery,
+repeat recovery and original apply replay to return recovery_required/exit 5,
+retain every previously observed native object, and produce no regular public
+installed-state record. Payload drift permits only the witnessed hash change;
+metadata collision permits only bound private visible-evidence and completion
+records, preserving every admitted predecessor through later attempts. The
+collision is read before public audit or ownership creation, so any additional
+public path refuses qualification. Recovery-authority retirement must refuse. The shared
+readback retains actual identities, owner/DACL, streams, sizes, bytes and token
+access results, and compares those observations through every attempt. The
+two cases run together with separate retained receipts and missed windows
+fail. Hosted execution and independent source review of this batch remain
+required. Private protected completion and public installed-state completion
+are distinct observations; a metadata failure must not erase the former or
+invent the latter.
