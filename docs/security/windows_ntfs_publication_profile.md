@@ -1361,6 +1361,14 @@ Reserved Partition (MSR), and refuses EFI, recovery, unknown, boot-marked,
 overlapping or attributed partitions. The MSR is never the selected volume.
 Ordinary non-boot MBR IFS data remains supported. Windows documents the MSR
 on data-only GPT disks in its [GPT FAQ](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-and-gpt-faq).
+Admission retains the held object's bounded self-relative owner/DACL descriptor
+from [GetKernelObjectSecurity](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getkernelobjectsecurity).
+The OS metadata exception still requires that stored DACL to be protected,
+with owner and ordered ACE facts matching the independent handle observation;
+unsupported, contradictory or unavailable facts refuse. A getter's reported
+protection difference is not proof of descriptor preservation or an excuse
+to admit an unprotected descriptor. The metadata-shaped temporary fixture
+checks stored-byte preservation; hosted admission execution remains required.
 The controller then
 updates the held root without descendant propagation, and repeats exclusive
 volume admission before retaining completion. Protected records publish through

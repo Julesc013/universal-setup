@@ -1092,21 +1092,72 @@ usk::json::Value dedicated_target_disk_identity(const std::wstring& volume) {
     });
 }
 
-std::string owner_dacl_sddl(HANDLE object) {
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (GetSecurityInfo(object, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-        nullptr, nullptr, nullptr, nullptr, &descriptor) != ERROR_SUCCESS || !descriptor)
-        throw std::runtime_error("target pre-state security is unavailable");
+std::vector<BYTE> native_owner_dacl_security(HANDLE object) {
+    constexpr auto requested = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    DWORD needed = 0;
+    if (GetKernelObjectSecurity(object, requested, nullptr, 0, &needed) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed < SECURITY_DESCRIPTOR_MIN_LENGTH || needed > 65536)
+        throw std::runtime_error("target stored security size is unavailable or exceeds its bound");
+    std::vector<BYTE> bytes(needed);
+    DWORD returned = 0;
+    if (!GetKernelObjectSecurity(object, requested, bytes.data(), needed, &returned) ||
+        returned != needed || !IsValidSecurityDescriptor(bytes.data()) ||
+        GetSecurityDescriptorLength(bytes.data()) != needed)
+        throw std::runtime_error("target stored security is unavailable or changed during observation");
+    return bytes;
+}
+
+std::string owner_dacl_sddl(const std::vector<BYTE>& bytes) {
+    auto* descriptor = const_cast<BYTE*>(bytes.data());
     LPWSTR rendered = nullptr;
     if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1,
         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &rendered, nullptr) || !rendered) {
-        LocalFree(descriptor);
         throw std::runtime_error("target pre-state security cannot be retained");
     }
     const auto result = utf8(rendered);
     LocalFree(rendered);
-    LocalFree(descriptor);
     return result;
+}
+
+std::string owner_dacl_sddl(HANDLE object) {
+    return owner_dacl_sddl(native_owner_dacl_security(object));
+}
+
+bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
+    const PublisherHandleObservation& observation) {
+    auto* descriptor = const_cast<BYTE*>(bytes.data());
+    SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+    PSID owner = nullptr; PACL dacl = nullptr; BOOL defaulted = FALSE, present = FALSE;
+    if (!GetSecurityDescriptorControl(descriptor, &control, &revision) ||
+        (control & (SE_SELF_RELATIVE | SE_DACL_PROTECTED)) != (SE_SELF_RELATIVE | SE_DACL_PROTECTED) ||
+        !GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) || !owner || !IsValidSid(owner) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present ||
+        !dacl || !IsValidAcl(dacl) || dacl->AceCount != observation.dacl_aces.size()) return false;
+    const auto sid_text = [](PSID sid) {
+        LPWSTR rendered = nullptr;
+        if (!ConvertSidToStringSidW(sid, &rendered) || !rendered)
+            throw std::runtime_error("stored metadata SID is unavailable");
+        const auto result = utf8(rendered); LocalFree(rendered); return result;
+    };
+    if (sid_text(owner) != observation.owner_sid) return false;
+    for (DWORD index = 0; index < dacl->AceCount; ++index) {
+        void* raw = nullptr;
+        if (!GetAce(dacl, index, &raw) || !raw) return false;
+        const auto* header = static_cast<const ACE_HEADER*>(raw);
+        if (header->AceType != ACCESS_ALLOWED_ACE_TYPE ||
+            header->AceSize < offsetof(ACCESS_ALLOWED_ACE, SidStart) + 8) return false;
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw);
+        const auto sid = const_cast<DWORD*>(&ace->SidStart);
+        const auto* sid_bytes = reinterpret_cast<const BYTE*>(sid);
+        const auto sid_room = header->AceSize - offsetof(ACCESS_ALLOWED_ACE, SidStart);
+        if (sid_bytes[1] > SID_MAX_SUB_AUTHORITIES || 8u + 4u * sid_bytes[1] > sid_room ||
+            !IsValidSid(sid) || GetLengthSid(sid) > sid_room)
+            return false;
+        const auto& observed = observation.dacl_aces[index];
+        if (header->AceType != observed.type || header->AceFlags != observed.flags ||
+            ace->Mask != observed.access_mask || sid_text(sid) != observed.sid) return false;
+    }
+    return true;
 }
 
 usk::json::Value target_empty_namespace(HANDLE root) {
@@ -1125,6 +1176,7 @@ usk::json::Value target_empty_namespace(HANDLE root) {
             throw std::runtime_error("target volume contains preexisting user or publication state");
         FileHandle held(open_publisher_listed_child(root, entry, false, false, false, false, true));
         const auto tree = observe_publisher_tree(held.get(), true);
+        const auto native_security = native_owner_dacl_security(held.get());
         const auto trusted = [](const PublisherHandleObservation& object) {
             if (object.owner_sid != "S-1-5-18" && object.owner_sid != "S-1-5-32-544") return false;
             if (object.dacl_aces.empty() || object.case_sensitive || object.reparse_tag != 0) return false;
@@ -1133,16 +1185,20 @@ usk::json::Value target_empty_namespace(HANDLE root) {
                     (ace.sid != "S-1-5-18" && ace.sid != "S-1-5-32-544")) return false;
             return true;
         };
-        if (!tree.root.dacl_protected || !trusted(tree.root) || tree.descendants.size() > 3) {
-            const auto security = owner_dacl_sddl(held.get());
+        // Require the stored descriptor's protection bit and exact agreement
+        // with the separately observed owner/ordered ACEs. Never infer that
+        // protection from the parent or relax it because a getter disagrees.
+        if (!native_metadata_security_matches(native_security, tree.root) ||
+            !trusted(tree.root) || tree.descendants.size() > 3) {
+            const auto security = owner_dacl_sddl(native_security);
             throw std::runtime_error("target OS metadata is not already protected and bounded; owner=" +
                 tree.root.owner_sid + "; protected=" + (tree.root.dacl_protected ? "true" : "false") +
                 "; descendants=" + std::to_string(tree.descendants.size()) +
-                "; security=" + (security.size() <= 2048 ? security : std::string("exceeds diagnostic bound")));
+                "; stored_security=" + (security.size() <= 2048 ? security : std::string("exceeds diagnostic bound")));
         }
         metadata.emplace_back(Value::Object{
             {"path", Value(utf8(entry.name))}, {"file_id", Value(tree.root.file_id)},
-            {"security", Value(owner_dacl_sddl(held.get()))}
+            {"security", Value(owner_dacl_sddl(native_security))}
         });
         for (const auto& child : tree.descendants) {
             if ((child.relative_path != L"IndexerVolumeGuid" && child.relative_path != L"WPSettings.dat" &&

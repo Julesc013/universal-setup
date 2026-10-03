@@ -27,6 +27,20 @@ bool refused(const std::wstring& sid) {
     return false;
 }
 
+std::string reported_security_text(HANDLE object) {
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    check(GetSecurityInfo(object, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, nullptr, nullptr, &descriptor) == ERROR_SUCCESS && descriptor,
+        "test reported security query failed");
+    LPSTR rendered = nullptr;
+    check(ConvertSecurityDescriptorToStringSecurityDescriptorA(descriptor, SDDL_REVISION_1,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &rendered, nullptr) != FALSE,
+        "test reported security rendering failed");
+    const std::string result(rendered);
+    LocalFree(rendered); LocalFree(descriptor);
+    return result;
+}
+
 std::vector<unsigned char> security_bytes(HANDLE object) {
     // Query the stored kernel descriptor. GetSecurityInfo's legacy
     // INHERITED_ACE projection may depend on the current parent's ACEs.
@@ -84,6 +98,26 @@ void boundary_preserves_unexpected_child() {
     check(WriteFile(child, marker.data(), static_cast<DWORD>(marker.size()), &written, nullptr) != FALSE &&
         written == marker.size(), "test marker write failed");
     const auto before = security_bytes(child);
+    // Model the OS metadata directory's protected SYSTEM-only inheritable
+    // DACL. Keep the fixture caller as owner and retain the granted handle;
+    // this is an owned temporary directory, not workstation OS metadata.
+    const auto metadata_path = root / L"os-metadata";
+    check(CreateDirectoryW(metadata_path.c_str(), nullptr) != FALSE, "test metadata directory creation failed");
+    HANDLE metadata = CreateFileW(metadata_path.c_str(), READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    check(metadata != INVALID_HANDLE_VALUE, "test metadata handle unavailable");
+    check(ConvertStringSecurityDescriptorToSecurityDescriptorW(L"D:P(A;OICI;FA;;;SY)", SDDL_REVISION_1,
+        &descriptor, nullptr) != FALSE, "test metadata descriptor unavailable");
+    PACL metadata_dacl = nullptr; BOOL metadata_present = FALSE, metadata_defaulted = FALSE;
+    check(GetSecurityDescriptorDacl(descriptor, &metadata_present, &metadata_dacl, &metadata_defaulted) != FALSE &&
+        metadata_present && SetSecurityInfo(metadata, SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, metadata_dacl, nullptr) == ERROR_SUCCESS,
+        "test protected metadata DACL setup failed");
+    LocalFree(descriptor);
+    const auto metadata_before = security_bytes(metadata);
+    const auto metadata_reported_before = reported_security_text(metadata);
     FILE_ID_INFO before_id{};
     check(GetFileInformationByHandleEx(child, FileIdInfo, &before_id, sizeof(before_id)) != FALSE,
         "test child identity unavailable");
@@ -100,6 +134,11 @@ void boundary_preserves_unexpected_child() {
     LocalFree(descriptor);
     usk::platform::windows::set_publisher_boundary_security_from_handle(held, bytes);
     check(security_bytes(child) == before, "boundary security update changed stored unexpected child descriptor");
+    check(security_bytes(metadata) == metadata_before,
+        "boundary update changed stored protected metadata descriptor");
+    std::cout << "metadata_security_before=" << metadata_reported_before << '\n'
+        << "metadata_security_after=" << reported_security_text(metadata) << '\n'
+        << "metadata_stored_descriptor_unchanged=true\n";
     HANDLE reopened = CreateFileW(child_path.c_str(), GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
         FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
@@ -138,8 +177,15 @@ void boundary_preserves_unexpected_child() {
     check(SetSecurityInfo(held, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
         nullptr, nullptr, final_dacl, nullptr) == ERROR_SUCCESS && security_bytes(child) != control_before,
         "stored-descriptor harness did not detect propagating parent security change");
-    CloseHandle(held); CloseHandle(child);
-    check(DeleteFileW(child_path.c_str()) != FALSE && RemoveDirectoryW(root.c_str()) != FALSE,
+    // Restore access to this owned empty fixture through the retained granted
+    // handle before cleanup; the SYSTEM-only DACL intentionally lacks DELETE.
+    check(SetSecurityInfo(metadata, SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, final_dacl, nullptr) == ERROR_SUCCESS,
+        "test owned metadata cleanup ACL restoration failed");
+    CloseHandle(metadata); CloseHandle(held); CloseHandle(child);
+    check(DeleteFileW(child_path.c_str()) != FALSE && RemoveDirectoryW(metadata_path.c_str()) != FALSE &&
+        RemoveDirectoryW(root.c_str()) != FALSE,
         "test boundary cleanup failed");
 }
 } // namespace
