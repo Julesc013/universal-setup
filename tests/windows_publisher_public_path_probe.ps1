@@ -7,11 +7,17 @@ param(
     [Parameter(Mandatory=$true)][string]$ServiceControlBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
     [Parameter(Mandatory=$true)][string]$OutputPath,
-    [ValidateSet('none','prepublish','postrename')][string]$PublicationLoss='none'
+    [ValidateSet('none','prepublish','postrename')][string]$PublicationLoss='none',
+    [ValidateSet('none','payload_changed','metadata_collision')][string]$PostRenameRefusal='none'
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_owned_payload_damage.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_owned_metadata_collision.ps1')
+if($PostRenameRefusal -cne 'none' -and $PublicationLoss -cne 'postrename') {
+    throw 'Retained refusal qualification requires the stock postrename loss boundary'
+}
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'Public publisher qualification requires the owned hosted runner lab'
 }
@@ -39,7 +45,7 @@ $invokingProcess=Get-Process -Id $PID
 $invokingCreation=$invokingProcess.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
 $utf8=[Text.UTF8Encoding]::new($false)
 $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run';
-    service=$service;volume_root=$VolumeRoot;volume_drive_root=$drive;publication_loss=$PublicationLoss;
+    service=$service;volume_root=$VolumeRoot;volume_drive_root=$drive;publication_loss=$PublicationLoss;postrename_refusal=$PostRenameRefusal;
     partition_layout=@($disk|Get-Partition|Select-Object PartitionNumber,Offset,Size,GptType,MbrType,IsBoot,IsSystem);
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     service_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -72,7 +78,7 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     if((Get-Service $service).Status -ne 'Stopped'){throw 'Public one-request service did not stop'}
     return $result
 }
-function Read-IndependentState([string]$PayloadRoot=([string]$plan.target.root).Replace('/','\')) {
+function Read-IndependentPublicRows {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab `
         -RunId ([guid]::NewGuid().ToString('N')) -CallerProcessId $PID `
         -CallerCreationFileTime $invokingCreation -CallerSid $caller -ServiceSid $sid
@@ -94,15 +100,19 @@ function Read-IndependentState([string]$PayloadRoot=([string]$plan.target.root).
             }
         }
     }
+    return $readback.independent
+}
+function Read-IndependentState([string]$PayloadRoot=([string]$plan.target.root).Replace('/','\')) {
+    $observation=Read-IndependentPublicRows
     foreach($entry in @($plan.planned_entries|Where-Object entry_type -eq 'file')) {
         $expected=$PayloadRoot+'\'+$entry.relative_path.Replace('/','\')
-        $rows=@($readback.independent.rows|Where-Object path -ceq $expected)
+        $rows=@($observation.rows|Where-Object path -ceq $expected)
         if($rows.Count -ne 1 -or $rows[0].sha256 -cne $entry.sha256 -or $rows[0].bytes -ne $entry.size_bytes) {
             throw 'Public install payload differs from independently read planned bytes'
         }
     }
-    Assert-IndependentNativeClosure -Observation $readback.independent -PayloadRoot $PayloadRoot
-    return $readback.independent
+    Assert-IndependentNativeClosure -Observation $observation -PayloadRoot $PayloadRoot
+    return $observation
 }
 function Read-VolumeMetadata {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab `
@@ -111,6 +121,63 @@ function Read-VolumeMetadata {
         throw 'Independent volume metadata identity or cleanup differs'
     }
     return $readback.independent
+}
+function Invoke-PublicRetainedRefusal {
+    $initial=$receipt.interrupted_readback
+    if($PostRenameRefusal -ceq 'payload_changed') {
+        $entry=@($plan.planned_entries|Where-Object entry_type -eq 'file'|Sort-Object relative_path)[0]
+        $receipt['controlled_fault']=Invoke-IndependentOwnedPayloadDamage -VhdPath $VhdPath -VolumeRoot $VolumeRoot `
+            -DriveRoot $drive -VisibleRoot ($drive+'publication\destination\visible') `
+            -PayloadRelativePath $entry.relative_path -ExpectedSha256 $entry.sha256
+        $changedPath=$drive+'publication\destination\visible\'+$entry.relative_path.Replace('/','\')
+        $baseline=Read-IndependentPublicRows
+        Assert-IndependentRetainedMaterial -Before $initial -After $baseline -NoAdditionalRows `
+            -ChangedPayloadPath $changedPath -ChangedPayloadSha256 $receipt.controlled_fault.after_sha256
+    } else {
+        $receipt['controlled_fault']=Invoke-IndependentOwnedMetadataCollision -VhdPath $VhdPath -VolumeRoot $VolumeRoot `
+            -DriveRoot $drive -ServiceName $service -ServiceSid $sid -TransactionId $apply.transaction_id
+        $baseline=Read-IndependentPublicRows
+        Assert-IndependentRetainedMaterial -Before $initial -After $baseline
+        $extra=@($baseline.rows|Where-Object {$_.path -cnotin @($initial.rows.path)})
+        if($extra.Count -ne 3 -or @($extra|Where-Object {-not $_.directory -or
+            $_.path -cnotin @($receipt.controlled_fault.created_paths)}).Count) {
+            throw 'Controlled metadata collision altered more than the three bound fresh directories'
+        }
+    }
+    $receipt['fault_readback']=$baseline
+    $faultBaseline=$baseline
+    Remove-OwnedPublicSources
+    $recovery=@{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
+        install_id=$apply.plan_request.install_id;transaction_id=$apply.transaction_id}
+    $attempts=[Collections.Generic.List[object]]::new()
+    foreach($attempt in @(@('install_local.recover',$recovery),@('install_local.recover',$recovery),@('install_local.apply',$apply))) {
+        $response=Invoke-PublicRequest $attempt[0] $attempt[1] 5
+        if($response.status -cne 'recovery_required' -or $response.error.code -cne 'recovery_required' -or
+            $null -ne $response.result) {throw 'Public retained refusal invented a terminal or ambiguous result'}
+        $observed=Read-IndependentPublicRows
+        Assert-IndependentRetainedMaterial -Before $baseline -After $observed `
+            -NoAdditionalRows:($PostRenameRefusal -ceq 'payload_changed')
+        if($PostRenameRefusal -ceq 'metadata_collision') {
+            Assert-IndependentMetadataCollisionPrefix -Before $faultBaseline -After $observed `
+                -DriveRoot $drive -ServiceSid $sid
+            Assert-IndependentNativeClosure -Observation $observed -PayloadRoot ($drive+'publication\destination\visible')
+        }
+        $installedPrefix=$drive+'setup-state\state\installed\'
+        if(@($observed.rows|Where-Object {-not $_.directory -and
+            $_.path.StartsWith($installedPrefix,[StringComparison]::Ordinal)}).Count) {
+            throw 'Public retained refusal manufactured an installed-state record'
+        }
+        $attempts.Add([ordered]@{command=$attempt[0];response=$response;independent=$observed})
+        $baseline=$observed
+    }
+    $receipt['retained_refusal_attempts']=$attempts
+    & $ServiceControlBinary --unregister $service $installedBinary $VolumeRoot $caller|Out-Null
+    if($LASTEXITCODE -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
+        (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command -or
+        (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.service_sha256) {
+        throw 'Public retained refusal lost its owned recovery authority'
+    }
+    $receipt['retained_authority_retirement_refused']=$true
 }
 function Assert-VolumeMetadataSnapshot($Observation,$Expected) {
     $actual=@($Observation.volume_metadata)
@@ -359,6 +426,9 @@ try {
         if($PublicationLoss -ceq 'prepublish' -and
             @($interrupted.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))[0].sha256 -cne
                 $receipt.production_boundary.prepared_record_sha256) {throw 'Independent prepared record differs from observed loss boundary'}
+        if($PostRenameRefusal -cne 'none') {
+            Invoke-PublicRetainedRefusal
+        } else {
         Remove-OwnedPublicSources
         $recovery=@{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
             install_id=$apply.plan_request.install_id;transaction_id=$apply.transaction_id}
@@ -378,11 +448,13 @@ try {
                 throw ('Source-free boundary recovery changed retained native identity/content: '+$expected.path)
             }
         }
+        }
     } else {
         $receipt['apply']=Invoke-PublicRequest 'install_local.apply' $apply
         $installed=$receipt.apply.result.payload
         $before=Read-IndependentState
     }
+    if($PostRenameRefusal -ceq 'none') {
     if($installed.install_id -cne $apply.plan_request.install_id -or
         $installed.transaction_id -cne $apply.transaction_id -or $installed.created_at -cne $apply.applied_at -or
         $installed.lifecycle_status -cne 'installed') {
@@ -418,10 +490,11 @@ try {
         $receipt.verification.result.payload.report_id -cne $verify.report_id) {
         throw 'Ordinary public verification did not return the bound passing report'
     }
+    }
     if((Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command) {
         throw 'Public apply/recovery/verification reconfigured SCM'
     }
-    $receipt.status='public_install_verified_recovered'
+    $receipt.status=if($PostRenameRefusal -ceq 'none'){'public_install_verified_recovered'}else{'public_refusal_retained'}
 } catch {
     $receipt.status='failed';$receipt['failure']=$_.Exception.Message
     # Retain the product's protected pre-effect snapshot so a late admission
@@ -464,6 +537,7 @@ try {
     }
     Write-Json $OutputPath $receipt
 }
-if($receipt.status -cne 'public_install_verified_recovered' -or -not $receipt.client_cleanup_confirmed) {
+$expectedStatus=if($PostRenameRefusal -ceq 'none'){'public_install_verified_recovered'}else{'public_refusal_retained'}
+if($receipt.status -cne $expectedStatus -or -not $receipt.client_cleanup_confirmed) {
     throw ('Public publisher qualification failed: '+$receipt.failure)
 }

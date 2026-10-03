@@ -22,6 +22,96 @@ function Assert-IndependentProtectedRows {
         }
     }
 }
+function Assert-IndependentRetainedMaterial {
+    param($Before,$After,[string]$ChangedPayloadPath='',[string]$ChangedPayloadSha256='',
+        [switch]$NoAdditionalRows)
+    $beforeRows=@($Before.rows);$afterRows=@($After.rows)
+    if($beforeRows.Count -eq 0 -or $afterRows.Count -lt $beforeRows.Count -or
+        ($NoAdditionalRows -and $beforeRows.Count -ne $afterRows.Count) -or
+        @($beforeRows.path|Sort-Object -Unique).Count -ne $beforeRows.Count -or
+        @($afterRows.path|Sort-Object -Unique).Count -ne $afterRows.Count) {
+        throw 'Independent retained material has missing, additional or duplicate rows'
+    }
+    if(($ChangedPayloadPath -and $ChangedPayloadSha256 -cnotmatch '^[0-9a-f]{64}$') -or
+        (-not $ChangedPayloadPath -and $ChangedPayloadSha256)) {throw 'Retained payload drift witness is incomplete'}
+    $changed=0
+    foreach($row in $beforeRows) {
+        $expected=$row|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+        if($row.path -ceq $ChangedPayloadPath) {
+            if($row.directory -or $row.sha256 -ceq $ChangedPayloadSha256) {throw 'Retained payload witness is not actual regular-file drift'}
+            $expected.sha256=$ChangedPayloadSha256;++$changed
+        }
+        $found=@($afterRows|Where-Object path -ceq $row.path)
+        if($found.Count -ne 1 -or ($found[0]|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($expected|ConvertTo-Json -Depth 64 -Compress)) {
+            throw ('Retained native material changed: '+$row.path)
+        }
+    }
+    if($ChangedPayloadPath -and $changed -ne 1) {throw 'Retained payload drift witness has no unique native object'}
+}
+function Assert-IndependentMetadataCollisionPrefix {
+    param($Before,$After,[string]$DriveRoot,[string]$ServiceSid)
+    Assert-IndependentRetainedMaterial -Before $Before -After $After
+    # The installed-path directory collision is read before public audit or
+    # ownership creation. Only the two private forward-recovery records may
+    # precede that refusal; neither establishes public installed completion.
+    $visiblePath=$DriveRoot+'publication\journal\lab-visible-evidence.json'
+    $completionPath=$DriveRoot+'publication\state\lab-installed-state.json'
+    foreach($row in @($After.rows|Where-Object {$_.path -cnotin @($Before.rows.path)})) {
+        if($row.directory -or $row.path -cnotin @($visiblePath,$completionPath)) {
+            throw ('Metadata refusal created an unexpected path or type: '+$row.path)
+        }
+    }
+    $preparedRows=@($After.rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-prepared-evidence.json'))
+    $destination=@($After.rows|Where-Object path -ceq ($DriveRoot+'publication\destination'))
+    $root=@($After.rows|Where-Object path -ceq ($DriveRoot+'publication\destination\visible'))
+    if($preparedRows.Count -ne 1 -or $preparedRows[0].directory -or
+        $destination.Count -ne 1 -or -not $destination[0].directory -or
+        $root.Count -ne 1 -or -not $root[0].directory) {throw 'Metadata refusal lost its retained operation anchors'}
+    $prepared=$preparedRows[0].content_json|ConvertFrom-Json
+    if($prepared.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+        $prepared.phase -cne 'lab_prepared_evidence' -or $prepared.service_sid -cne $ServiceSid -or
+        $prepared.source_file_id -cne $root[0].file_id -or
+        $prepared.destination_parent_file_id -cne $destination[0].file_id -or
+        $prepared.destination_name -cne 'visible' -or
+        $prepared.selected_file_set_digest -cnotmatch '^[0-9a-f]{64}$' -or
+        $null -eq $prepared.source_binding) {throw 'Metadata refusal prepared operation binding differs'}
+    $visibleRows=@($After.rows|Where-Object path -ceq $visiblePath)
+    $completionRows=@($After.rows|Where-Object path -ceq $completionPath)
+    if($visibleRows.Count -gt 1 -or $completionRows.Count -gt 1 -or
+        ($completionRows.Count -and -not $visibleRows.Count)) {throw 'Metadata refusal private record prefix differs'}
+    if($visibleRows.Count) {
+        $visible=$visibleRows[0].content_json|ConvertFrom-Json
+        if($visibleRows[0].directory -or $visible.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+            $visible.phase -cne 'lab_visible_evidence' -or
+            $visible.prepared_record_sha256 -cne $preparedRows[0].sha256 -or
+            $visible.source_file_id -cne $root[0].file_id -or
+            $visible.destination_parent_file_id -cne $destination[0].file_id -or
+            $visible.destination_name -cne 'visible' -or
+            $visible.selected_file_set_digest -cne $prepared.selected_file_set_digest) {
+            throw 'Metadata refusal visible record has a foreign operation binding'
+        }
+    }
+    if($completionRows.Count) {
+        $completion=$completionRows[0].content_json|ConvertFrom-Json
+        $serial=@([regex]::Matches($completionRows[0].content_json,'"volume_serial":([0-9]+)'))
+        if($completionRows[0].directory -or $completion.schema -cne 'usk.publisher.lab_installed_state.v2' -or
+            $completion.phase -cne 'lab_installed_state' -or $completion.service_sid -cne $ServiceSid -or
+            $completion.prepared_record_sha256 -cne $preparedRows[0].sha256 -or
+            $completion.visible_record_sha256 -cne $visibleRows[0].sha256 -or
+            $completion.visible_root_file_id -cne $root[0].file_id -or
+            $completion.destination_parent_file_id -cne $destination[0].file_id -or
+            $completion.destination_name -cne 'visible' -or
+            $completion.selected_file_set_digest -cne $prepared.selected_file_set_digest -or
+            ($completion.source_binding|ConvertTo-Json -Depth 64 -Compress) -cne
+                ($prepared.source_binding|ConvertTo-Json -Depth 64 -Compress) -or
+            $serial.Count -ne 1 -or
+            [uint64]::Parse($serial[0].Groups[1].Value,[Globalization.CultureInfo]::InvariantCulture) -ne
+                [Convert]::ToUInt64($root[0].file_id.Split(':')[0],16)) {
+            throw 'Metadata refusal private completion has a foreign operation binding'
+        }
+    }
+}
 function Assert-IndependentMetadataProbe {
     param($Result,[switch]$AllowPartialConsumerGrant)
     $drive=$Result.volume_drive_root
