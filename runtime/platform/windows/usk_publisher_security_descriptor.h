@@ -29,6 +29,12 @@ void require_publisher_consumer_sid(const std::string& sid);
 std::vector<unsigned char> make_publisher_directory_security_descriptor(
     const std::wstring& service_sid);
 
+// Controller admission only: update the exact held boundary object through
+// the native security primitive, without Win32 descendant ACL propagation.
+// The caller independently admits the descriptor, root identity and target.
+void set_publisher_boundary_security_from_handle(HANDLE boundary,
+    const std::vector<unsigned char>& descriptor);
+
 // Only the visible payload may receive this explicit, non-inherited read/execute
 // ACE. Private anchors retain the descriptor above. Caller must bind the reader
 // durably and revalidate the published closure before applying the descriptor.

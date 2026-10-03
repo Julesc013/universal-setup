@@ -33,6 +33,11 @@ OneShotResult run_one_shot(const std::string& request_json,
 using CandidateTransport = std::function<std::string(const std::string&)>;
 OneShotResult run_candidate_one_shot(const std::string& request_json,
                                      const CandidateTransport& transport);
+// Return the public command response through an admitted publisher transport.
+// Retained native phase evidence belongs to qualification records, not the
+// ordinary machine result. This does not make an unqualified profile available.
+OneShotResult run_publisher_one_shot(const std::string& request_json,
+                                   const CandidateTransport& transport);
 OneShotContextConfig read_context_config(std::istream& input);
 OneShotResult invalid_frame_result();
 OneShotResult invalid_context_result();

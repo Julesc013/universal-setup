@@ -75,7 +75,7 @@ struct PublisherAnchorSetObservation {
 // Read-only candidate closure of namespace, identity, same-handle security
 // facts, streams, and file bytes. Protected-security admission, effective
 // rights, anchor facts, and phase equality are separate obligations.
-PublisherTreeObservation observe_publisher_tree(HANDLE root);
+PublisherTreeObservation observe_publisher_tree(HANDLE root, bool backup_observation = false);
 
 // Consistency oracle for two independently observed phases. A non-empty
 // visible_root_name permits only the expected root-prefix path transition;

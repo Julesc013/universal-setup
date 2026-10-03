@@ -176,7 +176,7 @@ std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
 HANDLE open_publisher_listed_child(HANDLE parent,
     const PublisherDirectoryEntry& listed,
     bool require_add_subdirectory, bool require_delete, bool require_add_file,
-    bool require_write_dac) {
+    bool require_write_dac, bool backup_observation) {
     if (!parent || parent == INVALID_HANDLE_VALUE ||
         !valid_component(listed.name)) {
         throw std::runtime_error("publisher relative child open has invalid inputs");
@@ -198,6 +198,8 @@ HANDLE open_publisher_listed_child(HANDLE parent,
     attributes.ObjectName = &object_name;
     attributes.Attributes = OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE;
     const bool directory = (listed.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (backup_observation && (require_add_subdirectory || require_delete || require_add_file || require_write_dac))
+        throw std::runtime_error("backup observation cannot request mutation rights");
     if ((require_add_subdirectory || require_delete || require_add_file) &&
         !directory) {
         throw std::runtime_error("publisher mutable child must be a directory");
@@ -215,7 +217,7 @@ HANDLE open_publisher_listed_child(HANDLE parent,
     HANDLE child = INVALID_HANDLE_VALUE;
     const NTSTATUS outcome = nt_create(&child, access, &attributes, &io,
         nullptr, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        open_existing, no_follow | synchronous |
+        open_existing, no_follow | synchronous | (backup_observation ? 0x00004000u : 0u) |
             (directory ? 0x00000001u : 0x00000040u), // DIRECTORY/NON_DIRECTORY_FILE
         nullptr, 0);
     if (outcome != 0 || !child || child == INVALID_HANDLE_VALUE) {

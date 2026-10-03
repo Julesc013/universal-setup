@@ -13,6 +13,7 @@
 #ifdef _WIN32
 #include "usk_json.h"
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_registration.h"
 #include "usk_stable_file.h"
 #include <cstdio>
 #include <fcntl.h>
@@ -148,6 +149,7 @@ int main(int argc, char** argv)
         (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed")) {
         std::cerr << "usage: usk_machine --machine|--framed [--request-file path]"
             " [--context-file path] [--candidate-service NAME]"
+            " [--publisher NAME]"
             " | --product-info product.bundle.json"
             " | --product-select product.bundle.json [--select ID ...]"
             " | --candidate-service NAME --request-file path (Windows only)\n";
@@ -158,6 +160,7 @@ int main(int argc, char** argv)
     const char* context_file = nullptr;
 #ifdef _WIN32
     std::wstring candidate_service;
+    std::wstring publisher_service;
 #endif
     for (int index = 2; index < argc; index += 2) {
         if (index + 1 >= argc || argv[index + 1][0] == '\0') {
@@ -177,6 +180,13 @@ int main(int argc, char** argv)
                 std::cerr << "usk_machine: invalid candidate service name\n";
                 return 2;
             }
+        } else if (option == "--publisher" && publisher_service.empty()) {
+            const std::string value(argv[index + 1]);
+            publisher_service.assign(value.begin(), value.end());
+            if (!generated_service_name(publisher_service)) {
+                std::cerr << "usk_machine: invalid publisher service name\n";
+                return 2;
+            }
 #endif
         } else {
             std::cerr << "usk_machine: invalid options\n";
@@ -184,8 +194,9 @@ int main(int argc, char** argv)
         }
     }
 #ifdef _WIN32
-    if (!candidate_service.empty() && context_file != nullptr) {
-        std::cerr << "usk_machine: candidate service and planning context are incompatible\n";
+    if ((!candidate_service.empty() && !publisher_service.empty()) ||
+        ((!candidate_service.empty() || !publisher_service.empty()) && context_file != nullptr)) {
+        std::cerr << "usk_machine: publisher service and planning context options are incompatible\n";
         return 2;
     }
 #endif
@@ -227,6 +238,12 @@ int main(int argc, char** argv)
                         return usk::platform::windows::submit_publisher_request(
                             candidate_service, payload, 120000);
                     });
+            } else if (!publisher_service.empty()) {
+                result = usk::command::run_publisher_one_shot(request,
+                    [&publisher_service](const std::string& payload) {
+                        return usk::platform::windows::submit_registered_publisher_request(
+                            publisher_service, payload);
+                    });
             } else
 #endif
             result = usk::command::run_one_shot(request, configured);
@@ -238,8 +255,8 @@ int main(int argc, char** argv)
         usk::command::write_result(std::cout, result.document, framed);
     } catch (const std::exception&) {
 #ifdef _WIN32
-        if (!candidate_service.empty()) {
-            std::cerr << "usk_machine: candidate publisher outcome unknown; recover the reviewed request\n";
+        if (!candidate_service.empty() || !publisher_service.empty()) {
+            std::cerr << "usk_machine: publisher outcome unknown; recover the reviewed request\n";
             return 5;
         }
 #endif

@@ -4,9 +4,12 @@
 #include "usk_publisher_security_descriptor.h"
 
 #include <sddl.h>
+#include <aclapi.h>
 #include <windows.h>
 
 #include <iostream>
+#include <filesystem>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -23,10 +26,127 @@ bool refused(const std::wstring& sid) {
     catch (const std::exception&) { return true; }
     return false;
 }
+
+std::vector<unsigned char> security_bytes(HANDLE object) {
+    // Query the stored kernel descriptor. GetSecurityInfo's legacy
+    // INHERITED_ACE projection may depend on the current parent's ACEs.
+    DWORD needed = 0;
+    (void)GetKernelObjectSecurity(object, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        nullptr, 0, &needed);
+    check(needed > 0 && needed <= 65536, "test stored security size unavailable");
+    std::vector<unsigned char> bytes(needed);
+    auto* descriptor = bytes.data();
+    check(GetKernelObjectSecurity(object, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+        descriptor, needed, &needed) != FALSE, "test stored security read failed");
+    bytes.resize(needed);
+    return bytes;
+}
+
+std::string security_text(HANDLE object) {
+    const auto bytes = security_bytes(object);
+    auto* descriptor = const_cast<unsigned char*>(bytes.data());
+    LPSTR text = nullptr;
+    check(ConvertSecurityDescriptorToStringSecurityDescriptorA(descriptor, SDDL_REVISION_1,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &text, nullptr) != FALSE,
+        "test security rendering failed");
+    const std::string result(text);
+    LocalFree(text);
+    return result;
+}
+
+void boundary_preserves_unexpected_child() {
+    HANDLE token = nullptr;
+    check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) != FALSE, "test caller token unavailable");
+    DWORD needed = 0;
+    (void)GetTokenInformation(token, TokenUser, nullptr, 0, &needed);
+    std::vector<unsigned char> token_bytes(needed);
+    check(GetTokenInformation(token, TokenUser, token_bytes.data(), needed, &needed) != FALSE, "test caller SID unavailable");
+    CloseHandle(token);
+    LPWSTR sid = nullptr;
+    check(ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(token_bytes.data())->User.Sid, &sid) != FALSE,
+        "test caller SID rendering failed");
+    const std::wstring caller(sid); LocalFree(sid);
+    const auto root = std::filesystem::temp_directory_path() /
+        (L"usk-boundary-security-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
+    const auto child_path = root / L"unexpected-marker.bin";
+    const auto initial = L"O:" + caller + L"D:PAI(A;OICI;FA;;;" + caller + L")(A;OICI;FA;;;SY)(A;OICI;FR;;;BU)";
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    check(ConvertStringSecurityDescriptorToSecurityDescriptorW(initial.c_str(), SDDL_REVISION_1,
+        &descriptor, nullptr) != FALSE, "test initial descriptor unavailable");
+    SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE};
+    check(CreateDirectoryW(root.c_str(), &attributes) != FALSE, "test boundary directory creation failed");
+    LocalFree(descriptor);
+    HANDLE child = CreateFileW(child_path.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    check(child != INVALID_HANDLE_VALUE, "test unexpected child creation failed");
+    const std::string marker = "USK-PRE";
+    DWORD written = 0;
+    check(WriteFile(child, marker.data(), static_cast<DWORD>(marker.size()), &written, nullptr) != FALSE &&
+        written == marker.size(), "test marker write failed");
+    const auto before = security_bytes(child);
+    FILE_ID_INFO before_id{};
+    check(GetFileInformationByHandleEx(child, FileIdInfo, &before_id, sizeof(before_id)) != FALSE,
+        "test child identity unavailable");
+    HANDLE held = CreateFileW(root.c_str(), READ_CONTROL | WRITE_DAC | WRITE_OWNER | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    check(held != INVALID_HANDLE_VALUE, "test boundary handle unavailable");
+    const auto final = L"O:" + caller + L"D:P(A;;FA;;;" + caller + L")(A;;FA;;;SY)";
+    check(ConvertStringSecurityDescriptorToSecurityDescriptorW(final.c_str(), SDDL_REVISION_1,
+        &descriptor, nullptr) != FALSE, "test final descriptor unavailable");
+    const auto length = GetSecurityDescriptorLength(descriptor);
+    const auto* first = static_cast<unsigned char*>(descriptor);
+    const std::vector<unsigned char> bytes(first, first + length);
+    LocalFree(descriptor);
+    usk::platform::windows::set_publisher_boundary_security_from_handle(held, bytes);
+    check(security_bytes(child) == before, "boundary security update changed stored unexpected child descriptor");
+    HANDLE reopened = CreateFileW(child_path.c_str(), GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    check(reopened != INVALID_HANDLE_VALUE, "test child reentry failed");
+    FILE_ID_INFO reopened_id{};
+    check(GetFileInformationByHandleEx(reopened, FileIdInfo, &reopened_id, sizeof(reopened_id)) != FALSE &&
+        reopened_id.VolumeSerialNumber == before_id.VolumeSerialNumber &&
+        std::memcmp(reopened_id.FileId.Identifier, before_id.FileId.Identifier, sizeof(before_id.FileId.Identifier)) == 0 &&
+        security_bytes(reopened) == before, "boundary update changed persisted child identity or descriptor");
+    char persisted[7]{}; DWORD persisted_read = 0;
+    check(ReadFile(reopened, persisted, sizeof(persisted), &persisted_read, nullptr) != FALSE &&
+        persisted_read == marker.size() && std::string(persisted, persisted_read) == marker,
+        "boundary update changed independently reopened child bytes");
+    CloseHandle(reopened);
+    check(security_text(held).find("D:P") != std::string::npos &&
+        security_text(held).find(";OICI;") == std::string::npos,
+        "boundary security update did not remove inheritable parent grants");
+    check(SetFilePointer(child, 0, nullptr, FILE_BEGIN) != INVALID_SET_FILE_POINTER, "test marker rewind failed");
+    char observed[7]{}; DWORD read = 0;
+    check(ReadFile(child, observed, sizeof(observed), &read, nullptr) != FALSE && read == marker.size() &&
+        std::string(observed, read) == marker, "boundary security update changed unexpected child bytes");
+    // Positive control: Win32 inheritance propagation on the same owned
+    // fixture must be detected by the stored-descriptor comparison.
+    check(ConvertStringSecurityDescriptorToSecurityDescriptorW(initial.c_str(), SDDL_REVISION_1,
+        &descriptor, nullptr) != FALSE, "test control descriptor unavailable");
+    PACL initial_dacl = nullptr; BOOL present = FALSE, defaulted = FALSE;
+    check(GetSecurityDescriptorDacl(descriptor, &present, &initial_dacl, &defaulted) != FALSE && present,
+        "test control DACL unavailable");
+    check(SetSecurityInfo(held, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, initial_dacl, nullptr) == ERROR_SUCCESS, "test positive-control setup failed");
+    LocalFree(descriptor);
+    const auto control_before = security_bytes(child);
+    PACL final_dacl = nullptr;
+    check(GetSecurityDescriptorDacl(const_cast<unsigned char*>(bytes.data()), &present, &final_dacl, &defaulted) != FALSE && present,
+        "test final control DACL unavailable");
+    check(SetSecurityInfo(held, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, final_dacl, nullptr) == ERROR_SUCCESS && security_bytes(child) != control_before,
+        "stored-descriptor harness did not detect propagating parent security change");
+    CloseHandle(held); CloseHandle(child);
+    check(DeleteFileW(child_path.c_str()) != FALSE && RemoveDirectoryW(root.c_str()) != FALSE,
+        "test boundary cleanup failed");
+}
 } // namespace
 
 int main() {
     try {
+        boundary_preserves_unexpected_child();
         const std::wstring service_sid =
             L"S-1-5-80-3180180915-1861177297-4117424284-3321057921-2519428456";
         const auto bytes = make_publisher_directory_security_descriptor(service_sid);

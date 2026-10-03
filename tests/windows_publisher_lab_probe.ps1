@@ -20,6 +20,7 @@ param(
     [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
     [switch]$ControllerApply,
+    [switch]$PublicInstallation,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostpublishRights,
@@ -191,9 +192,14 @@ try {
     $receipt.filesystem = $volume.FileSystem
     $receipt.status = 'volume_provisioned'
     if ($ServiceBinary) {
-        if (-not $DeviceAclBinary) { throw 'owned VHD device ACL helper is required' }
+        if (-not $DeviceAclBinary -and -not $PublicInstallation) { throw 'owned VHD device ACL helper is required' }
         $serviceOutput = Join-Path $lab 'service-probe.json'
-        if ($MachineBinary) {
+        if ($PublicInstallation) {
+            & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
+                -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
+                -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
+                -MachineBinary $MachineBinary -OutputPath $serviceOutput
+        } elseif ($MachineBinary) {
             & (Join-Path $PSScriptRoot 'windows_publisher_metadata_hosted_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
@@ -207,7 +213,7 @@ try {
         }
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
-        $expected = if ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
+        $expected = if ($PublicInstallation) { 'public_install_verified_recovered' } elseif ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
         if ($receipt.service_observation.status -ne $expected) {
             throw 'protected publish service probe did not pass'
         }

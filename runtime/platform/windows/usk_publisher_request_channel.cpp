@@ -367,7 +367,8 @@ void require_publisher_response_binding(const std::wstring& service_name,
 }
 
 std::string submit_publisher_request(const std::wstring& service_name,
-    const std::string& request, DWORD timeout_ms) {
+    const std::string& request, DWORD timeout_ms,
+    const std::wstring& expected_process_image) {
     const auto until = deadline(timeout_ms);
     const auto name = publisher_request_pipe_name(service_name);
     if (request.empty() || request.size() > request_limit) throw std::runtime_error("publisher request exceeds bound or is empty");
@@ -397,6 +398,15 @@ std::string submit_publisher_request(const std::wstring& service_name,
     if (!GetNamedPipeServerProcessId(pipe.value, &observed) || observed != expected ||
         WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT || service_process(service.value) != expected) {
         throw std::runtime_error("publisher pipe server differs from live service");
+    }
+    if (!expected_process_image.empty()) {
+        std::wstring image(32768, L'\0');
+        DWORD size = static_cast<DWORD>(image.size());
+        if (!QueryFullProcessImageNameW(process.value, 0, image.data(), &size) || size == 0)
+            throw std::runtime_error("publisher process image is unavailable");
+        image.resize(size);
+        if (CompareStringOrdinal(image.c_str(), -1, expected_process_image.c_str(), -1, TRUE) != CSTR_EQUAL)
+            throw std::runtime_error("publisher process image differs from admitted executable");
     }
     DWORD mode = PIPE_READMODE_MESSAGE;
     if (!SetNamedPipeHandleState(pipe.value, &mode, nullptr, nullptr)) throw std::runtime_error("publisher endpoint message mode unavailable");

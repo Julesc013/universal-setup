@@ -1334,3 +1334,27 @@ Hosted cancellation observes owned descendants by parent, start time,
 executable and command line, terminates the held tree and confirms recorded
 instances have exited. Unconfirmed cleanup retains the account and backing
 volume for disposable runner shutdown.
+
+### Public client implementation checkpoint — qualification pending
+
+The ordinary machine client now has an explicit `--publisher NAME` composition
+that discovers an owned registration, validates retained executable digest,
+SCM command, caller, service SID and volume-root identity, starts or reconnects
+to the authenticated dispatcher, and returns the public command response.
+This checkpoint requires an elevated configured caller and readable reviewed
+package inputs. The non-admin consumer route is still unqualified.
+
+The controller's `--provision-target NAME --confirm-empty-volume` admits only a
+bound dedicated data volume, records original security before effects, checks
+physical partition identity and a narrow protected Windows metadata exception,
+updates the held root without descendant propagation, and repeats exclusive
+volume admission before retaining completion. Protected records publish through
+flushed, no-replace temporary promotion. Admission recovery and authority
+retirement still require qualification; retained records prevent name reuse.
+Legacy mode-changing controller operations are not interchangeable with the
+immutable public registration. Existing availability declarations stay false.
+
+The connected hosted probe covers product target admission, preservation
+refusals, ordinary apply, independent readback, source-free recovery, original
+apply replay and bound verification. Source and unit checks do not constitute
+its successful execution or complete the publisher acceptance matrix.

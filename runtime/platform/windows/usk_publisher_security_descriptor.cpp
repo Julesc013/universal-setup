@@ -140,5 +140,38 @@ std::vector<unsigned char> make_publisher_consumer_security_descriptor(
     return make_descriptor(service_sid, consumer_sid);
 }
 
+void set_publisher_boundary_security_from_handle(HANDLE boundary,
+    const std::vector<unsigned char>& descriptor) {
+    if (!boundary || boundary == INVALID_HANDLE_VALUE || descriptor.empty() || descriptor.size() > 65536)
+        throw std::runtime_error("boundary security inputs are unavailable");
+    FILE_ATTRIBUTE_TAG_INFO tag{};
+    auto* raw = const_cast<unsigned char*>(descriptor.data());
+    SECURITY_DESCRIPTOR_CONTROL control{};
+    DWORD revision = 0;
+    BOOL present = FALSE, defaulted = FALSE;
+    PACL dacl = nullptr;
+    PSID owner = nullptr;
+    if (!GetFileInformationByHandleEx(boundary, FileAttributeTagInfo, &tag, sizeof(tag)) ||
+        (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 || tag.ReparseTag != 0 ||
+        !IsValidSecurityDescriptor(raw) ||
+        !GetSecurityDescriptorControl(raw, &control, &revision) ||
+        (control & (SE_SELF_RELATIVE | SE_DACL_PROTECTED)) != (SE_SELF_RELATIVE | SE_DACL_PROTECTED) ||
+        !GetSecurityDescriptorOwner(raw, &owner, &defaulted) || !owner ||
+        !GetSecurityDescriptorDacl(raw, &present, &dacl, &defaulted) || !present || !dacl || !IsValidAcl(dacl))
+        throw std::runtime_error("boundary security descriptor or held object differs");
+    for (DWORD index = 0; index < dacl->AceCount; ++index) {
+        void* ace = nullptr;
+        if (!GetAce(dacl, index, &ace) || !ace || static_cast<ACE_HEADER*>(ace)->AceFlags != 0)
+            throw std::runtime_error("boundary descriptor cannot carry inheritable ACEs");
+    }
+    using NtSetSecurityObjectFn = LONG (NTAPI *)(HANDLE, SECURITY_INFORMATION, PSECURITY_DESCRIPTOR);
+    const auto module = GetModuleHandleW(L"ntdll.dll");
+    const auto set_security = module ? reinterpret_cast<NtSetSecurityObjectFn>(
+        GetProcAddress(module, "NtSetSecurityObject")) : nullptr;
+    if (!set_security || set_security(boundary, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+        PROTECTED_DACL_SECURITY_INFORMATION, raw) != 0)
+        throw std::runtime_error("held boundary native security update failed");
+}
+
 } // namespace usk::platform::windows
 #endif

@@ -3,6 +3,7 @@
 
 #include "usk_one_shot.h"
 #include "usk_json.h"
+#include "usk_effect_dispatch.h"
 
 #include <cstdint>
 #include <ios>
@@ -63,10 +64,60 @@ bool frame_refused(const std::string& source)
     return false;
 }
 
+bool publisher_projection_checks()
+{
+    const std::string request = R"({"schema":"usk.oneshot_request.v1","request_id":"public-1","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-1","applied_at":"2026-10-03T11:00:00Z"},"dry_run":false})";
+    const std::string completed = R"({"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.installed_state.v1","install_id":"example","transaction_id":"tx-1","lifecycle_status":"installed","created_at":"2026-10-03T11:00:00Z"}})";
+    const std::string prefix = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","private_phase_evidence":"NATIVE_CANARY","apply_response":)";
+    const auto direct = prefix + completed + ",\"recovery_installed_response\":null}";
+    const auto replay = prefix + "null,\"recovery_installed_response\":" + completed + "}";
+    for (const auto& response : {direct, replay}) {
+        const auto result = usk::command::run_publisher_one_shot(request,
+            [&response](const std::string&) { return response; });
+        const auto envelope = usk::json::parse(result.document);
+        if (result.exit_code != 0 || result.document.find("NATIVE_CANARY") != std::string::npos ||
+            envelope.at("result").at("schema").as_string() != "usk.command_response.v1" ||
+            envelope.at("result").at("payload").at("transaction_id").as_string() != "tx-1")
+            return false;
+    }
+    std::string wrong_transaction = direct;
+    wrong_transaction.replace(wrong_transaction.find("tx-1"), 4, "tx-2");
+    for (const auto& response : {wrong_transaction,
+            prefix + completed + ",\"recovery_installed_response\":" + completed + "}",
+            std::string("lost or malformed response")}) {
+        const auto result = usk::command::run_publisher_one_shot(request,
+            [&response](const std::string&) { return response; });
+        if (result.exit_code != 5 ||
+            usk::json::parse(result.document).at("status").as_string() != "unknown") return false;
+    }
+    const auto admission = usk::command::run_publisher_one_shot(request,
+        [](const std::string&) -> std::string { throw usk::base::EffectRequestNotDispatched(); });
+    if (admission.exit_code != 2 || usk::json::parse(admission.document).at("error").at("code").as_string() !=
+            "publisher_admission_refused") return false;
+    const auto lost = usk::command::run_publisher_one_shot(request,
+        [](const std::string&) -> std::string { throw std::runtime_error("lost reply"); });
+    if (lost.exit_code != 5 || usk::json::parse(lost.document).at("status").as_string() != "unknown") return false;
+    const std::string recovery = R"({"schema":"usk.oneshot_request.v1","request_id":"recovery-1","command":"install_local.recover","payload":{"schema":"usk.publisher_recovery_request.v1","install_id":"example","transaction_id":"tx-1"},"dry_run":false})";
+    const auto recovered = usk::command::run_publisher_one_shot(recovery,
+        [&replay](const std::string&) { return replay; });
+    if (recovered.exit_code != 0 || recovered.document.find("NATIVE_CANARY") != std::string::npos) return false;
+    const std::string verify = R"({"schema":"usk.oneshot_request.v1","request_id":"verify-1","command":"installed.verify","payload":{"schema":"usk.publisher_installed_verify_request.v1","install_id":"example","transaction_id":"tx-1","report_id":"report-1","verified_at":"2026-10-03T11:00:00Z"},"dry_run":false})";
+    std::string drift = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"failed","bound_report_digest":"digest-1","private_phase_evidence":"NATIVE_CANARY","verify_response":{"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.verification_report.v1","status":"fail","install_id":"example","report_id":"report-1","verified_at":"2026-10-03T11:00:00Z","report_digest":"digest-1"}}})";
+    const auto diagnosed = usk::command::run_publisher_one_shot(verify,
+        [&drift](const std::string&) { return drift; });
+    if (diagnosed.exit_code != 0 || diagnosed.document.find("NATIVE_CANARY") != std::string::npos ||
+        usk::json::parse(diagnosed.document).at("result").at("payload").at("status").as_string() != "fail")
+        return false;
+    drift.replace(drift.find("report-1"), 8, "report-2");
+    return usk::command::run_publisher_one_shot(verify,
+        [&drift](const std::string&) { return drift; }).exit_code == 5;
+}
+
 } // namespace
 
 int main()
 {
+    if (!publisher_projection_checks()) return 23;
     const std::string request =
         "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"probe-1\","
         "\"command\":\"command_graph.inspect\",\"payload\":{},\"dry_run\":true}";
