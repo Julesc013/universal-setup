@@ -1595,3 +1595,37 @@ This closes no production qualification by itself. Native predicate/profile
 reconciliation and target-bound capability reporting remain part of the same
 finite publisher integration; generic strict refusal, the published v1 plan
 contract, OD-001 and release acceptance remain unchanged.
+
+### Target-bound publisher discovery source candidate
+
+The ordinary machine client now accepts `publisher.inspect` with `dry_run: true`
+and the closed `usk.publisher_capability_request.v1` payload through
+`--publisher NAME`. Discovery validates the registered account, restricted
+own-process SCM configuration, protected executable and retained registration,
+then compares live volume/dedicated-disk identities with target admission.
+Native and process architecture must both be x64. The already-loaded OS
+module's [RtlGetVersion](https://learn.microsoft.com/en-us/windows/win32/devnotes/rtlgetversion)
+observation must report Windows NT 10.0 build 17763 or newer; missing APIs,
+downlevel builds and emulated architectures refuse. The record preserves the
+actual observed build rather than substituting the minimum. Compilation SDK
+and storage qualification remain separate evidence obligations.
+Held root and raw-device security are checked and reobserved; the root shape
+observation is bracketed by matching stored descriptors. Binding digests name
+the executable, registration, target admission and observed boundaries.
+
+`usk.publisher_capability.v1` separates implementation, realization,
+availability, required privilege, permission, authority, qualification scope,
+support and recovery ceiling. This version reports partial implementation,
+incomplete qualification, unsupported support and unavailable strict authority.
+Discovery requires scoped backup privilege and disk observation access, creates
+no controller locks and does not start/reconfigure SCM or dispatch an operation.
+It holds no execution lease and repeated reads do not establish an atomic
+snapshot. It does not verify the installed closure or current recovery state.
+The unchanged v1 install plan and generic strict refusal retain their meaning.
+
+Local native controls exercise missing/malformed dimensions, account/service
+SID bounds, caller activation claims and request binding. The hosted source
+checks refusal before target admission and discovery before/after installation,
+with unchanged SCM state, volume metadata and protected records per call.
+Hosted qualification of this candidate is pending; no WU-006 or release
+acceptance follows from local checks.

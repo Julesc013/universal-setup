@@ -55,6 +55,12 @@ def main() -> int:
         assert refused["status"] == "refused"
         assert refused["error"]["code"] == "publisher_admission_refused"
         assert refused["result"] is None
+        inspection = dict(request, command="publisher.inspect", payload={
+            "schema": "usk.publisher_capability_request.v1", "request_id": request["request_id"]})
+        observed = run(executable, "--machine", json.dumps(inspection).encode(), "--publisher", missing_service)
+        assert observed.returncode == 2 and observed.stderr == b"usk_machine: request refused\r\n", observed.stderr
+        observation = json.loads(observed.stdout)
+        assert observation["result"] is None and observation["error"]["code"] == "publisher_capability_unavailable"
         conflicting = run(executable, "--machine", effect_bytes, "--publisher", missing_service,
                           "--candidate-service", missing_service)
         assert conflicting.returncode == 2 and conflicting.stdout == b""

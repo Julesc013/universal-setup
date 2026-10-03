@@ -31,6 +31,8 @@
 #include <array>
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -66,6 +68,32 @@ public:
 private:
     HANDLE value_;
 };
+
+std::uint64_t observe_supported_discovery_windows_build() {
+#if !defined(_M_X64) && !defined(__x86_64__)
+    throw std::runtime_error("publisher discovery requires the x64 implementation");
+#else
+    SYSTEM_INFO system{};
+    GetNativeSystemInfo(&system);
+    if (sizeof(void*) != 8 || system.wProcessorArchitecture != PROCESSOR_ARCHITECTURE_AMD64)
+        throw std::runtime_error("publisher discovery requires native x64 Windows");
+    // Query the already-loaded OS module; no module-search or manifest-based
+    // version fallback. Documented OSVERSIONINFOW/RtlGetVersion observation:
+    // https://learn.microsoft.com/en-us/windows/win32/devnotes/rtlgetversion
+    const auto module = GetModuleHandleW(L"ntdll.dll");
+    const auto address = module ? GetProcAddress(module, "RtlGetVersion") : nullptr;
+    using Query = LONG (WINAPI*)(OSVERSIONINFOW*);
+    Query query = nullptr;
+    static_assert(sizeof(query) == sizeof(address));
+    std::memcpy(&query, &address, sizeof(query));
+    OSVERSIONINFOW version{};
+    version.dwOSVersionInfoSize = sizeof(version);
+    if (!query || query(&version) != 0 || version.dwPlatformId != VER_PLATFORM_WIN32_NT ||
+        version.dwMajorVersion != 10 || version.dwMinorVersion != 0 || version.dwBuildNumber < 17763)
+        throw std::runtime_error("publisher discovery Windows build is unavailable or unsupported");
+    return version.dwBuildNumber;
+#endif
+}
 
 class ScopedControllerPrivilege {
 public:
@@ -1952,6 +1980,8 @@ std::string submit_registered_publisher_request(const std::wstring& name,
     // lock. A cooperating controller cannot reconfigure the service between
     // validation and submission. The pipe separately binds its live process.
     std::string schema;
+    std::string inspection_id;
+    std::uint64_t windows_build = 0;
     try {
         if (!generated_name(name) || request.empty() || request.size() > 1024u * 1024u)
             throw std::runtime_error("publisher request identity or size differs");
@@ -1960,7 +1990,14 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         limits.max_string_bytes = 512u * 1024u;
         const auto submitted = usk::json::parse(request, limits);
         schema = submitted.at("schema").as_string();
-        if (schema != "usk.install_local_apply_request.v1" &&
+        if (schema == "usk.publisher_capability_request.v1") {
+            inspection_id = submitted.at("request_id").as_string();
+            if (submitted.as_object().size() != 2 || inspection_id.empty() || inspection_id.size() > 128 ||
+                inspection_id.find_first_not_of(
+                    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos)
+                throw std::runtime_error("publisher inspection request differs");
+            windows_build = observe_supported_discovery_windows_build();
+        } else if (schema != "usk.install_local_apply_request.v1" &&
             schema != "usk.publisher_recovery_request.v1" &&
             schema != "usk.publisher_installed_verify_request.v1")
             throw std::runtime_error("publisher request schema is unavailable");
@@ -1976,7 +2013,8 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
         if (!manager.get()) throw std::runtime_error("SCM connection is unavailable");
         service = std::make_unique<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
-            SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_START));
+            SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS |
+                (inspection_id.empty() ? SERVICE_START : 0)));
         if (!service->get()) throw std::runtime_error("publisher registration is unavailable");
         const auto before = query_configuration(service->get());
         require_profile(before);
@@ -2015,10 +2053,104 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         // verification never open the original envelope or payload sources.
         if (args[5] != L"--reviewed-plan-envelope" &&
             !((args[5] == L"--recover-reviewed" &&
-                schema == "usk.publisher_recovery_request.v1") ||
+                (schema == "usk.publisher_recovery_request.v1" || !inspection_id.empty())) ||
               (args[5] == L"--verify-installed" &&
-                schema == "usk.publisher_installed_verify_request.v1")))
+                (schema == "usk.publisher_installed_verify_request.v1" || !inspection_id.empty()))))
             throw std::runtime_error("registered publisher mode differs from request");
+        if (!inspection_id.empty()) {
+            require_publisher_consumer_sid(utf8(caller));
+            // Discovery uses query handles only. It neither creates controller
+            // locks nor starts/reconfigures a service, admits a target or grants
+            // execution authority. This observation is not a held execution lease.
+            ScopedControllerPrivilege backup;
+            FileHandle root(CreateFileW(args[4].c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+            FileHandle device(CreateFileW(args[4].substr(0, args[4].size() - 1).c_str(), READ_CONTROL,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
+            if (root.get() == INVALID_HANDLE_VALUE || device.get() == INVALID_HANDLE_VALUE)
+                throw std::runtime_error("publisher discovery boundary is unavailable");
+            const auto root_security = read_publisher_owner_dacl_from_handle(root.get());
+            const auto root_facts = observe_publisher_directory_handle(root.get());
+            require_publisher_object_security_shape(root_facts, binding.at("service_sid").as_string());
+            if (read_publisher_owner_dacl_from_handle(root.get()) != root_security)
+                throw std::runtime_error("publisher root security changed across shape observation");
+            if (root_facts.file_id != binding.at("volume_identity").at("root_file_id").as_string())
+                throw std::runtime_error("publisher discovery held root identity differs");
+            const auto device_security = read_publisher_owner_dacl_from_handle(device.get());
+            PSID device_owner = nullptr;
+            PACL device_dacl = nullptr;
+            BOOL present = FALSE, defaulted = FALSE;
+            auto service_sid = publisher_service_sid(name);
+            auto* descriptor = const_cast<unsigned char*>(device_security.data());
+            if (!GetSecurityDescriptorOwner(descriptor, &device_owner, &defaulted) ||
+                !GetSecurityDescriptorDacl(descriptor, &present, &device_dacl, &defaulted) || !present ||
+                !require_publisher_device_acl_shape(device_owner, device_dacl, service_sid.data()))
+                throw std::runtime_error("publisher discovery device security differs");
+            const auto security_digest = [](const std::vector<unsigned char>& bytes) {
+                usk::base::Sha256 hash;
+                hash.update(bytes.data(), bytes.size());
+                return hash.finish();
+            };
+            const auto boundary_digest = usk::json::sha256_canonical(usk::json::Value(usk::json::Value::Object{
+                {"root_file_id", usk::json::Value(root_facts.file_id)},
+                {"root_security_sha256", usk::json::Value(security_digest(root_security))},
+                {"device_security_sha256", usk::json::Value(security_digest(device_security))}}));
+            const auto after = query_configuration(service->get());
+            require_profile(after);
+            if (after.binary_path != before.binary_path ||
+                usk::json::canonical(read_registration_binding(name, after.binary_path, args[4])) !=
+                    usk::json::canonical(binding) ||
+                usk::json::canonical(read_protected_document(admitted_path)) != usk::json::canonical(admitted) ||
+                usk::json::canonical(dedicated_target_disk_identity(args[4])) !=
+                    usk::json::canonical(target.at("disk_identity")))
+                throw std::runtime_error("publisher observation changed during discovery");
+            binary->verify_unchanged();
+            if (read_publisher_owner_dacl_from_handle(root.get()) != root_security ||
+                read_publisher_owner_dacl_from_handle(device.get()) != device_security ||
+                observe_publisher_directory_handle(root.get()).file_id != root_facts.file_id)
+                throw std::runtime_error("publisher boundary changed during discovery");
+            SERVICE_STATUS_PROCESS status{};
+            DWORD needed = 0;
+            if (!QueryServiceStatusEx(service->get(), SC_STATUS_PROCESS_INFO,
+                reinterpret_cast<BYTE*>(&status), sizeof(status), &needed) ||
+                status.dwServiceType != SERVICE_WIN32_OWN_PROCESS ||
+                status.dwCurrentState < SERVICE_STOPPED || status.dwCurrentState > SERVICE_PAUSED)
+                throw std::runtime_error("publisher observation status is unavailable");
+            using usk::json::Value;
+            return usk::json::canonical(Value(Value::Object{
+                {"schema", Value("usk.publisher_capability.v1")},
+                {"request_id", Value(inspection_id)},
+                {"provider_id", Value("windows_nt_x64_local_ntfs_service_sid_noreplace_v1")},
+                {"implementation", Value("partial")},
+                {"realization", Value("restricted_service")},
+                {"availability", Value(false)},
+                {"required_privilege", Value("SeBackupPrivilege_and_disk_read")},
+                {"permission", Value("registered_caller_observed")},
+                {"authority", Value("not_granted_by_discovery")},
+                {"qualification", Value("incomplete")},
+                {"qualification_scope", Value("registered_target_observation")},
+                {"support", Value("unsupported")},
+                {"recovery_ceiling", Value("candidate_source_free_restart")},
+                {"power_loss_qualified", Value(false)},
+                {"revalidation_required_before_effects", Value(true)},
+                {"execution_lease_held", Value(false)},
+                {"service_state", Value(static_cast<std::uint64_t>(status.dwCurrentState))},
+                {"effects", Value(Value::Array{})},
+                {"platform", Value(Value::Object{
+                    {"os_family", Value("Windows NT")}, {"native_arch", Value("x64")},
+                    {"process_arch", Value("x64")}, {"windows_build", Value(windows_build)},
+                    {"minimum_windows_build", Value(std::uint64_t{17763})}})},
+                {"binding", Value(Value::Object{
+                    {"service_name", Value(utf8(name))},
+                    {"service_sid", binding.at("service_sid")},
+                    {"caller_sid", Value(utf8(caller))},
+                    {"binary_sha256", binding.at("binary_sha256")},
+                    {"registration_sha256", Value(usk::json::sha256_canonical(binding))},
+                    {"target_sha256", Value(usk::json::sha256_canonical(target))},
+                    {"boundary_sha256", Value(boundary_digest)},
+                    {"volume_guid_root", Value(utf8(args[4]))}})}}));
+        }
         control = std::make_unique<ServiceControlGuard>(name);
         const auto locked_configuration = query_configuration(service->get());
         require_profile(locked_configuration);

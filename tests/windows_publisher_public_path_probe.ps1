@@ -67,6 +67,85 @@ $installedBinary=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$serv
 function Write-Json([string]$Path,$Value) {
     [IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)
 }
+function Invoke-PublicCapability([int]$ExpectedExit=0) {
+    # Discovery is a separate read-only client. It is excluded from the
+    # captured mutation/verification token corpus and requests no execution lease.
+    $requestId='capability.'+[guid]::NewGuid().ToString('N')
+    $request=Join-Path $lab ($requestId+'.json')
+    Write-Json $request ([ordered]@{schema='usk.oneshot_request.v1';request_id=$requestId;
+        command='publisher.inspect';payload=@{schema='usk.publisher_capability_request.v1';request_id=$requestId};dry_run=$true})
+    $beforeService=Get-CimInstance Win32_Service -Filter "Name='$service'"
+    $beforeMetadata=Read-VolumeMetadata
+    $recordPaths=@($registrationRecord,$targetIntentPath,$targetAdmittedPath)
+    $recordState=@{}
+    foreach($path in $recordPaths) {
+        $recordState[$path]=if(Test-Path -LiteralPath $path){(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash}else{''}
+    }
+    $stdout=Join-Path $lab ($requestId+'.stdout');$stderr=$stdout+'.stderr'
+    $launch=$null;$process=$null
+    try {
+        $launch=[UskPublisherPausedClient]::new($MachineBinary,('--machine --publisher '+$service+
+            ' --request-file "'+$request+'"'),$stdout,$stderr)
+        $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
+        $launch.Resume()
+        if(-not $process.WaitForExit(30000)){throw 'Read-only capability client exceeded its deadline'}
+        $exit=$process.ExitCode
+        $diagnostic=[IO.File]::ReadAllText($stderr)
+        if(($ExpectedExit -eq 0 -and $diagnostic.Length) -or
+            ($ExpectedExit -ne 0 -and $diagnostic -cne "usk_machine: request refused`r`n")) {
+            throw 'Read-only capability client emitted an unexpected diagnostic'
+        }
+        $result=[IO.File]::ReadAllText($stdout)|ConvertFrom-Json
+    } finally {
+        try {
+            if($process -and -not $process.HasExited) {
+                if($launch -and -not $launch.IsResumed){$launch.Dispose()}
+                else {Stop-OwnedPublisherProcessTree $process|Out-Null}
+                if(-not $process.WaitForExit(5000)){throw 'Owned capability client remains live'}
+            }
+        } finally {if($process){$process.Dispose()};if($launch){$launch.Dispose()}}
+    }
+    $afterService=Get-CimInstance Win32_Service -Filter "Name='$service'"
+    if($afterService.State -cne $beforeService.State -or $afterService.ProcessId -ne $beforeService.ProcessId -or
+        $afterService.PathName -cne $beforeService.PathName){throw 'Discovery altered the owned SCM registration or state'}
+    Assert-VolumeMetadataSnapshot (Read-VolumeMetadata) $beforeMetadata.volume_metadata
+    foreach($path in $recordPaths) {
+        $after=if(Test-Path -LiteralPath $path){(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash}else{''}
+        if($after -cne $recordState[$path]){throw 'Discovery altered a protected registration or admission record'}
+    }
+    if($exit -ne $ExpectedExit -or $result.schema -cne 'usk.oneshot_response.v1' -or $result.request_id -cne $requestId) {
+        throw 'Read-only capability response binding differs'
+    }
+    if($ExpectedExit -ne 0) {
+        if($result.status -cne 'refused' -or $result.result -ne $null -or
+            $result.error.code -cne 'publisher_capability_unavailable'){throw 'Unadmitted target discovery was not refused'}
+        return $result
+    }
+    $capability=$result.result
+    if($result.status -cne 'ok' -or $result.error -ne $null -or
+        @($capability.PSObject.Properties).Count -ne 20 -or
+        $capability.schema -cne 'usk.publisher_capability.v1' -or $capability.request_id -cne $requestId -or
+        $capability.provider_id -cne 'windows_nt_x64_local_ntfs_service_sid_noreplace_v1' -or
+        $capability.implementation -cne 'partial' -or $capability.realization -cne 'restricted_service' -or
+        $capability.availability -ne $false -or $capability.required_privilege -cne 'SeBackupPrivilege_and_disk_read' -or
+        $capability.permission -cne 'registered_caller_observed' -or $capability.authority -cne 'not_granted_by_discovery' -or
+        $capability.qualification -cne 'incomplete' -or $capability.qualification_scope -cne 'registered_target_observation' -or
+        $capability.support -cne 'unsupported' -or $capability.recovery_ceiling -cne 'candidate_source_free_restart' -or
+        $capability.power_loss_qualified -ne $false -or $capability.revalidation_required_before_effects -ne $true -or
+        $capability.execution_lease_held -ne $false -or @($capability.effects).Count -ne 0 -or
+        $capability.service_state -ne 1 -or @($capability.platform.PSObject.Properties).Count -ne 5 -or
+        $capability.platform.os_family -cne 'Windows NT' -or $capability.platform.native_arch -cne 'x64' -or
+        $capability.platform.process_arch -cne 'x64' -or $capability.platform.minimum_windows_build -ne 17763 -or
+        $capability.platform.windows_build -ne [int]([Environment]::OSVersion.Version.Build) -or
+        @($capability.binding.PSObject.Properties).Count -ne 8 -or
+        $capability.binding.service_name -cne $service -or $capability.binding.service_sid -cne $sid -or
+        $capability.binding.caller_sid -cne $caller -or $capability.binding.volume_guid_root -cne $VolumeRoot -or
+        $capability.binding.binary_sha256 -cne $receipt.service_sha256) {throw 'Capability dimensions or native identities differ'}
+    foreach($field in @('registration_sha256','target_sha256','boundary_sha256')) {
+        if($capability.binding.$field -cnotmatch '^[0-9a-f]{64}$'){throw 'Capability binding digest is missing or malformed'}
+    }
+    return $result
+}
 function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     $request=Join-Path $lab ('public-request-'+[guid]::NewGuid().ToString('N')+'.json')
     $requestId='public.'+[guid]::NewGuid().ToString('N')
@@ -549,6 +628,9 @@ try {
     }
     $receipt['preexisting_target_refused_unchanged']=$true
     Remove-Item -LiteralPath $marker -ErrorAction Stop
+    $targetIntentPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-intent.json')
+    $targetAdmittedPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-admitted.json')
+    $receipt['unadmitted_capability']=Invoke-PublicCapability 2
     $metadataBefore=Read-VolumeMetadata
     # No lab helper changes the volume-root or raw-device ACL. The product
     # controller owns this admitted-target transition and its durable records.
@@ -584,6 +666,9 @@ try {
     }
     Assert-VolumeMetadataSnapshot (Read-VolumeMetadata) $targetIntent.identity.metadata
     $receipt['target_completion_reentry']='modelled missing completion; same immutable intent and protected metadata'
+    $receipt['admitted_capability']=Invoke-PublicCapability
+    $receipt['capability_registration_binding']=Get-Content -LiteralPath $registrationRecord -Raw|ConvertFrom-Json
+    $receipt['capability_target_admission']=Get-Content -LiteralPath $targetAdmittedPath -Raw|ConvertFrom-Json
     if($PublicationLoss -cne 'none') {
         $observerRoot=Join-Path $lab 'production-boundary'
         New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
@@ -676,6 +761,7 @@ try {
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;
         verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
     $receipt['verification']=Invoke-PublicRequest 'installed.verify' $verify
+    $receipt['installed_capability']=Invoke-PublicCapability
     if($receipt.verification.result.payload.status -cne 'pass' -or
         $receipt.verification.result.payload.report_id -cne $verify.report_id) {
         throw 'Ordinary public verification did not return the bound passing report'

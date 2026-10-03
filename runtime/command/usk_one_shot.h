@@ -35,7 +35,10 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
                                      const CandidateTransport& transport);
 // Return the public command response through an admitted publisher transport.
 // Retained native phase evidence belongs to qualification records, not the
-// ordinary machine result. This does not make an unqualified profile available.
+// ordinary machine result. publisher.inspect is read-only discovery of an
+// already admitted registration; it grants no authority, holds no execution
+// lease, and reports incomplete qualification/unsupported strict availability.
+// This does not make an unqualified profile available.
 OneShotResult run_publisher_one_shot(const std::string& request_json,
                                    const CandidateTransport& transport);
 OneShotContextConfig read_context_config(std::istream& input);
