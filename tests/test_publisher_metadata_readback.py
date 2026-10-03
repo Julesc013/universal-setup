@@ -13,6 +13,44 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_public_fixture_exit_status_follows_final_assertions(self):
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$t=$null;$e=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_PUBLIC_SOURCE,[ref]$t,[ref]$e)
+if($e){throw 'Public probe parse failed'}
+$statements=@($ast.EndBlock.Statements)
+$tail=[scriptblock]::Create(($statements[-3..-1].Extent.Text -join "`n"))
+$positive=0;$refused=0
+foreach($profile in @('none','metadata_collision','payload_changed')) {
+ $PostRenameRefusal=$profile
+ $receipt=@{status=$(if($profile -ceq 'none'){'public_install_verified_recovered'}else{'public_refusal_retained'});client_cleanup_confirmed=$true;failure='controlled failed assertion'}
+ $global:LASTEXITCODE=3
+ & $tail
+ if($global:LASTEXITCODE -ne 0){throw 'Successful fixture leaked expected refusal exit code'}
+ ++$positive
+ foreach($change in @('status','cleanup')) {
+  $bad=@{};foreach($key in $receipt.Keys){$bad[$key]=$receipt[$key]}
+  if($change -ceq 'status'){$bad.status='failed'}else{$bad.client_cleanup_confirmed=$false}
+  $saved=$receipt;$receipt=$bad;$global:LASTEXITCODE=3
+  try {& $tail;throw 'Failed fixture assertion was suppressed'}
+  catch {if($_.Exception.Message -ceq 'Failed fixture assertion was suppressed'){throw};++$refused}
+  if($global:LASTEXITCODE -ne 3){throw 'Failure was converted into success exit status'}
+  $receipt=$saved
+ }
+}
+@{successful_profiles=$positive;failed_assertions_retained=$refused}|ConvertTo-Json -Compress
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell):
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=dict(os.environ, USK_PUBLIC_SOURCE=str(root / 'tests/windows_publisher_public_path_probe.ps1')),
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'successful_profiles': 3, 'failed_assertions_retained': 6})
+
     def test_metadata_collision_worker_retains_guard_failure_without_target_access(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / 'tests/windows_publisher_owned_metadata_collision.ps1').read_text(encoding='utf-8')

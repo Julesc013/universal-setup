@@ -541,3 +541,7 @@ $expectedStatus=if($PostRenameRefusal -ceq 'none'){'public_install_verified_reco
 if($receipt.status -cne $expectedStatus -or -not $receipt.client_cleanup_confirmed) {
     throw ('Public publisher qualification failed: '+$receipt.failure)
 }
+# Expected recovery/retirement refusals carry nonzero native exit codes. The
+# fixture succeeds only after every response, retained row and cleanup check.
+# Return that fixture outcome to PowerShell hosts that forward LASTEXITCODE.
+$global:LASTEXITCODE=0
