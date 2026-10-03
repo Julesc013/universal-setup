@@ -1,0 +1,540 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+#include "usk_publisher_request_channel.h"
+#if defined(_WIN32)
+#include <sddl.h>
+#include <aclapi.h>
+#include "usk_publisher_token_observation.h"
+#include "usk_publisher_security_descriptor.h"
+#include "usk_json.h"
+#include <algorithm>
+#include <exception>
+#include <stdexcept>
+#include <vector>
+namespace usk::platform::windows {
+namespace {
+constexpr DWORD request_limit = 1024u * 1024u;
+constexpr DWORD response_limit = 4u * 1024u * 1024u;
+constexpr DWORD client_access = FILE_READ_DATA | FILE_WRITE_DATA |
+    FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
+struct Handle {
+    HANDLE value;
+    explicit Handle(HANDLE v) : value(v) {}
+    ~Handle() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+    Handle(const Handle&) = delete;
+    Handle& operator=(const Handle&) = delete;
+};
+struct ServiceHandle {
+    SC_HANDLE value;
+    explicit ServiceHandle(SC_HANDLE v) : value(v) {}
+    ~ServiceHandle() { if (value) CloseServiceHandle(value); }
+};
+struct LocalBuffer {
+    void* value = nullptr;
+    ~LocalBuffer() { if (value) LocalFree(value); }
+};
+ULONGLONG deadline(DWORD milliseconds) {
+    if (!milliseconds || milliseconds > 120000) throw std::runtime_error("invalid publisher transport timeout");
+    return GetTickCount64() + milliseconds;
+}
+DWORD remaining(ULONGLONG until) {
+    const auto now = GetTickCount64();
+    return now >= until ? 0 : static_cast<DWORD>(until - now);
+}
+std::wstring canonical_sid(const std::wstring& value) {
+    LocalBuffer sid, text;
+    if (value.empty() || value.size() > 184 ||
+        !ConvertStringSidToSidW(value.c_str(), &sid.value) || !IsValidSid(sid.value) ||
+        !ConvertSidToStringSidW(sid.value, reinterpret_cast<LPWSTR*>(&text.value))) {
+        throw std::runtime_error("publisher transport SID is invalid");
+    }
+    return static_cast<wchar_t*>(text.value);
+}
+struct Io {
+    Handle event{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    OVERLAPPED overlapped{};
+    Io() {
+        if (!event.value) throw std::runtime_error("publisher transport event unavailable");
+        overlapped.hEvent = event.value;
+    }
+    DWORD finish(HANDLE file, BOOL started, HANDLE stop, ULONGLONG until,
+        DWORD immediate_error) {
+        if (!started && immediate_error != ERROR_IO_PENDING) {
+            throw std::runtime_error("publisher transport message failed; Win32 " + std::to_string(immediate_error));
+        }
+        HANDLE waits[2] = {event.value, stop};
+        const DWORD result = started ? WAIT_OBJECT_0 :
+            WaitForMultipleObjects(stop ? 2 : 1, waits, FALSE, remaining(until));
+        DWORD bytes = 0;
+        if (result != WAIT_OBJECT_0) {
+            CancelIoEx(file, &overlapped);
+            // Do not release the OVERLAPPED storage until cancellation completes.
+            GetOverlappedResult(file, &overlapped, &bytes, TRUE);
+            throw std::runtime_error("publisher transport cancelled or timed out");
+        }
+        if (!GetOverlappedResult(file, &overlapped, &bytes, FALSE)) {
+            throw std::runtime_error("publisher transport message incomplete; Win32 " + std::to_string(GetLastError()));
+        }
+        return bytes;
+    }
+};
+std::string read_message(HANDLE pipe, DWORD limit, HANDLE stop, ULONGLONG until) {
+    std::vector<char> bytes(limit + 1u);
+    Io io;
+    const BOOL started = ReadFile(pipe, bytes.data(), static_cast<DWORD>(bytes.size()), nullptr, &io.overlapped);
+    const DWORD error = started ? ERROR_SUCCESS : GetLastError();
+    const DWORD read = io.finish(pipe, started, stop, until, error);
+    if (!read || read > limit) throw std::runtime_error("publisher transport message exceeds bound or is empty");
+    return std::string(bytes.data(), read);
+}
+void write_message(HANDLE pipe, const std::string& bytes, DWORD limit, HANDLE stop, ULONGLONG until) {
+    if (bytes.empty() || bytes.size() > limit) throw std::runtime_error("publisher transport message exceeds bound or is empty");
+    Io io;
+    const BOOL started = WriteFile(pipe, bytes.data(), static_cast<DWORD>(bytes.size()), nullptr, &io.overlapped);
+    const DWORD error = started ? ERROR_SUCCESS : GetLastError();
+    if (io.finish(pipe, started, stop, until, error) != bytes.size()) {
+        throw std::runtime_error("publisher transport partial message");
+    }
+}
+void require_caller(HANDLE pipe, const std::wstring& expected) {
+    if (!ImpersonateNamedPipeClient(pipe)) throw std::runtime_error("publisher caller identification failed");
+    struct Revert {
+        ~Revert() {
+            if (!RevertToSelf()) {
+                TerminateProcess(GetCurrentProcess(), ERROR_ACCESS_DENIED);
+                std::terminate();
+            }
+        }
+    } revert;
+    HANDLE raw = nullptr;
+    if (!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &raw)) {
+        throw std::runtime_error("publisher caller token unavailable");
+    }
+    Handle token(raw);
+    DWORD size = 0;
+    GetTokenInformation(token.value, TokenUser, nullptr, 0, &size);
+    if (!size || size > 4096) throw std::runtime_error("publisher caller token size invalid");
+    std::vector<unsigned char> user(size);
+    SECURITY_IMPERSONATION_LEVEL level{};
+    DWORD level_size = 0;
+    if (!GetTokenInformation(token.value, TokenUser, user.data(), size, &size) ||
+        !GetTokenInformation(token.value, TokenImpersonationLevel, &level, sizeof(level), &level_size) ||
+        level < SecurityIdentification) throw std::runtime_error("publisher caller token cannot identify user");
+    LocalBuffer observed;
+    if (!ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid,
+            reinterpret_cast<LPWSTR*>(&observed.value)) ||
+        expected != static_cast<wchar_t*>(observed.value)) {
+        throw std::runtime_error("publisher caller differs from admitted user");
+    }
+}
+DWORD service_process(SC_HANDLE service) {
+    SERVICE_STATUS_PROCESS status{};
+    DWORD size = 0;
+    SERVICE_SID_INFO sid{};
+    if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+            reinterpret_cast<BYTE*>(&status), sizeof(status), &size) ||
+        status.dwServiceType != SERVICE_WIN32_OWN_PROCESS ||
+        status.dwCurrentState != SERVICE_RUNNING || !status.dwProcessId ||
+        !QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
+            reinterpret_cast<BYTE*>(&sid), sizeof(sid), &size) || sid.dwServiceSidType != SERVICE_SID_TYPE_RESTRICTED) {
+        throw std::runtime_error("publisher server is not a live own-process restricted service");
+    }
+    return status.dwProcessId;
+}
+DWORD await_service_process(SC_HANDLE service, ULONGLONG until) {
+    SERVICE_SID_INFO sid{};
+    DWORD size = 0;
+    if (!QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
+            reinterpret_cast<BYTE*>(&sid), sizeof(sid), &size) ||
+        sid.dwServiceSidType != SERVICE_SID_TYPE_RESTRICTED) {
+        throw std::runtime_error("publisher server is not a restricted service");
+    }
+    while (true) {
+        SERVICE_STATUS_PROCESS status{};
+        if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                reinterpret_cast<BYTE*>(&status), sizeof(status), &size) ||
+            status.dwServiceType != SERVICE_WIN32_OWN_PROCESS) {
+            throw std::runtime_error("publisher server is not an own-process service");
+        }
+        if (status.dwCurrentState == SERVICE_RUNNING) {
+            if (!remaining(until)) throw std::runtime_error("publisher server startup timed out");
+            return service_process(service);
+        }
+        if (status.dwCurrentState != SERVICE_START_PENDING) {
+            throw std::runtime_error("publisher server stopped before becoming ready");
+        }
+        const DWORD wait = std::min<DWORD>(remaining(until), 20);
+        if (!wait) throw std::runtime_error("publisher server startup timed out");
+        Sleep(wait);
+    }
+}
+}
+std::wstring publisher_request_pipe_name(const std::wstring& service_name) {
+    if (service_name.empty() || service_name.size() > 80) throw std::runtime_error("publisher service name invalid");
+    for (const auto ch : service_name) {
+        if (!((ch >= L'A' && ch <= L'Z') || (ch >= L'a' && ch <= L'z') ||
+            (ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'-')) {
+            throw std::runtime_error("publisher service name invalid");
+        }
+    }
+    return L"\\\\.\\pipe\\USK-Publisher-" + service_name;
+}
+struct PublisherRequestChannel::State {
+    Handle pipe;
+    std::wstring caller_sid;
+    HANDLE stop;
+    ULONGLONG until;
+    bool received = false, replied = false;
+    State(HANDLE p, std::wstring sid, HANDLE event, ULONGLONG end)
+        : pipe(p), caller_sid(std::move(sid)), stop(event), until(end) {}
+};
+PublisherRequestChannel::PublisherRequestChannel(const std::wstring& service_name,
+    const std::wstring& service_sid, const std::wstring& caller_sid, HANDLE stop, DWORD timeout_ms) {
+    const auto until = deadline(timeout_ms);
+    const auto name = publisher_request_pipe_name(service_name);
+    const auto caller = canonical_sid(caller_sid);
+    const auto service = canonical_sid(service_sid);
+    if (service.compare(0, 9, L"S-1-5-80-") != 0) throw std::runtime_error("publisher transport requires service SID");
+    // FILE_GENERIC_WRITE includes FILE_CREATE_PIPE_INSTANCE. The caller gets
+    // only individual data/attribute rights, never that alias or WRITE_DAC.
+    const std::wstring sddl = L"D:P(A;;GA;;;SY)(A;;GA;;;" + service +
+        L")(A;;0x00120183;;;" + caller + L")";
+    LocalBuffer descriptor;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1,
+        &descriptor.value, nullptr)) throw std::runtime_error("publisher transport descriptor unavailable");
+    SECURITY_ATTRIBUTES attributes{sizeof(attributes), descriptor.value, FALSE};
+    HANDLE pipe = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
+        FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT |
+        PIPE_REJECT_REMOTE_CLIENTS, 1, 65536, 65536, 0, &attributes);
+    if (pipe == INVALID_HANDLE_VALUE) throw std::runtime_error("publisher exclusive request endpoint unavailable");
+    Handle pending(pipe);
+    state_ = std::make_unique<State>(pipe, caller, stop, until);
+    pending.value = nullptr;
+}
+PublisherRequestChannel::~PublisherRequestChannel() = default;
+std::string PublisherRequestChannel::receive() {
+    auto& state = *state_;
+    if (state.received) throw std::runtime_error("publisher endpoint accepts one request");
+    if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
+    Io io;
+    const BOOL connected = ConnectNamedPipe(state.pipe.value, &io.overlapped);
+    const DWORD error = connected ? ERROR_SUCCESS : GetLastError();
+    if (!connected && error == ERROR_PIPE_CONNECTED) SetEvent(io.event.value);
+    else io.finish(state.pipe.value, connected, state.stop, state.until, error);
+    auto request = read_message(state.pipe.value, request_limit, state.stop, state.until);
+    require_caller(state.pipe.value, state.caller_sid);
+    if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
+    state.received = true;
+    return request;
+}
+void PublisherRequestChannel::reply(const std::string& response) {
+    auto& state = *state_;
+    if (!state.received || state.replied) throw std::runtime_error("publisher endpoint response state invalid");
+    write_message(state.pipe.value, response, response_limit, state.stop, state.until);
+    state.replied = true;
+}
+void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
+    try {
+        if (!state_ || !state_->replied) return;
+        auto& state = *state_;
+        DWORD mode = PIPE_READMODE_BYTE;
+        if (!SetNamedPipeHandleState(state.pipe.value, &mode, nullptr, nullptr)) {
+            // Preserve the reply long enough for a slow client even if this
+            // handle cannot switch modes; never treat setup failure as leave.
+            if (state.stop) WaitForSingleObject(state.stop, 120000);
+            else Sleep(120000);
+            return;
+        }
+        const ULONGLONG until = deadline(120000);
+        char ignored[4096];
+        while (remaining(until)) {
+            Io io;
+            const BOOL started = ReadFile(state.pipe.value, ignored,
+                static_cast<DWORD>(sizeof(ignored)), nullptr, &io.overlapped);
+            const DWORD error = started ? ERROR_SUCCESS : GetLastError();
+            // Extra client bytes never authorize a second request or permit
+            // early pipe closure. One absolute deadline bounds all draining.
+            // A successful zero-byte read can be an empty client message,
+            // not a disconnect. Broken pipe is reported as a read error.
+            (void)io.finish(state.pipe.value, started, state.stop, until, error);
+            Sleep(1);
+        }
+    } catch (...) {
+        // The terminal reply is already written. Departure, cancellation,
+        // timeout and broken-pipe outcomes cannot change the operation result.
+    }
+}
+void require_publisher_response_binding(const std::wstring& service_name,
+    const std::string& request, const std::string& response) {
+    usk::json::ParseLimits limits;
+    limits.max_bytes = response_limit;
+    limits.max_string_bytes = response_limit / 2u;
+    const auto observed = usk::json::parse(response, limits);
+    if (observed.at("schema").as_string() !=
+            "usk.publisher_lab_service_observation.v1") {
+        throw std::runtime_error("publisher response schema differs");
+    }
+    const std::string status = observed.at("status").as_string();
+    const bool completed_drift_report = status == "failed" &&
+        observed.contains("verify_response");
+    if (status == "recovery_required" ||
+        (status == "failed" && !completed_drift_report)) return;
+    if (status != "pass" && !completed_drift_report) {
+        throw std::runtime_error("publisher response status differs");
+    }
+
+    limits.max_bytes = request_limit;
+    limits.max_string_bytes = request_limit / 2u;
+    const auto submitted = usk::json::parse(request, limits);
+    const std::string schema = submitted.at("schema").as_string();
+    std::string expected_service;
+    expected_service.reserve(service_name.size());
+    for (const wchar_t ch : service_name) {
+        if (ch < 0x20 || ch > 0x7e) {
+            throw std::runtime_error("publisher service name is not ASCII");
+        }
+        expected_service.push_back(static_cast<char>(ch));
+    }
+    if (observed.contains("service_name")) {
+        if (observed.at("service_name").as_string() != expected_service) {
+            throw std::runtime_error("publisher response service identity differs");
+        }
+    } else if (schema != "usk.publisher_installed_verify_request.v1") {
+        throw std::runtime_error("publisher response service identity is absent");
+    }
+
+    if (schema == "usk.install_local_apply_request.v1" ||
+        schema == "usk.publisher_recovery_request.v1") {
+        if (status != "pass") {
+            throw std::runtime_error("publisher installation has a nonterminal success shape");
+        }
+        const std::string install_id = schema == "usk.install_local_apply_request.v1" ?
+            submitted.at("plan_request").at("install_id").as_string() :
+            submitted.at("install_id").as_string();
+        // A retry of the original apply request completes through the same
+        // source-free replay as an explicit recovery request. Exactly one
+        // completed public result may identify this terminal observation.
+        const bool direct = observed.at("apply_response").type() !=
+            usk::json::Value::Type::null_value;
+        const bool replayed = observed.at("recovery_installed_response").type() !=
+            usk::json::Value::Type::null_value;
+        if (direct == replayed ||
+            (schema == "usk.publisher_recovery_request.v1" && direct)) {
+            throw std::runtime_error("publisher completed installation result is ambiguous");
+        }
+        const auto& public_response = observed.at(direct ?
+            "apply_response" : "recovery_installed_response");
+        const auto& installed = public_response.at("payload");
+        if (public_response.at("schema").as_string() != "usk.command_response.v1" ||
+            public_response.at("status").as_string() != "ok" ||
+            installed.at("schema").as_string() != "usk.installed_state.v1" ||
+            installed.at("lifecycle_status").as_string() != "installed" ||
+            installed.at("install_id").as_string() != install_id ||
+            installed.at("transaction_id").as_string() !=
+                submitted.at("transaction_id").as_string() ||
+            (schema == "usk.install_local_apply_request.v1" &&
+             installed.at("created_at").as_string() !=
+                submitted.at("applied_at").as_string())) {
+            throw std::runtime_error("publisher completed installation differs from request");
+        }
+        return;
+    }
+    if (schema == "usk.publisher_installed_verify_request.v1") {
+        const auto& public_response = observed.at("verify_response");
+        const auto& report = public_response.at("payload");
+        if (observed.at("transaction_id").as_string() !=
+                submitted.at("transaction_id").as_string() ||
+            public_response.at("schema").as_string() != "usk.command_response.v1" ||
+            public_response.at("status").as_string() != "ok" ||
+            report.at("schema").as_string() != "usk.verification_report.v1" ||
+            (status == "pass" ? report.at("status").as_string() != "pass" :
+                (report.at("status").as_string() != "fail" &&
+                 report.at("status").as_string() != "warn" &&
+                 report.at("status").as_string() != "unknown")) ||
+            report.at("install_id").as_string() !=
+                submitted.at("install_id").as_string() ||
+            report.at("report_id").as_string() !=
+                submitted.at("report_id").as_string() ||
+            report.at("verified_at").as_string() !=
+                submitted.at("verified_at").as_string() ||
+            report.at("report_digest").as_string() !=
+                observed.at("bound_report_digest").as_string()) {
+            throw std::runtime_error("publisher completed verification differs from request");
+        }
+        return;
+    }
+    throw std::runtime_error("publisher success has no admitted request schema");
+}
+
+std::string submit_publisher_request(const std::wstring& service_name,
+    const std::string& request, DWORD timeout_ms,
+    const std::wstring& expected_process_image) {
+    const auto until = deadline(timeout_ms);
+    const auto name = publisher_request_pipe_name(service_name);
+    if (request.empty() || request.size() > request_limit) throw std::runtime_error("publisher request exceeds bound or is empty");
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!manager.value) throw std::runtime_error("publisher SCM unavailable");
+    ServiceHandle service(OpenServiceW(manager.value, service_name.c_str(), SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG));
+    if (!service.value) throw std::runtime_error("publisher service unavailable");
+    // StartServiceW returns while ServiceMain may still be START_PENDING.
+    // Wait only for that transition, before opening or writing the pipe.
+    const auto expected = await_service_process(service.value, until);
+    Handle process(OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, expected));
+    if (!process.value || WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT) throw std::runtime_error("publisher process unavailable");
+    HANDLE raw = INVALID_HANDLE_VALUE;
+    do {
+        raw = CreateFileW(name.c_str(), client_access, 0, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+        if (raw != INVALID_HANDLE_VALUE) break;
+        const DWORD error = GetLastError();
+        if (error != ERROR_PIPE_BUSY && error != ERROR_FILE_NOT_FOUND) throw std::runtime_error("publisher endpoint refused connection");
+        if (!remaining(until)) throw std::runtime_error("publisher endpoint connection timed out");
+        WaitNamedPipeW(name.c_str(), std::min<DWORD>(remaining(until), 100));
+        if (error == ERROR_FILE_NOT_FOUND) Sleep(std::min<DWORD>(remaining(until), 10));
+    } while (remaining(until));
+    if (raw == INVALID_HANDLE_VALUE) throw std::runtime_error("publisher endpoint connection timed out");
+    Handle pipe(raw);
+    ULONG observed = 0;
+    if (!GetNamedPipeServerProcessId(pipe.value, &observed) || observed != expected ||
+        WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT || service_process(service.value) != expected) {
+        throw std::runtime_error("publisher pipe server differs from live service");
+    }
+    if (!expected_process_image.empty()) {
+        std::wstring image(32768, L'\0');
+        DWORD size = static_cast<DWORD>(image.size());
+        if (!QueryFullProcessImageNameW(process.value, 0, image.data(), &size) || size == 0)
+            throw std::runtime_error("publisher process image is unavailable");
+        image.resize(size);
+        if (CompareStringOrdinal(image.c_str(), -1, expected_process_image.c_str(), -1, TRUE) != CSTR_EQUAL)
+            throw std::runtime_error("publisher process image differs from admitted executable");
+    }
+    DWORD mode = PIPE_READMODE_MESSAGE;
+    if (!SetNamedPipeHandleState(pipe.value, &mode, nullptr, nullptr)) throw std::runtime_error("publisher endpoint message mode unavailable");
+    if (!remaining(until)) throw std::runtime_error("publisher endpoint ready after request deadline");
+    try {
+        write_message(pipe.value, request, request_limit, nullptr, until);
+        const std::string response = read_message(pipe.value, response_limit, nullptr, until);
+        require_publisher_response_binding(service_name, request, response);
+        return response;
+    } catch(const std::exception& error) {
+        throw PublisherRequestOutcomeUnknown(error.what());
+    }
+}
+void admit_current_publisher_client_observer(const std::wstring& service_name,
+    const std::wstring& consumer_sid) {
+    // Refuse before any security effect unless SCM and our current restricted
+    // token independently identify the actual own-process SYSTEM service.
+    const auto service = observe_current_restricted_publisher_service(service_name);
+    std::string sid_ascii;
+    for (const auto ch : consumer_sid) {
+        if (ch > 0x7f) throw std::runtime_error("consumer SID is not ASCII");
+        sid_ascii.push_back(static_cast<char>(ch));
+    }
+    require_publisher_consumer_sid(sid_ascii);
+    const auto canonical = canonical_sid(consumer_sid);
+    if (canonical != consumer_sid) throw std::runtime_error("noncanonical consumer SID");
+    LocalBuffer reader, before, after, updated, service_owner, owner_text;
+    if (!ConvertStringSidToSidW(consumer_sid.c_str(), &reader.value))
+        throw std::runtime_error("consumer SID unavailable");
+    const std::wstring service_sid(service.service_sid.begin(), service.service_sid.end());
+    if (!ConvertStringSidToSidW(service_sid.c_str(), &service_owner.value))
+        throw std::runtime_error("observed service owner SID unavailable");
+    PSID owner = nullptr;
+    PACL dacl = nullptr;
+    const auto security_status = GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, nullptr,
+        &dacl, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&before.value));
+    std::string observed_owner = "unavailable";
+    if (security_status == ERROR_SUCCESS && owner &&
+        ConvertSidToStringSidW(owner, reinterpret_cast<LPWSTR*>(&owner_text.value))) {
+        const auto* p = static_cast<const wchar_t*>(owner_text.value);
+        observed_owner.clear();
+        for (; *p; ++p) {
+            if (*p > 0x7f) throw std::runtime_error("process owner SID is not ASCII");
+            observed_owner.push_back(static_cast<char>(*p));
+        }
+    }
+    const auto logon_owner_matches = std::count_if(service.token.process_groups.begin(),
+        service.token.process_groups.end(), [&](const ObservedTokenGroup& group) {
+            return group.sid == observed_owner &&
+                (group.attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID;
+        });
+    if (security_status != ERROR_SUCCESS ||
+        !owner || !dacl || !IsValidAcl(dacl) ||
+        (!IsWellKnownSid(owner, WinLocalSystemSid) &&
+         !IsWellKnownSid(owner, WinBuiltinAdministratorsSid) &&
+         !EqualSid(owner, service_owner.value) && logon_owner_matches != 1) ||
+        logon_owner_matches > 1) {
+        throw std::runtime_error("current publisher process security unavailable; win32=" +
+            std::to_string(security_status) + "; system_owner=" +
+            std::to_string(owner && IsWellKnownSid(owner, WinLocalSystemSid)) +
+            "; administrators_owner=" +
+            std::to_string(owner && IsWellKnownSid(owner, WinBuiltinAdministratorsSid)) +
+            "; service_owner=" + std::to_string(owner && EqualSid(owner, service_owner.value)) +
+            "; token_logon_owner_matches=" + std::to_string(logon_owner_matches) +
+            "; observed_owner=" + observed_owner);
+    }
+    constexpr DWORD observer_access = SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+    auto ace_bytes = [](PACL acl) {
+        std::vector<std::vector<unsigned char>> result;
+        for (DWORD i = 0; i < acl->AceCount; ++i) {
+            void* raw = nullptr;
+            if (!GetAce(acl, i, &raw)) throw std::runtime_error("process ACE unavailable");
+            auto* header = static_cast<ACE_HEADER*>(raw);
+            const auto* bytes = static_cast<const unsigned char*>(raw);
+            result.emplace_back(bytes, bytes + header->AceSize);
+        }
+        return result;
+    };
+    auto expected = ace_bytes(dacl);
+    for (const auto& bytes : expected) {
+        const auto* header = reinterpret_cast<const ACE_HEADER*>(bytes.data());
+        if (header->AceType == ACCESS_ALLOWED_ACE_TYPE || header->AceType == ACCESS_DENIED_ACE_TYPE) {
+            const auto* ace = reinterpret_cast<const ACCESS_ALLOWED_ACE*>(bytes.data());
+            if (EqualSid(const_cast<DWORD*>(&ace->SidStart), reader.value))
+                throw std::runtime_error("consumer process ACE already present");
+        }
+    }
+    EXPLICIT_ACCESSW access{};
+    access.grfAccessPermissions = observer_access;
+    access.grfAccessMode = GRANT_ACCESS;
+    access.grfInheritance = NO_INHERITANCE;
+    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    access.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    access.Trustee.ptstrName = static_cast<LPWSTR>(reader.value);
+    if (SetEntriesInAclW(1, &access, dacl, reinterpret_cast<PACL*>(&updated.value)) != ERROR_SUCCESS)
+        throw std::runtime_error("consumer process descriptor unavailable");
+    auto desired = ace_bytes(static_cast<PACL>(updated.value));
+    auto preserved = desired;
+    unsigned readers = 0;
+    for (auto it = preserved.begin(); it != preserved.end();) {
+        const auto* header = reinterpret_cast<const ACE_HEADER*>(it->data());
+        const auto* ace = reinterpret_cast<const ACCESS_ALLOWED_ACE*>(it->data());
+        if (header->AceType == ACCESS_ALLOWED_ACE_TYPE &&
+            EqualSid(const_cast<DWORD*>(&ace->SidStart), reader.value)) {
+            if (header->AceFlags || ace->Mask != observer_access)
+                throw std::runtime_error("consumer process rights exceed identity observation");
+            ++readers; it = preserved.erase(it);
+        } else ++it;
+    }
+    std::sort(expected.begin(), expected.end());
+    std::sort(preserved.begin(), preserved.end());
+    if (readers != 1 || preserved != expected)
+        throw std::runtime_error("consumer process descriptor changes existing access");
+    if (SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, static_cast<PACL>(updated.value), nullptr) != ERROR_SUCCESS)
+        throw std::runtime_error("consumer process observation admission failed");
+    PSID actual_owner = nullptr;
+    PACL actual = nullptr;
+    if (GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT,
+        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &actual_owner, nullptr,
+        &actual, nullptr, reinterpret_cast<PSECURITY_DESCRIPTOR*>(&after.value)) != ERROR_SUCCESS ||
+        !actual_owner || !EqualSid(owner, actual_owner) || !actual || !IsValidAcl(actual))
+        throw std::runtime_error("consumer process admission readback unavailable");
+    auto observed = ace_bytes(actual);
+    std::sort(desired.begin(), desired.end());
+    std::sort(observed.begin(), observed.end());
+    if (desired != observed) throw std::runtime_error("consumer process admission readback differs");
+}
+}
+#endif

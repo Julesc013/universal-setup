@@ -1,0 +1,14 @@
+{
+  "schema": "universal.workunit_receipt.v1",
+  "status": "accepted",
+  "workunit": "USK-WU-005",
+  "source_commit": "1587f8bb072243e1f7bfb2d892c1bc923e1d8c07",
+  "source_tree": "833e79478dc0ba71d85dc345853a662adecef0c8",
+  "evidence": [
+    {
+      "path": "release/evidence/wu005-integration.v1.json",
+      "sha256": "95fe8a0f20faf73f48b487c76107a1718180697e0bacef32a686a91c39efb4c7",
+      "kind": "integration"
+    }
+  ]
+}

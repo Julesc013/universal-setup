@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/command_graph.v2.schema.json",
+  "title": "Authoritative Setup Command Graph, Version 2",
+  "type": "object",
+  "required": ["schema", "legacy_v1_operations", "commands"],
+  "properties": {
+    "schema": { "const": "usk.command_graph.v2" },
+    "legacy_v1_operations": {
+      "const": ["install_local", "verify", "repair", "uninstall", "adopt", "audit"]
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["command", "request_schema", "response_schema", "dry_run", "dry_run_behavior", "availability", "owner", "binding", "mutating", "executable", "effects", "operation"],
+        "properties": {
+          "command": { "type": "string", "minLength": 1 },
+          "request_schema": { "type": "string", "minLength": 1 },
+          "response_schema": { "type": "string", "minLength": 1 },
+          "dry_run": { "type": "boolean" },
+          "dry_run_behavior": { "type": "string", "minLength": 1 },
+          "availability": { "enum": ["available", "planned", "compatibility"] },
+          "owner": { "type": "string", "minLength": 1 },
+          "binding": { "type": "string", "minLength": 1 },
+          "mutating": { "type": "boolean" },
+          "executable": { "type": "boolean" },
+          "effects": { "type": "array", "items": { "type": "string" } },
+          "operation": {
+            "enum": ["inspect", "install_local", "verify", "repair", "uninstall", "adopt", "audit", "update", "move", "recovery", null]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

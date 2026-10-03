@@ -3,6 +3,11 @@
 
 #include "usk_public_lifecycle.h"
 
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+#include "usk_publisher_metadata.h"
+#include "usk_protected_install_publisher_internal.h"
+#endif
+
 #include "usk/usk_result.h"
 #include "usk_archive_payload.h"
 #include "usk_audit_repository.h"
@@ -103,6 +108,8 @@ struct RecoveryBundle {
 };
 
 void ensure_directory(const fs::path& parent, const std::string& name);
+void initialize_setup_root_at(const PublicConfig& config,
+    const fs::path& physical_setup_root, const fs::path& physical_parent);
 void initialize_setup_root(const PublicConfig& config);
 
 void exact_members(const Value& value, std::initializer_list<const char*> names)
@@ -1150,7 +1157,7 @@ Value operation_plan_document(
     const std::string& policy,
     const usk::lifecycle::LifecycleRoots& roots,
     const fs::path& destination,
-    const std::vector<usk::lifecycle::PayloadFile>& files,
+    const std::vector<usk::lifecycle::PreimageFile>& files,
     const usk::lifecycle::VerificationReport* verification)
 {
     Value::Array root_values{
@@ -1710,36 +1717,45 @@ void ensure_directory(const fs::path& parent, const std::string& name)
     }
 }
 
-void initialize_setup_root(const PublicConfig& config)
+void initialize_setup_root_at(const PublicConfig& config,
+    const fs::path& physical_setup_root, const fs::path& physical_parent)
 {
-    usk::base::require_native_path_capacity(config.setup_root / ".usk-owned-root.v1.json",
+    usk::base::require_native_path_capacity(physical_setup_root / ".usk-owned-root.v1.json",
         usk::base::NativePathKind::file, "setup ownership marker");
-    for (const fs::path& path : {config.setup_root / "state" / "ownership",
-            config.setup_root / "state" / "installed", config.setup_root / "state" / "transactions",
-            config.setup_root / "staging", config.setup_root / "audit" / "chains"}) {
+    for (const fs::path& path : {physical_setup_root / "state" / "ownership",
+            physical_setup_root / "state" / "installed",
+            physical_setup_root / "state" / "transactions",
+            physical_setup_root / "staging", physical_setup_root / "audit" / "chains"}) {
         usk::base::require_native_path_capacity(path, usk::base::NativePathKind::directory, "setup layout");
     }
     const std::string marker = setup_root_marker(config);
     std::error_code error;
-    if (!fs::exists(config.setup_root, error)) {
+    if (!fs::exists(physical_setup_root, error)) {
         if (error) throw PublicError("setup_state_root_unsafe", "cannot inspect setup-state root");
-        usk::record_io::require_safe_directory(config.setup_root.parent_path());
-        usk::record_io::create_directory_exclusive(config.setup_root.parent_path(), config.setup_root.filename().string());
-        usk::record_io::write_new_durable_text(config.setup_root / ".usk-owned-root.v1.json", marker);
+        usk::record_io::require_safe_directory(physical_parent);
+        usk::record_io::create_directory_exclusive(physical_parent,
+            physical_setup_root.filename().string());
+        usk::record_io::write_new_durable_text(
+            physical_setup_root / ".usk-owned-root.v1.json", marker);
     } else {
-        usk::record_io::require_safe_directory(config.setup_root);
+        usk::record_io::require_safe_directory(physical_setup_root);
         const std::string actual = usk::record_io::read_stable_text(
-            config.setup_root / ".usk-owned-root.v1.json", 64u * 1024u);
+            physical_setup_root / ".usk-owned-root.v1.json", 64u * 1024u);
         if (actual != marker) throw PublicError("setup_state_root_unsafe", "setup-state ownership marker is missing or incompatible");
     }
-    ensure_directory(config.setup_root, "state");
-    ensure_directory(config.setup_root, "staging");
-    ensure_directory(config.setup_root, "audit");
-    const auto roots = lifecycle_roots(config);
-    ensure_directory(roots.state_root, "ownership");
-    ensure_directory(roots.state_root, "installed");
-    ensure_directory(roots.state_root, "transactions");
-    ensure_directory(roots.audit_root, "chains");
+    ensure_directory(physical_setup_root, "state");
+    ensure_directory(physical_setup_root, "staging");
+    ensure_directory(physical_setup_root, "audit");
+    ensure_directory(physical_setup_root / "state", "ownership");
+    ensure_directory(physical_setup_root / "state", "installed");
+    ensure_directory(physical_setup_root / "state", "transactions");
+    ensure_directory(physical_setup_root / "audit", "chains");
+}
+
+void initialize_setup_root(const PublicConfig& config)
+{
+    initialize_setup_root_at(config, config.setup_root,
+        config.setup_root.parent_path());
 }
 
 Value execute_command(const std::string& command, const Value& request, const PublicConfig& config,
@@ -1791,6 +1807,14 @@ Value execute_command(const std::string& command, const Value& request, const Pu
             required_string(request, "reviewed_plan_digest") != bundle.plan.plan_digest) {
             throw PublicError("stale_plan", "reviewed install plan identity does not match immediate revalidation");
         }
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        if (!request.contains("restart_from") && bundle.plan.required_commit_authority ==
+                usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1) {
+            const auto protected_result=usk::lifecycle::apply_in_candidate_publisher_context(
+                bundle.plan,required_string(request,"transaction_id"),required_string(request,"applied_at"));
+            if (protected_result) return response_ok(installed_document(protected_result->installed_state));
+        }
+#endif
         usk::transaction::require_commit_authority(bundle.plan.required_commit_authority);
         usk::lifecycle::require_install_path_capacity(bundle.plan, required_string(request, "transaction_id"));
         bundle.plan.validate_source();
@@ -1948,6 +1972,92 @@ Value execute_command(const std::string& command, const Value& request, const Pu
 
 } // namespace
 
+usk::lifecycle::InstallPlan usk::lifecycle::reviewed_install_plan_for_publisher(
+    const std::string& request_json, const std::string& state_root,
+    const std::string& authorized_acceptance_root,
+    const std::string& target_policy_activation)
+{
+    if (request_json.empty() || request_json.size() > max_request_bytes) {
+        throw std::runtime_error("publisher reviewed plan request exceeds byte budget");
+    }
+    const PublicConfig config = parse_config(state_root.c_str(),
+        authorized_acceptance_root.c_str(), target_policy_activation.c_str());
+    auto plan = build_install_plan(usk::json::parse(request_json), config).plan;
+    if (plan.required_commit_authority !=
+        usk::transaction::CommitAuthorityRequirement::staged_child_bound_v1 ||
+        plan.recipe.restart_policy_context.empty() ||
+        plan.recipe.source_identity_digest.empty()) {
+        throw std::runtime_error("publisher requires a strict source-bound reviewed plan");
+    }
+    plan.validate_source();
+    return plan;
+}
+
+#if defined(_WIN32)
+void usk::lifecycle::initialize_setup_root_for_publisher(
+    const std::string& state_root, const std::string& authorized_acceptance_root,
+    const std::string& target_policy_activation, HANDLE held_volume,
+    const std::wstring& volume_guid_root, const std::wstring& service_name)
+{
+    const PublicConfig config = parse_config(state_root.c_str(),
+        authorized_acceptance_root.c_str(), target_policy_activation.c_str());
+    const std::wstring drive = config.setup_root.root_name().wstring();
+    if (!held_volume || held_volume == INVALID_HANDLE_VALUE ||
+        drive.size() != 2 || drive[1] != L':' ||
+        config.setup_root.root_directory().empty() ||
+        config.setup_root.relative_path().empty() ||
+        volume_guid_root.rfind(L"\\\\?\\Volume{", 0) != 0 ||
+        volume_guid_root.back() != L'\\') {
+        throw std::runtime_error("publisher setup root or held volume identity is invalid");
+    }
+    for (const fs::path& component : config.setup_root.relative_path()) {
+        if (component.empty() || component == L"." || component == L".." ||
+            component.native().find(L':') != std::wstring::npos) {
+            throw std::runtime_error("publisher setup root has an unsafe component");
+        }
+    }
+    HANDLE alias = CreateFileW(volume_guid_root.c_str(),
+        FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    if (alias == INVALID_HANDLE_VALUE) {
+        throw std::runtime_error("publisher held volume GUID alias is unavailable");
+    }
+    FILE_ID_INFO held_id{}, alias_id{};
+    const bool same_root =
+        GetFileInformationByHandleEx(held_volume, FileIdInfo, &held_id, sizeof(held_id)) &&
+        GetFileInformationByHandleEx(alias, FileIdInfo, &alias_id, sizeof(alias_id)) &&
+        held_id.VolumeSerialNumber == alias_id.VolumeSerialNumber &&
+        std::memcmp(held_id.FileId.Identifier, alias_id.FileId.Identifier,
+            sizeof(held_id.FileId.Identifier)) == 0;
+    CloseHandle(alias);
+    if (!same_root) {
+        throw std::runtime_error("publisher volume GUID alias differs from held volume");
+    }
+    std::wstring relative = config.setup_root.relative_path().wstring();
+    std::replace(relative.begin(), relative.end(), L'/', L'\\');
+    const fs::path physical_setup_root(volume_guid_root + relative);
+    const fs::path physical_parent =
+        config.setup_root.relative_path().parent_path().empty() ?
+            fs::path(volume_guid_root) : physical_setup_root.parent_path();
+    if (!service_name.empty()) {
+#if defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        platform::windows::PublisherMetadataSession metadata(held_volume,
+            volume_guid_root, physical_setup_root, service_name);
+        initialize_setup_root_at(config, metadata.initialization_root(), physical_parent);
+        metadata.publish_initialized_root();
+#else
+        throw std::runtime_error("protected metadata backend is absent from this host composition");
+#endif
+    } else {
+        // The existing unqualified volume-alias fixture exercises addressing
+        // only. It supplies no service and cannot establish protected metadata.
+        initialize_setup_root_at(config, physical_setup_root, physical_parent);
+    }
+}
+#endif
+
 char* usk::lifecycle::public_command_json(
     const char* command_name,
     const char* request_json,
@@ -1975,7 +2085,14 @@ char* usk::lifecycle::public_command_json(
         response = usk::json::canonical(response_error(
             invalid ? "invalid_argument" : "refused", error.code(), error.what()));
         *out_command_status = invalid ? USK_STATUS_INVALID_ARGUMENT : USK_STATUS_ERROR;
-    } catch (const usk::transaction::CommitAuthorityUnavailable& error) {
+    }
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    catch (const usk::lifecycle::ProtectedApplyEffectsRetained& error) {
+        response = usk::json::canonical(response_error("refused", "recovery_required", error.what()));
+        *out_command_status = USK_STATUS_ERROR;
+    }
+#endif
+    catch (const usk::transaction::CommitAuthorityUnavailable& error) {
         response = usk::json::canonical(response_error("refused", "commit_authority_unavailable", error.what()));
         *out_command_status = USK_STATUS_ERROR;
     } catch (const usk::lifecycle::RestartEffectsRetained& error) {

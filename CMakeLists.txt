@@ -68,6 +68,32 @@ target_compile_features(usk_base_static PUBLIC cxx_std_17)
 target_include_directories(usk_base_static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base")
 set_target_properties(usk_base_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(WIN32)
+  add_library(usk_publisher_windows_static STATIC
+    runtime/platform/windows/usk_publisher_anchor_create.cpp
+    runtime/platform/windows/usk_publisher_staged_stream.cpp
+    runtime/platform/windows/usk_publisher_bound_rename.cpp
+    runtime/platform/windows/usk_publisher_metadata.cpp
+    runtime/platform/windows/usk_publisher_directory_entries.cpp
+    runtime/platform/windows/usk_publisher_handle_observation.cpp
+    runtime/platform/windows/usk_publisher_security_descriptor.cpp
+    runtime/platform/windows/usk_publisher_consumer_access.cpp
+    runtime/platform/windows/usk_publisher_tree_observation.cpp
+    runtime/platform/windows/usk_publisher_token_observation.cpp
+    runtime/platform/windows/usk_publisher_request_channel.cpp
+    runtime/platform/windows/usk_publisher_registration.cpp
+    runtime/platform/windows/usk_publisher_data_partition.cpp
+    runtime/platform/windows/usk_publisher_volume_stream_observation.cpp
+    runtime/platform/windows/usk_publisher_device_acl.cpp
+    runtime/platform/windows/usk_publisher_volume_operation_guard.cpp)
+  target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
+  target_include_directories(usk_publisher_windows_static PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
+  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32 bcrypt shell32 ole32)
+  set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
+  usk_enable_strict_warnings(usk_publisher_windows_static)
+endif()
+
 add_library(usk_verify_static STATIC runtime/setup/verify/usk_package_verify.cpp)
 target_compile_features(usk_verify_static PUBLIC cxx_std_17)
 target_include_directories(usk_verify_static PUBLIC
@@ -158,6 +184,12 @@ target_link_libraries(usk_lifecycle_static PUBLIC
   usk_state_static
   usk_transaction_static
 )
+if(WIN32)
+  target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_protected_install_publisher.cpp)
+  target_compile_definitions(usk_lifecycle_static PRIVATE
+    USK_INTERNAL_PUBLISHER_FINALIZATION)
+  target_link_libraries(usk_lifecycle_static PRIVATE usk_publisher_windows_static)
+endif()
 set_target_properties(usk_lifecycle_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(NOT USK_BUILD_APPS AND NOT USK_BUILD_TESTS AND NOT USK_BUILD_FUZZERS)
@@ -389,10 +421,80 @@ if(USK_BUILD_APPS)
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/evidence"
   )
   target_link_libraries(usk_live_acceptance PRIVATE usk_static usk_base_static usk_state_static)
+
+  add_executable(usk_machine
+    apps/cli/usk_machine.cpp
+    apps/cli/usk_product_info.cpp
+    runtime/command/usk_one_shot.cpp)
+  target_compile_features(usk_machine PRIVATE cxx_std_17)
+  target_include_directories(usk_machine PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
+  if(WIN32)
+    target_link_libraries(usk_machine PRIVATE usk_publisher_windows_static shell32)
+  endif()
+  usk_enable_strict_warnings(usk_machine)
+
+  if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    add_executable(usk_publisher_service
+      apps/daemon/usk_publisher_lab_service.cpp)
+    target_compile_features(usk_publisher_service PRIVATE cxx_std_17)
+    target_compile_definitions(usk_publisher_service PRIVATE
+      USK_PRODUCTION_PUBLISHER=1)
+    target_link_libraries(usk_publisher_service PRIVATE
+      usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
+    usk_enable_strict_warnings(usk_publisher_service)
+
+    add_executable(usk_publisher_lab_service
+      apps/daemon/usk_publisher_lab_service.cpp)
+    target_compile_features(usk_publisher_lab_service PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_lab_service PRIVATE
+      usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
+    usk_enable_strict_warnings(usk_publisher_lab_service)
+
+    add_executable(usk_publisher_client apps/daemon/usk_publisher_client.cpp)
+    target_compile_features(usk_publisher_client PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_client PRIVATE usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_client)
+
+    add_executable(usk_publisher_service_control
+      apps/daemon/usk_publisher_service_control.cpp)
+    target_compile_features(usk_publisher_service_control PRIVATE cxx_std_17)
+    target_include_directories(usk_publisher_service_control PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base")
+    target_link_libraries(usk_publisher_service_control PRIVATE
+      usk_publisher_windows_static usk_base_static advapi32 shell32)
+    usk_enable_strict_warnings(usk_publisher_service_control)
+  endif()
 endif()
 
 if(USK_BUILD_TESTS)
   enable_testing()
+
+  add_executable(usk_one_shot_smoke
+    tests/native/usk_one_shot_smoke.cpp
+    runtime/command/usk_one_shot.cpp)
+  target_compile_features(usk_one_shot_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_one_shot_smoke PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(usk_one_shot_smoke PRIVATE usk_static usk_base_static)
+  usk_enable_strict_warnings(usk_one_shot_smoke)
+  add_test(NAME usk_one_shot_smoke COMMAND usk_one_shot_smoke)
+  if(USK_BUILD_APPS)
+    add_test(NAME usk_machine_process_smoke
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_machine_process_probe.py"
+        "$<TARGET_FILE:usk_machine>")
+    add_test(NAME usk_bundle_plan_process_smoke
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_bundle_plan_process_probe.py"
+        "$<TARGET_FILE:usk_machine>")
+  endif()
 
   add_executable(usk_abi_layout_smoke tests/native/usk_abi_layout_smoke.c)
   target_link_libraries(usk_abi_layout_smoke PRIVATE usk_headers)
@@ -479,6 +581,215 @@ if(USK_BUILD_TESTS)
   add_test(NAME usk_commit_authority_smoke COMMAND usk_commit_authority_smoke)
   set_tests_properties(usk_commit_authority_smoke PROPERTIES TIMEOUT 30)
 
+  if(WIN32)
+    add_executable(usk_publisher_candidate_context_smoke tests/native/usk_publisher_candidate_context_smoke.cpp)
+    target_compile_features(usk_publisher_candidate_context_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_candidate_context_smoke PRIVATE usk_lifecycle_static)
+    usk_enable_strict_warnings(usk_publisher_candidate_context_smoke)
+    add_test(NAME usk_publisher_candidate_context_smoke COMMAND usk_publisher_candidate_context_smoke)
+    set_tests_properties(usk_publisher_candidate_context_smoke PROPERTIES TIMEOUT 30)
+    add_executable(usk_publisher_request_channel_smoke tests/native/usk_publisher_request_channel_smoke.cpp)
+    add_executable(usk_neutral_payload tests/fixtures/authoring/neutral_one_file/hello.c)
+    target_compile_features(usk_publisher_request_channel_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_request_channel_smoke PRIVATE usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_request_channel_smoke)
+    add_test(NAME usk_publisher_request_channel_smoke COMMAND usk_publisher_request_channel_smoke)
+    set_tests_properties(usk_publisher_request_channel_smoke PROPERTIES TIMEOUT 15)
+    if(TARGET usk_machine)
+      add_test(NAME usk_publisher_candidate_apply_process_smoke
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_bundle_plan_process_probe.py"
+          "$<TARGET_FILE:usk_machine>" "$<TARGET_FILE:usk_publisher_candidate_context_smoke>")
+      set_tests_properties(usk_publisher_candidate_apply_process_smoke PROPERTIES TIMEOUT 60)
+    endif()
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      if(TARGET usk_publisher_service_control)
+        add_test(NAME usk_publisher_apply_control_preflight
+          COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_publisher_apply_control_probe.py"
+            "$<TARGET_FILE:usk_publisher_service_control>")
+        set_tests_properties(usk_publisher_apply_control_preflight PROPERTIES TIMEOUT 30)
+      endif()
+      if(TARGET usk_publisher_service)
+        add_test(NAME usk_publisher_service_mode_smoke
+          COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_publisher_service_mode_probe.py"
+            "$<TARGET_FILE:usk_publisher_service>")
+        set_tests_properties(usk_publisher_service_mode_smoke PROPERTIES TIMEOUT 15)
+      endif()
+
+      add_executable(usk_publisher_lab_service_fault
+        apps/daemon/usk_publisher_lab_service.cpp)
+      target_compile_features(usk_publisher_lab_service_fault PRIVATE cxx_std_17)
+      target_compile_definitions(usk_publisher_lab_service_fault PRIVATE
+        USK_TEST_REGISTERED_FAULT_GATE=1)
+      target_link_libraries(usk_publisher_lab_service_fault PRIVATE
+        usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
+      usk_enable_strict_warnings(usk_publisher_lab_service_fault)
+
+      add_executable(usk_publisher_lab_device_acl
+        tests/native/usk_publisher_lab_device_acl.cpp)
+      target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
+      target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
+      usk_enable_strict_warnings(usk_publisher_lab_device_acl)
+      # Keep the packaged machine-client and non-admin consumer journey in the
+      # normal hosted gate, including actual payload execution and recovery.
+      if(TARGET usk_machine AND DEFINED ENV{GITHUB_ACTIONS} AND
+          "$ENV{RUNNER_ENVIRONMENT}" STREQUAL "github-hosted" AND
+          "$ENV{USK_TRUSTED_HOSTED_LAB}" STREQUAL "true")
+        add_test(NAME usk_machine_registered_candidate_hosted
+          COMMAND pwsh -NoProfile -NonInteractive -File
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
+            -OutputPath "$ENV{RUNNER_TEMP}/usk-wu006-packaged-machine-bridge.json"
+            -ServiceBinary "$<TARGET_FILE:usk_publisher_service>"
+            -ServiceControlBinary "$<TARGET_FILE:usk_publisher_service_control>"
+            -DeviceAclBinary "$<TARGET_FILE:usk_publisher_lab_device_acl>"
+            -MachineBinary "$<TARGET_FILE:usk_machine>"
+            -PublicApplyBinary "$<TARGET_FILE:usk_publisher_candidate_context_smoke>"
+            -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
+            -PayloadBinary "$<TARGET_FILE:usk_neutral_payload>"
+            -ReviewedSource -RegisteredService -ConsumerAccess
+            -MachineRequestClient -ReuseRegistration -ProductionConcurrentRights)
+        set_tests_properties(usk_machine_registered_candidate_hosted
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
+        add_test(NAME usk_controller_registered_apply_hosted
+          COMMAND pwsh -NoProfile -NonInteractive -File
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
+            -OutputPath "$ENV{RUNNER_TEMP}/usk-wu006-controller-apply-bridge.json"
+            -ServiceBinary "$<TARGET_FILE:usk_publisher_service>"
+            -ServiceControlBinary "$<TARGET_FILE:usk_publisher_service_control>"
+            -DeviceAclBinary "$<TARGET_FILE:usk_publisher_lab_device_acl>"
+            -MachineBinary "$<TARGET_FILE:usk_machine>"
+            -PublicApplyBinary "$<TARGET_FILE:usk_publisher_candidate_context_smoke>"
+            -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
+            -ReviewedSource -RegisteredService -ControllerApply)
+        set_tests_properties(usk_controller_registered_apply_hosted
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
+      endif()
+    endif()
+
+    add_executable(usk_publisher_handle_observation_smoke
+      tests/native/usk_publisher_handle_observation_smoke.cpp)
+    target_compile_features(usk_publisher_handle_observation_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_handle_observation_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_handle_observation_smoke)
+    add_test(NAME usk_publisher_handle_observation_smoke
+      COMMAND usk_publisher_handle_observation_smoke)
+    set_tests_properties(usk_publisher_handle_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_volume_operation_guard_smoke
+      tests/native/usk_publisher_volume_operation_guard_smoke.cpp)
+    target_compile_features(usk_publisher_volume_operation_guard_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_volume_operation_guard_smoke PRIVATE
+      usk_publisher_windows_static ole32)
+    usk_enable_strict_warnings(usk_publisher_volume_operation_guard_smoke)
+    add_test(NAME usk_publisher_volume_operation_guard_smoke
+      COMMAND usk_publisher_volume_operation_guard_smoke)
+    set_tests_properties(usk_publisher_volume_operation_guard_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_device_acl_smoke
+      tests/native/usk_publisher_device_acl_smoke.cpp)
+    target_compile_features(usk_publisher_device_acl_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_device_acl_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_device_acl_smoke)
+    add_test(NAME usk_publisher_device_acl_smoke
+      COMMAND usk_publisher_device_acl_smoke)
+    set_tests_properties(usk_publisher_device_acl_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_volume_bound_setup_smoke
+      tests/native/usk_publisher_volume_bound_setup_smoke.cpp)
+    target_compile_features(usk_publisher_volume_bound_setup_smoke PRIVATE cxx_std_17)
+    target_include_directories(usk_publisher_volume_bound_setup_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
+    target_link_libraries(usk_publisher_volume_bound_setup_smoke PRIVATE
+      usk_static usk_base_static)
+    usk_enable_strict_warnings(usk_publisher_volume_bound_setup_smoke)
+    add_test(NAME usk_publisher_volume_bound_setup_smoke
+      COMMAND usk_publisher_volume_bound_setup_smoke)
+    set_tests_properties(usk_publisher_volume_bound_setup_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_token_observation_smoke
+      tests/native/usk_publisher_token_observation_smoke.cpp)
+    target_compile_features(usk_publisher_token_observation_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_token_observation_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_token_observation_smoke)
+    add_test(NAME usk_publisher_token_observation_smoke
+      COMMAND usk_publisher_token_observation_smoke)
+    set_tests_properties(usk_publisher_token_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_data_partition_smoke
+      tests/native/usk_publisher_data_partition_smoke.cpp)
+    target_compile_features(usk_publisher_data_partition_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_data_partition_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_data_partition_smoke)
+    add_test(NAME usk_publisher_data_partition_smoke
+      COMMAND usk_publisher_data_partition_smoke)
+    set_tests_properties(usk_publisher_data_partition_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_security_descriptor_smoke
+      tests/native/usk_publisher_security_descriptor_smoke.cpp)
+    target_compile_features(usk_publisher_security_descriptor_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_security_descriptor_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_security_descriptor_smoke)
+    add_test(NAME usk_publisher_security_descriptor_smoke
+      COMMAND usk_publisher_security_descriptor_smoke)
+    set_tests_properties(usk_publisher_security_descriptor_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_anchor_create_smoke
+      tests/native/usk_publisher_anchor_create_smoke.cpp)
+    target_compile_features(usk_publisher_anchor_create_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_anchor_create_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_anchor_create_smoke)
+    add_test(NAME usk_publisher_anchor_create_smoke
+      COMMAND usk_publisher_anchor_create_smoke)
+    set_tests_properties(usk_publisher_anchor_create_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_volume_stream_observation_smoke
+      tests/native/usk_publisher_volume_stream_observation_smoke.cpp)
+    target_compile_features(usk_publisher_volume_stream_observation_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_volume_stream_observation_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_volume_stream_observation_smoke)
+    add_test(NAME usk_publisher_volume_stream_observation_smoke
+      COMMAND usk_publisher_volume_stream_observation_smoke)
+    set_tests_properties(usk_publisher_volume_stream_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_directory_entries_smoke
+      tests/native/usk_publisher_directory_entries_smoke.cpp)
+    target_compile_features(usk_publisher_directory_entries_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_directory_entries_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_directory_entries_smoke)
+    add_test(NAME usk_publisher_directory_entries_smoke
+      COMMAND usk_publisher_directory_entries_smoke)
+    set_tests_properties(usk_publisher_directory_entries_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_tree_observation_smoke
+      tests/native/usk_publisher_tree_observation_smoke.cpp)
+    target_compile_features(usk_publisher_tree_observation_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_tree_observation_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_tree_observation_smoke)
+    add_test(NAME usk_publisher_tree_observation_smoke
+      COMMAND usk_publisher_tree_observation_smoke)
+    set_tests_properties(usk_publisher_tree_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_bound_rename_smoke
+      tests/native/usk_publisher_bound_rename_smoke.cpp)
+    target_compile_features(usk_publisher_bound_rename_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_bound_rename_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_bound_rename_smoke)
+    add_test(NAME usk_publisher_bound_rename_smoke
+      COMMAND usk_publisher_bound_rename_smoke)
+    set_tests_properties(usk_publisher_bound_rename_smoke PROPERTIES TIMEOUT 30)
+  endif()
+
   add_executable(usk_entry_restart_smoke tests/native/usk_entry_restart_smoke.cpp)
   target_compile_features(usk_entry_restart_smoke PRIVATE cxx_std_17)
   find_package(Threads REQUIRED)
@@ -544,6 +855,26 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_package_verify_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_package_verify_smoke PRIVATE usk_static usk_verify_static)
   add_test(NAME usk_package_verify_smoke COMMAND usk_package_verify_smoke)
+
+  # Keep retained native/Python fixtures inside this disposable build tree.
+  # Failed probes may retain diagnostics; they must not scatter payloads into
+  # the user's system temporary directory across repeated local test runs.
+  # The campaign task path already carries repository/task identity. Adding
+  # build/run identifiers to native fixture paths can exceed the supported
+  # Windows path envelope before the behavior under test is reached.
+  if(DEFINED ENV{FACMAN_TASK_ROOT} AND NOT "$ENV{FACMAN_TASK_ROOT}" STREQUAL "")
+    set(USK_TEST_TEMP_ROOT "$ENV{FACMAN_TASK_ROOT}/t")
+  else()
+    set(USK_TEST_TEMP_ROOT "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
+  endif()
+  file(MAKE_DIRECTORY "${USK_TEST_TEMP_ROOT}")
+  get_property(USK_NATIVE_TESTS DIRECTORY PROPERTY TESTS)
+  foreach(USK_NATIVE_TEST IN LISTS USK_NATIVE_TESTS)
+    set_property(TEST "${USK_NATIVE_TEST}" APPEND PROPERTY ENVIRONMENT
+      "TMP=${USK_TEST_TEMP_ROOT}"
+      "TEMP=${USK_TEST_TEMP_ROOT}"
+      "TMPDIR=${USK_TEST_TEMP_ROOT}")
+  endforeach()
 endif()
 
 if(USK_BUILD_FUZZERS)

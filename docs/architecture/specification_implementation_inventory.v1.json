@@ -1,15 +1,15 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-09-22T13:35:00Z",
+  "generated_at": "2026-09-29T22:02:06Z",
   "repository": "Julesc013/universal-setup",
-  "repository_base_commit": "16a773ea964f5d3228647795d17ae4ff6dbbc20e",
-  "repository_base_tree": "fa579840055f6cfb1cf0e852f929d93e45605281",
+  "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
+  "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
   "spec_profile": "usk-engineering/0.1.0-draft.1",
-  "spec_aggregate_sha256": "59c3a09cd9965aa841cd15ea494efc79d8993303a336c2d9d37c20d1259a3c6d",
+  "spec_aggregate_sha256": "7cd3afe659d4e88186f56c3f89c80ac639b5d2669b18562953c41ed568c313d8",
   "source_hash_contract": "sha256-lf-text-v1",
-  "assessment_scope": "Targeted source and retained-test inventory. Runtime implementation was not changed. Native tests and product acceptance designs were not executed by this inventory.",
+  "assessment_scope": "Targeted source inventory through WU-010 additive lifecycle contract compatibility. Prior unaffected classifications are carried forward; new transaction v2 schemas, reference converter and descriptor mapping do not establish runtime publication or full product acceptance. WU-004 native rename erratum records a candidate API correction; classifications are unchanged and WU-006 qualification remains open. WU-006 revision 4 admits named service, build, lifecycle, policy and profile paths. Disposable candidates now cover native no-replace rename, same-handle identity/security observation, token facts, protected descriptor construction, and parent-bound create-only anchor creation; the qualified publisher remains absent. A further disposable read-only candidate observes held-handle local NTFS facts and exact file/directory stream shape; it does not change publisher classification. A read-only candidate now enumerates held-directory descendants, reopens them relative to retained parents, and records bounded identity/content digests; protected security and multi-phase publication remain absent. The read-only tree candidate now carries same-handle file/directory owner and DACL facts, compares independent phase observations, and checks an exact protected descriptor shape; no service-bound or effective-right qualification is claimed. A held destination-parent wrapper now derives the exact visible-root name and reopens the listed child against the sealed tree; parent-chain protection and publication remain unqualified. A further read-only candidate binds exact directory chains from held parent handles and compares fresh phases; the volume-root boundary, sibling anchor roles, service and effective rights remain unqualified. A read-only candidate now binds four sibling anchor roles under a held directory chain and corroborates a named own-process restricted SCM service with current process-token facts. The ordinary-user fixture only proves refusal for an absent service; no installed target or publisher qualification exists. WU-005 follow-up records one completed 2 GiB streamed install/verify and planning-only 4,096-entry child-process peaks; at that checkpoint the full ceiling lifecycle and release acceptance remained open. A further WU-005 legacy-record probe prepares prior-format records outside the measured child, then separately measures verify and uninstall planning at 128, 4,097 and 8,192 one-byte files; it does not establish an aggregate report budget. A WU-006 file-creation candidate now creates regular staged files relative to a held parent with a creation-time descriptor; local ordinary-user tests cover canonical names and collision/substitution refusal. This is not protected staging or a qualified publisher. WU-012 through WU-018 now permit only the exact generated inventory output after implementation changes; this scope correction does not change implementation classifications. WU-012 now has a bounded source-level authoring compiler for a selected target, deterministic unsigned ZIP/sidecar output, exact byte inventory and reopening checks; this is not a machine plan, setup application, signed package, or acceptance-qualified release. The integrated WU-012 source receipt and exact top-level CMakeLists.txt scope correction for WU-013 through WU-018 change no product qualification or requirement classification. WU-013 adds a source-level one-shot read-only machine command host with bounded JSON/framed input and explicit request-file mode; broader human CLI, stateful transport, reconnection and full acceptance remain open. WU-005 revision 4 admits only the ownership reader implementation file for measured legacy-record memory work; no memory ceiling or product qualification changes in this scope correction. WU-005 legacy ownership and report digest paths now stream canonical hashing; selected 8,192-entry ordinary-user peaks fall below a 64 MiB comparison ceiling, while full lifecycle and release qualification remain open. WU-014 now composes a Windows x64 inspect-only bundle envelope with sidecar and deterministic one-file ZIP carrier shapes; neither profile is an install-capable setup or release-qualified dependency closure. WU-006 revision 5 admits only the exact CI workflow file for ephemeral Windows lab probes; no publisher qualification or requirement classification changes. R4 source adds an explicit combined verification-report entry/path-text bound and a disposable refusal probe; requirement classifications remain unchanged while the clean-source 4,096-entry six-operation process matrix and matched 128/4,096-entry payload/metadata comparisons are now retained; update apply still strictly refuses and release acceptance remains open. PR #102 now has a positive disposable restricted-service handle-relative no-replace rename observation; full publisher qualification remains open. The WU-006 lab phase-evidence candidate has a positive hosted one-descendant restricted-service execution; classification and OD-001 remain unchanged. A dependent WU-006 source candidate retains exact root/descendant stream facts in lab phase records and compares them across phases; this does not establish effective rights, crash replay, production publication, or OD-001 closure. A WU-006 hosted-lab source candidate provisions a separate local login for four post-publication path-access attempts. Its native hosted step observed four denials; complete effective rights, concurrent attacks and publisher qualification remain open. A dependent PR #106 native Windows step in run 36095483920 at source head c40bb197ff722585da50bb3c7f054645a1bff182 on build 10.0.20348.0 observed four staged-path 0x80070005 denials while the service waited after its flushed prepared lab record, followed by fresh pre-rename observation, the bounded native rename, exact visible closure and four further postpublication denials. Retained JSON receipt SHA-256 5f18072e30560427a70a05322a0f65280b56fb277f9663f95bb3225c8bd3b3d5 reports generated account/output cleanup, service stop/deletion request and VHD removal. The gate is service-signalled and one interval only; ACL-layer attribution, effective rights, crash/power-loss replay and production qualification remain open. WU-014 now has a native read-only bundled product inventory that checks the unsigned prefab manifest and streams exact stored ZIP members; it does not plan or install. WU-006 lab recovery classification now accepts a complete protected prepared-plus-visible journal only when the visible record binds the same observed tree and protected anchors; a disposable VM ACL mutation is refused, while replay and production qualification remain open. WU-006 postjournal VM gate now observes the visible record before a forced campaign VM poweroff; independent postboot hashes and read-only classification match, while physical host durability, replay and production qualification remain open. WU-014 native packaged selection now checks dependency closure and conflicts against the same verified bundle bytes; this remains read-only and does not establish installation authority. WU-013 one-shot host now admits native read-only install_local.inspect over an actual ZIP source; no mutation command is enabled and broader CLI remains incomplete. WU-006 adds a bounded source-to-protected-child streaming candidate with ordinary-user Windows smoke evidence; protected service execution and production qualification remain open. A disposable restricted-service source fixture now invokes the bounded staged stream in source; hosted execution and production qualification remain separate. The disposable source is marked for handle-bound deletion and the state anchor is checked empty before sealing. WU-012 adds a read-only authoring transition resolver over two verified bundles and a common scope; it does not plan or perform installed-state update. WU-013 now exposes an explicitly configured, read-only install_local.plan machine request using the public lifecycle ABI and requiring staged_child_bound_v1. A disposable process test observed a successful plan with setup and target roots absent afterward. No apply command or qualified publisher is exposed; broader CLI and release qualification remain open. WU-012 now derives an unsigned finalized component subset from an exact compiled bundle, excludes unselected payload entries, and retains a source-to-derived receipt. Tests cover deterministic output, physical ZIP reopening and tamper refusal. The result remains authoring output, not an install-capable or release-qualified setup. Selected-bundle failure paths now remove only identity-matched files created by that invocation; metadata reads and output-entry enumeration are bounded. The finalized bundle marks included optional components as default selected; a packaged native no-argument selection must return the exact retained set. WU-014 adds a verified-bundle-to-read-only-machine-plan adapter requiring an author-selected entrypoint, portable scope, matching host target, and finalized component set. A Windows x64 native one-shot process probe observes selected archive/component/entry/target/recipe binding and no target/state creation; installation and publisher qualification remain open. A restricted-service VM laboratory replay now advances a verified prepared candidate or an already visible candidate to a file-flushed visible-bound phase record, with independent backup-mode checks of both crash snapshots and an idempotent repeat. This fixed-payload result does not close WU-006, OD-001, production installation, leases or general recovery qualification. A WU-006 candidate now streams one selected authored ZIP entry through the restricted campaign VM service into protected staging and the existing lab rename/journal path; an independent backup-mode read matched the visible payload and phase records. The service command does not authenticate a reviewed public plan or finish installed state, so publisher classification, OD-001 and release readiness remain unchanged. The prepared selected-source journal seals payload and tree bytes but omits selected archive hash and source identity; crash recovery provenance for that selected archive is not established. The rebuilt static service binary 1125752e was rerun in the owned VM on a second new NTFS VHD, and backup-mode reads matched visible payload and journal hashes; this qualifies only the one-file lab observation. A later VM-only WU-006 candidate records selected archive identity in the protected prepared journal. An observed VM turn-off/restart before rename and a separately receipted forced turn-off after rename were followed by exact owned-VHD reattachment, same restricted service SID recreation, and verified forward recovery of the selected payload. A further lab-only selected-source candidate writes a protected completion record bound to source and visible journal identities. A forced owned-VM turn-off after visible journal and before completion was followed by exact VHD reattachment, independent postboot reads, forward state completion and idempotent repeat. This record is not public installed state; the reviewed plan, ownership/audit integration, leases, general closure and OD-001 remain open. A WU-006 lab-only multi-file selected ZIP candidate stages up to 4,096 canonical selected files and directories through held protected parents, seals exact file-set and tree closure, and links v2 prepared/visible/completion records while retaining v1 one-file compatibility. Its VM power-off replay is source/binary-specific evidence; general reviewed-plan authority, production installed state, leases, hostile-race qualification and OD-001 remain open. A later WU-006 lab-only source candidate durably stores a bounded reviewed-plan snapshot and binds its hash into prepared and completion records. The owned Windows VM observed exact post-power-off snapshot, journal and payload hashes, forward completion and idempotent repeat; a fresh VHD observed clean completion with the corrected binary. Public ownership, installed state, audit, general production authority and OD-001 remain open. A WU-006 lab-only candidate revalidates a reviewed native selected-bundle plan inside the restricted service before creating anchors and binds the plan and envelope digests through v2 protected records. Exact candidate-binary VM turn-off/recovery evidence is retained in the Windows NTFS profile. The public strict commit gate, production installed state, leases, hostile concurrency, and OD-001 remain open. The reviewed-plan service preflights the selected ZIP filesystem identity, size, and exact selected file set before VHD mutation and retains the inspected source handle into staging. At the earlier PR #129 checkpoint this had local build evidence only; the later VM observations above exercise the same source path with the durable snapshot extension. A controlled WU-006 candidate now completes a two-file restricted-service lab publication into public ownership, installed-state and audit records, with public inspect/verify pass and idempotent visible-bound recovery on the same binary. This is VM-specific evidence; ordinary strict production publication and OD-001 remain open because public state writes still have an unqualified path-mapping race interval. Requirement classifications are unchanged. A later WU-006 candidate completed a selected two-file lab install into public installed state, ownership and audit through a restricted service, with public inspect and verify passing and a stable idempotent replay; this remains lab-only. A follow-up candidate routes those public writes and payload verification through the held volume GUID root. A fresh owned-VHD install and repeat passed, but concurrent namespace substitution, hostile rights, lease fencing, general-source publication, OD-001 and production qualification remain open. Classifications are unchanged. A later private WU-006 source candidate writes the reviewed snapshot before staging and supports sealed snapshot-only forward replay. An owned NTFS VHD survived forced VM turn-off after staging; independent backup-mode readbacks before and after replay showed two payloads, the file-flushed snapshot retained in this VM run, prepared/visible evidence, public installed state, ownership and audit. A bound repeat returned already_visible_bound. The historical stage without a snapshot remains ambiguous and retained. This is one lab window, not general-source publication, independent recovery, lease fencing, hostile-rights qualification or OD-001 resolution. A further WU-006 private service mode recovers an exact snapshot-only staged state without the selected ZIP or reviewed envelope at their original paths. On a new owned NTFS VHD, forced VM turn-off after staging retained two payloads and the file-flushed reviewed snapshot. An independently checked source-free command completed prepared, visible, installed-state, ownership and audit records; backup-mode readback matched payload digests. This is one lab recovery window, not a general-source publisher, replay of later journal phases, lease fencing, hostile-rights qualification or OD-001 resolution. A further WU-006 private mode requires a v2 reviewed snapshot and restored native plan before source-free replay from prepared or visible journal phases. A fresh owned VM VHD survived forced turn-off after visible journal flush with no completion; with original ZIP and envelope withheld, restricted-service replay completed protected and public installed state. Independent before/after readback and an idempotent repeat matched payload, protected and public file hashes. This evidences one lab visible-journal window, not the prepared-only window, general sources, lease fencing, hostile rights, physical-host power loss, OD-001 or production publication. WU-006 revision 6 narrowly admits existing workspace resource controls under the owner resource-incident directive; no implementation classification or native qualification changes. Initial streamed-install source context is journaled before staging effects; explicit replay distinguishes initial absence from disappearance of recorded staging. These remain source observations, not additional profile qualification. The concrete protected service engine is now extracted into the private lifecycle implementation. An opaque operation-scoped context connects ordinary install_local.apply validation and caller transaction/time to the existing protected staging, durable records, publication and public-state finalization. The same request outside that context retains strict refusal. Candidate source and hosted tests do not establish external client transport, complete crash/hostile qualification, per-install fencing or production availability. A WU-014 unsigned selected NTFS candidate package now binds the finalized authored bundle and ordinary native publisher binaries. The hosted registered case is prepared to install from this package and withhold every authored and packaged payload source before reentry. Hosted execution, general provisioning, OD-001 and release qualification remain open at this source checkpoint. A Windows cleanup observation now waits through transient absent CIM command-line or executable fields after terminating an owned process; an observed identity mismatch or descendant that remains still refuses cleanup. This repairs a CI race without changing publication qualification. The cleanup helper also retains a present PID with an unavailable CIM creation time as ambiguous until disappearance or timeout; a focused regression covers this confirmation boundary.",
   "release_scope": "selected: Universal Setup 1.1 train targeting 1.1.0 Local Setup Foundation; exact support and release readiness not established",
-  "working_tree_note": "Assessment is bound to dev@16a773ea964f5d3228647795d17ae4ff6dbbc20e and its exact tree; candidate-only WU-004 specification/test additions make no runtime implementation or qualification claim.",
+  "working_tree_note": "Assessment source includes WU-010 implementation 60efbe0400c85f37b1935fc387801209f452932f and WU-006 candidate source. WU-004/005 integrated receipts are present. Published transaction v1 operation enums remain closed; v2 is additive and the reference converter has no execution authority. WU-005 retains its 24-case Windows NTFS memory matrix and 4,097-file prior-format verification fixture; STREAM-001 now has one completed 2 GiB streamed install/verify and 4,096-entry planning-only peaks. Full ceiling lifecycle, wider multi-gigabyte corpus and legacy-report acceptance remain partial. A clean-source Windows NTFS Debug matrix measured prior-format verify/uninstall planning in fresh children at 128, 4,097 and 8,192 files after separate fixture preparation; 8,192-file verify peaked at 97,431,552 bytes, above the 64 MiB comparison threshold, and no aggregate report budget is enforced. WU-006 revision 4 admits named file families while contracts, release records and other specification files remain read-only. Local Windows 10 build 19045 C: NTFS fixtures passed no-replace/substitution probes, same-handle owner/DACL reobservation, token/impersonation observations, protected descriptor shape, and parent-bound create-only/collision observations. The descriptor test is in memory; the create probe uses a disposable ordinary-user descriptor, not a restricted service. No installed restricted service, dedicated protected volume, complete closure, durable recovery, crash qualification, or production publication success is included. OD-001 and wider lifecycle/authoring acceptance remain open. A later ordinary-user C: NTFS fixture observed the handle-bound volume tuple, one unnamed file data stream, empty directory stream enumeration, and rejection of named streams on files and directories. This is not a dedicated protected volume or complete closure qualification. A local ordinary-user Windows 10 build 19045 C: NTFS fixture exercised 640-file directory pagination, exact native parent/name and listed/reopened 128-bit ID binding, nested digest observation, hard-link and named-stream refusal. A directory listing size was stale while a writer remained open; the candidate uses the reopened file handle for size and content. This is not an admitted protected target, complete security closure, durable publication, or recovery proof. Additional ordinary-user C: NTFS tests observed a descendant DACL protection change and a root rename across fresh tree phases; a synthetic exact descriptor tree passes the shape predicate while the real ordinary-user tree refuses. A held destination-parent wrapper derives the exact visible name and reopens the listed child; a local fixture verified handle binding after parent-path substitution. The parent chain is not qualified as protected. No installed restricted service or effective-right attack harness was used. A local ordinary-user 12-level directory-chain fixture with 64 sibling files per level passed; the observer releases each full sibling listing before descending, rechecks held parents, and rejects forged disconnected paths, duplicate identities, noncanonical components and changed DACL facts. This does not establish the dedicated protected volume-root boundary or a complete publisher. A local ordinary-user anchor fixture reobserved staging, destination-parent, state and journal sibling roles and refused duplicate IDs, case-fold name collisions, DACL drift and ordinary-user protected shape. A local token fixture refused an absent/malformed named service; no installed restricted publisher service positive observation was run. The second anchor enumeration detects stable name substitution between scans, not an atomic snapshot or hostile concurrent-race exclusion. A parent-bound file primitive passed a disposable local Windows Debug probe for write/flush, canonical Unicode and 129-unit names, create-only collision, and held-parent path substitution. Independent source review found no blocker for this partial candidate; OD-001 and strict production refusal remain open. Exact inventory-output scope was admitted for WU-012 through WU-018 with task revisions and regenerated specification seal; no product behavior or acceptance is claimed by this correction. The specification self-test fixture cleanup now retries only transient ENOTEMPTY from its disposable Git repository after two hosted specification jobs observed that race; persistent cleanup errors still fail. A WU-012 compiler reads declared finalized files without hooks, emits deterministic stored ZIP bytes and a sidecar retaining component choices, then reopens and hashes every entry. Focused tests cover graph alternatives, hostile paths/collisions, tampering and an independently compiled one-file executable from a separate project root. The source-open checks do not qualify hostile concurrent source swaps; no native lifecycle integration, full target matrix or signed carrier exists. A later source review found and repaired a file-as-parent collision hidden by an interposed sibling name, and an overlong path component accepted for a Windows target; both compile and inspect paths now reject the affected cases. Cleanup also preserves a file created by another writer after exclusive-create collision. WU-012 source head fcfd257bb64af4cd8ed55c0cc4baae6c35229632 merged through PR 88 with two successful exact-head CI runs and independent source review; the accepted receipt expressly limits qualification to the selected-target unsigned authoring slice. WU-013 through WU-018 task revision 4 admits only CMakeLists.txt to wire their declared compiled surfaces into the build. A WU-013 source-only binding against the new WU-012 receipt passed locally. A Windows Debug process probe exercised one JSON result, binary framing, request-file input, duplicate/invalid UTF-8 refusal and canary-safe diagnostics. This is source-level behavior for a closed read-only command subset; no TTY acceptance, reconnect after effects, mutation routing or product release qualification is claimed. Independent review of the first WU-013 head found that EOF could mask read failure and buffered response writes could fail after an apparent success; focused failing-stream probes now reject combined bad/EOF and flush failures. A fresh isolated Windows Debug 8,192-file probe measured ownership loading alone at 97,333,248 bytes versus full verification at 97,439,744 bytes. The prior-format reader is the dominant peak; this task revision admits its exact implementation file for a bounded repair. A clean-source Windows Debug follow-up measured separate 128, 4,097 and 8,192-entry reader, verify and uninstall-plan child processes after fixture preparation; the 8,192-entry peaks were 64,434,176, 64,520,192 and 64,630,784 bytes. The result improves the earlier 97 MB shape but does not impose an aggregate allocation budget or qualify full 4,096-entry lifecycle. A source-bound external one-file C product probe compiled outside USK, packaged the actual Debug usk_machine binary into both envelope shapes, reinspected the extracted carrier product graph, and launched the read-only machine command successfully. The carrier requires extraction and has no direct entrypoint. The runtime dependency closure, product install/maintenance path, signing and native publisher remain unqualified. The sidecar manifest uses exclusive creation; a focused competing-writer test confirms a newly created outsider file is not overwritten. The emitted ZIP is now byte-compared to a canonical reconstruction, so a hidden PE prefix or trailing data fails inspection; both sidecar and carrier run the complete WU-012 bundle inspector on emitted bytes. Focused adversarial tests cover those cases. The builder now compares the post-composition inspector result to the input-derived manifest; a focused race test substitutes an independently valid alternate host during inspection and confirms both profiles refuse the changed output. A completed 4,096-entry install OS peak from the prior 2dcb067 source is retained as historical evidence, not rebound to this report-budget source change. The new unknown-path budget refuses before verification or uninstall planning returns; it has a native disposable boundary probe and the clean-source 4,096-entry six-operation process matrix described above; update apply still strictly refuses and release acceptance remains open. A fourth hosted diagnostic run 36088048188 at source afcd297 returned the same sharing violation for separate empty held and reopened sources, and Win32 32 for a separate absolute-name move on the same fresh VHD; failed receipt SHA-256 890fef35de140a4708a7357c1b03b6acb8d8e1f2236b2726bce25b6564f939e9. A local ordinary-user NTFS regression reproduced that violation with a retained create-only destination-parent handle and passed after closing that handle and reopening the exact listed child through its held parent with FILE_ADD_SUBDIRECTORY, checked against the created ID. The current lab candidate applies that bounded fix. Hosted PR #102 run 36088974062 at source ef95390e61f3b42e1796caf9375b4a3b02820a90 on Windows build 10.0.20348.0 observed a successful handle-relative no-replace rename by the generated restricted service on a fresh NTFS VHD; the held source and independently reopened visible root retained the same composite file ID and the visible payload SHA-256 92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f. Both lab summary markers were file-flushed and independently checked, then service/VHD cleanup was reported. Retained receipt SHA-256 1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1. The markers omit full durable closure evidence/replay; hostile-rights, crash recovery, production enablement and OD-001 remain open. A dependent WU-006 lab candidate now writes canonical JSON records with a 4 MiB accepted/written byte limit, containing structured protected-anchor, volume, staged/visible root and descendant observations; its one-descendant fixture does not qualify general peak serialization memory. It closes each file, reopens it through the retained journal handle, and compares exact stored bytes before continuing. The independent runner checks the recorded IDs, path, size, payload digest and unchanged anchor evidence. At the source-only checkpoint, the records omitted model-required effective-rights and exact-stream evidence; the later hosted observation below does not close those gaps or prove crash replay, hostile-rights resistance, or production publication. Hosted PR #103 run 36090975621 at source 7540aef110078fcfc89adb38dc31c11da31961c2 on Windows build 10.0.20348.0 observed exact held-journal readback of 4,491-byte prepared and 4,471-byte visible canonical records on a fresh NTFS VHD. The visible record links the prepared SHA-256; both structured trees preserve the staged/visible root file ID and payload digest. The independent runner checked schema, phase, protected anchor roles, volume, descendant path/size/hash and record linkage; the receipt reports service stop/deletion request and VHD dismount/backing-file removal. Retained receipt SHA-256 4a0caac176a15b28723ea17048dedb2f4196523ad6b64b8c4db31eb8103b9782. These lab records omit effective-rights and exact-stream evidence, have no crash replay, and do not qualify production publication. The dependent stream-evidence candidate passes local Windows Debug compilation and a native phase-drift fixture. Hosted PR #104 run 36092385074 passed seven CI jobs at source head 8b45cc87608c3331c5b10dc80f21b5a24bf40509. Its disposable restricted service on Windows build 10.0.20348.0 recorded an empty root stream set and one unnamed 25-byte file stream with equal allocation size in both phase records; retained JSON receipt SHA-256 3f8795fb7a8fe2d675ccad0b0580e2a4d15d08c77be98ef59f4994888ed3c3c4. This is not an independent OS stream-allocation query or production proof. The separate-login harness has parsed locally and a harmless child process rejected a mismatched account before touching any volume path. Hosted PR #105 run 36093907801 at source head 02a7512a1216e6103f1c2f47e50711e0f0fe5ca1 observed four explicit 0x80070005 denials under a generated standard account on a fresh Windows build 10.0.20348.0 NTFS VHD. The runner reported account/output deletion, service stop/deletion request and VHD dismount/backing removal. Retained JSON receipt SHA-256 0336a4f0879182e7ff2e2bb585165a4c362b1567b8504df8c7a86a565c7cec17. The denials do not isolate the ACL layer or qualify complete effective rights, concurrent attacks, recovery or production publication. The WU-006 selected-source candidate is based on merged dev 121e6258, with its source and tests bound by current hashes and VM evidence in the Windows NTFS profile. It is not production qualified. The selected-source recovery candidate merged from dev c9d4ae8. The subsequent lab completion candidate is based on dev 8a54b57; its exact VM binary and readback evidence are documented in the Windows NTFS profile. Public production publication remains disabled. A WU-006 lab-only multi-file selected ZIP candidate stages up to 4,096 canonical selected files and directories through held protected parents, seals exact file-set and tree closure, and links v2 prepared/visible/completion records while retaining v1 one-file compatibility. Its VM power-off replay is source/binary-specific evidence; general reviewed-plan authority, production installed state, leases, hostile-race qualification and OD-001 remain open. A later WU-006 lab-only source candidate durably stores a bounded reviewed-plan snapshot and binds its hash into prepared and completion records. The owned Windows VM observed exact post-power-off snapshot, journal and payload hashes, forward completion and idempotent repeat; a fresh VHD observed clean completion with the corrected binary. Public ownership, installed state, audit, general production authority and OD-001 remain open. A later exact-binary owned-VM power-off after visible journal flush retained prepared/snapshot/visible records and selected payloads; restricted-service recovery completed installed state forward and repeat was idempotent. A new private volume-wide cooperative mutex refuses overlapping restricted services before volume access; a second service failed closed while the owner ran, then reached protected-profile refusal after the owner stopped. It is not a per-install lease or revision fence; general sources, hostile-rights qualification, physical-host power loss and production enablement remain open. A later WU-006 laboratory candidate routes a repeated reviewed selected-ZIP install request through the existing protected recovery path when the publication anchor exists, checking durable envelope/source digests before forward effects. On an owned fresh NTFS VHD, the exact candidate binary reached a flushed visible journal, survived forced VM turn-off and restart with independent payload/journal readback and absent completion, and completed installed state forward after the recorded reviewed command was reissued. The SCM command line had reverted to an older envelope across the turn-off; that durability is not claimed. A repeat left all 11 observed files unchanged; wrong archive/envelope digests refused. Review found that the earlier binary mislabeled a completed stale request as recovery_required. A revised exact binary returned failed for that stale request and already_visible_bound for the bound request, with all 11 protected file hashes unchanged. The forced-off forward replay used the recorded source path; absent-source reentry was observed only after completion. This remains a laboratory profile, not general-source or production publisher qualification. A WU-006 private restricted-service setup initializer now validates a GUID volume root against the held volume FileId and writes setup state through that GUID path while preserving the reviewed acceptance marker. A Windows native smoke refuses an absent alias and a real alias paired with a different held directory ID. A fresh owned NTFS VHD on Windows Server 10.0.20348.0 completed a two-file selected install and independent backup-mode readback of 11 protected/public-state files; exact binary, receipt and digest identities are in the Windows NTFS profile. This is a laboratory profile only; same-volume namespace race, general source, lease fencing, OD-001 and production enablement remain open. A later private WU-006 source candidate writes the reviewed snapshot before staging and supports sealed snapshot-only forward replay. An owned NTFS VHD survived forced VM turn-off after staging; independent backup-mode readbacks before and after replay showed two payloads, the file-flushed snapshot retained in this VM run, prepared/visible evidence, public installed state, ownership and audit. A bound repeat returned already_visible_bound. The historical stage without a snapshot remains ambiguous and retained. This is one lab window, not general-source publication, independent recovery, lease fencing, hostile-rights qualification or OD-001 resolution. A further WU-006 private service mode recovers an exact snapshot-only staged state without the selected ZIP or reviewed envelope at their original paths. On a new owned NTFS VHD, forced VM turn-off after staging retained two payloads and the file-flushed reviewed snapshot. An independently checked source-free command completed prepared, visible, installed-state, ownership and audit records; backup-mode readback matched payload digests. This is one lab recovery window, not a general-source publisher, replay of later journal phases, lease fencing, hostile-rights qualification or OD-001 resolution. A further WU-006 private mode requires a v2 reviewed snapshot and restored native plan before source-free replay from prepared or visible journal phases. A fresh owned VM VHD survived forced turn-off after visible journal flush with no completion; with original ZIP and envelope withheld, restricted-service replay completed protected and public installed state. Independent before/after readback and an idempotent repeat matched payload, protected and public file hashes. This evidences one lab visible-journal window, not the prepared-only window, general sources, lease fencing, hostile rights, physical-host power loss, OD-001 or production publication.",
   "classification_definitions": {
     "implemented": "Source and retained tests cover the bounded present profile; not a release support claim.",
     "partial": "Some source/contract/test support exists, but the full requirement or qualification is incomplete.",
@@ -21,7 +21,7 @@
     {
       "command": "python -m unittest discover -s tests -v",
       "result": "PASS",
-      "tests": 108,
+      "tests": 117,
       "scope": "repository Python/contract/policy tests; no native runtime execution"
     },
     {
@@ -52,11 +52,11 @@
     "OD-008"
   ],
   "counts": {
+    "absent": 50,
     "implemented": 29,
-    "partial": 53,
-    "absent": 58,
-    "unverified": 4,
-    "outside_selected_release": 0
+    "outside_selected_release": 0,
+    "partial": 61,
+    "unverified": 4
   },
   "requirements": [
     {
@@ -244,7 +244,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -279,7 +279,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -314,7 +314,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         },
         {
           "path": "spec/provenance/pins.json",
@@ -337,7 +337,7 @@
       "spec_id": "USK-S-API",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "The one-shot host copies the borrowed public ABI response before releasing its context; async adapters and wider operation ownership remain open.",
       "spec_source": {
         "path": "spec/interfaces/operations-api.md",
         "sha256": "6cd6bda76fab70e905b52b16dafce7f7fccfbc6e0dbdebdff64f4f52e187a799"
@@ -354,6 +354,14 @@
         {
           "path": "tests/native/usk_abi_layout_smoke.c",
           "sha256": "63df2bb36fd31252b7cb95609c50ea15158423667db9d157512f3790da1f12fe"
+        },
+        {
+          "path": "runtime/command/usk_one_shot.cpp",
+          "sha256": "e684eec2d437228cc3da895ea67a5c5aedc6fa5ff4855605f9bdce9deecfe688"
+        },
+        {
+          "path": "tests/native/usk_one_shot_smoke.cpp",
+          "sha256": "8bc7daf17104d32a3510eff91a7fe77ca423428eb8320841446c923dadc21972"
         }
       ],
       "acceptance_ids": [
@@ -577,7 +585,7 @@
         },
         {
           "path": "tools/campaign_task_binding.py",
-          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
+          "sha256": "d8110d739028a87f11760a5f5af80c275f21f31d933941a55dab617aa57aee44"
         }
       ],
       "acceptance_ids": [
@@ -620,7 +628,7 @@
         },
         {
           "path": "tools/campaign_task_binding.py",
-          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
+          "sha256": "d8110d739028a87f11760a5f5af80c275f21f31d933941a55dab617aa57aee44"
         }
       ],
       "acceptance_ids": [
@@ -663,7 +671,7 @@
         },
         {
           "path": "tools/campaign_task_binding.py",
-          "sha256": "853adceddf5b7ef340421f275becdbfa53cfcd610bb627db6f2240075b042f30"
+          "sha256": "d8110d739028a87f11760a5f5af80c275f21f31d933941a55dab617aa57aee44"
         }
       ],
       "acceptance_ids": [
@@ -680,14 +688,30 @@
       "requirement_id": "USK-R-AUTHOR-001",
       "title": "Deterministic bundle",
       "spec_id": "USK-S-AUTHOR",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "A target-specific unsigned bundle compiler now emits reproducible ZIP and canonical sidecar bytes from finalized files; tests compare ASCII, spaced and Unicode source roots. Full carrier/profile reproducibility and product acceptance remain open. The inspect-only Windows envelope composes exact runtime and bundle bytes into reproducible sidecar and one-file carrier shapes; other targets and complete release reproducibility remain open. A read-only authoring transition command now checks two exact bundles and a common installation scope, preserves an accepted component selection, excludes new defaults, and includes new required/dependent components; this is not an installed-state update plan. An unsigned finalized bundle can now contain only the exact selected component closure; package-to-plan and installed-state application remain open.",
       "spec_source": {
         "path": "spec/authoring/toolchain.md",
         "sha256": "448090c0436d9562b87dad56d269b9b2408670ca56ea3f954894c62c3a611504"
       },
       "source_observations": [
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "contracts/schema/package/authoring_project.v1.schema.json",
+          "sha256": "b062ac66fc2eb80f5c94aeb44f83679b20824438e92900863e074b019c54748d"
+        },
+        {
+          "path": "contracts/schema/package/product_bundle.v1.schema.json",
+          "sha256": "fe74c1ad36b4118703925796ab0f7da9fc0cedad7399093a430b1f9cf6d4a1ff"
+        },
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
           "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
@@ -697,8 +721,60 @@
           "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
+          "path": "release/packaging/windows/usk-prefab-envelope.md",
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
+        },
+        {
+          "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
+          "sha256": "9ba80b5e125e1a9919b1f3dae90ee4ce8ff415778dd29077315d4b70f86915df"
+        },
+        {
+          "path": "tests/prefab_external_probe.py",
+          "sha256": "0a8e17f9759d561dfc00c3bf1c215d980e62bda9ef08d092f2be63508cbbbb9d"
+        },
+        {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "ec6ee0e1be3436d073a75f62061726c227732dc16a4e065a67ed18e5b6f53ce2"
+        },
+        {
+          "path": "tests/test_bundle_selection.py",
+          "sha256": "20433bb8b935588bbfceb36ef4012382f292b6fe079bccf62d44baadfe90d7c8"
+        },
+        {
+          "path": "tests/test_prefab_envelope.py",
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
+        },
+        {
           "path": "tools/product_package_contract_check.py",
           "sha256": "234570eae959627a255a6303f690ad2900e6546861b4dd02f0b7f647ada8daad"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "5b4ec1ad3e259f9aa7a5cdade99d17fc2b3b991d5e0867876f0f9cb89ee27f9d"
+        },
+        {
+          "path": "tools/usk_bundle_selection.md",
+          "sha256": "db67c84f5e82f81c1ff771a99e5915172c45a7f50187dd1122f4fdcfe7f19ff7"
+        },
+        {
+          "path": "tools/usk_bundle_selection.py",
+          "sha256": "c86bf2da1b9609c73a0d3948e3c43836c5964ce2fea64ff8ba7b59779f6792ce"
+        },
+        {
+          "path": "tools/usk_prefab_envelope.py",
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
+        },
+        {
+          "path": "tools/usk_bundle_plan.py",
+          "sha256": "18eb1bbbb3a4d40ef7ec75623714414ee9d4618c6459c1613291e4d55a23dca3"
+        },
+        {
+          "path": "tools/usk_bundle_plan.md",
+          "sha256": "55adb56dd5fe02b98a4d761d07e59ed55fcb00e492db7b18b78cd45b9533c0c0"
+        },
+        {
+          "path": "tests/test_bundle_plan.py",
+          "sha256": "cf184d792923c1ce53650180468070cd16f939a705fb1499a8e292c9c9eea714"
         }
       ],
       "acceptance_ids": [
@@ -716,14 +792,26 @@
       "requirement_id": "USK-R-AUTHOR-002",
       "title": "Adapter fidelity",
       "spec_id": "USK-S-AUTHOR",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "The inspect-only prefab adapter copies the resolved product bundle and payload byte-for-byte and checks the enclosed graph. Install-capable package adapters and selection/preservation/runtime-fidelity qualification remain absent. The packaged native host now reports verified read-only component closure and refuses conflicting choices; install-capable selection use remains open. An unsigned finalized bundle can now contain only the exact selected component closure; package-to-plan and installed-state application remain open.",
       "spec_source": {
         "path": "spec/authoring/toolchain.md",
         "sha256": "448090c0436d9562b87dad56d269b9b2408670ca56ea3f954894c62c3a611504"
       },
       "source_observations": [
+        {
+          "path": "apps/cli/usk_machine.cpp",
+          "sha256": "b398e9191d6fd524a957549a16727586264d80c61b3366fbb501b11380e58775"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "apps/cli/usk_product_info.h",
+          "sha256": "06d7b99161c12b9aa81f1e41d054b6ee2a05f27fdf07e555334fa59bd1919aad"
+        },
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
           "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
@@ -733,8 +821,60 @@
           "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
+          "path": "release/packaging/windows/usk-prefab-envelope.md",
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
+        },
+        {
+          "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
+          "sha256": "9ba80b5e125e1a9919b1f3dae90ee4ce8ff415778dd29077315d4b70f86915df"
+        },
+        {
+          "path": "tests/prefab_external_probe.py",
+          "sha256": "0a8e17f9759d561dfc00c3bf1c215d980e62bda9ef08d092f2be63508cbbbb9d"
+        },
+        {
+          "path": "tests/test_bundle_selection.py",
+          "sha256": "20433bb8b935588bbfceb36ef4012382f292b6fe079bccf62d44baadfe90d7c8"
+        },
+        {
+          "path": "tests/test_prefab_envelope.py",
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
+        },
+        {
           "path": "tools/product_package_contract_check.py",
           "sha256": "234570eae959627a255a6303f690ad2900e6546861b4dd02f0b7f647ada8daad"
+        },
+        {
+          "path": "tools/usk_bundle_selection.md",
+          "sha256": "db67c84f5e82f81c1ff771a99e5915172c45a7f50187dd1122f4fdcfe7f19ff7"
+        },
+        {
+          "path": "tools/usk_bundle_selection.py",
+          "sha256": "c86bf2da1b9609c73a0d3948e3c43836c5964ce2fea64ff8ba7b59779f6792ce"
+        },
+        {
+          "path": "tools/usk_prefab_envelope.py",
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
+        },
+        {
+          "path": "tools/usk_bundle_plan.py",
+          "sha256": "18eb1bbbb3a4d40ef7ec75623714414ee9d4618c6459c1613291e4d55a23dca3"
+        },
+        {
+          "path": "tools/usk_bundle_plan.md",
+          "sha256": "55adb56dd5fe02b98a4d761d07e59ed55fcb00e492db7b18b78cd45b9533c0c0"
+        },
+        {
+          "path": "tests/test_bundle_plan.py",
+          "sha256": "cf184d792923c1ce53650180468070cd16f939a705fb1499a8e292c9c9eea714"
+        },
+        {
+          "path": "CMakeLists.txt",
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
+        },
+        {
+          "path": "tests/native/usk_bundle_plan_process_probe.py",
+          "sha256": "fced2962065632a1590c28048788f708fb707220806f525cc888873bea2eb27d"
         }
       ],
       "acceptance_ids": [
@@ -752,14 +892,30 @@
       "requirement_id": "USK-R-AUTHOR-003",
       "title": "No-code consumer",
       "spec_id": "USK-S-AUTHOR",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "A separate one-file C product is compiled, authored and packaged with the actual read-only machine host without engine edits; both carrier shapes reopen and the host starts. No install-capable no-code setup application is established. The packaged native host now reads the compiled bundle and verifies adjacent payload bytes read-only; install-capable setup remains absent. The packaged native host now reports verified read-only component closure and refuses conflicting choices; install-capable selection use remains open. An unsigned finalized bundle can now contain only the exact selected component closure; package-to-plan and installed-state application remain open.",
       "spec_source": {
         "path": "spec/authoring/toolchain.md",
         "sha256": "448090c0436d9562b87dad56d269b9b2408670ca56ea3f954894c62c3a611504"
       },
       "source_observations": [
+        {
+          "path": "apps/cli/usk_machine.cpp",
+          "sha256": "b398e9191d6fd524a957549a16727586264d80c61b3366fbb501b11380e58775"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "apps/cli/usk_product_info.h",
+          "sha256": "06d7b99161c12b9aa81f1e41d054b6ee2a05f27fdf07e555334fa59bd1919aad"
+        },
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
           "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
@@ -769,8 +925,80 @@
           "sha256": "3b915db277ad806ef910f2bbe3725b831264a4bcbe2d3f025f2706005ab8ca64"
         },
         {
+          "path": "release/packaging/windows/usk-prefab-envelope.md",
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
+        },
+        {
+          "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
+          "sha256": "9ba80b5e125e1a9919b1f3dae90ee4ce8ff415778dd29077315d4b70f86915df"
+        },
+        {
+          "path": "tests/fixtures/authoring/neutral_one_file/README.md",
+          "sha256": "a049b08b296012f73044cd5529c9a9cc600987b993b30ca0566a1e1638114c8a"
+        },
+        {
+          "path": "tests/fixtures/authoring/neutral_one_file/hello.c",
+          "sha256": "4932f446eb767f51ff5a16678460b1485fe9c5026a6d46c22ed3b41986c3d9d4"
+        },
+        {
+          "path": "tests/fixtures/authoring/neutral_one_file/project.json",
+          "sha256": "28127312d3aaa859c96be8a069e7f4f9cba7fc15f0c3439c3f6fa8f819e8da17"
+        },
+        {
+          "path": "tests/prefab_external_probe.py",
+          "sha256": "0a8e17f9759d561dfc00c3bf1c215d980e62bda9ef08d092f2be63508cbbbb9d"
+        },
+        {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "ec6ee0e1be3436d073a75f62061726c227732dc16a4e065a67ed18e5b6f53ce2"
+        },
+        {
+          "path": "tests/test_bundle_selection.py",
+          "sha256": "20433bb8b935588bbfceb36ef4012382f292b6fe079bccf62d44baadfe90d7c8"
+        },
+        {
+          "path": "tests/test_prefab_envelope.py",
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
+        },
+        {
           "path": "tools/product_package_contract_check.py",
           "sha256": "234570eae959627a255a6303f690ad2900e6546861b4dd02f0b7f647ada8daad"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "5b4ec1ad3e259f9aa7a5cdade99d17fc2b3b991d5e0867876f0f9cb89ee27f9d"
+        },
+        {
+          "path": "tools/usk_bundle_selection.md",
+          "sha256": "db67c84f5e82f81c1ff771a99e5915172c45a7f50187dd1122f4fdcfe7f19ff7"
+        },
+        {
+          "path": "tools/usk_bundle_selection.py",
+          "sha256": "c86bf2da1b9609c73a0d3948e3c43836c5964ce2fea64ff8ba7b59779f6792ce"
+        },
+        {
+          "path": "tools/usk_prefab_envelope.py",
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
+        },
+        {
+          "path": "tools/usk_bundle_plan.py",
+          "sha256": "18eb1bbbb3a4d40ef7ec75623714414ee9d4618c6459c1613291e4d55a23dca3"
+        },
+        {
+          "path": "tools/usk_bundle_plan.md",
+          "sha256": "55adb56dd5fe02b98a4d761d07e59ed55fcb00e492db7b18b78cd45b9533c0c0"
+        },
+        {
+          "path": "tests/test_bundle_plan.py",
+          "sha256": "cf184d792923c1ce53650180468070cd16f939a705fb1499a8e292c9c9eea714"
+        },
+        {
+          "path": "CMakeLists.txt",
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
+        },
+        {
+          "path": "tests/native/usk_bundle_plan_process_probe.py",
+          "sha256": "fced2962065632a1590c28048788f708fb707220806f525cc888873bea2eb27d"
         }
       ],
       "acceptance_ids": [
@@ -798,7 +1026,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         },
         {
           "path": "runtime/platform/README.md",
@@ -829,7 +1057,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         },
         {
           "path": "runtime/platform/README.md",
@@ -860,7 +1088,7 @@
       "source_observations": [
         {
           "path": "apps/daemon/README.md",
-          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         },
         {
           "path": "runtime/platform/README.md",
@@ -883,12 +1111,16 @@
       "spec_id": "USK-S-BUNDLE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "The source-level target bundle retains component choices and is separate from the resolve command. Machine-specific planning and complete target variants remain unimplemented.",
       "spec_source": {
         "path": "spec/model/bundle.md",
         "sha256": "31ef388fb3773a952d7607c5b6e5b84674847dd6343183014289495a13c3e636"
       },
       "source_observations": [
+        {
+          "path": "contracts/schema/package/product_bundle.v1.schema.json",
+          "sha256": "fe74c1ad36b4118703925796ab0f7da9fc0cedad7399093a430b1f9cf6d4a1ff"
+        },
         {
           "path": "contracts/schema/package/product_package.v1.schema.json",
           "sha256": "e1f2fa05d782b3cf41c9e0c061f9026fedbae1acabeb39ad62d1bca85bef32d4"
@@ -898,8 +1130,20 @@
           "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "ec6ee0e1be3436d073a75f62061726c227732dc16a4e065a67ed18e5b6f53ce2"
+        },
+        {
           "path": "tests/test_product_package_contracts.py",
           "sha256": "9b768e9febc1510c4dde6abae033f1ecd44fe518a126be96f71d19d48d3a4321"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "5b4ec1ad3e259f9aa7a5cdade99d17fc2b3b991d5e0867876f0f9cb89ee27f9d"
+        },
+        {
+          "path": "tools/usk_component_resolver.py",
+          "sha256": "af3b803369e1b98c6200963131805972930816be2c48c41bff3338d0b7389879"
         }
       ],
       "acceptance_ids": [
@@ -918,7 +1162,7 @@
       "spec_id": "USK-S-BUNDLE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "The target compiler carries and independently rereads exact finalized file bytes in a deterministic local ZIP. Native setup envelope and full portable-release acceptance remain open.",
       "spec_source": {
         "path": "spec/model/bundle.md",
         "sha256": "31ef388fb3773a952d7607c5b6e5b84674847dd6343183014289495a13c3e636"
@@ -933,8 +1177,16 @@
           "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "ec6ee0e1be3436d073a75f62061726c227732dc16a4e065a67ed18e5b6f53ce2"
+        },
+        {
           "path": "tests/test_product_package_contracts.py",
           "sha256": "9b768e9febc1510c4dde6abae033f1ecd44fe518a126be96f71d19d48d3a4321"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "5b4ec1ad3e259f9aa7a5cdade99d17fc2b3b991d5e0867876f0f9cb89ee27f9d"
         }
       ],
       "acceptance_ids": [
@@ -953,7 +1205,7 @@
       "spec_id": "USK-S-BUNDLE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "The bounded deterministic graph resolver now validates compiler input and inspected bundle selection; latent cycles, selected conflicts, hostile paths and resource limits have source-level tests. Endpoint planner and product acceptance remain open.",
       "spec_source": {
         "path": "spec/model/bundle.md",
         "sha256": "31ef388fb3773a952d7607c5b6e5b84674847dd6343183014289495a13c3e636"
@@ -968,8 +1220,24 @@
           "sha256": "c3a3c056e3889d0bd785ca6c1e2562a7cddefca0de77615ad6431db5e51445f2"
         },
         {
+          "path": "tests/test_bundle_author.py",
+          "sha256": "ec6ee0e1be3436d073a75f62061726c227732dc16a4e065a67ed18e5b6f53ce2"
+        },
+        {
+          "path": "tests/test_component_resolver.py",
+          "sha256": "33e13d437187b8fde3b12759bc91eb4ba18c2a5bf752de1e990e5fefce6347cc"
+        },
+        {
           "path": "tests/test_product_package_contracts.py",
           "sha256": "9b768e9febc1510c4dde6abae033f1ecd44fe518a126be96f71d19d48d3a4321"
+        },
+        {
+          "path": "tools/usk_bundle_author.py",
+          "sha256": "5b4ec1ad3e259f9aa7a5cdade99d17fc2b3b991d5e0867876f0f9cb89ee27f9d"
+        },
+        {
+          "path": "tools/usk_component_resolver.py",
+          "sha256": "af3b803369e1b98c6200963131805972930816be2c48c41bff3338d0b7389879"
         }
       ],
       "acceptance_ids": [
@@ -1172,9 +1440,9 @@
       "requirement_id": "USK-R-CLI-001",
       "title": "Machine mode never prompts",
       "spec_id": "USK-S-CLI",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "The explicit one-shot machine mode returns a single JSON result and never prompts in the exercised process probe; attached-TTY and full command coverage remain unqualified. The one-shot host now dispatches the public read-only local archive inspection command through the native ABI; mutation commands remain refused. A WU-013 machine-host candidate adds explicit protected-authority planning with a bounded context file; no setup effect or release qualification follows.",
       "spec_source": {
         "path": "spec/interfaces/cli-tui.md",
         "sha256": "13a32521d1c0fda4d47dcae284a5439809465b7cc77210e3374cc68961d4e723"
@@ -1187,6 +1455,22 @@
         {
           "path": "apps/tui/README.md",
           "sha256": "2644a6fe9734dcc777ef8f526b1d9e00e994c484a730f5c880b2aea16454df12"
+        },
+        {
+          "path": "apps/cli/usk_machine.cpp",
+          "sha256": "b398e9191d6fd524a957549a16727586264d80c61b3366fbb501b11380e58775"
+        },
+        {
+          "path": "tests/native/usk_machine_process_probe.py",
+          "sha256": "8962d7b5d6f41af0a4a2a55c8265859794d34faa7feb22bb6e3c0a2ef0d9a57d"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
         }
       ],
       "acceptance_ids": [
@@ -1375,7 +1659,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -1406,7 +1690,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -1437,7 +1721,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -1468,7 +1752,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "790edf29381f027f99609a8374dda9b3a3944e28d7b21a466b081f68fb7a0928"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
@@ -1500,7 +1784,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "790edf29381f027f99609a8374dda9b3a3944e28d7b21a466b081f68fb7a0928"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
@@ -1532,7 +1816,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "790edf29381f027f99609a8374dda9b3a3944e28d7b21a466b081f68fb7a0928"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
@@ -1564,7 +1848,7 @@
         },
         {
           "path": "apps/cli/README.md",
-          "sha256": "790edf29381f027f99609a8374dda9b3a3944e28d7b21a466b081f68fb7a0928"
+          "sha256": "18284cd29fe71713a1b9b49ca878b1c222ce756cbfcf24b601b8d6c3fc27a168"
         }
       ],
       "acceptance_ids": [
@@ -1592,7 +1876,7 @@
       "source_observations": [
         {
           "path": "tests/native/usk_interruption_recovery_smoke.cpp",
-          "sha256": "8f176c5303d94411b75c41709e940ed513aeffeaa56c5445a2211c794112c76e"
+          "sha256": "5e7c069ef3993b11c31884049109aa440f4ff865c315b27131a611fa558518e8"
         },
         {
           "path": "docs/testing/m2_interruption_recovery.md",
@@ -1628,7 +1912,7 @@
       "source_observations": [
         {
           "path": "tests/native/usk_interruption_recovery_smoke.cpp",
-          "sha256": "8f176c5303d94411b75c41709e940ed513aeffeaa56c5445a2211c794112c76e"
+          "sha256": "5e7c069ef3993b11c31884049109aa440f4ff865c315b27131a611fa558518e8"
         },
         {
           "path": "docs/testing/m2_interruption_recovery.md",
@@ -1664,7 +1948,7 @@
       "source_observations": [
         {
           "path": "tests/native/usk_interruption_recovery_smoke.cpp",
-          "sha256": "8f176c5303d94411b75c41709e940ed513aeffeaa56c5445a2211c794112c76e"
+          "sha256": "5e7c069ef3993b11c31884049109aa440f4ff865c315b27131a611fa558518e8"
         },
         {
           "path": "docs/testing/m2_interruption_recovery.md",
@@ -1700,11 +1984,11 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "b5c1703e2e193f2cb4895a7ab078f695ff3fbb745be6b190f75f466ebe61c7be"
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
         }
       ],
       "acceptance_ids": [
@@ -1731,11 +2015,11 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "b5c1703e2e193f2cb4895a7ab078f695ff3fbb745be6b190f75f466ebe61c7be"
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
         }
       ],
       "acceptance_ids": [
@@ -1762,11 +2046,11 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "b5c1703e2e193f2cb4895a7ab078f695ff3fbb745be6b190f75f466ebe61c7be"
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
         }
       ],
       "acceptance_ids": [
@@ -1884,7 +2168,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         }
       ],
       "acceptance_ids": [
@@ -1915,7 +2199,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         }
       ],
       "acceptance_ids": [
@@ -1946,7 +2230,7 @@
         },
         {
           "path": "apps/daemon/README.md",
-          "sha256": "97b379cca77a18096c1088bd18e58721fdf7c89bd971eb4d34f4aabc78d6e5d2"
+          "sha256": "9a23d4c03c5c9dbf1187cf64d475da057d5e570e97e0e21772622d50ab577507"
         }
       ],
       "acceptance_ids": [
@@ -1973,7 +2257,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
@@ -2009,7 +2293,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
@@ -2045,7 +2329,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
@@ -2085,7 +2369,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -2116,7 +2400,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -2244,7 +2528,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "fe1404cdf904d7c106ebbd5b8604e1255f3a6b5d818ee98529d103415604b724"
+          "sha256": "0cdca99d3f19e516bd4427c1efa53f012bc317d6298c23357dce265d62cb9910"
         }
       ],
       "acceptance_ids": [
@@ -2280,7 +2564,7 @@
         },
         {
           "path": "spec/integrity.json",
-          "sha256": "fe1404cdf904d7c106ebbd5b8604e1255f3a6b5d818ee98529d103415604b724"
+          "sha256": "0cdca99d3f19e516bd4427c1efa53f012bc317d6298c23357dce265d62cb9910"
         }
       ],
       "acceptance_ids": [
@@ -2308,7 +2592,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -2339,7 +2623,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -2370,7 +2654,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -2401,11 +2685,11 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
-          "sha256": "7145fbf011c7606bb9ae75d21cfdfa9696b1f8db71f4817fa183f07d81b54cc1"
+          "sha256": "244e66f78fccadb371c6593a4b0a551c6d5d37daf5a231d12ae541fbe8135597"
         },
         {
           "path": "apps/README.md",
@@ -2436,11 +2720,11 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
-          "sha256": "7145fbf011c7606bb9ae75d21cfdfa9696b1f8db71f4817fa183f07d81b54cc1"
+          "sha256": "244e66f78fccadb371c6593a4b0a551c6d5d37daf5a231d12ae541fbe8135597"
         },
         {
           "path": "apps/README.md",
@@ -2471,11 +2755,11 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
-          "sha256": "7145fbf011c7606bb9ae75d21cfdfa9696b1f8db71f4817fa183f07d81b54cc1"
+          "sha256": "244e66f78fccadb371c6593a4b0a551c6d5d37daf5a231d12ae541fbe8135597"
         },
         {
           "path": "apps/README.md",
@@ -2510,7 +2794,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2545,7 +2829,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2580,7 +2864,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         },
         {
           "path": "spec/schema/concept-metadata.schema.json",
@@ -2611,7 +2895,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2645,7 +2929,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2679,7 +2963,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
         },
         {
           "path": "tests/native/usk_public_lifecycle_smoke.cpp",
@@ -2713,11 +2997,11 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "b5c1703e2e193f2cb4895a7ab078f695ff3fbb745be6b190f75f466ebe61c7be"
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2748,11 +3032,11 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "b5c1703e2e193f2cb4895a7ab078f695ff3fbb745be6b190f75f466ebe61c7be"
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2783,11 +3067,11 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "b5c1703e2e193f2cb4895a7ab078f695ff3fbb745be6b190f75f466ebe61c7be"
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2818,11 +3102,11 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "3d52c0f2df8b75ed23630f15015c2e41224db6fbc8ad7cbce939d3aa7a586f22"
+          "sha256": "a53ec41e7455c5e6e0e0386dcc6dcf19c0f3d65dedf95ccd63c7bb5161f42d44"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "b5c1703e2e193f2cb4895a7ab078f695ff3fbb745be6b190f75f466ebe61c7be"
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -2857,7 +3141,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -2893,7 +3177,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -2929,7 +3213,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
-          "sha256": "a5fb84d3634b23001779d2863461dce95c9eb320ce85f0c65b66d04917c9dbd3"
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
         },
         {
           "path": "tests/test_setup_contracts.py",
@@ -2965,7 +3249,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
+          "sha256": "3132f575dcfe2cfebe5df09ecb4597f21ac84e5115e72541cc6b06cb4c6a3148"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3002,7 +3286,7 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
+          "sha256": "3132f575dcfe2cfebe5df09ecb4597f21ac84e5115e72541cc6b06cb4c6a3148"
         },
         {
           "path": "runtime/platform/posix/README.md",
@@ -3027,7 +3311,7 @@
       "spec_id": "USK-S-PLAT",
       "classification": "absent",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary. Candidate visible-only read/execute policy is durably bound in private snapshot v4 with post-completion grants and partial-grant replay; actual non-admin hosted execution and broader production qualification remain outstanding.",
       "spec_source": {
         "path": "spec/providers/platforms.md",
         "sha256": "eff8622cd0ed720cfe6cc9502c47eddbbfe3621653bfe7aed5a8f8e670cf7459"
@@ -3039,11 +3323,35 @@
         },
         {
           "path": "runtime/platform/windows/README.md",
-          "sha256": "2225aeb21dbf25f00cd6cb0cf6abeea470425230d539760b952971dbc526a707"
+          "sha256": "3132f575dcfe2cfebe5df09ecb4597f21ac84e5115e72541cc6b06cb4c6a3148"
         },
         {
           "path": "runtime/platform/posix/README.md",
           "sha256": "641fadf53f2d046eb7e1fe80caef93199831eb737c790ba07cbbaa4e55c328d1"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
+          "sha256": "46ec67a0ba4cdfe7fc2eee581c69e05bbbaabb37868bc7cf17b977af26575aea"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_client.cpp",
+          "sha256": "244e1dbcfc45d38a4123b76bbed9fb284dbbc76c8fc47ca7a2097a3b40aebb99"
+        },
+        {
+          "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
+          "sha256": "f59c027b56402c9f9e241a48a324b38d24cb082f45494d41b0fabab796e9efd3"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
+          "sha256": "509225d54dce0f87fdb2c36e14a4e9b67816ed81bcde49cf6730ab3aab8882ee"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_consumer_access.cpp",
+          "sha256": "0d5d345bf0cf3b5342714160f1167fb1ed72078c14bdb6323b854f838ef056d4"
+        },
+        {
+          "path": "tests/windows_publisher_consumer_client.ps1",
+          "sha256": "bbe0bb08a3fdc72db5571ed26f91991a9a93d604587e8484dcae23a4a6c607b7"
         }
       ],
       "acceptance_ids": [
@@ -3180,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
+          "sha256": "03cb72b0c75ee3101bec4da7b1d2976e4afa68bf73b3aec60b60a09b0d554a7f"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3188,7 +3496,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
         }
       ],
       "acceptance_ids": [
@@ -3216,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
+          "sha256": "03cb72b0c75ee3101bec4da7b1d2976e4afa68bf73b3aec60b60a09b0d554a7f"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3224,7 +3532,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
         }
       ],
       "acceptance_ids": [
@@ -3252,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "617be671ea3144930e05c6ea89de2939ceb537419bb79f13dcb951b77bcefea1"
+          "sha256": "03cb72b0c75ee3101bec4da7b1d2976e4afa68bf73b3aec60b60a09b0d554a7f"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3260,7 +3568,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "d21f5592ddcc1f162e78eec4d5217da73f5ae96d7ddcdf5bf75cc634ba25c305"
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
         }
       ],
       "acceptance_ids": [
@@ -3278,9 +3586,9 @@
       "requirement_id": "USK-R-PREFAB-001",
       "title": "Delivery properties explicit",
       "spec_id": "USK-S-PREFAB",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "The inspect-only envelope manifest separately records entrypoint count, physical-file count, extraction behavior, installation mode and an explicitly unqualified runtime dependency closure for sidecar and ZIP carrier shapes. A release-qualified manifest and executable one-file setup remain absent. Native product-info verifies the unsigned package member inventory and exposes the profile; authenticity and executable setup remain unqualified.",
       "spec_source": {
         "path": "spec/authoring/prefab.md",
         "sha256": "7a42cf3908a329358d552fc6b85594de558c019d6b332d999ae955f513e122ab"
@@ -3293,6 +3601,66 @@
         {
           "path": "release/packaging/README.md",
           "sha256": "aae3c2ad56182f4f451cef77a657580a4a22c415299eb0508127a662176d4f54"
+        },
+        {
+          "path": "release/packaging/windows/usk-prefab-envelope.md",
+          "sha256": "30dbb6a7a10793517a65ae24bd666863b890cae4a5d4e711daa00c4842915f0a"
+        },
+        {
+          "path": "release/packaging/windows/usk-prefab-external-source-observation.v1.json",
+          "sha256": "9ba80b5e125e1a9919b1f3dae90ee4ce8ff415778dd29077315d4b70f86915df"
+        },
+        {
+          "path": "tests/prefab_external_probe.py",
+          "sha256": "0a8e17f9759d561dfc00c3bf1c215d980e62bda9ef08d092f2be63508cbbbb9d"
+        },
+        {
+          "path": "tests/test_prefab_envelope.py",
+          "sha256": "07f6641200a575382f2a47f9a9949d12dd7bce17d6034c9cafc0fc4c559b40f0"
+        },
+        {
+          "path": "tools/usk_prefab_envelope.py",
+          "sha256": "3e75d5b69f43e375d2b07ed864f2aac24306fb08b5374ec1da3c3d5d0d716caf"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "apps/cli/usk_product_info.cpp",
+          "sha256": "8a857b9734d372b15edb9b8731257416c8e8c789ad5ab9c29952079d94fc9b29"
+        },
+        {
+          "path": "tools/usk_bundle_plan.py",
+          "sha256": "18eb1bbbb3a4d40ef7ec75623714414ee9d4618c6459c1613291e4d55a23dca3"
+        },
+        {
+          "path": "tools/usk_bundle_plan.md",
+          "sha256": "55adb56dd5fe02b98a4d761d07e59ed55fcb00e492db7b18b78cd45b9533c0c0"
+        },
+        {
+          "path": "tests/test_bundle_plan.py",
+          "sha256": "cf184d792923c1ce53650180468070cd16f939a705fb1499a8e292c9c9eea714"
+        },
+        {
+          "path": "CMakeLists.txt",
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
+        },
+        {
+          "path": "tests/native/usk_bundle_plan_process_probe.py",
+          "sha256": "fced2962065632a1590c28048788f708fb707220806f525cc888873bea2eb27d"
+        },
+        {
+          "path": "tools/usk_selected_candidate_package.py",
+          "sha256": "5599edea0327469667d3ab78137b8f7005831e1c66a52109654d2ebf256aab78"
+        },
+        {
+          "path": "tests/test_selected_candidate_package.py",
+          "sha256": "d62cbb9ed9ed642e4659e25da2be7eefa3c91b0a3f4530ce3a2fb4b50cdba778"
+        },
+        {
+          "path": "release/packaging/windows/usk-selected-candidate-package.md",
+          "sha256": "4defacf9a543c720f0c6ca0f48086fd57c454311e79ea1803441859a4ea70542"
         }
       ],
       "acceptance_ids": [
@@ -3485,12 +3853,12 @@
       "requirement_id": "USK-R-PUB-001",
       "title": "Bind descendants through publish",
       "spec_id": "USK-S-PUB",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "At PR #98 source head 6d3a73910df3f672efcde13e6d3f7e40c0c6097b, hosted run 36083054549 on Windows build 10.0.20348.0 positively observed a newly provisioned NTFS VHD, exact VHD-backed volume device SID ACL, a restricted own-process service, and six protected SYSTEM/service-SID anchors with distinct file IDs and stable second-phase observations. Retained receipt SHA-256 862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8. These are disposable laboratory anchors; the full staged descendant closure, durable journal and no-replace visible publication, hostile-rights tests, crash recovery, and production enablement remain absent. Strict production publication still refuses. A dependent source candidate creates and flushes a protected staged directory/file through retained handles and reobserves the staged closure. Hosted PR #100 run 36083996703 at source 487d994d43fb5df8123b86f7d526d4e0a75bde83 observed the 25-byte payload digest and eight distinct protected IDs on a disposable NTFS VHD; retained receipt SHA-256 b344d102c4ae5139b7eeb0095fbd91eead4a262dc61151cf308cf4cfd66d28e0. No durable publish intent, visible no-replace rename, hostile-rights proof, crash recovery, or production enablement follows from this staged probe. A lab-only candidate creates protected files with FILE_WRITE_THROUGH and flushes two summary markers around a held-handle no-replace rename, with source/parent and visible-tree checks. The markers are not model-compliant publish_prepared or visible_bound records because they omit full closure evidence and replay. An ordinary-user smoke exercises success and refusals. Initial hosted run 36086635337 stopped before rename when the restricted service received Win32 5 on a VHD volume flush; retained failed receipt SHA-256 c867f68bd26dc3930e805d0fe2a7287687340ccbea1d7bf488c1a95ee43. A second hosted run 36087096515 reached the bound native rename but returned NTSTATUS 0xc0000043 (sharing violation) while the staged payload handle remained open; its failed receipt SHA-256 is 3e6e77b917bb7851b99197a3db25a542cbdc427bbd8e93dbfea0df430b15570. Third hosted run 36087498601 still returned 0xc0000043 after that handle closed; failed receipt SHA-256 723b561b53c3c8ee6c57155b72131b00643e6f78dce42d699f6ba4b359fd7a1. An ordinary-user write-through create-only source succeeds on Windows 10 C: NTFS, so a bounded same-VHD diagnostic now compares separate empty held, reopened, and Win32 absolute-name objects to isolate the target failure; the absolute-name case is diagnostic only and cannot become a publisher fallback. Power-loss durability, hostile-rights/fault proof, recovery, and production capability remain unqualified. A fourth hosted diagnostic run 36088048188 at source afcd297 returned the same sharing violation for separate empty held and reopened sources, and Win32 32 for a separate absolute-name move on the same fresh VHD; failed receipt SHA-256 890fef35de140a4708a7357c1b03b6acb8d8e1f2236b2726bce25b6564f939e9. A local ordinary-user NTFS regression reproduced that violation with a retained create-only destination-parent handle and passed after closing that handle and reopening the exact listed child through its held parent with FILE_ADD_SUBDIRECTORY, checked against the created ID. The lab candidate applied that bounded fix before the subsequent hosted positive rename observation; the remaining WU-006 requirements are still pending. Hosted PR #102 run 36088974062 at source ef95390e61f3b42e1796caf9375b4a3b02820a90 on Windows build 10.0.20348.0 observed a successful handle-relative no-replace rename by the generated restricted service on a fresh NTFS VHD; the held source and independently reopened visible root retained the same composite file ID and the visible payload SHA-256 92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f. Both lab summary markers were file-flushed and independently checked, then service/VHD cleanup was reported. Retained receipt SHA-256 1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1. The markers omit full durable closure evidence/replay; hostile-rights, crash recovery, production enablement and OD-001 remain open. A dependent WU-006 lab candidate now writes canonical JSON records with a 4 MiB accepted/written byte limit, containing structured protected-anchor, volume, staged/visible root and descendant observations; its one-descendant fixture does not qualify general peak serialization memory. It closes each file, reopens it through the retained journal handle, and compares exact stored bytes before continuing. The independent runner checks the recorded IDs, path, size, payload digest and unchanged anchor evidence. At the source-only checkpoint, the records omitted model-required effective-rights and exact-stream evidence; the later hosted observation below does not close those gaps or prove crash replay, hostile-rights resistance, or production publication. Hosted PR #103 run 36090975621 at source 7540aef110078fcfc89adb38dc31c11da31961c2 on Windows build 10.0.20348.0 observed exact held-journal readback of 4,491-byte prepared and 4,471-byte visible canonical records on a fresh NTFS VHD. The visible record links the prepared SHA-256; both structured trees preserve the staged/visible root file ID and payload digest. The independent runner checked schema, phase, protected anchor roles, volume, descendant path/size/hash and record linkage; the receipt reports service stop/deletion request and VHD dismount/backing-file removal. Retained receipt SHA-256 4a0caac176a15b28723ea17048dedb2f4196523ad6b64b8c4db31eb8103b9782. These lab records omit effective-rights and exact-stream evidence, have no crash replay, and do not qualify production publication. A bounded source-to-protected-child streaming candidate checks declared bytes and digest while retaining post-creation failures; it is not linked to strict production publication. A disposable restricted-service source fixture now invokes the bounded staged stream; hosted execution and production qualification are separate. The disposable source is marked for handle-bound deletion and its state anchor is checked empty before sealing. A WU-006 lab-only multi-file selected ZIP candidate stages up to 4,096 canonical selected files and directories through held protected parents, seals exact file-set and tree closure, and links v2 prepared/visible/completion records while retaining v1 one-file compatibility. Its VM power-off replay is source/binary-specific evidence; general reviewed-plan authority, production installed state, leases, hostile-race qualification and OD-001 remain open. A later WU-006 lab-only source candidate durably stores a bounded reviewed-plan snapshot and binds its hash into prepared and completion records. The owned Windows VM observed exact post-power-off snapshot, journal and payload hashes, forward completion and idempotent repeat; a fresh VHD observed clean completion with the corrected binary. Public ownership, installed state, audit, general production authority and OD-001 remain open. A later controlled Windows VM candidate completed an authored two-file protected laboratory publication into the shared public ownership, installed-state and audit records; public inspect and verify passed. Repeated visible-bound recovery retained the ten recorded file hashes. The finalizer remains private and laboratory-bound. Path-based public writes permit an unqualified concurrent namespace-remapping interval; strict production authority, hostile-race and lease qualification, and OD-001 remain open. A subsequent source candidate replaces ZIP reinspection with exact reviewed selected readers and adds a scoped restricted-service metadata writer using explicit descriptors, held-parent pending record publication and private root initialization. Transaction/source/visible-root bindings are strengthened. Focused native compilation and backend regressions passed; the synthetic readback oracle passed one positive and twelve refusals. Current-binary VM transport/resource attempts did not qualify successful service publication or crash/hostile-rights behavior. Ordinary production availability and OD-001 remain unchanged. The concrete protected service engine is now extracted into the private lifecycle implementation. An opaque operation-scoped context connects ordinary install_local.apply validation and caller transaction/time to the existing protected staging, durable records, publication and public-state finalization. The same request outside that context retains strict refusal. Candidate source and hosted tests do not establish external client transport, complete crash/hostile qualification, per-install fencing or production availability. Partial records existing native protected publication and independently observed closure/metadata support; it is not a qualified production publisher or completed acceptance claim.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
+        "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
       },
       "source_observations": [
         {
@@ -3499,11 +3867,295 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "1776021c3aea1efeae3630bbf165885658dc3b1cff757b12c05d980032537da1"
+          "sha256": "edc647cc2d7cd7aeffeb6a69247140e8245069008a571f5ab2d310092295078c"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
-          "sha256": "d4d8247fc91fe5998ac19a70da56c6123367f5f4219beebaeb267d5aae7deaef"
+          "sha256": "e4e4c1da29e1c2d52b233eb40b8d7d8126b1e764c6c50e2e75e13c0b1560f42e"
+        },
+        {
+          "path": "runtime/base/usk_record_io.cpp",
+          "sha256": "6cf9bd61be87fe8e1ed1f6edbc7f8f954226aad15d7484b40080937824652e73"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.cpp",
+          "sha256": "bae11e62dae2bd49ec676592a832ac14b41cc3b3f656386ad09251c047bfb143"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_token_observation.cpp",
+          "sha256": "d2fbdf2296d89d066df259b5e424578e97efa0be5aed6bbfdf66c533dd03fb6f"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_security_descriptor.cpp",
+          "sha256": "dcd83ab20cc01236e242dca29bd582efcaeea4bbac45c418cd0fce0e0a259168"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_anchor_create.cpp",
+          "sha256": "3b91931bf9a10048660ea78112c7a7397e28b356af599d3dfde0e20b7130a6f2"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_stream_observation.cpp",
+          "sha256": "0b54722fb2a1f18c768ea6aa18c62341a2d7ce04cf8d4eef3d7fc9711aea143c"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_stream_observation.h",
+          "sha256": "44da1f9940f391fb8884b873af400571f4e77dc9c02e2becb0af0e3dd35ce518"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_stream_observation_smoke.cpp",
+          "sha256": "094b898119a6811e213e469735350f3514b181768e2506dcbeedf8f0795fc0ab"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_directory_entries.cpp",
+          "sha256": "49323ed57fcb24f36fcb55cb0ccbd1041a3185da8a819e1a00f959bcbd539409"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_directory_entries.h",
+          "sha256": "1653473b667ce75bca49904b3d53f5a923ad376edf7d941ca3cb25d41803c28d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
+          "sha256": "fce04fa7f699d40ffe40e99b20d4b4fb7bff76d2d580a8b9b13efacd48a0f530"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
+          "sha256": "7865109678127de421d52a48b380fde7cf0bbc8d19ed1ad5af2cdd6f5086ec06"
+        },
+        {
+          "path": "tests/native/usk_publisher_directory_entries_smoke.cpp",
+          "sha256": "33c3a176d6b98da5c40faa49320b0c55ded6aa05e6bde0b2a683b32cd157b976"
+        },
+        {
+          "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
+          "sha256": "f2c6b47f62f87cb45a18d2d78996d3e67b5c1a1dddd883e4f8b264a94dee7d9d"
+        },
+        {
+          "path": "runtime/platform/windows/README.md",
+          "sha256": "3132f575dcfe2cfebe5df09ecb4597f21ac84e5115e72541cc6b06cb4c6a3148"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.h",
+          "sha256": "845c4648b91f6537b295ab335dad91ea8c7f7b253ae3b0ddcedb9f56b24cfb7f"
+        },
+        {
+          "path": "tests/native/usk_publisher_handle_observation_smoke.cpp",
+          "sha256": "15b6d70269e03200f92ca5f4ec83f69ebbd5b5cb91cf7a01545c4aa23caf512d"
+        },
+        {
+          "path": "tests/windows_publisher_lab_probe.ps1",
+          "sha256": "d36b0cd0134f63066ba26740b7cb262c38f09555b4debcc79fff2648be408131"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_lab_service.cpp",
+          "sha256": "8518ed9be483f7525b9e2bb18a383df2af63b558b339729d514403a883443ecb"
+        },
+        {
+          "path": "CMakeLists.txt",
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
+        },
+        {
+          "path": "tests/native/usk_publisher_service_mode_probe.py",
+          "sha256": "35200440b64c3701359b5d3b38fe8cc5e0a5b6791daca16bd60597990f4ac0c9"
+        },
+        {
+          "path": "tests/windows_publisher_service_probe.ps1",
+          "sha256": "abd00c0ba65140f50d52e42e29048095421acae806aa1532a010aafe58dd804d"
+        },
+        {
+          "path": "tests/native/usk_publisher_lab_device_acl.cpp",
+          "sha256": "68b5d5b335bf69d9a4b97f577f83496bc62f181cb35b3f0ec6bb54c82a5ff9ac"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
+          "sha256": "66e4f871749fbf7692ad1bef7ecb7e75c9a95851f645d207f7c7a30e72b8f0b6"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_bound_rename.h",
+          "sha256": "7a93704aacaf3431a34e0636ebb1a7f40c639909003d8fa07aa9983b5a410b57"
+        },
+        {
+          "path": "tests/native/usk_publisher_bound_rename_smoke.cpp",
+          "sha256": "5f980b1968500952f19f633edaaad6298c3a64a9fb30ba170ad65d6a857e32a6"
+        },
+        {
+          "path": "tests/windows_publisher_unprivileged_probe.ps1",
+          "sha256": "1b4ff9e9d52618041f61861561f16b4be877e388669deef10b156652cf3e8657"
+        },
+        {
+          "path": "tests/windows_publisher_unprivileged_runner.ps1",
+          "sha256": "61b6fcfb33918518a715dc662d9f61b02b252102bb665c839a959a622d4e9ea8"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_staged_stream.h",
+          "sha256": "58f1b06176468e5d856e2f887ef4a13589a14c90da562b850ee5c1fb5b703c20"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_staged_stream.cpp",
+          "sha256": "30118d443b48af6be0ce9322528898886cf1381da9045818762463e5ed2adfe8"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_publisher_finalization_internal.h",
+          "sha256": "d2fdeee27dc996f39d9da461d99270d0c4476b064dc33a898fc71a7929e1997b"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_public_lifecycle.h",
+          "sha256": "be52af011499787b3955cf7301a967e48804729cd223798770e1119b6f901e1d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
+          "sha256": "2fd916bf1a0ef325fbfb735586095f3f445a76ff5abe6fc9130e7a3ddbc7edfe"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
+          "sha256": "1e8ead54b671f1f10b3d0075ac0548a5c92ec57ea784c03fcec28b97e61e2138"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
+          "sha256": "29e422e1a7f567b4e0133d3a6077f3e24812910d5ebdd5928e50afc35847ef49"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
+          "sha256": "b99a23ddf02c77c73ce70713bd1e8b4ae7d158585f8f5fa57c1fcb75fa09686d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
+          "sha256": "767246b051c8a1a714484646147e2f8c1a91f6d005027c2f2e74414b23fb2121"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.h",
+          "sha256": "bfc9dff5c174d2a857fc1e3f0c48a56065a19be4aec56748c09ade0f6236fedb"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_vm_probe.ps1",
+          "sha256": "175aabba97e74979cebec78f506436ac31d842503e1c32b3bc44668cc630566f"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_readback_smoke.ps1",
+          "sha256": "804ef5325859d9d9a1e29979920896417309231886703566d9d7549ba9e3a52e"
+        },
+        {
+          "path": "tests/test_publisher_metadata_readback.py",
+          "sha256": "5b04a93a8c73f207f19b5de2f6b37c31d625b0cb25a0838851ecd64bce93606d"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
+          "sha256": "72130f696a81d9770dd3c741bae5a84a65377ad2df88851e2f48d6695cb51f71"
+        },
+        {
+          "path": "tests/windows_publisher_preopened_root_probe.ps1",
+          "sha256": "aededf1bff6344378e1d27514fffeab5ca6812f16dd411710f732278592b5b86"
+        },
+        {
+          "path": "tests/windows_publisher_stage_observer.ps1",
+          "sha256": "7f44df8654a3291befc0d2741acc6113606969046ff0ee21475b17eef7944217"
+        },
+        {
+          "path": "tests/windows_publisher_owned_payload_damage.ps1",
+          "sha256": "5290793b24f458e9e7a68dda7391b8110175297d179496b7fa44d7c529e3ff38"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_readback.ps1",
+          "sha256": "26f48424288e0131323eaddd1abe4bfb819f4879d771730638cd03f408256980"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_inputs.py",
+          "sha256": "e3e5467f364d7d1dc49fab27c8cb394e2373467ad160995dcda028d2242b9419"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_rename_information.h",
+          "sha256": "4b5e602bb5f1d66339c38b34d701aa62f9cb4059cbfa77f73d26aef09f69bade"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
+          "sha256": "dd46c19aace69166090b37098134817d48ac1290792d31ed35c0f444a217f26b"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
+          "sha256": "7b20438e71980354648d70f9be22254bec5c6d5acb078b122ba75417a18613b6"
+        },
+        {
+          "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
+          "sha256": "0302c37092d3635173fe046fd8968782b56f6f323bee3fc65a8a38d4e741a6c4"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_service_control.cpp",
+          "sha256": "71eb7ba9eb1db89225660dd4d1dff62eafb4d822bc74496a60c7a723a5c5454b"
+        },
+        {
+          "path": "tools/usk_selected_candidate_package.py",
+          "sha256": "5599edea0327469667d3ab78137b8f7005831e1c66a52109654d2ebf256aab78"
+        },
+        {
+          "path": "tests/test_selected_candidate_package.py",
+          "sha256": "d62cbb9ed9ed642e4659e25da2be7eefa3c91b0a3f4530ce3a2fb4b50cdba778"
+        },
+        {
+          "path": "release/packaging/windows/usk-selected-candidate-package.md",
+          "sha256": "4defacf9a543c720f0c6ca0f48086fd57c454311e79ea1803441859a4ea70542"
+        },
+        {
+          "path": "tests/windows_publisher_owned_process.ps1",
+          "sha256": "dafac18b6c3ddcad0be81397ffeb233530f0b3570628521d07ce1bc7c04263c6"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_device_acl.h",
+          "sha256": "7d78f745468fcf9b3405111625a7864ae5e51d8fbe8ab7d6846c3e081f44edb7"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_device_acl.cpp",
+          "sha256": "bf42a53da16aaaba44414042e823eb8da7dbcb4e718162adf259e77fb155d57f"
+        },
+        {
+          "path": "tests/native/usk_publisher_device_acl_smoke.cpp",
+          "sha256": "1d19aa237b64f0b50dcc40506baf1cbd0fde43be9ba665c730c371f697feeaf4"
+        },
+        {
+          "path": "tests/windows_publisher_production_rename_observer.ps1",
+          "sha256": "fa0cd5ba4644e52151899fe4f32524d19f5563fc58f87daf3a1071f1220447fb"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_registration.cpp",
+          "sha256": "54fe94a8cc0a7c82ea4b88efe1260d58aee0997e9fb2034a468fc9772f354b32"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_registration.h",
+          "sha256": "b511f5f7d14008ffd283002be49d347b1f2a89ba743d1506af0cd86336cad69c"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_data_partition.h",
+          "sha256": "38cde72523d923158bc5938b185ab76117370d70641418cb09c97b3733863585"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_data_partition.cpp",
+          "sha256": "3044918eb7490153aabea9c33a430d4a25b96ac8dee1f531e7cef1270e8cd6c7"
+        },
+        {
+          "path": "tests/native/usk_publisher_data_partition_smoke.cpp",
+          "sha256": "e426c49e3daeb73c97d1c5b239e53e9a4e563c58f40e501b258b68960549eedc"
+        },
+        {
+          "path": "tests/windows_publisher_public_path_probe.ps1",
+          "sha256": "f669829918ac31467e7f1b81503f4e781b630f211d9ecfd02b9a6d835b93ee3c"
+        },
+        {
+          "path": "tests/windows_publisher_production_boundary.ps1",
+          "sha256": "60706db2f6749a063339e6f56f1ee36841cd9e636bb8e9bf4c87a5cc6e82e4d9"
+        },
+        {
+          "path": "tests/windows_publisher_owned_metadata_collision.ps1",
+          "sha256": "e4bf0d6fe9a9f81d0847bb0bf3fd6eb98604ae60298a06302ff3a3891d5e7f64"
+        },
+        {
+          "path": "tests/windows_publisher_client_token_unit.ps1",
+          "sha256": "8bdd3e562d0413e108c59206060142ebddcfddcb863ab8d03b3224cb2f19946e"
         }
       ],
       "acceptance_ids": [
@@ -3526,7 +4178,7 @@
       "note": "Reviewed source and retained tests implement the requirement for the current bounded profile; release qualification remains separate.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
+        "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
       },
       "source_observations": [
         {
@@ -3535,11 +4187,11 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "1776021c3aea1efeae3630bbf165885658dc3b1cff757b12c05d980032537da1"
+          "sha256": "edc647cc2d7cd7aeffeb6a69247140e8245069008a571f5ab2d310092295078c"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
-          "sha256": "d4d8247fc91fe5998ac19a70da56c6123367f5f4219beebaeb267d5aae7deaef"
+          "sha256": "e4e4c1da29e1c2d52b233eb40b8d7d8126b1e764c6c50e2e75e13c0b1560f42e"
         }
       ],
       "acceptance_ids": [
@@ -3559,10 +4211,10 @@
       "spec_id": "USK-S-PUB",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "At PR #98 source head 6d3a73910df3f672efcde13e6d3f7e40c0c6097b, hosted run 36083054549 on Windows build 10.0.20348.0 positively observed a newly provisioned NTFS VHD, exact VHD-backed volume device SID ACL, a restricted own-process service, and six protected SYSTEM/service-SID anchors with distinct file IDs and stable second-phase observations. Retained receipt SHA-256 862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8. The receipt binds service/volume/anchor observations only. No durable publish-prepared receipt, target-bound rename, visible-closure receipt, independent attacker/fault evidence, or qualified publisher exists; OD-001 remains open. A dependent source candidate creates and flushes a protected staged directory/file through retained handles and reobserves the staged closure. Hosted PR #100 run 36083996703 at source 487d994d43fb5df8123b86f7d526d4e0a75bde83 observed the 25-byte payload digest and eight distinct protected IDs on a disposable NTFS VHD; retained receipt SHA-256 b344d102c4ae5139b7eeb0095fbd91eead4a262dc61151cf308cf4cfd66d28e0. No durable publish intent, visible no-replace rename, hostile-rights proof, crash recovery, or production enablement follows from this staged probe. A lab-only candidate creates protected files with FILE_WRITE_THROUGH and flushes two summary markers around a held-handle no-replace rename, with source/parent and visible-tree checks. The markers are not model-compliant publish_prepared or visible_bound records because they omit full closure evidence and replay. An ordinary-user smoke exercises success and refusals. Initial hosted run 36086635337 stopped before rename when the restricted service received Win32 5 on a VHD volume flush; retained failed receipt SHA-256 c867f68bd26dc3930e805d0fe2a7287687340ccbea1d7bf488c1a95ee43. A second hosted run 36087096515 reached the bound native rename but returned NTSTATUS 0xc0000043 (sharing violation) while the staged payload handle remained open; its failed receipt SHA-256 is 3e6e77b917bb7851b99197a3db25a542cbdc427bbd8e93dbfea0df430b15570. Third hosted run 36087498601 still returned 0xc0000043 after that handle closed; failed receipt SHA-256 723b561b53c3c8ee6c57155b72131b00643e6f78dce42d699f6ba4b359fd7a1. An ordinary-user write-through create-only source succeeds on Windows 10 C: NTFS, so a bounded same-VHD diagnostic now compares separate empty held, reopened, and Win32 absolute-name objects to isolate the target failure; the absolute-name case is diagnostic only and cannot become a publisher fallback. Power-loss durability, hostile-rights/fault proof, recovery, and production capability remain unqualified. Hosted PR #102 run 36088974062 at source ef95390e61f3b42e1796caf9375b4a3b02820a90 on Windows build 10.0.20348.0 observed a successful handle-relative no-replace rename by the generated restricted service on a fresh NTFS VHD; the held source and independently reopened visible root retained the same composite file ID and the visible payload SHA-256 92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f. Both lab summary markers were file-flushed and independently checked, then service/VHD cleanup was reported. Retained receipt SHA-256 1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1. The markers omit full durable closure evidence/replay; hostile-rights, crash recovery, production enablement and OD-001 remain open. A dependent WU-006 lab candidate now writes canonical JSON records with a 4 MiB accepted/written byte limit, containing structured protected-anchor, volume, staged/visible root and descendant observations; its one-descendant fixture does not qualify general peak serialization memory. It closes each file, reopens it through the retained journal handle, and compares exact stored bytes before continuing. The independent runner checks the recorded IDs, path, size, payload digest and unchanged anchor evidence. At the source-only checkpoint, the records omitted model-required effective-rights and exact-stream evidence; the later hosted observation below does not close those gaps or prove crash replay, hostile-rights resistance, or production publication. Hosted PR #103 run 36090975621 at source 7540aef110078fcfc89adb38dc31c11da31961c2 on Windows build 10.0.20348.0 observed exact held-journal readback of 4,491-byte prepared and 4,471-byte visible canonical records on a fresh NTFS VHD. The visible record links the prepared SHA-256; both structured trees preserve the staged/visible root file ID and payload digest. The independent runner checked schema, phase, protected anchor roles, volume, descendant path/size/hash and record linkage; the receipt reports service stop/deletion request and VHD dismount/backing-file removal. Retained receipt SHA-256 4a0caac176a15b28723ea17048dedb2f4196523ad6b64b8c4db31eb8103b9782. These lab records omit effective-rights and exact-stream evidence, have no crash replay, and do not qualify production publication. A WU-006 lab-only multi-file selected ZIP candidate stages up to 4,096 canonical selected files and directories through held protected parents, seals exact file-set and tree closure, and links v2 prepared/visible/completion records while retaining v1 one-file compatibility. Its VM power-off replay is source/binary-specific evidence; general reviewed-plan authority, production installed state, leases, hostile-race qualification and OD-001 remain open. A later WU-006 lab-only source candidate durably stores a bounded reviewed-plan snapshot and binds its hash into prepared and completion records. The owned Windows VM observed exact post-power-off snapshot, journal and payload hashes, forward completion and idempotent repeat; a fresh VHD observed clean completion with the corrected binary. Public ownership, installed state, audit, general production authority and OD-001 remain open. A later controlled Windows VM candidate completed an authored two-file protected laboratory publication into the shared public ownership, installed-state and audit records; public inspect and verify passed. Repeated visible-bound recovery retained the ten recorded file hashes. The finalizer remains private and laboratory-bound. Path-based public writes permit an unqualified concurrent namespace-remapping interval; strict production authority, hostile-race and lease qualification, and OD-001 remain open. A subsequent source candidate replaces ZIP reinspection with exact reviewed selected readers and adds a scoped restricted-service metadata writer using explicit descriptors, held-parent pending record publication and private root initialization. Transaction/source/visible-root bindings are strengthened. Focused native compilation and backend regressions passed; the synthetic readback oracle passed one positive and twelve refusals. Current-binary VM transport/resource attempts did not qualify successful service publication or crash/hostile-rights behavior. Ordinary production availability and OD-001 remain unchanged. The concrete protected service engine is now extracted into the private lifecycle implementation. An opaque operation-scoped context connects ordinary install_local.apply validation and caller transaction/time to the existing protected staging, durable records, publication and public-state finalization. The same request outside that context retains strict refusal. Candidate source and hosted tests do not establish external client transport, complete crash/hostile qualification, per-install fencing or production availability. Candidate visible-only read/execute policy is durably bound in private snapshot v4 with post-completion grants and partial-grant replay; actual non-admin hosted execution and broader production qualification remain outstanding. The packaged publisher client now distinguishes post-send/response/output uncertainty with exit 5 from complete failed/recovery-required responses with exit 3; hosted execution at this new source remains to be checked.",
       "spec_source": {
         "path": "spec/lifecycle/publication.md",
-        "sha256": "244f45aeeea0f54bcc3d89b69c929268b1d8abd54785d6a225f11d4a1fa485da"
+        "sha256": "15390a2cd343c8981fd47c4ea42ce31652957c8365bbdb19b2249b2f4fb5fcce"
       },
       "source_observations": [
         {
@@ -3571,11 +4223,295 @@
         },
         {
           "path": "docs/architecture/staged_child_commit_authority.md",
-          "sha256": "1776021c3aea1efeae3630bbf165885658dc3b1cff757b12c05d980032537da1"
+          "sha256": "edc647cc2d7cd7aeffeb6a69247140e8245069008a571f5ab2d310092295078c"
         },
         {
           "path": "tests/native/usk_commit_authority_smoke.cpp",
-          "sha256": "d4d8247fc91fe5998ac19a70da56c6123367f5f4219beebaeb267d5aae7deaef"
+          "sha256": "e4e4c1da29e1c2d52b233eb40b8d7d8126b1e764c6c50e2e75e13c0b1560f42e"
+        },
+        {
+          "path": "runtime/base/usk_record_io.cpp",
+          "sha256": "6cf9bd61be87fe8e1ed1f6edbc7f8f954226aad15d7484b40080937824652e73"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.cpp",
+          "sha256": "bae11e62dae2bd49ec676592a832ac14b41cc3b3f656386ad09251c047bfb143"
+        },
+        {
+          "path": "tests/native/usk_publisher_handle_observation_smoke.cpp",
+          "sha256": "15b6d70269e03200f92ca5f4ec83f69ebbd5b5cb91cf7a01545c4aa23caf512d"
+        },
+        {
+          "path": "tests/native/usk_publisher_token_observation_smoke.cpp",
+          "sha256": "fc384b147bd7fe41e1338d5f8c38065819ade277ae446764db27f4c58484fc8a"
+        },
+        {
+          "path": "tests/native/usk_publisher_security_descriptor_smoke.cpp",
+          "sha256": "824c7154f656618d453055f22eb59575922d026936576dd9261d3abee56ab103"
+        },
+        {
+          "path": "tests/native/usk_publisher_anchor_create_smoke.cpp",
+          "sha256": "6ba85c1bfbea51b1d6d7d144473ae66c0e800985cf201287c5e9b53724e82acf"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_stream_observation.cpp",
+          "sha256": "0b54722fb2a1f18c768ea6aa18c62341a2d7ce04cf8d4eef3d7fc9711aea143c"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_stream_observation.h",
+          "sha256": "44da1f9940f391fb8884b873af400571f4e77dc9c02e2becb0af0e3dd35ce518"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_stream_observation_smoke.cpp",
+          "sha256": "094b898119a6811e213e469735350f3514b181768e2506dcbeedf8f0795fc0ab"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_directory_entries.cpp",
+          "sha256": "49323ed57fcb24f36fcb55cb0ccbd1041a3185da8a819e1a00f959bcbd539409"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_directory_entries.h",
+          "sha256": "1653473b667ce75bca49904b3d53f5a923ad376edf7d941ca3cb25d41803c28d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
+          "sha256": "fce04fa7f699d40ffe40e99b20d4b4fb7bff76d2d580a8b9b13efacd48a0f530"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
+          "sha256": "7865109678127de421d52a48b380fde7cf0bbc8d19ed1ad5af2cdd6f5086ec06"
+        },
+        {
+          "path": "tests/native/usk_publisher_directory_entries_smoke.cpp",
+          "sha256": "33c3a176d6b98da5c40faa49320b0c55ded6aa05e6bde0b2a683b32cd157b976"
+        },
+        {
+          "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
+          "sha256": "f2c6b47f62f87cb45a18d2d78996d3e67b5c1a1dddd883e4f8b264a94dee7d9d"
+        },
+        {
+          "path": "runtime/platform/windows/README.md",
+          "sha256": "3132f575dcfe2cfebe5df09ecb4597f21ac84e5115e72541cc6b06cb4c6a3148"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_handle_observation.h",
+          "sha256": "845c4648b91f6537b295ab335dad91ea8c7f7b253ae3b0ddcedb9f56b24cfb7f"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_lab_service.cpp",
+          "sha256": "8518ed9be483f7525b9e2bb18a383df2af63b558b339729d514403a883443ecb"
+        },
+        {
+          "path": "CMakeLists.txt",
+          "sha256": "00c83324813a5494e8778df2ddeb6847986354199342d2d6567f1764dcb56a72"
+        },
+        {
+          "path": "tests/native/usk_publisher_service_mode_probe.py",
+          "sha256": "35200440b64c3701359b5d3b38fe8cc5e0a5b6791daca16bd60597990f4ac0c9"
+        },
+        {
+          "path": "tests/windows_publisher_service_probe.ps1",
+          "sha256": "abd00c0ba65140f50d52e42e29048095421acae806aa1532a010aafe58dd804d"
+        },
+        {
+          "path": "tests/native/usk_publisher_lab_device_acl.cpp",
+          "sha256": "68b5d5b335bf69d9a4b97f577f83496bc62f181cb35b3f0ec6bb54c82a5ff9ac"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
+          "sha256": "66e4f871749fbf7692ad1bef7ecb7e75c9a95851f645d207f7c7a30e72b8f0b6"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_bound_rename.h",
+          "sha256": "7a93704aacaf3431a34e0636ebb1a7f40c639909003d8fa07aa9983b5a410b57"
+        },
+        {
+          "path": "tests/native/usk_publisher_bound_rename_smoke.cpp",
+          "sha256": "5f980b1968500952f19f633edaaad6298c3a64a9fb30ba170ad65d6a857e32a6"
+        },
+        {
+          "path": "tests/windows_publisher_unprivileged_probe.ps1",
+          "sha256": "1b4ff9e9d52618041f61861561f16b4be877e388669deef10b156652cf3e8657"
+        },
+        {
+          "path": "tests/windows_publisher_unprivileged_runner.ps1",
+          "sha256": "61b6fcfb33918518a715dc662d9f61b02b252102bb665c839a959a622d4e9ea8"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_publisher_finalization_internal.h",
+          "sha256": "d2fdeee27dc996f39d9da461d99270d0c4476b064dc33a898fc71a7929e1997b"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
+          "sha256": "dd33fc9b1885ef2e7ef5a91b13e53b8465d4e5fceb1d96f876448e959f2c43d1"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_public_lifecycle.h",
+          "sha256": "be52af011499787b3955cf7301a967e48804729cd223798770e1119b6f901e1d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
+          "sha256": "2fd916bf1a0ef325fbfb735586095f3f445a76ff5abe6fc9130e7a3ddbc7edfe"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
+          "sha256": "1e8ead54b671f1f10b3d0075ac0548a5c92ec57ea784c03fcec28b97e61e2138"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
+          "sha256": "29e422e1a7f567b4e0133d3a6077f3e24812910d5ebdd5928e50afc35847ef49"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
+          "sha256": "b99a23ddf02c77c73ce70713bd1e8b4ae7d158585f8f5fa57c1fcb75fa09686d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
+          "sha256": "767246b051c8a1a714484646147e2f8c1a91f6d005027c2f2e74414b23fb2121"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.h",
+          "sha256": "bfc9dff5c174d2a857fc1e3f0c48a56065a19be4aec56748c09ade0f6236fedb"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_vm_probe.ps1",
+          "sha256": "175aabba97e74979cebec78f506436ac31d842503e1c32b3bc44668cc630566f"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_readback_smoke.ps1",
+          "sha256": "804ef5325859d9d9a1e29979920896417309231886703566d9d7549ba9e3a52e"
+        },
+        {
+          "path": "tests/test_publisher_metadata_readback.py",
+          "sha256": "5b04a93a8c73f207f19b5de2f6b37c31d625b0cb25a0838851ecd64bce93606d"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
+          "sha256": "72130f696a81d9770dd3c741bae5a84a65377ad2df88851e2f48d6695cb51f71"
+        },
+        {
+          "path": "tests/windows_publisher_preopened_root_probe.ps1",
+          "sha256": "aededf1bff6344378e1d27514fffeab5ca6812f16dd411710f732278592b5b86"
+        },
+        {
+          "path": "tests/windows_publisher_stage_observer.ps1",
+          "sha256": "7f44df8654a3291befc0d2741acc6113606969046ff0ee21475b17eef7944217"
+        },
+        {
+          "path": "tests/windows_publisher_owned_payload_damage.ps1",
+          "sha256": "5290793b24f458e9e7a68dda7391b8110175297d179496b7fa44d7c529e3ff38"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_readback.ps1",
+          "sha256": "26f48424288e0131323eaddd1abe4bfb819f4879d771730638cd03f408256980"
+        },
+        {
+          "path": "tests/windows_publisher_metadata_inputs.py",
+          "sha256": "e3e5467f364d7d1dc49fab27c8cb394e2373467ad160995dcda028d2242b9419"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_rename_information.h",
+          "sha256": "4b5e602bb5f1d66339c38b34d701aa62f9cb4059cbfa77f73d26aef09f69bade"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
+          "sha256": "dd46c19aace69166090b37098134817d48ac1290792d31ed35c0f444a217f26b"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
+          "sha256": "7b20438e71980354648d70f9be22254bec5c6d5acb078b122ba75417a18613b6"
+        },
+        {
+          "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
+          "sha256": "0302c37092d3635173fe046fd8968782b56f6f323bee3fc65a8a38d4e741a6c4"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_service_control.cpp",
+          "sha256": "71eb7ba9eb1db89225660dd4d1dff62eafb4d822bc74496a60c7a723a5c5454b"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
+          "sha256": "46ec67a0ba4cdfe7fc2eee581c69e05bbbaabb37868bc7cf17b977af26575aea"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_client.cpp",
+          "sha256": "244e1dbcfc45d38a4123b76bbed9fb284dbbc76c8fc47ca7a2097a3b40aebb99"
+        },
+        {
+          "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
+          "sha256": "f59c027b56402c9f9e241a48a324b38d24cb082f45494d41b0fabab796e9efd3"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
+          "sha256": "509225d54dce0f87fdb2c36e14a4e9b67816ed81bcde49cf6730ab3aab8882ee"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_consumer_access.cpp",
+          "sha256": "0d5d345bf0cf3b5342714160f1167fb1ed72078c14bdb6323b854f838ef056d4"
+        },
+        {
+          "path": "tests/windows_publisher_consumer_client.ps1",
+          "sha256": "bbe0bb08a3fdc72db5571ed26f91991a9a93d604587e8484dcae23a4a6c607b7"
+        },
+        {
+          "path": "tests/windows_publisher_owned_process.ps1",
+          "sha256": "dafac18b6c3ddcad0be81397ffeb233530f0b3570628521d07ce1bc7c04263c6"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_device_acl.h",
+          "sha256": "7d78f745468fcf9b3405111625a7864ae5e51d8fbe8ab7d6846c3e081f44edb7"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_device_acl.cpp",
+          "sha256": "bf42a53da16aaaba44414042e823eb8da7dbcb4e718162adf259e77fb155d57f"
+        },
+        {
+          "path": "tests/native/usk_publisher_device_acl_smoke.cpp",
+          "sha256": "1d19aa237b64f0b50dcc40506baf1cbd0fde43be9ba665c730c371f697feeaf4"
+        },
+        {
+          "path": "tests/windows_publisher_production_rename_observer.ps1",
+          "sha256": "fa0cd5ba4644e52151899fe4f32524d19f5563fc58f87daf3a1071f1220447fb"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_registration.cpp",
+          "sha256": "54fe94a8cc0a7c82ea4b88efe1260d58aee0997e9fb2034a468fc9772f354b32"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_registration.h",
+          "sha256": "b511f5f7d14008ffd283002be49d347b1f2a89ba743d1506af0cd86336cad69c"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_data_partition.h",
+          "sha256": "38cde72523d923158bc5938b185ab76117370d70641418cb09c97b3733863585"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_data_partition.cpp",
+          "sha256": "3044918eb7490153aabea9c33a430d4a25b96ac8dee1f531e7cef1270e8cd6c7"
+        },
+        {
+          "path": "tests/native/usk_publisher_data_partition_smoke.cpp",
+          "sha256": "e426c49e3daeb73c97d1c5b239e53e9a4e563c58f40e501b258b68960549eedc"
+        },
+        {
+          "path": "tests/windows_publisher_public_path_probe.ps1",
+          "sha256": "f669829918ac31467e7f1b81503f4e781b630f211d9ecfd02b9a6d835b93ee3c"
+        },
+        {
+          "path": "tests/windows_publisher_production_boundary.ps1",
+          "sha256": "60706db2f6749a063339e6f56f1ee36841cd9e636bb8e9bf4c87a5cc6e82e4d9"
+        },
+        {
+          "path": "tests/windows_publisher_owned_metadata_collision.ps1",
+          "sha256": "e4bf0d6fe9a9f81d0847bb0bf3fd6eb98604ae60298a06302ff3a3891d5e7f64"
+        },
+        {
+          "path": "tests/windows_publisher_client_token_unit.ps1",
+          "sha256": "8bdd3e562d0413e108c59206060142ebddcfddcb863ab8d03b3224cb2f19946e"
         }
       ],
       "acceptance_ids": [
@@ -3611,7 +4547,7 @@
         },
         {
           "path": "tests/native/usk_interruption_recovery_smoke.cpp",
-          "sha256": "8f176c5303d94411b75c41709e940ed513aeffeaa56c5445a2211c794112c76e"
+          "sha256": "5e7c069ef3993b11c31884049109aa440f4ff865c315b27131a611fa558518e8"
         }
       ],
       "acceptance_ids": [
@@ -3646,7 +4582,7 @@
         },
         {
           "path": "tests/native/usk_interruption_recovery_smoke.cpp",
-          "sha256": "8f176c5303d94411b75c41709e940ed513aeffeaa56c5445a2211c794112c76e"
+          "sha256": "5e7c069ef3993b11c31884049109aa440f4ff865c315b27131a611fa558518e8"
         }
       ],
       "acceptance_ids": [
@@ -3681,7 +4617,7 @@
         },
         {
           "path": "tests/native/usk_interruption_recovery_smoke.cpp",
-          "sha256": "8f176c5303d94411b75c41709e940ed513aeffeaa56c5445a2211c794112c76e"
+          "sha256": "5e7c069ef3993b11c31884049109aa440f4ff865c315b27131a611fa558518e8"
         }
       ],
       "acceptance_ids": [
@@ -3987,7 +4923,7 @@
       "spec_id": "USK-S-STREAM",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "A bounded mechanism, contract, or test exists, but the full cross-operation/profile obligation is not implemented or not qualified.",
+      "note": "WU-005 bounds old-tree payload retention, new-plan materialized inputs, preimage metadata and verification report entry/path text. The source-bound R4 Windows 10 NTFS Debug matrix at clean commit 40f2abb has separate OS peak-working-set receipts for complete 4,096-entry install, verify, repair, move and install-finalization recovery; their peaks range from 91,951,104 to 107,925,504 bytes. The 4,096-entry update case peaks at 130,809,856 bytes but only plans an update before required strict apply refusal. Matched 128/4,096-entry and 1/32 MiB plan cases plus 128-entry full installs distinguish entry-count and payload-size trends. Separate prior-format 8,192-entry operations peak about 62 MiB, while a combined report case reaches 123,404,288 bytes. The older 2 GiB streamed install/verify remains historical source-bound evidence. Full update publication, hostile namespace/profile qualification, larger payload/corpus combinations and release acceptance remain open; the completed corpus exposes multi-hour transaction-journal throughput. Exact-source Windows Release observations at dev 5171b0f separately measure five 4,096-entry children after external fixture preparation, plus 128/4,096-entry and 1/32 MiB scaling; update is a strict refusal and recovery remains unisolated. See the two 5171b0f receipts and memory proof for peaks and limits.",
       "spec_source": {
         "path": "spec/io/streams.md",
         "sha256": "c5f960d0a6701cff8713aa159488cb82a4df93285281b8ebabe5c892612025bc"
@@ -4004,6 +4940,50 @@
         {
           "path": "tests/native/usk_streaming_source_target_smoke.cpp",
           "sha256": "25eec648134035b9b10d123cc3f56b2fe6b425730f03193504574f983181c86f"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
+          "sha256": "3288c668af60f69dca79ce6681202bc2aa4fc90c901738474f7c270529ced71e"
+        },
+        {
+          "path": "tests/native/usk_lifecycle_smoke.cpp",
+          "sha256": "efcd81862ce3467dcb0090d41cc2e223886e95e4873a7d17768b5fa04c1e6119"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_proof.md",
+          "sha256": "f20ae91251b13ce7e8f19b823e4750f7d2db50c782dbdf649835fcd1b28603d6"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_observations.v1.json",
+          "sha256": "d6d2a926b6e0d233a7dfb6c6c2bec03805564c91a98e1a9e37070ea973fbdbfa"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_ceiling_observations.v1.json",
+          "sha256": "269ac9a6cce0e3edfbe7e3c201cf83b31f6a134d9d09a7907f6e427496f4d82e"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_legacy_report_memory_observations.v1.json",
+          "sha256": "bdcd554c091a80b5ebbf13bf559fdadb553e7fb86e50972604284593f57b7765"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_legacy_report_memory_observations.v2.json",
+          "sha256": "5eb092369de88a0eb3f8707b343851655a086702cd140d55231b62884717b949"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_4096_install_r4.v1.json",
+          "sha256": "0c649b5b05781dc43bb30f0a54135eb22eed2979d0ba151b94fb2fde6498bc59"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_4096_matrix_r4.v1.json",
+          "sha256": "25365824096cfd507983304ae358dee9de966045dad879771c5750cd8851df6f"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_4096_isolated_5171b0f.v1.json",
+          "sha256": "9e5ae4fa0a1c3950195b85e1017b92412722fd0d13e0c36c625a44b7cd1aaa49"
+        },
+        {
+          "path": "docs/testing/m1_lifecycle_memory_scaling_5171b0f.v1.json",
+          "sha256": "dd62271ee6b64407ba95c676954d2440c2a92980029a11e560e64c0f076f8c94"
         }
       ],
       "acceptance_ids": [
@@ -4222,7 +5202,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -4260,7 +5240,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -4298,7 +5278,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -4336,7 +5316,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -4371,7 +5351,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -4406,7 +5386,7 @@
         },
         {
           "path": "spec/tools/tests/test_specctl.py",
-          "sha256": "7e4635fbae1ccaeff7ee5f9d0c4b0e6bff7b469aaa0a2c4fba56f5055c1b7369"
+          "sha256": "ae4ad74718eb4cc29dfb5a6c22b545b6750ca651fc6c787b9eb25aa8922af548"
         }
       ],
       "acceptance_ids": [
@@ -4806,9 +5786,9 @@
       "requirement_id": "USK-R-WIRE-001",
       "title": "Frame bounds",
       "spec_id": "USK-S-WIRE",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "A fixed-size one-shot JSON/framed decoder rejects oversized, truncated, duplicate-key and invalid UTF-8 inputs before dispatch in bounded probes; broader transport profiles remain open. A WU-013 machine-host candidate adds explicit protected-authority planning with a bounded context file; no setup effect or release qualification follows.",
       "spec_source": {
         "path": "spec/interfaces/protocol.md",
         "sha256": "b0efe1fe55cf4eef45c77cee7d4b0defc8f86a74835fd67e8718dc8befdd1a56"
@@ -4821,6 +5801,14 @@
         {
           "path": "include/usk/usk_command.h",
           "sha256": "73c3bd3c752a9c2af8539c8b1026afc32646186f3752063c2665033ee3f5b251"
+        },
+        {
+          "path": "runtime/command/usk_one_shot.cpp",
+          "sha256": "e684eec2d437228cc3da895ea67a5c5aedc6fa5ff4855605f9bdce9deecfe688"
+        },
+        {
+          "path": "tests/native/usk_machine_process_probe.py",
+          "sha256": "8962d7b5d6f41af0a4a2a55c8265859794d34faa7feb22bb6e3c0a2ef0d9a57d"
         }
       ],
       "acceptance_ids": [
@@ -4870,9 +5858,9 @@
       "requirement_id": "USK-R-WIRE-003",
       "title": "No secret protocol leakage",
       "spec_id": "USK-S-WIRE",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "Read-only one-shot parse failures use generic diagnostics and the process probe excludes a canary from stdout/stderr; credential-bearing operational failures and support export remain open.",
       "spec_source": {
         "path": "spec/interfaces/protocol.md",
         "sha256": "b0efe1fe55cf4eef45c77cee7d4b0defc8f86a74835fd67e8718dc8befdd1a56"
@@ -4885,6 +5873,14 @@
         {
           "path": "include/usk/usk_command.h",
           "sha256": "73c3bd3c752a9c2af8539c8b1026afc32646186f3752063c2665033ee3f5b251"
+        },
+        {
+          "path": "runtime/command/usk_one_shot.cpp",
+          "sha256": "e684eec2d437228cc3da895ea67a5c5aedc6fa5ff4855605f9bdce9deecfe688"
+        },
+        {
+          "path": "tests/native/usk_machine_process_probe.py",
+          "sha256": "8962d7b5d6f41af0a4a2a55c8265859794d34faa7feb22bb6e3c0a2ef0d9a57d"
         }
       ],
       "acceptance_ids": [

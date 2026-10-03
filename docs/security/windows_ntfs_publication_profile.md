@@ -1,4 +1,4 @@
-# Windows NTFS publication profile — candidate only
+# Windows NTFS publication profile â€” candidate only
 
 `windows_nt_x64_local_ntfs_service_sid_noreplace_v1` is a proposed design, not a platform proof. Its production record remains `implementation: absent`, `availability: false`, `qualification: not_run`, and `support: unsupported`. Nothing here authorizes endpoint mutation or changes the runtime's current refusal behavior.
 
@@ -55,7 +55,7 @@ The closure contains at most 200,000 descendants, serialized evidence at most 25
 
 The model sequence is `unavailable -> protected_empty -> materializing -> sealed -> publish_prepared -> renamed_unconfirmed -> visible_bound -> metadata_pending -> completed`. `refused_retained` and `recovery_required` are terminal. Preflight cannot run from a later phase; rename cannot repeat; `ReplaceIfExists=TRUE` is forbidden; replay stops after every refusal, recovery, invalid trace, or completion.
 
-`publish_prepared`, containing bound parent/root/closure evidence, is durable before `SetFileInformationByHandle(FileRenameInfo)` is attempted relative to the bound destination parent. Rename has three outcomes: `applied`, `not_applied`, or `unknown`. A crash or response loss around rename may produce `unknown`; it is never converted into no-effect. After an applied rename, an excluded privileged attacker also yields retained `recovery_required`, never a protected/no-effect label.
+`publish_prepared`, containing bound parent/root/closure evidence, is durable before a target-qualified handle-relative no-replace rename is attempted. The candidate is `NtSetInformationFile(FileRenameInformation)` with `RootDirectory` bound to the destination-parent handle and `ReplaceIfExists=FALSE`. A disposable probe on 2026-09-24 under the ordinary `BLACKGLASS-WIN1\Jules` login on Windows NT 10.0.19045, `C:` local NTFS found that `SetFileInformationByHandle(FileRenameInfo)` with that non-null parent handle returned error 87 while the native call succeeded. This was not the dedicated-volume restricted-service target. An absolute destination-name fallback does not preserve the required parent binding. This observation changes the candidate call, not the profile's qualification status or security claim. Rename has three outcomes: `applied`, `not_applied`, or `unknown`. A crash or response loss around rename may produce `unknown`; it is never converted into no-effect. After an applied rename, an excluded privileged attacker also yields retained `recovery_required`, never a protected/no-effect label.
 
 After rename, the service independently opens the visible root relative to the still-bound parent, repeats the complete observations, requires exact equality, and durably records `visible_bound`. Metadata begins only then. A metadata failure retains the visible object for recovery. Recovery may re-observe and classify but cannot manufacture profile eligibility, publication capability, ownership, or completion; it never deletes material whose ownership is ambiguous. A destination generation can complete at most once.
 
@@ -63,4 +63,1486 @@ After rename, the service independently opens the visible root relative to the s
 
 The deterministic reference model and explicit corpus exercise these rules but do not establish Windows behaviour. Required evidence still includes an implementation candidate, admitted disposable target, exact target/configuration receipt, independent attacker harness, crash/fault injection around rename, independent post-state observation, and independent technical/security review.
 
-OD-001 therefore remains open and blocks WU-006. WU-006 must not treat this profile document, the deterministic model, fixture data, or caller claims as target-bound evidence or a resolved platform-security decision.
+OD-001 therefore remains open and blocks WU-006 qualification and production enablement. Candidate implementation and disposable probing can proceed to produce the missing evidence. WU-006 must not treat this profile document, the deterministic model, fixture data, or caller claims as target-bound evidence or a resolved platform-security decision.
+
+The parent-bound create-only candidate now covers regular files as well as
+directory anchors. A disposable ordinary-user C: NTFS probe writes and flushes
+a newly created file through its returned non-inheritable handle, refuses
+same-name collisions, and checks that replacing the parent's path does not
+redirect creation through the held parent handle. It does not establish a
+service-created protected staging tree or change the profile status above.
+
+The hosted PR #97 observation at source head
+faf457919fcfb416c127b7db4f7e6e20434d6012 and CI run 36076348039
+created a fresh file-backed NTFS VHD on Windows build 10.0.20348.0. Its
+generated own-process LocalSystem service had SERVICE_SID_TYPE_RESTRICTED;
+the service SID appeared as an enabled process group and a restricting SID,
+and independent SCM and native process IDs matched. The native service opened
+the VHD's volume GUID root, observed local NTFS, and the lab removed the
+service and VHD. The retained JSON artifact SHA-256 is
+3ced569d8f1a0ee8b07b3e4f88b41a70435c5025e82ff155ff2c553ccdd51111.
+This qualifies the disposable service and volume observation only. It does not
+establish protected anchors, publication, recovery, or OD-001 resolution.
+
+The hosted PR #98 observation at source head
+6d3a73910df3f672efcde13e6d3f7e40c0c6097b and CI run 36083054549
+used Windows build 10.0.20348.0 and a fresh file-backed NTFS VHD. The lab
+bound the VHD backing file, attached device, sole volume extent and observed
+disk number before adding only the generated service SID to that disposable
+volume device's DACL. The restricted own-process service protected the
+already formatted volume root and created the publication root, staging root,
+destination parent, state and journal anchors. Its native probe required
+unchanged second-phase observations. Independent receipt checks found six
+distinct file IDs, SYSTEM ownership, exact protected SYSTEM/service-SID DACLs,
+and no reparse points. The service was stopped and deletion requested, and the
+VHD was dismounted and removed. The retained JSON receipt
+SHA-256 is
+862d8c3858adc01d064e2c790683dfab8b49a08e67aeb465816d7113ad4c19d8.
+This establishes the disposable protected-anchor laboratory step only. It does
+not qualify staged publication, hostile rights, crash recovery or OD-001.
+
+The dependent PR #100 staged-child probe at source head
+487d994d43fb5df8123b86f7d526d4e0a75bde83 and hosted CI run 36083996703
+created a `candidate` directory relative to the retained protected staging
+handle and a `payload.bin` file relative to the retained candidate handle.
+The restricted service wrote and flushed 25 bytes, observed the staged tree
+twice, and required unchanged identity, security and content. Independent
+receipt checks found the expected SHA-256
+92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f,
+path, size, and eight distinct protected root/anchor/staged IDs. The retained
+JSON receipt SHA-256 is
+b344d102c4ae5139b7eeb0095fbd91eead4a262dc61151cf308cf4cfd66d28e0.
+This qualifies protected staging in the disposable lab only. It does not
+establish a durable publish intent, no-replace rename, visible closure,
+hostile-rights resistance, crash recovery or production publication.
+
+The PR #102 disposable run 36088974062 at source head
+ef95390e61f3b42e1796caf9375b4a3b02820a90 used a fresh file-backed NTFS
+VHD on Windows build 10.0.20348.0 with a generated own-process restricted
+service. Its service closed the destination parent's create-only handle,
+reopened the exact listed directory through the retained publication parent,
+and observed a successful handle-relative no-replace rename. The source root
+and visible root had the same composite file ID; the independently reopened
+visible payload retained SHA-256
+92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f.
+Two file-flushed lab summary markers were checked by the runner. The receipt
+reports that the service was stopped with deletion requested, the VHD was
+dismounted, and its backing file was removed. The retained JSON receipt SHA-256 is
+1fa28eac1c2e8a3830f261c8b874072dac4f46cb1c9c1595f31db181a5936af1.
+These markers are not full `publish_prepared` and `visible_bound` records;
+they omit complete durable closure evidence and replay. The run does not
+qualify hostile-rights resistance, crash recovery, production enablement or
+OD-001.
+
+The dependent PR #103 source head 7540aef110078fcfc89adb38dc31c11da31961c2
+passed its disposable restricted-service probe in hosted run 36090975621 on
+Windows build 10.0.20348.0. On a fresh NTFS VHD, the service wrote and
+file-flushed schema-tagged prepared and visible lab records, closed each file,
+reopened it relative to the held journal, and compared the exact stored bytes.
+The records were 4,491 and 4,471 bytes; the visible record contains the
+prepared record's SHA-256. The independent runner checked the recorded anchor
+roles, volume, root and descendant identities, path, size, payload digest and
+linkage. The receipt reports that the service was stopped with deletion
+requested, the VHD was dismounted, and its backing file was removed. Retained
+JSON receipt SHA-256:
+4a0caac176a15b28723ea17048dedb2f4196523ad6b64b8c4db31eb8103b9782.
+These are still lab phase records. They omit effective-rights and exact-stream
+evidence and have no crash replay. OD-001 and production publication remain
+unqualified.
+
+A dependent source candidate now retains exact root and descendant stream
+observations in the sealed and visible tree records and rejects a change in
+stream name, size, or allocation size across phases. Its local Windows Debug
+fixture passes. Hosted PR #104 run 36092385074 at source head
+8b45cc87608c3331c5b10dc80f21b5a24bf40509 passed all seven CI jobs.
+The disposable restricted service on Windows build 10.0.20348.0 recorded an
+empty root stream set and one unnamed 25-byte payload stream with equal
+allocation size in the prepared and visible records. The retained JSON receipt
+SHA-256 is
+3f8795fb7a8fe2d675ccad0b0580e2a4d15d08c77be98ef59f4994888ed3c3c4;
+it reports service stop/deletion request and VHD dismount/backing-file removal.
+The independent runner checked the recorded stream shape but did not query the
+OS stream allocation separately. Effective-rights facts, hostile-rights
+testing, crash replay and independent power-loss proof remain open. OD-001
+remains unresolved.
+
+A further disposable-lab candidate creates a generated local login on the
+hosted Windows runner after the protected visible tree is observed. A separate
+process under that login attempts direct read, write, child creation and delete
+against the freshly created VHD tree; the runner checks the account SID,
+non-administrator token, absence of the publisher service SID, four explicit
+access-denied results and the unchanged running service PID. It then attempts
+to remove the generated account and its separate temporary output folder, and
+fails the run if cleanup is unconfirmed. Hosted PR #105 native Windows step
+passed at source head 02a7512a1216e6103f1c2f47e50711e0f0fe5ca1 in run
+36093907801 on Windows build 10.0.20348.0. The generated standard account's
+separate process returned access-denied HRESULT `0x80070005` for all four
+attempts. The receipt reports the generated account and output folder deleted,
+the restricted service stopped with deletion requested, and the VHD dismounted
+with its backing file removed. Retained JSON receipt SHA-256:
+0336a4f0879182e7ff2e2bb585165a4c362b1567b8504df8c7a86a565c7cec17.
+This covers four path operations at one post-publication instant; it does not
+identify which ACL layer denied access or establish all effective rights,
+every ancestor/descendant, a concurrent race, crash replay or power loss.
+OD-001 and production enablement remain open.
+
+The dependent PR #106 native Windows step in run 36095483920 at source head
+`c40bb197ff722585da50bb3c7f054645a1bff182` passed on build
+10.0.20348.0. After the service flushed its prepared lab record on a new
+file-backed NTFS VHD, it exposed a flushed readiness marker and waited. A
+generated standard-account child then received `0x80070005` for staged
+payload read, staged payload write, staged-child insertion and destination
+precreation. The runner observed the same running service PID before and after
+the attack, then released the service through a flushed marker. The service
+re-observed its tree and anchors before the held-parent no-replace rename; the
+postpublication four-operation probe also passed. The retained JSON receipt
+SHA-256 is
+`5f18072e30560427a70a05322a0f65280b56fb277f9663f95bb3225c8bd3b3d5`;
+it reports account/output cleanup, service stop/deletion request, and VHD
+dismount/backing-file removal. This is one paused laboratory interval. The
+readiness signal came from the service, so it is not independent prepared-record
+readback. ACL-layer attribution, complete effective rights, continuous race
+exclusion, crash replay, power loss and production publication remain unproved.
+The final PR #106 head `4ed57ec95a8147cc459d1d75ff6adce5a6c43c2b`
+also passed all seven CI jobs in run 36095889169. Its retained probe JSON
+SHA-256 is
+`fca2275098672c3e59121b25f0060440875ea11e96223c4361562711298c642c`;
+the same lab-only limits apply.
+
+The dependent PR #107 final source head
+`cdfc71e0d290d67913c8b3a89442b632d8a8d465` passed all seven hosted CI
+jobs in run 36098013393 on Windows build 10.0.20348.0. While the restricted
+service was paused after its prepared lab record, a separate elevated runner
+process used backup-mode copying to read the protected journal file from the
+fresh VHD, parsed and hashed its 4,563 bytes, then required the later native
+record to have the same SHA-256, length, source identity and destination-parent
+identity. The readback SHA-256 was
+`d6459696c37aaa1a27bf3c93f817cdd39fef899814ebc1695820d20a7cb75094`;
+the retained probe JSON SHA-256 is
+`89151606829ced2ef99827178e8cfd0c09a1e1da97a8183eedec0d3e0476de11`.
+The run reports service stop/deletion request and VHD dismount/backing-file
+removal. This is one paused lab readback. Backup-mode success does not isolate
+which privilege granted access; the drive-letter read and before/after VHD
+checks are not an atomic held-volume observation. Crash replay, power-loss
+survival, continuous hostile-race exclusion, OD-001 and production publication
+remain open.
+
+
+A separate campaign-owned Hyper-V VM experiment used VM ID
+`6a23c3f9-272c-4711-b846-152f82bf93d2` and Windows Server build
+10.0.20348.0. A newly created 1 GiB VHDX inside that guest was independently
+bound to non-system disk 1 and an NTFS volume GUID. The candidate lab helper
+refused a wrong Hyper-V guest ID before changing the volume device ACL, then
+accepted the exact guest ID, VHDX backing file, disk extent and generated
+restricted-service SID. A statically linked lab service paused after flushing
+its prepared record; a separate backup-mode read found 4,543 bytes with
+SHA-256 `c1450d0eca0c548839da69b7aacfd0741da4b28311f7d7001ee73d5d58825b40`.
+The host forcibly turned off only this VM at 2026-09-25T05:39:08Z, then
+restarted it. Windows had detached the guest VHDX; after reattaching that
+exact backing file, the observer found the same non-system disk and volume
+identity and the same prepared-record bytes. The service was stopped, the
+release marker and visible destination were absent, and no final native
+receipt existed. The host-held observations and owned-resource manifest are
+retained outside the repository. This is a forced VM power-off observation of
+one prepared state, not a physical host power-loss test. It does not implement
+or qualify journal replay, completed recovery, hostile race exclusion, OD-001
+resolution or production publication.
+
+The next lab-only service mode classifies that retained prepared state after
+restart. It opens the volume and listed descendants through read-only held
+handles, checks the exact canonical prepared journal bytes, compares the
+protected anchors and sealed staged tree with fresh OS observations, and
+requires the destination and state directories to be empty. It writes only a
+receipt outside the protected volume and returns `recovery_required`; it does
+not replay the journal or make the candidate visible. On the campaign VM, the
+restricted service independently matched the surviving 4,543-byte prepared
+record SHA-256
+`c1450d0eca0c548839da69b7aacfd0741da4b28311f7d7001ee73d5d58825b40`
+and staged payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The externally captured positive observation SHA-256 is
+`4d436bad94217c0c87d3c9d6d73779d6c6d13ac60afbe3af6dfdc84e37042e73`.
+A checkpoint of only the campaign VM then permitted a backup-mode overwrite
+of the staged payload. The service refused that altered tree with
+`recovery staged closure differs from prepared record`. A later test of the
+final binary repeated this refusal: the external negative observation SHA-256
+is `51edb22f8f655d430999d544d93b23fe9a0998a4d9805c5434b2552e4dcbc8e9`.
+A separate backup-mode read bound the changed 25-byte staged file to digest
+`e9855c73d9e98b99e2ee84cdd4ca50114c1d3849ee7d6e394ae54a7a44aad763`;
+its external observation SHA-256 is
+`f2d6a5a3dfa269b87734c45a4da5fc86849d959e54adcd63418a59e2b5b5f70a`.
+The VM was restored to the recorded checkpoint, and another backup-mode read
+confirmed the original staged payload digest. Its external observation
+SHA-256 is `311195cedd750f0735369c47d4703f9f03197fba1865548aa651aa40d60eba9b`.
+This checks one persisted prepared state and one staged-content mismatch. It
+does not qualify complete replay, interrupted visible-phase recovery,
+power-loss durability, race exclusion, OD-001 resolution, or production
+publication.
+
+After adding a second journal and empty-role observation, exact publication
+anchor count, and a receipt-path restriction to the classifier, the restored
+VM passed a fresh positive run. The final lab service executable
+SHA-256 is
+`e8eb2666bef29dc3b773a95acf2f02a5087c932ba55ad0df727746f767e5f01f`;
+the final external observation SHA-256 is
+`9e502f7778931c2b3cb5b5d91685c3306f5c21beb1fd251036061ccfc617842c`.
+
+A second new 1 GiB VHDX inside the same campaign VM exercised the gap after
+the native no-replace rename and before the visible-phase journal record. A
+separate postrename gate emitted a flushed marker only after the native call
+returned; an elevated backup-mode observer found the visible 25-byte payload,
+the prepared journal record, and no visible-phase record while the restricted
+service was still paused. The pre-power-off observation SHA-256 is
+`b894c787c4eba5ab45123a64a3b9153c16436b3772b6df548086ba4040383f8b`.
+The host forcibly powered off only the recorded campaign VM. After restart,
+Windows had detached the guest VHDX; the observer reattached the exact file
+and found the same non-system disk unique ID, NTFS volume GUID, prepared
+record SHA-256
+`41464b826d3a8c39d8f84ba429891ba0c04731b22e37b1d79bb124643baf34f7`,
+and visible payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The restricted service was stopped, with no release marker, visible journal
+record, or final publication receipt. The post-power-off observation SHA-256
+is `1a387130a6d384939d26d7ad668f65d0dac2680dd07a20e016efe990a3b4c9ca`.
+
+The read-only classifier now recognizes exactly this prepared-journal,
+visible-tree shape. It requires staging to be empty, the destination to
+contain only `visible`, and the observed visible tree to match every sealed
+field after rebasing native names from `staging/candidate` to
+`destination/visible`. It rechecks the journal, protected anchors, tree and
+namespace before reporting `recovery_required` with
+`visible_without_visible_record`; it does not write a visible record or
+resume publication. The VM classifier observation SHA-256 is
+`fba33c6103dd4d3df27a89228dc879fcb9adb19efa870e31f5f90c8c0a6beaca`.
+A checkpoint of that visible state allowed a backup-mode payload overwrite;
+the independent mutation receipt SHA-256 is
+`fee5977bfb361abcf5c06e9f275b8b8e5c9267e36bc3b28096963f9aeed2a790`.
+The same classifier binary refused the changed visible tree; refusal receipt
+SHA-256 is `2d0c6d6fcbf9eb26a2d5dabae676affd0b6a6e9f6f96b7c73fb0ba5b848b0461`.
+After exact VM snapshot restoration, a separate backup-mode read found the
+original visible payload digest again; restore receipt SHA-256 is
+`ddd11fa00dd3f3ec024ecdcd1f624c2f24aee888712196302640295f12f17c75`.
+The same binary also reclassified the first, still-staged prepared state,
+with regression receipt SHA-256
+`78f1bae1e98aa8fd3a80a52c56623ea92db6ae6f4690b58ee792d9e1245b43e0`.
+These are two forced VM power-off windows and bounded lab classifications,
+not physical host power-loss proof, complete replay, continuous hostile-race
+exclusion, OD-001 resolution, or production publication.
+
+The recovery classifier now also observes the prepared journal as a complete
+protected tree. It requires the held journal root's file identity to match the
+anchor, exactly one named record with the readback size and SHA-256, the
+protected SYSTEM/service-SID security shape on both objects, and an unchanged second
+tree observation. This closes a lab classifier gap where canonical bytes alone
+could be accepted after the record file's ACL changed.
+
+On the campaign VM, the new statically linked Release service binary SHA-256
+`831ed678201e471302192660ad3f2f25ddf5733c27ca48a4f7c0bec304221b5e`
+classified both retained states as `recovery_required`: visible observation
+receipt SHA-256
+`de8013910f32bf7efd0c9cee3e447d8503f76d4481795426eae381a94defc257`
+and staged observation receipt SHA-256
+`2c3dbc216b0c1af1702e1211b57d2cb63480e05a5ddc0a15c81f9281f58c2b3a`.
+After an exact campaign VM checkpoint, a temporary SYSTEM scheduled task
+widened only the prepared journal file's ACL on the recorded second VHDX;
+the journal bytes retained SHA-256
+`41464b826d3a8c39d8f84ba429891ba0c04731b22e37b1d79bb124643baf34f7`.
+The preceding classifier binary still returned `recovery_required` (receipt
+SHA-256 `80ccbe38255ed5f707ed858e9d87cabc705749d1074bdc559e60e15df84a3924`),
+whereas the new binary refused the altered protected-object shape (receipt
+SHA-256 `fa7ab4749c76edd5ea9e67fb9a38217b36f97c367778bc1aa1b83f48dd7cdaa1`).
+The task was removed and the exact VM snapshot restored; the mutated guest
+receipts were absent and the new classifier again observed the original visible
+state (receipt SHA-256
+`1e6bacdc3c9807516f50f82fbaff65dd0fe9ae94a5e153d0309a215c5436d572`).
+The external lab manifest SHA-256 is
+`75471bd32c1be5f786878d8e4039707b22f88b4d1ed5dd14550a2b1d515abb80`.
+This is a disposable VM ACL-negative proof, not journal replay, physical
+power-loss durability, hostile-race qualification, OD-001 resolution, or
+production publication.
+
+The read-only recovery classifier also distinguishes a visible tree with both
+canonical journal records from the earlier prepared-only crash states. It
+requires the visible record to bind the prepared SHA-256, protected anchors,
+destination parent, source file ID, payload SHA-256 and complete visible tree;
+it repeats the journal and namespace observations before reporting
+`recovery_required` with `visible_with_visible_record`. It still performs no
+replay, cleanup or production publication.
+
+On a third campaign-created 1 GiB NTFS VHDX in VM
+`6a23c3f9-272c-4711-b846-152f82bf93d2` (Windows build `10.0.20348.0`),
+the restricted service completed the lab publication and an independent
+backup-mode read found exactly two journal records. The prepared record
+SHA-256 was `2c632d1374cdeee591c3b75bf13a8438f55fe0a7315c7f73d85e7feb0f3a25a1`;
+the visible record SHA-256 was
+`1fb901825a379a8784bc98d23059397a8a00000bcf563bc9e7ca86060ecf8f74`.
+The new service binary SHA-256
+`a073c1a10b31d9ce835fb24e6c0f3194c4d906cf796bb3426a31a508ab13c1fd`
+classified this state as `visible_with_visible_record` (external receipt
+SHA-256 `9c20ae293525193ba09cddab0d784e6a74c963f2333dc6b0f1b7c6084f164f75`).
+After exact VM checkpoint `dec7d56f-c474-4fa3-849f-fb6a0162bc2a`, a temporary
+SYSTEM task widened only the visible journal record ACL while its bytes stayed
+unchanged. The classifier refused the altered protected-object shape (external
+receipt SHA-256 `6109c8a69bbb17f23dafe443398744bcacd25583abc7f8f1614e90c635ee55f8`).
+The task was unregistered and the exact checkpoint restored. Independent
+backup-mode hashes again matched both original records, the mutation receipts
+were absent, and a fresh classifier run returned
+`visible_with_visible_record` (external receipt SHA-256
+`d708c50cc17493c851fee60ef35e2c7499b20eb54b8bd698cc6fa93409cf87ec`).
+A rebuilt static service binary SHA-256
+`9fddced4ccaed007f76f75c35ffcc9d56f1c5e03c8a3b5b67d47dca785fdf8ad`
+also classified the restored bytes identically (external receipt SHA-256
+`c049c7987446267275d4701b9137b3477082cd6022830b25e419a49e3cbe1718`).
+The separate external resource manifest SHA-256 is
+`98bbdd8410eee4b9cde12e167c8111cd27da42c290f0afbcb55b63904ba45917`.
+This normal completion and ACL-negative experiment does not prove an
+interrupted state after the visible record, power-loss durability, actual
+replay, hostile-race exclusion, or production readiness.
+
+A separate VM-only postjournal gate now pauses the restricted lab service
+after its visible-phase record has been written, flushed, read back, and
+observed in the protected journal tree, but before any final service receipt.
+On a fourth new campaign-owned 1 GiB NTFS VHDX (disk unique ID
+`6002248089F547088289F8F076DA613B`, volume GUID
+`\\?\Volume{d988827f-ff51-4de0-8e78-b53124ebfdae}\`), an independent
+backup-mode observer saw both journal records and the visible payload while
+service `USK_VM_e5137a9935104c9e84a79560c9b131de` was paused. The
+pre-poweroff receipt SHA-256 is
+`5b24b41081a48cd998105585486aba467db23ccd3c6ceabce122bfcf03c7a7d4`.
+The host forcibly powered off only campaign VM
+`6a23c3f9-272c-4711-b846-152f82bf93d2` (event receipt SHA-256
+`5e1e06b52a2ce2507c5eda261098fb45ea68620d9630cbe78dc0c5776e87c9c9`).
+After restart and exact VHDX reattachment, independent guest inspection found
+the same NTFS volume identity, prepared record SHA-256
+`cc525757c228fb486e5e4cbe063400098f0a0c2c013ec1f61d278ce41cb7fd11`,
+visible record SHA-256
+`99f5c5ea185e2e4b55b6dc9bedbf0ca75537489322787cb960c12377a89cea50`,
+and payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The service was stopped and had neither a release marker nor final receipt;
+post-poweroff observation SHA-256 is
+`e77151b842039216c9b4578dfdf8c65bf4a949adafd8632b3b9d5389b7477bec`.
+The restricted classifier then returned `recovery_required` with
+`visible_with_visible_record` (external receipt SHA-256
+`20690f3d3c9df0b67271548c42ca0582a2a4fc0b71420a56df1f2e6fa0e07d97`).
+The external owned-resource manifest SHA-256 is
+`3ce3ee46ad1d473d399e0b42d6cb95e0e716d2e601dbe0235d9aaa518ecf1b1a`.
+This is one forced VM poweroff window, not physical host power-loss proof or
+journal replay. It does not resolve OD-001 or qualify production publication.
+
+A separate source-level candidate now streams a dedicated regular-file source
+through a fixed 64 KiB buffer into a create-only child under a held parent,
+using the supplied creation-time descriptor. It requires a declared source size
+and SHA-256, checks source identity and metadata before and after streaming,
+flushes the child, and retains the created file on post-creation refusal.
+The ordinary-user Windows smoke covers a multi-buffer source, exact bytes,
+digest failure retention, pre-creation size refusal and collision refusal.
+It does not establish a trusted source, protected-parent provenance, complete
+tree closure, service execution, publisher durability, recovery or production
+availability.
+
+## Restricted-service forward recovery candidate (2026-09-25)
+
+The campaign VM-only service now has a separate `--recover-visible-bound`
+mode. It reopens the exact protected anchors and prepared journal through held
+parent handles, checks the recorded staged/visible closure, and either performs
+one no-replace parent-bound rename from the prepared stage or accepts the
+already-visible root. It writes the missing create-only visible-phase record,
+reads it back, and reobserves the protected journal, visible tree, anchors and
+staging/destination names. A second run on an already-bound record returns
+`already_visible_bound` without another rename. Replay errors report
+`recovery_required` with a nonzero service exit; retained material is not
+removed.
+
+The statically linked x64 candidate binary SHA-256
+`00dd1365346b7d41154b88e3a749a269e3b9ffc78916690fd8d5455b630e99e2`
+ran in campaign VM `6a23c3f9-272c-4711-b846-152f82bf93d2` on Windows
+build `10.0.20348.0`. From the retained prepared-stage snapshot, service
+`USK_VM_92fb97d0fc9141f9b527a8d70f967d4c` returned
+`visible_bound_forward`; independent guest backup-mode reads matched the
+prepared record SHA-256
+`c1450d0eca0c548839da69b7aacfd0741da4b28311f7d7001ee73d5d58825b40`,
+visible record SHA-256
+`bf557f838c5eb1fa76b35b7157ddfddf6f9ba7e6b8d746c9090209151920ff7d`,
+and 25-byte payload SHA-256
+`92ca2ba61185c0d9598b81fde8cbef1126ab69477c3f210f44de36fafe30120f`.
+The external service and independent receipts have SHA-256
+`842105a0b977dfa1ae522768d9594c6e5ce7ff1859292a02a1ae76a0272d6c78`
+and `55fa6ec80fea708ede456414025681ac35bd4f9279254d10e4ca7deb77ab065b`.
+
+From the retained post-rename, pre-visible-record snapshot, the same binary
+under service `USK_VM_520904d4080540099d7370bd83a472d7` returned
+`visible_bound_forward`. Independent reads matched prepared SHA-256
+`41464b826d3a8c39d8f84ba429891ba0c04731b22e37b1d79bb124643baf34f7`,
+visible record SHA-256
+`0923736859b0419aad70499bf7a57860fb177dad8d4da7c25c02936d3ec1535d`,
+and the same payload digest. A repeated service run returned
+`already_visible_bound` with the same visible record hash. The external
+service, independent, and repeat receipt SHA-256 values are respectively
+`d6ac9533fac1e533b805405d231e1651ee3f2e50c4662038aa88f6c3ccbe0cc3`,
+`b8cefc77ffd75e7a760a8f854da493f8a559b1cd33128fb676fdf0eead24e083`,
+and `3d617dbcc256e91a776b5b589ba3c677fbe90955179faebe3d644c0f74d860a2`.
+The VM was restored to its pre-test campaign checkpoint; the two successful
+end states remain in separate owned snapshots.
+
+These observations cover a single fixed service-owned 25-byte lab payload and
+two retained VM crash windows. They do not provide a general source or
+selected-payload publisher, installed-state completion, lease fencing,
+hostile-race qualification, physical-host power-loss proof, or production
+availability. A crash during visible-record creation can leave an incomplete
+record that this replay conservatively refuses. OD-001 remains open.
+
+## Selected archive entry through the restricted service (2026-09-25)
+
+The next VM-only candidate accepts one `payload.bin` entry from a local ZIP.
+It inspects the archive with the existing bounded streaming reader, checks its
+complete SHA-256 against the service invocation, revalidates the held archive
+source before and after a 64 KiB buffered stream, and creates the staged file
+relative to the protected candidate handle. The existing protected tree,
+prepared journal, parent-bound no-replace rename and visible journal checks
+then run on those streamed bytes. A failed source check before creation leaves
+no file; a failure after creation retains the staged child. The focused Windows
+test covers a multi-buffer reader, preflight refusal and retained digest
+failure.
+
+An external-style authoring fixture finalized a required `core` component and
+left an optional `addon` unselected. Its selection receipt SHA-256 is
+`54b53d7c7fd6bd256a3a0a14ceb8f1854e4c4e53c08de75b077701270cf6e137`;
+the selected bundle manifest SHA-256 is
+`081d689da9daac528691228a48a4b011a14374a4dea058e477828afb5f129d06`.
+The selected archive SHA-256 is
+`4bf00b6da426e2728f0560f683f0a72ccdeaee51f8cdce324623b774353f0e94`.
+The source fixture receipt SHA-256 is
+`bde9296bb4db2ce1cfc8a793c07ce18a047dffe69f38803adae7ed3629430458`.
+
+Statically linked service binary SHA-256
+`49c3fdd442b3f8177b41635abe83edc27cdb757102ddb9dbbad9137a7c0c9470`
+ran on campaign VM `6a23c3f9-272c-4711-b846-152f82bf93d2`, Windows build
+`10.0.20348.0`, through restricted own-process service
+`USK_VM_73186aa540864d648480f3428c01c2ea` and a newly created 1 GiB
+file-backed NTFS VHDX, disk 2, volume
+`\\?\Volume{83d0d45e-ae4a-4d10-9d29-01787fe20367}\`. The VHDX identity
+receipt SHA-256 is
+`f31cab79908646b59741a3ac28514e0ed4946b05c2ae1c5b4892f2b2d48ce967`.
+The service reported success. A separate guest backup-mode read of the visible
+file measured 491,525 bytes and SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`.
+Independent reads of the prepared and visible journal records measured SHA-256
+`3b73dca766aa165fb4d613aa02125764284e83f209a0dc56873c3d30582c8e1f`
+and `881cdd3adbecca89245a780931ae09446cb53bd7eb8ec5690481ae92ba3fd685`.
+The native service receipt SHA-256 is
+`913164ef3eea1b1e86ca6602349026306e3b10f7570ac51efd609b77f17cd162`;
+the external independent-observation receipt SHA-256 is
+`f68b7fe5f0d4a2aeecc602f5f48d69d7ec9dbde9cf8f01a5417d5608f9d235a8`.
+The successful guest state is retained as campaign snapshot
+`149ea46c-685e-4b6b-b1e5-9316f5f05c7a`, and the working VM was restored
+to pre-test snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`.
+
+This observation connects actual authored selected archive bytes to protected
+service publication. The service invocation still supplies the archive path
+and expected hash; it does not authenticate a reviewed public plan or bind the
+bundle manifest to an installed-state transaction. The prepared journal seals
+the published payload and tree, but it does not retain the selected archive
+hash or source identity. Recovery therefore cannot independently establish
+which selected archive supplied those bytes after a crash. This one-root-file lab
+profile has no general selected closure, lease fencing, concurrent attacker
+test, crash replay of this source, production enablement or release
+qualification. The public strict lifecycle remains unavailable and OD-001
+remains open. The first attempt to run the guest device-ACL helper used a
+dynamic-runtime binary and returned NTSTATUS `0xC0000135`; the existing
+static helper then succeeded on the same owned VHDX.
+
+The rebuilt static binary SHA-256
+`1125752e6345ba8387adea2264b89e5ce8f2ebd8969bea08bfc53fef79152564`
+was rerun on the same campaign VM in restricted service
+`USK_VM_a779ef15d08d41ffbd3a2698f2ccd16e`, using a second newly created
+1 GiB file-backed NTFS VHDX, disk 2, volume
+`\\?\Volume{60d4ff85-e1ba-4fe7-bb48-9632a449b0bb}\`. The selected ZIP SHA-256
+remained `4bf00b6da426e2728f0560f683f0a72ccdeaee51f8cdce324623b774353f0e94`.
+The service returned `pass`; separate backup-mode reads found the 491,525-byte
+visible payload SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`
+and matched both prepared and visible journal hashes. The native receipt SHA-256
+is `9e9208f2e4e8ee3f9d20f0c24ebbbc44790c7f10ed8ee07e1bcb0604979105c0`;
+the independent exact-candidate observation SHA-256 is
+`8407c6b42ded6d22a1faf1fa616542f6f8c62ccd6bbc5af3c96ccce1f220e1e0`.
+The successful state is preserved in campaign snapshot
+`1e65483a-9d96-4da1-8e24-d93b7896df11`; the working VM was restored to
+pre-test snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`. This confirms
+the rebuilt binary's one-file lab path only; it does not change the production
+and recovery limitations above.
+
+## Selected source recovery after VM power-off (2026-09-25)
+
+A subsequent VM-only candidate writes the inspected selected ZIP's complete
+SHA-256, held source-identity digest and entry-set digest into its protected
+`publish_prepared` record. Selected runs give their pause markers a unique
+receipt-derived name; an earlier probe was refused by a historical lab marker
+collision, whose receipt SHA-256 is
+`49729eadb2d0e2479044d09f7fefef3b801486143a5fac622a15a05008404ea0`.
+The collision changed no visible target and is not counted as a crash proof.
+
+Static service binary SHA-256
+`8453b627663258af3a46f8667d1e87af40b64072d3fb1c8c22f77eb26fed37c8`
+was exercised in the same owned Windows VM on two further newly created 1 GiB
+NTFS VHDXs. At the prepared-before-rename gate, independent backup-mode reads
+matched prepared record SHA-256
+`da1106a31715123ae252173acec11a445cd0c017777af1bb1bc64b5b1bb01765`
+and the 491,525-byte selected payload SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`.
+The host Hyper-V Worker event log records that this exact VM was turned off
+(event 18502, record 13404 at 13:09:02 UTC) and started again (event 18500,
+record 13409 at 13:09:08 UTC). Those original host records were read back
+retrospectively in receipt SHA-256
+`5ae51c086785aac986a17c418a376e205408f056bb0b66d36d8e979e9974e6dd`;
+they are not a contemporaneous command transcript. After this observed
+turn-off and guest restart, the newly created VHD had detached
+and the newly registered service had not persisted. The test reattached only
+the recorded VHD, checked its disk unique ID and volume GUID, recreated the
+same restricted service name/SID, and reapplied its device ACL. Fresh reads
+matched the prepared record and staged payload. Recovery returned
+`visible_bound_forward`; a repeat returned `already_visible_bound`. The
+pre-crash, post-crash, recovery and repeat observation SHA-256 values are
+`124bec8c93feae0c0582d91382b04dfee937d4cec1ad0ffe87a882c0200fba41`,
+`0ad6eef542161aa363ee646f3a4009d1e7689b84f18aa7e169de9f248c7d8ffc`,
+`e9ece812d1e2babf73c71289ecb898b8222018506c8086622df5979a3af9c7bb`
+and `b4496af65a62e61d648f392fb0f7406489126fddace478acd2836574cb95ad85`.
+The recovered state is retained in snapshot
+`8cb5c857-1cd3-4aad-9586-7e21717787e9`.
+
+At the post-rename-before-visible-record gate, the same binary published the
+selected bytes and paused. The host forced the owned VM to `Off` using
+`Stop-VM -TurnOff -Force` (host receipt SHA-256
+`20575eaf3641adf8543a3536f02d824e7f7c705b6d5c574be8355c85c96eb71e`).
+After restart and exact VHD reattachment, a fresh backup-mode read matched
+prepared SHA-256
+`7c67a9038bbdff34806a0a0049813e8ec9a32bc85a11ac24434f77d6d49a4625`
+and the visible payload; no visible journal record existed. Recreating the
+same restricted service identity and running recovery returned
+`visible_bound_forward` without another rename, then independent readback
+matched the payload and visible-record SHA-256
+`7152408629ec1c0cba093ecc5a42ac3edc894b9f74aa14852d0d279901fb5c88`.
+The post-crash and recovery observation SHA-256 values are respectively
+`b1a0c33299d6ceca9b352266c72b702548d90524ce6ee7911e629fbe32b6590d`
+and `94f53417dab206d258da37b697331f06ae7b362081b89b88026d9170651d9384`.
+The recovered state is retained in snapshot
+`f230c4ec-c144-467b-805e-53a05d3ae48f`; the working VM was restored to
+pre-test snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`.
+
+These are VM turn-off and restart observations, not physical-host power-loss
+proof. The second window also has a contemporaneous forced turn-off receipt.
+The protected prepared record now retains selected archive identity, but that
+identity originates from the lab invocation and is not authenticated against
+a reviewed public plan or selection manifest. Recovery validates the stored
+binding's shape and the sealed protected payload/tree; it does not reacquire
+or revalidate the original ZIP after restart. General selected closure,
+installed-state completion, lease fencing, hostile-rights qualification,
+production enablement and OD-001 remain open.
+
+## Selected-source lab completion after visibility (2026-09-26)
+
+The restricted service now writes a protected, canonical
+`usk.publisher.lab_installed_state.v1` record after the visible journal phase
+for its one-file selected-source mode. It binds the selected archive/source/
+entry-set digests, prepared and visible journal SHA-256 values, observed
+volume, destination parent and visible root identities, service SID and payload
+SHA-256. Recovery checks the exact existing record or, when a verified visible
+journal and sealed tree exist without it, writes and reopens that record. A
+repeat returns `already_visible_bound` without changing its bytes.
+
+The first candidate binary used the dynamic MSVC runtime and the campaign
+service failed to start before a native receipt; the failed attempt is retained
+at receipt SHA-256
+`93e9ba81c14a16a146dadc549c3d69eb6c57f766c9cae4412aeff1326d579c2c`.
+The exact startup cause was not established. A static CRT rebuild (binary
+SHA-256 `a521bf553ffaae8cf49200561269c63e971cf104baaa00a67f573b913036d5fa`)
+then ran on a second new 1 GiB NTFS VHDX in the owned Windows build
+`10.0.20348.0` VM. Independent backup-mode reads matched the 491,525-byte
+payload, both journal records and completion record SHA-256
+`f29b9e6ff3438ee155818d2033b0c3d45abd8c56dc36414f0a88f900d6324e6d`.
+The live observation receipt SHA-256 is
+`9eeb351e821b053907ad13cb75d6876f94ce4d4f6199e3955345f1fd646cd9b4`;
+a second service invocation returned `already_visible_bound` and independently
+read the same completion SHA-256 (receipt
+`36efc0cc6254a82bc62e20e51e5206949a38701ba23f7103e56f89263d7baa76`).
+
+A third newly created 1 GiB NTFS VHDX exercised the interruption between
+the flushed visible journal and completion state. Static binary SHA-256
+`2749c09c6d92fe424881c8d5eabc682088d799205bcfc5096606c78ed6f14767`
+paused at that gate. Independent pre-crash backup reads matched prepared
+SHA-256 `60cfaef1a43501e392d83a049e6275395e09b3c6d0b73e07d69004acf5e4c460`,
+visible SHA-256 `d26f76bcc55dc9e0cc255d829a64f1eccbbef53af3950101948719786acf7ce8`
+and payload SHA-256
+`15f7b1518b0478937a43d98aa2f6a57f641617dbc71728ad2ee1f4f34593b275`;
+the completion file was absent (observation receipt
+`c06f6cf9e59b62e7d690cf1aa7b04a1851d35ab4befa19bd0a025eb705811d05`).
+The host recorded exact-VM `Off` before restart (receipt
+`230394b85698252af86700cb1287837ce5f136b3276c2b74bc7d551a88f00bf6`)
+and a separate running-state receipt
+`3f1b949e31f8bc758d51ada161fcfd016733caef26b07bee9c5d9e7766f6205d`.
+After exact owned-VHD reattachment, fresh independent reads still matched
+both journal records and payload and found completion absent (receipt
+`354082f1342aea8b0586b0a983d14571bc20fccf774b65b652caeb4e5a6bb2ee`).
+Recovery returned `installed_state_completed_forward` and wrote completion
+SHA-256 `2d94dfe0c98b9d149302a1f98998a0e126629be38f9433d38eddbe64a709cc6f`
+(receipt `ff68c921c4ed3870c396f8bb9e37b103ad715b01da568f5ec3ac774daf20b034`).
+Another invocation returned `already_visible_bound` with the same independently
+read completion digest (receipt
+`1c4c189a31966670d3df83efb741fbe7134c08b144355d647b63c067a25e17fd`).
+
+This is a laboratory completion record, not the public
+`usk.installed_state.v1` or a successful packaged setup installation. The
+source is still one selected entry, and its binding originates from the lab
+invocation rather than an authenticated reviewed plan. General source closure,
+installed-state/ownership/audit integration, leases, hostile-rights attacks,
+physical-host power-loss qualification, production enablement and OD-001
+remain open.
+
+## Multi-file selected-source laboratory replay (2026-09-26)
+
+A source candidate now streams every selected file from an authored stored ZIP
+through held protected directory handles. It preflights canonical path
+components and case aliases, creates nested directories with the same protected
+descriptor as staged files, and checks the exact selected file and implied
+directory closure before publication. The laboratory permits at most 4,096
+selected files and uses v2 prepared, visible and completion records that bind
+the selected path, size and digest set. The earlier one-file v1 records remain
+readable. This is a laboratory record format, not the public installed-state
+contract.
+
+The owned Windows build `10.0.20348.0` VM executed static binary SHA-256
+`0b89920f5a263f7a9cc85a350373667fb6269a2c30e8176458b99258de21b104`
+on a new 1 GiB NTFS VHDX. The authored selected ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`.
+It contained `bin/addon.bin` (24 bytes, SHA-256
+`e9a876456998b6fe8b464395cef235bacd5bcc5fec9fffc9d0729bce619bf2d8`)
+and `bin/app.bin` (36 bytes, SHA-256
+`39e3dd1699f11604f4b4855897e0d56ca18cf56f661b18c7840b0423d8a47a9e`).
+The file-set digest was
+`941e11529bd2195ee968445b501701d091027436e4dab9eb8743acc55f12ffbd`.
+The hosted service paused after the visible journal and before completion;
+independent backup-mode readback found both selected files, prepared SHA-256
+`638e649c19321b39bf5a098a83003b6a4a59cdcc73a2ce576873d987bf8664e2`,
+visible SHA-256 `7c9226536adbbed28846836d993dac09ce136afe53915ff4c7c26d1cbd471ea0`,
+and no completion file (receipt SHA-256
+`607d310a77dc84204b762ba2e0dd453377ca3e014fea23853ef63cb49fa0e21f`).
+
+The host forcibly turned off this exact campaign VM (receipt SHA-256
+`331e7b27500c53d85b8a28202c26989ea8b0f796eec9ab1c72a908269329f76f`),
+then restarted it. The newly created SCM service registration was absent after
+this reboot; a prior otherwise similar crash left its registration stopped.
+The recovery harness recorded the actual SCM state and created or reconfigured
+only that campaign service. After exact owned-VHD reattachment, fresh readback
+matched both journal records and files and found no completion (receipt SHA-256
+`cffa965f759f57b5b9fe29f065b75f935f78fc8cf0e0047bed50d58e87c0acce`).
+Restricted-service recovery returned `installed_state_completed_forward` and
+wrote completion SHA-256
+`085ebead8ed34ba7d56bfdbd3ee15cd02effe853c69627268ceaac33b48ae632`
+(receipt SHA-256
+`ff5984925f2c084d0871a77451c55fad6a51888044f44030f913e4ced65eb90f`).
+A repeat returned `already_visible_bound` with the same independently read
+completion hash (receipt SHA-256
+`39aea2ae1f6d83a9e38fcc8a305d5b44d60de2807a42f1f5c74f987ccd29f5b0`).
+The recovered VM state is retained in snapshot
+`5a12c2ba-badc-4104-95cc-3766cca0b8f7`; the working VM was restored to
+pretest snapshot `5fbd0c44-3891-4ded-972a-cefbc58906ce`.
+
+The authored selection reaches protected laboratory publication and
+crash-window completion for these two files. It does not authenticate a
+reviewed public plan, enable the general production publisher, establish the
+public installed-state/ownership/audit records, qualify hostile concurrency,
+leases, arbitrary sources or the 4,096-file bound, or resolve OD-001. A VM
+turn-off is not physical-host power-loss proof.
+
+## Reviewed native plan binding in the restricted-service lab (2026-09-26)
+
+The restricted service now accepts an exact-hash reviewed-plan envelope only
+for the campaign VM. Before opening publication anchors, it recomputes
+`install_local.plan` through the native lifecycle, checks the selected archive,
+held NTFS volume, target, plan digest, and selected file-set digest, and then
+records the plan and envelope hashes in the protected prepared and completion
+records. The public strict commit gate continues to report unavailable.
+
+On Windows build `10.0.20348.0`, the authored two-file ZIP above produced native
+plan digest `6496dac218900456e98c235135639e82ca7d401a0f9c20d56b91336482b48192`
+(response receipt SHA-256 `c9f57e1054d834ee887893312d99c4fac965e60137c4ba9eb09cc000acc0ec88`).
+Envelope SHA-256 was `ad5902418ced08b5c24e08538d2334625003763d256ba27904e1a643cc1159e6`.
+Candidate service binary SHA-256 `f25ec24633e8f36d3e2ccea20b5ec6e4e585ffc121a72e315f7ccd3db0f4268d`
+paused after the flushed visible journal on a newly created 1 GiB NTFS VHDX.
+Independent readback found the two selected files, prepared SHA-256
+`251b4efcf905f2dc40d7445615373d8c42ac63e6304e6c86bfa824e7fd2f6607`,
+visible SHA-256 `8e311842b1a9c4bb813752d0ddad6d66195b4e3d4a16a46b30f22c9b793cd19b`,
+and no completion (receipt SHA-256
+`18773d5e15efb7ab720ebc70640c9b248ad26b216a7beeb3a70ce62394866e39`).
+The host forcibly turned off only this campaign VM (receipt SHA-256
+`8383cd7337adf7f3dde6e8d7684dec3366ea4ba4f71b6ea86a320c2b6bc2e2c6`).
+After restart, exact-VHD reattachment and fresh backup-mode reads matched the
+journal and files and found no completion (receipt SHA-256
+`d9f48de567226c983a235eed57b41d8e739057fbb1ee83fc7e3e7c5460bcb466`).
+Restricted-service recovery returned `installed_state_completed_forward` and
+wrote completion SHA-256 `21ff5ca1948587709eebc52e01761650fd1f4188945c34233038ab28b6ea2c5a`
+with the same reviewed plan and envelope hashes (receipt SHA-256
+`bcaf304964f292723e4baf048165c65c6ef2c7d6f1e26952a22ad7fba9a723c2`).
+A repeat returned `already_visible_bound` with the same completion hash
+(receipt SHA-256 `af1868123d399cac99947e044a369af99367a926180302ed3c51d3e2a4103111`).
+Recovered evidence remains in snapshot `8a3072fc-d73d-4e5e-adb3-02f7bd17ceab`;
+the working VM was restored to the pretest snapshot.
+
+This is an exact candidate-binary lab observation. Later source-only changes
+allow reviewed single-file `payload.bin` selections to use the same v2 record
+and retain the selected ZIP handle after comparing its filesystem identity,
+size and complete selected set to the recomputed native plan, before changing
+the VHD. Those changes have not been rerun in the VM. The journal does not yet
+become the public installed-state, ownership, or audit record. The drive-letter mapping
+and selected source remain laboratory constraints, and hostile concurrent
+substitution, lease fencing, general sources, production enablement, OD-001,
+and physical-host power-loss qualification remain open.
+
+## Durable reviewed-plan snapshot in the selected-source lab (2026-09-26)
+
+The restricted service now persists a bounded, canonical reviewed-plan
+snapshot under the protected journal before writing its prepared record. The
+snapshot retains the reviewed request, selected entry inventory, source
+identity, target path, plan digest, and envelope digest. The prepared and
+completion records bind its SHA-256. Recovery checks the snapshot's exact
+file-set digest against the protected visible tree before it may complete
+forward. Existing one-file and earlier selected-source journal records remain
+readable; their missing snapshot is not treated as equivalent evidence.
+
+On owned Windows build `10.0.20348.0`, a two-file selected ZIP with SHA-256
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`
+was planned as digest
+`3f9c5400599f44563b257607664212d243689ba114e02bcb18eda8c494064bf4`.
+The service paused after the visible journal. Independent backup-mode reads
+found snapshot SHA-256
+`32c8762006d71eb9e3d715cc2fe09bcfbe16ddbdb91202512d24c6d0693d3103`,
+prepared SHA-256
+`ee8e74c4a1b0203a5a0f56c41875c1b0dd6d821945aee7133df0aca4a4efc667`,
+visible SHA-256
+`fdafe7287fddbd0cc7530157938a62ddd1f0eab056510c2e289d93c12b3ad6bd`,
+both selected payload hashes, and no completion. The host then forced this
+campaign VM off. After reboot, the same owned VHD identity was reattached;
+fresh independent reads matched all three journal hashes and both payloads,
+with completion still absent. The first recovery binary refused because it
+compared the native plan's `E:/...` spelling with the reviewed request's
+`E:\...` spelling as raw strings. That validation was corrected to lexical
+path normalization without changing the persisted records. The corrected
+binary SHA-256
+`0279bb90ef0c0c73fddc77f41ac3f677b2dc5281586a2ac34fbd569aca660c18`
+then returned `installed_state_completed_forward`, wrote completion SHA-256
+`701e7daba772bc4b92cee06472a4155d8634c978784cc9f1954ca01f1f111ba4`,
+and a repeat returned `already_visible_bound` with that same completion hash.
+External campaign receipts for the power-off, postboot inspection, recovery,
+and repeat have SHA-256 respectively
+`73a595fdef966130f1183737eea0d516c23088047fb20c62d47b4d1b2d8f348a`,
+`cad31f580023853594710b6d99cea88b18d3366c53ab435e8fb34a21168a27da`,
+`3a4005b9a69b00776000ffd95731cb9d2cc6a8cce5ceb4e339e955f22205d8d9`,
+and `0375a9f508713061668d33de342106b84c3a6e1605c5e97f571b6722be3d356e`.
+The recovered VM state is retained in snapshot
+`e441f2b2-963b-48b9-a857-cde0bffb51ba`.
+
+A second fresh owned VHD exercised the corrected binary from initial
+publication through clean completion. Its reviewed plan digest was
+`869d57fddf032203426d25265de62828c4ff03861f4b63af8f7ecb1ecc42a7e9`,
+snapshot SHA-256 was
+`c43e7e2aa525aa33cb238bb1f4fafc7a66f33bb93f0bb3e2942e6984b9d875ae`,
+and independently read completion SHA-256 was
+`0a00e4f6ea8559afaad794f14bf8ed87e7e517dcbf41227d8d6b012b15e93551`
+(external receipt SHA-256
+`e15be3bfe90b21af35a48bad4db2d8d9c3081fbcb446874c565bf520657fa1ab`).
+
+This makes the reviewed metadata durable across the tested VM crash window.
+It does not independently revalidate the native plan's target-identity facts
+after the crash. It does not create the public ownership, installed-state,
+transaction, or audit records, nor does it qualify hostile races, leases, general-source
+publication, physical-host power loss, or OD-001. The public strict commit
+gate remains unavailable.
+
+## Public installed state from a protected lab publication (2026-09-26)
+
+A controlled Windows Server build `10.0.20348.0` VM ran a newly built
+restricted own-process service against a newly created 1 GiB NTFS VHDX. The
+service held the volume and protected publication handles, validated a native
+reviewed install plan for the authored two-file ZIP, streamed both selected
+files into protected staging, wrote its durable prepared and visible records,
+published the child, and completed the shared lifecycle ownership, installed
+state and audit records. It then called the public `installed.inspect` and
+`installed.verify` commands; both reported pass. This is a successful
+laboratory install operation, not a production-authority qualification.
+
+The clean service binary SHA-256 was
+`90746f4bae9c5c92d6a5ecbc4ce7b520b3f00e42720df564b8995060b399e875`;
+the source ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`.
+The reviewed native plan digest was
+`0aa28b310a64b4a17a0198805439b571b5a51c2ca074d95345d01d2a96c77cb8`.
+The exact service result at
+`C:\USK-Lab\vm-selected-d189b861fb844d69b173e3aafcf0d892.json`
+has SHA-256
+`7150fe10584478670bc6825c097d343c2ad65f11acff40b39e9c8276169ece93`.
+Independent backup-mode readback found the two selected payload hashes,
+prepared/visible/completion hashes, one ownership manifest, one installed
+record, and two ordered audit events. The VM state is retained in campaign
+checkpoint `70f2b81c-36e3-4572-a523-d39c60e17d6e`.
+
+The same binary and restricted service then executed visible-bound recovery
+against the completed install. It returned `already_visible_bound`; receipt
+SHA-256 was
+`c47683c81999eb2f29bacf0003ba280c99248a700048721f454a3db3e70737a1`.
+A fresh independent backup-mode readback found all ten previously recorded
+payload, journal, ownership, installed-state and audit file hashes unchanged.
+This is an idempotent replay observation, not an interruption or power-loss
+test of this exact binary.
+
+The private Windows finalizer requires the live restricted service identity,
+held local NTFS volume and publication handles, exact durable record hashes,
+visible closure, and a bounded audit-prefix state. It is absent from the
+public C ABI and SDK libraries. Independent source review found no remaining
+blocker for this controlled VM candidate. Public state writes still use path
+names; checking the held setup and target before and after a write does not
+exclude concurrent drive remapping or namespace substitution during the
+write. The ordinary strict commit gate remains unavailable. Hostile-rights
+and race qualification, general-source publication, lease fencing, full
+recovery and generation behavior, and OD-001 remain open.
+
+## Volume-bound public records in the controlled lab (2026-09-26)
+
+A follow-up private Windows finalizer addresses the drive-letter dependency
+found in the public-state review. It derives public target, state, and audit
+paths from the observed held volume GUID root. Record I/O accepts that exact
+Windows volume-root spelling and checks each existing directory component for
+links. Manifest verification reads payloads through the volume GUID path while
+the installed record and report digest retain the reviewed target identity.
+The public ABI and strict production gate are unchanged.
+
+On the owned Windows Server build `10.0.20348.0` VM, the candidate service
+binary SHA-256 was
+`deaf4eaac0f34ba8672c728b5d458e572843e6778b33a7e06c6c2ccb6c0e9ca8`.
+The fresh 1 GiB file-backed NTFS VHDX had disk unique ID
+`600224807A574611915AE2B616811A3F` and volume root
+`\\?\Volume{5443136d-ac74-4a50-8f56-e1b4dc66dc75}\`.
+The own-process restricted service SID was
+`S-1-5-80-815698695-2694003840-1793858512-4124452609-4213351229`.
+The two-file selected ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`,
+and its reviewed plan digest was
+`c54f05eec690f6d21d3ed5f6471daf9cab820d7dee87d68fec8f51061b20281d`.
+The clean service result SHA-256 was
+`7c9cba29259873ecebfa4aa545ae5e0349240ac9d2d1ae89f339907d37aaa3e1`.
+Independent backup-mode readback found both payloads, the prepared/snapshot/
+visible/completion records, installed state, ownership, and two ordered audit
+events. The public installed inspect and verify calls passed in the service.
+
+A repeat with the same binary returned `already_visible_bound` and the same
+completion record SHA-256
+`f2829b29f882a28fd10bae13ad27cfcdc314161d47ce41935fb2f12e5ac977c1`.
+Its receipt SHA-256 was
+`6e6843d5fda59d66dd354afe33273e9ec37f2f021397b11f8f328409babbb23d`.
+Independent readback found all 11 relative file names and hashes unchanged.
+The VM state is retained in campaign checkpoint
+`7ca90541-077f-475c-a6ed-dedc07431783`.
+
+This is a clean lab install and idempotent replay of the candidate binary.
+The source is not yet qualified against drive remapping during finalization,
+same-volume namespace substitution, hostile concurrent rights, lease fencing,
+general sources, physical-host power loss, or OD-001. The ordinary strict
+publisher remains unavailable and no release claim follows from this test.
+
+## VM turn-off replay and cooperative volume guard (2026-09-26)
+
+The volume-bound candidate above was also interrupted by an actual forced
+power-off of the owned Hyper-V VM after its visible journal had been flushed
+and before completion. The VM was restarted, its recorded non-system VHDX was
+reattached, and an independent backup-mode readback found both selected
+payloads and the prepared, snapshot, and visible records intact; completion
+was absent. The same restricted-service binary then completed the installed
+state forward. A repeat returned `already_visible_bound` and left all 11
+observed files unchanged. This qualifies the observed VM interruption and
+forward replay window only; it is not physical-host power-loss proof.
+
+The private lab service now takes a cooperative, volume-wide named mutex
+before opening the observed volume or creating protected anchors, and holds
+it through its terminal receipt. The name is derived from the exact volume
+GUID root, with GUID hex case normalized. Acquisition is immediate; a busy,
+inaccessible, or wrong-type name fails closed. A native test covers thread
+contention, release, abandoned ownership, malformed roots, and a conflicting
+object type. This is not a per-install lease or stale-worker revision fence.
+
+On the same owned VM, binary SHA-256
+`20117fd4072fb27344a8d90453722f206bb58a18b198054c202774c97bbe9409`
+replayed the retained install successfully. While that own-process restricted
+service held the guard, a second own-process restricted service with its own
+SID returned `recovery_required` before volume access: it could not open the
+first service's named mutex. Its receipt SHA-256 was
+`570be97e924dec51b7fb1757d68b51d55c9f19e3c95e7466f65b7aa4ec617ced`.
+After the first service exited, the second reached protected profile checking
+and refused because its different SID was absent from the protected DACL;
+receipt SHA-256 was
+`cbb78cd83202f8b07d40343ad584f235371f1199520b678bac089532729f1729`.
+The second service was removed. These observations establish fail-closed
+overlap and guard release, not successful concurrent service handoff. The
+source still lacks a qualified hostile-rights case for this exact binary,
+general-source publication, lease fencing, and production enablement.
+
+## Reviewed install reentry through protected recovery (2026-09-26)
+
+The restricted-service laboratory now routes a repeated reviewed selected-ZIP
+install request to the existing protected recovery path when the exact
+`publication` anchor already exists. It compares the supplied envelope and
+archive digests with the protected durable plan snapshot before forward
+effects. Recovery uses the stored snapshot and sealed payload; the source ZIP
+can be unavailable after the original publication. A different source or
+envelope digest refuses. A case alias of the publication anchor refuses.
+The service still requires the campaign-owned VM and its selected NTFS profile;
+the public strict publisher remains unavailable.
+
+Binary SHA-256
+`baa490b3c22e8c41a68512b5b108b62d34abd61dfcbecee06599deaf705c38a4`
+ran in the owned Windows Server build `10.0.20348.0` VM. On the prior
+completed VHD, the same reviewed request returned `already_visible_bound`;
+a wrong archive digest refused, and a nonexistent source path with the
+original digest still returned `already_visible_bound`. Independent
+backup-mode readback found the same 11 names and hashes as before reentry.
+
+A fresh campaign-owned 1 GiB NTFS VHDX, disk unique ID
+`6002248088595F375AFADF09DC2571B9` and volume root
+`\\?\Volume{69196821-fabe-40d4-a9a8-70b749fb0ead}\`, received a new
+native reviewed plan digest
+`6ee18ce35424b0e8d805a48683d6e7ef4332606d24a80cd5bed577777ca5315b`.
+Reusing an older plan on this VHD refused before publication; the target
+identity changed. The new plan reached a flushed post-journal marker (SHA-256
+`40d6c4fa744077f51845e74246cd93322cb33589d218ef5dd28c3b17ee8896a8`)
+with no terminal receipt. The VM was forcibly turned off and restarted.
+Postboot backup-mode readback found two source-matching payloads and linked
+prepared, plan-snapshot and visible records; the completion record was absent.
+
+After restart, the service configuration contained an older envelope path.
+The runner reissued the recorded reviewed command and reapplied the owned
+VHD's service device ACL. The exact candidate binary returned
+`installed_state_completed_forward` in receipt SHA-256
+`814103ab494bfa01774600c5991c7917a8a94b29f664bdba99ce77ac0bb96148`.
+Independent readback found the five preboot file hashes unchanged and 11
+postcompletion files, including installed-state completion SHA-256
+`8db19aec84df7995790484589f34eb24814021f19dfcd6e7856964816aa5380e`.
+A repeat returned `already_visible_bound`; all 11 hashes remained unchanged.
+A wrong envelope digest separately refused. That earlier binary labeled the
+completed request mismatch `recovery_required`, which was misleading. A
+reviewed revision, binary SHA-256
+`48064fa2a54860acf94a8436743cc9d575b20179aa6e92ad757c383fc34a42ba`,
+returned `failed` for the stale envelope (receipt SHA-256
+`8e5509f0f6acc0b1b5d5bd7d1246878193b9a7aed1abc7dc2442c6047b54afaa`)
+and `already_visible_bound` for the original envelope (receipt SHA-256
+`d7f5f41d83a1ca80ff312fb2fca957ae71b6a18ae3259db05062ecf30faeb21a`).
+Independent backup-mode readback matched all 11 previously recorded file
+lengths and hashes before and after both calls. This revision was exercised
+against the retained completed state, not through a second forced VM power-off.
+The recovered VM state is retained in campaign checkpoint
+`d248d757-2a1f-45f6-bc64-618e5c1dae0a`.
+
+These observations establish this VM interruption window and reviewed-command
+reentry. The recovery code uses the durable snapshot and sealed payload;
+missing-source reentry was observed after completion, not during the
+postcrash forward replay. They do not establish durable SCM command
+configuration, physical-host power-loss behavior, general-source
+publication, hostile-rights qualification for this binary, lease fencing,
+or production enablement.
+
+## Held-volume setup-state initialization (2026-09-26)
+
+The private restricted-service install path now checks that the volume GUID
+root has the same `FILE_ID_INFO` as the retained volume handle before creating
+setup state. It writes the owned-root marker and setup directories through the
+GUID path, while the marker retains the reviewed `E:/` acceptance identity.
+A Windows native smoke also checks refusal for a nonexistent GUID and for a
+real GUID paired with a different held directory ID. This closes a setup-state
+drive-letter substitution window; it does not qualify later path-based state
+writes or a concurrent same-volume namespace substitution.
+
+The first fresh owned VHDX (disk ID
+`60022480E293D66E839793C1C8152A90`, GUID
+`\\?\Volume{d68e0edf-7d4a-40c7-b3ef-62329d0182cf}\`) exposed a
+Windows path defect: deriving the parent of a direct child from
+`std::filesystem::path` dropped the volume-root trailing separator and the
+service returned `The parameter is incorrect`. The candidate retained its
+failed receipt SHA-256
+`dd9584e3698c6448cecad7b7f2d2efa26713090c151303ea8adf89b9bdcaeeb3`.
+The source now passes the verified GUID root explicitly as that parent and
+reports `recovery_required` after protected effects may have begun. The failed
+VHDX is retained for diagnosis.
+
+A second new owned 1 GiB NTFS VHDX (disk ID
+`60022480F9894915E8A8046DBCF57CB3`, GUID
+`\\?\Volume{d00abb24-e56e-4bd2-86bf-54d09b166b3c}\`) ran the
+statically linked Release service binary SHA-256
+`4988aae34c98d558dbbc3059e0514406e3bd0369318c3738d0730297faaa4fe7`
+on Windows Server build `10.0.20348.0`. Its exact authored ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`;
+the native plan digest was
+`bfe5e00a37533a83190fd56fa1baec641bfdcc7d9b03969461898e6a19178afc`.
+The restricted service returned `pass` in receipt SHA-256
+`e4d74724a101622cb47b9c66bbdb6b5385e017b2c68e279067daf09e382863ce`.
+Independent backup-mode readback found 11 files, including the reviewed
+acceptance marker SHA-256
+`2b9da3c5e052c580a32ead5339d980ce4f0b5594c75823e45cadfcf95e4ed066`
+and protected completion SHA-256
+`7c15c601cfc601302e1b68f45f0b7311c893f9154dcb0221e027391c8f2c4f66`.
+This demonstrates clean installation in this owned laboratory profile, not
+live remap resistance, general-source publication, or production enablement.
+
+## Snapshot-only staged replay after VM turn-off (2026-09-26)
+
+The private selected-source service now flushes its reviewed plan snapshot
+before it stages payloads. For an exact snapshot-only journal, replay restores
+the original reviewed plan, checks the protected anchor and staged-file
+closure against that snapshot, and continues through prepared evidence,
+publication, installed state, ownership, and audit. It does not replan against
+the changed target ancestor. The replay path does not reopen the source ZIP;
+the request still supplies its original reviewed archive and envelope digests.
+An earlier failed VHDX without a durable snapshot remains ambiguous and is
+retained; this path does not adopt that historical state.
+
+On the campaign-owned Windows Server build `10.0.20348.0` VM, a newly created
+1 GiB NTFS VHDX (disk ID `60022480D5C0FC977ADA44F9BE783A38`, volume GUID
+`\\?\Volume{2513ed16-f572-47b6-864d-585a5de2bfaf}\`) received reviewed
+plan digest
+`258b6407cf9f25155c1244cf7b6ad9516c496902e33252b5f4acba34a4f7b7f5`.
+The campaign-only poststage gate flushed a marker and held the service before
+prepared intent. Hyper-V then forcibly powered off the VM. After restart,
+the host Hyper-V Worker Admin log was read retrospectively: event 18502,
+record 14131, records the owned VM turning off at
+`2026-09-25T21:16:23.8415149Z`; event 18500, record 14136, records its
+restart at `2026-09-25T21:16:39.9514215Z`. This is event-log corroboration,
+not a contemporaneous command receipt. After restart,
+independent backup-mode readback found exactly the two staged files and the
+3,136-byte protected snapshot, with no prepared, visible, completion, or
+public installed-state record. The source ZIP SHA-256 was
+`9cd16cc168f12992467d142e60a95220840d69fa381b44f47282aa16b6b5d9cd`;
+the snapshot SHA-256 was
+`06739a3f6b6751f4793d816c99cc13ac416f55c748aeb39a7cf0b934b3cf8a61`.
+
+The corrected static service binary SHA-256
+`1eb6f823c745b8c8f06f24d18b842325471958f8e0d7f50b82f3c3db7e1ebaed`
+replayed the retained VHDX and returned `pass` in receipt SHA-256
+`67bdf9472a6c93c4790ba70b16b454fc34e967ca394212162c56b1ddfeff7781`.
+Independent publication readback found both payloads at the visible target
+with their original digests, the snapshot unchanged, prepared and visible
+evidence, and an installed-state completion record. A separate backup-mode
+readback of the GUID-root `setup-state` found the owned-root marker, installed
+state, ownership, and two audit events. A bound repeat returned
+`already_visible_bound` in receipt SHA-256
+`e3a66a650234398355807288aaceda19563ba28bc153c2a281e23576c7cff35d`.
+These host receipts and the VHDX remain in the campaign lab. The first replay
+candidate failed closed on a Windows target-path spelling difference before
+effects; the corrected binary compared normalized path objects. The replay
+runner issued the recorded reviewed request without the crash-test gate and
+checked that the original ZIP and envelope bytes remained present. A later
+source change exempts snapshot-only reentry from the crash-test gate; that
+change is not covered by the forced-off binary observation above.
+
+This is one controlled Hyper-V interruption window and one positive
+snapshot-only forward replay. It does not prove physical-host power-loss
+durability, a general-source publisher, independent recovery without a
+reviewed request, source-file absence during replay, hostile-rights exclusion,
+per-install lease fencing, or
+OD-001. The ordinary strict publisher remains unavailable.
+
+## Independent sealed-snapshot recovery in the owned VM (2026-09-26)
+
+The private restricted-service laboratory now accepts a campaign-VM-only
+`--recover-snapshot-only` command with the service name, receipt path and held
+NTFS volume. It requires the exact snapshot-only protected journal and sealed
+candidate. It reads no selected ZIP or reviewed-envelope path from the command.
+Before trusting the protected snapshot, it checks the journal file's security,
+exact closure and identity across two full tree observations surrounding the
+canonical read. It restores the reviewed plan from those bytes, checks the
+staged file set, then uses the same prepared, visible and installed-state path
+as ordinary selected-source publication. A malformed protected snapshot is
+reported as retained `recovery_required`; only a mismatched supplied request
+is classified as stale.
+
+An independently created 1 GiB NTFS VHDX in the campaign-owned Windows Server
+build `10.0.20348.0` VM had disk ID
+`6002248092FFFCBB11823762A4A88EEC`, GUID
+`\\?\Volume{6b7a9184-b539-4a5b-9bcc-38f0e8ddebd7}\`, and reviewed plan
+digest `7a51e1de017300b4b3c1023636957f0c2e6955a493bfdd399a7b57f994410f24`.
+Its static service binary SHA-256
+`4b54944dfb49891c5e80284e5b1b736b646b0439dbf351dc5335d28482d87caa`
+flushed a poststage gate before prepared intent. The host checked the running
+service, exact disk ID and marker hash, then recorded `Stop-VM -TurnOff -Force`
+at `2026-09-25T21:52:41Z` and the owned VM in `Off` state. After restart,
+independent backup-mode readback found exactly two staged payloads and the
+3,142-byte protected snapshot SHA-256
+`55bae456f856d1f88863bb561df78920fa86daf878f4ab37c441d74104496b67`;
+prepared, visible and completion records were absent.
+
+The run's own selected ZIP and plan envelope were moved to distinct retained
+`.withheld` paths, leaving both original paths absent. Their retained hashes
+still matched the reviewed plan. Static recovery binary SHA-256
+`48e05ca336a1473a4a4b67ac480efa96c7fa5fb5974568323f43433c89b4eba4`
+then returned `pass` in receipt SHA-256
+`fa28a5a48509b8df49c56cd996f8cb34387b6f92606f7d2d4b42d76346d9d0dc`.
+Independent readback found both payloads at the visible destination with
+unchanged hashes, the same snapshot, prepared/visible/completion records, and
+five public setup-state files covering the owned-root marker, installed state,
+ownership and two audit events. The full host receipts and VHDX remain in the
+campaign lab.
+
+An initial dynamically linked binary did not launch in this guest. Its imported
+VC runtime DLLs were absent there, which is the likely cause; the tested
+static binary imports only system DLLs. The guest's PowerShell storage cmdlets refused VHDX reattachment after
+the forced restart, while DiskPart attached that exact owned VHDX and the
+subsequent disk ID and GUID checks passed. These are lab tooling observations,
+not product behavior.
+
+This demonstrates one source-free forward completion from a sealed
+snapshot-only state after forced VM turn-off. It does not qualify general
+sources, source-free replay of later journal phases, physical-host power-loss
+durability, hostile concurrent rights, per-install leases, OD-001 or the
+ordinary strict publisher.
+
+## Source-free visible-journal completion in the owned VM (2026-09-26)
+
+The private restricted-service `--recover-sealed-journal` command accepts a
+protected prepared or visible journal only when it contains a durable reviewed
+plan snapshot. It checks the snapshot against the prepared record and restores
+the exact v2 native install plan before any forward effect. It then uses the
+existing held-handle, no-replace publication and public finalization path; it
+receives no source ZIP or envelope path. Earlier read-only v1 recovery modes
+retain their existing behavior.
+
+An independently created 1 GiB NTFS VHDX in the owned Windows Server build
+`10.0.20348.0` VM had disk ID `60022480AA9F52186BB84A6EC34AC4F7` and
+volume GUID `\\?\Volume{0f23ad44-1250-4efb-b168-8161a0b26375}\`.
+The candidate service flushed a visible-journal gate with no terminal receipt.
+The host verified the running service, volume identity and exact marker bytes,
+then issued `Stop-VM -TurnOff -Force` at `2026-09-25T22:17:59Z` and observed
+the owned VM `Off`. The forced-off host receipt SHA-256 is
+`e1b8670f703c25e4230b49e1cc60ec265daf262ac82679aea77b0cb8b101c9ad`.
+
+After restart and exact VHDX reattachment, independent backup-mode readback
+found two visible payloads plus the protected reviewed snapshot, prepared and
+visible records, with no protected completion record. The original selected
+ZIP and reviewed envelope paths were moved to distinct retained `.withheld`
+paths after their hashes were checked. Static recovery binary SHA-256
+`c656fb6d51d443828cf13a1622683c0dcb17241d8d9442cf3b0324a212ce423d`
+then returned `pass` and `installed_state_completed_forward` without those
+original paths; host receipt SHA-256 is
+`eb55c57fbc847cf7e5859a9dea8390d2d86a54cde3cfa7edd665a61179f6f486`.
+Independent readback found the same two visible payload hashes, the new
+protected completion record and five public setup-state files: marker,
+installed state, ownership and two audit events. A source-free repeat returned
+`already_visible_bound`; all six protected and five public file size/hash pairs
+matched the first completed readback. The full receipts and VHDX remain in the
+campaign lab.
+
+This demonstrates forward installed-state completion from one visible-journal
+window after forced VM turn-off, plus an idempotent repeat. It does not prove
+the prepared-only window with this command, physical-host power-loss
+durability, general sources, hostile concurrent rights, per-install lease
+fencing, OD-001 closure or ordinary production publisher qualification.
+
+## Authenticated candidate client transport
+
+The candidate now accepts the existing `install_local.apply` request through
+a local, one-request named pipe. The worker configuration admits an exact
+caller SID and independently pins the reviewed envelope/source identities.
+The pipe rejects remote clients, requires an exclusive first instance, and
+grants the caller individual data/attribute rights without pipe-instance
+creation, ACL modification or ownership rights. After reading a bounded
+message, the worker identifies the client token and reverts before entering
+the publisher. The client binds the held pipe to the live own-process
+restricted SCM service and retains a process handle against PID reuse.
+Request and response limits are 1 MiB and 4 MiB; overlapped I/O has a deadline
+and server stop cancellation. A transport timeout is not proof that an
+operation failed: reconnect with the same reviewed request.
+
+The submitted apply request must match the independently reviewed envelope
+before fresh effects. Registered source-free recovery can instead submit
+`usk.publisher_recovery_request.v1` with only a request ID, install ID and
+transaction ID. The service restores the plan, source and consumer policy from
+its protected v3/v4 snapshot and compares those IDs before replay effects.
+The original apply-request replay remains compatible. A client cannot select
+new source/target roots, mint publisher authority, or change the caller
+transaction merely by connecting. Local native transport
+tests exercise request/reply, identity reversion, access refusal, impostor
+service refusal, exclusivity, cancellation, timeout and oversized messages.
+The disposable Windows runner harness additionally exercises client-driven
+apply, source-free reconnect/retry and changed-transaction refusal with
+independent readback. Harness definition is not execution evidence.
+
+This remains the private candidate backend: its service/volume/lab admission
+is retained, replies preserve the actual apply versus recovery observation,
+and public production availability remains false. General consumer policy,
+practical ordinary-location deployment, per-install revision fencing and
+full hostile-rights/crash qualification are still outstanding. No additional
+file ACL grant or user-volume provisioning is introduced by the transport.
+
+Transport API references: [Microsoft named-pipe access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights),
+[client identification](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient),
+and [server process identity](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getnamedpipeserverprocessid).
+
+## Candidate visible consumer access and partial-grant replay
+
+The private publisher now has an opt-in consumer policy in reviewed snapshot
+v4. It binds an account-form SID to the authenticated client before publication
+effects. v2/v3 retain their strict two-ACE profile and are not rewritten.
+
+Only after protected completion and the matching public installed state,
+ownership and completed two-event audit chain verify may the worker grant
+explicit read/execute to the visible payload. The owner remains SYSTEM and
+the protected DACL retains the original SYSTEM/service full-control ACEs.
+The additional ACE has no inheritance and exactly FILE_GENERIC_READ plus
+FILE_GENERIC_EXECUTE. It gives no write, deletion, ACL or ownership rights.
+Private volume/namespace anchors, staging, state and journals stay unchanged.
+
+Granting multiple objects is not atomic. An interruption may expose some
+verified payload bytes before the terminal result. Recovery first proves
+the same completed public metadata, then admits only exact original or
+exact policy-extended descriptors on visible payload objects. It removes
+only that validated ACE when comparing the original durable seal/completion;
+all IDs, paths, bytes, streams and remaining security facts stay checked.
+The original protected records remain immutable. Replay repairs incomplete
+grants and success requires a fresh complete granted-tree observation.
+
+This is candidate implementation, not a general production profile.
+The exact-head hosted Windows 20348 run [36355552793](https://github.com/Julesc013/universal-setup/actions/runs/36355552793)
+observed an owned non-admin account reading both selected payload files and
+running the neutral executable. An injected first grant left one visible
+reader ACE; source-free replay completed all four visible grants. Independent
+SYSTEM readback checked the payload and ACL closure, and the non-admin client
+received access-denied for 19 mutation and private-access attempts. Its
+account, service, client and owned VHD were reported cleaned up. This receipt
+qualifies that hosted candidate run only. Injection and controlled cancellation
+are not power-loss proof. Hostile rights against this selected-bundle path,
+lease/fencing, general-source admission and ordinary customer provisioning
+remain separate incomplete obligations.
+
+The consumer-mode service admits the configured account to its own process
+with only SYNCHRONIZE and PROCESS_QUERY_LIMITED_INFORMATION, after live SCM
+and restricted-token corroboration. This preserves the client's held-process
+identity check without granting termination, memory, handle-duplication or
+process-security mutation rights. Existing owner and ACE bytes are retained
+and the resulting descriptor is read back. No other process is modified.
+The process owner may be SYSTEM, built-in Administrators, the exact observed
+SCM service SID, or the unique logon-session SID marked in that service's
+current restricted SYSTEM token. The hosted Windows 20348 probe observed an
+`S-1-5-5-...` owner, not the SCM service SID. SCM and the live
+restricted SYSTEM token remain mandatory. Existing ownership is preserved.
+Administrators are already outside the candidate adversary claim. This does
+not change the strict SYSTEM owner required for protected filesystem objects.
+Hosted cancellation observes owned descendants by parent, start time,
+executable and command line, terminates the held tree and confirms recorded
+instances have exited. Unconfirmed cleanup retains the account and backing
+volume for disposable runner shutdown.
+
+### Public client implementation checkpoint — qualification pending
+
+The ordinary machine client now has an explicit `--publisher NAME` composition
+that discovers an owned registration, validates retained executable digest,
+SCM command, caller, service SID and volume-root identity, starts or reconnects
+to the authenticated dispatcher, and returns the public command response.
+This checkpoint requires an elevated configured caller and readable reviewed
+package inputs. The non-admin consumer route is still unqualified.
+
+Registration checks pinned package bytes before retaining creation intent.
+The protected intent binds the exact command, executable digest, service SID
+and target identity to a random creation tag written atomically by
+`CreateService`. An interrupted registration may resume only against that same
+tagged, stopped SCM entry and exact intent. Unmarked existing resources are
+refused; incomplete owned resources are retained. The hosted reentry fixture
+models missing completion after creation, rather than a process-kill or
+power-loss event.
+
+The controller's `--provision-target NAME --confirm-empty-volume` admits only a
+bound dedicated data volume, records original security before effects, checks
+physical partition identity and a narrow Windows metadata exception,
+admits ordinary GPT basic data with at most one preceding, bounded Microsoft
+Reserved Partition (MSR), and refuses EFI, recovery, unknown, boot-marked,
+overlapping or attributed partitions. The MSR is never the selected volume.
+Ordinary non-boot MBR IFS data remains supported. Windows documents the MSR
+on data-only GPT disks in its [GPT FAQ](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-and-gpt-faq).
+Admission retains the held object's bounded self-relative owner/DACL descriptor
+from [GetKernelObjectSecurity](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getkernelobjectsecurity).
+The initial metadata prestate requires trusted SYSTEM/Administrators ownership
+and allow ACEs, and the existing flat content, identity,
+stream and size bounds. It may lack stored DACL protection. A v2 target intent
+retains that complete original snapshot and the deterministic protected
+poststate before any effect. A separate held-handle metadata operation adds
+only [SE_DACL_PROTECTED](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setsecuritydescriptorcontrol)
+through the native security primitive; owner and ordered ACE bytes remain
+unchanged and the operation does not propagate to descendants. The parent
+operation supports only non-inherited allow ACEs with optional OI/CI flags;
+descendant ACE facts are retained exactly, including inherited flags. It never
+adopts this metadata as a publication anchor or payload. The volume-root
+primitive continues to reject every inheritable ACE.
+Reentry accepts only the retained original or exact intended metadata state;
+unsupported, contradictory or unavailable facts refuse with the existing
+intent retained. Completion and unpublished retirement require the bound
+protected poststate, including file identities, attributes, descriptor facts
+and contents. The native fixture contains a metadata descendant and checks
+raw descriptor, identity and byte preservation, stale-prestate refusal and
+protected-poststate reentry. The hosted probe independently reads original
+and protected metadata as SYSTEM and models missing completion after effects;
+that model is not process-kill or power-loss evidence. Hosted execution and
+complete admission recovery qualification remain required. The controller then
+updates the held root without descendant propagation, and repeats exclusive
+volume admission before retaining completion. Protected records publish through
+flushed, no-replace temporary promotion. Admission recovery and authority
+retirement still require qualification; retained records prevent name reuse.
+Removal and executable retirement refuse incomplete admission or any installed,
+staging or recovery namespace on a public target. Only an admitted unpublished
+target can retire through these commands; installed authority is retained for
+the owned uninstall lifecycle. The hosted probe's disposable runner cleanup
+does not qualify installed-authority retirement.
+Legacy mode-changing controller operations are not interchangeable with the
+immutable public registration and are refused once target admission intent
+exists. Existing availability declarations stay false.
+
+The connected hosted probe covers product target admission, preservation
+refusals, ordinary apply, independent readback, source-free recovery, original
+apply replay and bound verification. This complete chain passed in exact-head
+CI run `37133670524` at `42cf5350c540184b3bfd53e6f32c79ce62a24ec3`, integrated
+through PR #217 at `273fa4556cb19ceb307bc1c47e1fe8d011045f9f`. Artifact
+`11277314950` records the same recovered/replayed installed state, 28 unchanged
+independent target rows and passing final verification. Those rows established
+hash/ACL preservation; they did not independently bind payload file IDs or
+the complete native closure facts.
+
+The connected qualification fixture adds held-handle native file IDs, names,
+attributes, raw owner/DACL, link counts, directory case flags, exact streams
+and bounded content hashes to the independent SYSTEM observation. It compares
+that closure with the retained sealed and visible records. A local native
+reader test distinguishes identical-byte foreign identity from the retained
+renamed object and reports hard links and additional streams.
+
+Both durable-prepared-before-rename and visible-before-journal loss fixtures
+now use ordinary public dispatch and the shared external stock-service
+observer. The observer binds the exact owned VHD, SCM command, executable
+digest, PID and creation time, requires an actual live kill and fails a missed
+window. Each fixture requires public unknown/exit 5, absent completion, input
+removal, source-free recovery, exact retained native identity/content, repeat
+recovery/replay and verification without SCM reconfiguration. The ordinary
+chain and both loss cases passed exact-head run `37138897123` at
+`a9afd81839f6fb4e46cf8a73392095dc71c3a287`, integrated by PR #218 at
+`2fb9a4677254a3bef7f324470f66b4b65ddf5181`. Artifacts `11279009009` and
+`11279024188` retain the actual checkout/tree and separate PR head, Windows
+20348, SDK 26100, MSVC 19.44 and file-backed GPT/NTFS sector facts. Every
+interrupted native object was preserved through recovery, allowing only the
+prepared payload namespace move; all 28 terminal rows remained identical
+through repeat recovery/replay. Controlled process termination is not physical
+power-loss evidence, and this run does not qualify every Windows/storage profile.
+
+The finite remaining obligations are the existing PUB-001/002/003 and PLAT-002
+acceptance designs: complete initiating/untrusted-token effective-right
+evidence; retained refusal for altered/ambiguous visible material and metadata
+failure; reconciliation of the native predicate corpus; and exact source,
+SDK/runtime, Windows/storage assumptions plus unsupported-target refusals.
+The replacement-source DELETE denial still proves only that source failure.
+Strict availability and the release acceptance predicate remain unchanged.
+
+### Stored security and invoking-token qualification
+
+All publisher filesystem observations now read bounded stored owner/DACL
+bytes from the retained handle. Controller locks, retained executable checks,
+metadata admission and payload closure use the same reader. Protection is the
+stored SE_DACL_PROTECTED flag; it is not inferred from a normalized Win32
+file-security descriptor. Disposable native fixtures toggle that bit on files
+and directories while retaining the same identities, owner and ordered ACEs.
+
+The public qualification observer additionally binds the live invoking probe
+process by PID and creation time, holds its actual token, and records its user,
+groups and privileges. It creates a separately labelled filtered derivative
+with Administrators deny-only and DISABLE_MAX_PRIVILEGE, with no added
+restricting SID. Read-only AccessCheck evaluates each mutation right and
+MAXIMUM_ALLOWED against held raw owner/group/DACL observations, whose identity
+and owner/DACL must match the independent native closure. The filtered token
+must receive no mutation right on any protected row; elevated invoking-token
+results are retained separately. Local tests require a real owned-file grant,
+closed-descriptor denial and contradictory process/user refusal under both
+PowerShell runtimes. This batch passed all seven CI jobs in run `37142584691`
+at `463406ba6dc25151e77a5389b4a5b12e59b99863`, integrated by PR #219 at
+`352be49d6dfc8fb64eb3c6e1388a8b0d358b92b0`. Artifacts `11281480086` and
+`11281330850` retain ordinary installation and both source-free production-loss
+recoveries with the stored-security and token observations. Each terminal
+28-row snapshot denied all eight measured mutation bits to the derivative.
+
+This measures the invoking probe token and its explicit derivative. It does
+not capture the exited machine client's token, qualify an unrelated account,
+or prove resistance to every privileged or untrusted actor. Actual initiating
+client and broader effective-right qualification remain on the finite list.
+AccessCheck is a descriptor/token observation, not an attempted filesystem
+mutation or a claim that independent native I/O would necessarily succeed.
+
+### Ordinary public retained-refusal fixtures
+
+The connected public probe now defines two controlled faults after the stock
+service has been terminated at the visible-before-journal boundary. One uses
+the existing bounded owned-payload helper to change a selected file's bytes.
+The other creates a fresh protected SYSTEM/service directory at the fixed
+public installed-state filename, blocking regular-record finalization without
+supplying any fabricated installed-state JSON. These are excluded privileged
+fixture actions on an independently bound disposable hosted VHD; they do not
+demonstrate a successful untrusted mutation or a production vulnerability.
+
+Both cases remove original inputs and require ordinary minimal recovery,
+repeat recovery and original apply replay to return recovery_required/exit 5,
+retain every previously observed native object, and produce no regular public
+installed-state record. Payload drift permits only the witnessed hash change;
+metadata collision permits only bound private visible-evidence and completion
+records, preserving every admitted predecessor through later attempts. The
+collision is read before public audit or ownership creation, so any additional
+public path refuses qualification. Recovery-authority retirement must refuse. The shared
+readback retains actual identities, owner/DACL, streams, sizes, bytes and token
+access results, and compares those observations through every attempt. The
+two cases run together with separate retained receipts and missed windows
+fail. PR #220 passed all seven jobs in exact-head run `37149123839` at
+`0ea620ac1a0a37f64333ee2e4ab492f977dc3f15`, integrated as
+`2d77e2a8e2847bf9d70e0b463688da5cb631d279` after independent source review.
+Artifact `11283795501` retains all 21 fault rows through the payload refusals,
+and all 22 collision rows plus only the two qualified private records through
+the metadata refusals. Each case retained authority through all three public
+attempts. Artifacts `11283525820` and `11283239940` retain the ordinary and
+both successful process-loss chains, including 28 identical terminal rows and
+passing verification. Private protected completion and public installed-state completion
+are distinct observations; a metadata failure must not erase the former or
+invent the latter.
+
+### Actual machine-client and volume-boundary candidate
+
+The next source candidate starts each owned ordinary machine client with its
+primary thread suspended, captures its live PID, creation time, image name
+and actual token, creates the explicitly labelled filtered derivative, and
+then resumes that thread once. Only its three owned standard-I/O handles may
+be inherited. The launcher retains non-inheritable client process and token
+handles until all independent observations finish. A SYSTEM observer duplicates
+those handles from the still-live launcher, checks owner/client creation times,
+token IDs and identities, and evaluates the retained actual client token and
+derivative after the client has exited. Each apply, recovery, replay and verify
+request has a fresh paused capture; its command and request ID bind subsequent
+independent snapshots. Previous observer tasks finish before the next capture
+retires the matching prior handles and archives its owned capture file.
+These are pre-resume client tokens, not endpoint-time impersonation tokens.
+Image identity is a live launcher
+capture with the current image-file digest independently rechecked; it is not
+an image query on the exited process. Local controls cover cross-process
+readback after exit, a real positive grant, closed-descriptor denial,
+contradictory bindings, resume-once and never-resumed termination under both
+PowerShell runtimes.
+
+The same source candidate observes the filesystem volume-root boundary
+separately from the existing native rows. Its native identity, stored descriptor,
+attributes, case and stream facts must match the retained prepared boundary,
+and its filtered mutation access must be empty. The raw-volume observation
+holds only READ_CONTROL access, reads the owner/group/DACL and the single
+[volume extent](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-ioctl_volume_get_volume_disk_extents),
+and checks the exact owned VHD disk/partition binding. It retains actual-token
+results separately, allowing the expected excluded administrator device rights.
+The filtered descriptor/token checks must deny the measured mutation bits.
+Both boundary observations must remain identical through recovery and replay.
+
+These additions require hosted execution and independent review. They are
+read-only descriptor/token observations with file generic mapping, and do not
+establish mutating FILE_ANY_ACCESS device-control behaviour, a separate
+unrelated-login token, general hostile-race resistance, physical power-loss
+durability, a complete build attestation, or broader Windows/storage support.
+OD-001, strict availability and release acceptance remain unchanged.

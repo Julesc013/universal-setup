@@ -3,6 +3,7 @@
 
 #include "usk_audit_repository.h"
 #include "usk_state_repository.h"
+#include "usk_json.h"
 
 #include <chrono>
 #include <filesystem>
@@ -147,6 +148,9 @@ int run()
     const fs::path ownership_path =
         fixture.state / "ownership/ownership.install.fixture.json";
     const std::string exact_ownership = read_text(ownership_path);
+    auto legacy_payload = usk::json::parse(exact_ownership);
+    legacy_payload.as_object().erase("manifest_digest");
+    if (usk::json::sha256_canonical(legacy_payload) != stored_ownership.manifest_digest) return 15;
     {
         std::ofstream tampered(ownership_path, std::ios::binary | std::ios::trunc);
         tampered << "{}";

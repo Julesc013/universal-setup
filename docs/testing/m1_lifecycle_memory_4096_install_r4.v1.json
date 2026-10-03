@@ -1,0 +1,24 @@
+{
+  "schema": "usk.lifecycle_memory_observation.v1",
+  "operation": "install",
+  "requested_payload_bytes": 1048576,
+  "entries": 4096,
+  "source_kind": "streaming",
+  "binary_sha256": "4555a9529dde6a96002e64a9d16e1c9d1e6590924d481a2a36f4bb1d1cdb8f03",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+  "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+  "source": {
+    "commit": "2dcb067044925c43cd76ef6223453029c13de611",
+    "tree": "2a57cb175b613abbab514a0cb23ed4d225dfdb23",
+    "working_tree_dirty": false
+  },
+  "fixture": "usk_lifecycle_smoke memory_scenario v1; repeated x-byte source",
+  "fixture_prepared_outside_measured_process": false,
+  "metric": "windows_peak_working_set_bytes",
+  "peak_bytes": 92921856,
+  "samples": 497300,
+  "elapsed_ms": 2756388,
+  "exit_code": 0,
+  "stdout": "memory-scenario-pass install streaming 1048576 4096"
+}
