@@ -83,6 +83,12 @@ bool publisher_capability_checks()
         usk::json::canonical(envelope.at("result")) != usk::json::canonical(usk::json::parse(response))) return false;
     // Every absent dimension must refuse instead of defaulting to available.
     const auto original = usk::json::parse(response);
+    auto built_in_caller = original;
+    built_in_caller.as_object().at("binding").as_object().at("caller_sid") = Value("S-1-5-21-1-2-3-500");
+    const auto built_in_result = usk::command::run_publisher_one_shot(request,
+        [&built_in_caller](const std::string&) { return usk::json::canonical(built_in_caller); });
+    if (built_in_result.exit_code != 0 || usk::json::parse(built_in_result.document).at("result")
+            .at("binding").at("caller_sid").as_string() != "S-1-5-21-1-2-3-500") return false;
     for (const auto& field : original.as_object()) {
         auto incomplete = original;
         incomplete.as_object().erase(field.first);

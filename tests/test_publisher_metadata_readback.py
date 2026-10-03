@@ -491,6 +491,11 @@ try {
  $file=Join-Path $env:USK_RIGHTS_ROOT 'owned.bin'
  [IO.File]::WriteAllBytes($file,[byte[]]@(0x55,0x53,0x4b))
  $own=$rights.Read($file)
+ $facts=[UskMetadataFacts]::Read($file)
+ $sha=[Security.Cryptography.SHA256]::Create()
+ try {$expectedDigest=[BitConverter]::ToString($sha.ComputeHash([byte[]]$facts[1])).Replace('-','').ToLowerInvariant()}
+ finally {$sha.Dispose()}
+ if($own['owner_dacl_sha256'] -cne $expectedDigest){throw 'Held owner/DACL digest differs from independent stored bytes'}
  if(-not $own['checks']['filtered']['write_or_add_file']['allowed']) {
   throw 'Positive owned-file control failed to observe granted write access'
  }

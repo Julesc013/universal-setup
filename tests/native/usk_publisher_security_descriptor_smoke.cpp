@@ -304,6 +304,21 @@ void boundary_preserves_unexpected_child() {
 
 int main() {
     try {
+        using usk::platform::windows::require_publisher_registered_account_sid;
+        using usk::platform::windows::require_publisher_consumer_sid;
+        for (const auto& account : {"S-1-5-21-1-2-3-500", "S-1-5-21-1-2-3-1001"})
+            require_publisher_registered_account_sid(account);
+        for (const auto& invalid : {"S-1-5-18", "S-1-5-32-544", "S-1-5-80-1-2-3-4-5",
+                "S-1-5-21-1-2-3", "S-1-5-21-1-2-3-4294967296", "S-1-5-21-01-2-3-500"}) {
+            bool denied = false;
+            try { require_publisher_registered_account_sid(invalid); }
+            catch (const std::exception&) { denied = true; }
+            check(denied, "non-account or noncanonical discovery SID was accepted");
+        }
+        bool built_in_consumer_denied = false;
+        try { require_publisher_consumer_sid("S-1-5-21-1-2-3-500"); }
+        catch (const std::exception&) { built_in_consumer_denied = true; }
+        check(built_in_consumer_denied, "discovery validation broadened consumer-read admission");
         boundary_preserves_unexpected_child();
         const std::wstring service_sid =
             L"S-1-5-80-3180180915-1861177297-4117424284-3321057921-2519428456";

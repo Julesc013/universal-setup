@@ -2058,7 +2058,9 @@ std::string submit_registered_publisher_request(const std::wstring& name,
                 (schema == "usk.publisher_installed_verify_request.v1" || !inspection_id.empty()))))
             throw std::runtime_error("registered publisher mode differs from request");
         if (!inspection_id.empty()) {
-            require_publisher_consumer_sid(utf8(caller));
+            // The independently matched registered caller can be a built-in
+            // account. Discovery does not grant the ordinary consumer-read ACE.
+            require_publisher_registered_account_sid(utf8(caller));
             // Discovery uses query handles only. It neither creates controller
             // locks nor starts/reconfigures a service, admits a target or grants
             // execution authority. This observation is not a held execution lease.

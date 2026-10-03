@@ -651,6 +651,20 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
         if(unrelated!=IntPtr.Zero)checks["unrelated"]=Check(descriptor,unrelated);
         return checks;
     }
+    static string OwnerDaclDigest(IntPtr held, RawSecurityDescriptor observed) {
+        uint needed;
+        if(GetKernelObjectSecurity(held,5,null,0,out needed) || Marshal.GetLastWin32Error()!=122 || needed<20 || needed>65536)
+            throw new Exception("Held owner/DACL digest size unavailable or unbounded");
+        byte[] bytes=new byte[needed];uint returned;
+        Require(GetKernelObjectSecurity(held,5,bytes,needed,out returned),"Read held owner/DACL digest bytes");
+        if(returned!=needed)throw new Exception("Held owner/DACL digest changed during observation");
+        RawSecurityDescriptor raw=new RawSecurityDescriptor(bytes,0);
+        var sections=AccessControlSections.Owner|AccessControlSections.Access;
+        if(raw.GetSddlForm(sections)!=observed.GetSddlForm(sections))
+            throw new Exception("Held owner/DACL digest differs from access observation");
+        using(var sha=System.Security.Cryptography.SHA256.Create())
+            return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-","").ToLowerInvariant();
+    }
     public Dictionary<string, object> Read(string path) {
         IntPtr file=CreateFile(path,0x20080,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero);
         Require(file!=new IntPtr(-1),"Hold descriptor object");
@@ -668,6 +682,7 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
             string identity=BitConverter.ToUInt64(id,0).ToString("x16")+":"+BitConverter.ToString(id,8,16).Replace("-","").ToLowerInvariant();
             RawSecurityDescriptor raw=new RawSecurityDescriptor(bytes,0);
             return new Dictionary<string, object>{{"file_id",identity},{"security",raw.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Access)},
+                {"owner_dacl_sha256",OwnerDaclDigest(file,raw)},
                 {"group_sid",raw.Group==null ? null : raw.Group.Value},{"checks",CheckDescriptor(bytes)}};
         } finally {CloseHandle(file);}
     }
@@ -704,6 +719,7 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
             // is outside this observation.
             return new Dictionary<string,object>{{"path",path},{"extent",binding},
                 {"raw_security",raw.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Group|AccessControlSections.Access)},
+                {"owner_dacl_sha256",OwnerDaclDigest(device,raw)},
                 {"checks",CheckDescriptor(bytes)},{"basis","held volume-device descriptor and single extent; file generic mapping; no mutating IOCTL"}};
         } finally {CloseHandle(device);}
     }
@@ -906,6 +922,7 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
     throw 'Effective-right descriptor observation differs from independent native closure'
    }
    $row['effective_rights']=$checked['checks']
+   $row['owner_dacl_sha256']=$checked['owner_dacl_sha256']
    $row['effective_right_group_sid']=$checked['group_sid']
   }
   $rows.Add($row)
@@ -952,6 +969,7 @@ if($ExpectedVolumeRoot) {
   throw 'Volume-root descriptor differs from independent native boundary'
  }
  $root['effective_rights']=$checked['checks'];$root['effective_right_group_sid']=$checked['group_sid']
+ $root['owner_dacl_sha256']=$checked['owner_dacl_sha256']
  $result['volume_boundary']=[ordered]@{root=$root;device=$effectiveRights.ReadVolumeDevice($DriveRoot,$ExpectedVolumeRoot,$ExpectedDiskNumber)}
 }
 $temporary=$Output+'.pending'

@@ -1645,3 +1645,18 @@ The discovery fixture retains a bounded diagnostic on an unexpected refusal
 and accepts the same single refusal line with LF or CRLF. The previous hosted
 run failed before installation; its actual stderr was not retained. Local
 reproduction emitted CRLF, so a hosted newline cause is not established.
+
+The next hosted run retained the refusal diagnostic: discovery after admission
+exited 2 with the standard CRLF refusal line. Source inspection identified the
+consumer-read SID validator's RID floor as incompatible with the registered
+controller account (RID 500). Discovery now validates canonical account form
+after matching the actual TokenUser to the registration; consumer grants still
+require RID at least 1000. Native controls cover both policies. Hosted repair
+qualification is pending.
+
+Independent readbacks additionally hash the bounded stored OWNER/DACL bytes
+from their held root/device handles using the same requested information mask
+as discovery. They compare the security projection against the held
+owner/group/DACL access observation before recording the digest. This permits
+external canonical boundary-digest reconciliation without reconstructing
+binary security descriptors from SDDL. No execution lease follows.
