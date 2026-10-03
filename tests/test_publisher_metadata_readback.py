@@ -13,6 +13,111 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_volume_boundary_observation_rejects_foreign_and_mutating_facts(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split('Add-Type -TypeDefinition @"', 1)[1].split('\n"@', 1)[0]
+        code = r"""$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_BOUNDARY_NATIVE))
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_BOUNDARY_PROBE,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Boundary assertion source parse failed'}
+$function=$ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-PublicVolumeBoundary'},$true)
+if(@($function).Count -ne 1){throw 'Boundary assertion is absent or ambiguous'}
+. ([scriptblock]::Create($function[0].Extent.Text))
+$extent=[byte[]]::new(32)
+[BitConverter]::GetBytes([uint32]1).CopyTo($extent,0)
+[BitConverter]::GetBytes([uint32]7).CopyTo($extent,8)
+[BitConverter]::GetBytes([long]16777216).CopyTo($extent,16)
+[BitConverter]::GetBytes([long]520028160).CopyTo($extent,24)
+$parsed=[UskPublisherEffectiveRights]::ParseSingleExtent($extent,32,7)
+$badExtents=0
+foreach($variant in 0..6) {
+ $bytes=$extent.Clone();$returned=[uint32]32;$disk=[uint32]7
+ switch($variant) {
+  0 {$returned=31}
+  1 {$bytes=[byte[]]::new(8)}
+  2 {[BitConverter]::GetBytes([uint32]2).CopyTo($bytes,0)}
+  3 {$disk=8}
+  4 {[BitConverter]::GetBytes([long]-1).CopyTo($bytes,16)}
+  5 {[BitConverter]::GetBytes([long]0).CopyTo($bytes,24)}
+  6 {[BitConverter]::GetBytes([long]::MaxValue).CopyTo($bytes,16)}
+ }
+ $refused=$false
+ try {[UskPublisherEffectiveRights]::ParseSingleExtent($bytes,$returned,$disk)|Out-Null}catch {$refused=$true}
+ if(-not $refused){throw 'Contradictory raw-volume extent was admitted'}
+ ++$badExtents
+}
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$service='S-1-5-80-1-2-3-4-5';$process=Get-Process -Id $PID
+$rights=[UskPublisherEffectiveRights]::new($PID,$process.StartTime.ToUniversalTime().ToFileTimeUtc(),$sid,$service)
+try {
+ $security='O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$service+')'
+ $raw=[Security.AccessControl.RawSecurityDescriptor]::new($security)
+ $bytes=[byte[]]::new($raw.BinaryLength);$raw.GetBinaryForm($bytes,0)
+ $aces=@(@{type=0;flags=0;access_mask=2032127;sid='S-1-5-18'},@{type=0;flags=0;access_mask=2032127;sid=$service})
+ $native=@{attributes=22;case_sensitive=$false;dacl_aces=$aces;dacl_protected=$true;
+  file_id='123456789abcdef0:05000000000005000000000000000000';link_count=1;native_name='\';owner_sid='S-1-5-18';reparse_tag=0}
+ $prepared=@{protected_anchors=@{boundary=$native}}|ConvertTo-Json -Depth 12 -Compress
+ $observed=@{rows=@(@{path='Q:\publication\journal\lab-prepared-evidence.json';content_json=$prepared})}
+ $boundary=@{root=@{path='Q:\';directory=$true;file_id=$native.file_id;native_name='\';attributes=22;
+  link_count=1;case_sensitive=$false;streams=@();owner='S-1-5-18';protected=$true;raw_aces=$aces;effective_rights=$rights.CheckDescriptor($bytes)};
+  device=@{path='\\?\Volume{00000000-0000-0000-0000-000000000001}';extent=$parsed;raw_security=$security;checks=$rights.CheckDescriptor($bytes)}}
+ Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service
+ $badBoundaries=0
+ foreach($change in @(
+  {param($b) $b.root.file_id='123456789abcdef0:06000000000005000000000000000000'},
+  {param($b) $b.root.raw_aces[0].flags=16},
+  {param($b) $b.root.case_sensitive=$true},
+  {param($b) $b.root.effective_rights.filtered.delete.allowed=$true;$b.root.effective_rights.filtered.delete.granted=65536},
+  {param($b) $b.device.extent.disk_number=8},
+  {param($b) $b.device.extent.length--},
+  {param($b) $b.device.raw_security='O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$service+')(A;;FW;;;WD)'},
+  {param($b) $b.device.checks.filtered.maximum_allowed.granted=65536})) {
+  $bad=$boundary|ConvertTo-Json -Depth 16|ConvertFrom-Json;& $change $bad
+  $refused=$false
+  try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service}catch {$refused=$true}
+  if(-not $refused){throw 'Contradictory volume namespace/device facts were admitted'}
+  ++$badBoundaries
+ }
+ @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries}|ConvertTo-Json -Compress
+} finally {$rights.Dispose()}
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-boundary-') as temporary:
+                native_path = Path(temporary) / 'native.cs'
+                native_path.write_text(native, encoding='utf-8')
+                environment = dict(os.environ, USK_BOUNDARY_NATIVE=str(native_path),
+                                   USK_BOUNDARY_PROBE=str(root / 'tests/windows_publisher_public_path_probe.ps1'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'owned_token_control': True, 'extent_refusals': 7, 'boundary_refusals': 8})
+
+    def test_real_client_token_is_captured_before_resume_and_read_after_exit(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split('Add-Type -TypeDefinition @"', 1)[1].split('\n"@', 1)[0]
+        code = "& ([scriptblock]::Create([IO.File]::ReadAllText($env:USK_CAPTURE_UNIT))) -Root $env:USK_CAPTURE_ROOT"
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-held-client-') as temporary:
+                native_path = Path(temporary) / 'native.cs'
+                native_path.write_text(native, encoding='utf-8')
+                environment = dict(os.environ, USK_CAPTURE_ROOT=temporary, USK_CAPTURE_NATIVE=str(native_path),
+                                   USK_CAPTURE_UNIT=str(root / 'tests/windows_publisher_client_token_unit.ps1'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=45)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([json.loads(line) for line in result.stdout.splitlines()], [
+                    {'held_exited_client_observed': True, 'positive_owned_control': True,
+                     'closed_actor_checks': 18, 'contradictory_contexts_refused': 7},
+                    {'primary_thread_paused_during_capture': True, 'client_token_captured': True,
+                     'resume_once_refused': True, 'stdout_observed': True},
+                    {'never_resumed_client_termination_confirmed': True}])
+
     def test_public_fixture_exit_status_follows_final_assertions(self):
         root = Path(__file__).resolve().parents[1]
         code = r"""$ErrorActionPreference='Stop'
