@@ -53,14 +53,14 @@ if(-not (Test-Path -LiteralPath $marker -PathType Leaf) -or
 $state=Join-Path $root 'state'
 $installed=Join-Path $state 'installed'
 $collision=Join-Path $installed ('org.example.metadata.probe.'+$TransactionId+'.json')
-$paths=@($state,$installed,$collision)
-foreach($path in @($root)+$paths) {
-    if(Test-Path -LiteralPath $path) {
-        if($path -cne $root -or ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            throw 'Owned metadata collision path is preexisting or substituted'
-        }
+$paths=@($collision)
+foreach($path in @($root,$state,$installed)) {
+    $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+    if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Owned metadata collision retained parent is absent or substituted'
     }
 }
+if(Test-Path -LiteralPath $collision){throw 'Owned metadata collision record path is preexisting'}
 $security=[Security.AccessControl.DirectorySecurity]::new()
 $security.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$ServiceSid+')')
 foreach($path in $paths) {
@@ -94,7 +94,10 @@ finally {$stream.Dispose()}
         $deadline=[DateTime]::UtcNow.AddSeconds(60)
         while(-not (Test-Path -LiteralPath $output) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 100}
         if(-not (Test-Path -LiteralPath $output) -or (Get-Item -LiteralPath $output).Length -gt 16KB) {
-            throw 'Owned metadata collision receipt absent or unbounded'
+            $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+            throw ('Owned metadata collision receipt absent or unbounded; task_state='+$task.State+
+                '; last_task_result='+$info.LastTaskResult)
         }
         $result=Get-Content -LiteralPath $output -Raw|ConvertFrom-Json
         if($result.schema -cne 'usk.publisher.owned_metadata_collision.v1' -or $result.identity -cne 'S-1-5-18' -or

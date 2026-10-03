@@ -4143,7 +4143,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "e9787eb6e12bfd43e619d13071f79d5deb2696c79d6b3da809d66ab8bb6ff13d"
+          "sha256": "91492b5b6bbf5158e16f52074c8d13c301f46187493cad47017386fc6ee65ec8"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4151,7 +4151,7 @@
         },
         {
           "path": "tests/windows_publisher_owned_metadata_collision.ps1",
-          "sha256": "6030b3bd1d7c153170512c1e0e77fd582dcb1972ab546cff854624f4b60f1eb2"
+          "sha256": "ca629d707ba234af6bcfa821bf39b1ec896a70180b0defc05edf7f5a56316deb"
         }
       ],
       "acceptance_ids": [
@@ -4495,7 +4495,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "e9787eb6e12bfd43e619d13071f79d5deb2696c79d6b3da809d66ab8bb6ff13d"
+          "sha256": "91492b5b6bbf5158e16f52074c8d13c301f46187493cad47017386fc6ee65ec8"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4503,7 +4503,7 @@
         },
         {
           "path": "tests/windows_publisher_owned_metadata_collision.ps1",
-          "sha256": "6030b3bd1d7c153170512c1e0e77fd582dcb1972ab546cff854624f4b60f1eb2"
+          "sha256": "ca629d707ba234af6bcfa821bf39b1ec896a70180b0defc05edf7f5a56316deb"
         }
       ],
       "acceptance_ids": [

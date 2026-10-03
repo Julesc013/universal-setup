@@ -139,9 +139,9 @@ function Invoke-PublicRetainedRefusal {
         $baseline=Read-IndependentPublicRows
         Assert-IndependentRetainedMaterial -Before $initial -After $baseline
         $extra=@($baseline.rows|Where-Object {$_.path -cnotin @($initial.rows.path)})
-        if($extra.Count -ne 3 -or @($extra|Where-Object {-not $_.directory -or
+        if($extra.Count -ne 1 -or @($extra|Where-Object {-not $_.directory -or
             $_.path -cnotin @($receipt.controlled_fault.created_paths)}).Count) {
-            throw 'Controlled metadata collision altered more than the three bound fresh directories'
+            throw 'Controlled metadata collision altered more than the bound fresh directory'
         }
     }
     $receipt['fault_readback']=$baseline

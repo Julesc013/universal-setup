@@ -1478,7 +1478,7 @@ mutation or a claim that independent native I/O would necessarily succeed.
 The connected public probe now defines two controlled faults after the stock
 service has been terminated at the visible-before-journal boundary. One uses
 the existing bounded owned-payload helper to change a selected file's bytes.
-The other creates fresh protected SYSTEM/service directories at the fixed
+The other creates a fresh protected SYSTEM/service directory at the fixed
 public installed-state filename, blocking regular-record finalization without
 supplying any fabricated installed-state JSON. These are excluded privileged
 fixture actions on an independently bound disposable hosted VHD; they do not
