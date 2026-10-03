@@ -4,6 +4,7 @@
 #include "usk_publisher_token_observation.h"
 
 #include <windows.h>
+#include <sddl.h>
 
 #include <iostream>
 #include <stdexcept>
@@ -12,6 +13,7 @@
 using usk::platform::windows::has_restricted_publisher_token_facts;
 using usk::platform::windows::observe_current_publisher_token;
 using usk::platform::windows::observe_current_restricted_publisher_service;
+using usk::platform::windows::derive_ascii_publisher_service_sid;
 
 namespace {
 void check(bool condition, const char* message) {
@@ -21,6 +23,30 @@ void check(bool condition, const char* message) {
 
 int main() {
     try {
+        // Independent published MS-LSAT vector, usable before registration.
+        const auto known_sid = derive_ascii_publisher_service_sid(L"ALG");
+        LPWSTR rendered = nullptr;
+        check(ConvertSidToStringSidW(const_cast<unsigned char*>(known_sid.data()), &rendered) != FALSE,
+            "derived known service SID could not be rendered");
+        const std::wstring rendered_sid(rendered);
+        LocalFree(rendered);
+        check(rendered_sid == L"S-1-5-80-2387347252-3645287876-2469496166-3824418187-3586569773" &&
+            known_sid == derive_ascii_publisher_service_sid(L"alg"),
+            "service SID derivation differs from the published Windows mapping");
+        const auto live_sid = derive_ascii_publisher_service_sid(L"RpcSs");
+        unsigned char resolved[SECURITY_MAX_SID_SIZE]{};
+        wchar_t domain[256]{};
+        DWORD resolved_bytes = sizeof(resolved);
+        DWORD domain_chars = 256;
+        SID_NAME_USE use{};
+        check(LookupAccountNameW(nullptr, L"NT SERVICE\\RpcSs", resolved,
+                &resolved_bytes, domain, &domain_chars, &use) != FALSE &&
+            EqualSid(resolved, const_cast<unsigned char*>(live_sid.data())),
+            "derived service SID differs from live Windows account lookup");
+        bool invalid_derivation_refused = false;
+        try { (void)derive_ascii_publisher_service_sid(L"bad\\service"); }
+        catch (const std::runtime_error&) { invalid_derivation_refused = true; }
+        check(invalid_derivation_refused, "out-of-profile derivation name was accepted");
         const auto ordinary = observe_current_publisher_token();
         check(!ordinary.process_user_sid.empty() && !ordinary.current_thread_impersonating,
             "ordinary process token or thread state was not observed");

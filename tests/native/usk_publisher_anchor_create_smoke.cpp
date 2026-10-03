@@ -47,6 +47,14 @@ void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 
+fs::path extended_absolute_path(const fs::path& path) {
+    const auto absolute = fs::absolute(path).wstring();
+    if (absolute.rfind(L"\\\\?\\", 0) == 0) return fs::path(absolute);
+    if (absolute.rfind(L"\\\\", 0) == 0)
+        return fs::path(L"\\\\?\\UNC\\" + absolute.substr(2));
+    return fs::path(L"\\\\?\\" + absolute);
+}
+
 std::vector<unsigned char> fixture_descriptor(HANDLE parent) {
     PSECURITY_DESCRIPTOR raw = nullptr;
     const DWORD status = GetSecurityInfo(parent, SE_FILE_OBJECT,
@@ -80,7 +88,10 @@ bool file_refused(HANDLE parent, const std::wstring& name,
 
 int main() {
     try {
-        const auto root = fs::temp_directory_path() /
+        // Native handle-relative creation supports long components. Observe
+        // and clean them through the extended namespace as well, including
+        // when the admitted build/test TEMP root itself is already long.
+        const auto root = extended_absolute_path(fs::temp_directory_path()) /
             ("usk-publisher-anchor-" + std::to_string(
                 std::chrono::steady_clock::now().time_since_epoch().count()));
         check(fs::create_directory(root), "fixture root already exists");

@@ -92,7 +92,7 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
     PublisherTreeObservation& result,
     std::set<std::array<std::uint8_t, 16>>& seen,
     std::uint64_t& content_bytes, std::size_t& evidence_bytes,
-    std::size_t& live_listing_bytes) {
+    std::size_t& live_listing_bytes, bool backup_observation) {
     constexpr std::size_t maximum_entries = 200000;
     constexpr std::size_t maximum_evidence_bytes = 64 * 1024 * 1024;
     constexpr std::size_t maximum_live_listing_bytes = 64 * 1024 * 1024;
@@ -119,7 +119,8 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
         if (result.descendants.size() >= maximum_entries) {
             throw std::runtime_error("publisher tree exceeds its entry budget");
         }
-        OwnedHandle reopened(open_publisher_listed_child(directory, child));
+        OwnedHandle reopened(open_publisher_listed_child(directory, child,
+            false, false, false, false, backup_observation));
         const auto id = handle_id(reopened.get());
         if (id.VolumeSerialNumber != volume.file_id_volume_serial) {
             throw std::runtime_error("publisher tree child moved to another volume");
@@ -192,7 +193,7 @@ void walk(HANDLE directory, const std::wstring& prefix, unsigned depth,
         result.descendants.push_back({path, observed, size, digest, streams});
         if (child_directory) {
             walk(reopened.get(), path, depth + 1, volume, result, seen,
-                content_bytes, evidence_bytes, live_listing_bytes);
+                content_bytes, evidence_bytes, live_listing_bytes, backup_observation);
         }
     }
 }
@@ -406,7 +407,7 @@ void require_directory_chain_closed(
 }
 } // namespace
 
-PublisherTreeObservation observe_publisher_tree(HANDLE root) {
+PublisherTreeObservation observe_publisher_tree(HANDLE root, bool backup_observation) {
     if (!root || root == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("publisher tree requires a held root");
     }
@@ -436,7 +437,7 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root) {
     std::size_t evidence_bytes = 0;
     std::size_t live_listing_bytes = 0;
     walk(root, L"", 0, volume, result, seen, content_bytes,
-        evidence_bytes, live_listing_bytes);
+        evidence_bytes, live_listing_bytes, backup_observation);
     std::sort(result.descendants.begin(), result.descendants.end(),
         [](const PublisherTreeEntry& left, const PublisherTreeEntry& right) {
             const int order = CompareStringOrdinal(left.relative_path.data(),

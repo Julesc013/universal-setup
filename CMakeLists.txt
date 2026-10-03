@@ -81,13 +81,15 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_tree_observation.cpp
     runtime/platform/windows/usk_publisher_token_observation.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
+    runtime/platform/windows/usk_publisher_registration.cpp
+    runtime/platform/windows/usk_publisher_data_partition.cpp
     runtime/platform/windows/usk_publisher_volume_stream_observation.cpp
     runtime/platform/windows/usk_publisher_device_acl.cpp
     runtime/platform/windows/usk_publisher_volume_operation_guard.cpp)
   target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
   target_include_directories(usk_publisher_windows_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
-  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32)
+  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32 bcrypt shell32 ole32)
   set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
   usk_enable_strict_warnings(usk_publisher_windows_static)
 endif()
@@ -716,6 +718,16 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_token_observation_smoke
       COMMAND usk_publisher_token_observation_smoke)
     set_tests_properties(usk_publisher_token_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_data_partition_smoke
+      tests/native/usk_publisher_data_partition_smoke.cpp)
+    target_compile_features(usk_publisher_data_partition_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_data_partition_smoke PRIVATE
+      usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_data_partition_smoke)
+    add_test(NAME usk_publisher_data_partition_smoke
+      COMMAND usk_publisher_data_partition_smoke)
+    set_tests_properties(usk_publisher_data_partition_smoke PROPERTIES TIMEOUT 30)
 
     add_executable(usk_publisher_security_descriptor_smoke
       tests/native/usk_publisher_security_descriptor_smoke.cpp)

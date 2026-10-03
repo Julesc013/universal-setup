@@ -1334,3 +1334,71 @@ Hosted cancellation observes owned descendants by parent, start time,
 executable and command line, terminates the held tree and confirms recorded
 instances have exited. Unconfirmed cleanup retains the account and backing
 volume for disposable runner shutdown.
+
+### Public client implementation checkpoint — qualification pending
+
+The ordinary machine client now has an explicit `--publisher NAME` composition
+that discovers an owned registration, validates retained executable digest,
+SCM command, caller, service SID and volume-root identity, starts or reconnects
+to the authenticated dispatcher, and returns the public command response.
+This checkpoint requires an elevated configured caller and readable reviewed
+package inputs. The non-admin consumer route is still unqualified.
+
+Registration checks pinned package bytes before retaining creation intent.
+The protected intent binds the exact command, executable digest, service SID
+and target identity to a random creation tag written atomically by
+`CreateService`. An interrupted registration may resume only against that same
+tagged, stopped SCM entry and exact intent. Unmarked existing resources are
+refused; incomplete owned resources are retained. The hosted reentry fixture
+models missing completion after creation, rather than a process-kill or
+power-loss event.
+
+The controller's `--provision-target NAME --confirm-empty-volume` admits only a
+bound dedicated data volume, records original security before effects, checks
+physical partition identity and a narrow Windows metadata exception,
+admits ordinary GPT basic data with at most one preceding, bounded Microsoft
+Reserved Partition (MSR), and refuses EFI, recovery, unknown, boot-marked,
+overlapping or attributed partitions. The MSR is never the selected volume.
+Ordinary non-boot MBR IFS data remains supported. Windows documents the MSR
+on data-only GPT disks in its [GPT FAQ](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-and-gpt-faq).
+Admission retains the held object's bounded self-relative owner/DACL descriptor
+from [GetKernelObjectSecurity](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getkernelobjectsecurity).
+The initial metadata prestate requires trusted SYSTEM/Administrators ownership
+and allow ACEs, and the existing flat content, identity,
+stream and size bounds. It may lack stored DACL protection. A v2 target intent
+retains that complete original snapshot and the deterministic protected
+poststate before any effect. A separate held-handle metadata operation adds
+only [SE_DACL_PROTECTED](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setsecuritydescriptorcontrol)
+through the native security primitive; owner and ordered ACE bytes remain
+unchanged and the operation does not propagate to descendants. The parent
+operation supports only non-inherited allow ACEs with optional OI/CI flags;
+descendant ACE facts are retained exactly, including inherited flags. It never
+adopts this metadata as a publication anchor or payload. The volume-root
+primitive continues to reject every inheritable ACE.
+Reentry accepts only the retained original or exact intended metadata state;
+unsupported, contradictory or unavailable facts refuse with the existing
+intent retained. Completion and unpublished retirement require the bound
+protected poststate, including file identities, attributes, descriptor facts
+and contents. The native fixture contains a metadata descendant and checks
+raw descriptor, identity and byte preservation, stale-prestate refusal and
+protected-poststate reentry. The hosted probe independently reads original
+and protected metadata as SYSTEM and models missing completion after effects;
+that model is not process-kill or power-loss evidence. Hosted execution and
+complete admission recovery qualification remain required. The controller then
+updates the held root without descendant propagation, and repeats exclusive
+volume admission before retaining completion. Protected records publish through
+flushed, no-replace temporary promotion. Admission recovery and authority
+retirement still require qualification; retained records prevent name reuse.
+Removal and executable retirement refuse incomplete admission or any installed,
+staging or recovery namespace on a public target. Only an admitted unpublished
+target can retire through these commands; installed authority is retained for
+the owned uninstall lifecycle. The hosted probe's disposable runner cleanup
+does not qualify installed-authority retirement.
+Legacy mode-changing controller operations are not interchangeable with the
+immutable public registration and are refused once target admission intent
+exists. Existing availability declarations stay false.
+
+The connected hosted probe covers product target admission, preservation
+refusals, ordinary apply, independent readback, source-free recovery, original
+apply replay and bound verification. Source and unit checks do not constitute
+its successful execution or complete the publisher acceptance matrix.

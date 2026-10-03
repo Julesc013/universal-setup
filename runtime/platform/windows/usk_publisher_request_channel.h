@@ -38,7 +38,8 @@ private:
 // Verifies the held pipe's server against the live own-process restricted SCM
 // service before sending bytes. The caller never impersonates as the service.
 std::string submit_publisher_request(const std::wstring& service_name,
-    const std::string& request, DWORD timeout_ms = 30000);
+    const std::string& request, DWORD timeout_ms = 30000,
+    const std::wstring& expected_process_image = {});
 // A terminal success must identify the submitted install or verification.
 // Failure and recovery-required replies may omit those IDs, but must retain
 // their exact response schema and status. A mismatch after dispatch is unknown.

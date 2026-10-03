@@ -136,7 +136,7 @@ function Assert-IndependentMetadataProbe {
     }
 }
 function Invoke-IndependentMetadataReadback {
-    param([string]$DriveRoot,[string]$OutputRoot,[string]$RunId)
+    param([string]$DriveRoot,[string]$OutputRoot,[string]$RunId,[switch]$MetadataOnly)
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
     }
@@ -146,10 +146,11 @@ function Invoke-IndependentMetadataReadback {
     if((Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) -or
         (Test-Path -LiteralPath $script) -or (Test-Path -LiteralPath $output)) { throw 'Observer collision' }
     $observer=@'
-param([string]$Output,[string]$DriveRoot)
+param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly)
 $ErrorActionPreference='Stop'
 $rows=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
+if(-not $MetadataOnly) {
 foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
  if(-not (Test-Path -LiteralPath $top -PathType Container)) {
   if($top -ceq ($DriveRoot+'setup-state')){continue}
@@ -170,7 +171,60 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
   if($p.PSIsContainer){foreach($child in Get-ChildItem -LiteralPath $p.FullName -Force){$pending.Push($child)}}
  }
 }
-$result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;observed_utc=[DateTime]::UtcNow.ToString('o')}
+}
+$volumeMetadata=[Collections.Generic.List[object]]::new()
+if($MetadataOnly) {
+ Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class UskMetadataFacts {
+ [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+ static extern SafeFileHandle CreateFile(string p,uint a,uint s,IntPtr sa,uint c,uint f,IntPtr t);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool GetFileInformationByHandleEx(SafeFileHandle h,int k,byte[] b,uint n);
+ [DllImport("advapi32.dll", SetLastError=true)]
+ static extern bool GetKernelObjectSecurity(SafeFileHandle h,uint i,byte[] b,uint n,out uint needed);
+ public static object[] Read(string path) {
+  using(var h=CreateFile(path,0x20080,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero)) {
+   if(h.IsInvalid) throw new InvalidOperationException("Independent metadata handle unavailable");
+   var id=new byte[24]; var tag=new byte[8]; uint needed;
+   if(!GetFileInformationByHandleEx(h,18,id,24) || !GetFileInformationByHandleEx(h,9,tag,8) ||
+      BitConverter.ToUInt32(tag,4)!=0 || (BitConverter.ToUInt32(tag,0)&0x400)!=0)
+    throw new InvalidOperationException("Independent metadata identity or ordinary-object facts unavailable");
+   if(GetKernelObjectSecurity(h,5,null,0,out needed) || Marshal.GetLastWin32Error()!=122 || needed<20 || needed>65536)
+    throw new InvalidOperationException("Independent metadata security size unavailable");
+   var security=new byte[needed]; uint returned;
+   if(!GetKernelObjectSecurity(h,5,security,needed,out returned) || returned!=needed)
+    throw new InvalidOperationException("Independent metadata security changed during observation");
+   return new object[]{BitConverter.ToUInt64(id,0).ToString("x16")+":"+
+    BitConverter.ToString(id,8,16).Replace("-","").ToLowerInvariant(),security,BitConverter.ToUInt32(tag,0)};
+  }
+ }
+}
+"@
+ $top=$DriveRoot+'System Volume Information'
+ if(Test-Path -LiteralPath $top) {
+  $objects=@((Get-Item -LiteralPath $top -Force))+@(Get-ChildItem -LiteralPath $top -Force)
+  if($objects.Count -gt 4){throw 'Independent volume metadata exceeds its flat bound'}
+  foreach($object in $objects) {
+   if(($object.FullName -cne $top -and $object.PSIsContainer) -or
+      ($object.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Independent metadata has a nested directory or reparse point'}
+   $facts=[UskMetadataFacts]::Read($object.FullName)
+   $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new([byte[]]$facts[1],0)
+   $row=[ordered]@{path=$object.FullName.Substring($DriveRoot.Length);file_id=[string]$facts[0];
+    security=$descriptor.GetSddlForm([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access);
+    attributes=[uint32]$facts[2]}
+   if(-not $object.PSIsContainer) {
+    if($object.Length -gt 1MB){throw 'Independent metadata file exceeds its bound'}
+    $row['size']=[string]$object.Length
+    $row['sha256']=(Get-FileHash -LiteralPath $object.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+   }
+   $volumeMetadata.Add($row)
+  }
+ }
+}
+$result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;volume_metadata=$volumeMetadata;observed_utc=[DateTime]::UtcNow.ToString('o')}
 $temporary=$Output+'.pending'
 $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try {
@@ -187,6 +241,7 @@ try {
     # reviewed script is passed as data to a -Command script block.
     $command="& ([scriptblock]::Create([IO.File]::ReadAllText('"+$script.Replace("'","''")+"'))) -Output '"+
         $output.Replace("'","''")+"' -DriveRoot '"+$DriveRoot+"'"
+    if($MetadataOnly){$command+=' -MetadataOnly'}
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
     $registered=$false

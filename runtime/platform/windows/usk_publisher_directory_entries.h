@@ -45,7 +45,14 @@ std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
 HANDLE open_publisher_listed_child(HANDLE parent,
     const PublisherDirectoryEntry& listed,
     bool require_add_subdirectory = false, bool require_delete = false,
-    bool require_add_file = false, bool require_write_dac = false);
+    bool require_add_file = false, bool require_write_dac = false,
+    bool backup_observation = false);
+
+// Separate controller admission route for the exact listed Windows metadata
+// directory. Requires scoped backup/restore privileges and durable target
+// intent; requests WRITE_DAC, never data/name mutation or WRITE_OWNER.
+HANDLE open_publisher_metadata_dacl_child(HANDLE parent,
+    const PublisherDirectoryEntry& listed);
 
 } // namespace usk::platform::windows
 #endif

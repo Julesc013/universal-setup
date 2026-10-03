@@ -5,6 +5,7 @@
 
 #include "usk/usk_api.h"
 #include "usk_json.h"
+#include "usk_effect_dispatch.h"
 
 #include <array>
 #include <cstdint>
@@ -209,13 +210,14 @@ OneShotResult run_one_shot(const std::string& request_json,
     }
 }
 
-OneShotResult run_candidate_one_shot(const std::string& request_json,
-    const CandidateTransport& transport)
+static OneShotResult run_publisher_request(const std::string& request_json,
+    const CandidateTransport& transport, bool retain_observation)
 {
     std::string request_id;
     std::string request;
     std::string response_field;
     std::string candidate_command;
+    Value submitted;
     try {
         usk::json::ParseLimits limits;
         limits.max_bytes = max_request_bytes;
@@ -249,6 +251,7 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
             input.at("payload").at("schema").as_string() != expected_schema)
             return failure(request_id, "invalid_request");
         request = usk::json::canonical(input.at("payload"));
+        submitted = input.at("payload");
     } catch (const std::exception&) {
         return failure(request_id, "invalid_request");
     }
@@ -282,7 +285,31 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
                     "usk.command_response.v1" ||
                 public_response->at("status").as_string() != "ok")
                 throw std::runtime_error("candidate public response differs");
-            return candidate_outcome(request_id, "ok", observed, nullptr, 0);
+            if (!retain_observation) {
+                const auto& payload = public_response->at("payload");
+                if (candidate_command == "installed.verify") {
+                    if (payload.at("schema").as_string() != "usk.verification_report.v1" ||
+                        payload.at("status").as_string() != "pass" ||
+                        payload.at("install_id").as_string() != submitted.at("install_id").as_string() ||
+                        payload.at("report_id").as_string() != submitted.at("report_id").as_string() ||
+                        payload.at("verified_at").as_string() != submitted.at("verified_at").as_string() ||
+                        payload.at("report_digest").as_string() != observed.at("bound_report_digest").as_string())
+                        throw std::runtime_error("publisher verification binding differs");
+                } else {
+                    const std::string install_id = candidate_command == "install_local.apply" ?
+                        submitted.at("plan_request").at("install_id").as_string() :
+                        submitted.at("install_id").as_string();
+                    if (payload.at("schema").as_string() != "usk.installed_state.v1" ||
+                        payload.at("lifecycle_status").as_string() != "installed" ||
+                        payload.at("install_id").as_string() != install_id ||
+                        payload.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
+                        (candidate_command == "install_local.apply" &&
+                         payload.at("created_at").as_string() != submitted.at("applied_at").as_string()))
+                        throw std::runtime_error("publisher installation binding differs");
+                }
+            }
+            return candidate_outcome(request_id, "ok",
+                retain_observation ? observed : *public_response, nullptr, 0);
         }
         if (status == "failed" && candidate_command == "installed.verify" &&
             observed.contains("verify_response")) {
@@ -301,20 +328,42 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
                     observed.at("bound_report_digest").as_string())
                 throw std::runtime_error("candidate verification report differs");
             // A valid drift report is a completed diagnosis, not a refusal.
-            return candidate_outcome(request_id, "ok", observed, nullptr, 0);
+            if (!retain_observation) {
+                const auto& report = public_response.at("payload");
+                if (report.at("install_id").as_string() != submitted.at("install_id").as_string() ||
+                    report.at("report_id").as_string() != submitted.at("report_id").as_string() ||
+                    report.at("verified_at").as_string() != submitted.at("verified_at").as_string())
+                    throw std::runtime_error("publisher drift report binding differs");
+            }
+            return candidate_outcome(request_id, "ok",
+                retain_observation ? observed : public_response, nullptr, 0);
         }
         if (status == "failed")
-            return candidate_outcome(request_id, "refused", observed,
+            return candidate_outcome(request_id, "refused", retain_observation ? observed : Value(),
                 "publisher_failed", 4);
         if (status == "recovery_required")
-            return candidate_outcome(request_id, "recovery_required", observed,
+            return candidate_outcome(request_id, "recovery_required", retain_observation ? observed : Value(),
                 "recovery_required", 5);
+    } catch (const usk::base::EffectRequestNotDispatched&) {
+        return failure(request_id, "publisher_admission_refused");
     } catch (const std::exception&) {
         return candidate_outcome(request_id, "unknown", Value(),
             "publisher_outcome_unknown", 5);
     }
     return candidate_outcome(request_id, "unknown", Value(),
         "publisher_outcome_unknown", 5);
+}
+
+OneShotResult run_candidate_one_shot(const std::string& request_json,
+    const CandidateTransport& transport)
+{
+    return run_publisher_request(request_json, transport, true);
+}
+
+OneShotResult run_publisher_one_shot(const std::string& request_json,
+    const CandidateTransport& transport)
+{
+    return run_publisher_request(request_json, transport, false);
 }
 
 OneShotResult invalid_frame_result()

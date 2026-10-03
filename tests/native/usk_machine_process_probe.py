@@ -11,6 +11,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -41,6 +42,22 @@ def main() -> int:
     assert document["request_id"] == "process-probe"
     assert document["status"] == "ok"
     assert isinstance(document["result"], dict)
+
+    if sys.platform == "win32":
+        missing_service = "USK_PUB_" + uuid.uuid4().hex
+        effect = dict(request, command="install_local.recover", dry_run=False,
+                      payload={"schema": "usk.publisher_recovery_request.v1",
+                               "install_id": "missing", "transaction_id": "missing"})
+        effect_bytes = json.dumps(effect, separators=(",", ":")).encode()
+        unavailable = run(executable, "--machine", effect_bytes, "--publisher", missing_service)
+        assert unavailable.returncode == 2, unavailable.stderr
+        refused = json.loads(unavailable.stdout)
+        assert refused["status"] == "refused"
+        assert refused["error"]["code"] == "publisher_admission_refused"
+        assert refused["result"] is None
+        conflicting = run(executable, "--machine", effect_bytes, "--publisher", missing_service,
+                          "--candidate-service", missing_service)
+        assert conflicting.returncode == 2 and conflicting.stdout == b""
 
     framed = run(executable, "--framed", struct.pack(">I", len(encoded)) + encoded)
     assert framed.returncode == 0, framed.stderr

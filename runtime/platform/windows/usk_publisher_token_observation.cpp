@@ -9,6 +9,7 @@
 #endif
 #include <windows.h>
 #include <sddl.h>
+#include <bcrypt.h>
 
 #include <algorithm>
 #include <array>
@@ -147,6 +148,63 @@ std::string service_sid_for_name(const std::wstring& name) {
     return sid_text(sid.data());
 }
 } // namespace
+
+std::vector<unsigned char> derive_ascii_publisher_service_sid(const std::wstring& name) {
+    if (name.empty() || name.size() > 256)
+        throw std::runtime_error("publisher service derivation name exceeds its bound");
+    std::vector<unsigned char> uppercase_utf16;
+    uppercase_utf16.reserve(name.size() * 2);
+    for (wchar_t ch : name) {
+        if (!((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z') ||
+            (ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'-' || ch == L'.'))
+            throw std::runtime_error("publisher service derivation name is outside the ASCII profile");
+        if (ch >= L'a' && ch <= L'z') ch = static_cast<wchar_t>(ch - (L'a' - L'A'));
+        uppercase_utf16.push_back(static_cast<unsigned char>(ch));
+        uppercase_utf16.push_back(0);
+    }
+    struct AlgorithmCloser {
+        void operator()(void* value) const { if (value) BCryptCloseAlgorithmProvider(value, 0); }
+    };
+    struct HashCloser {
+        void operator()(void* value) const { if (value) BCryptDestroyHash(value); }
+    };
+    BCRYPT_ALG_HANDLE algorithm_raw = nullptr;
+    if (BCryptOpenAlgorithmProvider(&algorithm_raw, BCRYPT_SHA1_ALGORITHM, MS_PRIMITIVE_PROVIDER, 0) < 0)
+        throw std::runtime_error("publisher service identity hash provider is unavailable");
+    std::unique_ptr<void, AlgorithmCloser> algorithm(algorithm_raw);
+    DWORD object_length = 0;
+    DWORD returned = 0;
+    if (BCryptGetProperty(algorithm.get(), BCRYPT_OBJECT_LENGTH,
+            reinterpret_cast<PUCHAR>(&object_length), sizeof(object_length), &returned, 0) < 0 ||
+        returned != sizeof(object_length) || !object_length || object_length > 65536)
+        throw std::runtime_error("publisher service identity hash object exceeds its bound");
+    std::vector<unsigned char> object(object_length);
+    BCRYPT_HASH_HANDLE hash_raw = nullptr;
+    if (BCryptCreateHash(algorithm.get(), &hash_raw, object.data(), object_length, nullptr, 0, 0) < 0)
+        throw std::runtime_error("publisher service identity hash cannot be created");
+    std::unique_ptr<void, HashCloser> hash(hash_raw);
+    std::array<unsigned char, 20> digest{};
+    if (BCryptHashData(hash.get(), uppercase_utf16.data(),
+            static_cast<ULONG>(uppercase_utf16.size()), 0) < 0 ||
+        BCryptFinishHash(hash.get(), digest.data(), static_cast<ULONG>(digest.size()), 0) < 0)
+        throw std::runtime_error("publisher service identity hash failed");
+    // MS-LSAT documented mapping: uppercase UTF-16 name -> five little-endian
+    // SHA-1 DWORDs -> S-1-5-80-H0-H1-H2-H3-H4. This identity mapping is not a
+    // cryptographic authentication digest; executable bindings use SHA-256.
+    SID_IDENTIFIER_AUTHORITY authority = SECURITY_NT_AUTHORITY;
+    std::vector<unsigned char> sid(GetSidLengthRequired(6));
+    if (!InitializeSid(sid.data(), &authority, 6))
+        throw std::runtime_error("derived publisher service SID cannot be initialized");
+    *GetSidSubAuthority(sid.data(), 0) = SECURITY_SERVICE_ID_BASE_RID;
+    for (DWORD index = 0; index != 5; ++index) {
+        const auto offset = static_cast<std::size_t>(index) * 4;
+        *GetSidSubAuthority(sid.data(), index + 1) =
+            static_cast<DWORD>(digest[offset]) | (static_cast<DWORD>(digest[offset + 1]) << 8) |
+            (static_cast<DWORD>(digest[offset + 2]) << 16) | (static_cast<DWORD>(digest[offset + 3]) << 24);
+    }
+    if (!IsValidSid(sid.data())) throw std::runtime_error("derived publisher service SID is invalid");
+    return sid;
+}
 
 PublisherTokenObservation observe_current_publisher_token() {
     const bool impersonating = current_thread_impersonating();
