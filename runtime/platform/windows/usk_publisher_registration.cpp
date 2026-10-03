@@ -1110,6 +1110,9 @@ std::string owner_dacl_sddl(HANDLE object) {
 }
 
 usk::json::Value target_empty_namespace(HANDLE root) {
+    // The root itself can carry streams independently of its directory entries.
+    // Every pre-effect, post-lock and retirement namespace check includes it.
+    require_publisher_stream_shape(root);
     using usk::json::Value;
     Value::Array metadata;
     const auto entries = observe_publisher_directory_entries(root, 65536);
@@ -1130,8 +1133,13 @@ usk::json::Value target_empty_namespace(HANDLE root) {
                     (ace.sid != "S-1-5-18" && ace.sid != "S-1-5-32-544")) return false;
             return true;
         };
-        if (!tree.root.dacl_protected || !trusted(tree.root) || tree.descendants.size() > 3)
-            throw std::runtime_error("target OS metadata is not already protected and bounded");
+        if (!tree.root.dacl_protected || !trusted(tree.root) || tree.descendants.size() > 3) {
+            const auto security = owner_dacl_sddl(held.get());
+            throw std::runtime_error("target OS metadata is not already protected and bounded; owner=" +
+                tree.root.owner_sid + "; protected=" + (tree.root.dacl_protected ? "true" : "false") +
+                "; descendants=" + std::to_string(tree.descendants.size()) +
+                "; security=" + (security.size() <= 2048 ? security : std::string("exceeds diagnostic bound")));
+        }
         metadata.emplace_back(Value::Object{
             {"path", Value(utf8(entry.name))}, {"file_id", Value(tree.root.file_id)},
             {"security", Value(owner_dacl_sddl(held.get()))}
@@ -1198,7 +1206,6 @@ void require_unpublished_public_retirement(const std::wstring& name,
     if (root.get() == INVALID_HANDLE_VALUE)
         throw std::runtime_error("public retirement target is unavailable; retain publisher authority");
     require_publisher_object_security_shape(observe_publisher_directory_handle(root.get()), service_sid);
-    require_publisher_stream_shape(root.get());
     try {
         // Any publication, staging, journal or installed-state namespace still
         // needs this authority. Only the admitted but unpublished empty target
@@ -1237,7 +1244,6 @@ void provision_registered_target(const std::wstring& name) {
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (root.get() == INVALID_HANDLE_VALUE) throw std::runtime_error("target root pre-state is unavailable");
-        require_publisher_stream_shape(root.get());
         metadata = target_empty_namespace(root.get());
         original_security = owner_dacl_sddl(root.get());
     }

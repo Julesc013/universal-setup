@@ -229,6 +229,19 @@ try {
     $receipt.status='public_install_verified_recovered'
 } catch {
     $receipt.status='failed';$receipt['failure']=$_.Exception.Message
+    # Retain the product's protected pre-effect snapshot so a late admission
+    # refusal can be compared with its actual initial metadata. This is a
+    # controller-authored pre-state, not independent post-state evidence.
+    if($created) {
+        try {
+            $intent=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-intent.json')
+            if(Test-Path -LiteralPath $intent -PathType Leaf) {
+                if((Get-Item -LiteralPath $intent).Length -gt 16KB){throw 'Target intent exceeds diagnostic bound'}
+                $receipt['retained_target_intent']=Get-Content -LiteralPath $intent -Raw|ConvertFrom-Json
+                $receipt['retained_target_intent_sha256']=(Get-FileHash -LiteralPath $intent -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+        } catch {$receipt['target_intent_diagnostic_error']=$_.Exception.Message}
+    }
 } finally {
     if($created -and (Get-Service $service -ErrorAction SilentlyContinue)) {
         $deadline=[DateTime]::UtcNow.AddSeconds(30)

@@ -3488,7 +3488,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "2dd6f18f3c34a27a01818473c32f86ee751894fbd49a9211bc3116061ed9f39c"
+          "sha256": "5876973cd48e1a48e54d64b925805f120046e3a77cbccb39aa37064959c49e8f"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3524,7 +3524,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "2dd6f18f3c34a27a01818473c32f86ee751894fbd49a9211bc3116061ed9f39c"
+          "sha256": "5876973cd48e1a48e54d64b925805f120046e3a77cbccb39aa37064959c49e8f"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3560,7 +3560,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "2dd6f18f3c34a27a01818473c32f86ee751894fbd49a9211bc3116061ed9f39c"
+          "sha256": "5876973cd48e1a48e54d64b925805f120046e3a77cbccb39aa37064959c49e8f"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4123,7 +4123,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "fa074d17adad822aecadffd705bc37eacbb30e4938e845ba526a4381d570e6bb"
+          "sha256": "10b544a0844a7dc3252d900b7c7478810cd93ba90a12ddb8ee2773058fa1dab1"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -4143,7 +4143,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "72208ee9fb38feb13adf649ae1543eac4710f13926f04523d758b7e983840b39"
+          "sha256": "b64254d6c2c6cb1707753cdd68afff02b3be95cec8d19eba015721d12f6e3328"
         }
       ],
       "acceptance_ids": [
@@ -4467,7 +4467,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "fa074d17adad822aecadffd705bc37eacbb30e4938e845ba526a4381d570e6bb"
+          "sha256": "10b544a0844a7dc3252d900b7c7478810cd93ba90a12ddb8ee2773058fa1dab1"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -4487,7 +4487,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "72208ee9fb38feb13adf649ae1543eac4710f13926f04523d758b7e983840b39"
+          "sha256": "b64254d6c2c6cb1707753cdd68afff02b3be95cec8d19eba015721d12f6e3328"
         }
       ],
       "acceptance_ids": [
