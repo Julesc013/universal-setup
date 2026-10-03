@@ -36,6 +36,7 @@ $caller=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $utf8=[Text.UTF8Encoding]::new($false)
 $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run';
     service=$service;volume_root=$VolumeRoot;volume_drive_root=$drive;
+    partition_layout=@($disk|Get-Partition|Select-Object PartitionNumber,Offset,Size,GptType,MbrType,IsBoot,IsSystem);
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     service_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     client_cleanup_confirmed=$false}
@@ -186,6 +187,13 @@ try {
     }
     $before=Read-IndependentState
     $receipt['installed_readback']=$before
+    & $ServiceControlBinary --unregister $service $installedBinary $VolumeRoot $caller|Out-Null
+    if($LASTEXITCODE -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
+        (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command -or
+        (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.service_sha256) {
+        throw 'Installed public publisher recovery authority was removed'
+    }
+    $receipt['installed_authority_retirement_refused']=$true
     # Remove only the exact fresh fixture below this run's already checked lab.
     $exactFixture=[IO.Path]::GetFullPath($fixture)
     if($exactFixture -cne (Join-Path $lab 'authored-inputs') -or
@@ -226,11 +234,13 @@ try {
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -eq 'Stopped') {
-            & $ServiceControlBinary --unregister $service $installedBinary $VolumeRoot $caller|Out-Null
-            if($LASTEXITCODE -eq 0) {
-                & $ServiceControlBinary --retire-binary $service $installedBinary $receipt.service_sha256 $sid|Out-Null
-                $receipt.client_cleanup_confirmed=($LASTEXITCODE -eq 0)
-            }
+            # Every synchronous client has returned and the own-process
+            # service has stopped. The independent observer removed its task.
+            # Retain SCM, executable and protected registration records for
+            # disposable runner shutdown. Disposing this owned test volume is
+            # laboratory cleanup, not qualified installed-authority retirement.
+            $receipt.client_cleanup_confirmed=$true
+            $receipt['retained_authority_cleanup']='stopped SCM entry, executable and records retained until owned runner disposal'
         }
     }
     Write-Json $OutputPath $receipt

@@ -13,6 +13,7 @@
 #include <winioctl.h>
 
 #include "usk_publisher_registration.h"
+#include "usk_publisher_data_partition.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_directory_entries.h"
@@ -1076,24 +1077,8 @@ usk::json::Value dedicated_target_disk_identity(const std::wstring& volume) {
     if (layout->PartitionCount > 128 || offsetof(DRIVE_LAYOUT_INFORMATION_EX, PartitionEntry) +
         layout->PartitionCount * sizeof(PARTITION_INFORMATION_EX) > returned)
         throw std::runtime_error("target disk layout exceeds its bound");
-    const GUID basic_data{0xebd0a0a2, 0xb9e5, 0x4433, {0x87,0xc0,0x68,0xb6,0xb7,0x26,0x99,0xc7}};
-    const PARTITION_INFORMATION_EX* selected = nullptr;
-    for (DWORD index = 0; index < layout->PartitionCount; ++index) {
-        const auto& part = layout->PartitionEntry[index];
-        if (part.PartitionLength.QuadPart == 0) continue;
-        if ((part.PartitionStyle == PARTITION_STYLE_MBR && part.Mbr.BootIndicator) ||
-            (part.PartitionStyle == PARTITION_STYLE_GPT && !IsEqualGUID(part.Gpt.PartitionType, basic_data)))
-            throw std::runtime_error("target disk contains system or unclassified partition roles");
-        if (part.StartingOffset.QuadPart == extent.StartingOffset.QuadPart &&
-            part.PartitionLength.QuadPart == extent.ExtentLength.QuadPart) {
-            if (selected) throw std::runtime_error("target disk extent is ambiguous");
-            selected = &part;
-        }
-    }
-    if (!selected || selected->PartitionNumber == 0 ||
-        (selected->PartitionStyle != PARTITION_STYLE_GPT && selected->PartitionStyle != PARTITION_STYLE_MBR) ||
-        (selected->PartitionStyle == PARTITION_STYLE_MBR && selected->Mbr.PartitionType != PARTITION_IFS))
-        throw std::runtime_error("target volume is not an ordinary identified data partition");
+    const auto* selected = &require_publisher_data_partition(layout->PartitionStyle,
+        layout->PartitionEntry, layout->PartitionCount, extent);
     const auto disk_id = layout->PartitionStyle == PARTITION_STYLE_GPT ?
         guid_text(layout->Gpt.DiskId) : std::to_string(layout->Mbr.Signature);
     return usk::json::Value(usk::json::Value::Object{
@@ -1179,6 +1164,49 @@ void prove_initial_exclusive_access(const std::wstring& volume) {
     if (!DeviceIoControl(device.get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
         nullptr, 0, &returned, nullptr))
         throw std::runtime_error("initial target volume unlock is unavailable");
+}
+
+void require_unpublished_public_retirement(const std::wstring& name,
+    const std::wstring& volume, const std::string& service_sid) {
+    const auto parent = registration_binding_path(name).parent_path();
+    const bool intent = protected_document_exists(parent / (name + L".target-intent.json"));
+    const bool admitted = protected_document_exists(parent / (name + L".target-admitted.json"));
+    if (!intent && !admitted) return; // Existing laboratory registrations.
+    if (!intent || !admitted)
+        throw std::runtime_error("target admission is incomplete; retain publisher recovery authority");
+    const auto binding = read_protected_document(registration_binding_path(name));
+    const auto admission = read_protected_document(parent / (name + L".target-admitted.json"));
+    if (binding.as_object().size() != 6 ||
+        binding.at("schema").as_string() != "usk.publisher_registration_binding.v1" ||
+        binding.at("service_name").as_string() != utf8(name) ||
+        binding.at("service_sid").as_string() != service_sid ||
+        usk::json::canonical(binding.at("volume_identity")) !=
+            usk::json::canonical(registration_volume_identity(volume)) ||
+        admission.as_object().size() != 2 ||
+        admission.at("schema").as_string() != "usk.publisher_target_admitted.v1" ||
+        admission.at("identity").at("registration_sha256").as_string() !=
+            usk::json::sha256_canonical(binding) ||
+        usk::json::canonical(admission.at("identity").at("volume_identity")) !=
+            usk::json::canonical(binding.at("volume_identity")) ||
+        usk::json::canonical(admission.at("identity").at("disk_identity")) !=
+            usk::json::canonical(dedicated_target_disk_identity(volume)))
+        throw std::runtime_error("public retirement boundary differs; retain publisher authority");
+    ScopedControllerPrivilege backup;
+    FileHandle root(CreateFileW(volume.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (root.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("public retirement target is unavailable; retain publisher authority");
+    require_publisher_object_security_shape(observe_publisher_directory_handle(root.get()), service_sid);
+    require_publisher_stream_shape(root.get());
+    try {
+        // Any publication, staging, journal or installed-state namespace still
+        // needs this authority. Only the admitted but unpublished empty target
+        // can retire here; installed retirement belongs to the owned uninstall.
+        (void)target_empty_namespace(root.get());
+    } catch (const std::exception&) {
+        throw std::runtime_error("public install or recovery authority is still needed; complete owned uninstall before retirement");
+    }
 }
 
 void provision_registered_target(const std::wstring& name) {
@@ -1717,6 +1745,13 @@ void request_unregister(const std::wstring& name, const std::wstring& binary,
     const auto config = query_configuration(service.get());
     require_profile(config);
     require_existing_command(config.binary_path, name, binary, volume, caller, mode);
+    const auto expected_sid = publisher_service_sid(name);
+    LPWSTR rendered_sid = nullptr;
+    if (!ConvertSidToStringSidW(const_cast<unsigned char*>(expected_sid.data()), &rendered_sid))
+        throw std::runtime_error("publisher retirement SID is unavailable");
+    const auto service_sid = utf8(rendered_sid);
+    LocalFree(rendered_sid);
+    require_unpublished_public_retirement(name, volume, service_sid);
     require_stopped(service.get());
     if (!DeleteService(service.get()))
         throw std::runtime_error("matching publisher service deletion request failed");
@@ -1737,6 +1772,18 @@ void retire_protected_binary(const std::wstring& name,
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(), SERVICE_QUERY_CONFIG));
     if (service.get() || GetLastError() != ERROR_SERVICE_DOES_NOT_EXIST)
         throw std::runtime_error("publisher service remains present or its absence is uncertain");
+    const auto records = registration_binding_path(name).parent_path();
+    if (protected_document_exists(records / (name + L".target-intent.json")) ||
+        protected_document_exists(records / (name + L".target-admitted.json"))) {
+        const auto binding = read_protected_document(registration_binding_path(name));
+        const auto root_text = binding.at("volume_identity").at("volume_root").as_string();
+        const std::wstring retained_volume(root_text.begin(), root_text.end());
+        require_volume(retained_volume);
+        if (binding.at("binary_sha256").as_string() != utf8(expected_sha256) ||
+            !EqualSid(const_cast<BYTE*>(service_sid.data()), derive_ascii_publisher_service_sid(name).data()))
+            throw std::runtime_error("retired publisher identity differs from protected registration");
+        require_unpublished_public_retirement(name, retained_volume, utf8(service_sid_text));
+    }
     FileHandle file(CreateFileW(binary.c_str(), DELETE | GENERIC_READ | READ_CONTROL |
         FILE_READ_ATTRIBUTES, 0, nullptr, OPEN_EXISTING,
         FILE_FLAG_OPEN_REPARSE_POINT, nullptr));

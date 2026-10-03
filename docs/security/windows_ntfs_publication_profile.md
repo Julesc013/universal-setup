@@ -1356,10 +1356,21 @@ power-loss event.
 The controller's `--provision-target NAME --confirm-empty-volume` admits only a
 bound dedicated data volume, records original security before effects, checks
 physical partition identity and a narrow protected Windows metadata exception,
+admits ordinary GPT basic data with at most one preceding, bounded Microsoft
+Reserved Partition (MSR), and refuses EFI, recovery, unknown, boot-marked,
+overlapping or attributed partitions. The MSR is never the selected volume.
+Ordinary non-boot MBR IFS data remains supported. Windows documents the MSR
+on data-only GPT disks in its [GPT FAQ](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-and-gpt-faq).
+The controller then
 updates the held root without descendant propagation, and repeats exclusive
 volume admission before retaining completion. Protected records publish through
 flushed, no-replace temporary promotion. Admission recovery and authority
 retirement still require qualification; retained records prevent name reuse.
+Removal and executable retirement refuse incomplete admission or any installed,
+staging or recovery namespace on a public target. Only an admitted unpublished
+target can retire through these commands; installed authority is retained for
+the owned uninstall lifecycle. The hosted probe's disposable runner cleanup
+does not qualify installed-authority retirement.
 Legacy mode-changing controller operations are not interchangeable with the
 immutable public registration and are refused once target admission intent
 exists. Existing availability declarations stay false.
