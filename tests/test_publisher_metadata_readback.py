@@ -13,6 +13,38 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_metadata_collision_worker_retains_guard_failure_without_target_access(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_owned_metadata_collision.ps1').read_text(encoding='utf-8')
+        worker = source.split("$observer=@'\n", 1)[1].split("\n'@", 1)[0]
+        code = r"""$ErrorActionPreference='Stop'
+if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ceq 'S-1-5-18') {
+ throw 'Non-SYSTEM owned unit fixture required'
+}
+$worker=[scriptblock]::Create([IO.File]::ReadAllText($env:USK_COLLISION_WORKER))
+& $worker -VhdPath 'invalid' -VolumeRoot 'invalid' -DriveRoot 'invalid' -ServiceName 'invalid' -ServiceSid 'invalid' -TransactionId 'invalid' -Output $env:USK_COLLISION_OUTPUT
+$item=Get-Item -LiteralPath $env:USK_COLLISION_OUTPUT
+$record=[IO.File]::ReadAllText($item.FullName)|ConvertFrom-Json
+if($item.Length -gt 16KB -or $record.schema -cne 'usk.publisher.owned_metadata_collision.v1' -or
+ $record.status -cne 'failed' -or $record.failure -cne 'Owned SYSTEM metadata collision context differs' -or
+ $record.identity -ceq 'S-1-5-18' -or (Test-Path -LiteralPath ($env:USK_COLLISION_OUTPUT+'.pending'))) {
+ throw 'Guard failure was lost or reached the target'
+}
+@{guard_failure_retained=$true;target_access=$false;pending_absent=$true}|ConvertTo-Json -Compress
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-collision-guard-') as temporary:
+                path = Path(temporary) / 'worker.ps1'
+                path.write_text(worker, encoding='utf-8')
+                environment = dict(os.environ, USK_COLLISION_WORKER=str(path),
+                                   USK_COLLISION_OUTPUT=str(Path(temporary) / 'failure.json'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'guard_failure_retained': True, 'target_access': False, 'pending_absent': True})
+
     def test_metadata_collision_admits_only_bound_private_recovery_prefix(self):
         root = Path(__file__).resolve().parents[1]
         code = r"""$ErrorActionPreference='Stop'

@@ -31,8 +31,8 @@ function Invoke-IndependentOwnedMetadataCollision {
 param([string]$VhdPath,[string]$VolumeRoot,[string]$DriveRoot,[string]$ServiceName,
     [string]$ServiceSid,[string]$TransactionId,[string]$Output)
 $ErrorActionPreference='Stop'
+try {
 if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or
-    $env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     $ServiceName -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or $DriveRoot -cnotmatch '^[A-Z]:\\$' -or
     $TransactionId -cne ('install.'+$ServiceName.Substring(8))) {throw 'Owned SYSTEM metadata collision context differs'}
 $expectedSid=[Security.Principal.NTAccount]::new('NT SERVICE',$ServiceName).Translate([Security.Principal.SecurityIdentifier]).Value
@@ -71,6 +71,11 @@ foreach($path in $paths) {
 $result=[ordered]@{schema='usk.publisher.owned_metadata_collision.v1';identity='S-1-5-18';
     service=$ServiceName;service_sid=$ServiceSid;transaction_id=$TransactionId;
     volume_root=$VolumeRoot;path=$collision;created_paths=$paths;status='owned_directory_collision_created'}
+} catch {
+    $result=[ordered]@{schema='usk.publisher.owned_metadata_collision.v1';
+        identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;
+        status='failed';failure=$_.Exception.Message}
+}
 $temporary=$Output+'.pending'
 $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes(($result|ConvertTo-Json -Depth 8));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}
@@ -78,7 +83,10 @@ finally {$stream.Dispose()}
 [IO.File]::Move($temporary,$Output)
 '@
     [IO.File]::WriteAllText($script,$observer,[Text.UTF8Encoding]::new($false))
-    $command="& ([scriptblock]::Create([IO.File]::ReadAllText('"+$script.Replace("'","''")+"')))"
+    # Task Scheduler does not inherit the launcher environment. Hosted-lab
+    # validation stays above; the SYSTEM action rechecks the exact target.
+    # Embed the reviewed body in the action so it cannot be replaced on disk.
+    $command="& ([scriptblock]::Create('"+$observer.Replace("'","''")+"'))"
     foreach($pair in @(@('VhdPath',$VhdPath),@('VolumeRoot',$VolumeRoot),@('DriveRoot',$DriveRoot),
         @('ServiceName',$ServiceName),@('ServiceSid',$ServiceSid),@('TransactionId',$TransactionId),@('Output',$output))) {
         $command+=' -'+$pair[0]+" '"+$pair[1].Replace("'","''")+"'"
@@ -100,6 +108,7 @@ finally {$stream.Dispose()}
                 '; last_task_result='+$info.LastTaskResult)
         }
         $result=Get-Content -LiteralPath $output -Raw|ConvertFrom-Json
+        if($result.status -ceq 'failed'){throw ('Owned metadata collision task failed: '+$result.failure)}
         if($result.schema -cne 'usk.publisher.owned_metadata_collision.v1' -or $result.identity -cne 'S-1-5-18' -or
             $result.status -cne 'owned_directory_collision_created' -or $result.service -cne $ServiceName -or
             $result.service_sid -cne $ServiceSid -or $result.transaction_id -cne $TransactionId -or
