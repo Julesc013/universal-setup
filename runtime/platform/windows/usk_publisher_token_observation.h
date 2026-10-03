@@ -33,6 +33,11 @@ struct PublisherServiceObservation {
     PublisherTokenObservation token;
 };
 
+// Documented Windows name mapping for the bounded ASCII service names used
+// by this profile. Derivation works before SCM creation and proves neither
+// registration existence nor service-token or filesystem authority.
+std::vector<unsigned char> derive_ascii_publisher_service_sid(const std::wstring& name);
+
 // Read-only current-token facts. The process token is observed separately
 // from the current thread's impersonation state. These facts alone do not
 // prove SCM service configuration, handle provenance, or profile eligibility.

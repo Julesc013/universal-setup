@@ -88,7 +88,7 @@ if(WIN32)
   target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
   target_include_directories(usk_publisher_windows_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
-  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32 shell32 ole32)
+  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32 bcrypt shell32 ole32)
   set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
   usk_enable_strict_warnings(usk_publisher_windows_static)
 endif()

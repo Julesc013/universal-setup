@@ -21,6 +21,7 @@
 #include "usk_publisher_volume_operation_guard.h"
 #include "usk_publisher_device_acl.h"
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_token_observation.h"
 #include "usk_stable_file.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
@@ -342,7 +343,9 @@ std::filesystem::path publisher_binary_path(const std::wstring& name) {
     return root / L"Universal Setup" / L"Publisher" / (name + L".exe");
 }
 
-std::vector<BYTE> publisher_service_sid(const std::wstring& name) {
+std::vector<BYTE> publisher_service_sid(const std::wstring& name, bool require_registered = true) {
+    const auto expected = derive_ascii_publisher_service_sid(name);
+    if (!require_registered) return expected;
     const std::wstring account = L"NT SERVICE\\" + name;
     std::vector<BYTE> sid(SECURITY_MAX_SID_SIZE);
     std::array<wchar_t, 256> domain{};
@@ -352,7 +355,8 @@ std::vector<BYTE> publisher_service_sid(const std::wstring& name) {
     if (!LookupAccountNameW(nullptr, account.c_str(), sid.data(), &sid_size,
             domain.data(), &domain_size, &use) || !IsValidSid(sid.data()) ||
         *GetSidSubAuthorityCount(sid.data()) != 6 ||
-        *GetSidSubAuthority(sid.data(), 0) != SECURITY_SERVICE_ID_BASE_RID) {
+        *GetSidSubAuthority(sid.data(), 0) != SECURITY_SERVICE_ID_BASE_RID ||
+        !EqualSid(sid.data(), const_cast<unsigned char*>(expected.data()))) {
         throw std::runtime_error("publisher service SID is unavailable");
     }
     sid.resize(sid_size);
@@ -943,7 +947,7 @@ void write_protected_document(const std::filesystem::path& path, const usk::json
 usk::json::Value registration_binding(const std::wstring& name,
     const std::wstring& command, const std::wstring& digest,
     const usk::json::Value& volume_identity) {
-    auto sid = publisher_service_sid(name);
+    auto sid = publisher_service_sid(name, false);
     LPWSTR rendered = nullptr;
     if (!ConvertSidToStringSidW(sid.data(), &rendered) || !rendered)
         throw std::runtime_error("registered service SID cannot be retained");
@@ -1280,8 +1284,9 @@ void provision_registered_target(const std::wstring& name) {
                 throw std::runtime_error("retained target admission differs");
         } else if (GetLastError() == ERROR_FILE_NOT_FOUND) write_protected_document(admitted_path, admitted);
         else throw std::runtime_error("target admission absence is uncertain");
-    } catch (const std::exception&) {
-        if (intent_retained) throw PublisherRequestOutcomeUnknown("target admission is incomplete; protected intent retained");
+    } catch (const std::exception& error) {
+        if (intent_retained) throw PublisherRequestOutcomeUnknown(
+            std::string("target admission incomplete; protected intent retained: ") + error.what());
         throw;
     }
 }
@@ -1403,11 +1408,12 @@ void register_service(const std::wstring& name, const std::wstring& binary,
                     usk::json::canonical(expected))
                 throw std::runtime_error("completed registration binding differs; retained");
         } else write_protected_document(binding_path, expected);
-    } catch (const std::exception&) {
+    } catch (const std::exception& error) {
         // Once intent is durable, keep the owned executable and stopped SCM
         // entry for an exact same-identity retry. Never delete a previous or
         // uncertain registration while reporting an initial refusal.
-        throw PublisherRequestOutcomeUnknown("publisher registration incomplete; protected creation intent retained");
+        throw PublisherRequestOutcomeUnknown(
+            std::string("publisher registration incomplete; protected creation intent retained: ") + error.what());
     }
 }
 
@@ -1888,8 +1894,8 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
             std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\","
                 L"\"status\":\"target_admitted\",\"service\":\"" << argv[2] << L"\"}\n";
             return 0;
-        } catch (const PublisherRequestOutcomeUnknown&) {
-            std::cerr << "usk_publisher_service_control: target admission incomplete; protected intent retained\n";
+        } catch (const PublisherRequestOutcomeUnknown& error) {
+            std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
             return 5;
         } catch (const std::exception& error) {
             std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
@@ -1958,8 +1964,8 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
             << (retire ? L"binary_retired" : registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : start ? L"start_requested" : L"removal_requested")
             << L"\",\"service\":\"" << name << L"\"}\n";
         return 0;
-    } catch (const usk::platform::windows::PublisherRequestOutcomeUnknown&) {
-        std::cerr << "usk_publisher_service_control: outcome unknown; recover the registered service\n";
+    } catch (const usk::platform::windows::PublisherRequestOutcomeUnknown& error) {
+        std::cerr << "usk_publisher_service_control: outcome unknown; " << error.what() << '\n';
         return 5;
     } catch (const std::exception& error) {
         std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
