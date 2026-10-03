@@ -21,6 +21,7 @@ param(
     [switch]$MachineRequestClient,
     [switch]$ControllerApply,
     [switch]$PublicInstallation,
+    [ValidateSet('none','prepublish','postrename')][string]$PublicPublicationLoss='none',
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostpublishRights,
@@ -33,6 +34,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicPublicationLoss -cne 'none' -and -not $PublicInstallation) {
+    throw 'Ordinary public boundary loss requires the public installation probe'
+}
 if($HostilePostrename) {
     if($HostileRights){throw 'Select one hostile-rights phase'}
     $HostileRights=$true
@@ -121,7 +125,37 @@ $receipt = [ordered]@{
 $mounted = $false
 $failure = $null
 
+function Read-PublicBuildProfile([string]$Binary) {
+    $build=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($Binary)))
+    $projectPath=Join-Path $build 'usk_publisher_service.vcxproj'
+    $compilerFiles=@(Get-ChildItem -LiteralPath (Join-Path $build 'CMakeFiles') -Directory|ForEach-Object {
+        $candidate=Join-Path $_.FullName 'CMakeCXXCompiler.cmake'
+        if(Test-Path -LiteralPath $candidate -PathType Leaf){$candidate}
+    })
+    if($compilerFiles.Count -ne 1){throw 'Public qualification compiler definition is absent or ambiguous'}
+    $project=[xml][IO.File]::ReadAllText($projectPath)
+    $sdk=@($project.Project.PropertyGroup.WindowsTargetPlatformVersion|Where-Object {$_}|Select-Object -Unique)
+    $toolset=@($project.Project.PropertyGroup.PlatformToolset|Where-Object {$_}|Select-Object -Unique)
+    $compiler=[IO.File]::ReadAllText($compilerFiles[0])
+    $version=[regex]::Match($compiler,'(?m)^set\(CMAKE_CXX_COMPILER_VERSION "([^"]+)"\)').Groups[1].Value
+    $compilerId=[regex]::Match($compiler,'(?m)^set\(CMAKE_CXX_COMPILER_ID "([^"]+)"\)').Groups[1].Value
+    if($sdk.Count -ne 1 -or $toolset.Count -ne 1 -or -not $version -or -not $compilerId) {
+        throw 'Public qualification SDK/compiler facts unavailable'
+    }
+    $commit=& git -C $env:GITHUB_WORKSPACE rev-parse HEAD
+    if($LASTEXITCODE -ne 0){throw 'Public qualification source commit unavailable'}
+    $tree=& git -C $env:GITHUB_WORKSPACE rev-parse 'HEAD^{tree}'
+    if($LASTEXITCODE -ne 0){throw 'Public qualification source tree unavailable'}
+    $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
+    [ordered]@{source_commit=$commit;source_tree=$tree;pull_request_head=$event.pull_request.head.sha;
+        ci_run_id=$env:GITHUB_RUN_ID;ci_run_attempt=$env:GITHUB_RUN_ATTEMPT;
+        windows_sdk=[string]$sdk[0];platform_toolset=[string]$toolset[0];compiler_id=$compilerId;compiler_version=$version;
+        compiler_definition_sha256=(Get-FileHash -LiteralPath $compilerFiles[0] -Algorithm SHA256).Hash.ToLowerInvariant();
+        project_sha256=(Get-FileHash -LiteralPath $projectPath -Algorithm SHA256).Hash.ToLowerInvariant();
+        probe_powershell=$PSVersionTable.PSVersion.ToString();probe_clr=[Environment]::Version.ToString()}
+}
 try {
+    if($PublicInstallation){$receipt['build_profile']=Read-PublicBuildProfile $ServiceBinary}
     $before = @(Get-Disk -ErrorAction Stop | Select-Object -ExpandProperty Number)
     if (Test-Path -LiteralPath $vhd) { throw 'new backing file already exists' }
     if (Get-Command New-VHD -ErrorAction SilentlyContinue) {
@@ -190,6 +224,13 @@ try {
     $receipt.volume_root = "$($partition.DriveLetter):\"
     $receipt.volume_unique_id = $volume.UniqueId
     $receipt.filesystem = $volume.FileSystem
+    if($PublicInstallation) {
+        $admittedDisk=Get-Disk -Number $receipt.disk_number -ErrorAction Stop
+        if($admittedDisk.UniqueId -cne $receipt.disk_unique_id){throw 'Public qualification disk identity changed'}
+        $receipt['storage_profile']=[ordered]@{bus_type=$admittedDisk.BusType.ToString();
+            partition_style=$admittedDisk.PartitionStyle.ToString();logical_sector_bytes=$admittedDisk.LogicalSectorSize;
+            physical_sector_bytes=$admittedDisk.PhysicalSectorSize;size_bytes=$admittedDisk.Size}
+    }
     $receipt.status = 'volume_provisioned'
     if ($ServiceBinary) {
         if (-not $DeviceAclBinary -and -not $PublicInstallation) { throw 'owned VHD device ACL helper is required' }
@@ -198,7 +239,7 @@ try {
             & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
-                -MachineBinary $MachineBinary -OutputPath $serviceOutput
+                -MachineBinary $MachineBinary -OutputPath $serviceOutput -PublicationLoss $PublicPublicationLoss
         } elseif ($MachineBinary) {
             & (Join-Path $PSScriptRoot 'windows_publisher_metadata_hosted_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `

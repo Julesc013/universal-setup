@@ -1400,5 +1400,35 @@ exists. Existing availability declarations stay false.
 
 The connected hosted probe covers product target admission, preservation
 refusals, ordinary apply, independent readback, source-free recovery, original
-apply replay and bound verification. Source and unit checks do not constitute
-its successful execution or complete the publisher acceptance matrix.
+apply replay and bound verification. This complete chain passed in exact-head
+CI run `37133670524` at `42cf5350c540184b3bfd53e6f32c79ce62a24ec3`, integrated
+through PR #217 at `273fa4556cb19ceb307bc1c47e1fe8d011045f9f`. Artifact
+`11277314950` records the same recovered/replayed installed state, 28 unchanged
+independent target rows and passing final verification. Those rows established
+hash/ACL preservation; they did not independently bind payload file IDs or
+the complete native closure facts.
+
+The current qualification fixture adds held-handle native file IDs, names,
+attributes, raw owner/DACL, link counts, directory case flags, exact streams
+and bounded content hashes to the independent SYSTEM observation. It compares
+that closure with the retained sealed and visible records. A local native
+reader test distinguishes identical-byte foreign identity from the retained
+renamed object and reports hard links and additional streams.
+
+Both durable-prepared-before-rename and visible-before-journal loss fixtures
+now use ordinary public dispatch and the shared external stock-service
+observer. The observer binds the exact owned VHD, SCM command, executable
+digest, PID and creation time, requires an actual live kill and fails a missed
+window. Each fixture requires public unknown/exit 5, absent completion, input
+removal, source-free recovery, exact retained native identity/content, repeat
+recovery/replay and verification without SCM reconfiguration. Hosted execution
+of this new batch remains required. Controlled process termination is not
+physical power-loss evidence.
+
+The finite remaining obligations are the existing PUB-001/002/003 and PLAT-002
+acceptance designs: complete initiating/untrusted-token effective-right
+evidence; retained refusal for altered/ambiguous visible material and metadata
+failure; reconciliation of the native predicate corpus; and exact source,
+SDK/runtime, Windows/storage assumptions plus unsupported-target refusals.
+The replacement-source DELETE denial still proves only that source failure.
+Strict availability and the release acceptance predicate remain unchanged.

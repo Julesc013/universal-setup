@@ -13,6 +13,56 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_native_closure_reader_distinguishes_identity_links_and_streams(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text()
+        native = source.split('Add-Type -TypeDefinition @"', 1)[1].split('\n"@', 1)[0]
+        shells = [shutil.which('pwsh'), shutil.which('powershell.exe')]
+        self.assertTrue(all(shells), 'Both observer and cancellation PowerShell runtimes are required')
+        for shell in shells:
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-native-readback-') as temporary:
+                directory = Path(temporary)
+                (directory / 'native.cs').write_text(native, encoding='utf-8')
+                code = r"""$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_READBACK_NATIVE))
+$root=$env:USK_READBACK_ROOT
+$file=Join-Path $root 'payload.bin'
+$moved=Join-Path $root 'moved.bin'
+[IO.File]::WriteAllBytes($file,[byte[]]@(0x55,0x53,0x4b))
+$initial=[UskMetadataFacts]::ReadClosure($file)
+$parent=[UskMetadataFacts]::ReadClosure($root)
+if($initial[3] -ne 1 -or $initial[4] -or @($initial[5]).Count -ne 1 -or
+ $initial[5][0]['name'] -cne '::$DATA' -or $initial[5][0]['size'] -ne 3 -or
+ $initial[7] -ne 3 -or $initial[8] -cne $file.Substring(2) -or
+ ($parent[2] -band 16) -eq 0 -or $parent[4] -or @($parent[5]).Count -ne 0) {
+ throw 'Initial native file/directory facts differ'
+}
+[IO.File]::Move($file,$moved)
+[IO.File]::WriteAllBytes($file,[byte[]]@(0x55,0x53,0x4b))
+$foreign=[UskMetadataFacts]::ReadClosure($file)
+$retained=[UskMetadataFacts]::ReadClosure($moved)
+if($initial[0] -ceq $foreign[0] -or $initial[6] -cne $foreign[6] -or
+ $initial[0] -cne $retained[0] -or $retained[8] -cne $moved.Substring(2)) {
+ throw 'Native identity reader confused equal bytes with the retained object'
+}
+New-Item -ItemType HardLink -Path (Join-Path $root 'linked.bin') -Target $file|Out-Null
+Set-Content -LiteralPath $file -Stream probe -Value 'AB' -Encoding Ascii -NoNewline
+$linked=[UskMetadataFacts]::ReadClosure($file)
+if($linked[3] -ne 2 -or @($linked[5]).Count -ne 2 -or
+ @($linked[5]|Where-Object {$_['name'] -ceq ':probe:$DATA' -and $_['size'] -eq 2}).Count -ne 1) {
+ throw 'Native link/stream observations omitted distinct facts'
+}
+@{identity_distinguished=$true;rename_identity_retained=$true;links=$linked[3];streams=@($linked[5]).Count}|ConvertTo-Json -Compress
+"""
+                environment = dict(os.environ, USK_READBACK_NATIVE=str(directory / 'native.cs'),
+                                   USK_READBACK_ROOT=str(directory))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'identity_distinguished': True, 'rename_identity_retained': True,
+                    'links': 2, 'streams': 2})
+
     def test_incomplete_cim_creation_time_waits_for_disappearance(self):
         root = Path(__file__).resolve().parents[1]
         shell = shutil.which("pwsh")

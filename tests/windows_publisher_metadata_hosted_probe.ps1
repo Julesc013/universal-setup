@@ -35,6 +35,7 @@ param(
     [switch]$HostilePostrename
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 if($HostilePostrename) {
     if($HostileRights){throw 'Select one hostile-rights phase'}
     $HostileRights=$true
@@ -392,112 +393,13 @@ function Complete-StageObserver($Observer) {
     return $result
 }
 function Start-ProductionRenameObserver([string]$Phase='postrename') {
-    if($Phase -cnotin @('prepublish','postrename')){throw 'Unknown production boundary phase'}
     Assert-OwnedVolume
-    $taskName='USK_RENAME_OBSERVER_'+$id
-    $scriptPath=Join-Path $observerRoot 'production-rename-observer.ps1'
-    $ownedProcessPath=Join-Path $observerRoot 'owned-process.ps1'
-    $configPath=Join-Path $observerRoot 'production-rename-config.json'
-    $readyPath=Join-Path $observerRoot 'production-rename-ready.txt'
-    $outputPath=Join-Path $observerRoot 'production-rename-observation.json'
-    if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $configPath) -or
-        (Test-Path -LiteralPath $readyPath) -or (Test-Path -LiteralPath $outputPath)) {
-        throw 'Owned production rename observer collision'
-    }
-    $serviceRow=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
-    $processRow=Get-CimInstance Win32_Process -Filter ('ProcessId='+$serviceRow.ProcessId) -ErrorAction Stop
-    if($serviceRow.State -cne 'Running' -or $serviceRow.ProcessId -le 0 -or
-        $serviceRow.PathName -cne $expectedRegisteredCommand -or
-        -not $processRow -or -not $processRow.CreationDate -or
-        -not $processRow.ExecutablePath -or -not $processRow.CommandLine -or
-        (Get-FileHash -LiteralPath $processRow.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
-            $sourceServiceHash) {
-        throw 'Production rename observer service identity differs before request'
-    }
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_production_rename_observer.ps1') `
-        -Destination $scriptPath -ErrorAction Stop
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1') `
-        -Destination $ownedProcessPath -ErrorAction Stop
-    $config=[ordered]@{schema='usk.publisher.production_rename_observer_config.v1';phase=$Phase;
-        service_name=$service;service_command=$serviceRow.PathName;
-        process_id=$serviceRow.ProcessId;process_command=$processRow.CommandLine;
-        process_executable=$processRow.ExecutablePath;
-        process_creation_ticks=$processRow.CreationDate.ToUniversalTime().Ticks;
-        service_binary_sha256=$sourceServiceHash;
-        drive_letter=$drive.Substring(0,1);volume_guid_root=$VolumeRoot;
-        visible_path=$visibleRoot;journal_path=($drive+'publication\journal\lab-'+
-            $(if($Phase -ceq 'prepublish'){'prepared'}else{'visible'})+'-evidence.json');
-        ready_path=$readyPath;output_path=$outputPath}
-    [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
-    # The shared owned-process helper needs PowerShell 7's .NET Kill(true)
-    # overload to terminate the exact held process tree.
-    $action=New-ScheduledTaskAction -Execute (Get-Command pwsh -ErrorAction Stop).Source -Argument (
-        '-NoProfile -NonInteractive -File "'+$scriptPath+'" -ConfigPath "'+$configPath+'"')
-    $registered=$false
-    try {
-        Register-ScheduledTask -TaskName $taskName -Action $action -User SYSTEM -RunLevel Highest|Out-Null
-        $registered=$true
-        Start-ScheduledTask -TaskName $taskName
-        $deadline=[DateTime]::UtcNow.AddSeconds(30)
-        while(-not (Test-Path -LiteralPath $readyPath) -and
-            -not (Test-Path -LiteralPath $outputPath) -and [DateTime]::UtcNow -lt $deadline) {
-            Start-Sleep -Milliseconds 25
-        }
-        if(-not (Test-Path -LiteralPath $readyPath) -or
-            [IO.File]::ReadAllText($readyPath) -cne "usk.publisher.production_rename_observer_ready.v1`n") {
-            $reason=if(Test-Path -LiteralPath $outputPath){
-                (Get-Content -LiteralPath $outputPath -Raw|ConvertFrom-Json).failure
-            }else{'bounded observer output absent'}
-            throw ('Production rename observer did not become ready: '+$reason)
-        }
-        return [pscustomobject]@{task=$taskName;output=$outputPath;ready=$readyPath;
-            config=$configPath;removed=$false}
-    } catch {
-        if($registered) {
-            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-            if($task -and $task.State -eq 'Running'){Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop}
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
-        }
-        throw
-    }
+    Start-OwnedProductionBoundaryObserver -Phase $Phase -Service $service -ObserverRoot $observerRoot `
+        -VhdPath $vhd -VolumeRoot $VolumeRoot -DriveRoot $drive -VisibleRoot $visibleRoot `
+        -ServiceCommand $expectedRegisteredCommand -ServiceBinarySha256 $sourceServiceHash
 }
 function Complete-ProductionRenameObserver($Observer,[string]$Phase='postrename') {
-    $deadline=[DateTime]::UtcNow.AddSeconds(150)
-    while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
-        Start-Sleep -Milliseconds 25
-    }
-    if(-not (Test-Path -LiteralPath $Observer.output) -or
-        (Get-Item -LiteralPath $Observer.output).Length -gt 16KB) {
-        throw 'Production rename observer did not produce bounded output'
-    }
-    $result=Get-Content -LiteralPath $Observer.output -Raw|ConvertFrom-Json
-    $task=Get-ScheduledTask -TaskName $Observer.task -ErrorAction Stop
-    if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $Observer.task -ErrorAction Stop}
-    Unregister-ScheduledTask -TaskName $Observer.task -Confirm:$false -ErrorAction Stop
-    if(Get-ScheduledTask -TaskName $Observer.task -ErrorAction SilentlyContinue) {
-        throw 'Owned production rename observer task remains registered'
-    }
-    $Observer.removed=$true
-    $expectedStatus=if($Phase -ceq 'prepublish'){
-        'terminated_prepared_prerename'
-    }else{'terminated_postrename_prejournal'}
-    if($result.schema -cne 'usk.publisher.production_rename_observer.v1' -or
-        $result.identity -cne 'S-1-5-18' -or
-        $result.phase -cne $Phase -or $result.status -cne $expectedStatus -or
-        -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
-        ($Phase -ceq 'prepublish' -and
-            (-not $result.prepared_exclusive_observed -or
-                -not $result.journal_before_kill -or -not $result.journal_after_kill -or
-                $result.visible_after_kill -or
-                $result.prepared_record_sha256 -cnotmatch '^[0-9a-f]{64}$')) -or
-        ($Phase -ceq 'postrename' -and
-            ($result.journal_before_kill -or $result.journal_after_kill -or
-                -not $result.visible_after_kill))) {
-        throw ('Production rename observer did not capture the required window: '+
-            ($result|ConvertTo-Json -Depth 5 -Compress))
-    }
-    return $result
+    Complete-OwnedProductionBoundaryObserver $Observer $Phase
 }
 function Test-LiveStageAttemptOverlap($Observation,$Attempts) {
     foreach($run in @($Observation.runs)) {
@@ -2849,17 +2751,7 @@ try {
     }
     if($postrenameObserver -and -not $postrenameObserver.removed) {
         try {
-            $task=Get-ScheduledTask -TaskName $postrenameObserver.task -ErrorAction SilentlyContinue
-            if($task) {
-                if($task.State -eq 'Running'){
-                    Stop-ScheduledTask -TaskName $postrenameObserver.task -ErrorAction Stop
-                }
-                Unregister-ScheduledTask -TaskName $postrenameObserver.task -Confirm:$false -ErrorAction Stop
-            }
-            if(Get-ScheduledTask -TaskName $postrenameObserver.task -ErrorAction SilentlyContinue) {
-                throw 'Owned production rename observer task remains registered'
-            }
-            $postrenameObserver.removed=$true
+            Remove-OwnedProductionBoundaryObserver $postrenameObserver
         } catch {
             $failure='Owned production rename observer cleanup failed: '+$_.Exception.Message
             $receipt.failure=$failure;$receipt.status='failed'
