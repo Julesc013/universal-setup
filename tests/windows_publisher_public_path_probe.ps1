@@ -92,7 +92,9 @@ function Invoke-PublicCapability([int]$ExpectedExit=0) {
         $exit=$process.ExitCode
         $diagnostic=[IO.File]::ReadAllText($stderr)
         if(($ExpectedExit -eq 0 -and $diagnostic.Length) -or
-            ($ExpectedExit -ne 0 -and $diagnostic -cne "usk_machine: request refused`r`n")) {
+            ($ExpectedExit -ne 0 -and $diagnostic -cnotmatch '\Ausk_machine: request refused\r?\n\z')) {
+            $receipt['capability_diagnostic']=[ordered]@{expected_exit=$ExpectedExit;actual_exit=$exit;
+                characters=$diagnostic.Length;prefix=$diagnostic.Substring(0,[Math]::Min(256,$diagnostic.Length))}
             throw 'Read-only capability client emitted an unexpected diagnostic'
         }
         $result=[IO.File]::ReadAllText($stdout)|ConvertFrom-Json

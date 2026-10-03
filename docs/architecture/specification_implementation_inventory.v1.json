@@ -1377,7 +1377,7 @@
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "21c12337e1b55d43344cc6cd60f4e7a13951fa5d13196c033ac7581fbc818196"
+          "sha256": "8bd5a350a5e7cfaee34962a3364bccf5110a0fea13b4d2d22a840db3e9b180b8"
         }
       ],
       "acceptance_ids": [
@@ -1486,7 +1486,7 @@
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "21c12337e1b55d43344cc6cd60f4e7a13951fa5d13196c033ac7581fbc818196"
+          "sha256": "8bd5a350a5e7cfaee34962a3364bccf5110a0fea13b4d2d22a840db3e9b180b8"
         },
         {
           "path": "apps/cli/usk_product_info.cpp",
@@ -4167,7 +4167,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "96011dd87fc497d762d6d48f1f3ca4b72bec669112ef82888b5a985ac3b7f638"
+          "sha256": "cee74c8383354af68e52e159132a6cb7ed29963c1a196a43df62e8fe8c83d5f5"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4523,7 +4523,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "96011dd87fc497d762d6d48f1f3ca4b72bec669112ef82888b5a985ac3b7f638"
+          "sha256": "cee74c8383354af68e52e159132a6cb7ed29963c1a196a43df62e8fe8c83d5f5"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4536,6 +4536,14 @@
         {
           "path": "tests/windows_publisher_client_token_unit.ps1",
           "sha256": "854ad959dda0f76458ec800e7ebddfabf76b606a4c8cbbe5ceed633764c5537a"
+        },
+        {
+          "path": "tests/publication_authority_reference.py",
+          "sha256": "2b26bf68a9bac644db79b463907757365fc33e9670c3d39ea8cfd9d03bf5c628"
+        },
+        {
+          "path": "tests/test_publication_authority_reference.py",
+          "sha256": "578ebdc41a580555a91b7249232ced87e38f4461f891696dd63f8d3467ecad9a"
         }
       ],
       "acceptance_ids": [
@@ -5832,7 +5840,7 @@
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "21c12337e1b55d43344cc6cd60f4e7a13951fa5d13196c033ac7581fbc818196"
+          "sha256": "8bd5a350a5e7cfaee34962a3364bccf5110a0fea13b4d2d22a840db3e9b180b8"
         }
       ],
       "acceptance_ids": [
@@ -5904,7 +5912,7 @@
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
-          "sha256": "21c12337e1b55d43344cc6cd60f4e7a13951fa5d13196c033ac7581fbc818196"
+          "sha256": "8bd5a350a5e7cfaee34962a3364bccf5110a0fea13b4d2d22a840db3e9b180b8"
         }
       ],
       "acceptance_ids": [

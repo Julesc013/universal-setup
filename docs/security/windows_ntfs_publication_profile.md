@@ -1629,3 +1629,19 @@ checks refusal before target admission and discovery before/after installation,
 with unchanged SCM state, volume metadata and protected records per call.
 Hosted qualification of this candidate is pending; no WU-006 or release
 acceptance follows from local checks.
+
+
+### Explicit model reconciliation context
+
+The reference model now accepts an immutable, explicit service SID, SDK build
+and immediate-ancestor floor for reconciling a separately observed target.
+The original synthetic fixture and its 45-case projection keep their defaults.
+Twenty local model tests include synthetic context, wrong-binding, ancestry
+and phase-security controls. Context is fixed at admission; later phases use
+the admitted service SID. These controls do not qualify a native receipt or
+provide runtime authority, support, strict availability or release acceptance.
+
+The discovery fixture retains a bounded diagnostic on an unexpected refusal
+and accepts the same single refusal line with LF or CRLF. The previous hosted
+run failed before installation; its actual stderr was not retained. Local
+reproduction emitted CRLF, so a hosted newline cause is not established.

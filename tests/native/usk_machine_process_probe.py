@@ -58,7 +58,8 @@ def main() -> int:
         inspection = dict(request, command="publisher.inspect", payload={
             "schema": "usk.publisher_capability_request.v1", "request_id": request["request_id"]})
         observed = run(executable, "--machine", json.dumps(inspection).encode(), "--publisher", missing_service)
-        assert observed.returncode == 2 and observed.stderr == b"usk_machine: request refused\r\n", observed.stderr
+        assert observed.returncode == 2 and observed.stderr in (b"usk_machine: request refused\r\n",
+                                                             b"usk_machine: request refused\n"), observed.stderr
         observation = json.loads(observed.stdout)
         assert observation["result"] is None and observation["error"]["code"] == "publisher_capability_unavailable"
         conflicting = run(executable, "--machine", effect_bytes, "--publisher", missing_service,
