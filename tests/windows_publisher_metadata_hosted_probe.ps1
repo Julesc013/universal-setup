@@ -976,15 +976,11 @@ try {
         & $ServiceControlBinary @wrongBinaryHash 2>$null|Out-Null
         if($LASTEXITCODE -eq 0 -or
             (Test-Path -LiteralPath $installedServiceBinary) -or
+            (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $installedServiceBinary) ($service+'.registration-intent.json'))) -or
             (Get-Service $service -ErrorAction SilentlyContinue)) {
             throw 'Publisher registration retained a mismatched executable'
         }
         $receipt['wrong_binary_digest_refused']=$true
-        $orphanPending=$installedServiceBinary+'.pending'
-        [IO.File]::WriteAllBytes($orphanPending,[byte[]]@(0x4d,0x5a))
-        $orphanAcl=[Security.AccessControl.FileSecurity]::new()
-        $orphanAcl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)')
-        Set-Acl -LiteralPath $orphanPending -AclObject $orphanAcl
         $registrationAttempted=$true
         $registered=& $ServiceControlBinary @controlArgs
         if($LASTEXITCODE -ne 0){throw 'Product service control did not register the reviewed publisher'}
@@ -994,6 +990,26 @@ try {
         }
         if((Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
             $sourceServiceHash){throw 'Protected installed service differs from packaged source'}
+        # Model an interrupted owned copy only after durable creation intent
+        # and tagged SCM ownership have been established. Unknown pending
+        # files must not become fresh-registration cleanup authority.
+        $registrationRecord=Join-Path (Split-Path -Parent $installedServiceBinary) ($service+'.binding.json')
+        $registrationBytes=Get-Content -LiteralPath $registrationRecord -Raw
+        $creationRecord=Join-Path (Split-Path -Parent $installedServiceBinary) ($service+'.registration-intent.json')
+        if(-not (Test-Path -LiteralPath $creationRecord -PathType Leaf)) {
+            throw 'Registration copy fixture lacks owned durable creation intent'
+        }
+        Remove-Item -LiteralPath $registrationRecord -ErrorAction Stop
+        $orphanPending=$installedServiceBinary+'.pending'
+        [IO.File]::WriteAllBytes($orphanPending,[byte[]]@(0x4d,0x5a))
+        $orphanAcl=[Security.AccessControl.FileSecurity]::new()
+        $orphanAcl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)')
+        Set-Acl -LiteralPath $orphanPending -AclObject $orphanAcl
+        & $ServiceControlBinary @controlArgs|Out-Null
+        if($LASTEXITCODE -ne 0 -or
+            (Get-Content -LiteralPath $registrationRecord -Raw) -cne $registrationBytes) {
+            throw 'Owned registration copy recovery changed the retained binding'
+        }
         if(Test-Path -LiteralPath $orphanPending){throw 'Interrupted publisher copy was not reclaimed'}
         $receipt['interrupted_copy_reclaimed']=$true
         $ServiceBinary=$installedServiceBinary

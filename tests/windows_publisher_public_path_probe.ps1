@@ -84,6 +84,7 @@ function Read-IndependentState {
 }
 try {
     $fixture=Join-Path $lab 'authored-inputs'
+    New-Item -ItemType Directory -Path $fixture -ErrorAction Stop|Out-Null
     $generated=& python -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
         --output $fixture --target ($drive+'publication\destination\visible') --request-id ('public.'+$id)
     if($LASTEXITCODE -ne 0){throw 'Public-path authored fixture failed'}
@@ -124,6 +125,24 @@ try {
         'ContainerInherit,ObjectInherit','None','Allow'))
     Set-Acl -LiteralPath $fixture -AclObject $inputAcl
     $command=(Get-CimInstance Win32_Service -Filter "Name='$service'").PathName
+    $display=(Get-CimInstance Win32_Service -Filter "Name='$service'").DisplayName
+    $registrationRecord=Join-Path (Split-Path -Parent $installedBinary) ($service+'.binding.json')
+    $retainedRegistration=Get-Content -LiteralPath $registrationRecord -Raw
+    $retainedRegistrationHash=(Get-FileHash -LiteralPath $registrationRecord -Algorithm SHA256).Hash
+    # Model interruption after SCM/SID/executable creation but before the
+    # completion record. Only this newly created owned registration is edited;
+    # this fixture is not a process-kill or power-loss result.
+    Remove-Item -LiteralPath $registrationRecord -ErrorAction Stop
+    $resumed=& $ServiceControlBinary --register $service $ServiceBinary $VolumeRoot `
+        $binding.envelope_file $binding.envelope_sha256 $caller $receipt.service_sha256
+    if($LASTEXITCODE -ne 0 -or ($resumed|ConvertFrom-Json).status -cne 'registered' -or
+        (Get-Content -LiteralPath $registrationRecord -Raw) -cne $retainedRegistration -or
+        (Get-FileHash -LiteralPath $registrationRecord -Algorithm SHA256).Hash -cne $retainedRegistrationHash -or
+        (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command -or
+        (Get-CimInstance Win32_Service -Filter "Name='$service'").DisplayName -cne $display) {
+        throw 'Owned registration completion recovery differs from retained creation intent'
+    }
+    $receipt['registration_completion_reentry']='same protected binding and tagged SCM identity'
     $marker=$drive+'preexisting-public-marker.bin'
     [IO.File]::WriteAllBytes($marker,[byte[]]@(0x55,0x53,0x4b,0x2d,0x50,0x52,0x45))
     $rootBefore=(Get-Acl -LiteralPath $VolumeRoot).Sddl
@@ -151,6 +170,11 @@ try {
         throw 'Product target admission failed'
     }
     $receipt['provisioning']=$provisioned|ConvertFrom-Json
+    & $ServiceControlBinary --verify $service $installedBinary $VolumeRoot $caller|Out-Null
+    if($LASTEXITCODE -ne 3 -or
+        (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command) {
+        throw 'Legacy mode change altered an admitted public registration'
+    }
     # Repeat the admission before publication to check immutable-intent reentry.
     & $ServiceControlBinary --provision-target $service --confirm-empty-volume|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Product target admission reentry failed'}

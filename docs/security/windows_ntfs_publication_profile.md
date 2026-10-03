@@ -1344,6 +1344,15 @@ to the authenticated dispatcher, and returns the public command response.
 This checkpoint requires an elevated configured caller and readable reviewed
 package inputs. The non-admin consumer route is still unqualified.
 
+Registration checks pinned package bytes before retaining creation intent.
+The protected intent binds the exact command, executable digest, service SID
+and target identity to a random creation tag written atomically by
+`CreateService`. An interrupted registration may resume only against that same
+tagged, stopped SCM entry and exact intent. Unmarked existing resources are
+refused; incomplete owned resources are retained. The hosted reentry fixture
+models missing completion after creation, rather than a process-kill or
+power-loss event.
+
 The controller's `--provision-target NAME --confirm-empty-volume` admits only a
 bound dedicated data volume, records original security before effects, checks
 physical partition identity and a narrow protected Windows metadata exception,
@@ -1352,7 +1361,8 @@ volume admission before retaining completion. Protected records publish through
 flushed, no-replace temporary promotion. Admission recovery and authority
 retirement still require qualification; retained records prevent name reuse.
 Legacy mode-changing controller operations are not interchangeable with the
-immutable public registration. Existing availability declarations stay false.
+immutable public registration and are refused once target admission intent
+exists. Existing availability declarations stay false.
 
 The connected hosted probe covers product target admission, preservation
 refusals, ordinary apply, independent readback, source-free recovery, original

@@ -490,7 +490,8 @@ struct InstalledBinary {
 };
 
 InstalledBinary install_protected_binary(const std::wstring& name,
-    const std::wstring& source, const std::wstring& expected_sha256) {
+    const std::wstring& source, const std::wstring& expected_sha256,
+    bool resume_owned_registration = false) {
     require_file(source);
     if (!lower_sha256(expected_sha256))
         throw std::runtime_error("publisher executable digest is invalid");
@@ -519,7 +520,12 @@ InstalledBinary install_protected_binary(const std::wstring& name,
     }
     const DWORD target_attributes = GetFileAttributesW(target.c_str());
     if (target_attributes != INVALID_FILE_ATTRIBUTES) {
-        require_protected_binary(name, target.wstring(), false);
+        try {
+            require_protected_binary(name, target.wstring(), false);
+        } catch (const std::exception&) {
+            if (!resume_owned_registration) throw;
+            require_protected_binary(name, target.wstring(), true);
+        }
         if (usk::base::sha256_hex_file(target) != expected_digest)
             throw std::runtime_error("orphan publisher executable digest differs");
         return {target.wstring(), false};
@@ -786,6 +792,7 @@ std::vector<std::wstring> command_arguments(const std::wstring& command) {
 struct ServiceConfiguration {
     std::wstring binary_path;
     std::wstring account;
+    std::wstring display_name;
     DWORD type = 0;
     DWORD start = 0;
     DWORD sid_type = 0;
@@ -799,13 +806,13 @@ ServiceConfiguration query_configuration(SC_HANDLE service) {
     std::vector<BYTE> bytes(needed);
     auto* config = reinterpret_cast<QUERY_SERVICE_CONFIGW*>(bytes.data());
     if (!QueryServiceConfigW(service, config, needed, &needed) ||
-        !config->lpBinaryPathName || !config->lpServiceStartName)
+        !config->lpBinaryPathName || !config->lpServiceStartName || !config->lpDisplayName)
         throw std::runtime_error("service configuration is unavailable");
     SERVICE_SID_INFO sid{};
     if (!QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
             reinterpret_cast<BYTE*>(&sid), sizeof(sid), &needed))
         throw std::runtime_error("service SID configuration is unavailable");
-    return {config->lpBinaryPathName, config->lpServiceStartName,
+    return {config->lpBinaryPathName, config->lpServiceStartName, config->lpDisplayName,
         config->dwServiceType, config->dwStartType, sid.dwServiceSidType};
 }
 
@@ -933,7 +940,7 @@ void write_protected_document(const std::filesystem::path& path, const usk::json
     }
 }
 
-void write_registration_binding(const std::wstring& name,
+usk::json::Value registration_binding(const std::wstring& name,
     const std::wstring& command, const std::wstring& digest,
     const usk::json::Value& volume_identity) {
     auto sid = publisher_service_sid(name);
@@ -942,7 +949,7 @@ void write_registration_binding(const std::wstring& name,
         throw std::runtime_error("registered service SID cannot be retained");
     const auto service_sid = utf8(rendered);
     LocalFree(rendered);
-    const auto value = usk::json::Value(usk::json::Value::Object{
+    return usk::json::Value(usk::json::Value::Object{
         {"schema", usk::json::Value("usk.publisher_registration_binding.v1")},
         {"service_name", usk::json::Value(utf8(name))},
         {"service_sid", usk::json::Value(service_sid)},
@@ -950,7 +957,6 @@ void write_registration_binding(const std::wstring& name,
         {"binary_sha256", usk::json::Value(utf8(digest))},
         {"volume_identity", volume_identity}
     });
-    write_protected_document(registration_binding_path(name), value);
 }
 
 usk::json::Value read_protected_document(const std::filesystem::path& path) {
@@ -975,6 +981,22 @@ usk::json::Value read_protected_document(const std::filesystem::path& path) {
     limits.max_string_bytes = 8192;
     const auto value = usk::json::parse(bytes, limits);
     return value;
+}
+
+bool protected_document_exists(const std::filesystem::path& path) {
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES) return true;
+    const DWORD error = GetLastError();
+    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+        throw std::runtime_error("protected registration record absence is uncertain");
+    return false;
+}
+
+void require_mutable_legacy_registration(const std::wstring& name) {
+    const auto parent = registration_binding_path(name).parent_path();
+    if (protected_document_exists(parent / (name + L".target-intent.json")) ||
+        protected_document_exists(parent / (name + L".target-admitted.json")))
+        throw std::runtime_error("admitted public registration dispatches operations without SCM reconfiguration");
 }
 
 usk::json::Value read_registration_binding(const std::wstring& name,
@@ -1270,57 +1292,122 @@ void register_service(const std::wstring& name, const std::wstring& binary,
     const std::wstring& binary_digest,
     const std::wstring& mode) {
     require_file(envelope);
-    if (!lower_sha256(digest)) throw std::runtime_error("envelope digest is invalid");
+    if (!lower_sha256(digest) || !lower_sha256(binary_digest))
+        throw std::runtime_error("registration digest is invalid");
+    // Reject mismatched package bytes before retaining any creation identity.
+    // The pinned sources remain stable throughout copying and SCM admission.
+    usk::base::StableFile source{std::filesystem::path(binary)};
+    usk::base::StableFile reviewed{std::filesystem::path(envelope)};
+    if (!source.identity().size_bytes || source.identity().size_bytes > 256u * 1024u * 1024u ||
+        source.sha256_hex() != utf8(binary_digest) ||
+        !reviewed.identity().size_bytes || reviewed.identity().size_bytes > 1024u * 1024u ||
+        reviewed.sha256_hex() != utf8(digest))
+        throw std::runtime_error("publisher packaged source digest or size differs");
+    source.verify_unchanged();
+    reviewed.verify_unchanged();
     ServiceControlGuard control(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr,
         SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager creation access unavailable");
-    ServiceHandle existing(OpenServiceW(manager.get(), name.c_str(), SERVICE_QUERY_CONFIG));
-    if (existing.get() || GetLastError() != ERROR_SERVICE_DOES_NOT_EXIST)
-        throw std::runtime_error("publisher service name is already present or uncertain");
     const auto volume_identity = registration_volume_identity(volume);
-    const auto retained_attributes = GetFileAttributesW(registration_binding_path(name).c_str());
-    const auto retained_error = GetLastError();
-    if (retained_attributes != INVALID_FILE_ATTRIBUTES ||
-        (retained_error != ERROR_FILE_NOT_FOUND && retained_error != ERROR_PATH_NOT_FOUND))
-        throw std::runtime_error("publisher retained registration already exists or is uncertain");
-    const auto installed = install_protected_binary(name, binary, binary_digest);
-    const std::wstring command = command_prefix(name, installed.path, volume) +
+    const auto target = publisher_binary_path(name);
+    const auto binding_path = registration_binding_path(name);
+    const auto intent_path = target.parent_path() / (name + L".registration-intent.json");
+    if (protected_document_exists(target.parent_path() / (name + L".retired.json")))
+        throw std::runtime_error("publisher registration is retired; its name cannot be reused");
+    const std::wstring command = command_prefix(name, target.wstring(), volume) +
         L" --reviewed-plan-envelope \"" + envelope + L"\" " + digest +
         command_suffix(caller, mode);
-    ServiceHandle service(CreateServiceW(manager.get(), name.c_str(), name.c_str(),
-        SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | DELETE,
-        SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
-        command.c_str(), nullptr, nullptr, nullptr, L"LocalSystem", nullptr));
-    if (!service.get()) {
-        ServiceHandle concurrent(OpenServiceW(manager.get(), name.c_str(),
-            SERVICE_QUERY_CONFIG));
-        const bool absent = !concurrent.get() &&
-            GetLastError() == ERROR_SERVICE_DOES_NOT_EXIST;
-        if (absent && installed.created_here &&
-            !DeleteFileW(installed.path.c_str()))
-            throw std::runtime_error("service creation failed and installed executable could not be removed");
-        throw std::runtime_error("new publisher service could not be created");
+    const auto expected = registration_binding(name, command, binary_digest, volume_identity);
+    const bool resuming = protected_document_exists(intent_path);
+    std::unique_ptr<ServiceHandle> service = std::make_unique<ServiceHandle>(
+        OpenServiceW(manager.get(), name.c_str(),
+            SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
+    if (!service->get() && GetLastError() != ERROR_SERVICE_DOES_NOT_EXIST)
+        throw std::runtime_error("publisher service presence is uncertain");
+    usk::json::Value intent;
+    if (resuming) {
+        intent = read_protected_document(intent_path);
+        if (intent.as_object().size() != 3 ||
+            intent.at("schema").as_string() != "usk.publisher_registration_intent.v1" ||
+            usk::json::canonical(intent.at("binding")) != usk::json::canonical(expected))
+            throw std::runtime_error("retained registration intent differs from requested identity");
+    } else {
+        if (service->get() || protected_document_exists(binding_path) ||
+            protected_document_exists(target) ||
+            protected_document_exists(target.wstring() + L".pending"))
+            throw std::runtime_error("publisher registration name or executable already exists without owned intent");
+        GUID nonce{};
+        if (FAILED(CoCreateGuid(&nonce)))
+            throw std::runtime_error("registration creation identity is unavailable");
+        intent = usk::json::Value(usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.publisher_registration_intent.v1")},
+            {"creation_id", usk::json::Value(guid_text(nonce))},
+            {"binding", expected}
+        });
+        LocalDescriptor directory_descriptor(L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
+        SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), directory_descriptor.get(), FALSE};
+        create_protected_directory(target.parent_path().wstring(), attributes);
+        // This is durable before executable installation or SCM creation.
+        // CreateService writes the corresponding unpredictable display tag in
+        // the same operation as the owned name and command, so interruption
+        // never requires adopting an unmarked preexisting service.
+        write_protected_document(intent_path, intent);
     }
+    const auto creation_id = intent.at("creation_id").as_string();
+    const std::wstring wide_id(creation_id.begin(), creation_id.end());
+    GUID parsed_id{};
+    if (creation_id.size() != 38 || FAILED(CLSIDFromString(wide_id.c_str(), &parsed_id)) ||
+        guid_text(parsed_id) != creation_id)
+        throw std::runtime_error("retained registration creation identity is malformed");
+    const std::wstring display_name = L"Universal Setup publisher " + wide_id;
     try {
-        SERVICE_SID_INFO sid{SERVICE_SID_TYPE_RESTRICTED};
-        if (!ChangeServiceConfig2W(service.get(), SERVICE_CONFIG_SERVICE_SID_INFO, &sid))
-            throw std::runtime_error("restricted service SID configuration failed");
-        grant_service_binary_read(name, installed.path);
-        const auto observed = query_configuration(service.get());
-        require_profile(observed);
-        if (observed.binary_path != command)
-            throw std::runtime_error("registered service command differs from reviewed input");
-        write_registration_binding(name, command, binary_digest, volume_identity);
-    } catch (...) {
-        if (!DeleteService(service.get())) {
-            const DWORD deletion_error = GetLastError();
-            throw std::runtime_error("registration failed and created service deletion failed (Win32 error " +
-                std::to_string(deletion_error) + ")");
+        if (service->get()) {
+            const auto before = query_configuration(service->get());
+            if (before.binary_path != command || before.display_name != display_name ||
+                before.type != SERVICE_WIN32_OWN_PROCESS || before.start != SERVICE_DEMAND_START ||
+                CompareStringOrdinal(before.account.c_str(), -1, L"LocalSystem", -1, TRUE) != CSTR_EQUAL ||
+                (before.sid_type != SERVICE_SID_TYPE_NONE && before.sid_type != SERVICE_SID_TYPE_RESTRICTED))
+                throw std::runtime_error("existing service is not the retained creation identity");
+            require_stopped(service->get());
+        } else if (protected_document_exists(binding_path)) {
+            throw std::runtime_error("completed registration service is absent; retain ownership for explicit recovery");
         }
-        if (!DeleteFileW(installed.path.c_str()))
-            throw std::runtime_error("registration failed and installed executable deletion failed");
-        throw;
+        const auto installed = install_protected_binary(name, binary, binary_digest, resuming);
+        source.verify_unchanged();
+        reviewed.verify_unchanged();
+        if (!service->get()) {
+            service = std::make_unique<ServiceHandle>(CreateServiceW(manager.get(), name.c_str(),
+                display_name.c_str(), SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS,
+                SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
+                command.c_str(), nullptr, nullptr, nullptr, L"LocalSystem", nullptr));
+            if (!service->get())
+                throw std::runtime_error("owned publisher service could not be created; intent retained");
+        }
+        SERVICE_SID_INFO sid{SERVICE_SID_TYPE_RESTRICTED};
+        if (!ChangeServiceConfig2W(service->get(), SERVICE_CONFIG_SERVICE_SID_INFO, &sid))
+            throw std::runtime_error("restricted service SID configuration failed");
+        try {
+            require_protected_binary(name, installed.path);
+        } catch (const std::exception&) {
+            require_protected_binary(name, installed.path, false);
+            grant_service_binary_read(name, installed.path);
+        }
+        const auto observed = query_configuration(service->get());
+        require_profile(observed);
+        require_stopped(service->get());
+        if (observed.binary_path != command || observed.display_name != display_name)
+            throw std::runtime_error("registered service command differs from reviewed input");
+        if (protected_document_exists(binding_path)) {
+            if (usk::json::canonical(read_registration_binding(name, command, volume)) !=
+                    usk::json::canonical(expected))
+                throw std::runtime_error("completed registration binding differs; retained");
+        } else write_protected_document(binding_path, expected);
+    } catch (const std::exception&) {
+        // Once intent is durable, keep the owned executable and stopped SCM
+        // entry for an exact same-identity retry. Never delete a previous or
+        // uncertain registration while reporting an initial refusal.
+        throw PublisherRequestOutcomeUnknown("publisher registration incomplete; protected creation intent retained");
     }
 }
 
@@ -1440,6 +1527,7 @@ void configure_recovery(const std::wstring& name, const std::wstring& binary,
     const std::wstring& mode) {
     require_protected_binary(name, binary);
     ServiceControlGuard control(name);
+    require_mutable_legacy_registration(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -1467,6 +1555,7 @@ void configure_verify(const std::wstring& name, const std::wstring& binary,
     const std::wstring& mode) {
     require_protected_binary(name, binary);
     ServiceControlGuard control(name);
+    require_mutable_legacy_registration(name);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("service manager connection unavailable");
     ServiceHandle service(OpenServiceW(manager.get(), name.c_str(),
@@ -1567,6 +1656,7 @@ int run_registered_operation(const std::wstring& name, const std::wstring& binar
         // Reconfiguration and start share the same controller lock. No other
         // cooperating controller can swap the mode between these steps.
         ServiceControlGuard control(name);
+        require_mutable_legacy_registration(name);
         ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
         if (!manager.get()) {
             throw std::runtime_error("service manager connection unavailable");
