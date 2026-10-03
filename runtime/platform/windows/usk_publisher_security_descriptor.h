@@ -35,6 +35,13 @@ std::vector<unsigned char> make_publisher_directory_security_descriptor(
 void set_publisher_boundary_security_from_handle(HANDLE boundary,
     const std::vector<unsigned char>& descriptor);
 
+// Controller metadata admission only. Derive the protected poststate by
+// adding SE_DACL_PROTECTED to the exact held original owner/DACL descriptor.
+// Preserves owner and ACE bytes, and does not propagate to descendants. The
+// caller binds the trusted metadata namespace and durable original/poststate.
+void protect_publisher_metadata_dacl_from_handle(HANDLE metadata,
+    const std::vector<unsigned char>& original);
+
 // Only the visible payload may receive this explicit, non-inherited read/execute
 // ACE. Private anchors retain the descriptor above. Caller must bind the reader
 // durably and revalidate the published closure before applying the descriptor.

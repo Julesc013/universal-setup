@@ -83,6 +83,26 @@ function Read-IndependentState {
     }
     return $readback.independent
 }
+function Read-VolumeMetadata {
+    $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab `
+        -RunId ([guid]::NewGuid().ToString('N')) -MetadataOnly
+    if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18') {
+        throw 'Independent volume metadata identity or cleanup differs'
+    }
+    return $readback.independent
+}
+function Assert-VolumeMetadataSnapshot($Observation,$Expected) {
+    $actual=@($Observation.volume_metadata)
+    if($actual.Count -ne @($Expected).Count){throw 'Independent volume metadata count differs'}
+    foreach($entry in $Expected) {
+        $found=@($actual|Where-Object path -ceq $entry.path)
+        if($found.Count -ne 1 -or $found[0].file_id -cne $entry.file_id -or
+            $found[0].security -cne $entry.security -or $found[0].attributes -ne $entry.attributes -or
+            $found[0].sha256 -cne $entry.sha256 -or $found[0].size -cne $entry.size) {
+            throw ('Independent volume metadata identity/security/content differs: '+$entry.path)
+        }
+    }
+}
 try {
     $fixture=Join-Path $lab 'authored-inputs'
     New-Item -ItemType Directory -Path $fixture -ErrorAction Stop|Out-Null
@@ -164,6 +184,7 @@ try {
     }
     $receipt['preexisting_target_refused_unchanged']=$true
     Remove-Item -LiteralPath $marker -ErrorAction Stop
+    $metadataBefore=Read-VolumeMetadata
     # No lab helper changes the volume-root or raw-device ACL. The product
     # controller owns this admitted-target transition and its durable records.
     $provisioned=& $ServiceControlBinary --provision-target $service --confirm-empty-volume
@@ -171,14 +192,33 @@ try {
         throw 'Product target admission failed'
     }
     $receipt['provisioning']=$provisioned|ConvertFrom-Json
+    $targetIntentPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-intent.json')
+    $targetAdmittedPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-admitted.json')
+    $targetIntent=Get-Content -LiteralPath $targetIntentPath -Raw|ConvertFrom-Json
+    $targetIntentHash=(Get-FileHash -LiteralPath $targetIntentPath -Algorithm SHA256).Hash
+    if($targetIntent.schema -cne 'usk.publisher_target_intent.v2'){throw 'Target transition intent schema differs'}
+    Assert-VolumeMetadataSnapshot $metadataBefore $targetIntent.original_metadata
+    $metadataAfter=Read-VolumeMetadata
+    Assert-VolumeMetadataSnapshot $metadataAfter $targetIntent.identity.metadata
+    $receipt['original_volume_metadata']=$metadataBefore
+    $receipt['protected_volume_metadata']=$metadataAfter
     & $ServiceControlBinary --verify $service $installedBinary $VolumeRoot $caller|Out-Null
     if($LASTEXITCODE -ne 3 -or
         (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command) {
         throw 'Legacy mode change altered an admitted public registration'
     }
-    # Repeat the admission before publication to check immutable-intent reentry.
+    # Model interruption after protection effects but before the completion
+    # record. Edit only this newly created owned record; this is not a kill or
+    # power-loss result. Reentry must use the retained original/intended state.
+    $admittedBefore=Get-Content -LiteralPath $targetAdmittedPath -Raw
+    Remove-Item -LiteralPath $targetAdmittedPath -ErrorAction Stop
     & $ServiceControlBinary --provision-target $service --confirm-empty-volume|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Product target admission reentry failed'}
+    if($LASTEXITCODE -ne 0 -or (Get-Content -LiteralPath $targetAdmittedPath -Raw) -cne $admittedBefore -or
+        (Get-FileHash -LiteralPath $targetIntentPath -Algorithm SHA256).Hash -cne $targetIntentHash) {
+        throw 'Product target admission completion reentry altered its retained intent or result'
+    }
+    Assert-VolumeMetadataSnapshot (Read-VolumeMetadata) $targetIntent.identity.metadata
+    $receipt['target_completion_reentry']='modelled missing completion; same immutable intent and protected metadata'
     $receipt['apply']=Invoke-PublicRequest 'install_local.apply' $apply
     $installed=$receipt.apply.result.payload
     if($installed.install_id -cne $apply.plan_request.install_id -or

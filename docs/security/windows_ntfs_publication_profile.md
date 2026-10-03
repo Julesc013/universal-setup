@@ -1355,7 +1355,7 @@ power-loss event.
 
 The controller's `--provision-target NAME --confirm-empty-volume` admits only a
 bound dedicated data volume, records original security before effects, checks
-physical partition identity and a narrow protected Windows metadata exception,
+physical partition identity and a narrow Windows metadata exception,
 admits ordinary GPT basic data with at most one preceding, bounded Microsoft
 Reserved Partition (MSR), and refuses EFI, recovery, unknown, boot-marked,
 overlapping or attributed partitions. The MSR is never the selected volume.
@@ -1363,13 +1363,28 @@ Ordinary non-boot MBR IFS data remains supported. Windows documents the MSR
 on data-only GPT disks in its [GPT FAQ](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-and-gpt-faq).
 Admission retains the held object's bounded self-relative owner/DACL descriptor
 from [GetKernelObjectSecurity](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getkernelobjectsecurity).
-The OS metadata exception still requires that stored DACL to be protected,
-with owner and ordered ACE facts matching the independent handle observation;
-unsupported, contradictory or unavailable facts refuse. A getter's reported
-protection difference is not proof of descriptor preservation or an excuse
-to admit an unprotected descriptor. The metadata-shaped temporary fixture
-checks stored-byte preservation; hosted admission execution remains required.
-The controller then
+The initial metadata prestate requires trusted SYSTEM/Administrators ownership
+and allow ACEs, and the existing flat content, identity,
+stream and size bounds. It may lack stored DACL protection. A v2 target intent
+retains that complete original snapshot and the deterministic protected
+poststate before any effect. A separate held-handle metadata operation adds
+only [SE_DACL_PROTECTED](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setsecuritydescriptorcontrol)
+through the native security primitive; owner and ordered ACE bytes remain
+unchanged and the operation does not propagate to descendants. The parent
+operation supports only non-inherited allow ACEs with optional OI/CI flags;
+descendant ACE facts are retained exactly, including inherited flags. It never
+adopts this metadata as a publication anchor or payload. The volume-root
+primitive continues to reject every inheritable ACE.
+Reentry accepts only the retained original or exact intended metadata state;
+unsupported, contradictory or unavailable facts refuse with the existing
+intent retained. Completion and unpublished retirement require the bound
+protected poststate, including file identities, attributes, descriptor facts
+and contents. The native fixture contains a metadata descendant and checks
+raw descriptor, identity and byte preservation, stale-prestate refusal and
+protected-poststate reentry. The hosted probe independently reads original
+and protected metadata as SYSTEM and models missing completion after effects;
+that model is not process-kill or power-loss evidence. Hosted execution and
+complete admission recovery qualification remain required. The controller then
 updates the held root without descendant propagation, and repeats exclusive
 volume admission before retaining completion. Protected records publish through
 flushed, no-replace temporary promotion. Admission recovery and authority

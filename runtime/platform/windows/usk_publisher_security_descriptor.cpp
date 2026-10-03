@@ -173,5 +173,54 @@ void set_publisher_boundary_security_from_handle(HANDLE boundary,
         throw std::runtime_error("held boundary native security update failed");
 }
 
+void protect_publisher_metadata_dacl_from_handle(HANDLE metadata,
+    const std::vector<unsigned char>& original) {
+    if (!metadata || metadata == INVALID_HANDLE_VALUE ||
+        original.size() < SECURITY_DESCRIPTOR_MIN_LENGTH || original.size() > 65536)
+        throw std::runtime_error("metadata protection inputs are unavailable");
+    FILE_ATTRIBUTE_TAG_INFO tag{};
+    auto protected_descriptor = original;
+    auto* raw = protected_descriptor.data();
+    SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+    PACL dacl = nullptr; BOOL present = FALSE, defaulted = FALSE;
+    if (!GetFileInformationByHandleEx(metadata, FileAttributeTagInfo, &tag, sizeof(tag)) ||
+        (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 || tag.ReparseTag != 0 ||
+        !IsValidSecurityDescriptor(raw) || GetSecurityDescriptorLength(raw) != original.size() ||
+        !GetSecurityDescriptorControl(raw, &control, &revision) || (control & SE_SELF_RELATIVE) == 0 ||
+        !GetSecurityDescriptorDacl(raw, &present, &dacl, &defaulted) || !present || !dacl || !IsValidAcl(dacl))
+        throw std::runtime_error("metadata protection descriptor or object differs");
+    for (DWORD index = 0; index < dacl->AceCount; ++index) {
+        void* ace = nullptr;
+        if (!GetAce(dacl, index, &ace) || !ace ||
+            static_cast<ACE_HEADER*>(ace)->AceType != ACCESS_ALLOWED_ACE_TYPE ||
+            (static_cast<ACE_HEADER*>(ace)->AceFlags & ~(OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)) != 0)
+            throw std::runtime_error("metadata protection cannot change unsupported ACEs");
+    }
+    constexpr auto requested = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    const auto read = [&] {
+        DWORD needed = 0;
+        if (GetKernelObjectSecurity(metadata, requested, nullptr, 0, &needed) ||
+            GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed != original.size())
+            throw std::runtime_error("metadata protection prestate size changed");
+        std::vector<unsigned char> bytes(needed); DWORD returned = 0;
+        if (!GetKernelObjectSecurity(metadata, requested, bytes.data(), needed, &returned) || returned != needed)
+            throw std::runtime_error("metadata protection prestate is unavailable");
+        return bytes;
+    };
+    if (read() != original)
+        throw std::runtime_error("metadata protection prestate changed");
+    if (!SetSecurityDescriptorControl(raw, SE_DACL_PROTECTED, SE_DACL_PROTECTED))
+        throw std::runtime_error("metadata protected descriptor cannot be derived");
+    using NtSetSecurityObjectFn = LONG (NTAPI *)(HANDLE, SECURITY_INFORMATION, PSECURITY_DESCRIPTOR);
+    const auto module = GetModuleHandleW(L"ntdll.dll");
+    const auto set_security = module ? reinterpret_cast<NtSetSecurityObjectFn>(
+        GetProcAddress(module, "NtSetSecurityObject")) : nullptr;
+    // DACL only: no owner update, inheritance propagation, or grants added.
+    if (!set_security || set_security(metadata,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, raw) != 0 ||
+        read() != protected_descriptor)
+        throw std::runtime_error("held metadata protection update or exact readback failed");
+}
+
 } // namespace usk::platform::windows
 #endif

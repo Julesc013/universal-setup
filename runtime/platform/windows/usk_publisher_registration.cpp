@@ -29,6 +29,7 @@
 #include "usk_effect_dispatch.h"
 
 #include <array>
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
@@ -1124,12 +1125,12 @@ std::string owner_dacl_sddl(HANDLE object) {
 }
 
 bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
-    const PublisherHandleObservation& observation) {
+    const PublisherHandleObservation& observation, bool require_protected = true) {
     auto* descriptor = const_cast<BYTE*>(bytes.data());
     SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
     PSID owner = nullptr; PACL dacl = nullptr; BOOL defaulted = FALSE, present = FALSE;
     if (!GetSecurityDescriptorControl(descriptor, &control, &revision) ||
-        (control & (SE_SELF_RELATIVE | SE_DACL_PROTECTED)) != (SE_SELF_RELATIVE | SE_DACL_PROTECTED) ||
+        (control & SE_SELF_RELATIVE) == 0 || (require_protected && (control & SE_DACL_PROTECTED) == 0) ||
         !GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) || !owner || !IsValidSid(owner) ||
         !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present ||
         !dacl || !IsValidAcl(dacl) || dacl->AceCount != observation.dacl_aces.size()) return false;
@@ -1160,7 +1161,7 @@ bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
     return true;
 }
 
-usk::json::Value target_empty_namespace(HANDLE root) {
+usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_protected = true) {
     // The root itself can carry streams independently of its directory entries.
     // Every pre-effect, post-lock and retirement namespace check includes it.
     require_publisher_stream_shape(root);
@@ -1169,37 +1170,49 @@ usk::json::Value target_empty_namespace(HANDLE root) {
     const auto entries = observe_publisher_directory_entries(root, 65536);
     for (const auto& entry : entries) {
         // NTFS/Windows may initialize this reserved OS metadata directory.
-        // It is never adopted as payload or repaired. Admit only its narrow
-        // fresh-volume contents and already protected trusted security.
+        // It is never adopted as payload. The initial trusted prestate may
+        // need an intent-backed protection-only transition; all completed
+        // admission and retirement observations still require protection.
         if (entry.name != L"System Volume Information" ||
             (entry.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 || entry.reparse_tag != 0)
             throw std::runtime_error("target volume contains preexisting user or publication state");
         FileHandle held(open_publisher_listed_child(root, entry, false, false, false, false, true));
         const auto tree = observe_publisher_tree(held.get(), true);
         const auto native_security = native_owner_dacl_security(held.get());
+        SECURITY_DESCRIPTOR_CONTROL metadata_control{}; DWORD metadata_revision = 0;
+        if (!GetSecurityDescriptorControl(const_cast<BYTE*>(native_security.data()),
+            &metadata_control, &metadata_revision))
+            throw std::runtime_error("target metadata stored control is unavailable");
+        if ((metadata_control & SE_DACL_PROTECTED) == 0 &&
+            std::any_of(tree.root.dacl_aces.begin(), tree.root.dacl_aces.end(), [](const auto& ace) {
+                return (ace.flags & ~(OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)) != 0;
+            }))
+            throw std::runtime_error("target metadata protection transition has unsupported parent ACE flags");
         const auto trusted = [](const PublisherHandleObservation& object) {
             if (object.owner_sid != "S-1-5-18" && object.owner_sid != "S-1-5-32-544") return false;
-            if (object.dacl_aces.empty() || object.case_sensitive || object.reparse_tag != 0) return false;
+            if (object.dacl_aces.empty() || object.case_sensitive || object.reparse_tag != 0 ||
+                object.link_count != 1) return false;
             for (const auto& ace : object.dacl_aces)
                 if (ace.type != ACCESS_ALLOWED_ACE_TYPE ||
                     (ace.sid != "S-1-5-18" && ace.sid != "S-1-5-32-544")) return false;
             return true;
         };
-        // Require the stored descriptor's protection bit and exact agreement
-        // with the separately observed owner/ordered ACEs. Never infer that
-        // protection from the parent or relax it because a getter disagrees.
-        if (!native_metadata_security_matches(native_security, tree.root) ||
+        // Protection can be absent only in the bounded original prestate.
+        // Always bind the raw owner/ordered ACEs to the separate observation.
+        if (!native_metadata_security_matches(native_security, tree.root, require_metadata_protected) ||
             !trusted(tree.root) || tree.descendants.size() > 3) {
             const auto security = owner_dacl_sddl(native_security);
-            throw std::runtime_error("target OS metadata is not already protected and bounded; owner=" +
+            throw std::runtime_error("target OS metadata security or bounds differ; owner=" +
                 tree.root.owner_sid + "; protected=" + (tree.root.dacl_protected ? "true" : "false") +
                 "; descendants=" + std::to_string(tree.descendants.size()) +
                 "; stored_security=" + (security.size() <= 2048 ? security : std::string("exceeds diagnostic bound")));
         }
         metadata.emplace_back(Value::Object{
             {"path", Value(utf8(entry.name))}, {"file_id", Value(tree.root.file_id)},
-            {"security", Value(owner_dacl_sddl(native_security))}
+            {"security", Value(owner_dacl_sddl(native_security))},
+            {"attributes", Value(static_cast<std::uint64_t>(tree.root.attributes))}
         });
+        const auto children = observe_publisher_directory_entries(held.get(), 65536);
         for (const auto& child : tree.descendants) {
             if ((child.relative_path != L"IndexerVolumeGuid" && child.relative_path != L"WPSettings.dat" &&
                  child.relative_path != L"tracking.log") || child.size > 1024u * 1024u ||
@@ -1207,14 +1220,72 @@ usk::json::Value target_empty_namespace(HANDLE root) {
                 (child.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
                 throw std::runtime_error("target OS metadata has unclassified content");
             require_publisher_stream_shape(child.streams, false);
+            const auto listed = std::find_if(children.begin(), children.end(), [&](const auto& candidate) {
+                return candidate.name == child.relative_path;
+            });
+            if (listed == children.end()) throw std::runtime_error("target metadata child disappeared");
+            FileHandle child_handle(open_publisher_listed_child(held.get(), *listed,
+                false, false, false, false, true));
+            const auto child_observation = observe_publisher_file_handle(child_handle.get());
+            const auto child_security = native_owner_dacl_security(child_handle.get());
+            if (child_observation.file_id != child.object.file_id || !trusted(child_observation) ||
+                !native_metadata_security_matches(child_security, child_observation, false))
+                throw std::runtime_error("target metadata child security or identity changed");
             metadata.emplace_back(Value::Object{
                 {"path", Value(utf8(entry.name + L"\\" + child.relative_path))},
                 {"file_id", Value(child.object.file_id)}, {"sha256", Value(child.sha256)},
-                {"size", Value(std::to_string(child.size))}
+                {"size", Value(std::to_string(child.size))},
+                {"security", Value(owner_dacl_sddl(child_security))},
+                {"attributes", Value(static_cast<std::uint64_t>(child.object.attributes))}
             });
         }
     }
     return Value(std::move(metadata));
+}
+
+usk::json::Value protected_metadata_snapshot(const usk::json::Value& original) {
+    auto result = original;
+    for (auto& object : result.as_array()) {
+        if (object.at("path").as_string() != "System Volume Information") continue;
+        const auto text = object.at("security").as_string();
+        const std::wstring wide_text(text.begin(), text.end());
+        LocalDescriptor descriptor(wide_text.c_str());
+        const auto length = GetSecurityDescriptorLength(descriptor.get());
+        const auto* first = static_cast<const BYTE*>(descriptor.get());
+        std::vector<BYTE> bytes(first, first + length);
+        if (!SetSecurityDescriptorControl(bytes.data(), SE_DACL_PROTECTED, SE_DACL_PROTECTED))
+            throw std::runtime_error("target metadata protected poststate cannot be derived");
+        object.as_object()["security"] = usk::json::Value(owner_dacl_sddl(bytes));
+    }
+    return result;
+}
+
+void require_metadata_transition_state(const usk::json::Value& current,
+    const usk::json::Value& original, const usk::json::Value& expected) {
+    const auto actual = usk::json::canonical(current);
+    if (actual != usk::json::canonical(original) && actual != usk::json::canonical(expected))
+        throw std::runtime_error("target metadata differs from retained original and intended protected state");
+}
+
+void protect_target_metadata(HANDLE root, const usk::json::Value& original,
+    const usk::json::Value& expected) {
+    const auto current = target_empty_namespace(root, false);
+    require_metadata_transition_state(current, original, expected);
+    if (usk::json::canonical(current) == usk::json::canonical(expected)) return;
+    const auto entries = observe_publisher_directory_entries(root, 65536);
+    if (entries.size() != 1) throw std::runtime_error("target metadata namespace changed before protection");
+    FileHandle held(open_publisher_metadata_dacl_child(root, entries.front()));
+    const auto observation = observe_publisher_directory_handle(held.get());
+    const auto security = native_owner_dacl_security(held.get());
+    const auto& retained = original.as_array().front();
+    if (retained.at("path").as_string() != "System Volume Information" ||
+        observation.file_id != retained.at("file_id").as_string() ||
+        owner_dacl_sddl(security) != retained.at("security").as_string() ||
+        usk::json::canonical(target_empty_namespace(root, false)) != usk::json::canonical(original))
+        throw std::runtime_error("held metadata differs before protection");
+    protect_publisher_metadata_dacl_from_handle(held.get(), security);
+    if (usk::json::canonical(target_empty_namespace(root)) != usk::json::canonical(expected))
+        throw std::runtime_error("protected metadata differs from retained intended state");
 }
 
 void prove_initial_exclusive_access(const std::wstring& volume) {
@@ -1266,7 +1337,9 @@ void require_unpublished_public_retirement(const std::wstring& name,
         // Any publication, staging, journal or installed-state namespace still
         // needs this authority. Only the admitted but unpublished empty target
         // can retire here; installed retirement belongs to the owned uninstall.
-        (void)target_empty_namespace(root.get());
+        if (usk::json::canonical(target_empty_namespace(root.get())) !=
+            usk::json::canonical(admission.at("identity").at("metadata")))
+            throw std::runtime_error("retained protected metadata differs before retirement");
     } catch (const std::exception&) {
         throw std::runtime_error("public install or recovery authority is still needed; complete owned uninstall before retirement");
     }
@@ -1287,41 +1360,50 @@ void provision_registered_target(const std::wstring& name) {
     require_protected_binary(name, args[0]);
     const auto binding = read_registration_binding(name, configuration.binary_path, args[4]);
     const auto volume = args[4];
-    const auto disk = dedicated_target_disk_identity(volume);
-    prove_initial_exclusive_access(volume);
     const auto intent_path = registration_binding_path(name).parent_path() / (name + L".target-intent.json");
     const auto admitted_path = registration_binding_path(name).parent_path() / (name + L".target-admitted.json");
     using usk::json::Value;
-    Value metadata;
-    std::string original_security;
-    {
-        ScopedControllerPrivilege backup;
-        FileHandle root(CreateFileW(volume.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
-        if (root.get() == INVALID_HANDLE_VALUE) throw std::runtime_error("target root pre-state is unavailable");
-        metadata = target_empty_namespace(root.get());
-        original_security = owner_dacl_sddl(root.get());
-    }
-    const Value identity(Value::Object{
-        {"registration_sha256", Value(usk::json::sha256_canonical(binding))},
-        {"volume_identity", binding.at("volume_identity")},
-        {"disk_identity", disk}, {"metadata", metadata}
-    });
-    bool intent_retained = false;
+    bool intent_retained = protected_document_exists(intent_path);
     try {
-        const auto attributes = GetFileAttributesW(intent_path.c_str());
-        const auto error = GetLastError();
-        if (attributes != INVALID_FILE_ATTRIBUTES) {
-            const auto retained = read_protected_document(intent_path);
-            if (retained.at("schema").as_string() != "usk.publisher_target_intent.v1" ||
-                usk::json::canonical(retained.at("identity")) != usk::json::canonical(identity))
-                throw std::runtime_error("retained target admission intent differs");
+        const auto disk = dedicated_target_disk_identity(volume);
+        prove_initial_exclusive_access(volume);
+        Value original_metadata, expected_metadata, retained;
+        std::string original_security;
+        if (intent_retained) {
+            retained = read_protected_document(intent_path);
+            if (retained.as_object().size() != 4 ||
+                retained.at("schema").as_string() != "usk.publisher_target_intent.v2")
+                throw std::runtime_error("retained target admission intent has an unsupported shape");
+            original_metadata = retained.at("original_metadata");
+            expected_metadata = protected_metadata_snapshot(original_metadata);
             original_security = retained.at("original_owner_dacl").as_string();
+        }
+        {
+            ScopedControllerPrivilege backup;
+            FileHandle root(CreateFileW(volume.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+            if (root.get() == INVALID_HANDLE_VALUE) throw std::runtime_error("target root pre-state is unavailable");
+            const auto current_metadata = target_empty_namespace(root.get(), false);
+            if (intent_retained) require_metadata_transition_state(current_metadata, original_metadata, expected_metadata);
+            else {
+                original_metadata = current_metadata;
+                expected_metadata = protected_metadata_snapshot(original_metadata);
+                original_security = owner_dacl_sddl(root.get());
+            }
+        }
+        const Value identity(Value::Object{
+            {"registration_sha256", Value(usk::json::sha256_canonical(binding))},
+            {"volume_identity", binding.at("volume_identity")},
+            {"disk_identity", disk}, {"metadata", expected_metadata}
+        });
+        if (intent_retained) {
+            if (usk::json::canonical(retained.at("identity")) != usk::json::canonical(identity))
+                throw std::runtime_error("retained target admission identity or intended metadata differs");
         } else {
-            if (error != ERROR_FILE_NOT_FOUND) throw std::runtime_error("target intent absence is uncertain");
             write_protected_document(intent_path, Value(Value::Object{
-                {"schema", Value("usk.publisher_target_intent.v1")}, {"identity", identity},
+                {"schema", Value("usk.publisher_target_intent.v2")}, {"identity", identity},
+                {"original_metadata", original_metadata},
                 {"original_owner_dacl", Value(original_security)}
             }));
         }
@@ -1334,16 +1416,17 @@ void provision_registered_target(const std::wstring& name) {
                 nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             if (root.get() == INVALID_HANDLE_VALUE) throw std::runtime_error("target root security access is unavailable");
             if (usk::json::canonical(registration_volume_identity(volume)) !=
-                    usk::json::canonical(binding.at("volume_identity")) ||
-                usk::json::canonical(target_empty_namespace(root.get())) != usk::json::canonical(metadata))
+                    usk::json::canonical(binding.at("volume_identity")))
                 throw std::runtime_error("target namespace changed before provisioning");
+            require_metadata_transition_state(target_empty_namespace(root.get(), false), original_metadata, expected_metadata);
             const auto observed = observe_publisher_directory_handle(root.get());
             bool already_protected = false;
             try { require_publisher_object_security_shape(observed, binding.at("service_sid").as_string());
                 already_protected = true; } catch (const std::exception&) {}
+            if (!already_protected && owner_dacl_sddl(root.get()) != original_security)
+                throw std::runtime_error("target security differs from original admission intent");
+            protect_target_metadata(root.get(), original_metadata, expected_metadata);
             if (!already_protected) {
-                if (owner_dacl_sddl(root.get()) != original_security)
-                    throw std::runtime_error("target security differs from original admission intent");
                 const auto sid = binding.at("service_sid").as_string();
                 const auto descriptor = make_publisher_directory_security_descriptor(std::wstring(sid.begin(), sid.end()));
                 set_publisher_boundary_security_from_handle(root.get(), descriptor);
@@ -1361,7 +1444,7 @@ void provision_registered_target(const std::wstring& name) {
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             if (root.get() == INVALID_HANDLE_VALUE ||
-                usk::json::canonical(target_empty_namespace(root.get())) != usk::json::canonical(metadata) ||
+                usk::json::canonical(target_empty_namespace(root.get())) != usk::json::canonical(expected_metadata) ||
                 usk::json::canonical(registration_volume_identity(volume)) != usk::json::canonical(binding.at("volume_identity")) ||
                 usk::json::canonical(dedicated_target_disk_identity(volume)) != usk::json::canonical(disk))
                 throw std::runtime_error("target identity or metadata changed across provisioning");
