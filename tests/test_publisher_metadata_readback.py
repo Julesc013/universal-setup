@@ -13,6 +13,59 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_effective_rights_bind_live_token_and_distinguish_grants_from_denials(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split('Add-Type -TypeDefinition @"', 1)[1].split('\n"@', 1)[0]
+        shells = [shutil.which('pwsh'), shutil.which('powershell.exe')]
+        self.assertTrue(all(shells), 'Both qualification observer runtimes are required')
+        code = r"""$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_RIGHTS_SOURCE))
+$process=Get-Process -Id $PID
+$created=$process.StartTime.ToUniversalTime().ToFileTimeUtc()
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$service='S-1-5-80-1-2-3-4-5'
+$rights=[UskPublisherEffectiveRights]::new($PID,$created,$sid,$service)
+try {
+ $file=Join-Path $env:USK_RIGHTS_ROOT 'owned.bin'
+ [IO.File]::WriteAllBytes($file,[byte[]]@(0x55,0x53,0x4b))
+ $own=$rights.Read($file)
+ if(-not $own['checks']['filtered']['write_or_add_file']['allowed']) {
+  throw 'Positive owned-file control failed to observe granted write access'
+ }
+ $raw=[Security.AccessControl.RawSecurityDescriptor]::new('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$service+')')
+ $descriptor=[byte[]]::new($raw.BinaryLength);$raw.GetBinaryForm($descriptor,0)
+ $closed=$rights.CheckDescriptor($descriptor)
+ $count=0
+ foreach($entry in $closed['filtered'].GetEnumerator()) {
+  if($entry.Value['allowed'] -or $entry.Value['granted'] -ne 0) {throw 'Closed descriptor granted the filtered invoking token'}
+  ++$count
+ }
+ if($rights.TokenFacts['initiating']['user_sid'] -cne $sid -or
+    $rights.TokenFacts['filtered']['user_sid'] -cne $sid) {throw 'Token observation lost the actual invoking identity'}
+ $refused=0
+ foreach($bad in @(@(($created+1),$sid),@($created,'S-1-5-21-1-2-3-1001'))) {
+  $unexpected=$null
+  try {$unexpected=[UskPublisherEffectiveRights]::new($PID,$bad[0],$bad[1],$service)}
+  catch {++$refused}
+  finally {if($unexpected){$unexpected.Dispose()}}
+ }
+ if($refused -ne 2){throw 'Contradictory process/token context was admitted'}
+ @{positive_write=$true;closed_checks=$count;contradictory_contexts_refused=$refused}|ConvertTo-Json -Compress
+} finally {$rights.Dispose()}
+"""
+        for shell in shells:
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-rights-readback-') as temporary:
+                native_path = Path(temporary) / 'native.cs'
+                native_path.write_text(native, encoding='utf-8')
+                environment = dict(os.environ, USK_RIGHTS_ROOT=temporary,
+                                   USK_RIGHTS_SOURCE=str(native_path))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'positive_write': True, 'closed_checks': 9, 'contradictory_contexts_refused': 2})
+
     def test_native_closure_reader_distinguishes_identity_links_and_streams(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text()

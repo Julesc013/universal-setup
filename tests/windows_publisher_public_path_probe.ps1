@@ -35,6 +35,8 @@ $drive=[string]$actual.DriveLetter+':\'
 $id=[guid]::NewGuid().ToString('N')
 $service='USK_PUB_'+$id
 $caller=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$invokingProcess=Get-Process -Id $PID
+$invokingCreation=$invokingProcess.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
 $utf8=[Text.UTF8Encoding]::new($false)
 $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run';
     service=$service;volume_root=$VolumeRoot;volume_drive_root=$drive;publication_loss=$PublicationLoss;
@@ -72,11 +74,26 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
 }
 function Read-IndependentState([string]$PayloadRoot=([string]$plan.target.root).Replace('/','\')) {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab `
-        -RunId ([guid]::NewGuid().ToString('N'))
+        -RunId ([guid]::NewGuid().ToString('N')) -CallerProcessId $PID `
+        -CallerCreationFileTime $invokingCreation -CallerSid $caller -ServiceSid $sid
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18') {
         throw 'Independent public-path readback identity or cleanup differs'
     }
     Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid
+    $tokens=$readback.independent.effective_right_tokens
+    if($tokens.process_id -ne $PID -or $tokens.creation_file_time -cne $invokingCreation -or
+        $tokens.initiating.user_sid -cne $caller -or $tokens.filtered.user_sid -cne $caller) {
+        throw 'Independent effective-right token context differs from the invoking public probe'
+    }
+    foreach($row in $readback.independent.rows) {
+        foreach($right in @('write_or_add_file','append_or_add_directory','write_ea','delete_child',
+            'write_attributes','delete','write_dac','write_owner')) {
+            $check=$row.effective_rights.filtered.$right
+            if($null -eq $check -or $check.allowed -or $check.granted -ne 0) {
+                throw ('Filtered invoking token obtained protected mutation rights: '+$row.path+' / '+$right)
+            }
+        }
+    }
     foreach($entry in @($plan.planned_entries|Where-Object entry_type -eq 'file')) {
         $expected=$PayloadRoot+'\'+$entry.relative_path.Replace('/','\')
         $rows=@($readback.independent.rows|Where-Object path -ceq $expected)

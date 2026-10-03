@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_handle_observation.h"
+#include "usk_publisher_security_descriptor.h"
 
 #if defined(_WIN32)
-#include <aclapi.h>
 #include <sddl.h>
 
 #include <cstddef>
@@ -127,20 +127,17 @@ static PublisherHandleObservation observe_publisher_handle(HANDLE handle,
         throw std::runtime_error("publisher observation cannot read directory case facts");
     }
     const std::wstring name = handle_name(handle);
+    auto descriptor = read_publisher_owner_dacl_from_handle(handle);
+    auto* raw_descriptor = descriptor.data();
     PSID owner = nullptr;
     PACL dacl = nullptr;
-    PSECURITY_DESCRIPTOR raw_descriptor = nullptr;
-    const DWORD security_status = GetSecurityInfo(handle, SE_FILE_OBJECT,
-        OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-        &owner, nullptr, &dacl, nullptr, &raw_descriptor);
-    LocalAllocation descriptor(raw_descriptor);
-    if (security_status != ERROR_SUCCESS || !raw_descriptor) {
-        throw std::runtime_error("publisher observation cannot read same-handle security facts");
-    }
+    BOOL present = FALSE, defaulted = FALSE;
     SECURITY_DESCRIPTOR_CONTROL control{};
     DWORD revision = 0;
-    if (!GetSecurityDescriptorControl(raw_descriptor, &control, &revision)) {
-        throw std::runtime_error("publisher observation cannot read DACL control flags");
+    if (!GetSecurityDescriptorOwner(raw_descriptor, &owner, &defaulted) ||
+        !GetSecurityDescriptorDacl(raw_descriptor, &present, &dacl, &defaulted) ||
+        !present || !GetSecurityDescriptorControl(raw_descriptor, &control, &revision)) {
+        throw std::runtime_error("publisher observation cannot read stored owner/DACL facts");
     }
     const DWORD reparse_tag =
         (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ?

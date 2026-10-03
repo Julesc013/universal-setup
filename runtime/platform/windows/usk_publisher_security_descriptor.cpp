@@ -28,6 +28,28 @@ bool is_service_sid(PSID sid) {
 }
 } // namespace
 
+std::vector<unsigned char> read_publisher_owner_dacl_from_handle(HANDLE object) {
+    if (!object || object == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("publisher stored security requires an open handle");
+    constexpr auto requested = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    DWORD needed = 0;
+    if (GetKernelObjectSecurity(object, requested, nullptr, 0, &needed) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+        needed < SECURITY_DESCRIPTOR_MIN_LENGTH || needed > 65536)
+        throw std::runtime_error("publisher stored security size is unavailable or exceeds its bound");
+    std::vector<unsigned char> bytes(needed);
+    DWORD returned = 0;
+    SECURITY_DESCRIPTOR_CONTROL control{};
+    DWORD revision = 0;
+    if (!GetKernelObjectSecurity(object, requested, bytes.data(), needed, &returned) ||
+        returned != needed || !IsValidSecurityDescriptor(bytes.data()) ||
+        GetSecurityDescriptorLength(bytes.data()) != needed ||
+        !GetSecurityDescriptorControl(bytes.data(), &control, &revision) ||
+        (control & SE_SELF_RELATIVE) == 0)
+        throw std::runtime_error("publisher stored security is unavailable or changed during observation");
+    return bytes;
+}
+
 DWORD publisher_directory_access_mask() {
     return DELETE | FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_APPEND_DATA |
         FILE_DELETE_CHILD | FILE_EXECUTE | FILE_LIST_DIRECTORY |
@@ -196,17 +218,7 @@ void protect_publisher_metadata_dacl_from_handle(HANDLE metadata,
             (static_cast<ACE_HEADER*>(ace)->AceFlags & ~(OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)) != 0)
             throw std::runtime_error("metadata protection cannot change unsupported ACEs");
     }
-    constexpr auto requested = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
-    const auto read = [&] {
-        DWORD needed = 0;
-        if (GetKernelObjectSecurity(metadata, requested, nullptr, 0, &needed) ||
-            GetLastError() != ERROR_INSUFFICIENT_BUFFER || needed != original.size())
-            throw std::runtime_error("metadata protection prestate size changed");
-        std::vector<unsigned char> bytes(needed); DWORD returned = 0;
-        if (!GetKernelObjectSecurity(metadata, requested, bytes.data(), needed, &returned) || returned != needed)
-            throw std::runtime_error("metadata protection prestate is unavailable");
-        return bytes;
-    };
+    const auto read = [&] { return read_publisher_owner_dacl_from_handle(metadata); };
     if (read() != original)
         throw std::runtime_error("metadata protection prestate changed");
     if (!SetSecurityDescriptorControl(raw, SE_DACL_PROTECTED, SE_DACL_PROTECTED))
