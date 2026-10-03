@@ -1495,7 +1495,54 @@ public path refuses qualification. Recovery-authority retirement must refuse. Th
 readback retains actual identities, owner/DACL, streams, sizes, bytes and token
 access results, and compares those observations through every attempt. The
 two cases run together with separate retained receipts and missed windows
-fail. Hosted execution and independent source review of this batch remain
-required. Private protected completion and public installed-state completion
+fail. PR #220 passed all seven jobs in exact-head run `37149123839` at
+`0ea620ac1a0a37f64333ee2e4ab492f977dc3f15`, integrated as
+`2d77e2a8e2847bf9d70e0b463688da5cb631d279` after independent source review.
+Artifact `11283795501` retains all 21 fault rows through the payload refusals,
+and all 22 collision rows plus only the two qualified private records through
+the metadata refusals. Each case retained authority through all three public
+attempts. Artifacts `11283525820` and `11283239940` retain the ordinary and
+both successful process-loss chains, including 28 identical terminal rows and
+passing verification. Private protected completion and public installed-state completion
 are distinct observations; a metadata failure must not erase the former or
 invent the latter.
+
+### Actual machine-client and volume-boundary candidate
+
+The next source candidate starts each owned ordinary machine client with its
+primary thread suspended, captures its live PID, creation time, image name
+and actual token, creates the explicitly labelled filtered derivative, and
+then resumes that thread once. Only its three owned standard-I/O handles may
+be inherited. The launcher retains non-inheritable client process and token
+handles until all independent observations finish. A SYSTEM observer duplicates
+those handles from the still-live launcher, checks owner/client creation times,
+token IDs and identities, and evaluates the retained actual client token and
+derivative after the client has exited. Each apply, recovery, replay and verify
+request has a fresh paused capture; its command and request ID bind subsequent
+independent snapshots. Previous observer tasks finish before the next capture
+retires the matching prior handles and archives its owned capture file.
+These are pre-resume client tokens, not endpoint-time impersonation tokens.
+Image identity is a live launcher
+capture with the current image-file digest independently rechecked; it is not
+an image query on the exited process. Local controls cover cross-process
+readback after exit, a real positive grant, closed-descriptor denial,
+contradictory bindings, resume-once and never-resumed termination under both
+PowerShell runtimes.
+
+The same source candidate observes the filesystem volume-root boundary
+separately from the existing native rows. Its native identity, stored descriptor,
+attributes, case and stream facts must match the retained prepared boundary,
+and its filtered mutation access must be empty. The raw-volume observation
+holds only READ_CONTROL access, reads the owner/group/DACL and the single
+[volume extent](https://learn.microsoft.com/en-us/windows/win32/api/winioctl/ni-winioctl-ioctl_volume_get_volume_disk_extents),
+and checks the exact owned VHD disk/partition binding. It retains actual-token
+results separately, allowing the expected excluded administrator device rights.
+The filtered descriptor/token checks must deny the measured mutation bits.
+Both boundary observations must remain identical through recovery and replay.
+
+These additions require hosted execution and independent review. They are
+read-only descriptor/token observations with file generic mapping, and do not
+establish mutating FILE_ANY_ACCESS device-control behaviour, a separate
+unrelated-login token, general hostile-race resistance, physical power-loss
+durability, a complete build attestation, or broader Windows/storage support.
+OD-001, strict availability and release acceptance remain unchanged.

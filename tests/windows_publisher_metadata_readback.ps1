@@ -1,6 +1,17 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
+function Initialize-PublisherMetadataNativeTypes {
+    if('UskPublisherEffectiveRights' -as [type]){return}
+    $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1'))
+    $marker='Add-Type -TypeDefinition @'+'"'
+    $start=$source.IndexOf($marker,[StringComparison]::Ordinal)
+    if($start -lt 0){throw 'Independent native readback source is absent'}
+    $start+=$marker.Length
+    $end=$source.IndexOf("`n"+'"@',$start,[StringComparison]::Ordinal)
+    if($end -le $start){throw 'Independent native readback source is incomplete'}
+    Add-Type -TypeDefinition $source.Substring($start,$end-$start)
+}
 function Assert-IndependentProtectedRows {
     param($Rows,[string]$ServiceSid,[string]$ConsumerSid='',[string]$VisibleRoot='',[switch]$AllowPartial)
     foreach($row in $Rows) {
@@ -228,7 +239,9 @@ function Assert-IndependentMetadataProbe {
 function Invoke-IndependentMetadataReadback {
     param([string]$DriveRoot,[string]$OutputRoot,[string]$RunId,[switch]$MetadataOnly,
         [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',
-        [string]$CallerSid='',[string]$ServiceSid='')
+        [string]$CallerSid='',[string]$ServiceSid='',
+        [string]$ClientCaptureFile='',[string]$ClientCaptureSha256='',
+        [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue)
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
     }
@@ -240,6 +253,17 @@ function Invoke-IndependentMetadataReadback {
     if($CallerProcessId -eq 0 -and ($CallerCreationFileTime -or $CallerSid -or $ServiceSid)) {
         throw 'Partial effective-right process binding is unavailable'
     }
+    if(($ClientCaptureFile -ne '') -ne ($ClientCaptureSha256 -ne '') -or
+        ($ClientCaptureFile -and ($CallerProcessId -eq 0 -or $MetadataOnly -or
+            $ClientCaptureSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            [IO.Path]::GetFullPath($ClientCaptureFile) -cne [IO.Path]::GetFullPath((Join-Path $OutputRoot 'public-client-token.json'))))) {
+        throw 'Held machine-client observation requires the exact owned capture file and digest'
+    }
+    if(($ExpectedVolumeRoot -ne '') -ne ($ExpectedDiskNumber -ne [uint32]::MaxValue) -or
+        ($ExpectedVolumeRoot -and (-not $ClientCaptureFile -or
+            $ExpectedVolumeRoot -cnotmatch '^\\\\\?\\Volume\{[0-9A-Fa-f-]{36}\}\\$'))) {
+        throw 'Volume boundary observation requires the complete held-client and volume binding'
+    }
     $name='USK_METADATA_OBSERVER_'+$RunId
     $script=Join-Path $OutputRoot ('metadata-observer-'+$RunId+'.ps1')
     $output=Join-Path $OutputRoot ('metadata-observed-'+$RunId+'.json')
@@ -247,7 +271,9 @@ function Invoke-IndependentMetadataReadback {
         (Test-Path -LiteralPath $script) -or (Test-Path -LiteralPath $output)) { throw 'Observer collision' }
     $observer=@'
 param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
-    [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',[string]$CallerSid='',[string]$ServiceSid='')
+    [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',[string]$CallerSid='',[string]$ServiceSid='',
+    [string]$ClientCaptureFile='',[string]$ClientCaptureSha256='',
+    [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue)
 $ErrorActionPreference='Stop'
  Add-Type -TypeDefinition @"
 using System;
@@ -369,6 +395,16 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
     [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", SetLastError=true)] static extern uint GetProcessId(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source,
+        IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool QueryFullProcessImageName(
+        IntPtr process, uint flags, StringBuilder path, ref uint size);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool GetVolumeNameForVolumeMountPoint(
+        string mount, StringBuilder volume, uint length);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool DeviceIoControl(IntPtr device, uint code,
+        IntPtr input, uint inputSize, byte[] output, uint outputSize, out uint returned, IntPtr overlapped);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool DuplicateToken(IntPtr token, int level, out IntPtr duplicate);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool CreateRestrictedToken(IntPtr token, uint flags, uint disableCount,
@@ -385,7 +421,7 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
 
     static readonly string[] Names = {"write_or_add_file", "append_or_add_directory", "write_ea", "delete_child", "write_attributes", "delete", "write_dac", "write_owner"};
     static readonly uint[] Masks = {2, 4, 16, 64, 256, 65536, 262144, 524288};
-    IntPtr process, initiating, filtered;
+    IntPtr process, initiating, filtered, capturedProcess;
     public Dictionary<string, object> TokenFacts { get; private set; }
 
     static void Require(bool ok, string operation) {
@@ -393,7 +429,7 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
     }
     static Dictionary<string, object> Facts(IntPtr token) {
         Dictionary<string, object> result = new Dictionary<string, object>();
-        foreach (int information in new int[]{1, 2, 3}) {
+        foreach (int information in new int[]{1, 2, 3, 10}) {
             uint needed;
             if (GetTokenInformation(token, information, IntPtr.Zero, 0, out needed) ||
                 Marshal.GetLastWin32Error()!=122 || needed<4 || needed>65536)
@@ -405,6 +441,12 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
                 if (returned!=needed) throw new Exception("Token facts changed during observation");
                 if (information==1) {
                     result["user_sid"]=new SecurityIdentifier(Marshal.ReadIntPtr(buffer)).Value;
+                } else if(information==10) {
+                    if(needed<56)throw new Exception("Token statistics are incomplete");
+                    result["token_id"]=unchecked((ulong)Marshal.ReadInt64(buffer,0)).ToString("x16");
+                    result["authentication_id"]=unchecked((ulong)Marshal.ReadInt64(buffer,8)).ToString("x16");
+                    result["token_type"]=Marshal.ReadInt32(buffer,24);
+                    result["impersonation_level"]=Marshal.ReadInt32(buffer,28);
                 } else {
                     uint count=(uint)Marshal.ReadInt32(buffer);
                     int offset=information==2 ? (IntPtr.Size==8 ? 8 : 4) : 4;
@@ -467,6 +509,59 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
         } catch {Dispose();throw;}
         finally {if(source!=IntPtr.Zero)CloseHandle(source);if(derivative!=IntPtr.Zero)CloseHandle(derivative);}
     }
+    // Export only owned, non-inheritable token/process handles to the trusted
+    // SYSTEM observer. These are client-token duplicates, never publisher
+    // service or protected filesystem handles. Capture must finish while the
+    // real machine client is alive; a missed window fails qualification.
+    public Dictionary<string, object> CaptureBinding(uint ownerPid, long ownerCreation, string expectedImage) {
+        if(process==IntPtr.Zero || WaitForSingleObject(process,0)!=258)throw new Exception("Client exited before token capture");
+        StringBuilder image=new StringBuilder(32768);uint size=32768;
+        Require(QueryFullProcessImageName(process,0,image,ref size),"Read live captured client image");
+        if(!String.Equals(image.ToString(),Path.GetFullPath(expectedImage),StringComparison.OrdinalIgnoreCase))
+            throw new Exception("Captured client image differs from the invoked machine binary");
+        if(WaitForSingleObject(process,0)!=258)throw new Exception("Client exited during token capture");
+        return new Dictionary<string, object>{{"schema","usk.publisher.held_client_token.v1"},
+            {"owner_process_id",ownerPid},{"owner_creation_file_time",ownerCreation.ToString()},
+            {"client_process_id",TokenFacts["process_id"]},{"client_creation_file_time",TokenFacts["creation_file_time"]},
+            {"client_image_path",image.ToString()},{"client_process_handle",process.ToInt64()},
+            {"initiating_handle",initiating.ToInt64()},{"filtered_handle",filtered.ToInt64()},
+            {"initiating_token_id",((Dictionary<string,object>)TokenFacts["initiating"])["token_id"]},
+            {"filtered_token_id",((Dictionary<string,object>)TokenFacts["filtered"])["token_id"]}};
+    }
+    public UskPublisherEffectiveRights(uint ownerPid, long ownerCreation, string callerSid, string serviceSid,
+        uint clientPid, long clientCreation, long clientProcessHandle, long initiatingHandle, long filteredHandle,
+        string initiatingId, string filteredId) {
+        try {
+            if(clientPid==0 || clientProcessHandle<=0 || initiatingHandle<=0 || filteredHandle<=0 ||
+                String.IsNullOrEmpty(initiatingId) || String.IsNullOrEmpty(filteredId))throw new Exception("Held client token binding is incomplete");
+            process=OpenProcess(0x101040,false,ownerPid);
+            Require(process!=IntPtr.Zero,"Hold client-token owner process");
+            long observed,exit,kernel,user;
+            Require(GetProcessTimes(process,out observed,out exit,out kernel,out user),"Read client-token owner creation");
+            if(observed!=ownerCreation || WaitForSingleObject(process,0)!=258)throw new Exception("Client-token owner changed or exited");
+            Require(DuplicateHandle(process,new IntPtr(clientProcessHandle),GetCurrentProcess(),out capturedProcess,0,false,2),"Duplicate held client process");
+            Require(GetProcessTimes(capturedProcess,out observed,out exit,out kernel,out user),"Read retained client creation");
+            if(GetProcessId(capturedProcess)!=clientPid || observed!=clientCreation)throw new Exception("Retained client identity differs");
+            Require(DuplicateHandle(process,new IntPtr(initiatingHandle),GetCurrentProcess(),out initiating,0,false,2),"Duplicate held actual client token");
+            Require(DuplicateHandle(process,new IntPtr(filteredHandle),GetCurrentProcess(),out filtered,0,false,2),"Duplicate held filtered client token");
+            Dictionary<string,object> initialFacts=Facts(initiating),filteredFacts=Facts(filtered);
+            if((string)initialFacts["token_id"]!=initiatingId || (string)filteredFacts["token_id"]!=filteredId ||
+                (string)initialFacts["user_sid"]!=callerSid || (string)filteredFacts["user_sid"]!=callerSid ||
+                (int)initialFacts["token_type"]!=2 || (int)filteredFacts["token_type"]!=2 ||
+                (int)initialFacts["impersonation_level"]<1 || (int)filteredFacts["impersonation_level"]<1 ||
+                callerSid=="S-1-5-18" || callerSid==serviceSid || EnabledGroup(filteredFacts,"S-1-5-32-544") ||
+                EnabledGroup(filteredFacts,"S-1-5-18") || EnabledGroup(filteredFacts,serviceSid))
+                throw new Exception("Held client token identity or filtered authority differs");
+            foreach(Dictionary<string,object> privilege in (Dictionary<string,object>[])filteredFacts["privileges"])
+                if(((uint)privilege["attributes"] & 2)!=0 && (string)privilege["name"]!="SeChangeNotifyPrivilege")
+                    throw new Exception("Held filtered client retains a mutation/bypass privilege");
+            TokenFacts=new Dictionary<string,object>{{"process_id",ownerPid},{"creation_file_time",ownerCreation.ToString()},
+                {"basis","retained live machine-client token duplicates; explicit filtered derivative; SYSTEM DuplicateHandle readback"},
+                {"captured_client",new Dictionary<string,object>{{"process_id",clientPid},{"creation_file_time",clientCreation.ToString()},
+                    {"initiating_token_id",initiatingId},{"filtered_token_id",filteredId},{"exited_at_observation",WaitForSingleObject(capturedProcess,0)==0}}},
+                {"initiating",initialFacts},{"filtered",filteredFacts}};
+        } catch {Dispose();throw;}
+    }
     static Dictionary<string, object> Check(byte[] descriptor, IntPtr token) {
         Mapping mapping=new Mapping{Read=0x120089,Write=0x120116,Execute=0x1200a0,All=0x1f01ff};
         Dictionary<string, object> result=new Dictionary<string, object>();
@@ -510,9 +605,118 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
                 {"group_sid",raw.Group==null ? null : raw.Group.Value},{"checks",CheckDescriptor(bytes)}};
         } finally {CloseHandle(file);}
     }
+    public static Dictionary<string, object> ParseSingleExtent(byte[] bytes, uint returned, uint expectedDisk) {
+        // VOLUME_DISK_EXTENTS with its single 8-byte-aligned DISK_EXTENT.
+        if(bytes==null || returned!=32 || returned>bytes.Length || BitConverter.ToUInt32(bytes,0)!=1 ||
+            BitConverter.ToUInt32(bytes,8)!=expectedDisk || BitConverter.ToInt64(bytes,16)<0 ||
+            BitConverter.ToInt64(bytes,24)<=0 || BitConverter.ToInt64(bytes,16)>Int64.MaxValue-BitConverter.ToInt64(bytes,24))
+            throw new Exception("Raw volume single-extent binding is unavailable or differs");
+        return new Dictionary<string,object>{{"disk_number",expectedDisk},{"offset",BitConverter.ToInt64(bytes,16)},
+            {"length",BitConverter.ToInt64(bytes,24)}};
+    }
+    public Dictionary<string, object> ReadVolumeDevice(string driveRoot, string expectedVolume, uint expectedDisk) {
+        StringBuilder volume=new StringBuilder(64);
+        Require(GetVolumeNameForVolumeMountPoint(driveRoot,volume,64),"Read observed drive volume GUID");
+        if(!String.Equals(volume.ToString(),expectedVolume,StringComparison.OrdinalIgnoreCase))
+            throw new Exception("Observed drive differs from the owned volume GUID");
+        string path=expectedVolume.TrimEnd('\\');
+        IntPtr device=CreateFile(path,0x20000,7,IntPtr.Zero,3,0,IntPtr.Zero);
+        Require(device!=new IntPtr(-1),"Hold read-only raw volume descriptor");
+        try {
+            byte[] extent=new byte[32];uint returned;
+            Require(DeviceIoControl(device,0x00560000,IntPtr.Zero,0,extent,32,out returned,IntPtr.Zero),"Read held raw volume extent");
+            Dictionary<string,object> binding=ParseSingleExtent(extent,returned,expectedDisk);
+            uint needed;
+            if(GetKernelObjectSecurity(device,7,null,0,out needed) || Marshal.GetLastWin32Error()!=122 || needed<20 || needed>65536)
+                throw new Exception("Raw volume descriptor size unavailable or unbounded");
+            byte[] bytes=new byte[needed];
+            Require(GetKernelObjectSecurity(device,7,bytes,needed,out returned),"Read held raw volume owner/group/DACL");
+            if(returned!=needed)throw new Exception("Raw volume descriptor changed during observation");
+            RawSecurityDescriptor raw=new RawSecurityDescriptor(bytes,0);
+            // Only descriptor/token rights are measured; no write or mutating
+            // device control is attempted, and FILE_ANY_ACCESS IOCTL behaviour
+            // is outside this observation.
+            return new Dictionary<string,object>{{"path",path},{"extent",binding},
+                {"raw_security",raw.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Group|AccessControlSections.Access)},
+                {"checks",CheckDescriptor(bytes)},{"basis","held volume-device descriptor and single extent; file generic mapping; no mutating IOCTL"}};
+        } finally {CloseHandle(device);}
+    }
     public void Dispose() {
+        if(capturedProcess!=IntPtr.Zero){CloseHandle(capturedProcess);capturedProcess=IntPtr.Zero;}
         if(filtered!=IntPtr.Zero){CloseHandle(filtered);filtered=IntPtr.Zero;}
         if(initiating!=IntPtr.Zero){CloseHandle(initiating);initiating=IntPtr.Zero;}
+        if(process!=IntPtr.Zero){CloseHandle(process);process=IntPtr.Zero;}
+    }
+}
+
+public sealed class UskPublisherPausedClient : IDisposable {
+    [StructLayout(LayoutKind.Sequential)] struct SecurityAttributes { public uint Length; public IntPtr Descriptor; [MarshalAs(UnmanagedType.Bool)] public bool Inherit; }
+    [StructLayout(LayoutKind.Sequential)] struct Startup {
+        public uint Size;public IntPtr Reserved,Desktop,Title;
+        public uint X,Y,XSize,YSize,XChars,YChars,Fill,Flags;
+        public ushort Show,ReservedCount;public IntPtr ReservedBytes,Input,Output,Error;
+    }
+    [StructLayout(LayoutKind.Sequential)] struct StartupEx { public Startup Info;public IntPtr Attributes; }
+    [StructLayout(LayoutKind.Sequential)] struct ProcessInfo { public IntPtr Process,Thread;public uint ProcessId,ThreadId; }
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern IntPtr CreateFile(string path,uint access,uint share,ref SecurityAttributes security,uint creation,uint flags,IntPtr template);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern bool InitializeProcThreadAttributeList(IntPtr list,uint count,uint flags,ref IntPtr size);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern bool UpdateProcThreadAttribute(IntPtr list,uint flags,IntPtr attribute,IntPtr value,IntPtr size,IntPtr previous,IntPtr returned);
+    [DllImport("kernel32.dll")]static extern void DeleteProcThreadAttributeList(IntPtr list);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool CreateProcess(string image,StringBuilder command,IntPtr processSecurity,IntPtr threadSecurity,bool inherit,uint flags,IntPtr environment,string directory,ref StartupEx startup,out ProcessInfo process);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern bool GetProcessTimes(IntPtr process,out long creation,out long exit,out long kernel,out long user);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll")]static extern uint WaitForSingleObject(IntPtr process,uint timeout);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern bool TerminateProcess(IntPtr process,uint exit);
+    [DllImport("kernel32.dll")]static extern bool CloseHandle(IntPtr handle);
+    IntPtr process,thread;bool resumed;
+    public uint ProcessId {get;private set;}
+    public long CreationFileTime {get;private set;}
+    public bool IsResumed {get{return resumed;}}
+    static void Require(bool ok,string operation){if(!ok)throw new Win32Exception(Marshal.GetLastWin32Error(),operation);}
+    public UskPublisherPausedClient(string image,string arguments,string stdout,string stderr) {
+        IntPtr input=IntPtr.Zero,output=IntPtr.Zero,error=IntPtr.Zero,list=IntPtr.Zero,handles=IntPtr.Zero;bool initialized=false;
+        try {
+            image=Path.GetFullPath(image);stdout=Path.GetFullPath(stdout);stderr=Path.GetFullPath(stderr);
+            if(image.IndexOf('"')>=0 || !File.Exists(image) || String.Equals(stdout,stderr,StringComparison.OrdinalIgnoreCase) ||
+                !String.Equals(Path.GetDirectoryName(stdout),Path.GetDirectoryName(stderr),StringComparison.OrdinalIgnoreCase))
+                throw new Exception("Owned paused client image/output binding is invalid");
+            StringBuilder command=new StringBuilder("\""+image+"\" "+arguments);
+            if(command.Length>=32767)throw new Exception("Owned paused client command exceeds its bound");
+            SecurityAttributes security=new SecurityAttributes{Length=(uint)Marshal.SizeOf(typeof(SecurityAttributes)),Inherit=true};
+            input=CreateFile("NUL",0x80000000,3,ref security,3,0,IntPtr.Zero);Require(input!=new IntPtr(-1),"Open owned client input");
+            output=CreateFile(stdout,0x40000000,1,ref security,1,0x80,IntPtr.Zero);Require(output!=new IntPtr(-1),"Create owned client output");
+            error=CreateFile(stderr,0x40000000,1,ref security,1,0x80,IntPtr.Zero);Require(error!=new IntPtr(-1),"Create owned client error output");
+            IntPtr size=IntPtr.Zero;
+            if(InitializeProcThreadAttributeList(IntPtr.Zero,1,0,ref size) || Marshal.GetLastWin32Error()!=122 || size.ToInt64()<1 || size.ToInt64()>65536)
+                throw new Exception("Owned client inheritance list size is unavailable");
+            list=Marshal.AllocHGlobal(size);Require(InitializeProcThreadAttributeList(list,1,0,ref size),"Initialize owned client handle list");initialized=true;
+            handles=Marshal.AllocHGlobal(3*IntPtr.Size);Marshal.WriteIntPtr(handles,0,input);Marshal.WriteIntPtr(handles,IntPtr.Size,output);Marshal.WriteIntPtr(handles,2*IntPtr.Size,error);
+            Require(UpdateProcThreadAttribute(list,0,new IntPtr(0x20002),handles,new IntPtr(3*IntPtr.Size),IntPtr.Zero,IntPtr.Zero),"Bind only owned client stdio handles");
+            StartupEx startup=new StartupEx{Info=new Startup{Size=(uint)Marshal.SizeOf(typeof(StartupEx)),Flags=0x100,Input=input,Output=output,Error=error},Attributes=list};
+            ProcessInfo created;
+            // CREATE_SUSPENDED, CREATE_NO_WINDOW, EXTENDED_STARTUPINFO_PRESENT.
+            Require(CreateProcess(image,command,IntPtr.Zero,IntPtr.Zero,true,0x08080004,IntPtr.Zero,Path.GetDirectoryName(stdout),ref startup,out created),"Create owned paused client");
+            process=created.Process;thread=created.Thread;ProcessId=created.ProcessId;
+            long creation,exit,kernel,user;Require(GetProcessTimes(process,out creation,out exit,out kernel,out user),"Read owned paused client creation");CreationFileTime=creation;
+        } catch {Dispose();throw;}
+        finally {
+            if(initialized)DeleteProcThreadAttributeList(list);if(list!=IntPtr.Zero)Marshal.FreeHGlobal(list);if(handles!=IntPtr.Zero)Marshal.FreeHGlobal(handles);
+            foreach(IntPtr handle in new IntPtr[]{input,output,error})if(handle!=IntPtr.Zero && handle!=new IntPtr(-1))CloseHandle(handle);
+        }
+    }
+    public void Resume() {
+        if(resumed || thread==IntPtr.Zero)throw new Exception("Owned client primary thread can resume only once");
+        uint prior=ResumeThread(thread);Require(prior!=0xffffffff,"Resume owned client primary thread");
+        if(prior!=1)throw new Exception("Owned client suspension count differs");
+        resumed=true;CloseHandle(thread);thread=IntPtr.Zero;
+    }
+    public void Dispose() {
+        if(process!=IntPtr.Zero && WaitForSingleObject(process,0)!=0) {
+            if(resumed)throw new Exception("Owned resumed client is still live; launch handles retained");
+            Require(TerminateProcess(process,125),"Terminate never-resumed owned client");
+            if(WaitForSingleObject(process,5000)!=0)throw new Exception("Never-resumed owned client termination unconfirmed");
+        }
+        if(thread!=IntPtr.Zero){CloseHandle(thread);thread=IntPtr.Zero;}
         if(process!=IntPtr.Zero){CloseHandle(process);process=IntPtr.Zero;}
     }
 }
@@ -521,7 +725,32 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
 
 $effectiveRights=$null
 if($CallerProcessId -ne 0) {
- $effectiveRights=[UskPublisherEffectiveRights]::new($CallerProcessId,[long]$CallerCreationFileTime,$CallerSid,$ServiceSid)
+ if($ClientCaptureFile) {
+  $item=Get-Item -LiteralPath $ClientCaptureFile -Force -ErrorAction Stop
+  if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.Length -gt 8KB -or
+   [IO.Path]::GetFullPath($ClientCaptureFile) -cne [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $Output) 'public-client-token.json')) -or
+   (Get-FileHash -LiteralPath $ClientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ClientCaptureSha256) {
+   throw 'Held client capture file identity or digest differs'
+  }
+  $capture=Get-Content -LiteralPath $ClientCaptureFile -Raw|ConvertFrom-Json
+  if($capture.schema -cne 'usk.publisher.held_client_token.v1' -or
+   $capture.owner_process_id -ne $CallerProcessId -or $capture.owner_creation_file_time -cne $CallerCreationFileTime -or
+   $capture.client_creation_file_time -cnotmatch '^[1-9][0-9]{16,18}$' -or
+   $capture.request_id -cnotmatch '^public\.[0-9a-f]{32}$' -or
+   $capture.command -cnotin @('install_local.apply','install_local.recover','installed.verify') -or
+   $capture.client_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+   (Get-FileHash -LiteralPath $capture.client_image_path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $capture.client_sha256) {
+   throw 'Held client capture context differs'
+  }
+  $effectiveRights=[UskPublisherEffectiveRights]::new($CallerProcessId,[long]$CallerCreationFileTime,$CallerSid,$ServiceSid,
+   [uint32]$capture.client_process_id,[long]$capture.client_creation_file_time,[long]$capture.client_process_handle,
+   [long]$capture.initiating_handle,[long]$capture.filtered_handle,[string]$capture.initiating_token_id,[string]$capture.filtered_token_id)
+  $effectiveRights.TokenFacts['capture_context']=[ordered]@{schema=$capture.schema;image_path=$capture.client_image_path;
+   image_sha256=$capture.client_sha256;capture_sha256=$ClientCaptureSha256;request_id=$capture.request_id;command=$capture.command;
+   image_observation='live launcher capture; current file digest independently rechecked'}
+ } else {
+  $effectiveRights=[UskPublisherEffectiveRights]::new($CallerProcessId,[long]$CallerCreationFileTime,$CallerSid,$ServiceSid)
+ }
 }
 try {
 $rows=[Collections.Generic.List[object]]::new()
@@ -591,6 +820,21 @@ if($MetadataOnly) {
 $result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;volume_metadata=$volumeMetadata;
  runtime=@{powershell=$PSVersionTable.PSVersion.ToString();clr=[Environment]::Version.ToString()};observed_utc=[DateTime]::UtcNow.ToString('o')}
 if($effectiveRights){$result['effective_right_tokens']=$effectiveRights.TokenFacts}
+if($ExpectedVolumeRoot) {
+ $facts=[UskMetadataFacts]::ReadClosure($DriveRoot)
+ $raw=[Security.AccessControl.RawSecurityDescriptor]::new([byte[]]$facts[1],0)
+ $root=[ordered]@{path=$DriveRoot;directory=$true;file_id=[string]$facts[0];native_name=[string]$facts[8];
+  attributes=[uint32]$facts[2];link_count=[uint32]$facts[3];case_sensitive=[bool]$facts[4];streams=@($facts[5]);
+  raw_security=$raw.GetSddlForm([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access);
+  owner=$raw.Owner.Value;protected=[bool]($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected);
+  raw_aces=@($raw.DiscretionaryAcl|ForEach-Object {[ordered]@{type=[int]$_.AceType;flags=[int]$_.AceFlags;access_mask=$_.AccessMask;sid=$_.SecurityIdentifier.Value}})}
+ $checked=$effectiveRights.Read($DriveRoot)
+ if($checked['file_id'] -cne $root.file_id -or $checked['security'] -cne $root.raw_security) {
+  throw 'Volume-root descriptor differs from independent native boundary'
+ }
+ $root['effective_rights']=$checked['checks'];$root['effective_right_group_sid']=$checked['group_sid']
+ $result['volume_boundary']=[ordered]@{root=$root;device=$effectiveRights.ReadVolumeDevice($DriveRoot,$ExpectedVolumeRoot,$ExpectedDiskNumber)}
+}
 $temporary=$Output+'.pending'
 $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try {
@@ -612,6 +856,12 @@ try {
     if($CallerProcessId -ne 0) {
         $command+=' -CallerProcessId '+$CallerProcessId+' -CallerCreationFileTime '+$CallerCreationFileTime+
             " -CallerSid '"+$CallerSid+"' -ServiceSid '"+$ServiceSid+"'"
+    }
+    if($ClientCaptureFile) {
+        $command+=" -ClientCaptureFile '"+$ClientCaptureFile.Replace("'","''")+"' -ClientCaptureSha256 '"+$ClientCaptureSha256+"'"
+    }
+    if($ExpectedVolumeRoot) {
+        $command+=" -ExpectedVolumeRoot '"+$ExpectedVolumeRoot+"' -ExpectedDiskNumber "+$ExpectedDiskNumber
     }
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)

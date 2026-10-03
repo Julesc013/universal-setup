@@ -15,6 +15,7 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_payload_damage.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_metadata_collision.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 if($PostRenameRefusal -cne 'none' -and $PublicationLoss -cne 'postrename') {
     throw 'Retained refusal qualification requires the stock postrename loss boundary'
 }
@@ -49,9 +50,13 @@ $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run'
     partition_layout=@($disk|Get-Partition|Select-Object PartitionNumber,Offset,Size,GptType,MbrType,IsBoot,IsSystem);
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     service_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
-    client_cleanup_confirmed=$false}
+    client_cleanup_confirmed=$false;machine_client_captures=[Collections.Generic.List[object]]::new()}
 $created=$false
 $boundaryObserver=$null
+$clientTokenLease=$null
+$clientCaptureFile=Join-Path $lab 'public-client-token.json'
+$clientCaptureSha256=''
+$volumeBoundaryBaseline=''
 $installedBinary=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$service+'.exe')
 function Write-Json([string]$Path,$Value) {
     [IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)
@@ -61,8 +66,68 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     $requestId='public.'+[guid]::NewGuid().ToString('N')
     Write-Json $request ([ordered]@{schema='usk.oneshot_request.v1';request_id=$requestId;
         command=$Command;payload=$Payload;dry_run=$false})
-    $output=& $MachineBinary --machine --publisher $service --request-file $request
-    $exit=$LASTEXITCODE
+    if($Command -cin @('install_local.apply','install_local.recover','installed.verify')) {
+        Initialize-PublisherMetadataNativeTypes
+        if($clientTokenLease) {
+            # Every prior observer returned and removed its task before the
+            # next request starts. Retire only our matching capture/handles.
+            if(-not (Test-Path -LiteralPath $clientCaptureFile -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $clientCaptureSha256) {
+                throw 'Prior owned client capture changed before retirement'
+            }
+            $clientTokenLease.Dispose();$script:clientTokenLease=$null
+            [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
+        }
+        $stdout=Join-Path $lab ('public-client-'+[guid]::NewGuid().ToString('N')+'.stdout')
+        $stderr=$stdout+'.stderr'
+        $client=$null
+        $launch=$null
+        try {
+            $launch=[UskPublisherPausedClient]::new($MachineBinary,('--machine --publisher '+$service+
+                ' --request-file "'+$request+'"'),$stdout,$stderr)
+            $client=Get-Process -Id $launch.ProcessId
+            # Hold the .NET process handle before resume, so even a fast exit
+            # retains its exit code instead of relying on a later PID lookup.
+            $null=$client.Handle
+            $creation=$launch.CreationFileTime
+            $script:clientTokenLease=[UskPublisherEffectiveRights]::new($client.Id,$creation,$caller,$sid)
+            $capture=$clientTokenLease.CaptureBinding($PID,[long]$invokingCreation,$MachineBinary)
+            $capture['client_sha256']=$receipt.machine_sha256
+            $capture['request_id']=$requestId;$capture['command']=$Command
+            if(Test-Path -LiteralPath $clientCaptureFile){throw 'Owned machine-client capture file already exists'}
+            Write-Json $clientCaptureFile $capture
+            $script:clientCaptureSha256=(Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt['machine_client_capture']=[ordered]@{process_id=$client.Id;creation_file_time=$creation.ToString();
+                request_id=$requestId;command=$Command;
+                image_path=$capture.client_image_path;image_sha256=$capture.client_sha256;capture_sha256=$clientCaptureSha256;
+                captured_while_alive=$true;captured_before_primary_thread_resume=$true;
+                initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
+            $receipt.machine_client_captures.Add($receipt.machine_client_capture)
+            $launch.Resume()
+            if(-not $client.WaitForExit(120000)){throw 'Owned public machine client exceeded its request deadline'}
+            $client.WaitForExit()
+            $exit=$client.ExitCode
+            if((Get-Item -LiteralPath $stdout).Length -gt 4MB -or (Get-Item -LiteralPath $stderr).Length -gt 64KB) {
+                throw 'Owned public machine client output exceeds its bound'
+            }
+            $output=[IO.File]::ReadAllText($stdout)
+            if([IO.File]::ReadAllText($stderr).Length){throw 'Owned public machine client emitted unexpected stderr'}
+        } finally {
+            try {
+                if($client -and -not $client.HasExited){
+                    if($launch -and -not $launch.IsResumed){
+                        $launch.Dispose()
+                        if(-not $client.WaitForExit(5000)){throw 'Never-resumed owned machine client remains live'}
+                    } else {Stop-OwnedPublisherProcessTree $client|Out-Null}
+                }
+            } finally {
+                if($client){$client.Dispose()}
+                if($launch){$launch.Dispose()}
+            }
+        }
+    } else {
+        throw 'Public qualification client command is outside the closed captured set'
+    }
     $result=($output -join "`n")|ConvertFrom-Json
     if($exit -ne $ExpectedExit -or $result.schema -cne 'usk.oneshot_response.v1' -or
         $result.request_id -cne $requestId -or
@@ -78,10 +143,63 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     if((Get-Service $service).Status -ne 'Stopped'){throw 'Public one-request service did not stop'}
     return $result
 }
+function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[string]$VolumeRoot,[uint32]$DiskNumber,[long]$PartitionOffset,[long]$PartitionSize,[string]$ServiceSid) {
+    $root=$Boundary.root
+    $prepared=@($Observation.rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-prepared-evidence.json'))
+    if($prepared.Count -ne 1){throw 'Volume boundary has no retained prepared binding'}
+    $expected=($prepared[0].content_json|ConvertFrom-Json).protected_anchors.boundary
+    if($root.path -cne $DriveRoot -or $root.file_id -cne $expected.file_id -or $root.native_name -cne '\' -or
+        $root.attributes -ne $expected.attributes -or $root.link_count -ne 1 -or $root.case_sensitive -ne $false -or
+        @($root.streams).Count -ne 0 -or $root.owner -cne 'S-1-5-18' -or -not $root.protected -or
+        @($root.raw_aces).Count -ne 2 -or @($expected.dacl_aces).Count -ne 2) {
+        throw 'Independent volume-root namespace boundary differs'
+    }
+    for($index=0;$index -lt 2;$index++) {
+        $a=$root.raw_aces[$index];$b=$expected.dacl_aces[$index]
+        if($a.type -ne 0 -or $a.flags -ne 0 -or $a.access_mask -ne 2032127 -or
+            $a.sid -cne @('S-1-5-18',$ServiceSid)[$index] -or $a.type -ne $b.type -or $a.flags -ne $b.flags -or
+            $a.access_mask -ne $b.access_mask -or $a.sid -cne $b.sid) {
+            throw 'Independent volume-root ordered descriptor differs'
+        }
+    }
+    if($boundary.device.path -cne $VolumeRoot.TrimEnd('\') -or $boundary.device.extent.disk_number -ne $DiskNumber -or
+        $boundary.device.extent.offset -ne $PartitionOffset -or $boundary.device.extent.length -ne $PartitionSize) {
+        throw 'Independent raw-volume extent differs from the owned VHD partition'
+    }
+    $deviceRaw=[Security.AccessControl.RawSecurityDescriptor]::new($boundary.device.raw_security)
+    if($deviceRaw.Owner.Value -cnotin @('S-1-5-18','S-1-5-32-544') -or $null -eq $deviceRaw.DiscretionaryAcl) {
+        throw 'Independent raw-volume owner or DACL differs'
+    }
+    $serviceAces=0
+    foreach($ace in $deviceRaw.DiscretionaryAcl) {
+        if($ace.AceType -ne 0){throw 'Independent raw-volume ACE is unsupported'}
+        if($ace.SecurityIdentifier.Value -ceq $ServiceSid) {
+            if($ace.AceFlags -ne 0 -or $ace.AccessMask -ne 2032127){throw 'Independent raw-volume service ACE differs'}
+            ++$serviceAces
+        } elseif($ace.SecurityIdentifier.Value -cnotin @('S-1-5-18','S-1-5-32-544') -and
+            ([uint32]([long]$ace.AccessMask -band 0xffffffff) -band 0x500d0156)) {
+            throw 'Independent raw-volume descriptor grants mutation outside trusted principals'
+        }
+    }
+    if($serviceAces -ne 1){throw 'Independent raw-volume service grant absent or repeated'}
+    foreach($checks in @($root.effective_rights,$boundary.device.checks)) {
+        foreach($right in @('write_or_add_file','append_or_add_directory','write_ea','delete_child',
+            'write_attributes','delete','write_dac','write_owner')) {
+            if($checks.filtered.$right.allowed -or $checks.filtered.$right.granted -ne 0) {
+                throw 'Filtered machine-client token has boundary mutation access'
+            }
+        }
+        if(([uint32]$checks.filtered.maximum_allowed.granted -band 0xd0156) -ne 0) {
+            throw 'Filtered machine-client maximum boundary access includes mutation'
+        }
+    }
+}
 function Read-IndependentPublicRows {
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab `
         -RunId ([guid]::NewGuid().ToString('N')) -CallerProcessId $PID `
-        -CallerCreationFileTime $invokingCreation -CallerSid $caller -ServiceSid $sid
+        -CallerCreationFileTime $invokingCreation -CallerSid $caller -ServiceSid $sid `
+        -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
+        -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18') {
         throw 'Independent public-path readback identity or cleanup differs'
     }
@@ -91,6 +209,22 @@ function Read-IndependentPublicRows {
         $tokens.initiating.user_sid -cne $caller -or $tokens.filtered.user_sid -cne $caller) {
         throw 'Independent effective-right token context differs from the invoking public probe'
     }
+    $client=$tokens.captured_client;$capture=$receipt.machine_client_capture
+    if($null -eq $client -or -not $client.exited_at_observation -or
+        $client.process_id -ne $capture.process_id -or $client.creation_file_time -cne $capture.creation_file_time -or
+        $client.initiating_token_id -cne $capture.initiating_token_id -or $client.filtered_token_id -cne $capture.filtered_token_id -or
+        $tokens.capture_context.image_sha256 -cne $receipt.machine_sha256 -or
+        $tokens.capture_context.capture_sha256 -cne $clientCaptureSha256 -or
+        $tokens.capture_context.request_id -cne $capture.request_id -or $tokens.capture_context.command -cne $capture.command) {
+        throw 'Independent held machine-client token binding differs'
+    }
+    $boundary=$readback.independent.volume_boundary
+    Assert-PublicVolumeBoundary $readback.independent $boundary $drive $VolumeRoot $disk.Number $partitions[0].Offset $partitions[0].Size $sid
+    $boundaryJson=$boundary|ConvertTo-Json -Depth 16 -Compress
+    if($volumeBoundaryBaseline -and $boundaryJson -cne $volumeBoundaryBaseline) {
+        throw 'Independent volume-root/device boundary changed across recovery or replay'
+    }
+    $script:volumeBoundaryBaseline=$boundaryJson
     foreach($row in $readback.independent.rows) {
         foreach($right in @('write_or_add_file','append_or_add_directory','write_ea','delete_child',
             'write_attributes','delete','write_dac','write_owner')) {
@@ -472,6 +606,11 @@ try {
     $recovery=@{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
         install_id=$installed.install_id;transaction_id=$installed.transaction_id}
     $receipt['recovery']=Invoke-PublicRequest 'install_local.recover' $recovery
+    $recoveryReadback=Read-IndependentState
+    if(($before.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($recoveryReadback.rows|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Source-free public recovery changed independently read target state'
+    }
+    $receipt['recovery_readback']=$recoveryReadback
     $receipt['replayed_apply']=Invoke-PublicRequest 'install_local.apply' $apply
     foreach($terminal in @($receipt.recovery,$receipt.replayed_apply)) {
         if(($terminal.result.payload|ConvertTo-Json -Depth 64 -Compress) -cne
@@ -490,6 +629,11 @@ try {
         $receipt.verification.result.payload.report_id -cne $verify.report_id) {
         throw 'Ordinary public verification did not return the bound passing report'
     }
+    $verificationReadback=Read-IndependentState
+    if(($after.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verificationReadback.rows|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Read-only public verification changed independently read target state'
+    }
+    $receipt['verification_readback']=$verificationReadback
     }
     if((Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $command) {
         throw 'Public apply/recovery/verification reconfigured SCM'
@@ -535,12 +679,14 @@ try {
             $receipt['retained_authority_cleanup']='stopped SCM entry, executable and records retained until owned runner disposal'
         }
     }
+    if($clientTokenLease){$clientTokenLease.Dispose()}
     Write-Json $OutputPath $receipt
 }
 $expectedStatus=if($PostRenameRefusal -ceq 'none'){'public_install_verified_recovered'}else{'public_refusal_retained'}
 if($receipt.status -cne $expectedStatus -or -not $receipt.client_cleanup_confirmed) {
     throw ('Public publisher qualification failed: '+$receipt.failure)
 }
+
 # Expected recovery/retirement refusals carry nonzero native exit codes. The
 # fixture succeeds only after every response, retained row and cleanup check.
 # Return that fixture outcome to PowerShell hosts that forward LASTEXITCODE.

@@ -13,6 +13,181 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_public_requests_capture_each_client_and_retire_only_owned_prior_binding(self):
+        root = Path(__file__).resolve().parents[1]
+        # Benign local console fixture: only reads its owned request and prints
+        # a complete no-effect response. No SCM, volume or account operations.
+        stub = r'''using System;
+using System.IO;
+using System.Text.RegularExpressions;
+public static class OwnedClient {
+ public static int Main(string[] args) {
+  int index=Array.IndexOf(args,"--request-file");
+  if(index<0 || index+1>=args.Length)return 9;
+  string id=Regex.Match(File.ReadAllText(args[index+1]),"\\\"request_id\\\":\\\"([^\\\"]+)\\\"").Groups[1].Value;
+  Console.WriteLine("{\"schema\":\"usk.oneshot_response.v1\",\"request_id\":\""+id+"\",\"status\":\"failed\",\"result\":null,\"error\":{\"code\":\"owned_fixture_refusal\"}}");
+  return 3;
+ }
+}'''
+        code = r"""$ErrorActionPreference='Stop'
+& (Get-Command powershell.exe).Source -NoProfile -NonInteractive -Command 'Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_PUBLIC_STUB_SOURCE)) -OutputAssembly $env:USK_PUBLIC_STUB_EXE -OutputType ConsoleApplication'
+if($LASTEXITCODE -ne 0){throw 'Owned console fixture compilation failed'}
+. $env:USK_PUBLIC_READBACK
+. $env:USK_PUBLIC_PROCESS_HELPER
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_PUBLIC_PROBE,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Public request fixture parse failed'}
+foreach($name in @('Write-Json','Invoke-PublicRequest')) {
+ $function=$ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true)
+ if(@($function).Count -ne 1){throw 'Public request function absent or ambiguous'}
+ . ([scriptblock]::Create($function[0].Extent.Text))
+}
+function Get-Service {param([string]$Name) [pscustomobject]@{Status='Stopped'}}
+$lab=$env:USK_PUBLIC_ROOT;$MachineBinary=$env:USK_PUBLIC_STUB_EXE
+$service='USK_PUB_'+[guid]::NewGuid().ToString('N');$sid='S-1-5-80-1-2-3-4-5'
+$caller=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$owner=Get-Process -Id $PID;$invokingCreation=$owner.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
+$utf8=[Text.UTF8Encoding]::new($false);$clientTokenLease=$null
+$clientCaptureFile=Join-Path $lab 'public-client-token.json';$clientCaptureSha256=''
+$receipt=@{machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();machine_client_captures=[Collections.Generic.List[object]]::new()}
+try {
+ foreach($command in @('install_local.apply','install_local.recover','installed.verify')) {
+  Invoke-PublicRequest $command @{} 3|Out-Null
+  $capture=Get-Content -LiteralPath $clientCaptureFile -Raw|ConvertFrom-Json
+  if($capture.command -cne $command -or $capture.request_id -cne $receipt.machine_client_capture.request_id -or
+   $capture.initiating_token_id -cne $receipt.machine_client_capture.initiating_token_id){throw 'Current request capture differs'}
+ }
+ if($receipt.machine_client_captures.Count -ne 3 -or
+  @($receipt.machine_client_captures.initiating_token_id|Select-Object -Unique).Count -ne 3 -or
+  @(Get-ChildItem -LiteralPath $lab -Filter 'retired-client-token-*.json').Count -ne 2){throw 'Per-request capture/retirement sequence differs'}
+ [IO.File]::AppendAllText($clientCaptureFile,'changed')
+ $refused=$false
+ try {Invoke-PublicRequest 'install_local.recover' @{} 3|Out-Null}catch {$refused=$_.Exception.Message -ceq 'Prior owned client capture changed before retirement'}
+ if(-not $refused -or $receipt.machine_client_captures.Count -ne 3){throw 'Changed prior capture was reused or retired'}
+ @{captured_clients=3;archived_captures=2;changed_prior_capture_refused=$true}|ConvertTo-Json -Compress
+} finally {if($clientTokenLease){$clientTokenLease.Dispose()}}
+"""
+        shell = shutil.which('pwsh')
+        self.assertIsNotNone(shell)
+        with tempfile.TemporaryDirectory(prefix='usk-public-client-') as temporary:
+            native_path = Path(temporary) / 'owned-client.cs'
+            native_path.write_text(stub, encoding='utf-8')
+            environment = dict(os.environ, USK_PUBLIC_ROOT=temporary, USK_PUBLIC_STUB_SOURCE=str(native_path),
+                               USK_PUBLIC_STUB_EXE=str(Path(temporary) / 'owned-client.exe'),
+                               USK_PUBLIC_PROBE=str(root / 'tests/windows_publisher_public_path_probe.ps1'),
+                               USK_PUBLIC_READBACK=str(root / 'tests/windows_publisher_metadata_readback.ps1'),
+                               USK_PUBLIC_PROCESS_HELPER=str(root / 'tests/windows_publisher_owned_process.ps1'))
+            result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                    env=environment, capture_output=True, text=True, timeout=45)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {
+                'captured_clients': 3, 'archived_captures': 2, 'changed_prior_capture_refused': True})
+
+    def test_volume_boundary_observation_rejects_foreign_and_mutating_facts(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split('Add-Type -TypeDefinition @"', 1)[1].split('\n"@', 1)[0]
+        code = r"""$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_BOUNDARY_NATIVE))
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_BOUNDARY_PROBE,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Boundary assertion source parse failed'}
+$function=$ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-PublicVolumeBoundary'},$true)
+if(@($function).Count -ne 1){throw 'Boundary assertion is absent or ambiguous'}
+. ([scriptblock]::Create($function[0].Extent.Text))
+$extent=[byte[]]::new(32)
+[BitConverter]::GetBytes([uint32]1).CopyTo($extent,0)
+[BitConverter]::GetBytes([uint32]7).CopyTo($extent,8)
+[BitConverter]::GetBytes([long]16777216).CopyTo($extent,16)
+[BitConverter]::GetBytes([long]520028160).CopyTo($extent,24)
+$parsed=[UskPublisherEffectiveRights]::ParseSingleExtent($extent,32,7)
+$badExtents=0
+foreach($variant in 0..6) {
+ $bytes=$extent.Clone();$returned=[uint32]32;$disk=[uint32]7
+ switch($variant) {
+  0 {$returned=31}
+  1 {$bytes=[byte[]]::new(8)}
+  2 {[BitConverter]::GetBytes([uint32]2).CopyTo($bytes,0)}
+  3 {$disk=8}
+  4 {[BitConverter]::GetBytes([long]-1).CopyTo($bytes,16)}
+  5 {[BitConverter]::GetBytes([long]0).CopyTo($bytes,24)}
+  6 {[BitConverter]::GetBytes([long]::MaxValue).CopyTo($bytes,16)}
+ }
+ $refused=$false
+ try {[UskPublisherEffectiveRights]::ParseSingleExtent($bytes,$returned,$disk)|Out-Null}catch {$refused=$true}
+ if(-not $refused){throw 'Contradictory raw-volume extent was admitted'}
+ ++$badExtents
+}
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$service='S-1-5-80-1-2-3-4-5';$process=Get-Process -Id $PID
+$rights=[UskPublisherEffectiveRights]::new($PID,$process.StartTime.ToUniversalTime().ToFileTimeUtc(),$sid,$service)
+try {
+ $security='O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$service+')'
+ $raw=[Security.AccessControl.RawSecurityDescriptor]::new($security)
+ $bytes=[byte[]]::new($raw.BinaryLength);$raw.GetBinaryForm($bytes,0)
+ $aces=@(@{type=0;flags=0;access_mask=2032127;sid='S-1-5-18'},@{type=0;flags=0;access_mask=2032127;sid=$service})
+ $native=@{attributes=22;case_sensitive=$false;dacl_aces=$aces;dacl_protected=$true;
+  file_id='123456789abcdef0:05000000000005000000000000000000';link_count=1;native_name='\';owner_sid='S-1-5-18';reparse_tag=0}
+ $prepared=@{protected_anchors=@{boundary=$native}}|ConvertTo-Json -Depth 12 -Compress
+ $observed=@{rows=@(@{path='Q:\publication\journal\lab-prepared-evidence.json';content_json=$prepared})}
+ $boundary=@{root=@{path='Q:\';directory=$true;file_id=$native.file_id;native_name='\';attributes=22;
+  link_count=1;case_sensitive=$false;streams=@();owner='S-1-5-18';protected=$true;raw_aces=$aces;effective_rights=$rights.CheckDescriptor($bytes)};
+  device=@{path='\\?\Volume{00000000-0000-0000-0000-000000000001}';extent=$parsed;raw_security=$security;checks=$rights.CheckDescriptor($bytes)}}
+ Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service
+ $badBoundaries=0
+ foreach($change in @(
+  {param($b) $b.root.file_id='123456789abcdef0:06000000000005000000000000000000'},
+  {param($b) $b.root.raw_aces[0].flags=16},
+  {param($b) $b.root.case_sensitive=$true},
+  {param($b) $b.root.effective_rights.filtered.delete.allowed=$true;$b.root.effective_rights.filtered.delete.granted=65536},
+  {param($b) $b.device.extent.disk_number=8},
+  {param($b) $b.device.extent.length--},
+  {param($b) $b.device.raw_security='O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$service+')(A;;FW;;;WD)'},
+  {param($b) $b.device.checks.filtered.maximum_allowed.granted=65536})) {
+  $bad=$boundary|ConvertTo-Json -Depth 16|ConvertFrom-Json;& $change $bad
+  $refused=$false
+  try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service}catch {$refused=$true}
+  if(-not $refused){throw 'Contradictory volume namespace/device facts were admitted'}
+  ++$badBoundaries
+ }
+ @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries}|ConvertTo-Json -Compress
+} finally {$rights.Dispose()}
+"""
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-boundary-') as temporary:
+                native_path = Path(temporary) / 'native.cs'
+                native_path.write_text(native, encoding='utf-8')
+                environment = dict(os.environ, USK_BOUNDARY_NATIVE=str(native_path),
+                                   USK_BOUNDARY_PROBE=str(root / 'tests/windows_publisher_public_path_probe.ps1'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'owned_token_control': True, 'extent_refusals': 7, 'boundary_refusals': 8})
+
+    def test_real_client_token_is_captured_before_resume_and_read_after_exit(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split('Add-Type -TypeDefinition @"', 1)[1].split('\n"@', 1)[0]
+        code = "& ([scriptblock]::Create([IO.File]::ReadAllText($env:USK_CAPTURE_UNIT))) -Root $env:USK_CAPTURE_ROOT"
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-held-client-') as temporary:
+                native_path = Path(temporary) / 'native.cs'
+                native_path.write_text(native, encoding='utf-8')
+                environment = dict(os.environ, USK_CAPTURE_ROOT=temporary, USK_CAPTURE_NATIVE=str(native_path),
+                                   USK_CAPTURE_UNIT=str(root / 'tests/windows_publisher_client_token_unit.ps1'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=45)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([json.loads(line) for line in result.stdout.splitlines()], [
+                    {'held_exited_client_observed': True, 'positive_owned_control': True,
+                     'closed_actor_checks': 18, 'contradictory_contexts_refused': 7},
+                    {'primary_thread_paused_during_capture': True, 'client_token_captured': True,
+                     'resume_once_refused': True, 'stdout_observed': True},
+                    {'never_resumed_client_termination_confirmed': True}])
+
     def test_public_fixture_exit_status_follows_final_assertions(self):
         root = Path(__file__).resolve().parents[1]
         code = r"""$ErrorActionPreference='Stop'
