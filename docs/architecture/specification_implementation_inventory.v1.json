@@ -4043,7 +4043,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "cf92c85081fc9989cb6b3d9c4be54c28334b035620f06761ac0c2adb76b9e8af"
+          "sha256": "4fa52c76ba1026758074acfdcb998e9b3bae3b34fd86e9634ccce3a93cd046db"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -4063,7 +4063,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "0001b115b66c44b1a27e9999948a648a738dd3ff93f5c305805931efdc5c4a0e"
+          "sha256": "51caf99d8e2f907a0a71c5502b2c91d3e74136781022998d5ee19f6595a4fe6c"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4148,10 +4148,6 @@
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
           "sha256": "60706db2f6749a063339e6f56f1ee36841cd9e636bb8e9bf4c87a5cc6e82e4d9"
-        },
-        {
-          "path": "tests/windows_publisher_effective_rights.cs",
-          "sha256": "581f743ae15d0a4561df8bf3980afdfd645218ffb22d8656459ec4e115f33722"
         }
       ],
       "acceptance_ids": [
@@ -4383,7 +4379,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "cf92c85081fc9989cb6b3d9c4be54c28334b035620f06761ac0c2adb76b9e8af"
+          "sha256": "4fa52c76ba1026758074acfdcb998e9b3bae3b34fd86e9634ccce3a93cd046db"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -4403,7 +4399,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "0001b115b66c44b1a27e9999948a648a738dd3ff93f5c305805931efdc5c4a0e"
+          "sha256": "51caf99d8e2f907a0a71c5502b2c91d3e74136781022998d5ee19f6595a4fe6c"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4500,10 +4496,6 @@
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
           "sha256": "60706db2f6749a063339e6f56f1ee36841cd9e636bb8e9bf4c87a5cc6e82e4d9"
-        },
-        {
-          "path": "tests/windows_publisher_effective_rights.cs",
-          "sha256": "581f743ae15d0a4561df8bf3980afdfd645218ffb22d8656459ec4e115f33722"
         }
       ],
       "acceptance_ids": [

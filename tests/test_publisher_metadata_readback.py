@@ -15,6 +15,8 @@ import unittest
 class PublisherMetadataReadbackTests(unittest.TestCase):
     def test_effective_rights_bind_live_token_and_distinguish_grants_from_denials(self):
         root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split('Add-Type -TypeDefinition @"', 1)[1].split('\n"@', 1)[0]
         shells = [shutil.which('pwsh'), shutil.which('powershell.exe')]
         self.assertTrue(all(shells), 'Both qualification observer runtimes are required')
         code = r"""$ErrorActionPreference='Stop'
@@ -54,8 +56,10 @@ try {
 """
         for shell in shells:
             with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='usk-rights-readback-') as temporary:
+                native_path = Path(temporary) / 'native.cs'
+                native_path.write_text(native, encoding='utf-8')
                 environment = dict(os.environ, USK_RIGHTS_ROOT=temporary,
-                                   USK_RIGHTS_SOURCE=str(root / 'tests/windows_publisher_effective_rights.cs'))
+                                   USK_RIGHTS_SOURCE=str(native_path))
                 result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
                                         env=environment, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
