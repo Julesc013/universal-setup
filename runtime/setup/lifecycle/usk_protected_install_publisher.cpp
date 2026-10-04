@@ -2060,6 +2060,9 @@ std::string observe_prepared_recovery(HANDLE volume,
             if (execution_bound) forward_execution_phases.push_back(capture_native_execution_phase(
                 "before_rename", forward_handles, anchors, actual_tree,
                 is_authenticated_record_schema(prepared_schema), prepared_schema == "usk.publisher.lab_phase_evidence.v9"));
+            if (execution_bound && prepared_schema == "usk.publisher.lab_phase_evidence.v9")
+                require_native_descendant_continuity(prepared.at("execution_phases").as_array().back(),
+                    forward_execution_phases.back());
             if (registered_admission && is_authenticated_record_schema(prepared_schema)) {
                 require_registered_recovery_binding(prepared, *registered_operation_admission);
                 const auto& current = forward_execution_phases.back().at("execution");
@@ -2926,6 +2929,9 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             observe_publisher_tree(candidate.get()), authenticated_bound, authenticated_bound));
         require_publisher_execution_worker_match(prepared_execution_phases.back().at("execution"),
             visible_execution_phases.front().at("execution"));
+        if (authenticated_bound)
+            require_native_descendant_continuity(prepared_execution_phases.back(),
+                visible_execution_phases.front());
     }
     PublisherBoundRenameObservation renamed;
     if (registered_admission) {

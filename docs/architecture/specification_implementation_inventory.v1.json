@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T17:22:01Z",
+  "generated_at": "2026-10-04T17:51:01Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1418,6 +1418,14 @@
         {
           "path": "tests/test_publisher_authenticated_access_evidence.py",
           "sha256": "a143dcbb1bbacaa874c0ef94c71b0b02cd08d2f66c2454e6e54a2cb6fbf7db81"
+        },
+        {
+          "path": "tests/publisher_actor_evidence.py",
+          "sha256": "7c249d912c4eac4501e4e4b78ba9db5289a228e6502c02ab6d7279f4a70a7442"
+        },
+        {
+          "path": "tests/test_publisher_actor_evidence.py",
+          "sha256": "49c07f0a17e3a6f9765ee9a5039264c803ea209b3cf4aab3771bbae7524bf3a2"
         }
       ],
       "acceptance_ids": [
@@ -4139,7 +4147,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e4e21dadb1595769c9b306a26775a5061e4bc5ecd5195bb7d8a31d3d86d2bcd9"
+          "sha256": "af5a8aa35ad8510e44c29e826cea855fee2f762e08c4296a3298dfca3038af0c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4327,11 +4335,11 @@
         },
         {
           "path": "tests/publisher_native_profile_evidence.py",
-          "sha256": "348ac60a37c2aa98928cf71c2490bd9c47303d4cb5d7a7c68ea1fc969ffa0523"
+          "sha256": "841610e9f35e654f7672088049e45c9a6e0e1fc570614457ee181d7a0b172d7b"
         },
         {
           "path": "tests/test_publisher_native_profile_evidence.py",
-          "sha256": "d9c80a6f644c9687118fb3d7e47bbdf4c3c5989358e507bba8e8a9992357c142"
+          "sha256": "93d3f466758c25a7d5cb5e734bf40f101f1cdc1c3a2be3c7aa80107002e96234"
         },
         {
           "path": "tests/publisher_authenticated_access_evidence.py",
@@ -4340,6 +4348,14 @@
         {
           "path": "tests/test_publisher_authenticated_access_evidence.py",
           "sha256": "a143dcbb1bbacaa874c0ef94c71b0b02cd08d2f66c2454e6e54a2cb6fbf7db81"
+        },
+        {
+          "path": "tests/publisher_actor_evidence.py",
+          "sha256": "7c249d912c4eac4501e4e4b78ba9db5289a228e6502c02ab6d7279f4a70a7442"
+        },
+        {
+          "path": "tests/test_publisher_actor_evidence.py",
+          "sha256": "49c07f0a17e3a6f9765ee9a5039264c803ea209b3cf4aab3771bbae7524bf3a2"
         }
       ],
       "acceptance_ids": [
@@ -4603,7 +4619,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e4e21dadb1595769c9b306a26775a5061e4bc5ecd5195bb7d8a31d3d86d2bcd9"
+          "sha256": "af5a8aa35ad8510e44c29e826cea855fee2f762e08c4296a3298dfca3038af0c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4811,11 +4827,11 @@
         },
         {
           "path": "tests/publisher_native_profile_evidence.py",
-          "sha256": "348ac60a37c2aa98928cf71c2490bd9c47303d4cb5d7a7c68ea1fc969ffa0523"
+          "sha256": "841610e9f35e654f7672088049e45c9a6e0e1fc570614457ee181d7a0b172d7b"
         },
         {
           "path": "tests/test_publisher_native_profile_evidence.py",
-          "sha256": "d9c80a6f644c9687118fb3d7e47bbdf4c3c5989358e507bba8e8a9992357c142"
+          "sha256": "93d3f466758c25a7d5cb5e734bf40f101f1cdc1c3a2be3c7aa80107002e96234"
         },
         {
           "path": "tests/publisher_authenticated_access_evidence.py",
@@ -4824,6 +4840,14 @@
         {
           "path": "tests/test_publisher_authenticated_access_evidence.py",
           "sha256": "a143dcbb1bbacaa874c0ef94c71b0b02cd08d2f66c2454e6e54a2cb6fbf7db81"
+        },
+        {
+          "path": "tests/publisher_actor_evidence.py",
+          "sha256": "7c249d912c4eac4501e4e4b78ba9db5289a228e6502c02ab6d7279f4a70a7442"
+        },
+        {
+          "path": "tests/test_publisher_actor_evidence.py",
+          "sha256": "49c07f0a17e3a6f9765ee9a5039264c803ea209b3cf4aab3771bbae7524bf3a2"
         }
       ],
       "acceptance_ids": [

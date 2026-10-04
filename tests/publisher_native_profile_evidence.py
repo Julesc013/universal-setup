@@ -173,8 +173,8 @@ def project(prepared_json, visible_json, snapshot, service_name, context, source
         tokens['initiating']['user_sid'] == tokens['filtered']['user_sid'],
         'native access token/account binding differs')
     if context.actor_profile == 'initiating_and_unrelated_login':
-        require(tokens['unrelated']['token_type'] == 2 and sid(tokens['unrelated']['user_sid']) and
-            tokens['unrelated']['user_sid'] != tokens['initiating']['user_sid'], 'unrelated login actor binding differs')
+        from publisher_actor_evidence import reconcile_unrelated_login
+        reconcile_unrelated_login(snapshot, context.service_sid)
     checks = {value['native_object']['file_id']: value for value in checked['objects']}
     require(len(checks) == len(objects) and set(checks) == {obj['file_id'] for obj in objects},
         'native phase descriptor identities alias or omit objects')

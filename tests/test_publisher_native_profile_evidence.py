@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Synthetic closed-record controls, never Windows/profile qualification."""
 import copy
+import dataclasses
 import hashlib
 import struct
 import unittest
@@ -105,6 +106,26 @@ class NativeProfileEvidenceTests(unittest.TestCase):
         self.assertFalse(report['profile_qualified'])
         self.assertFalse(report['live_phase_access_checks'])
         self.assertFalse(report['global_export_history_observed'])
+
+    def test_unrelated_projection_consumes_owned_login_binding(self):
+        from test_publisher_actor_evidence import fixture as actor_fixture
+        prepared, visible, snapshot = profile_fixture()
+        actors = actor_fixture()
+        snapshot['effective_right_tokens'] = actors['effective_right_tokens']
+        for actor in ('initiating', 'filtered'):
+            snapshot['effective_right_tokens'][actor]['user_sid'] = CLIENT
+        for row in snapshot['rows'] + [snapshot['volume_boundary']['root']]:
+            row['effective_rights'] = copy.deepcopy(actors['rows'][0]['effective_rights'])
+            row['raw_aces'] = row['raw_aces'][:2]
+        for checked in snapshot['native_phase_descriptor_access']['objects']:
+            checked['checks']['unrelated'] = copy.deepcopy(checked['checks']['filtered'])
+        context = dataclasses.replace(CONTEXT, actor_profile='initiating_and_unrelated_login')
+        report = self.check(prepared, visible, snapshot, context=context)
+        self.assertEqual(report['actor_principals'], list(context.effective_access_principals))
+        self.assertFalse(report['profile_qualified'])
+        snapshot['effective_right_tokens']['unrelated_logon_context']['token_id'] = '0000000000000004'
+        with self.assertRaises(ValueError):
+            self.check(prepared, visible, snapshot, context=context)
 
     def test_reconstructed_access_refuses_every_mutation_and_nonempty_maximum(self):
         prepared, visible, snapshot = profile_fixture()
