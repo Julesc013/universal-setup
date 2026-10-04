@@ -186,10 +186,12 @@ class PublicationModelContext:
     service_sid: str = SERVICE_SID
     sdk_version: str = "10.0.17763.0"
     minimum_additional_ancestors: int = 1
+    namespace_layout: str = "published_staging_root"
 
     def __post_init__(self) -> None:
         if (not isinstance(self.service_sid, str) or len(self.service_sid) > 184 or
-                not isinstance(self.sdk_version, str) or len(self.sdk_version) > 64):
+                not isinstance(self.sdk_version, str) or len(self.sdk_version) > 64 or
+                not isinstance(self.namespace_layout, str) or len(self.namespace_layout) > 64):
             raise EvidenceError("model context inputs must be bounded strings")
         sid = re.fullmatch(r"S-1-5-80-((?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*)){4})", self.service_sid)
         sdk = re.fullmatch(r"10\.0\.([0-9]+)\.0", self.sdk_version)
@@ -197,7 +199,8 @@ class PublicationModelContext:
                 sdk is None or not 17763 <= int(sdk.group(1)) <= 0xFFFFFFFF or
                 self.sdk_version != f"10.0.{int(sdk.group(1))}.0" or
                 type(self.minimum_additional_ancestors) is not int or
-                self.minimum_additional_ancestors not in (0, 1)):
+                self.minimum_additional_ancestors not in (0, 1) or
+                self.namespace_layout not in ("published_staging_root", "staging_anchor_with_payload_child")):
             raise EvidenceError("model context is not a canonical pinned service/SDK/namespace binding")
 
 
@@ -328,6 +331,13 @@ class ProfileEvidence:
     max_component_utf16_units: int
     serialized_evidence_bytes: int
     total_content_bytes: int
+    namespace_layout: str = "published_staging_root"
+
+    @property
+    def published_root(self) -> ProtectedObjectEvidence:
+        # The layout is frozen at admission by the external model context.
+        # A later phase or evidence claim cannot change which object moves.
+        return self.protected_objects[6 if self.namespace_layout == "staging_anchor_with_payload_child" else 0]
 
     @classmethod
     def parse(cls, value: Any, context: PublicationModelContext = FIXTURE_MODEL_CONTEXT) -> "ProfileEvidence":
@@ -371,13 +381,14 @@ class ProfileEvidence:
             _integer(value["closure_max_depth"], "closure_max_depth"),
             _integer(value["max_component_utf16_units"], "max_component_utf16_units", 1),
             _integer(value["serialized_evidence_bytes"], "serialized_evidence_bytes"),
-            _integer(value["total_content_bytes"], "total_content_bytes"))
+            _integer(value["total_content_bytes"], "total_content_bytes"), context.namespace_layout)
         result.validate(context)
         return result
 
     def validate(self, context: PublicationModelContext = FIXTURE_MODEL_CONTEXT) -> None:
         anchor_roles = ("staging_root", "destination_parent", "state_anchor", "journal_anchor")
-        fixed_roles = anchor_roles + ("volume_root", "publication_root")
+        native_child_layout = context.namespace_layout == "staging_anchor_with_payload_child"
+        fixed_roles = anchor_roles + ("volume_root", "publication_root") + (("payload_root",) if native_child_layout else ())
         roles = tuple(item.role for item in self.protected_objects)
         expected_ancestor_roles = tuple(f"ancestor:{index}" for index in range(max(0, len(roles) - len(fixed_roles))))
         object_ids = tuple(item.file_id for item in self.protected_objects)
@@ -399,6 +410,8 @@ class ProfileEvidence:
             bound_parent = ancestors[-1] if ancestors else publication_root
             if any(path[:-1] != bound_parent for path in parsed_paths[:len(anchor_roles)]):
                 raise EvidenceError("protected anchors must be distinct direct children of the bound ancestor")
+            if native_child_layout and parsed_paths[6][:-1] != parsed_paths[0]:
+                raise EvidenceError("published payload root must be a direct child of the retained staging anchor")
             chain_rejected = False
         except (EvidenceError, IndexError):
             chain_rejected = True
@@ -407,7 +420,8 @@ class ProfileEvidence:
             self.publisher_service_sid != context.service_sid or self.service_sid_type != "SERVICE_SID_TYPE_RESTRICTED" or
             self.anchor_creation != "atomic_protected_from_inception" or
             bool(self.consumer_grants) or bool(self.untrusted_mutating_rights) or
-            self.covered_objects != EXPECTED_COVERED_OBJECTS or
+            self.namespace_layout != context.namespace_layout or
+            self.covered_objects != EXPECTED_COVERED_OBJECTS + (("payload_root",) if native_child_layout else ()) or
             self.observer_provenance != "independent_observer_same_handle" or
             self.handle_provenance != "service_created_from_inception" or self.anchor_preexisting or
             self.volume_root_provenance != "qualified_dedicated_volume_root_boundary" or
@@ -488,9 +502,10 @@ class PhaseObservation:
         expected_objects = profile.protected_objects
         if after_rename:
             destination_parent = expected_objects[1].observed_path
-            expected_objects = (replace(expected_objects[0],
-                                        observed_path=f"{destination_parent}/{profile.destination_name}"),
-                                ) + expected_objects[1:]
+            moving_index = 6 if profile.namespace_layout == "staging_anchor_with_payload_child" else 0
+            expected_objects = tuple(replace(item,
+                observed_path=f"{destination_parent}/{profile.destination_name}") if index == moving_index else item
+                for index, item in enumerate(expected_objects))
         expected_locality = (profile.volume_name, profile.volume_serial, profile.volume_information_serial,
             profile.filesystem_name, profile.maximum_component_length, profile.filesystem_flags,
             profile.remote_protocol_query_status, profile.remote_protocol_error, profile.remote_protocol,
@@ -741,7 +756,7 @@ def transition(state: ModelState, event: Mapping[str, Any], *,
                                            state.profile.publisher_service_sid)
         except EvidenceError:
             return _retained(state, "sealed_evidence_refused")
-        staging_root = state.profile.protected_objects[0]
+        staging_root = state.profile.published_root
         protected_ids = {item.file_id for item in state.profile.protected_objects}
         if (root.file_id != staging_root.file_id or root.security != staging_root.security or
                 any(item.file_id in protected_ids for item in closure)):

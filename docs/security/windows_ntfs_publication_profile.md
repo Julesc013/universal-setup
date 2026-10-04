@@ -1765,3 +1765,13 @@ Fresh hosted public fixtures require v4; local parsing alone is not hosted
 creation qualification. Capability reporting, complete native profile/model
 reconciliation, uninterrupted handle provenance, standard-account dispatch,
 OD-001 and production/release acceptance remain incomplete.
+
+The explicit reference-model context also pins namespace geometry. Its original
+fixture keeps the published staging-root layout unchanged. The native child
+layout requires a distinct payload-root role directly beneath the retained
+staging anchor; only that payload root moves to the destination. The admitted
+layout is immutable across later phases, including replay with a default
+transition context. Synthetic controls verify the complete native-layout trace,
+wrong parents, aliases, missing coverage and an incorrectly moved staging
+anchor. This corrects the mapping, without supplying absent native profile
+predicates or treating a synthetic trace as publisher qualification.
