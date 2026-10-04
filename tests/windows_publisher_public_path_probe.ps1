@@ -453,7 +453,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
     $record=$prepared[0].content_json|ConvertFrom-Json
-    if($record.schema -cne 'usk.publisher.lab_phase_evidence.v3' -or
+    if($record.schema -cne 'usk.publisher.lab_phase_evidence.v4' -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
         $receipt['native_execution_diagnostic']=@{schema=$record.schema;phase=$record.phase;
@@ -525,7 +525,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $visible=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
     if($visible.Count -eq 1) {
         $value=$visible[0].content_json|ConvertFrom-Json
-        if($value.schema -cne 'usk.publisher.lab_phase_evidence.v3' -or
+        if($value.schema -cne 'usk.publisher.lab_phase_evidence.v4' -or
             $value.phase -cne 'lab_visible_evidence' -or
             $value.prepared_record_sha256 -cne $prepared[0].sha256 -or
             $value.source_file_id -cne $record.sealed_tree.root.file_id) {
@@ -541,9 +541,13 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $executionResult=& python -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $executionInput
     if($LASTEXITCODE -ne 0){throw 'Independent native execution record reconciliation failed'}
     $executionReport=($executionResult -join "`n")|ConvertFrom-Json
-    if($executionReport.schema -cne 'usk.publisher_execution_reconciliation.v1' -or
+    if($executionReport.schema -cne 'usk.publisher_execution_reconciliation.v2' -or
         $executionReport.status -cne 'bindings_consistent' -or $executionReport.profile_qualified -ne $false -or
-        $executionReport.held_roles_per_phase -ne 7) {
+        $executionReport.held_roles_per_phase -ne 7 -or
+        $executionReport.creation_observation.schema -cne 'usk.publisher_creation_reconciliation.v1' -or
+        $executionReport.creation_observation.status -cne 'bindings_consistent' -or
+        $executionReport.creation_observation.profile_qualified -ne $false -or
+        $executionReport.creation_observation.created_object_count -lt 6) {
         throw 'Independent execution reconciliation result differs'
     }
     $receipt.execution_readback_reconciliations.Add(@{result=$executionReport;

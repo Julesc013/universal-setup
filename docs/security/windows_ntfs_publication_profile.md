@@ -1741,3 +1741,27 @@ execution or retained in its durable records. Durable integration, independent
 readback reconciliation and hosted qualification are required before any
 creation-history claim. It does not establish capabilities outside the service,
 an atomic snapshot, complete profile qualification, availability or support.
+
+### Durable public creation-graph candidate
+
+Fresh authenticated publication now activates capture before protected anchor
+creation and closes it after the full payload is sealed, before separate public
+metadata initialization. Its private prepared v4 record retains the compact
+certificate beside the unchanged complete native anchor/tree records. The
+visible v4 record retains the exact prepared-byte digest. Native finalization,
+completed verification and source-free recovery validate the original creator
+against the original prepared worker, including after a new worker reopens the
+target. Existing v1/v2/v3 readers remain; reopened staging writes the narrower
+v3 origin and cannot invent a current-worker birth certificate. A certificate
+lost before durable prepared intent cannot be recovered as historical proof.
+
+Independent readback recomputes the parent/component/type graph, parses the
+requested self-relative descriptor bytes with exact owner, protected DACL,
+ordered non-inheritable ACEs and bounded non-overlapping offsets, and checks
+its digest, actual native call profile and creator binding. Synthetic controls
+exercise v3 compatibility, preserved creators across restart, missing or
+contradictory birth fields, native results and binary descriptor layouts.
+Fresh hosted public fixtures require v4; local parsing alone is not hosted
+creation qualification. Capability reporting, complete native profile/model
+reconciliation, uninterrupted handle provenance, standard-account dispatch,
+OD-001 and production/release acceptance remain incomplete.

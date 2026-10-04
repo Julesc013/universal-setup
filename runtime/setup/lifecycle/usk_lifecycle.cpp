@@ -1612,7 +1612,8 @@ static std::string require_held_publisher_evidence(
     const auto& binding = prepared.at("source_binding");
     require_candidate_publisher_execution_records(prepared, bound, evidence.service_name, service.service_sid);
     if ((prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" &&
-            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v3") ||
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v3" &&
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v4") ||
         bound.at("schema").as_string() != prepared.at("schema").as_string() ||
         (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
             snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
