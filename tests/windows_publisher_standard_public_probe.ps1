@@ -47,7 +47,8 @@ $receipt=[ordered]@{schema='usk.publisher_standard_public_probe.v1';status='not_
     service_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     execution_build_context=@{windows_sdk=[string]$publisherSdk[0];
         publisher_project_sha256=(Get-FileHash -LiteralPath $publisherProjectPath -Algorithm SHA256).Hash.ToLowerInvariant()};
-    client_captures=[Collections.Generic.List[object]]::new();readbacks=[Collections.Generic.List[object]]::new()}
+    client_captures=[Collections.Generic.List[object]]::new();readbacks=[Collections.Generic.List[object]]::new();
+    native_observations=[Collections.Generic.List[object]]::new()}
 function Write-Json([string]$Path,$Value) {[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)}
 function Read-ServicePolicy {
     $raw=[UskPublisherServiceSecurityReadback]::Read($service)
@@ -97,6 +98,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
     $requestId='public.'+[guid]::NewGuid().ToString('N')
     if($Command -ceq 'publisher.inspect'){$Payload.request_id=$requestId}
     $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
+    $nativeOutput=Join-Path (Join-Path $lab 'native-observations') ($requestId+'.json')
     Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command=$Command;payload=$Payload;dry_run=($Command -ceq 'publisher.inspect')}
     if($clientTokenLease) {
         if(-not $observersClosed -or (Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $clientCaptureSha256) {
@@ -108,7 +110,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
     $launch=$null;$process=$null;$script:clientsClosed=$false
     try {
         $launch=[UskPublisherPausedClient]::CreateOwnedStandard($MachineBinary,('--machine --publisher '+$service+
-            ' --request-file "'+$request+'"'),$stdout,$stderr,$accountName,$secret,$accountSid)
+            ' --request-file "'+$request+'" --publisher-observation-file "'+$nativeOutput+'"'),$stdout,$stderr,$accountName,$secret,$accountSid)
         $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
         $script:clientTokenLease=[UskPublisherEffectiveRights]::new($launch.ProcessId,$launch.CreationFileTime,$accountSid,$sid)
         $capture=$clientTokenLease.CaptureBinding($PID,[long]$ownerCreation,$MachineBinary)
@@ -154,6 +156,17 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
             throw ('Standard public response binding differs: command='+$Command+' exit='+$exit+' status='+$result.status)
         }
         if((Read-ServicePolicy|ConvertTo-Json -Depth 16 -Compress) -cne ($receipt.service_policy|ConvertTo-Json -Depth 16 -Compress)) {throw 'Service access policy changed across standard dispatch'}
+        if($ExpectedExit -eq 0) {
+            if(-not (Test-Path -LiteralPath $nativeOutput) -or (Get-Item -LiteralPath $nativeOutput).Length -gt 4MB) {
+                throw 'Standard native response capture is missing or exceeds its bound'
+            }
+            $nativeText=[IO.File]::ReadAllText($nativeOutput)
+            $native=$nativeText|ConvertFrom-Json
+            if($native.schema -cne 'usk.publisher_lab_service_observation.v1' -or $native.status -cne 'pass' -or
+                $null -eq $native.registered_admission){throw 'Standard native admission capture is incomplete'}
+            $receipt.native_observations.Add([ordered]@{command=$Command;request_id=$requestId;
+                native_json=$nativeText;sha256=(Get-FileHash -LiteralPath $nativeOutput -Algorithm SHA256).Hash.ToLowerInvariant()})
+        }
         return $result
     } finally {
         try {
@@ -177,6 +190,11 @@ try {
     $labAcl=Get-Acl -LiteralPath $lab
     $labAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($account.SID,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
     Set-Acl -LiteralPath $lab -AclObject $labAcl
+    $nativeDirectory=Join-Path $lab 'native-observations'
+    New-Item -ItemType Directory -Path $nativeDirectory|Out-Null
+    $nativeAcl=Get-Acl -LiteralPath $nativeDirectory
+    $nativeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($account.SID,'Modify','ContainerInherit,ObjectInherit','None','Allow'))
+    Set-Acl -LiteralPath $nativeDirectory -AclObject $nativeAcl
     $machineAcl=Get-Acl -LiteralPath $MachineBinary
     $machineAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($account.SID,'ReadAndExecute','Allow'))
     Set-Acl -LiteralPath $MachineBinary -AclObject $machineAcl

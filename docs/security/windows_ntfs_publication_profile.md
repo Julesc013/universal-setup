@@ -1956,3 +1956,37 @@ scoped capability provenance, complete native profile admission and model
 replay remain unfinished; no availability or qualification flag changes.
 The v5 reader preserves checkpoint records with execution v3 and call v1;
 their recovery does not acquire a held-access claim retroactively.
+
+The registered service now retains an admission observation containing the
+held executable's native identity, size and package digest, actual service
+PID/SID, configured caller, registration digest and controller-admitted target
+identity/digest. It rechecks the held file and service access binding before
+returning the observation. This binds the on-disk executable and admitted
+target; it is not a measurement of mapped process image bytes. The optional
+machine diagnostic `--publisher-observation-file` preserves exact received
+bytes in a new durable file and refuses to replace an existing file. A failure
+after dispatch retains the existing unknown-outcome semantics.
+
+The standard-account qualification candidate captures four successful native
+replies alongside the ordinary public results. Its independent decoder binds
+the image to the separately built service digest, the admitted volume to the
+held boundary identity, and each capture to its public request. It requires
+v6, all five held-access phases and the successful original call for this
+uninterrupted case. Older receipts retain their narrower reconciliation.
+
+The selected registered production route has a separately reviewed source
+argument for no provider handle export: native creates omit OBJ_INHERIT,
+destination handles remain internal, source callbacks receive offset/buffer
+arguments, the rename instrumentation callback is absent, the client receives
+query/synchronization process rights and transport carries byte messages.
+The original DELETE-capable candidate is explicitly closed. This argument
+must be bound to the final reviewed source tree, selected route and retained
+executable digest; it excludes instrumentation and qualified SYSTEM/admin
+actors. It does not independently confirm every destructor close or enumerate
+historical external capabilities.
+
+The reference model's independently pinned native API context preserves
+`GetKernelObjectSecurity`, `NtQueryObject:ObjectBasicInformation` and
+`GetHandleInformation`. Its original GetSecurityInfo context is unchanged;
+evidence cannot select a context or relabel one API as another. Complete
+native profile projection/model replay and hosted qualification remain pending.

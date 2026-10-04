@@ -187,11 +187,13 @@ class PublicationModelContext:
     sdk_version: str = "10.0.17763.0"
     minimum_additional_ancestors: int = 1
     namespace_layout: str = "published_staging_root"
+    security_observation_api: str = "GetSecurityInfo"
 
     def __post_init__(self) -> None:
         if (not isinstance(self.service_sid, str) or len(self.service_sid) > 184 or
                 not isinstance(self.sdk_version, str) or len(self.sdk_version) > 64 or
-                not isinstance(self.namespace_layout, str) or len(self.namespace_layout) > 64):
+                not isinstance(self.namespace_layout, str) or len(self.namespace_layout) > 64 or
+                not isinstance(self.security_observation_api, str)):
             raise EvidenceError("model context inputs must be bounded strings")
         sid = re.fullmatch(r"S-1-5-80-((?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*)){4})", self.service_sid)
         sdk = re.fullmatch(r"10\.0\.([0-9]+)\.0", self.sdk_version)
@@ -200,8 +202,19 @@ class PublicationModelContext:
                 self.sdk_version != f"10.0.{int(sdk.group(1))}.0" or
                 type(self.minimum_additional_ancestors) is not int or
                 self.minimum_additional_ancestors not in (0, 1) or
-                self.namespace_layout not in ("published_staging_root", "staging_anchor_with_payload_child")):
+                self.namespace_layout not in ("published_staging_root", "staging_anchor_with_payload_child") or
+                self.security_observation_api not in ("GetSecurityInfo", "GetKernelObjectSecurity")):
             raise EvidenceError("model context is not a canonical pinned service/SDK/namespace binding")
+
+    @property
+    def observation_apis(self) -> tuple[str, ...]:
+        # The reviewed native provider observes stored file security through
+        # GetKernelObjectSecurity, not normalized GetSecurityInfo. Retain that
+        # identity and its actual held-rights/flags APIs in a separately pinned
+        # context; evidence text cannot select or relabel the provider.
+        native = self.security_observation_api == "GetKernelObjectSecurity"
+        return (self.security_observation_api,) + EXPECTED_APIS[1:] + (
+            ("NtQueryObject:ObjectBasicInformation", "GetHandleInformation") if native else ())
 
 
 FIXTURE_MODEL_CONTEXT = PublicationModelContext()
@@ -442,7 +455,7 @@ class ProfileEvidence:
             any(_file_id_parts(file_id, "protected object file_id")[0] != self.volume_serial
                                                  for file_id in object_ids) or
             self.destination_open_result != "ERROR_FILE_NOT_FOUND" or
-            self.replace_if_exists or self.observation_apis != EXPECTED_APIS or
+            self.replace_if_exists or self.observation_apis != context.observation_apis or
             self.closure_entry_count > MAX_CLOSURE_ENTRIES or self.closure_max_depth > MAX_CLOSURE_DEPTH or
             self.max_component_utf16_units != self.maximum_component_length or
             self.serialized_evidence_bytes > MAX_EVIDENCE_BYTES or self.total_content_bytes > MAX_CONTENT_BYTES)

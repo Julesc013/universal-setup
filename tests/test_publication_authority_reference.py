@@ -233,6 +233,31 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
                 "evidence": _patch(resolver.evidence, change)}, context=context)
             self.assertEqual(result.disposition, "no_effect_refusal")
 
+    def test_native_api_provenance_requires_its_pinned_context(self) -> None:
+        resolver, original = self._native_child_layout_variant()
+        context = oracle.PublicationModelContext(original.service_sid, original.sdk_version, 0,
+            original.namespace_layout, "GetKernelObjectSecurity")
+        original_evidence = deepcopy(resolver.evidence)
+        resolver.evidence["observation_apis"] = list(context.observation_apis)
+        events = resolver.events(["$through_visible", "$metadata"])
+        self.assertEqual(oracle.replay(oracle.initial_state(), events, context=context).disposition, "completed")
+        self.assertEqual(oracle.replay(oracle.initial_state(), events, context=original).disposition,
+                         "no_effect_refusal")
+        self.assertEqual(oracle.transition(oracle.initial_state(),
+            {"action": "admit_profile", "evidence": original_evidence}, context=context).disposition,
+            "no_effect_refusal")
+        for api in ("GetSecurityInfo", "NtQuerySecurityObject", "AccessCheck"):
+            changed = deepcopy(resolver.evidence)
+            changed["observation_apis"][0] = api
+            self.assertEqual(oracle.transition(oracle.initial_state(),
+                {"action": "admit_profile", "evidence": changed}, context=context).disposition, "no_effect_refusal")
+        changed = deepcopy(resolver.evidence)
+        changed["observation_apis"].remove("NtQueryObject:ObjectBasicInformation")
+        self.assertEqual(oracle.transition(oracle.initial_state(),
+            {"action": "admit_profile", "evidence": changed}, context=context).disposition, "no_effect_refusal")
+        with self.assertRaises(oracle.EvidenceError):
+            oracle.PublicationModelContext(security_observation_api="caller_chosen_api")
+
     def test_every_bound_context_phase_refuses_a_different_service_descriptor(self) -> None:
         resolver, context = self._bound_context_variant()
         foreign, _ = self._bound_context_variant("S-1-5-80-6-7-8-9-10")
