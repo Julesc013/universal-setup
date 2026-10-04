@@ -9,6 +9,7 @@
 #include "usk_publisher_handle_observation.h"
 #include "usk_json.h"
 #include <algorithm>
+#include <cstring>
 #include <exception>
 #include <stdexcept>
 #include <vector>
@@ -394,6 +395,17 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         checks.emplace(name, Value(Value::Object{{"requested", Value(static_cast<std::uint64_t>(requested))},
             {"allowed", Value(allowed != FALSE)}, {"granted", Value(static_cast<std::uint64_t>(granted))}}));
     }
+    // Group and API control flags are not in the native object observation.
+    // Bracket the actual returned descriptor too; never reconstruct its bytes
+    // or copy stored protection flags into this API's representation.
+    LocalBuffer descriptor_after;
+    if (GetSecurityInfo(object, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
+        DACL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr,
+        reinterpret_cast<PSECURITY_DESCRIPTOR*>(&descriptor_after.value)) != ERROR_SUCCESS ||
+        !descriptor_after.value || !IsValidSecurityDescriptor(descriptor_after.value) ||
+        GetSecurityDescriptorLength(descriptor_after.value) != length ||
+        std::memcmp(descriptor.value, descriptor_after.value, length) != 0)
+        throw std::runtime_error("held descriptor changed across authenticated access collection");
     const auto after = directory ? observe_publisher_directory_handle(object) : observe_publisher_file_handle(object);
     if (usk::json::canonical(publisher_handle_observation_json(before)) !=
             usk::json::canonical(publisher_handle_observation_json(after)) ||

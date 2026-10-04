@@ -289,6 +289,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
                 authorized_client_sid, stop_event, 120000);
             const std::string request=request_channel->receive();
+            config.authenticated_request=request_channel.get();
             const auto submitted=usk::json::parse(request);
             const auto schema=submitted.at("schema").as_string();
             if (schema == "usk.publisher_capability_request.v2") {

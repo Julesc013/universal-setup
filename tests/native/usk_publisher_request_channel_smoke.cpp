@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_execution_observation.h"
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
@@ -228,6 +229,28 @@ int main() {
                 access.at("checks").at("delete").at("allowed").as_boolean() &&
                 access.at("checks").at("delete").at("granted").as_unsigned() == DELETE,
                 "actual authenticated access check lost allowed/denied distinction");
+            const auto client_facts = access.at("client");
+            const auto native_object = access.at("native_object");
+            auto compact = access;
+            compact.as_object().erase("client");
+            compact.as_object().erase("native_object");
+            compact.as_object().emplace("client_sha256", usk::json::Value(usk::json::sha256_canonical(client_facts)));
+            compact.as_object().emplace("native_object_sha256", usk::json::Value(usk::json::sha256_canonical(native_object)));
+            using usk::platform::windows::require_publisher_authenticated_object_access;
+            require_publisher_authenticated_object_access(compact, client_facts, native_object);
+            auto invalid = compact;
+            invalid.as_object().at("descriptor_hex") = usk::json::Value("0100000000000000000000000000000000000000");
+            refuses([&] { require_publisher_authenticated_object_access(invalid, client_facts, native_object); });
+            invalid = compact;
+            invalid.as_object().at("client_sha256") = usk::json::Value(std::string(64, '0'));
+            refuses([&] { require_publisher_authenticated_object_access(invalid, client_facts, native_object); });
+            invalid = compact;
+            invalid.as_object().at("checks").as_object().at("delete").as_object().at("allowed") = usk::json::Value(false);
+            refuses([&] { require_publisher_authenticated_object_access(invalid, client_facts, native_object); });
+            invalid = compact;
+            invalid.as_object().at("observed_group_sid") = usk::json::Value(
+                compact.at("observed_group_sid").as_string() == "S-1-5-18" ? "S-1-5-32-545" : "S-1-5-18");
+            refuses([&] { require_publisher_authenticated_object_access(invalid, client_facts, native_object); });
             refuses([&] { (void)channel->observe_authenticated_object_access(INVALID_HANDLE_VALUE); });
             refuses([&] { channel->receive(); });
             channel->reply("completed");

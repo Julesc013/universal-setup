@@ -17,6 +17,7 @@
 #include "usk_publisher_consumer_access.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_execution_observation.h"
+#include "usk_publisher_request_channel.h"
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
@@ -87,6 +88,7 @@ thread_local std::optional<std::string> submitted_apply_request;
 thread_local std::optional<std::string> submitted_recovery_request;
 thread_local std::optional<std::string> submitted_verify_request;
 thread_local std::string consumer_read_sid;
+thread_local const usk::platform::windows::PublisherRequestChannel* authenticated_request = nullptr;
 thread_local bool interrupt_consumer_grant = false;
 struct ReviewedPlanBinding {
     std::string plan_digest;
@@ -595,7 +597,8 @@ std::vector<std::pair<std::string, std::string>> phase_object_bindings(
 
 void require_same_handle_phase_objects(const usk::json::Value& execution,
     const usk::json::Value& anchors, const usk::json::Value& tree) {
-    if (execution.at("schema").as_string() != "usk.publisher_execution_observation.v5") return;
+    if (execution.at("schema").as_string() != "usk.publisher_execution_observation.v5" &&
+        execution.at("schema").as_string() != "usk.publisher_execution_observation.v6") return;
     const std::vector<const usk::json::Value*> expected{
         &anchors.at("boundary"), &anchors.at("chain").as_array().at(0).at("object"),
         &anchors.at("staging"), &anchors.at("destination_parent"),
@@ -611,7 +614,7 @@ void require_same_handle_phase_objects(const usk::json::Value& execution,
 usk::json::Value capture_native_execution_phase(const std::string& phase,
     const std::vector<HANDLE>& handles,
     const usk::platform::windows::PublisherAnchorSetObservation& anchors,
-    const usk::platform::windows::PublisherTreeObservation& tree) {
+    const usk::platform::windows::PublisherTreeObservation& tree, bool authenticated_bound = false) {
     using namespace usk::platform::windows;
     const auto anchor_value = usk::json::parse(json_anchor_set(anchors));
     const auto tree_value = usk::json::parse(json_tree(tree));
@@ -623,7 +626,10 @@ usk::json::Value capture_native_execution_phase(const std::string& phase,
     for (std::size_t index = 0; index < handles.size(); ++index) {
         phase_handles.push_back({bindings[index].first, handles[index], bindings[index].second});
     }
-    const auto execution = observe_publisher_execution_phase(service_name, phase, phase_handles);
+    if (authenticated_bound && !authenticated_request)
+        throw std::runtime_error("authenticated phase requires the live private request channel");
+    const auto execution = observe_publisher_execution_phase(service_name, phase, phase_handles,
+        authenticated_bound ? authenticated_request : nullptr);
     require_same_handle_phase_objects(execution, anchor_value, tree_value);
     return usk::json::Value(usk::json::Value::Object{
         {"execution", execution},
@@ -675,7 +681,7 @@ void require_native_rename_call(const usk::json::Value& call,
     if (call.as_object().size() != (rights_bound ? 21u : 18u) ||
         (!rights_bound && call.at("schema").as_string() != "usk.publisher_bound_rename_call.v1") ||
         ((prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v6" ||
-          prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v7") && !rights_bound) ||
+          (prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v7" || prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v8")) && !rights_bound) ||
         call.at("api").as_string() != "NtSetInformationFile" ||
         call.at("source_file_id").as_string() != prepared.at("source_file_id").as_string() ||
         call.at("destination_parent_file_id").as_string() != prepared.at("destination_parent_file_id").as_string() ||
@@ -710,12 +716,12 @@ void require_native_rename_call(const usk::json::Value& call,
 bool is_execution_record_schema(const std::string& schema) {
     return schema == "usk.publisher.lab_phase_evidence.v3" ||
         schema == "usk.publisher.lab_phase_evidence.v4" || schema == "usk.publisher.lab_phase_evidence.v5" ||
-        schema == "usk.publisher.lab_phase_evidence.v6" || schema == "usk.publisher.lab_phase_evidence.v7";
+        schema == "usk.publisher.lab_phase_evidence.v6" || (schema == "usk.publisher.lab_phase_evidence.v7" || schema == "usk.publisher.lab_phase_evidence.v8");
 }
 
 std::size_t visible_record_field_count(const std::string& schema) {
     if (schema == "usk.publisher.lab_phase_evidence.v5" ||
-        schema == "usk.publisher.lab_phase_evidence.v6" || schema == "usk.publisher.lab_phase_evidence.v7") return 12;
+        schema == "usk.publisher.lab_phase_evidence.v6" || (schema == "usk.publisher.lab_phase_evidence.v7" || schema == "usk.publisher.lab_phase_evidence.v8")) return 12;
     return is_execution_record_schema(schema) ? 11 : 9;
 }
 
@@ -724,7 +730,7 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
     const auto& schema = prepared.at("schema").as_string();
     const bool creation_bound = schema == "usk.publisher.lab_phase_evidence.v4" ||
         schema == "usk.publisher.lab_phase_evidence.v5" || schema == "usk.publisher.lab_phase_evidence.v6" ||
-        schema == "usk.publisher.lab_phase_evidence.v7";
+        (schema == "usk.publisher.lab_phase_evidence.v7" || schema == "usk.publisher.lab_phase_evidence.v8");
     if (!is_execution_record_schema(schema)) {
         if (prepared.contains("execution_phases") || prepared.contains("execution_origin") ||
             prepared.contains("creation_evidence")) {
@@ -737,12 +743,16 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
         throw std::runtime_error("native prepared record is not its closed execution schema");
     }
     const auto& phases = prepared.at("execution_phases").as_array();
-    if (schema == "usk.publisher.lab_phase_evidence.v6" || schema == "usk.publisher.lab_phase_evidence.v7") {
+    const bool authenticated_bound = schema == "usk.publisher.lab_phase_evidence.v8";
+    if (schema == "usk.publisher.lab_phase_evidence.v6" || (schema == "usk.publisher.lab_phase_evidence.v7" || schema == "usk.publisher.lab_phase_evidence.v8")) {
         for (const auto& phase : phases) {
             const auto& execution_schema = phase.at("execution").at("schema").as_string();
             if ((execution_schema != "usk.publisher_execution_observation.v4" &&
-                 execution_schema != "usk.publisher_execution_observation.v5") ||
-                (schema == "usk.publisher.lab_phase_evidence.v7" && execution_schema != "usk.publisher_execution_observation.v5"))
+                 execution_schema != "usk.publisher_execution_observation.v5" &&
+                 execution_schema != "usk.publisher_execution_observation.v6") ||
+                (schema == "usk.publisher.lab_phase_evidence.v7" && execution_schema != "usk.publisher_execution_observation.v5") ||
+                (authenticated_bound && execution_schema != "usk.publisher_execution_observation.v6") ||
+                (!authenticated_bound && execution_schema == "usk.publisher_execution_observation.v6"))
                 throw std::runtime_error("current native prepared evidence requires held-handle rights");
         }
     }
@@ -775,7 +785,8 @@ void require_visible_execution_phase(const usk::json::Value& bound,
     const std::string& service_sid, const usk::json::Value& prepared,
     const std::wstring& expected_service_name = service_name) {
     if (is_execution_record_schema(bound.at("schema").as_string())) {
-        const bool metadata_bound = bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v7";
+        const bool authenticated_bound = bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v8";
+        const bool metadata_bound = (bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v7" || bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v8");
         const bool rights_bound = metadata_bound || bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v6";
         const bool rename_bound = rights_bound || bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v5";
         if (bound.as_object().size() != visible_record_field_count(bound.at("schema").as_string()) ||
@@ -787,8 +798,11 @@ void require_visible_execution_phase(const usk::json::Value& bound,
             for (const auto& phase : phases) {
                 const auto& execution_schema = phase.at("execution").at("schema").as_string();
                 if ((execution_schema != "usk.publisher_execution_observation.v4" &&
-                     execution_schema != "usk.publisher_execution_observation.v5") ||
-                    (metadata_bound && execution_schema != "usk.publisher_execution_observation.v5"))
+                     execution_schema != "usk.publisher_execution_observation.v5" &&
+                     execution_schema != "usk.publisher_execution_observation.v6") ||
+                    (metadata_bound && !authenticated_bound && execution_schema != "usk.publisher_execution_observation.v5") ||
+                    (authenticated_bound && execution_schema != "usk.publisher_execution_observation.v6") ||
+                    (!authenticated_bound && execution_schema == "usk.publisher_execution_observation.v6"))
                     throw std::runtime_error("current native visible evidence requires held-handle rights");
             }
         }
@@ -1436,7 +1450,8 @@ std::string lab_visible_record(
     const std::string& execution_transition = {}, bool creation_bound = false,
     bool rename_bound = false,
     const usk::platform::windows::PublisherBoundRenameObservation* rename_call = nullptr,
-    bool rights_bound = false, bool metadata_bound = false) {
+    bool rights_bound = false, bool metadata_bound = false, bool authenticated_bound = false) {
+    if (authenticated_bound && !metadata_bound) throw std::runtime_error("authenticated visible record requires stored metadata");
     if (metadata_bound && !rights_bound) throw std::runtime_error("metadata-bound visible record requires held rights");
     if (rights_bound && !rename_bound) throw std::runtime_error("rights-bound visible record requires rename evidence");
     if (creation_bound && execution_phases.empty()) {
@@ -1456,7 +1471,7 @@ std::string lab_visible_record(
     }
     return canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
-        (!execution_phases.empty() ? (metadata_bound ? "v7" : rights_bound ? "v6" : rename_bound ? "v5" : creation_bound ? "v4" : "v3") : selected_digest.empty() ? "v1" : "v2") +
+        (!execution_phases.empty() ? (authenticated_bound ? "v8" : metadata_bound ? "v7" : rights_bound ? "v6" : rename_bound ? "v5" : creation_bound ? "v4" : "v3") : selected_digest.empty() ? "v1" : "v2") +
         "\",\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
         json_quote(source_file_id) +
         ",\"destination_parent_file_id\":" +
@@ -1844,7 +1859,8 @@ std::string observe_prepared_recovery(HANDLE volume,
             require_publisher_tree_phase_match(actual_tree,
                 observe_publisher_tree(root.get()));
             if (execution_bound) forward_execution_phases.push_back(capture_native_execution_phase(
-                "before_rename", forward_handles, anchors, actual_tree));
+                "before_rename", forward_handles, anchors, actual_tree,
+                prepared_schema == "usk.publisher.lab_phase_evidence.v8"));
             forward_rename_call = probe_publisher_bound_rename_no_replace(root.get(),
                 destination.get(), visible_component, observed_tree.root,
                 anchors.destination_parent.object);
@@ -1862,7 +1878,8 @@ std::string observe_prepared_recovery(HANDLE volume,
         const auto descriptor = make_publisher_directory_security_descriptor(
             std::wstring(service_sid.begin(), service_sid.end()));
         if (execution_bound) forward_execution_phases.push_back(capture_native_execution_phase(
-            "visible_bound", forward_handles, anchors, forward_visible));
+            "visible_bound", forward_handles, anchors, forward_visible,
+            prepared_schema == "usk.publisher.lab_phase_evidence.v8"));
         const std::string forward_record = lab_visible_record(
             forward_visible.root.file_id,
             anchors.destination_parent.object.file_id, prepared_digest,
@@ -1870,12 +1887,13 @@ std::string observe_prepared_recovery(HANDLE volume,
             staged ? "renamed_by_current_worker" : "observed_visible_on_restart",
             prepared_schema == "usk.publisher.lab_phase_evidence.v4" ||
                 prepared_schema == "usk.publisher.lab_phase_evidence.v5" || prepared_schema == "usk.publisher.lab_phase_evidence.v6" ||
-                prepared_schema == "usk.publisher.lab_phase_evidence.v7",
+                (prepared_schema == "usk.publisher.lab_phase_evidence.v7" || prepared_schema == "usk.publisher.lab_phase_evidence.v8"),
             prepared_schema == "usk.publisher.lab_phase_evidence.v5" || prepared_schema == "usk.publisher.lab_phase_evidence.v6" ||
-                prepared_schema == "usk.publisher.lab_phase_evidence.v7",
+                (prepared_schema == "usk.publisher.lab_phase_evidence.v7" || prepared_schema == "usk.publisher.lab_phase_evidence.v8"),
             forward_rename_call ? &*forward_rename_call : nullptr,
-            prepared_schema == "usk.publisher.lab_phase_evidence.v6" || prepared_schema == "usk.publisher.lab_phase_evidence.v7",
-            prepared_schema == "usk.publisher.lab_phase_evidence.v7");
+            prepared_schema == "usk.publisher.lab_phase_evidence.v6" || prepared_schema == "usk.publisher.lab_phase_evidence.v7" || prepared_schema == "usk.publisher.lab_phase_evidence.v8",
+            prepared_schema == "usk.publisher.lab_phase_evidence.v7" || prepared_schema == "usk.publisher.lab_phase_evidence.v8",
+            prepared_schema == "usk.publisher.lab_phase_evidence.v8");
         require_visible_execution_phase(usk::json::parse(forward_record), service_sid, prepared);
         write_journal_phase(journal.get(), L"lab-visible-evidence.json",
             descriptor, forward_record);
@@ -2434,6 +2452,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     }
     const bool execution_bound = reviewed_plan.has_value() &&
         (submitted_apply_request.has_value() || submitted_recovery_request.has_value());
+    const bool authenticated_bound = execution_bound && authenticated_request && !staged_only_reentry;
     std::unique_ptr<PublisherCreationCapture> creation_capture;
     if (execution_bound && !staged_only_reentry) {
         creation_capture = std::make_unique<PublisherCreationCapture>(volume, service_name);
@@ -2536,7 +2555,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         require_publisher_tree_security_shape(empty, service_sid);
         if (!empty.descendants.empty()) throw std::runtime_error("new protected candidate is not empty");
         prepared_execution_phases.push_back(capture_native_execution_phase(
-            "protected_empty", phase_handles, first, empty));
+            "protected_empty", phase_handles, first, empty, authenticated_bound));
     }
     static constexpr char bytes[] = "protected staged payload\n";
     std::uint64_t expected_payload_size = sizeof(bytes) - 1;
@@ -2598,7 +2617,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     require_publisher_tree_security_shape(sealed, service_sid);
     require_publisher_tree_exact_file_closure(sealed, expected_files);
     if (execution_bound) prepared_execution_phases.push_back(capture_native_execution_phase(
-        "sealed", phase_handles, observe_publisher_anchor_set(volume, {L"publication"}, names), sealed));
+        "sealed", phase_handles, observe_publisher_anchor_set(volume, {L"publication"}, names), sealed, authenticated_bound));
     const std::string selected_digest = selected_v2 ?
         selected_file_set_digest(expected_files) : std::string{};
     if (selected_v2 && selected_file_set_digest(sealed) != selected_digest) {
@@ -2633,10 +2652,10 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         }
     }
     if (execution_bound) prepared_execution_phases.push_back(capture_native_execution_phase(
-        "publish_prepared", phase_handles, third, observe_publisher_tree(candidate.get())));
+        "publish_prepared", phase_handles, third, observe_publisher_tree(candidate.get()), authenticated_bound));
     const std::string prepared = canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
-        (execution_bound ? (creation_evidence ? "v7" : "v3") : selected_v2 ? "v2" : "v1") + "\","
+        (execution_bound ? (creation_evidence ? (authenticated_bound ? "v8" : "v7") : "v3") : selected_v2 ? "v2" : "v1") + "\","
         "\"phase\":\"lab_prepared_evidence\",\"service_sid\":" +
         json_quote(service_sid) +
         ",\"volume_serial\":" +
@@ -2691,7 +2710,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     if (execution_bound) {
         visible_execution_phases.push_back(capture_native_execution_phase("before_rename",
             phase_handles, observe_publisher_anchor_set(volume, {L"publication"}, names),
-            observe_publisher_tree(candidate.get())));
+            observe_publisher_tree(candidate.get()), authenticated_bound));
         require_publisher_execution_worker_match(prepared_execution_phases.back().at("execution"),
             visible_execution_phases.front().at("execution"));
     }
@@ -2707,12 +2726,12 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         volume, {L"publication"}, names);
     require_publisher_anchor_set_phase_match(first, after);
     if (execution_bound) visible_execution_phases.push_back(capture_native_execution_phase(
-        "visible_bound", phase_handles, after, visible));
+        "visible_bound", phase_handles, after, visible, authenticated_bound));
     const std::string bound = lab_visible_record(
         renamed.root_file_id, first.destination_parent.object.file_id,
         prepared_digest, after, visible, selected_digest, visible_execution_phases,
         "renamed_by_current_worker", creation_evidence.has_value(), creation_evidence.has_value(), &renamed,
-        creation_evidence.has_value(), creation_evidence.has_value());
+        creation_evidence.has_value(), creation_evidence.has_value(), authenticated_bound);
     require_visible_execution_phase(usk::json::parse(bound), service_sid, usk::json::parse(prepared));
     write_journal_phase(journal.get(), L"lab-visible-evidence.json", descriptor, bound);
     const auto journal_tree = observe_publisher_tree(journal.get());
@@ -2854,6 +2873,9 @@ thread_local bool execution_active=false;
 struct ScopedExecution {
     explicit ScopedExecution(const usk::platform::windows::CandidatePublisherConfiguration& config) {
         if (execution_active) throw std::runtime_error("nested publisher execution");
+        if (config.authenticated_request && !config.submitted_apply_request &&
+            !config.submitted_recovery_request && !config.submitted_verify_request)
+            throw std::runtime_error("authenticated channel lacks an operation request");
         service_name=config.service_name;
         receipt_path=config.receipt_path;
         volume_root=config.volume_root;
@@ -2902,11 +2924,13 @@ struct ScopedExecution {
             }
         } else if (interrupt_consumer_grant) throw std::runtime_error("consumer fault requires admitted consumer policy");
         stop_event=config.stop_event;
+        authenticated_request=config.authenticated_request;
         reviewed_install_reentry=false;
         execution_active=true;
     }
     ~ScopedExecution() { submitted_apply_request.reset(); submitted_recovery_request.reset();
         submitted_verify_request.reset();
+        authenticated_request=nullptr;
         consumer_read_sid.clear(); visible_component=L"visible"; execution_active=false; }
 };
 } // namespace

@@ -1616,7 +1616,8 @@ static std::string require_held_publisher_evidence(
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v4" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v5" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v6" &&
-            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v7") ||
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v7" &&
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v8") ||
         bound.at("schema").as_string() != prepared.at("schema").as_string() ||
         (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
             snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&

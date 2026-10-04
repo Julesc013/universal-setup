@@ -453,7 +453,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
     $record=$prepared[0].content_json|ConvertFrom-Json
-    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7') -or
+    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8') -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
         $receipt['native_execution_diagnostic']=@{schema=$record.schema;phase=$record.phase;

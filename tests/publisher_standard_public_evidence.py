@@ -327,15 +327,28 @@ def reconcile(receipt, expected_head):
             report.get("creation_observation", {}).get("worker_security_checked") is True and
             report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
         prepared_schema = json.loads(prepared[0])['schema']
-        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7'):
+        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8'):
             require_native_capture_set(native_captures, captures, commands)
         if native_captures is not None:
-            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7') and
+            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8') and
                 report.get('held_access_phase_count') == 5 and report.get('native_rename_calls_checked') == 1,
                 'current standard producer requires complete v6 access and actual rename bindings')
-            if prepared_schema == 'usk.publisher.lab_phase_evidence.v7':
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8'):
                 require(report.get('same_handle_objects_checked') == 35,
                     'current standard producer requires all seven same-handle security objects per phase')
+            if prepared_schema == 'usk.publisher.lab_phase_evidence.v8':
+                from publisher_authenticated_access_evidence import reconcile_client_capture
+                require(report.get('authenticated_access_objects_checked') == 35,
+                        'current standard producer requires authenticated access for every held phase role')
+                phases = json.loads(prepared[0])['execution_phases'] + json.loads(visible[0])['execution_phases']
+                for phase in phases:
+                    actual_client = phase['execution']['authenticated_client']
+                    matched = [capture for capture in captures if capture['process_id'] == actual_client['captured_process_id']]
+                    require(len(matched) == 1, 'authenticated phase PID lacks a unique independent client capture')
+                    try:
+                        reconcile_client_capture(actual_client, matched[0])
+                    except (ValueError, KeyError, TypeError) as error:
+                        raise StandardEvidenceError('authenticated phase client capture differs: ' + str(error)) from error
         require(report == readback["execution_reconciliation"], "standard embedded native reconciliation differs")
         reports.append(report)
     if native_captures is not None:
