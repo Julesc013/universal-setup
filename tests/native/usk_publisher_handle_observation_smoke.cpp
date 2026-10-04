@@ -108,6 +108,16 @@ int main() {
 
             check_stored_protection(handle.get(), true);
 
+            check(usk::platform::windows::observe_publisher_noninheritable_handle_flags(handle.get()) == 0,
+                "owned fixture handle flags were not observed");
+            check(SetHandleInformation(handle.get(), HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) != FALSE,
+                "owned handle inheritance control setup failed");
+            check(refused(handle.get()), "inheritable handle supplied publisher facts");
+            check(SetHandleInformation(handle.get(), HANDLE_FLAG_INHERIT, 0) != FALSE,
+                "owned handle inheritance control teardown failed");
+            check(observe_publisher_directory_handle(handle.get()).file_id == observed.file_id,
+                "inheritance control changed owned object identity");
+
             PACL original_dacl = nullptr;
             PSECURITY_DESCRIPTOR raw_descriptor = nullptr;
             const DWORD read_status = GetSecurityInfo(handle.get(), SE_FILE_OBJECT,

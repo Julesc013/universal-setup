@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_execution_observation.h"
 
 #include <windows.h>
 #include <sddl.h>
@@ -9,6 +10,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <functional>
 
 using usk::platform::windows::has_restricted_publisher_token_facts;
 using usk::platform::windows::observe_current_publisher_token;
@@ -19,6 +21,73 @@ namespace {
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
+
+#if defined(_WIN64)
+void execution_record_controls(const usk::json::Value& platform, const std::string& service_sid) {
+    using usk::json::Value;
+    using namespace usk::platform::windows;
+    const std::wstring name = L"USK_Disposable_Execution_Record_Model";
+    const std::vector<std::string> roles{"volume_root", "publication_root", "staging_anchor",
+        "destination_parent", "state_anchor", "journal_anchor", "payload_root"};
+    std::vector<std::pair<std::string, std::string>> bindings;
+    Value::Array handles;
+    for (std::size_t index = 0; index < roles.size(); ++index) {
+        const std::string id = "0000000000001234:" + std::string(31, '0') + static_cast<char>('1' + index);
+        bindings.emplace_back(roles[index], id);
+        handles.emplace_back(Value::Object{{"role", Value(roles[index])}, {"file_id", Value(id)},
+            {"handle_flags", Value(std::uint64_t{0})}});
+    }
+    const Value service(Value::Object{{"service_name", Value("USK_Disposable_Execution_Record_Model")},
+        {"service_sid", Value(service_sid)}, {"service_sid_type", Value(std::uint64_t{3})},
+        {"service_type", Value(std::uint64_t{16})}, {"service_state", Value(std::uint64_t{4})},
+        {"process_id", Value(std::uint64_t{500})}, {"process_user_sid", Value("S-1-5-18")},
+        {"thread_impersonating", Value(false)},
+        {"process_groups", Value(Value::Array{Value(Value::Object{{"sid", Value(service_sid)},
+            {"attributes", Value(std::uint64_t{4})}})})},
+        {"process_restricted_sids", Value(Value::Array{Value(Value::Object{{"sid", Value(service_sid)},
+            {"attributes", Value(std::uint64_t{0})}})})},
+        {"token_id", Value("0000000000000123")}, {"authentication_id", Value("00000000000003e7")},
+        {"modified_id", Value("0000000000000124")}, {"token_type", Value(std::uint64_t{1})}});
+    const Value valid(Value::Object{{"schema", Value("usk.publisher_execution_observation.v1")},
+        {"scope", Value("supplied_held_service_handles")}, {"phase", Value("sealed")},
+        {"platform", platform}, {"service", service}, {"handles", Value(handles)}});
+    // Pure parser controls: this structured record makes no native service claim.
+    require_publisher_execution_phase(valid, name, service_sid, "sealed", bindings);
+    const auto refuses = [&](const std::function<void(Value&)>& mutate) {
+        auto invalid = valid;
+        mutate(invalid);
+        bool failed = false;
+        try { require_publisher_execution_phase(invalid, name, service_sid, "sealed", bindings); }
+        catch (const std::runtime_error&) { failed = true; }
+        check(failed, "closed native execution parser accepted contradictory evidence");
+    };
+    refuses([](Value& v) { v.as_object().at("scope") = Value("all_system_handles"); });
+    refuses([](Value& v) { v.as_object().at("phase") = Value("visible_bound"); });
+    refuses([](Value& v) { v.as_object().emplace("extra", Value(true)); });
+    refuses([](Value& v) { v.as_object().at("handles").as_array().pop_back(); });
+    refuses([](Value& v) { v.as_object().at("handles").as_array()[0].as_object().at("handle_flags") = Value(std::uint64_t{1}); });
+    refuses([](Value& v) { v.as_object().at("handles").as_array()[0].as_object().at("file_id") = Value("invalid"); });
+    refuses([](Value& v) { v.as_object().at("platform").as_object().at("process_arch") = Value("x86"); });
+    refuses([](Value& v) { v.as_object().at("platform").as_object().at("sdk_version") = Value(""); });
+    refuses([](Value& v) { v.as_object().at("platform").as_object().at("windows_build") = Value(std::uint64_t{17762}); });
+    refuses([](Value& v) { v.as_object().at("service").as_object().at("thread_impersonating") = Value(true); });
+    refuses([](Value& v) { v.as_object().at("service").as_object().at("token_type") = Value(std::uint64_t{2}); });
+    refuses([](Value& v) { v.as_object().at("service").as_object().at("token_id") = Value("0000000000000000"); });
+    refuses([](Value& v) { v.as_object().at("service").as_object().at("process_restricted_sids") = Value(Value::Array{}); });
+    for (const auto* invalid_sid : {"", "BA", "S-1-05-32-545", "S-1-5-32-4294967296"}) {
+        refuses([&](Value& v) { v.as_object().at("service").as_object().at("process_groups").as_array().emplace_back(
+            Value::Object{{"sid", Value(invalid_sid)}, {"attributes", Value(std::uint64_t{0})}}); });
+    }
+    auto later = valid;
+    later.as_object().at("phase") = Value("publish_prepared");
+    require_publisher_execution_worker_match(valid, later);
+    later.as_object().at("service").as_object().at("modified_id") = Value("0000000000000125");
+    bool changed_refused = false;
+    try { require_publisher_execution_worker_match(valid, later); }
+    catch (const std::runtime_error&) { changed_refused = true; }
+    check(changed_refused, "changed worker token was accepted across phases");
+}
+#endif
 } // namespace
 
 int main() {
@@ -50,8 +119,23 @@ int main() {
         const auto ordinary = observe_current_publisher_token();
         check(!ordinary.process_user_sid.empty() && !ordinary.current_thread_impersonating,
             "ordinary process token or thread state was not observed");
+        check(ordinary.identity.token_id != 0 && ordinary.identity.authentication_id != 0 &&
+            ordinary.identity.modified_id != 0 && ordinary.identity.token_type == TokenPrimary,
+            "actual process token statistics identity was not observed");
+        const auto platform = usk::platform::windows::observe_publisher_execution_platform();
+        check(platform.at("windows_build").as_unsigned() >= 17763 &&
+            platform.at("sdk_version").as_string().compare(0, 5, "10.0.") == 0,
+            "actual Windows build and selected build SDK were not bound");
         const std::string service_sid =
             "S-1-5-80-3180180915-1861177297-4117424284-3321057921-2519428456";
+#if defined(_WIN64)
+        execution_record_controls(platform, service_sid);
+#else
+        bool x86_refused = false;
+        try { usk::platform::windows::require_publisher_execution_platform(platform); }
+        catch (const std::runtime_error&) { x86_refused = true; }
+        check(x86_refused, "Win32 process was accepted by the native x64 execution profile");
+#endif
         check(!has_restricted_publisher_token_facts(ordinary, service_sid),
             "ordinary login was admitted as a restricted publisher service");
         bool absent_service_refused = false;

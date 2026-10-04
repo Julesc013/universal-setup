@@ -103,8 +103,18 @@ std::vector<ObservedAce> observe_aces(PACL dacl) {
 }
 } // namespace
 
+std::uint32_t observe_publisher_noninheritable_handle_flags(HANDLE handle) {
+    DWORD flags = 0;
+    if (!handle || handle == INVALID_HANDLE_VALUE || !GetHandleInformation(handle, &flags) ||
+        (flags & HANDLE_FLAG_INHERIT) != 0) {
+        throw std::runtime_error("publisher observation requires a non-inheritable held handle");
+    }
+    return flags;
+}
+
 static PublisherHandleObservation observe_publisher_handle(HANDLE handle,
     bool require_directory) {
+    (void)observe_publisher_noninheritable_handle_flags(handle);
     if (!handle || handle == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("publisher observation requires an open handle");
     }

@@ -43,6 +43,9 @@ public:
 };
 std::string execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration&, bool& effects_may_exist);
+void require_candidate_publisher_execution_records(
+    const usk::json::Value& prepared, const usk::json::Value& visible,
+    const std::wstring& service_name, const std::string& service_sid);
 }
 namespace usk::lifecycle {
 class ProtectedApplyEffectsRetained final : public std::runtime_error {

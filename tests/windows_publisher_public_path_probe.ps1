@@ -45,12 +45,23 @@ $caller=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $invokingProcess=Get-Process -Id $PID
 $invokingCreation=$invokingProcess.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
 $utf8=[Text.UTF8Encoding]::new($false)
+$publisherBuild=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($ServiceBinary)))
+$publisherProjectPath=Join-Path $publisherBuild 'usk_publisher_windows_static.vcxproj'
+$publisherProject=[xml][IO.File]::ReadAllText($publisherProjectPath)
+$publisherSdk=@($publisherProject.Project.PropertyGroup.WindowsTargetPlatformVersion|Where-Object {$_}|Select-Object -Unique)
+if($publisherSdk.Count -ne 1 -or $publisherSdk[0] -cnotmatch '^10\.0\.[1-9][0-9]*\.0$') {
+    throw 'Native execution reconciliation requires the actual selected publisher build SDK'
+}
+$executionSdk=[string]$publisherSdk[0]
 $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run';
     service=$service;volume_root=$VolumeRoot;volume_drive_root=$drive;publication_loss=$PublicationLoss;postrename_refusal=$PostRenameRefusal;
     partition_layout=@($disk|Get-Partition|Select-Object PartitionNumber,Offset,Size,GptType,MbrType,IsBoot,IsSystem);
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     service_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
-    client_cleanup_confirmed=$false;machine_client_captures=[Collections.Generic.List[object]]::new()}
+    client_cleanup_confirmed=$false;machine_client_captures=[Collections.Generic.List[object]]::new();
+    execution_build_context=@{windows_sdk=$executionSdk;
+        publisher_project_sha256=(Get-FileHash -LiteralPath $publisherProjectPath -Algorithm SHA256).Hash.ToLowerInvariant()};
+    execution_readback_reconciliations=[Collections.Generic.List[object]]::new()}
 $created=$false
 $boundaryObserver=$null
 $clientTokenLease=$null
@@ -442,7 +453,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
     $record=$prepared[0].content_json|ConvertFrom-Json
-    if($record.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+    if($record.schema -cne 'usk.publisher.lab_phase_evidence.v3' -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
         throw 'Independent prepared tree binding differs'
@@ -511,7 +522,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $visible=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
     if($visible.Count -eq 1) {
         $value=$visible[0].content_json|ConvertFrom-Json
-        if($value.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+        if($value.schema -cne 'usk.publisher.lab_phase_evidence.v3' -or
             $value.phase -cne 'lab_visible_evidence' -or
             $value.prepared_record_sha256 -cne $prepared[0].sha256 -or
             $value.source_file_id -cne $record.sealed_tree.root.file_id) {
@@ -519,6 +530,23 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
         }
         Assert-NativeTree $value.visible_tree ($drive+'publication\destination\visible')
     } elseif($visible.Count -ne 0){throw 'Independent visible record is ambiguous'}
+    $executionInput=Join-Path $lab ('execution-readback-'+[guid]::NewGuid().ToString('N')+'.json')
+    $visibleJson=if($visible.Count){[string]$visible[0].content_json}else{$null}
+    Write-Json $executionInput @{prepared_json=[string]$prepared[0].content_json;visible_json=$visibleJson;
+        service_name=$service;service_sid=$sid;windows_build=[int]([Environment]::OSVersion.Version.Build);
+        sdk_version=$executionSdk}
+    $executionResult=& python -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $executionInput
+    if($LASTEXITCODE -ne 0){throw 'Independent native execution record reconciliation failed'}
+    $executionReport=($executionResult -join "`n")|ConvertFrom-Json
+    if($executionReport.schema -cne 'usk.publisher_execution_reconciliation.v1' -or
+        $executionReport.status -cne 'bindings_consistent' -or $executionReport.profile_qualified -ne $false -or
+        $executionReport.held_roles_per_phase -ne 7) {
+        throw 'Independent execution reconciliation result differs'
+    }
+    $receipt.execution_readback_reconciliations.Add(@{result=$executionReport;
+        input_sha256=(Get-FileHash -LiteralPath $executionInput -Algorithm SHA256).Hash.ToLowerInvariant();
+        prepared_record_sha256=$prepared[0].sha256;
+        visible_record_sha256=$(if($visible.Count){$visible[0].sha256}else{$null})})
 }
 function Remove-OwnedPublicSources {
     $exactFixture=[IO.Path]::GetFullPath($fixture)

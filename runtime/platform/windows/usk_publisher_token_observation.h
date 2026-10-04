@@ -16,11 +16,19 @@ struct ObservedTokenGroup {
     std::uint32_t attributes;
 };
 
+struct PublisherTokenIdentity {
+    std::uint64_t token_id = 0;
+    std::uint64_t authentication_id = 0;
+    std::uint64_t modified_id = 0;
+    std::uint32_t token_type = 0;
+};
+
 struct PublisherTokenObservation {
     std::string process_user_sid;
     std::vector<ObservedTokenGroup> process_groups;
     std::vector<ObservedTokenGroup> process_restricted_sids;
     bool current_thread_impersonating;
+    PublisherTokenIdentity identity{};
 };
 
 struct PublisherServiceObservation {

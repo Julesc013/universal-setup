@@ -1651,8 +1651,9 @@ exited 2 with the standard CRLF refusal line. Source inspection identified the
 consumer-read SID validator's RID floor as incompatible with the registered
 controller account (RID 500). Discovery now validates canonical account form
 after matching the actual TokenUser to the registration; consumer grants still
-require RID at least 1000. Native controls cover both policies. Hosted repair
-qualification is pending.
+require RID at least 1000. Native controls cover both policies. PR #222 repair
+head cd52086fbfb856da7fa875054ef052e29e326ebf passed all seven jobs in run
+37162541750 and was integrated at e4c624ac62fe6ff1b3a7b806748547c96ca24ee2.
 
 Independent readbacks additionally hash the bounded stored OWNER/DACL bytes
 from their held root/device handles using the same requested information mask
@@ -1660,3 +1661,42 @@ as discovery. They compare the security projection against the held
 owner/group/DACL access observation before recording the digest. This permits
 external canonical boundary-digest reconciliation without reconstructing
 binary security descriptors from SDDL. No execution lease follows.
+
+## Native execution phases in the public candidate
+
+The registered public consumer path now writes private phase record v3;
+existing v1/v2 recovery readers remain available. A new worker records fresh
+SCM restricted-service configuration, current process token statistics and
+groups, runtime Windows version/native architecture, the SDK selected by the
+generated build, and GetHandleInformation flags for seven distinct retained
+directory roles. Inheritable handles refuse observation rather than having
+their flags cleared. Ordinary processes do not become service observers.
+
+Each phase binds canonical SHA-256 of its freshly observed native anchors and
+tree to the surrounding complete records. Compact bindings preserve the
+existing 4 MiB record budget. Fresh installation retains protected-empty,
+sealed and publish-prepared observations. The visible record adds the actual
+immediate pre-rename and post-reopen observations of that worker. A reopened
+staged tree records its different origin. After a postrename stop, recovery
+records observation of the visible tree by its new worker; it does not claim
+to have witnessed the stopped worker's rename. Token/process identity remains
+stable within one worker's phases and may change across restart.
+
+The hosted public fixtures independently parse these records from SYSTEM
+readbacks, recompute their canonical bindings, and compare the runtime/SDK
+against the runner and generated publisher project. Synthetic native/Python
+controls exercise closed fields, token and handle contradictions, restart
+origins, missing phases, exact prepared bytes and duplicate JSON keys. They
+are parser controls rather than Windows publication qualification.
+
+This evidence covers the supplied held service handles. It does not establish
+their complete creation history, enumerate capabilities outside the service,
+make a multi-API snapshot atomic, or qualify the complete publication model.
+The remaining profile predicates are still the original contract: independent
+same-handle rights and closure reconciliation across all required phases;
+protected creation and uninterrupted capability provenance; supported source,
+binary, SDK, platform and storage binding; conservative ambiguous/crash
+recovery; and production admission connected to the public strict path.
+Reopened evidence and absent prior-worker rename evidence must retain their
+narrower scope. Availability, support, OD-001 and release acceptance remain
+unchanged pending that connected qualification.
