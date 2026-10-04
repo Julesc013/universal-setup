@@ -7,6 +7,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "usk_json.h"
 #include <memory>
 #include <string>
 #include <stdexcept>
@@ -27,6 +28,10 @@ public:
     PublisherRequestChannel(const PublisherRequestChannel&) = delete;
     PublisherRequestChannel& operator=(const PublisherRequestChannel&) = delete;
     std::string receive();
+    // Actual authenticated identification token and current held file-object
+    // descriptor only. This is read-only evidence, not publication admission.
+    // The token stays private to this one-request channel and is never exported.
+    usk::json::Value observe_authenticated_object_access(HANDLE object) const;
     void reply(const std::string& response);
     // One-request service: after the terminal reply, retain the pipe until
     // the client closes it or the bounded wait ends. No second request runs.

@@ -36,6 +36,7 @@ SCHEMA = "usk.publisher.lab_phase_evidence.v3"
 RENAME_SCHEMA = "usk.publisher.lab_phase_evidence.v5"
 RIGHTS_SCHEMA = "usk.publisher.lab_phase_evidence.v6"
 METADATA_SCHEMA = "usk.publisher.lab_phase_evidence.v7"
+AUTHENTICATED_SCHEMA = "usk.publisher.lab_phase_evidence.v8"
 RENAME_KEYS = frozenset({"schema", "api", "source_file_id", "destination_parent_file_id", "destination_component",
     "former_name", "visible_name", "destination_absence_status", "information_class", "information_bytes",
     "file_name_bytes", "replace_if_exists", "native_status", "io_status", "clock", "start_tick", "end_tick", "frequency",
@@ -82,7 +83,7 @@ def validate_rename_call(call: Any, prepared: dict, visible: dict) -> None:
         "native rename text facts differ")
     name_bytes = len(prepared["destination_name"].encode("utf-16-le"))
     require(call["schema"] in ("usk.publisher_bound_rename_call.v1", "usk.publisher_bound_rename_call.v2") and
-        (prepared['schema'] not in (RIGHTS_SCHEMA, METADATA_SCHEMA) or rights_bound) and call["api"] == "NtSetInformationFile" and
+        (prepared['schema'] not in (RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA) or rights_bound) and call["api"] == "NtSetInformationFile" and
         (not rights_bound or (call["handle_access_api"] == "NtQueryObject:ObjectBasicInformation" and
         integer(call["source_granted_access"]) and call["source_granted_access"] & 0x10000 and
         integer(call["destination_parent_granted_access"]) and call["destination_parent_granted_access"] & 4)) and
@@ -116,17 +117,20 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
     require(value["protected_anchors_sha256"] == canonical_sha(anchors) and
             value["tree_sha256"] == canonical_sha(tree), "native phase canonical binding differs")
     execution = value["execution"]
-    metadata_bound = isinstance(execution, dict) and execution.get("schema") == "usk.publisher_execution_observation.v5"
+    authenticated_bound = isinstance(execution, dict) and execution.get("schema") == "usk.publisher_execution_observation.v6"
+    metadata_bound = authenticated_bound or isinstance(execution, dict) and execution.get("schema") == "usk.publisher_execution_observation.v5"
     rights_bound = metadata_bound or isinstance(execution, dict) and execution.get("schema") == "usk.publisher_execution_observation.v4"
     worker_bound = rights_bound or isinstance(execution, dict) and execution.get("schema") == "usk.publisher_execution_observation.v3"
     process_bound = worker_bound or isinstance(execution, dict) and execution.get("schema") == "usk.publisher_execution_observation.v2"
     closed(execution, frozenset({"schema", "scope", "phase", "platform", "service", "handles"}) |
            (frozenset({"process_boundary"}) if process_bound else frozenset()) |
-           (frozenset({"worker_security"}) if worker_bound else frozenset()),
+           (frozenset({"worker_security"}) if worker_bound else frozenset()) |
+           (frozenset({"authenticated_client"}) if authenticated_bound else frozenset()),
            "execution observation keys differ")
     require(execution["schema"] in ("usk.publisher_execution_observation.v1", "usk.publisher_execution_observation.v2",
-            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5") and
-            execution["scope"] == ("supplied_held_service_handles_security_access_and_worker_security" if metadata_bound else
+            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6") and
+            execution["scope"] == ("supplied_held_service_handles_authenticated_access_and_worker_security" if authenticated_bound else
+                                   "supplied_held_service_handles_security_access_and_worker_security" if metadata_bound else
                                    "supplied_held_service_handles_granted_access_and_worker_security" if rights_bound else
                                    "supplied_held_service_handles_and_worker_security" if worker_bound else
                                    "supplied_held_service_handles_and_process_owner_dacl" if process_bound else
@@ -189,7 +193,8 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
     for handle, role, file_id, expected_object in zip(handles, ROLES, bindings, objects):
         closed(handle, frozenset({"role", "file_id", "handle_flags"}) |
                ({"granted_access", "granted_access_api"} if rights_bound else set()) |
-               ({'object_observation'} if metadata_bound else set()), "held handle keys differ")
+               ({'object_observation'} if metadata_bound else set()) |
+               ({'authenticated_access'} if authenticated_bound else set()), "held handle keys differ")
         require(handle["role"] == role and handle["file_id"] == file_id and handle["handle_flags"] == 0 and
                 integer(handle["handle_flags"]), "held handle flags, role or identity differs")
         if rights_bound:
@@ -212,20 +217,31 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
                 closed(ace, frozenset({'type', 'flags', 'access_mask', 'sid'}), 'same-handle ACE keys differ')
                 require(ace['sid'] == principal and integer(ace['type'], 0, 0) and integer(ace['flags'], 0, 0) and
                     integer(ace['access_mask'], 0x1f01ff, 0x1f01ff), 'same-handle protected ACE facts differ')
+        if authenticated_bound:
+            from publisher_authenticated_access_evidence import validate_access
+            try:
+                validate_access(handle['authenticated_access'], execution['authenticated_client'], expected_object)
+            except (ValueError, KeyError, TypeError, struct.error) as error:
+                raise EvidenceError('authenticated phase access differs: ' + str(error)) from error
     return execution
 
 
 def worker_match(earlier: dict, later: dict) -> None:
     handles = later['handles']
-    if (earlier['schema'] == later['schema'] == 'usk.publisher_execution_observation.v5' and
+    if (earlier['schema'] == later['schema'] and earlier['schema'] in
+            ('usk.publisher_execution_observation.v5', 'usk.publisher_execution_observation.v6') and
             earlier['phase'] == 'before_rename' and later['phase'] == 'visible_bound'):
         handles = [dict(handle) for handle in handles]
         handles[6]['object_observation'] = dict(handles[6]['object_observation'],
             native_name=earlier['handles'][6]['object_observation']['native_name'])
+        if 'authenticated_client' in earlier:
+            handles[6]['authenticated_access'] = dict(handles[6]['authenticated_access'],
+                native_object_sha256=earlier['handles'][6]['authenticated_access']['native_object_sha256'])
     require(all(earlier[key] == later[key] for key in ("schema", "scope", "service", "platform")) and
             earlier['handles'] == handles and
             earlier.get("process_boundary") == later.get("process_boundary") and
-            earlier.get("worker_security") == later.get("worker_security"),
+            earlier.get("worker_security") == later.get("worker_security") and
+            earlier.get('authenticated_client') == later.get('authenticated_client'),
             "worker token/process/platform or held objects changed between phases")
 
 
@@ -243,13 +259,15 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
             17763 <= int(sdk_version.split(".")[2]) <= 0xFFFFFFFF, "independent execution context is invalid")
     prepared = load_json(prepared_json)
     require(isinstance(prepared, dict), "prepared native record is not an object")
-    metadata_bound = prepared.get('schema') == METADATA_SCHEMA
+    authenticated_bound = prepared.get('schema') == AUTHENTICATED_SCHEMA
+    metadata_bound = authenticated_bound or prepared.get('schema') == METADATA_SCHEMA
     rights_bound = metadata_bound or prepared.get("schema") == RIGHTS_SCHEMA
     rename_bound = rights_bound or prepared.get("schema") == RENAME_SCHEMA
-    creation_bound = prepared.get("schema") in ("usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA)
-    closed(prepared, PREPARED_KEYS | ({"creation_evidence"} if creation_bound else set()),
+    creation_bound = prepared.get("schema") in ("usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA)
+    closed(prepared, PREPARED_KEYS | ({"creation_evidence"} if creation_bound else set()) |
+           ({'operation_admission'} if authenticated_bound else set()),
            "prepared native execution record keys differ")
-    require(prepared["schema"] in (SCHEMA, "usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA) and prepared["phase"] == "lab_prepared_evidence" and
+    require(prepared["schema"] in (SCHEMA, "usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA) and prepared["phase"] == "lab_prepared_evidence" and
             prepared["service_sid"] == service_sid and
             prepared["source_file_id"] == prepared["sealed_tree"]["root"]["file_id"] and
             prepared["destination_parent_file_id"] == prepared["protected_anchors"]["destination_parent"]["file_id"],
@@ -266,9 +284,9 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
             tree = dict(tree, descendants=[])
         executions.append(validate_phase(value, name, prepared["protected_anchors"], tree,
                                          service_name, service_sid, windows_build, sdk_version))
-        require(not rights_bound or executions[-1]['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5'),
+        require(not rights_bound or executions[-1]['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5', 'usk.publisher_execution_observation.v6'),
                 "current prepared evidence requires actual held-handle rights")
-        require(not metadata_bound or executions[-1]['schema'] == 'usk.publisher_execution_observation.v5',
+        require(not metadata_bound or executions[-1]['schema'] == ('usk.publisher_execution_observation.v6' if authenticated_bound else 'usk.publisher_execution_observation.v5'),
                 'current prepared evidence requires same-handle security facts')
         if len(executions) > 1:
             worker_match(executions[-2], executions[-1])
@@ -309,9 +327,9 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
             tree = prepared["sealed_tree"] if name == "before_rename" else visible["visible_tree"]
             visible_executions.append(validate_phase(value, name, visible["protected_anchors"], tree,
                 service_name, service_sid, windows_build, sdk_version))
-            require(not rights_bound or visible_executions[-1]['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5'),
+            require(not rights_bound or visible_executions[-1]['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5', 'usk.publisher_execution_observation.v6'),
                     "current visible evidence requires actual held-handle rights")
-            require(not metadata_bound or visible_executions[-1]['schema'] == 'usk.publisher_execution_observation.v5',
+            require(not metadata_bound or visible_executions[-1]['schema'] == ('usk.publisher_execution_observation.v6' if authenticated_bound else 'usk.publisher_execution_observation.v5'),
                     'current visible evidence requires same-handle security facts')
             if len(visible_executions) > 1:
                 worker_match(visible_executions[-2], visible_executions[-1])
@@ -324,7 +342,7 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
                     "native rename rights differ from the actual retained handles")
         executions.extend(visible_executions)
     worker_count = sum(x["schema"] in ("usk.publisher_execution_observation.v3",
-                                      "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5") for x in executions)
+                                      "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6") for x in executions)
     process_count = sum(x["schema"] != "usk.publisher_execution_observation.v1" for x in executions)
     report = {"schema": "usk.publisher_execution_reconciliation.v4" if worker_count else
                        "usk.publisher_execution_reconciliation.v3" if process_count else
@@ -341,9 +359,17 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
         report["worker_security_phase_count"] = worker_count
     if rename_bound:
         report["native_rename_calls_checked"] = rename_calls_checked
-        report["held_access_phase_count"] = sum(x['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5') for x in executions)
+        report["held_access_phase_count"] = sum(x['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5', 'usk.publisher_execution_observation.v6') for x in executions)
     if metadata_bound:
         report['same_handle_objects_checked'] = sum(len(x['handles']) for x in executions)
+    if authenticated_bound:
+        report['authenticated_access_objects_checked'] = sum(len(x['handles']) for x in executions)
+        report['authenticated_actor_scope'] = 'actual_request_client_per_worker'
+        from publisher_authenticated_access_evidence import validate_operation_admission
+        try:
+            report['registered_operation_bound'] = validate_operation_admission(prepared)
+        except (ValueError, KeyError, TypeError) as error:
+            raise EvidenceError('registered operation binding differs: ' + str(error)) from error
     return report
 
 

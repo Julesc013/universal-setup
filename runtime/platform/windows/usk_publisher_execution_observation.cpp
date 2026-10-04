@@ -5,6 +5,7 @@
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_process_boundary.h"
 #include "usk_publisher_worker_security.h"
+#include "usk_publisher_request_channel.h"
 
 #if defined(_WIN32)
 #include <algorithm>
@@ -129,7 +130,126 @@ Value service_json(const PublisherServiceObservation& service) {
         {"modified_id", Value(hex64(service.token.identity.modified_id))},
         {"token_type", Value(static_cast<std::uint64_t>(service.token.identity.token_type))}});
 }
+
+const std::array<std::pair<const char*, DWORD>, 9> access_rights{{
+    {"write_or_add_file", FILE_WRITE_DATA}, {"append_or_add_directory", FILE_APPEND_DATA},
+    {"write_ea", FILE_WRITE_EA}, {"delete_child", FILE_DELETE_CHILD},
+    {"write_attributes", FILE_WRITE_ATTRIBUTES}, {"delete", DELETE},
+    {"write_dac", WRITE_DAC}, {"write_owner", WRITE_OWNER}, {"maximum_allowed", MAXIMUM_ALLOWED}}};
+constexpr DWORD mutation_rights = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA |
+    FILE_DELETE_CHILD | FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER;
+
+void require_authenticated_client(const Value& client) {
+    require(client.as_object().size() == 12 &&
+        client.at("schema").as_string() == "usk.publisher_authenticated_client_observation.v1" &&
+        client.at("scope").as_string() == "held_authenticated_identification_token" &&
+        client.at("captured_process_id").as_unsigned() > 0 &&
+        client.at("captured_process_id").as_unsigned() <= 0xffffffffu &&
+        canonical_sid(client.at("user_sid").as_string()) &&
+        client.at("token_type").as_unsigned() == TokenImpersonation &&
+        client.at("impersonation_level").as_unsigned() >= SecurityIdentification &&
+        client.at("impersonation_level").as_unsigned() <= SecurityDelegation,
+        "publisher authenticated client is outside the closed identification-token scope");
+    for (const auto* key : {"token_id", "authentication_id", "modified_id"})
+        require(client.at(key).as_unsigned() != 0, "publisher authenticated token identity is absent");
+    for (const auto* key : {"groups", "restricted_sids"}) {
+        require(client.at(key).as_array().size() <= 1024, "publisher authenticated group bound exceeded");
+        (void)parse_groups(client.at(key));
+    }
+    const auto& privileges = client.at("privileges").as_array();
+    require(privileges.size() <= 256, "publisher authenticated privilege bound exceeded");
+    std::set<std::uint64_t> seen;
+    for (const auto& privilege : privileges)
+        require(privilege.as_object().size() == 2 && privilege.at("luid").as_unsigned() != 0 &&
+            seen.insert(privilege.at("luid").as_unsigned()).second &&
+            privilege.at("attributes").as_unsigned() <= 0xffffffffu,
+            "publisher authenticated privilege is malformed or duplicated");
+}
+
+// Validate offsets before any Win32 SID routine can dereference retained bytes.
+// Only owner/group and ordered ACE facts are compared with the stored object;
+// GetSecurityInfo control flags are kept in their own representation.
+void require_access_descriptor(const Value& access, const Value& object) {
+    const auto& encoded = access.at("descriptor_hex").as_string();
+    require(encoded.size() >= 40 && encoded.size() <= 131072 && encoded.size() % 2 == 0 &&
+        hex(encoded, encoded.size()), "publisher authenticated descriptor encoding is invalid");
+    std::vector<unsigned char> bytes(encoded.size() / 2);
+    const auto nibble = [](char ch) { return static_cast<unsigned>(ch <= '9' ? ch - '0' : ch - 'a' + 10); };
+    for (std::size_t index = 0; index < bytes.size(); ++index)
+        bytes[index] = static_cast<unsigned char>((nibble(encoded[2 * index]) << 4u) | nibble(encoded[2 * index + 1]));
+    const auto u16 = [&](std::size_t offset) {
+        require(offset <= bytes.size() - 2, "publisher authenticated descriptor word is truncated");
+        return static_cast<std::uint32_t>(bytes[offset]) | (static_cast<std::uint32_t>(bytes[offset + 1]) << 8u);
+    };
+    const auto u32 = [&](std::size_t offset) {
+        require(offset <= bytes.size() - 4, "publisher authenticated descriptor dword is truncated");
+        return u16(offset) | (u16(offset + 2) << 16u);
+    };
+    const auto sid = [&](std::size_t offset, std::size_t end) {
+        require(end <= bytes.size() && offset >= 20 && offset % 4 == 0 && offset <= end &&
+            end - offset >= 8 && bytes[offset] == SID_REVISION && bytes[offset + 1] <= SID_MAX_SUB_AUTHORITIES &&
+            8u + 4u * bytes[offset + 1] <= end - offset,
+            "publisher authenticated descriptor SID is outside its byte bounds");
+        auto raw = bytes.data() + offset;
+        LPSTR text = nullptr;
+        require(IsValidSid(raw) && ConvertSidToStringSidA(raw, &text), "publisher authenticated descriptor SID is invalid");
+        const std::string result(text);
+        LocalFree(text);
+        return result;
+    };
+    require(bytes[0] == SECURITY_DESCRIPTOR_REVISION && bytes[1] == 0 &&
+        (u16(2) & (SE_SELF_RELATIVE | SE_DACL_PRESENT)) == (SE_SELF_RELATIVE | SE_DACL_PRESENT) &&
+        u32(12) == 0 && sid(u32(4), bytes.size()) == object.at("owner_sid").as_string() &&
+        sid(u32(8), bytes.size()) == access.at("observed_group_sid").as_string(),
+        "publisher authenticated descriptor header, owner or group differs");
+    const auto acl = static_cast<std::size_t>(u32(16));
+    require(acl >= 20 && acl % 4 == 0 && acl <= bytes.size() - 8 &&
+        (bytes[acl] == ACL_REVISION || bytes[acl] == ACL_REVISION_DS) && bytes[acl + 1] == 0 && u16(acl + 6) == 0,
+        "publisher authenticated descriptor ACL header is invalid");
+    const auto size = static_cast<std::size_t>(u16(acl + 2));
+    const auto& aces = object.at("dacl_aces").as_array();
+    require(size >= 8 && size % 4 == 0 && size <= bytes.size() - acl && u16(acl + 4) == aces.size(),
+        "publisher authenticated descriptor ACL closure differs");
+    std::size_t offset = acl + 8;
+    for (const auto& expected : aces) {
+        require(offset <= acl + size && acl + size - offset >= 16,
+            "publisher authenticated descriptor ACE is truncated");
+        const auto ace_size = static_cast<std::size_t>(u16(offset + 2));
+        require(ace_size >= 16 && ace_size % 4 == 0 && ace_size <= acl + size - offset &&
+            bytes[offset] == ACCESS_ALLOWED_ACE_TYPE && bytes[offset] == expected.at("type").as_unsigned() &&
+            bytes[offset + 1] == expected.at("flags").as_unsigned() &&
+            u32(offset + 4) == expected.at("access_mask").as_unsigned() &&
+            sid(offset + 8, offset + ace_size) == expected.at("sid").as_string(),
+            "publisher authenticated descriptor ordered ACE differs from stored object");
+        offset += ace_size;
+    }
+    require(offset == acl + size, "publisher authenticated descriptor ACL has unaccounted bytes");
+}
 } // namespace
+
+void require_publisher_authenticated_object_access(const Value& access, const Value& client, const Value& object) {
+    require_authenticated_client(client);
+    require(access.as_object().size() == 8 &&
+        access.at("schema").as_string() == "usk.publisher_authenticated_object_access.v1" &&
+        access.at("scope").as_string() == "fresh_held_authenticated_token_and_file_descriptor" &&
+        access.at("client_sha256").as_string() == usk::json::sha256_canonical(client) &&
+        access.at("native_object_sha256").as_string() == usk::json::sha256_canonical(object) &&
+        access.at("descriptor_api").as_string() == "GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL" &&
+        canonical_sid(access.at("observed_group_sid").as_string()),
+        "publisher authenticated access binding or API scope differs");
+    require_access_descriptor(access, object);
+    const auto& checks = access.at("checks");
+    require(checks.as_object().size() == access_rights.size(), "publisher authenticated access request closure differs");
+    for (const auto& [name, requested] : access_rights) {
+        const auto& check = checks.at(name);
+        const auto granted = check.at("granted").as_unsigned();
+        const auto allowed = check.at("allowed").as_boolean();
+        require(check.as_object().size() == 3 && check.at("requested").as_unsigned() == requested &&
+            (granted & ~static_cast<std::uint64_t>(FILE_ALL_ACCESS)) == 0 && allowed == (granted != 0) &&
+            (requested == MAXIMUM_ALLOWED || granted == (allowed ? requested : 0u)),
+            "publisher authenticated AccessCheck request or result is malformed");
+    }
+}
 
 void require_publisher_execution_platform(const Value& value) { require_platform(value); }
 
@@ -165,7 +285,7 @@ Value observe_publisher_execution_platform() {
 }
 
 Value observe_publisher_execution_phase(const std::wstring& service_name, const std::string& phase,
-    const std::vector<PublisherPhaseHandle>& handles) {
+    const std::vector<PublisherPhaseHandle>& handles, const PublisherRequestChannel* authenticated_request) {
     require(handles.size() == roles.size(), "publisher execution requires the seven distinct held roles");
     const auto before = observe_current_restricted_publisher_service(service_name);
     const auto process_before = observe_current_publisher_process_boundary();
@@ -176,6 +296,7 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
     const auto platform = observe_publisher_execution_platform();
     require_platform(platform);
     Value::Array observations;
+    Value authenticated_client(Value::Object{});
     std::vector<std::pair<std::string, std::string>> bindings;
     for (std::size_t index = 0; index < handles.size(); ++index) {
         const auto& item = handles[index];
@@ -187,11 +308,25 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
             observe_publisher_handle_granted_access(item.handle) == granted_access &&
             object.file_id == item.expected_file_id,
             "publisher execution held handle flags or object identity changed");
-        observations.emplace_back(Value::Object{{"role", Value(item.role)}, {"file_id", Value(object.file_id)},
+        Value observation(Value::Object{{"role", Value(item.role)}, {"file_id", Value(object.file_id)},
             {"handle_flags", Value(static_cast<std::uint64_t>(flags))},
             {"granted_access", Value(static_cast<std::uint64_t>(granted_access))},
             {"granted_access_api", Value("NtQueryObject:ObjectBasicInformation")},
             {"object_observation", publisher_handle_observation_json(object)}});
+        if (authenticated_request) {
+            auto access = authenticated_request->observe_authenticated_object_access(item.handle);
+            if (index == 0) authenticated_client = access.at("client");
+            require(usk::json::canonical(access.at("client")) == usk::json::canonical(authenticated_client) &&
+                usk::json::canonical(access.at("native_object")) ==
+                    usk::json::canonical(observation.at("object_observation")),
+                "publisher phase authenticated client or same-handle access facts changed");
+            access.as_object().erase("client");
+            access.as_object().erase("native_object");
+            access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(authenticated_client)));
+            access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(observation.at("object_observation"))));
+            observation.as_object().emplace("authenticated_access", std::move(access));
+        }
+        observations.emplace_back(std::move(observation));
         bindings.emplace_back(item.role, item.expected_file_id);
     }
     const auto after = observe_current_restricted_publisher_service(service_name);
@@ -205,10 +340,13 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
         usk::json::canonical(security_before) == usk::json::canonical(security_after) &&
         usk::json::canonical(platform) == usk::json::canonical(observe_publisher_execution_platform()),
         "publisher execution service, process token or platform changed during observation");
-    Value result(Value::Object{{"schema", Value("usk.publisher_execution_observation.v5")},
-        {"scope", Value("supplied_held_service_handles_security_access_and_worker_security")}, {"phase", Value(phase)},
+    Value result(Value::Object{{"schema", Value(authenticated_request ? "usk.publisher_execution_observation.v6" :
+            "usk.publisher_execution_observation.v5")},
+        {"scope", Value(authenticated_request ? "supplied_held_service_handles_authenticated_access_and_worker_security" :
+            "supplied_held_service_handles_security_access_and_worker_security")}, {"phase", Value(phase)},
         {"platform", platform}, {"service", service_json(after)}, {"handles", Value(std::move(observations))},
         {"process_boundary", process_after}, {"worker_security", security_after}});
+    if (authenticated_request) result.as_object().emplace("authenticated_client", authenticated_client);
     require_publisher_execution_phase(result, service_name, after.service_sid, phase, bindings);
     return result;
 }
@@ -216,13 +354,15 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
 void require_publisher_execution_phase(const Value& value, const std::wstring& service_name,
     const std::string& service_sid, const std::string& phase,
     const std::vector<std::pair<std::string, std::string>>& object_bindings) {
-    const bool metadata_bound = value.at("schema").as_string() == "usk.publisher_execution_observation.v5";
+    const bool authenticated_bound = value.at("schema").as_string() == "usk.publisher_execution_observation.v6";
+    const bool metadata_bound = authenticated_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v5";
     const bool rights_bound = metadata_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v4";
     const bool worker_bound = rights_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v3";
     const bool process_bound = worker_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v2";
-    require(value.as_object().size() == (worker_bound ? 8u : process_bound ? 7u : 6u) &&
+    require(value.as_object().size() == (authenticated_bound ? 9u : worker_bound ? 8u : process_bound ? 7u : 6u) &&
         (process_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v1") &&
-        value.at("scope").as_string() == (metadata_bound ? "supplied_held_service_handles_security_access_and_worker_security" :
+        value.at("scope").as_string() == (authenticated_bound ? "supplied_held_service_handles_authenticated_access_and_worker_security" :
+            metadata_bound ? "supplied_held_service_handles_security_access_and_worker_security" :
             rights_bound ? "supplied_held_service_handles_granted_access_and_worker_security" :
             worker_bound ? "supplied_held_service_handles_and_worker_security" :
             process_bound ? "supplied_held_service_handles_and_process_owner_dacl" : "supplied_held_service_handles") &&
@@ -262,10 +402,11 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
         "publisher execution retained handle-role closure is incomplete");
     std::set<std::string> identities;
     std::string volume;
+    if (authenticated_bound) require_authenticated_client(value.at("authenticated_client"));
     for (std::size_t index = 0; index < roles.size(); ++index) {
         const auto& object = handles[index];
         const auto& id = object.at("file_id").as_string();
-        require(object.as_object().size() == (metadata_bound ? 6u : rights_bound ? 5u : 3u) && object.at("role").as_string() == roles[index] &&
+        require(object.as_object().size() == (authenticated_bound ? 7u : metadata_bound ? 6u : rights_bound ? 5u : 3u) && object.at("role").as_string() == roles[index] &&
             object_bindings[index].first == roles[index] && id == object_bindings[index].second &&
             object.at("handle_flags").as_unsigned() == 0 && id.size() == 49 && id[16] == ':' &&
             hex(id.substr(0, 16), 16) && hex(id.substr(17), 32) && identities.insert(id).second,
@@ -297,6 +438,16 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
                     "publisher execution same-handle protected ACE facts differ");
             }
         }
+        if (authenticated_bound) {
+            const auto& access = object.at("authenticated_access");
+            require_publisher_authenticated_object_access(access, value.at("authenticated_client"), object.at("object_observation"));
+            for (const auto& [name, requested] : access_rights) {
+                const auto& check = access.at("checks").at(name);
+                require(requested == MAXIMUM_ALLOWED ? (check.at("granted").as_unsigned() & mutation_rights) == 0 :
+                    !check.at("allowed").as_boolean() && check.at("granted").as_unsigned() == 0,
+                    "publisher authenticated caller retains mutation access to a protected phase role");
+            }
+        }
         if (index == 0) volume = id.substr(0, 16);
         require(id.substr(0, 16) == volume, "publisher execution retained handles span volumes");
     }
@@ -308,16 +459,25 @@ void require_publisher_execution_worker_match(const Value& earlier, const Value&
             "publisher execution worker or held object identity changed between phases");
     }
     auto handles = later.at("handles");
-    if (earlier.at("schema").as_string() == "usk.publisher_execution_observation.v5" &&
-        later.at("schema").as_string() == "usk.publisher_execution_observation.v5" &&
+    if ((earlier.at("schema").as_string() == "usk.publisher_execution_observation.v5" ||
+         earlier.at("schema").as_string() == "usk.publisher_execution_observation.v6") &&
+        later.at("schema").as_string() == earlier.at("schema").as_string() &&
         earlier.at("phase").as_string() == "before_rename" && later.at("phase").as_string() == "visible_bound") {
         // The surrounding phase/call reader binds both names to the sealed and
         // visible native namespace. Every other same-handle fact stays equal.
         handles.as_array().at(6).as_object().at("object_observation").as_object().at("native_name") =
             earlier.at("handles").as_array().at(6).at("object_observation").at("native_name");
+        if (earlier.contains("authenticated_client"))
+            handles.as_array().at(6).as_object().at("authenticated_access").as_object().at("native_object_sha256") =
+                earlier.at("handles").as_array().at(6).at("authenticated_access").at("native_object_sha256");
     }
     require(usk::json::canonical(earlier.at("handles")) == usk::json::canonical(handles),
         "publisher execution same-handle facts changed across phases");
+    require(earlier.contains("authenticated_client") == later.contains("authenticated_client"),
+        "publisher execution authenticated client disappeared between phases");
+    if (earlier.contains("authenticated_client"))
+        require(usk::json::canonical(earlier.at("authenticated_client")) == usk::json::canonical(later.at("authenticated_client")),
+            "publisher execution authenticated token changed between phases");
     require(earlier.contains("process_boundary") == later.contains("process_boundary"),
         "publisher execution process boundary disappeared between phases");
     if (earlier.contains("process_boundary")) {

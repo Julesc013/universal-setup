@@ -12,6 +12,7 @@
 #include <vector>
 
 namespace usk::platform::windows {
+class PublisherRequestChannel;
 struct PublisherPhaseHandle {
     std::string role;
     HANDLE handle;
@@ -28,7 +29,14 @@ void require_publisher_execution_platform(const usk::json::Value& value);
 // exported capabilities are separate predicates, not inferred here.
 usk::json::Value observe_publisher_execution_phase(
     const std::wstring& service_name, const std::string& phase,
-    const std::vector<PublisherPhaseHandle>& handles);
+    const std::vector<PublisherPhaseHandle>& handles,
+    const PublisherRequestChannel* authenticated_request = nullptr);
+
+// Closed retained evidence, bound to the shared client and stored object facts.
+// Descriptor bytes are the GetSecurityInfo representation, not an assertion
+// that its control flags equal GetKernelObjectSecurity protection flags.
+void require_publisher_authenticated_object_access(const usk::json::Value& access,
+    const usk::json::Value& client, const usk::json::Value& object);
 
 // Closed retained evidence validation. The supplied bindings come from the
 // independently validated native anchor/tree record, never from this object.

@@ -1611,12 +1611,17 @@ static std::string require_held_publisher_evidence(
     const auto completion = json::parse(evidence.completion_record);
     const auto& binding = prepared.at("source_binding");
     require_candidate_publisher_execution_records(prepared, bound, evidence.service_name, service.service_sid);
+    if (prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v8" &&
+        json::canonical(prepared.at("operation_admission")) != "null" &&
+        prepared.at("operation_admission").at("transaction_id").as_string() != snapshot.at("transaction_id").as_string())
+        throw std::runtime_error("publisher operation admission transaction differs from the durable snapshot");
     if ((prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v3" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v4" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v5" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v6" &&
-            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v7") ||
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v7" &&
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v8") ||
         bound.at("schema").as_string() != prepared.at("schema").as_string() ||
         (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
             snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
