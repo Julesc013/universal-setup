@@ -2726,7 +2726,7 @@ struct ScopedExecution {
         }
         consumer_read_sid=config.consumer_read_sid;
         interrupt_consumer_grant=config.interrupt_consumer_grant;
-        if (submitted_apply_request || submitted_recovery_request || submitted_verify_request) {
+        if (!consumer_read_sid.empty()) {
             usk::platform::windows::require_publisher_consumer_sid(consumer_read_sid);
             if (!submitted_apply_request && !submitted_recovery_request &&
                 !(verify_installed_request && submitted_verify_request)) {
@@ -3046,7 +3046,7 @@ void usk::platform::windows::require_candidate_publisher_execution_records(
 std::string usk::platform::windows::execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration& config, bool& publication_effects_may_exist) {
     ScopedExecution execution(config);
-        if (!consumer_read_sid.empty()) {
+        if (submitted_apply_request || submitted_recovery_request || submitted_verify_request) {
             usk::platform::windows::require_publisher_execution_platform(
                 usk::platform::windows::observe_publisher_execution_platform());
         }
