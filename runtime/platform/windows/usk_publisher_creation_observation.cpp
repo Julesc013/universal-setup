@@ -316,8 +316,10 @@ void require_publisher_creation_certificate(const Value& certificate,
     const bool process_bound = worker_bound || certificate.at("schema").as_string() == "usk.publisher.creation_observation.v2";
     require((execution.at("schema").as_string() == "usk.publisher_execution_observation.v1" ||
              execution.at("schema").as_string() == "usk.publisher_execution_observation.v2" ||
-             execution.at("schema").as_string() == "usk.publisher_execution_observation.v3") &&
-        worker_bound == (execution.at("schema").as_string() == "usk.publisher_execution_observation.v3") &&
+             execution.at("schema").as_string() == "usk.publisher_execution_observation.v3" ||
+             execution.at("schema").as_string() == "usk.publisher_execution_observation.v4") &&
+        worker_bound == (execution.at("schema").as_string() == "usk.publisher_execution_observation.v3" ||
+                         execution.at("schema").as_string() == "usk.publisher_execution_observation.v4") &&
         process_bound == (execution.at("schema").as_string() != "usk.publisher_execution_observation.v1") &&
         process_bound == execution.contains("process_boundary") && worker_bound == execution.contains("worker_security"),
         "publisher creation certificate downgraded its original execution boundary");

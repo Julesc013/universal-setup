@@ -137,6 +137,11 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
         throw std::runtime_error("publisher rename bound handles changed before call");
     }
     PublisherRenameInformation information(destination_parent, destination_component);
+    const auto source_access = observe_publisher_handle_granted_access(staged_root);
+    const auto parent_access = observe_publisher_handle_granted_access(destination_parent);
+    if ((source_access & DELETE) == 0 || (parent_access & FILE_ADD_SUBDIRECTORY) == 0) {
+        throw std::runtime_error("publisher rename held handles lack native mutation rights");
+    }
     const auto* arguments = static_cast<const FILE_RENAME_INFO*>(information.data());
     if (arguments->RootDirectory != destination_parent || arguments->ReplaceIfExists != FALSE ||
         arguments->FileNameLength != destination_component.size() * sizeof(WCHAR)) {
@@ -196,7 +201,8 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
             started.QuadPart, ended.QuadPart, frequency.QuadPart,
             parent.file_id, destination_component, static_cast<std::uint32_t>(absent),
             information_class, information.size(), file_name_bytes, replace_if_exists,
-            static_cast<std::uint32_t>(status), static_cast<std::uint32_t>(io.Status)};
+            static_cast<std::uint32_t>(status), static_cast<std::uint32_t>(io.Status),
+            source_access, parent_access};
     } catch (const std::exception& failure) {
         throw PublisherRenameUnconfirmed(std::string("publisher rename returned success but ") +
             failure.what() + "; retained recovery required");

@@ -39,6 +39,11 @@ struct PublisherHandleObservation {
 // not clear the flag or turn an existing capability into publisher provenance.
 std::uint32_t observe_publisher_noninheritable_handle_flags(HANDLE handle);
 
+// Actual access granted to this already-held handle. No reopen, duplication,
+// requested-access inference or current-token AccessCheck is involved.
+// Failure to query the native object is a refusal, never a fallback mask.
+std::uint32_t observe_publisher_handle_granted_access(HANDLE handle);
+
 // Read-only facts from one already-opened directory handle. This is an
 // observation primitive, not a profile-admission or publication capability.
 // The caller must retain and independently revalidate the handle and its

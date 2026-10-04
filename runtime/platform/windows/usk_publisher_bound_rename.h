@@ -45,6 +45,8 @@ struct PublisherBoundRenameObservation {
     bool replace_if_exists;
     std::uint32_t native_status;
     std::uint32_t io_status;
+    std::uint32_t source_granted_access;
+    std::uint32_t destination_parent_granted_access;
 };
 
 // Handle-bound no-replace mechanism. A publication caller must retain a durable

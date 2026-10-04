@@ -6,6 +6,7 @@
 
 #if defined(_WIN32)
 #include <sddl.h>
+#include <winternl.h>
 
 #include <cstddef>
 #include <cstring>
@@ -110,6 +111,24 @@ std::uint32_t observe_publisher_noninheritable_handle_flags(HANDLE handle) {
         throw std::runtime_error("publisher observation requires a non-inheritable held handle");
     }
     return flags;
+}
+
+std::uint32_t observe_publisher_handle_granted_access(HANDLE handle) {
+    (void)observe_publisher_noninheritable_handle_flags(handle);
+    using NtQueryObjectFn = NTSTATUS (NTAPI *)(HANDLE, OBJECT_INFORMATION_CLASS,
+        PVOID, ULONG, PULONG);
+    const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    auto* query = ntdll ? reinterpret_cast<NtQueryObjectFn>(
+        GetProcAddress(ntdll, "NtQueryObject")) : nullptr;
+    if (!query) throw std::runtime_error("publisher held-handle access query is unavailable");
+    PUBLIC_OBJECT_BASIC_INFORMATION basic{};
+    ULONG returned = 0;
+    const NTSTATUS status = query(handle, ObjectBasicInformation, &basic,
+        sizeof(basic), &returned);
+    if (status != 0 || returned != sizeof(basic)) {
+        throw std::runtime_error("publisher held-handle access query is unconfirmed");
+    }
+    return basic.GrantedAccess;
 }
 
 static PublisherHandleObservation observe_publisher_handle(HANDLE handle,

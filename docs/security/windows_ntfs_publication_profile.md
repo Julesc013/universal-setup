@@ -1939,6 +1939,20 @@ binds the successful call to the durable visible record's exact root, parent,
 component and native names. Prepublish forward recovery retains its actual
 current-worker call; postrename recovery records `rename_call: null` because
 it observes visibility without observing the prior call. Closed C++ and Python
-readers require this distinction and preserve older record versions. Its hosted
-qualification, same-handle independent rights, complete native profile admission
-and model replay remain unfinished; no availability or qualification flag changes.
+readers require this distinction and preserve older record versions.
+
+The current execution v4 candidate queries `NtQueryObject` with
+`ObjectBasicInformation` on each of the seven already-held handles. It retains
+the actual granted mask and API beside the role, identity and noninheritance
+flags, and repeats the query across the same observation. The rename primitive
+checks DELETE on its source and FILE_ADD_SUBDIRECTORY on its exact destination
+parent before calling the native setter. Its v2 call record retains both masks;
+the durable reader binds them to the pre-rename phase's actual handle roles.
+The current v6 envelope requires these observations rather than accepting an
+older execution record as current producer evidence. These are current handle
+rights, not a requested mask, current-token AccessCheck, export-history claim
+or independent observation of every external process. Hosted qualification,
+scoped capability provenance, complete native profile admission and model
+replay remain unfinished; no availability or qualification flag changes.
+The v5 reader preserves checkpoint records with execution v3 and call v1;
+their recovery does not acquire a held-access claim retroactively.
