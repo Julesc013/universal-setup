@@ -394,7 +394,7 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
     [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
     [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
-    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
     [DllImport("kernel32.dll", SetLastError=true)] static extern uint GetProcessId(IntPtr handle);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source,
@@ -407,6 +407,9 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
         IntPtr input, uint inputSize, byte[] output, uint outputSize, out uint returned, IntPtr overlapped);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool DuplicateToken(IntPtr token, int level, out IntPtr duplicate);
+    [DllImport("advapi32.dll", EntryPoint="LogonUserW", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool LogonUser(
+        string account, string domain, IntPtr password, uint kind, uint provider, out IntPtr token);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetHandleInformation(IntPtr handle, out uint flags);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool CreateRestrictedToken(IntPtr token, uint flags, uint disableCount,
         [In] SidAttributes[] disable, uint deleteCount, IntPtr delete, uint restrictCount, IntPtr restrict, out IntPtr filtered);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int information, IntPtr buffer, uint size, out uint needed);
@@ -421,7 +424,8 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
 
     static readonly string[] Names = {"write_or_add_file", "append_or_add_directory", "write_ea", "delete_child", "write_attributes", "delete", "write_dac", "write_owner"};
     static readonly uint[] Masks = {2, 4, 16, 64, 256, 65536, 262144, 524288};
-    IntPtr process, initiating, filtered, capturedProcess;
+    IntPtr process, initiating, filtered, capturedProcess, unrelated;
+    readonly List<IntPtr> pendingTokens=new List<IntPtr>();
     public Dictionary<string, object> TokenFacts { get; private set; }
 
     static void Require(bool ok, string operation) {
@@ -477,6 +481,63 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
             if ((string)row["sid"]==sid && (((uint)row["attributes"] & 4)!=0) && (((uint)row["attributes"] & 16)==0)) return true;
         return false;
     }
+    static void ValidateUnrelated(Dictionary<string,object> facts, string expectedSid, string callerSid, string serviceSid) {
+        if(String.IsNullOrEmpty(expectedSid) || expectedSid==callerSid || expectedSid==serviceSid ||
+            expectedSid=="S-1-5-18" || expectedSid=="S-1-5-32-544" ||
+            (string)facts["user_sid"]!=expectedSid || (int)facts["token_type"]!=2 ||
+            (int)facts["impersonation_level"]!=2 || EnabledGroup(facts,"S-1-5-32-544") ||
+            EnabledGroup(facts,"S-1-5-18") || EnabledGroup(facts,serviceSid))
+            throw new Exception("Unrelated local-login token has foreign or privileged authority");
+        foreach(Dictionary<string,object> privilege in (Dictionary<string,object>[])facts["privileges"])
+            if(((uint)privilege["attributes"] & 2)!=0 && (string)privilege["name"]!="SeChangeNotifyPrivilege")
+                throw new Exception("Unrelated local-login token retains a mutation/bypass privilege");
+    }
+    // Authentication is permitted only for the fixture's generated account.
+    // This token is never impersonated and never used for native mutation.
+    public Dictionary<string,object> HoldOwnedLocalLogin(string account, System.Security.SecureString password,
+        string expectedSid, string serviceSid) {
+        if(process==IntPtr.Zero || WaitForSingleObject(process,0)!=258 || unrelated!=IntPtr.Zero ||
+            !System.Text.RegularExpressions.Regex.IsMatch(account ?? "", "^USKOBS_[0-9a-f]{13}$") ||
+            password==null || password.Length<16 || String.IsNullOrEmpty(expectedSid) ||
+            !expectedSid.StartsWith("S-1-5-21-",StringComparison.Ordinal))
+            throw new Exception("Owned local-login binding is incomplete or already held");
+        IntPtr secret=IntPtr.Zero, primary=IntPtr.Zero, duplicate=IntPtr.Zero;
+        try {
+            secret=Marshal.SecureStringToGlobalAllocUnicode(password);
+            Require(LogonUser(account,".",secret,2,0,out primary),"Authenticate owned local interactive login");
+            Require(DuplicateToken(primary,2,out duplicate),"Hold owned local-login AccessCheck token");
+            uint flags;Require(GetHandleInformation(duplicate,out flags),"Read local-login handle flags");
+            if((flags & 1)!=0)throw new Exception("Local-login token handle is inheritable");
+            Dictionary<string,object> facts=Facts(duplicate);
+            ValidateUnrelated(facts,expectedSid,(string)((Dictionary<string,object>)TokenFacts["initiating"])["user_sid"],serviceSid);
+            unrelated=duplicate;duplicate=IntPtr.Zero;TokenFacts["unrelated"]=facts;
+            return new Dictionary<string,object>{{"account_name",account},{"user_sid",expectedSid},
+                {"token_handle",unrelated.ToInt64()},{"token_id",facts["token_id"]},
+                {"authentication_id",facts["authentication_id"]},{"logon_type",2},
+                {"basis","actual LogonUserW local interactive token; DuplicateToken for read-only AccessCheck"}};
+        } finally {
+            try {if(secret!=IntPtr.Zero)Marshal.ZeroFreeGlobalAllocUnicode(secret);}
+            finally {
+                Exception failure=null;CloseTemporary(ref primary,ref failure);CloseTemporary(ref duplicate,ref failure);
+                if(failure!=null)throw failure;
+            }
+        }
+    }
+    public void BindUnrelatedToken(long handle, string tokenId, string authenticationId, string expectedSid, string serviceSid) {
+        if(process==IntPtr.Zero || WaitForSingleObject(process,0)!=258 || unrelated!=IntPtr.Zero || handle<=0 ||
+            String.IsNullOrEmpty(tokenId) || String.IsNullOrEmpty(authenticationId))
+            throw new Exception("Retained unrelated-login token binding is incomplete");
+        IntPtr duplicate=IntPtr.Zero;
+        try {
+            Require(DuplicateHandle(process,new IntPtr(handle),GetCurrentProcess(),out duplicate,0,false,2),"Duplicate held unrelated-login token");
+            Dictionary<string,object> facts=Facts(duplicate);
+            ValidateUnrelated(facts,expectedSid,(string)((Dictionary<string,object>)TokenFacts["initiating"])["user_sid"],serviceSid);
+            if((string)facts["token_id"]!=tokenId || (string)facts["authentication_id"]!=authenticationId ||
+                (string)facts["authentication_id"]==(string)((Dictionary<string,object>)TokenFacts["initiating"])["authentication_id"])
+                throw new Exception("Retained unrelated-login token or authentication identity differs");
+            unrelated=duplicate;duplicate=IntPtr.Zero;TokenFacts["unrelated"]=facts;
+        } finally {Exception failure=null;CloseTemporary(ref duplicate,ref failure);if(failure!=null)throw failure;}
+    }
     public UskPublisherEffectiveRights(uint pid, long creation, string callerSid, string serviceSid) {
         IntPtr source=IntPtr.Zero, derivative=IntPtr.Zero;
         try {
@@ -507,7 +568,10 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
                 {"basis","held invoking process token; Administrators deny-only; DISABLE_MAX_PRIVILEGE; no restricting SIDs added"},
                 {"initiating",initialFacts},{"filtered",filteredFacts}};
         } catch {Dispose();throw;}
-        finally {if(source!=IntPtr.Zero)CloseHandle(source);if(derivative!=IntPtr.Zero)CloseHandle(derivative);}
+        finally {
+            Exception failure=null;CloseTemporary(ref source,ref failure);CloseTemporary(ref derivative,ref failure);
+            if(failure!=null){try {Dispose();}finally {throw failure;}}
+        }
     }
     // Export only owned, non-inheritable token/process handles to the trusted
     // SYSTEM observer. These are client-token duplicates, never publisher
@@ -583,7 +647,23 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
         if(process==IntPtr.Zero || WaitForSingleObject(process,0)!=258) throw new Exception("Invoking process exited before access observation");
         RawSecurityDescriptor raw=new RawSecurityDescriptor(descriptor,0);
         if(raw.Owner==null || raw.Group==null || raw.DiscretionaryAcl==null) throw new Exception("AccessCheck requires exact owner/group/DACL");
-        return new Dictionary<string, object>{{"initiating",Check(descriptor,initiating)},{"filtered",Check(descriptor,filtered)}};
+        Dictionary<string,object> checks=new Dictionary<string,object>{{"initiating",Check(descriptor,initiating)},{"filtered",Check(descriptor,filtered)}};
+        if(unrelated!=IntPtr.Zero)checks["unrelated"]=Check(descriptor,unrelated);
+        return checks;
+    }
+    static string OwnerDaclDigest(IntPtr held, RawSecurityDescriptor observed) {
+        uint needed;
+        if(GetKernelObjectSecurity(held,5,null,0,out needed) || Marshal.GetLastWin32Error()!=122 || needed<20 || needed>65536)
+            throw new Exception("Held owner/DACL digest size unavailable or unbounded");
+        byte[] bytes=new byte[needed];uint returned;
+        Require(GetKernelObjectSecurity(held,5,bytes,needed,out returned),"Read held owner/DACL digest bytes");
+        if(returned!=needed)throw new Exception("Held owner/DACL digest changed during observation");
+        RawSecurityDescriptor raw=new RawSecurityDescriptor(bytes,0);
+        var sections=AccessControlSections.Owner|AccessControlSections.Access;
+        if(raw.GetSddlForm(sections)!=observed.GetSddlForm(sections))
+            throw new Exception("Held owner/DACL digest differs from access observation");
+        using(var sha=System.Security.Cryptography.SHA256.Create())
+            return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-","").ToLowerInvariant();
     }
     public Dictionary<string, object> Read(string path) {
         IntPtr file=CreateFile(path,0x20080,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero);
@@ -602,6 +682,7 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
             string identity=BitConverter.ToUInt64(id,0).ToString("x16")+":"+BitConverter.ToString(id,8,16).Replace("-","").ToLowerInvariant();
             RawSecurityDescriptor raw=new RawSecurityDescriptor(bytes,0);
             return new Dictionary<string, object>{{"file_id",identity},{"security",raw.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Access)},
+                {"owner_dacl_sha256",OwnerDaclDigest(file,raw)},
                 {"group_sid",raw.Group==null ? null : raw.Group.Value},{"checks",CheckDescriptor(bytes)}};
         } finally {CloseHandle(file);}
     }
@@ -638,14 +719,29 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
             // is outside this observation.
             return new Dictionary<string,object>{{"path",path},{"extent",binding},
                 {"raw_security",raw.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Group|AccessControlSections.Access)},
+                {"owner_dacl_sha256",OwnerDaclDigest(device,raw)},
                 {"checks",CheckDescriptor(bytes)},{"basis","held volume-device descriptor and single extent; file generic mapping; no mutating IOCTL"}};
         } finally {CloseHandle(device);}
     }
+    static void CloseOwned(ref IntPtr handle, ref Exception failure) {
+        if(handle==IntPtr.Zero)return;
+        if(CloseHandle(handle))handle=IntPtr.Zero;
+        else if(failure==null)failure=new Win32Exception(Marshal.GetLastWin32Error(),"Close owned effective-right token/process handle");
+    }
+    void CloseTemporary(ref IntPtr handle, ref Exception failure) {
+        CloseOwned(ref handle,ref failure);
+        // A failed close remains owned by this lease, so Dispose can retry it
+        // and cannot acknowledge completion while any duplicate remains.
+        if(handle!=IntPtr.Zero){pendingTokens.Add(handle);handle=IntPtr.Zero;}
+    }
     public void Dispose() {
-        if(capturedProcess!=IntPtr.Zero){CloseHandle(capturedProcess);capturedProcess=IntPtr.Zero;}
-        if(filtered!=IntPtr.Zero){CloseHandle(filtered);filtered=IntPtr.Zero;}
-        if(initiating!=IntPtr.Zero){CloseHandle(initiating);initiating=IntPtr.Zero;}
-        if(process!=IntPtr.Zero){CloseHandle(process);process=IntPtr.Zero;}
+        Exception failure=null;
+        CloseOwned(ref unrelated,ref failure);CloseOwned(ref capturedProcess,ref failure);
+        CloseOwned(ref filtered,ref failure);CloseOwned(ref initiating,ref failure);CloseOwned(ref process,ref failure);
+        for(int index=0;index<pendingTokens.Count;index++) {
+            IntPtr token=pendingTokens[index];CloseOwned(ref token,ref failure);pendingTokens[index]=token;
+        }
+        if(failure!=null)throw failure;
     }
 }
 
@@ -748,6 +844,45 @@ if($CallerProcessId -ne 0) {
   $effectiveRights.TokenFacts['capture_context']=[ordered]@{schema=$capture.schema;image_path=$capture.client_image_path;
    image_sha256=$capture.client_sha256;capture_sha256=$ClientCaptureSha256;request_id=$capture.request_id;command=$capture.command;
    image_observation='live launcher capture; current file digest independently rechecked'}
+  if($capture.unrelated_local_login) {
+   $login=$capture.unrelated_local_login
+   if($login.account_name -cnotmatch '^USKOBS_[0-9a-f]{13}$' -or $login.logon_type -ne 2 -or
+    $login.user_sid -cnotmatch '^S-1-5-21-[0-9]+-[0-9]+-[0-9]+-[0-9]+$' -or
+    $login.token_id -cnotmatch '^[0-9a-f]{16}$' -or $login.authentication_id -cnotmatch '^[0-9a-f]{16}$') {
+    throw 'Owned unrelated local-login context is incomplete'
+   }
+   $bindingRefusals=0
+   foreach($variant in 0..6) {
+    $badHandle=[long]$login.token_handle;$badToken=[string]$login.token_id
+    $badAuthentication=[string]$login.authentication_id;$badSid=[string]$login.user_sid
+    switch($variant) {
+     0 {$badToken='0000000000000000'}
+     1 {$badAuthentication='0000000000000000'}
+     2 {$badSid=$CallerSid}
+     3 {$badSid=$ServiceSid}
+     4 {$badHandle=0}
+     5 {$badHandle=[long]$capture.client_process_handle}
+     6 {$badHandle=[long]$capture.filtered_handle}
+    }
+    $negative=$null
+    try {
+     $negative=[UskPublisherEffectiveRights]::new($CallerProcessId,[long]$CallerCreationFileTime,$CallerSid,$ServiceSid,
+      [uint32]$capture.client_process_id,[long]$capture.client_creation_file_time,[long]$capture.client_process_handle,
+      [long]$capture.initiating_handle,[long]$capture.filtered_handle,[string]$capture.initiating_token_id,[string]$capture.filtered_token_id)
+     $negative.BindUnrelatedToken($badHandle,$badToken,$badAuthentication,$badSid,$ServiceSid)
+     throw 'Contradictory unrelated-login binding was admitted'
+    } catch {
+     if($_.Exception.Message -ceq 'Contradictory unrelated-login binding was admitted'){throw}
+     ++$bindingRefusals
+    } finally {if($negative){$negative.Dispose()}}
+   }
+   $effectiveRights.BindUnrelatedToken([long]$login.token_handle,[string]$login.token_id,
+    [string]$login.authentication_id,[string]$login.user_sid,$ServiceSid)
+   $effectiveRights.TokenFacts['unrelated_logon_context']=[ordered]@{account_name=$login.account_name;
+    user_sid=$login.user_sid;token_id=$login.token_id;authentication_id=$login.authentication_id;logon_type=2;
+    contradictory_bindings_refused=$bindingRefusals;
+    basis='actual owned local interactive logon token retained by launcher; SYSTEM DuplicateHandle readback'}
+  }
  } else {
   $effectiveRights=[UskPublisherEffectiveRights]::new($CallerProcessId,[long]$CallerCreationFileTime,$CallerSid,$ServiceSid)
  }
@@ -787,6 +922,7 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
     throw 'Effective-right descriptor observation differs from independent native closure'
    }
    $row['effective_rights']=$checked['checks']
+   $row['owner_dacl_sha256']=$checked['owner_dacl_sha256']
    $row['effective_right_group_sid']=$checked['group_sid']
   }
   $rows.Add($row)
@@ -833,9 +969,15 @@ if($ExpectedVolumeRoot) {
   throw 'Volume-root descriptor differs from independent native boundary'
  }
  $root['effective_rights']=$checked['checks'];$root['effective_right_group_sid']=$checked['group_sid']
+ $root['owner_dacl_sha256']=$checked['owner_dacl_sha256']
  $result['volume_boundary']=[ordered]@{root=$root;device=$effectiveRights.ReadVolumeDevice($DriveRoot,$ExpectedVolumeRoot,$ExpectedDiskNumber)}
 }
 $temporary=$Output+'.pending'
+# Closing all observer-owned token/process duplicates is part of the success
+# barrier. A missed observer emits no acknowledgement; its caller retains the
+# generated login until exact close can be established or runner disposal.
+if($effectiveRights){$effectiveRights.Dispose();$effectiveRights=$null}
+$result['observer_token_handles_closed']=$true
 $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
 try {
  $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($result|ConvertTo-Json -Depth 10))

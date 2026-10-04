@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -174,6 +175,86 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
         cls.resolver = FixtureResolver(cls.fixture)
+
+    def _bound_context_variant(self, service_sid: str = "S-1-5-80-1-2-3-4-5"):
+        # Synthetic model control, never a transformed native receipt. Preserve
+        # the asserted SDK/SID rather than substituting the legacy constants.
+        fixture = deepcopy(self.fixture)
+        security = fixture["profile"]["protected_security"]
+        security["dacl_aces"][1]["principal"] = service_sid
+        security["canonical_descriptor_sha256"] = hashlib.sha256(
+            oracle._security_canonical_payload(security)).hexdigest()
+        evidence = fixture["profile"]["valid_evidence"]
+        evidence["publisher_service_sid"] = service_sid
+        evidence["sdk_version"] = "10.0.26100.0"
+        evidence["protected_objects"] = evidence["protected_objects"][:6]
+        publication_root = evidence["protected_objects"][5]["observed_path"]
+        for entry in evidence["protected_objects"][:4]:
+            entry["observed_path"] = publication_root + "/" + entry["observed_path"].rsplit("/", 1)[-1]
+        context = oracle.PublicationModelContext(service_sid, "10.0.26100.0", 0)
+        return FixtureResolver(fixture), context
+
+    def test_explicit_model_context_preserves_sid_sdk_and_direct_root_chain(self) -> None:
+        resolver, context = self._bound_context_variant()
+        events = resolver.events(["$through_visible", "$metadata"])
+        result = oracle.replay(oracle.initial_state(), events, context=context)
+        self.assertEqual(result.disposition, "completed")
+        self.assertEqual(result.state.profile.publisher_service_sid, context.service_sid)
+        self.assertEqual(result.state.profile.sdk_version, "10.0.26100.0")
+        self.assertEqual(len(result.state.profile.protected_objects), 6)
+        # The original entry point still applies the original closed fixture.
+        self.assertEqual(oracle.replay(oracle.initial_state(), events).disposition, "no_effect_refusal")
+        # Once admitted, every phase uses the frozen profile, even with the
+        # default transition context; it cannot silently reselect a provider.
+        admitted = oracle.transition(oracle.initial_state(), events[0], context=context)
+        self.assertEqual(oracle.replay(admitted.state, events[1:]).disposition, "completed")
+
+    def test_context_cannot_be_changed_by_profile_claims(self) -> None:
+        resolver, context = self._bound_context_variant()
+        for sdk, sid, ancestors in (("10.0.17763.0", context.service_sid, 0),
+                                   (context.sdk_version, oracle.SERVICE_SID, 0),
+                                   (context.sdk_version, context.service_sid, 1)):
+            pinned = oracle.PublicationModelContext(sid, sdk, ancestors)
+            result = oracle.transition(oracle.initial_state(),
+                {"action": "admit_profile", "evidence": resolver.evidence}, context=pinned)
+            self.assertEqual(result.disposition, "no_effect_refusal")
+        claimed = deepcopy(resolver.evidence)
+        claimed["available"] = True
+        self.assertEqual(oracle.transition(oracle.initial_state(),
+            {"action": "admit_profile", "evidence": claimed}, context=context).disposition, "no_effect_refusal")
+
+    def test_direct_root_chain_still_requires_every_immediate_parent_and_identity(self) -> None:
+        resolver, context = self._bound_context_variant()
+        publication_root = resolver.evidence["protected_objects"][5]["observed_path"]
+        for change in ({"protected_objects.0.observed_path": publication_root + "/unbound/staging"},
+                       {"protected_objects.5.observed_path": publication_root + "/unbound"},
+                       {"protected_objects.1.file_id": resolver.evidence["protected_objects"][0]["file_id"]}):
+            result = oracle.transition(oracle.initial_state(), {"action": "admit_profile",
+                "evidence": _patch(resolver.evidence, change)}, context=context)
+            self.assertEqual(result.disposition, "no_effect_refusal")
+
+    def test_every_bound_context_phase_refuses_a_different_service_descriptor(self) -> None:
+        resolver, context = self._bound_context_variant()
+        foreign, _ = self._bound_context_variant("S-1-5-80-6-7-8-9-10")
+        for phase in ("seal", "rename", "confirm_visible"):
+            events = resolver.events(["$through_visible", "$metadata"])
+            other_events = foreign.events(["$through_visible", "$metadata"])
+            for event, other in zip(events, other_events):
+                if event["action"] == phase:
+                    event["observation"] = deepcopy(other["observation"])
+            result = oracle.replay(oracle.initial_state(), events, context=context)
+            self.assertNotEqual(result.disposition, "completed")
+            self.assertTrue(result.state.retained)
+
+    def test_model_context_refuses_noncanonical_and_unbounded_inputs(self) -> None:
+        for kwargs in ({"service_sid": None}, {"service_sid": "S-1-5-80-1"},
+                       {"service_sid": "S-1-5-80-01-2-3-4-5"},
+                       {"service_sid": "S-1-5-80-1-2-3-4-4294967296"},
+                       {"sdk_version": "10.0.17762.0"}, {"sdk_version": "10.0.026100.0"},
+                       {"sdk_version": False}, {"minimum_additional_ancestors": True},
+                       {"minimum_additional_ancestors": -1}, {"minimum_additional_ancestors": 2}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(oracle.EvidenceError):
+                oracle.PublicationModelContext(**kwargs)
 
     def test_fixture_has_closed_schema_profile_and_cases(self) -> None:
         self.assertEqual(set(self.fixture), {"schema", "profile", "cases"})

@@ -11,6 +11,8 @@ int publisher_service_control_main(int argc, wchar_t** argv);
 // Discover the administrator-owned registration, bind the current caller,
 // start or reconnect, then use the authenticated one-request channel. No
 // caller-supplied volume, executable, SID or activation flag grants authority.
+// The closed capability request performs read-only discovery without creating
+// controller locks, admitting a volume, starting SCM or dispatching effects.
 std::string submit_registered_publisher_request(const std::wstring& service_name,
     const std::string& request);
 }

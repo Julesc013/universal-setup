@@ -1507,9 +1507,9 @@ passing verification. Private protected completion and public installed-state co
 are distinct observations; a metadata failure must not erase the former or
 invent the latter.
 
-### Actual machine-client and volume-boundary candidate
+### Actual machine-client and volume-boundary qualification
 
-The next source candidate starts each owned ordinary machine client with its
+The connected qualification starts each owned ordinary machine client with its
 primary thread suspended, captures its live PID, creation time, image name
 and actual token, creates the explicitly labelled filtered derivative, and
 then resumes that thread once. Only its three owned standard-I/O handles may
@@ -1529,7 +1529,7 @@ readback after exit, a real positive grant, closed-descriptor denial,
 contradictory bindings, resume-once and never-resumed termination under both
 PowerShell runtimes.
 
-The same source candidate observes the filesystem volume-root boundary
+The same qualification observes the filesystem volume-root boundary
 separately from the existing native rows. Its native identity, stored descriptor,
 attributes, case and stream facts must match the retained prepared boundary,
 and its filtered mutation access must be empty. The raw-volume observation
@@ -1540,9 +1540,123 @@ results separately, allowing the expected excluded administrator device rights.
 The filtered descriptor/token checks must deny the measured mutation bits.
 Both boundary observations must remain identical through recovery and replay.
 
-These additions require hosted execution and independent review. They are
+PR #221 passed all seven CI jobs at exact head
+`116ee95f6423afae5c5a98d6a6c5d9d8f79b42fa` in run `37153807155`, attempt 2,
+and integrated as `4207d17f063dbeb608d5304461ebc0c729835c20` after independent
+source review and the normal merge oracle. The first attempt passed all five
+public cases but a later concurrency fixture missed its required overlap
+window; the unchanged failed job passed on rerun. Artifacts `11285009507`,
+`11285660548` and `11285004820` retain all five final receipts. Ordinary
+installation binds four distinct client captures to four independent snapshots;
+each successful process-loss chain binds five. Both refusal cases bind the
+initial client and all three later public attempts. Every measured snapshot
+retains the same root/device boundary, and all 28 terminal native rows remain
+identical through recovery, replay and passing verification. These are
 read-only descriptor/token observations with file generic mapping, and do not
 establish mutating FILE_ANY_ACCESS device-control behaviour, a separate
 unrelated-login token, general hostile-race resistance, physical power-loss
 durability, a complete build attestation, or broader Windows/storage support.
 OD-001, strict availability and release acceptance remain unchanged.
+
+
+### Unrelated local-login source candidate
+
+The next consolidated qualification source creates one fresh, uniquely named
+local observation account only inside the independently bound hosted lab.
+It records the exact generated SID, adds that account to the ordinary Users
+group, and authenticates a local interactive
+[LogonUserW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-logonuserw)
+login. Its actual token is duplicated for read-only AccessCheck, with no
+impersonation or attempted filesystem/device mutation. The generated password
+is absent from requests, receipts and arguments; the native temporary password
+buffer is zeroed on release.
+
+A separate launcher lease retains this login across each actual machine-client
+capture. SYSTEM duplicates its non-inheritable handle and verifies User,
+groups, privileges, impersonation level, TokenId and AuthenticationId, distinct
+from the initiating client. Seven contradictory bindings must refuse before
+the valid binding is admitted. Every native row, filesystem root and raw-device
+descriptor must then deny all eight mutation bits and mutation in
+MAXIMUM_ALLOWED for both the filtered initiating token and the actual unrelated
+login. Missing principal or right observations refuse; the older pure two-actor
+controls are explicitly separate from unrelated-login evidence.
+
+The observer checks closure of every owned token/process duplicate before
+publishing its atomic success receipt. Only that acknowledgement permits
+normal generated-account removal, after the launcher's own lease closes and
+the current account SID still matches. A missed or failed observer without
+close acknowledgement marks cleanup incomplete and retains the generated
+account until owned runner disposal. Local controls cover the publication
+barrier and omitted evidence under both PowerShell runtimes, without local
+account, SCM or volume effects. Hosted execution and final independent review
+remain pending for this source candidate.
+
+This closes no production qualification by itself. Native predicate/profile
+reconciliation and target-bound capability reporting remain part of the same
+finite publisher integration; generic strict refusal, the published v1 plan
+contract, OD-001 and release acceptance remain unchanged.
+
+### Target-bound publisher discovery source candidate
+
+The ordinary machine client now accepts `publisher.inspect` with `dry_run: true`
+and the closed `usk.publisher_capability_request.v1` payload through
+`--publisher NAME`. Discovery validates the registered account, restricted
+own-process SCM configuration, protected executable and retained registration,
+then compares live volume/dedicated-disk identities with target admission.
+Native and process architecture must both be x64. The already-loaded OS
+module's [RtlGetVersion](https://learn.microsoft.com/en-us/windows/win32/devnotes/rtlgetversion)
+observation must report Windows NT 10.0 build 17763 or newer; missing APIs,
+downlevel builds and emulated architectures refuse. The record preserves the
+actual observed build rather than substituting the minimum. Compilation SDK
+and storage qualification remain separate evidence obligations.
+Held root and raw-device security are checked and reobserved; the root shape
+observation is bracketed by matching stored descriptors. Binding digests name
+the executable, registration, target admission and observed boundaries.
+
+`usk.publisher_capability.v1` separates implementation, realization,
+availability, required privilege, permission, authority, qualification scope,
+support and recovery ceiling. This version reports partial implementation,
+incomplete qualification, unsupported support and unavailable strict authority.
+Discovery requires scoped backup privilege and disk observation access, creates
+no controller locks and does not start/reconfigure SCM or dispatch an operation.
+It holds no execution lease and repeated reads do not establish an atomic
+snapshot. It does not verify the installed closure or current recovery state.
+The unchanged v1 install plan and generic strict refusal retain their meaning.
+
+Local native controls exercise missing/malformed dimensions, account/service
+SID bounds, caller activation claims and request binding. The hosted source
+checks refusal before target admission and discovery before/after installation,
+with unchanged SCM state, volume metadata and protected records per call.
+Hosted qualification of this candidate is pending; no WU-006 or release
+acceptance follows from local checks.
+
+
+### Explicit model reconciliation context
+
+The reference model now accepts an immutable, explicit service SID, SDK build
+and immediate-ancestor floor for reconciling a separately observed target.
+The original synthetic fixture and its 45-case projection keep their defaults.
+Twenty local model tests include synthetic context, wrong-binding, ancestry
+and phase-security controls. Context is fixed at admission; later phases use
+the admitted service SID. These controls do not qualify a native receipt or
+provide runtime authority, support, strict availability or release acceptance.
+
+The discovery fixture retains a bounded diagnostic on an unexpected refusal
+and accepts the same single refusal line with LF or CRLF. The previous hosted
+run failed before installation; its actual stderr was not retained. Local
+reproduction emitted CRLF, so a hosted newline cause is not established.
+
+The next hosted run retained the refusal diagnostic: discovery after admission
+exited 2 with the standard CRLF refusal line. Source inspection identified the
+consumer-read SID validator's RID floor as incompatible with the registered
+controller account (RID 500). Discovery now validates canonical account form
+after matching the actual TokenUser to the registration; consumer grants still
+require RID at least 1000. Native controls cover both policies. Hosted repair
+qualification is pending.
+
+Independent readbacks additionally hash the bounded stored OWNER/DACL bytes
+from their held root/device handles using the same requested information mask
+as discovery. They compare the security projection against the held
+owner/group/DACL access observation before recording the digest. This permits
+external canonical boundary-digest reconciliation without reconstructing
+binary security descriptors from SDDL. No execution lease follows.

@@ -22,6 +22,11 @@ DWORD publisher_consumer_read_access_mask();
 // authority; callers still admit the owner, ACEs, identity and namespace.
 std::vector<unsigned char> read_publisher_owner_dacl_from_handle(HANDLE object);
 
+// Canonical domain/local account-form SID for read-only registration discovery.
+// Includes built-in account RIDs; independent TokenUser/registration checks
+// still bind the actual caller. This grants no consumer access or authority.
+void require_publisher_registered_account_sid(const std::string& sid);
+
 // Canonical account-form SID; rejects privileged built-ins and service SIDs.
 // Actual account identity/group membership require independent TokenUser proof.
 void require_publisher_consumer_sid(const std::string& sid);

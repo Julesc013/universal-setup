@@ -64,6 +64,92 @@ bool safe_id(const std::string& value)
     return true;
 }
 
+bool lower_hex(const std::string& value, std::size_t length)
+{
+    return value.size() == length &&
+        value.find_first_not_of("0123456789abcdef") == std::string::npos;
+}
+
+bool sid_text(const std::string& value, bool service = false)
+{
+    if (value.size() < 7 || value.size() > 184 || value.compare(0, 4, "S-1-") != 0) return false;
+    std::size_t begin = 4;
+    unsigned parts = 0;
+    while (begin < value.size()) {
+        const auto end = value.find('-', begin);
+        const auto count = (end == std::string::npos ? value.size() : end) - begin;
+        if (count == 0 || (count > 1 && value[begin] == '0')) return false;
+        const std::uint64_t maximum = parts == 0 ? 0xffffffffffffULL : 0xffffffffULL;
+        std::uint64_t number = 0;
+        for (std::size_t index = begin; index < begin + count; ++index) {
+            const auto ch = value[index];
+            if (ch < '0' || ch > '9' || number > (maximum - static_cast<unsigned>(ch - '0')) / 10)
+                return false;
+            number = number * 10 + static_cast<unsigned>(ch - '0');
+        }
+        if ((parts == 0 && number != 5) || (parts == 1 && number != (service ? 80u : 21u))) return false;
+        ++parts;
+        if (parts > 16) return false;
+        if (end == std::string::npos) return service ? parts == 7 : parts == 6;
+        begin = end + 1;
+    }
+    return false;
+}
+
+void require_capability_observation(const Value& value, const std::string& request_id)
+{
+    // This closed version reports observations, never execution authority or
+    // qualification. A caller flag or a more optimistic transport response
+    // cannot upgrade its independent record dimensions.
+    if (value.as_object().size() != 20 ||
+        value.at("schema").as_string() != "usk.publisher_capability.v1" ||
+        value.at("request_id").as_string() != request_id ||
+        value.at("provider_id").as_string() != "windows_nt_x64_local_ntfs_service_sid_noreplace_v1" ||
+        value.at("implementation").as_string() != "partial" ||
+        value.at("realization").as_string() != "restricted_service" ||
+        value.at("availability").as_boolean() ||
+        value.at("required_privilege").as_string() != "SeBackupPrivilege_and_disk_read" ||
+        value.at("permission").as_string() != "registered_caller_observed" ||
+        value.at("authority").as_string() != "not_granted_by_discovery" ||
+        value.at("qualification").as_string() != "incomplete" ||
+        value.at("qualification_scope").as_string() != "registered_target_observation" ||
+        value.at("support").as_string() != "unsupported" ||
+        value.at("recovery_ceiling").as_string() != "candidate_source_free_restart" ||
+        value.at("power_loss_qualified").as_boolean() ||
+        !value.at("revalidation_required_before_effects").as_boolean() ||
+        value.at("execution_lease_held").as_boolean() ||
+        value.at("service_state").as_unsigned() < 1 || value.at("service_state").as_unsigned() > 7 ||
+        !value.at("effects").as_array().empty())
+        throw std::runtime_error("publisher capability dimensions differ");
+    const auto& platform = value.at("platform");
+    if (platform.as_object().size() != 5 || platform.at("os_family").as_string() != "Windows NT" ||
+        platform.at("native_arch").as_string() != "x64" || platform.at("process_arch").as_string() != "x64" ||
+        platform.at("minimum_windows_build").as_unsigned() != 17763 ||
+        platform.at("windows_build").as_unsigned() < 17763 || platform.at("windows_build").as_unsigned() > 0xffffffffULL)
+        throw std::runtime_error("publisher capability platform differs");
+    const auto& binding = value.at("binding");
+    const auto& service = binding.at("service_name").as_string();
+    const auto& service_sid = binding.at("service_sid").as_string();
+    const auto& volume = binding.at("volume_guid_root").as_string();
+    if (binding.as_object().size() != 8 || service.size() != 40 ||
+        service.compare(0, 8, "USK_PUB_") != 0 || !lower_hex(service.substr(8), 32) ||
+        !sid_text(service_sid, true) ||
+        !sid_text(binding.at("caller_sid").as_string()) ||
+        !lower_hex(binding.at("binary_sha256").as_string(), 64) ||
+        !lower_hex(binding.at("registration_sha256").as_string(), 64) ||
+        !lower_hex(binding.at("target_sha256").as_string(), 64) ||
+        !lower_hex(binding.at("boundary_sha256").as_string(), 64) ||
+        volume.size() != 49 || volume.compare(0, 11, "\\\\?\\Volume{") != 0 ||
+        volume.compare(47, 2, "}\\") != 0)
+        throw std::runtime_error("publisher capability binding differs");
+    for (std::size_t index = 11; index < 47; ++index) {
+        const auto ch = volume[index];
+        const bool hyphen = index == 19 || index == 24 || index == 29 || index == 34;
+        if (hyphen ? ch != '-' : std::string("0123456789abcdefABCDEF").find(ch) == std::string::npos)
+            throw std::runtime_error("publisher capability volume identity differs");
+    }
+}
+
 bool valid_context(const OneShotContextConfig& config)
 {
     return !config.state_root.empty() && !config.authorized_acceptance_root.empty() &&
@@ -243,17 +329,39 @@ static OneShotResult run_publisher_request(const std::string& request_json,
         } else if (command == "install_local.recover") {
             expected_schema = "usk.publisher_recovery_request.v1";
             response_field = "recovery_installed_response";
+        } else if (command == "publisher.inspect" && !retain_observation) {
+            expected_schema = "usk.publisher_capability_request.v1";
         } else {
             return failure(request_id, "command_unavailable");
         }
-        if (input.at("dry_run").as_boolean() ||
+        const bool inspection = command == "publisher.inspect";
+        if (input.at("dry_run").as_boolean() != inspection ||
             input.at("payload").type() != Value::Type::object ||
             input.at("payload").at("schema").as_string() != expected_schema)
             return failure(request_id, "invalid_request");
-        request = usk::json::canonical(input.at("payload"));
         submitted = input.at("payload");
+        if (inspection && (submitted.as_object().size() != 2 ||
+            submitted.at("request_id").as_string() != request_id))
+            return failure(request_id, "invalid_request");
+        request = usk::json::canonical(submitted);
     } catch (const std::exception&) {
         return failure(request_id, "invalid_request");
+    }
+
+    if (candidate_command == "publisher.inspect") {
+        try {
+            if (!transport) return failure(request_id, "transport_unavailable");
+            usk::json::ParseLimits limits;
+            limits.max_bytes = 16384;
+            limits.max_string_bytes = 4096;
+            const auto observation = usk::json::parse(transport(request), limits);
+            require_capability_observation(observation, request_id);
+            return candidate_outcome(request_id, "ok", observation, nullptr, 0);
+        } catch (const std::exception&) {
+            // Read-only discovery requested no target effects. An unavailable
+            // observation must not become an available provider or unknown install.
+            return failure(request_id, "publisher_capability_unavailable");
+        }
     }
 
     // Dispatch may have changed the target even when its reply is lost. Never

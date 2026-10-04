@@ -54,12 +54,99 @@ $receipt=[ordered]@{schema='usk.publisher_public_path_probe.v1';status='not_run'
 $created=$false
 $boundaryObserver=$null
 $clientTokenLease=$null
+$unrelatedTokenLease=$null
+$unrelatedLoginBinding=$null
+$unrelatedAccountCreated=$false
+$unrelatedAccountName='USKOBS_'+$id.Substring(0,13)
+$unrelatedAccountSid=''
+$unrelatedObserversClosed=$true
 $clientCaptureFile=Join-Path $lab 'public-client-token.json'
 $clientCaptureSha256=''
 $volumeBoundaryBaseline=''
 $installedBinary=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$service+'.exe')
 function Write-Json([string]$Path,$Value) {
     [IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)
+}
+function Invoke-PublicCapability([int]$ExpectedExit=0) {
+    # Discovery is a separate read-only client. It is excluded from the
+    # captured mutation/verification token corpus and requests no execution lease.
+    $requestId='capability.'+[guid]::NewGuid().ToString('N')
+    $request=Join-Path $lab ($requestId+'.json')
+    Write-Json $request ([ordered]@{schema='usk.oneshot_request.v1';request_id=$requestId;
+        command='publisher.inspect';payload=@{schema='usk.publisher_capability_request.v1';request_id=$requestId};dry_run=$true})
+    $beforeService=Get-CimInstance Win32_Service -Filter "Name='$service'"
+    $beforeMetadata=Read-VolumeMetadata
+    $recordPaths=@($registrationRecord,$targetIntentPath,$targetAdmittedPath)
+    $recordState=@{}
+    foreach($path in $recordPaths) {
+        $recordState[$path]=if(Test-Path -LiteralPath $path){(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash}else{''}
+    }
+    $stdout=Join-Path $lab ($requestId+'.stdout');$stderr=$stdout+'.stderr'
+    $launch=$null;$process=$null
+    try {
+        $launch=[UskPublisherPausedClient]::new($MachineBinary,('--machine --publisher '+$service+
+            ' --request-file "'+$request+'"'),$stdout,$stderr)
+        $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
+        $launch.Resume()
+        if(-not $process.WaitForExit(30000)){throw 'Read-only capability client exceeded its deadline'}
+        $exit=$process.ExitCode
+        $diagnostic=[IO.File]::ReadAllText($stderr)
+        if(($ExpectedExit -eq 0 -and $diagnostic.Length) -or
+            ($ExpectedExit -ne 0 -and $diagnostic -cnotmatch '\Ausk_machine: request refused\r?\n\z')) {
+            $receipt['capability_diagnostic']=[ordered]@{expected_exit=$ExpectedExit;actual_exit=$exit;
+                characters=$diagnostic.Length;prefix=$diagnostic.Substring(0,[Math]::Min(256,$diagnostic.Length))}
+            throw 'Read-only capability client emitted an unexpected diagnostic'
+        }
+        $result=[IO.File]::ReadAllText($stdout)|ConvertFrom-Json
+    } finally {
+        try {
+            if($process -and -not $process.HasExited) {
+                if($launch -and -not $launch.IsResumed){$launch.Dispose()}
+                else {Stop-OwnedPublisherProcessTree $process|Out-Null}
+                if(-not $process.WaitForExit(5000)){throw 'Owned capability client remains live'}
+            }
+        } finally {if($process){$process.Dispose()};if($launch){$launch.Dispose()}}
+    }
+    $afterService=Get-CimInstance Win32_Service -Filter "Name='$service'"
+    if($afterService.State -cne $beforeService.State -or $afterService.ProcessId -ne $beforeService.ProcessId -or
+        $afterService.PathName -cne $beforeService.PathName){throw 'Discovery altered the owned SCM registration or state'}
+    Assert-VolumeMetadataSnapshot (Read-VolumeMetadata) $beforeMetadata.volume_metadata
+    foreach($path in $recordPaths) {
+        $after=if(Test-Path -LiteralPath $path){(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash}else{''}
+        if($after -cne $recordState[$path]){throw 'Discovery altered a protected registration or admission record'}
+    }
+    if($exit -ne $ExpectedExit -or $result.schema -cne 'usk.oneshot_response.v1' -or $result.request_id -cne $requestId) {
+        throw 'Read-only capability response binding differs'
+    }
+    if($ExpectedExit -ne 0) {
+        if($result.status -cne 'refused' -or $result.result -ne $null -or
+            $result.error.code -cne 'publisher_capability_unavailable'){throw 'Unadmitted target discovery was not refused'}
+        return $result
+    }
+    $capability=$result.result
+    if($result.status -cne 'ok' -or $result.error -ne $null -or
+        @($capability.PSObject.Properties).Count -ne 20 -or
+        $capability.schema -cne 'usk.publisher_capability.v1' -or $capability.request_id -cne $requestId -or
+        $capability.provider_id -cne 'windows_nt_x64_local_ntfs_service_sid_noreplace_v1' -or
+        $capability.implementation -cne 'partial' -or $capability.realization -cne 'restricted_service' -or
+        $capability.availability -ne $false -or $capability.required_privilege -cne 'SeBackupPrivilege_and_disk_read' -or
+        $capability.permission -cne 'registered_caller_observed' -or $capability.authority -cne 'not_granted_by_discovery' -or
+        $capability.qualification -cne 'incomplete' -or $capability.qualification_scope -cne 'registered_target_observation' -or
+        $capability.support -cne 'unsupported' -or $capability.recovery_ceiling -cne 'candidate_source_free_restart' -or
+        $capability.power_loss_qualified -ne $false -or $capability.revalidation_required_before_effects -ne $true -or
+        $capability.execution_lease_held -ne $false -or @($capability.effects).Count -ne 0 -or
+        $capability.service_state -ne 1 -or @($capability.platform.PSObject.Properties).Count -ne 5 -or
+        $capability.platform.os_family -cne 'Windows NT' -or $capability.platform.native_arch -cne 'x64' -or
+        $capability.platform.process_arch -cne 'x64' -or $capability.platform.minimum_windows_build -ne 17763 -or
+        $capability.platform.windows_build -ne [int]([Environment]::OSVersion.Version.Build) -or
+        @($capability.binding.PSObject.Properties).Count -ne 8 -or
+        $capability.binding.service_name -cne $service -or $capability.binding.service_sid -cne $sid -or
+        $capability.binding.caller_sid -cne $caller -or $capability.binding.volume_guid_root -cne $VolumeRoot -or
+        $capability.binding.binary_sha256 -cne $receipt.service_sha256) {throw 'Capability dimensions or native identities differ'}
+    foreach($field in @('registration_sha256','target_sha256','boundary_sha256')) {
+        if($capability.binding.$field -cnotmatch '^[0-9a-f]{64}$'){throw 'Capability binding digest is missing or malformed'}
+    }
+    return $result
 }
 function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     $request=Join-Path $lab ('public-request-'+[guid]::NewGuid().ToString('N')+'.json')
@@ -94,6 +181,7 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
             $capture=$clientTokenLease.CaptureBinding($PID,[long]$invokingCreation,$MachineBinary)
             $capture['client_sha256']=$receipt.machine_sha256
             $capture['request_id']=$requestId;$capture['command']=$Command
+            if($unrelatedLoginBinding){$capture['unrelated_local_login']=$unrelatedLoginBinding}
             if(Test-Path -LiteralPath $clientCaptureFile){throw 'Owned machine-client capture file already exists'}
             Write-Json $clientCaptureFile $capture
             $script:clientCaptureSha256=(Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -143,7 +231,7 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     if((Get-Service $service).Status -ne 'Stopped'){throw 'Public one-request service did not stop'}
     return $result
 }
-function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[string]$VolumeRoot,[uint32]$DiskNumber,[long]$PartitionOffset,[long]$PartitionSize,[string]$ServiceSid) {
+function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[string]$VolumeRoot,[uint32]$DiskNumber,[long]$PartitionOffset,[long]$PartitionSize,[string]$ServiceSid,[switch]$RequireUnrelated) {
     $root=$Boundary.root
     $prepared=@($Observation.rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Volume boundary has no retained prepared binding'}
@@ -183,26 +271,36 @@ function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[
     }
     if($serviceAces -ne 1){throw 'Independent raw-volume service grant absent or repeated'}
     foreach($checks in @($root.effective_rights,$boundary.device.checks)) {
+        $principals=@('filtered')
+        if($RequireUnrelated) {
+            if($null -eq $checks.unrelated){throw 'Required unrelated boundary checks are absent'}
+            $principals+=@('unrelated')
+        }
+        foreach($principal in $principals) {
         foreach($right in @('write_or_add_file','append_or_add_directory','write_ea','delete_child',
             'write_attributes','delete','write_dac','write_owner')) {
-            if($checks.filtered.$right.allowed -or $checks.filtered.$right.granted -ne 0) {
-                throw 'Filtered machine-client token has boundary mutation access'
+            if($null -eq $checks.$principal.$right -or $checks.$principal.$right.allowed -or $checks.$principal.$right.granted -ne 0) {
+                throw ($principal+' token has boundary mutation access')
             }
         }
-        if(([uint32]$checks.filtered.maximum_allowed.granted -band 0xd0156) -ne 0) {
-            throw 'Filtered machine-client maximum boundary access includes mutation'
+        if($null -eq $checks.$principal.maximum_allowed -or ([uint32]$checks.$principal.maximum_allowed.granted -band 0xd0156) -ne 0) {
+            throw ($principal+' maximum boundary access includes mutation')
+        }
         }
     }
 }
 function Read-IndependentPublicRows {
+    $script:unrelatedObserversClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab `
         -RunId ([guid]::NewGuid().ToString('N')) -CallerProcessId $PID `
         -CallerCreationFileTime $invokingCreation -CallerSid $caller -ServiceSid $sid `
         -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
         -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number
-    if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18') {
+    if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18' -or
+        $readback.independent.observer_token_handles_closed -ne $true) {
         throw 'Independent public-path readback identity or cleanup differs'
     }
+    $script:unrelatedObserversClosed=$true
     Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid
     $tokens=$readback.independent.effective_right_tokens
     if($tokens.process_id -ne $PID -or $tokens.creation_file_time -cne $invokingCreation -or
@@ -210,6 +308,15 @@ function Read-IndependentPublicRows {
         throw 'Independent effective-right token context differs from the invoking public probe'
     }
     $client=$tokens.captured_client;$capture=$receipt.machine_client_capture
+    $login=$tokens.unrelated_logon_context
+    if($null -eq $tokens.unrelated -or $null -eq $login -or
+        $login.account_name -cne $unrelatedAccountName -or $login.user_sid -cne $unrelatedAccountSid -or
+        $login.token_id -cne $unrelatedLoginBinding.token_id -or $login.authentication_id -cne $unrelatedLoginBinding.authentication_id -or
+        $tokens.unrelated.user_sid -cne $unrelatedAccountSid -or $tokens.unrelated.token_id -cne $login.token_id -or
+        $tokens.unrelated.authentication_id -cne $login.authentication_id -or $login.logon_type -ne 2 -or
+        $login.contradictory_bindings_refused -ne 7) {
+        throw 'Independent unrelated actual local-login token binding differs'
+    }
     if($null -eq $client -or -not $client.exited_at_observation -or
         $client.process_id -ne $capture.process_id -or $client.creation_file_time -cne $capture.creation_file_time -or
         $client.initiating_token_id -cne $capture.initiating_token_id -or $client.filtered_token_id -cne $capture.filtered_token_id -or
@@ -219,19 +326,25 @@ function Read-IndependentPublicRows {
         throw 'Independent held machine-client token binding differs'
     }
     $boundary=$readback.independent.volume_boundary
-    Assert-PublicVolumeBoundary $readback.independent $boundary $drive $VolumeRoot $disk.Number $partitions[0].Offset $partitions[0].Size $sid
+    Assert-PublicVolumeBoundary $readback.independent $boundary $drive $VolumeRoot $disk.Number $partitions[0].Offset $partitions[0].Size $sid -RequireUnrelated
     $boundaryJson=$boundary|ConvertTo-Json -Depth 16 -Compress
     if($volumeBoundaryBaseline -and $boundaryJson -cne $volumeBoundaryBaseline) {
         throw 'Independent volume-root/device boundary changed across recovery or replay'
     }
     $script:volumeBoundaryBaseline=$boundaryJson
     foreach($row in $readback.independent.rows) {
+        foreach($principal in @('filtered','unrelated')) {
         foreach($right in @('write_or_add_file','append_or_add_directory','write_ea','delete_child',
             'write_attributes','delete','write_dac','write_owner')) {
-            $check=$row.effective_rights.filtered.$right
+            $check=$row.effective_rights.$principal.$right
             if($null -eq $check -or $check.allowed -or $check.granted -ne 0) {
-                throw ('Filtered invoking token obtained protected mutation rights: '+$row.path+' / '+$right)
+                throw ($principal+' token obtained protected mutation rights: '+$row.path+' / '+$right)
             }
+        }
+        if($null -eq $row.effective_rights.$principal.maximum_allowed -or
+            ([uint32]$row.effective_rights.$principal.maximum_allowed.granted -band 0xd0156) -ne 0) {
+            throw ($principal+' maximum protected access includes mutation: '+$row.path)
+        }
         }
     }
     return $readback.independent
@@ -451,6 +564,25 @@ try {
     $created=$true
     $sid=[Security.Principal.NTAccount]::new('NT SERVICE\'+$service).Translate([Security.Principal.SecurityIdentifier]).Value
     $receipt['service_sid']=$sid
+    Initialize-PublisherMetadataNativeTypes
+    if(Get-LocalUser -Name $unrelatedAccountName -ErrorAction SilentlyContinue) {
+        throw 'Owned unrelated observation account name already exists'
+    }
+    $unrelatedObserversClosed=$false
+    $secret=ConvertTo-SecureString ('Aa1!'+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
+    try {
+        $account=New-LocalUser -Name $unrelatedAccountName -Password $secret -PasswordNeverExpires -ErrorAction Stop
+        $unrelatedAccountCreated=$true;$unrelatedAccountSid=$account.SID.Value
+        $receipt['unrelated_local_login']=[ordered]@{account_name=$unrelatedAccountName;user_sid=$unrelatedAccountSid;
+            token_id=$null;authentication_id=$null;logon_type=2;basis='owned account created; token authentication pending';cleanup='pending'}
+        Add-LocalGroupMember -SID ([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')) -Member $account -ErrorAction Stop
+        $unrelatedTokenLease=[UskPublisherEffectiveRights]::new($PID,[long]$invokingCreation,$caller,$sid)
+        $unrelatedLoginBinding=$unrelatedTokenLease.HoldOwnedLocalLogin($unrelatedAccountName,$secret,$unrelatedAccountSid,$sid)
+        $receipt['unrelated_local_login']=[ordered]@{account_name=$unrelatedAccountName;user_sid=$unrelatedAccountSid;
+            token_id=$unrelatedLoginBinding.token_id;authentication_id=$unrelatedLoginBinding.authentication_id;
+            logon_type=2;basis=$unrelatedLoginBinding.basis;cleanup='pending'}
+        $unrelatedObserversClosed=$true
+    } finally {$secret.Dispose()}
     # The package input is deliberately readable by the new restricted
     # service. These are fresh test input files outside the target volume;
     # this grants no target mutation rights and does not protect its boundary.
@@ -498,6 +630,9 @@ try {
     }
     $receipt['preexisting_target_refused_unchanged']=$true
     Remove-Item -LiteralPath $marker -ErrorAction Stop
+    $targetIntentPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-intent.json')
+    $targetAdmittedPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-admitted.json')
+    $receipt['unadmitted_capability']=Invoke-PublicCapability 2
     $metadataBefore=Read-VolumeMetadata
     # No lab helper changes the volume-root or raw-device ACL. The product
     # controller owns this admitted-target transition and its durable records.
@@ -533,6 +668,9 @@ try {
     }
     Assert-VolumeMetadataSnapshot (Read-VolumeMetadata) $targetIntent.identity.metadata
     $receipt['target_completion_reentry']='modelled missing completion; same immutable intent and protected metadata'
+    $receipt['admitted_capability']=Invoke-PublicCapability
+    $receipt['capability_registration_binding']=Get-Content -LiteralPath $registrationRecord -Raw|ConvertFrom-Json
+    $receipt['capability_target_admission']=Get-Content -LiteralPath $targetAdmittedPath -Raw|ConvertFrom-Json
     if($PublicationLoss -cne 'none') {
         $observerRoot=Join-Path $lab 'production-boundary'
         New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
@@ -625,6 +763,7 @@ try {
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;
         verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
     $receipt['verification']=Invoke-PublicRequest 'installed.verify' $verify
+    $receipt['installed_capability']=Invoke-PublicCapability
     if($receipt.verification.result.payload.status -cne 'pass' -or
         $receipt.verification.result.payload.report_id -cne $verify.report_id) {
         throw 'Ordinary public verification did not return the bound passing report'
@@ -679,7 +818,29 @@ try {
             $receipt['retained_authority_cleanup']='stopped SCM entry, executable and records retained until owned runner disposal'
         }
     }
-    if($clientTokenLease){$clientTokenLease.Dispose()}
+    if($clientTokenLease){
+        try {$clientTokenLease.Dispose()}
+        catch {$unrelatedObserversClosed=$false;$receipt.status='failed';$receipt['failure']='Owned machine-client token close failed: '+$_.Exception.Message}
+    }
+    if($unrelatedTokenLease){
+        try {$unrelatedTokenLease.Dispose()}
+        catch {$unrelatedObserversClosed=$false;$receipt.status='failed';$receipt['failure']='Owned unrelated token close failed: '+$_.Exception.Message}
+    }
+    $receipt['unrelated_observers_token_close_confirmed']=$unrelatedObserversClosed
+    if($unrelatedAccountCreated -and $unrelatedObserversClosed) {
+        try {
+            $account=Get-LocalUser -Name $unrelatedAccountName -ErrorAction Stop
+            if($account.SID.Value -cne $unrelatedAccountSid){throw 'Owned unrelated observation account SID changed'}
+            Remove-LocalUser -SID $account.SID -ErrorAction Stop
+            if(Get-LocalUser -SID $account.SID -ErrorAction SilentlyContinue){throw 'Owned observation account remained after removal'}
+            if($receipt.Contains('unrelated_local_login')){$receipt.unrelated_local_login.cleanup='matching generated account removed after token handles closed'}
+        } catch {
+            $receipt.status='failed';$receipt['failure']='Owned unrelated login cleanup failed: '+$_.Exception.Message
+        }
+    } elseif($unrelatedAccountCreated) {
+        $receipt.status='failed'
+        if($receipt.Contains('unrelated_local_login')){$receipt.unrelated_local_login.cleanup='observer/token close unconfirmed; generated account retained until owned runner disposal'}
+    }
     Write-Json $OutputPath $receipt
 }
 $expectedStatus=if($PostRenameRefusal -ceq 'none'){'public_install_verified_recovered'}else{'public_refusal_retained'}
