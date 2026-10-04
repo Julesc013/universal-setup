@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T18:13:35Z",
+  "generated_at": "2026-10-04T18:42:03Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1369,7 +1369,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "769abd76fa3635415bb163374f3880ae5a54427543b175aceaaf14da5dd8cada"
+          "sha256": "7eca0b2713a92c92c23a57208c02eddc451d391196fe2f446456c3a80ac7a587"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
@@ -4155,7 +4155,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "af5a8aa35ad8510e44c29e826cea855fee2f762e08c4296a3298dfca3038af0c"
+          "sha256": "d785dea7da4df488f00ab65a1fdb390b982d3daecf808ab7d64bd928e4c57d1d"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4203,7 +4203,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "769abd76fa3635415bb163374f3880ae5a54427543b175aceaaf14da5dd8cada"
+          "sha256": "7eca0b2713a92c92c23a57208c02eddc451d391196fe2f446456c3a80ac7a587"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -4239,11 +4239,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.h",
-          "sha256": "1a91c5d0d7634bf369d42e21902198755e900d9a5ea5ee213e292712f74884fb"
+          "sha256": "eda0db22248aab425a0deda21a71ee46b425f586636c7d73f0a6dfb684dd0b7f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.cpp",
-          "sha256": "d64064202bc624d0c0def47eafb55bc23bcc89e93191bbe4eb8f542f527aa77c"
+          "sha256": "8564d66bbd83c3a5bbbe07e72855d0b67de07a1d484e6a977e607c27afc87593"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_token_observation.h",
@@ -4451,7 +4451,7 @@
         },
         {
           "path": "tests/native/usk_publisher_token_observation_smoke.cpp",
-          "sha256": "9b24c9628cb3bda85200412ef8e0f6c614da8eba394f6a8cfc65332ba2d10cd8"
+          "sha256": "545fcef82b676718a655e7ccbec0a1eb071c803201b3c58d54dc0868ae4cbd85"
         },
         {
           "path": "tests/native/usk_publisher_security_descriptor_smoke.cpp",
@@ -4627,7 +4627,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "af5a8aa35ad8510e44c29e826cea855fee2f762e08c4296a3298dfca3038af0c"
+          "sha256": "d785dea7da4df488f00ab65a1fdb390b982d3daecf808ab7d64bd928e4c57d1d"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4687,7 +4687,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "769abd76fa3635415bb163374f3880ae5a54427543b175aceaaf14da5dd8cada"
+          "sha256": "7eca0b2713a92c92c23a57208c02eddc451d391196fe2f446456c3a80ac7a587"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -4731,11 +4731,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.h",
-          "sha256": "1a91c5d0d7634bf369d42e21902198755e900d9a5ea5ee213e292712f74884fb"
+          "sha256": "eda0db22248aab425a0deda21a71ee46b425f586636c7d73f0a6dfb684dd0b7f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.cpp",
-          "sha256": "d64064202bc624d0c0def47eafb55bc23bcc89e93191bbe4eb8f542f527aa77c"
+          "sha256": "8564d66bbd83c3a5bbbe07e72855d0b67de07a1d484e6a977e607c27afc87593"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_token_observation.h",

@@ -2059,3 +2059,10 @@ eligibility for public apply, source-free process restart, replay and verify;
 each operation still requires fresh native revalidation. It does not qualify
 an existing installation or an older record, grant discovery authority or a
 lease, qualify power loss, enable generic strict plans, or accept a release.
+
+The exact current tuple predicate is shared by v3 reporting and native
+registered operation admission. A current worker on an unqualified tuple
+refuses registered installation before context entry and refuses registered
+forward recovery before publication or finalization. Existing material remains
+retained. Historical record parsing and private candidate paths keep their
+original platform floor, and read-only verification keeps its existing scope.

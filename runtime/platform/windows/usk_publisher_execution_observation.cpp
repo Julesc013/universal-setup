@@ -312,6 +312,16 @@ Value observe_publisher_execution_platform() {
         {"sdk_version", Value(USK_PUBLISHER_BUILD_SDK_VERSION)}});
 }
 
+bool publisher_registered_execution_platform_qualified(const Value& value) {
+    try {
+        require_platform(value);
+        return value.at("windows_build").as_unsigned() == 20348 &&
+            value.at("sdk_version").as_string() == "10.0.26100.0";
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 Value observe_publisher_execution_phase(const std::wstring& service_name, const std::string& phase,
     const std::vector<PublisherPhaseHandle>& handles, const PublisherRequestChannel* authenticated_request) {
     require(handles.size() == roles.size(), "publisher execution requires the seven distinct held roles");

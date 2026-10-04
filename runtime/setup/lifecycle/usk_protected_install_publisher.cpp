@@ -1366,6 +1366,8 @@ usk::json::Value admit_current_registered_operation(HANDLE volume, const std::st
     using usk::json::Value;
     if (!registered_admission || !authenticated_request)
         throw std::runtime_error("registered operation requires the held host admission and authenticated channel");
+    if (!publisher_registered_execution_platform_qualified(observe_publisher_execution_platform()))
+        throw usk::transaction::CommitAuthorityUnavailable();
     const auto registration = registered_admission->evidence();
     const auto observed = observe_current_restricted_publisher_service(service_name);
     const auto volume_facts = observe_local_ntfs_volume_handle(volume);

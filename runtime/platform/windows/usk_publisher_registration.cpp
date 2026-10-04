@@ -2130,10 +2130,7 @@ usk::json::Value RegisteredPublisherAdmission::capability_observation(const std:
         // Qualified source-path bounds, not a grant from a query or a claim
         // about historical records. All operation checks still precede effects.
         const auto actual = observe_publisher_execution_platform();
-        const bool qualified = actual.at("native_arch").as_string() == "x64" &&
-            actual.at("process_arch").as_string() == "x64" &&
-            actual.at("windows_build").as_unsigned() == 20348 &&
-            actual.at("sdk_version").as_string() == "10.0.26100.0";
+        const bool qualified = publisher_registered_execution_platform_qualified(actual);
         auto& fields = result.as_object();
         fields.at("schema") = Value("usk.publisher_capability.v3");
         fields.at("availability") = Value(qualified);
