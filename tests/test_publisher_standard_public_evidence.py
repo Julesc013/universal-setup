@@ -33,9 +33,13 @@ class StandardPublicPolicyTests(unittest.TestCase):
         captures = [{'request_id': str(index)} for index in range(7)]
         native = [{'command': command, 'request_id': str(index)} for index, command in enumerate(commands[1:], 1)]
         require_native_capture_set(native, captures, commands)
-        for changed in (native[1:], native[:-1], list(reversed(native)), native + native[:1]):
+        for changed in (None, [], native[1:], native[:-1], list(reversed(native)), native + native[:1]):
             with self.subTest(captures=changed), self.assertRaises(StandardEvidenceError):
                 require_native_capture_set(changed, captures, commands)
+        with self.assertRaises(StandardEvidenceError):
+            require_native_capture_set(None, captures, commands, allow_legacy_missing=True)
+        require_native_capture_set(None, captures[:1] + captures[2:6],
+            [commands[0]] + commands[2:6], allow_legacy_missing=True)
 
     def test_service_observation_cannot_upgrade_authority_or_hide_effects(self):
         schema = json.loads((Path(__file__).resolve().parents[1] /

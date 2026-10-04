@@ -199,7 +199,9 @@ def service_capability(native, request_id, windows_build):
     return value
 
 
-def require_native_capture_set(native_captures, captures, commands):
+def require_native_capture_set(native_captures, captures, commands, *, allow_legacy_missing=False):
+    if allow_legacy_missing and native_captures is None and 'publisher.observe' not in commands:
+        return
     require(isinstance(native_captures, list) and len(native_captures) == len(commands) - 1 and
         all(isinstance(x, dict) for x in native_captures) and
         [x.get('command') for x in native_captures] == commands[1:] and
@@ -268,8 +270,7 @@ def reconcile(receipt, expected_head):
         len({x["process_id"] for x in captures}) == len(commands),
         "standard request identities alias")
     native_captures = observation.get('native_observations')
-    if native_captures is not None:
-        require_native_capture_set(native_captures, captures, commands)
+    require_native_capture_set(native_captures, captures, commands, allow_legacy_missing=not mediated)
     for capture in captures:
         require(capture.get("captured_before_primary_thread_resume") is True and integer(capture["process_id"], 1) and
             re.fullmatch(r"[1-9][0-9]{16,18}", capture["creation_file_time"]) and

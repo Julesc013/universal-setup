@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T13:03:02Z",
+  "generated_at": "2026-10-04T13:12:06Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1389,11 +1389,11 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "8bb18f6ec266020d10cccb3eb366a1389c076644909c69d41a98f996cb1e6f87"
+          "sha256": "8133cd48eda32cfc2d3345b4e029c20472333ffc4518d63ac4394caa0380dd4f"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "3519525bfbe3850eb3fd85079fa058cac7fd0b63b882ed9245bfc1359f39ffa4"
+          "sha256": "4654a53c7084cb6536ba90da88a4d45d8f784a0c868045c4fb10e075e407cea6"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -4295,11 +4295,11 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "8bb18f6ec266020d10cccb3eb366a1389c076644909c69d41a98f996cb1e6f87"
+          "sha256": "8133cd48eda32cfc2d3345b4e029c20472333ffc4518d63ac4394caa0380dd4f"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "3519525bfbe3850eb3fd85079fa058cac7fd0b63b882ed9245bfc1359f39ffa4"
+          "sha256": "4654a53c7084cb6536ba90da88a4d45d8f784a0c868045c4fb10e075e407cea6"
         },
         {
           "path": "tests/test_publisher_rename_evidence.py",
@@ -4771,11 +4771,11 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "8bb18f6ec266020d10cccb3eb366a1389c076644909c69d41a98f996cb1e6f87"
+          "sha256": "8133cd48eda32cfc2d3345b4e029c20472333ffc4518d63ac4394caa0380dd4f"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "3519525bfbe3850eb3fd85079fa058cac7fd0b63b882ed9245bfc1359f39ffa4"
+          "sha256": "4654a53c7084cb6536ba90da88a4d45d8f784a0c868045c4fb10e075e407cea6"
         },
         {
           "path": "tests/test_publisher_rename_evidence.py",
