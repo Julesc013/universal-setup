@@ -2366,7 +2366,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         open_exact_lab_child(staging.get(), L"candidate", false, true) :
         create_directory_relative_with_descriptor(
             staging.get(), L"candidate", descriptor));
-    const bool execution_bound = !consumer_read_sid.empty();
+    const bool execution_bound = reviewed_plan.has_value() &&
+        (submitted_apply_request.has_value() || submitted_recovery_request.has_value());
     const std::vector<HANDLE> phase_handles{volume, publication.get(), staging.get(),
         destination.get(), state.get(), journal.get(), candidate.get()};
     usk::json::Value::Array prepared_execution_phases;
@@ -2725,7 +2726,7 @@ struct ScopedExecution {
         }
         consumer_read_sid=config.consumer_read_sid;
         interrupt_consumer_grant=config.interrupt_consumer_grant;
-        if (!consumer_read_sid.empty()) {
+        if (submitted_apply_request || submitted_recovery_request || submitted_verify_request) {
             usk::platform::windows::require_publisher_consumer_sid(consumer_read_sid);
             if (!submitted_apply_request && !submitted_recovery_request &&
                 !(verify_installed_request && submitted_verify_request)) {

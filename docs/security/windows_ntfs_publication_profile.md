@@ -1664,7 +1664,7 @@ binary security descriptors from SDDL. No execution lease follows.
 
 ## Native execution phases in the public candidate
 
-The registered public consumer path now writes private phase record v3;
+The authenticated registered public path now writes private phase record v3;
 existing v1/v2 recovery readers remain available. A new worker records fresh
 SCM restricted-service configuration, current process token statistics and
 groups, runtime Windows version/native architecture, the SDK selected by the
@@ -1700,3 +1700,12 @@ recovery; and production admission connected to the public strict path.
 Reopened evidence and absent prior-worker rename evidence must retain their
 narrower scope. Availability, support, OD-001 and release acceptance remain
 unchanged pending that connected qualification.
+
+The first hosted v3 run failed the ordinary fixture's required prepared-record
+format check. The source initially selected v3 from the optional consumer read
+grant, which ordinary authenticated requests need not carry. Selection now
+uses the authenticated submitted apply/recovery context; platform preflight
+also covers authenticated verification. The optional read grant retains its
+separate policy. The fixture keeps its v3 requirement and retains bounded
+format diagnostics on a future mismatch. Exact-head repair qualification is
+pending.

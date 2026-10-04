@@ -456,6 +456,9 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     if($record.schema -cne 'usk.publisher.lab_phase_evidence.v3' -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
+        $receipt['native_execution_diagnostic']=@{schema=$record.schema;phase=$record.phase;
+            service_sid_matches=($record.service_sid -ceq $sid);
+            source_file_id_matches=($record.source_file_id -ceq $record.sealed_tree.root.file_id)}
         throw 'Independent prepared tree binding differs'
     }
     $members=@($Observation.rows|Where-Object {
