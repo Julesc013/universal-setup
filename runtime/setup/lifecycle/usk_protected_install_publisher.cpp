@@ -3099,6 +3099,7 @@ struct CandidateApplyContext {
     bool& effects_may_exist;
     std::string anchors;
     bool entered=false;
+    std::function<void()> start_installation_lease;
 };
 thread_local CandidateApplyContext* candidate_apply=nullptr;
 class ScopedCandidateApply final {
@@ -3252,6 +3253,12 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
         selected.selected_payload.files.push_back(std::move(entry));
     }
     try {
+        // The public dispatcher has already rebuilt and matched the reviewed
+        // plan before entering this context. Bootstrap can legitimately change
+        // its owned setup-root identity only after that stale-plan check.
+        if (registered_admission && !context.start_installation_lease)
+            throw std::runtime_error("registered apply lacks its native ownership initializer");
+        if (context.start_installation_lease) context.start_installation_lease();
         context.anchors=observe_protected_anchors(context.volume,context.service_sid,selected,false,&completed);
     } catch (const std::exception& error) {
         throw ProtectedApplyEffectsRetained(error.what());
@@ -3539,10 +3546,19 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             // Empty repository bootstrap creates protected layout only. It is
             // conservatively reported as an effect and supplies the real state
             // root identity needed before the ownership record can be created.
-            publication_effects_may_exist = true;
-            usk::lifecycle::initialize_setup_root_for_publisher(reviewed.setup_root,
-                reviewed.acceptance_root, "operator_acceptance_candidate", volume, volume_root, service_name);
             const auto setup_component = std::filesystem::u8path(reviewed.setup_root).filename().wstring();
+            bool existing_layout = false;
+            for (const auto& entry : observe_publisher_directory_entries(volume)) {
+                if (CompareStringOrdinal(entry.name.c_str(), -1, setup_component.c_str(), -1, TRUE) == CSTR_EQUAL) {
+                    if (entry.name != setup_component || existing_layout)
+                        throw std::runtime_error("installation setup-root name is ambiguous");
+                    existing_layout = true;
+                }
+            }
+            if (!existing_layout) publication_effects_may_exist = true;
+            usk::lifecycle::initialize_setup_root_for_publisher(reviewed.setup_root,
+                reviewed.acceptance_root, "operator_acceptance_candidate", volume, volume_root, service_name,
+                existing_layout);
             lease_setup_root = std::make_unique<OwnedHandle>(open_exact_lab_child(volume, setup_component, true));
             lease_state_root = std::make_unique<OwnedHandle>(open_exact_lab_child(lease_setup_root->get(),
                 L"state", true, false, true));
@@ -3556,6 +3572,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 reviewed.transaction_id, "attempt." + std::to_string(GetCurrentProcessId()) + "." +
                     holder.at("process_creation_time").as_string() + "." + std::to_string(++attempt_sequence),
                 recovery ? revision() : usk::json::sha256_canonical(usk::json::Value(usk::json::Value::Array{})), recovery};
+            publication_effects_may_exist = true;
             installation_lease = std::make_unique<usk::platform::windows::PublisherInstallationLease>(
                 lease_state_root->get(), volume_root, service_name, *install_guard, request, revision);
             installation_lease->require_start();
@@ -3697,8 +3714,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     if (reviewed_plan && !reviewed_plan->apply_request.empty()) {
                         if (registered_admission) registered_operation_admission =
                             admit_current_registered_operation(volume, observed.service_sid, *reviewed_plan);
-                        start_installation_lease(*reviewed_plan, false);
                         CandidateApplyContext context{volume,observed.service_sid,*reviewed_plan,publication_effects_may_exist,{}};
+                        context.start_installation_lease = [&] { start_installation_lease(*reviewed_plan, false); };
                         ScopedCandidateApply candidate(context);
                         int status=-1;
                         char* raw=usk_public_lifecycle_command_json("install_local.apply",

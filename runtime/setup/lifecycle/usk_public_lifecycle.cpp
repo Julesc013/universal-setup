@@ -109,7 +109,8 @@ struct RecoveryBundle {
 
 void ensure_directory(const fs::path& parent, const std::string& name);
 void initialize_setup_root_at(const PublicConfig& config,
-    const fs::path& physical_setup_root, const fs::path& physical_parent);
+    const fs::path& physical_setup_root, const fs::path& physical_parent,
+    bool require_existing_layout = false);
 void initialize_setup_root(const PublicConfig& config);
 
 void exact_members(const Value& value, std::initializer_list<const char*> names)
@@ -1718,7 +1719,8 @@ void ensure_directory(const fs::path& parent, const std::string& name)
 }
 
 void initialize_setup_root_at(const PublicConfig& config,
-    const fs::path& physical_setup_root, const fs::path& physical_parent)
+    const fs::path& physical_setup_root, const fs::path& physical_parent,
+    bool require_existing_layout)
 {
     usk::base::require_native_path_capacity(physical_setup_root / ".usk-owned-root.v1.json",
         usk::base::NativePathKind::file, "setup ownership marker");
@@ -1732,6 +1734,7 @@ void initialize_setup_root_at(const PublicConfig& config,
     std::error_code error;
     if (!fs::exists(physical_setup_root, error)) {
         if (error) throw PublicError("setup_state_root_unsafe", "cannot inspect setup-state root");
+        if (require_existing_layout) throw PublicError("setup_state_root_unsafe", "existing setup-state root disappeared");
         usk::record_io::require_safe_directory(physical_parent);
         usk::record_io::create_directory_exclusive(physical_parent,
             physical_setup_root.filename().string());
@@ -1742,6 +1745,14 @@ void initialize_setup_root_at(const PublicConfig& config,
         const std::string actual = usk::record_io::read_stable_text(
             physical_setup_root / ".usk-owned-root.v1.json", 64u * 1024u);
         if (actual != marker) throw PublicError("setup_state_root_unsafe", "setup-state ownership marker is missing or incompatible");
+    }
+    if (require_existing_layout) {
+        for (const fs::path& path : {physical_setup_root / "state", physical_setup_root / "staging",
+                physical_setup_root / "audit", physical_setup_root / "state" / "ownership",
+                physical_setup_root / "state" / "installed", physical_setup_root / "state" / "transactions",
+                physical_setup_root / "audit" / "chains"})
+            usk::record_io::require_safe_directory(path);
+        return;
     }
     ensure_directory(physical_setup_root, "state");
     ensure_directory(physical_setup_root, "staging");
@@ -1997,7 +2008,7 @@ usk::lifecycle::InstallPlan usk::lifecycle::reviewed_install_plan_for_publisher(
 void usk::lifecycle::initialize_setup_root_for_publisher(
     const std::string& state_root, const std::string& authorized_acceptance_root,
     const std::string& target_policy_activation, HANDLE held_volume,
-    const std::wstring& volume_guid_root, const std::wstring& service_name)
+    const std::wstring& volume_guid_root, const std::wstring& service_name, bool require_existing_layout)
 {
     const PublicConfig config = parse_config(state_root.c_str(),
         authorized_acceptance_root.c_str(), target_policy_activation.c_str());
@@ -2044,8 +2055,8 @@ void usk::lifecycle::initialize_setup_root_for_publisher(
     if (!service_name.empty()) {
 #if defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
         platform::windows::PublisherMetadataSession metadata(held_volume,
-            volume_guid_root, physical_setup_root, service_name);
-        initialize_setup_root_at(config, metadata.initialization_root(), physical_parent);
+            volume_guid_root, physical_setup_root, service_name, require_existing_layout);
+        initialize_setup_root_at(config, metadata.initialization_root(), physical_parent, require_existing_layout);
         metadata.publish_initialized_root();
 #else
         throw std::runtime_error("protected metadata backend is absent from this host composition");
@@ -2053,7 +2064,7 @@ void usk::lifecycle::initialize_setup_root_for_publisher(
     } else {
         // The existing unqualified volume-alias fixture exercises addressing
         // only. It supplies no service and cannot establish protected metadata.
-        initialize_setup_root_at(config, physical_setup_root, physical_parent);
+        initialize_setup_root_at(config, physical_setup_root, physical_parent, require_existing_layout);
     }
 }
 #endif

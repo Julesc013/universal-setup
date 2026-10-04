@@ -655,6 +655,40 @@ int admitted_audit_path_proof(const fs::path& root, const fs::path& archive)
     usk_context_destroy_v1(context);
     return uninstall_refused ? 0 : 213;
 }
+
+int existing_setup_layout_is_read_only(const fs::path& fixture_root)
+{
+    // Owned ordinary fixture exercises the volume-alias/layout seam only.
+    // It does not establish restricted-service protection or qualification.
+    wchar_t guid[MAX_PATH]{};
+    if (!GetVolumeNameForVolumeMountPointW(fixture_root.root_path().c_str(), guid, MAX_PATH)) return 214;
+    HANDLE volume = CreateFileW(guid, FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (volume == INVALID_HANDLE_VALUE) return 215;
+    const fs::path own_setup = fixture_root / "read-only-layout";
+    const fs::path required = own_setup / "state" / "installed";
+    bool refused = false;
+    try {
+        usk::lifecycle::initialize_setup_root_for_publisher(own_setup.u8string(), fixture_root.u8string(),
+            "operator_acceptance_candidate", volume, guid, {}, false);
+        const auto marker_time = fs::last_write_time(own_setup / ".usk-owned-root.v1.json");
+        usk::lifecycle::initialize_setup_root_for_publisher(own_setup.u8string(), fixture_root.u8string(),
+            "operator_acceptance_candidate", volume, guid, {}, true);
+        if (!fs::is_directory(required) || fs::last_write_time(own_setup / ".usk-owned-root.v1.json") != marker_time) {
+            CloseHandle(volume);
+            return 216;
+        }
+        // Remove exactly one empty directory created above, without recursion.
+        if (!fs::remove(required)) { CloseHandle(volume); return 217; }
+        try {
+            usk::lifecycle::initialize_setup_root_for_publisher(own_setup.u8string(), fixture_root.u8string(),
+                "operator_acceptance_candidate", volume, guid, {}, true);
+        } catch (const std::exception&) { refused = true; }
+    } catch (...) { CloseHandle(volume); return 218; }
+    CloseHandle(volume);
+    return refused && !fs::exists(required) ? 0 : 219;
+}
 #endif
 
 } // namespace
@@ -690,6 +724,7 @@ int main()
     if (usk_context_create_v1(&config, &context) != USK_STATUS_OK) return 4;
 
 #if defined(_WIN32)
+    if (const int read_only = existing_setup_layout_is_read_only(root)) return read_only;
     if (const int capacity = audit_path_capacity_refusal(root, archive)) return capacity;
     if (const int capacity = transaction_path_capacity_refusal(root, archive)) return capacity;
     if (const int capacity = admitted_audit_path_proof(root, archive)) return capacity;

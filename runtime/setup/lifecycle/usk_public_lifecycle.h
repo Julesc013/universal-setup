@@ -46,7 +46,8 @@ InstallPlan reviewed_install_plan_for_publisher(const std::string& request_json,
 void initialize_setup_root_for_publisher(const std::string& state_root,
     const std::string& authorized_acceptance_root,
     const std::string& target_policy_activation, HANDLE held_volume,
-    const std::wstring& volume_guid_root, const std::wstring& service_name = {});
+    const std::wstring& volume_guid_root, const std::wstring& service_name = {},
+    bool require_existing_layout = false);
 #endif
 }
 #endif
