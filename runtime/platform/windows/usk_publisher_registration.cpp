@@ -2085,6 +2085,48 @@ usk::json::Value RegisteredPublisherAdmission::evidence() const {
     return state_->admission_evidence;
 }
 
+usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id) const {
+    using usk::json::Value;
+    const auto admitted = evidence();
+    const auto observed = observe_current_restricted_publisher_service(state_->name);
+    if (observed.process_id != admitted.at("process_id").as_unsigned() ||
+        observed.service_sid != admitted.at("service_sid").as_string())
+        throw std::runtime_error("service capability worker changed during observation");
+    const auto& target = admitted.at("target_identity");
+    const auto& volume = target.at("volume_identity");
+    // These are retained controller-admission bindings, with the current disk
+    // identity checked by admission. They do not assert fresh boundary ACLs.
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_capability.v2")}, {"request_id", Value(request_id)},
+        {"provider_id", Value("windows_nt_x64_local_ntfs_service_sid_noreplace_v1")},
+        {"implementation", Value("partial")}, {"realization", Value("restricted_service")},
+        {"availability", Value(false)}, {"required_privilege", Value("none_for_registered_caller")},
+        {"permission", Value("registered_caller_observed")},
+        {"authority", Value("not_granted_by_discovery")}, {"qualification", Value("incomplete")},
+        {"qualification_scope", Value("service_admitted_target_observation")},
+        {"binding_provenance", Value("retained_controller_admission_and_current_disk_identity")},
+        {"support", Value("unsupported")}, {"recovery_ceiling", Value("candidate_source_free_restart")},
+        {"power_loss_qualified", Value(false)}, {"revalidation_required_before_effects", Value(true)},
+        {"execution_lease_held", Value(false)},
+        {"service_state", Value(static_cast<std::uint64_t>(observed.service_state))},
+        {"effects", Value(Value::Array{Value("service_start_may_occur"),
+            Value("controller_guard_held_during_observation")})},
+        {"platform", Value(Value::Object{{"os_family", Value("Windows NT")},
+            {"native_arch", Value("x64")}, {"process_arch", Value("x64")},
+            {"windows_build", Value(observe_supported_discovery_windows_build())},
+            {"minimum_windows_build", Value(std::uint64_t{17763})}})},
+        {"binding", Value(Value::Object{{"service_name", admitted.at("service_name")},
+            {"service_sid", admitted.at("service_sid")},
+            {"caller_sid", admitted.at("configured_caller_sid")},
+            {"process_id", admitted.at("process_id")},
+            {"binary_sha256", admitted.at("publisher_image").at("sha256")},
+            {"registration_sha256", admitted.at("registration_sha256")},
+            {"target_admitted_sha256", admitted.at("target_admitted_sha256")},
+            {"volume_guid_root", volume.at("volume_root")},
+            {"root_file_id", volume.at("root_file_id")},
+            {"volume_serial", volume.at("volume_serial")}})}});
+}
+
 std::string submit_registered_publisher_request(const std::wstring& name,
     const std::string& request) {
     // Legacy privileged admission holds the controller guard here. The new
@@ -2092,6 +2134,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
     // validates SCM's stored policy and binds the live pipe/PID/image.
     std::string schema;
     std::string inspection_id;
+    bool service_observation = false;
     std::uint64_t windows_build = 0;
     try {
         if (!generated_name(name) || request.empty() || request.size() > 1024u * 1024u)
@@ -2101,7 +2144,9 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         limits.max_string_bytes = 512u * 1024u;
         const auto submitted = usk::json::parse(request, limits);
         schema = submitted.at("schema").as_string();
-        if (schema == "usk.publisher_capability_request.v1") {
+        if (schema == "usk.publisher_capability_request.v1" ||
+            schema == "usk.publisher_capability_request.v2") {
+            service_observation = schema == "usk.publisher_capability_request.v2";
             inspection_id = submitted.at("request_id").as_string();
             if (submitted.as_object().size() != 2 || inspection_id.empty() || inspection_id.size() > 128 ||
                 inspection_id.find_first_not_of(
@@ -2125,7 +2170,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         if (!manager.get()) throw std::runtime_error("SCM connection is unavailable");
         service = std::make_unique<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
             SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL |
-                (inspection_id.empty() ? SERVICE_START : 0)));
+                (inspection_id.empty() || service_observation ? SERVICE_START : 0)));
         if (!service->get()) throw std::runtime_error("publisher registration is unavailable");
         const auto before = query_configuration(service->get());
         require_profile(before);
@@ -2152,7 +2197,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
             require_existing_command(before.binary_path, name, args[0], args[4], caller, L"--service-admitted-client");
             if (CompareStringOrdinal(args[0].c_str(), -1, publisher_binary_path(name).c_str(), -1, TRUE) != CSTR_EQUAL)
                 throw std::runtime_error("registered publisher image is outside the protected installation");
-            if (!inspection_id.empty()) {
+            if (!inspection_id.empty() && !service_observation) {
                 // V1 discovery requires five genuine private/raw-disk bindings.
                 // Recognize this mode and refuse after caller/SCM validation,
                 // without a guard, service start or fabricated digest.
@@ -2176,6 +2221,8 @@ std::string submit_registered_publisher_request(const std::wstring& name,
                 throw std::runtime_error("registered publisher configuration changed before dispatch");
             admitted_image = args[0];
         } else {
+        if (service_observation)
+            throw std::runtime_error("service-mediated observation requires registered service admission");
         require_existing_command(before.binary_path, name, args[0], args[4], caller, mode);
         require_protected_binary(name, args[0]);
         const auto binding = read_registration_binding(name, before.binary_path, args[4]);

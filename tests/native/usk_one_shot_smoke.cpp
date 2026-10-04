@@ -156,6 +156,73 @@ bool publisher_capability_checks()
         [](const std::string&) -> std::string { throw std::runtime_error("observation unavailable"); }).exit_code == 2;
 }
 
+bool service_capability_checks()
+{
+    using usk::json::Value;
+    const std::string request=R"({"schema":"usk.oneshot_request.v1","request_id":"service-capability-1","command":"publisher.observe","payload":{"schema":"usk.publisher_capability_request.v2","request_id":"service-capability-1"},"dry_run":false})";
+    const auto cap=usk::json::parse(R"({"schema":"usk.publisher_capability.v2","request_id":"service-capability-1","provider_id":"windows_nt_x64_local_ntfs_service_sid_noreplace_v1","implementation":"partial","realization":"restricted_service","availability":false,"required_privilege":"none_for_registered_caller","permission":"registered_caller_observed","authority":"not_granted_by_discovery","qualification":"incomplete","qualification_scope":"service_admitted_target_observation","binding_provenance":"retained_controller_admission_and_current_disk_identity","support":"unsupported","recovery_ceiling":"candidate_source_free_restart","power_loss_qualified":false,"revalidation_required_before_effects":true,"execution_lease_held":false,"service_state":4,"effects":["service_start_may_occur","controller_guard_held_during_observation"],"platform":{"os_family":"Windows NT","native_arch":"x64","process_arch":"x64","windows_build":20348,"minimum_windows_build":17763},"binding":{"service_name":"USK_PUB_11111111111111111111111111111111","service_sid":"S-1-5-80-1-2-3-4-5","caller_sid":"S-1-5-21-1-2-3-1001","process_id":99,"binary_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","registration_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target_admitted_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","volume_guid_root":"\\\\?\\Volume{12345678-1234-1234-1234-123456789abc}\\","root_file_id":"0000000000000001:00000000000000000000000000000001","volume_serial":"1"}})");
+    const auto& binding=cap.at("binding");
+    const Value admitted(Value::Object{
+        {"schema",Value("usk.publisher_registered_admission_observation.v1")},
+        {"scope",Value("held_registered_service_image_and_controller_target_admission")},
+        {"service_name",binding.at("service_name")},{"service_sid",binding.at("service_sid")},
+        {"process_id",binding.at("process_id")},{"configured_caller_sid",binding.at("caller_sid")},
+        {"publisher_image",Value(Value::Object{{"sha256",binding.at("binary_sha256")}})},
+        {"registration_sha256",binding.at("registration_sha256")},
+        {"target_admitted_sha256",binding.at("target_admitted_sha256")},
+        {"target_identity",Value(Value::Object{{"volume_identity",Value(Value::Object{
+            {"volume_root",binding.at("volume_guid_root")},{"root_file_id",binding.at("root_file_id")},
+            {"volume_serial",binding.at("volume_serial")}})}})}});
+    const Value response(Value::Object{
+        {"schema",Value("usk.publisher_service_capability_observation.v1")},{"status",Value("observed")},
+        {"request_id",cap.at("request_id")},{"service_name",binding.at("service_name")},
+        {"service_sid",binding.at("service_sid")},{"process_id",binding.at("process_id")},
+        {"registered_admission",admitted},{"capability_observation",cap}});
+    int calls=0;
+    const auto transport=[&](const std::string& input) {
+        ++calls;
+        if (usk::json::canonical(usk::json::parse(input)) !=
+            usk::json::canonical(usk::json::parse(request).at("payload")))
+            throw std::runtime_error("service capability forwarding differs");
+        return usk::json::canonical(response);
+    };
+    const auto result=usk::command::run_publisher_one_shot(request,transport);
+    if (result.exit_code != 0 || calls != 1 ||
+        usk::json::canonical(usk::json::parse(result.document).at("result")) != usk::json::canonical(cap)) return false;
+    const auto retained=usk::command::run_candidate_one_shot(request,transport);
+    if (retained.exit_code != 0 || calls != 2 ||
+        usk::json::canonical(usk::json::parse(retained.document).at("result")) !=
+            usk::json::canonical(response)) return false;
+    auto changed=usk::json::parse(request);
+    changed.as_object()["dry_run"]=Value(true);
+    if (usk::command::run_publisher_one_shot(usk::json::canonical(changed),transport).exit_code != 2 ||
+        calls != 2) return false;
+    changed=usk::json::parse(request);
+    changed.as_object().at("payload").as_object()["request_id"]=Value("another-request");
+    if (usk::command::run_publisher_one_shot(usk::json::canonical(changed),transport).exit_code != 2 ||
+        calls != 2) return false;
+    for (int mode=0; mode<8; ++mode) {
+        auto invalid=response;
+        auto& invalid_cap=invalid.as_object().at("capability_observation");
+        if (mode==0) invalid_cap.as_object()["availability"]=Value(true);
+        if (mode==1) invalid_cap.as_object()["effects"]=Value(Value::Array{});
+        if (mode==2) invalid.as_object()["process_id"]=Value(std::uint64_t{100});
+        if (mode==3) invalid.as_object().at("registered_admission").as_object()["configured_caller_sid"]=Value("S-1-5-21-1-2-3-1002");
+        if (mode==4) invalid_cap.as_object().at("binding").as_object()["volume_serial"]=Value("2");
+        if (mode==5) invalid_cap.as_object().at("binding").as_object()["volume_serial"]=Value("18446744073709551616");
+        if (mode==6) invalid_cap.as_object()["binding_provenance"]=Value("fresh_boundary_security");
+        if (mode==7) invalid_cap.as_object()["execution_lease_held"]=Value(true);
+        const auto unknown=usk::command::run_publisher_one_shot(request,
+            [&](const std::string&) {return usk::json::canonical(invalid);});
+        if (unknown.exit_code != 5 || usk::json::parse(unknown.document).at("status").as_string() != "unknown")
+            return false;
+    }
+    const auto lost=usk::command::run_publisher_one_shot(request,
+        [](const std::string&) -> std::string {throw std::runtime_error("lost service observation reply");});
+    return lost.exit_code==5 && usk::json::parse(lost.document).at("error").at("code").as_string()==
+        "publisher_observation_unknown";
+}
+
 bool publisher_projection_checks()
 {
     const std::string request = R"({"schema":"usk.oneshot_request.v1","request_id":"public-1","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-1","applied_at":"2026-10-03T11:00:00Z"},"dry_run":false})";
@@ -211,6 +278,7 @@ int main()
 {
     if (!publisher_projection_checks()) return 23;
     if (!publisher_capability_checks()) return 24;
+    if (!service_capability_checks()) return 25;
     const std::string request =
         "{\"schema\":\"usk.oneshot_request.v1\",\"request_id\":\"probe-1\","
         "\"command\":\"command_graph.inspect\",\"payload\":{},\"dry_run\":true}";

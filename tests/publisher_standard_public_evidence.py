@@ -159,8 +159,48 @@ def registered_admission(native, service, service_sid, client, image_sha256, vol
     return value
 
 
+def service_capability(native, request_id, windows_build):
+    """Reconcile service observations; retained root facts are not fresh ACL proof."""
+    require(isinstance(native, dict) and native.keys() == {'schema', 'status', 'request_id', 'service_name',
+        'service_sid', 'process_id', 'registered_admission', 'capability_observation'} and
+        native['schema'] == 'usk.publisher_service_capability_observation.v1' and native['status'] == 'observed' and
+        native['request_id'] == request_id, 'service observation envelope differs')
+    value = native['capability_observation']
+    constants = {'schema': 'usk.publisher_capability.v2', 'request_id': request_id,
+        'provider_id': 'windows_nt_x64_local_ntfs_service_sid_noreplace_v1',
+        'implementation': 'partial', 'realization': 'restricted_service', 'availability': False,
+        'required_privilege': 'none_for_registered_caller', 'permission': 'registered_caller_observed',
+        'authority': 'not_granted_by_discovery', 'qualification': 'incomplete',
+        'qualification_scope': 'service_admitted_target_observation',
+        'binding_provenance': 'retained_controller_admission_and_current_disk_identity',
+        'support': 'unsupported', 'recovery_ceiling': 'candidate_source_free_restart',
+        'power_loss_qualified': False, 'revalidation_required_before_effects': True,
+        'execution_lease_held': False, 'service_state': 4,
+        'effects': ['service_start_may_occur', 'controller_guard_held_during_observation']}
+    require(isinstance(value, dict) and value.keys() == constants.keys() | {'platform', 'binding'} and
+        all(type(value[key]) is type(expected) and value[key] == expected for key, expected in constants.items()),
+        'service capability fabricated dimensions or effects')
+    platform = value['platform']
+    require(platform == {'os_family': 'Windows NT', 'native_arch': 'x64', 'process_arch': 'x64',
+        'windows_build': windows_build, 'minimum_windows_build': 17763} and
+        integer(platform['windows_build'], 17763, 0xffffffff) and
+        integer(platform['minimum_windows_build'], 17763, 17763), 'service capability platform differs')
+    admitted = native['registered_admission']
+    volume = admitted['target_identity']['volume_identity']
+    expected = {key: admitted[key] for key in ('service_name', 'service_sid', 'process_id')}
+    expected.update(caller_sid=admitted['configured_caller_sid'],
+        binary_sha256=admitted['publisher_image']['sha256'], registration_sha256=admitted['registration_sha256'],
+        target_admitted_sha256=admitted['target_admitted_sha256'], volume_guid_root=volume['volume_root'],
+        root_file_id=volume['root_file_id'], volume_serial=volume['volume_serial'])
+    require(isinstance(value['binding'], dict) and value['binding'] == expected and
+        integer(value['binding']['process_id'], 1, 0xffffffff) and
+        all(native[key] == admitted[key] for key in ('service_name', 'service_sid', 'process_id')),
+        'service capability differs from independently reconciled admission')
+    return value
+
+
 def require_native_capture_set(native_captures, captures, commands):
-    require(isinstance(native_captures, list) and len(native_captures) == 4 and
+    require(isinstance(native_captures, list) and len(native_captures) == len(commands) - 1 and
         all(isinstance(x, dict) for x in native_captures) and
         [x.get('command') for x in native_captures] == commands[1:] and
         [x.get('request_id') for x in native_captures] == [x['request_id'] for x in captures[1:]],
@@ -216,9 +256,16 @@ def reconcile(receipt, expected_head):
     require(build["windows_sdk"] == profile["windows_sdk"] and
         re.fullmatch(r"[0-9a-f]{64}", build["publisher_project_sha256"]), "standard native build targets differ")
     captures = observation["client_captures"]
-    commands = ["publisher.inspect", "install_local.apply", "install_local.recover", "install_local.apply", "installed.verify"]
+    service_protocol = observation.get('capability_protocol')
+    require(service_protocol is None or service_protocol == 'usk.publisher_capability.v2',
+        'standard capability protocol is unknown')
+    mediated = service_protocol is not None
+    commands = ["publisher.inspect"] + (["publisher.observe"] if mediated else []) + [
+        "install_local.apply", "install_local.recover", "install_local.apply", "installed.verify"] + (
+        ["publisher.observe"] if mediated else [])
     require(isinstance(captures, list) and [x["command"] for x in captures] == commands, "standard request capture set differs")
-    require(len({x["request_id"] for x in captures}) == 5 and len({x["process_id"] for x in captures}) == 5,
+    require(len({x["request_id"] for x in captures}) == len(commands) and
+        len({x["process_id"] for x in captures}) == len(commands),
         "standard request identities alias")
     native_captures = observation.get('native_observations')
     if native_captures is not None:
@@ -244,7 +291,7 @@ def reconcile(receipt, expected_head):
     require(isinstance(readbacks, list) and len(readbacks) == 4, "standard per-request native readbacks incomplete")
     reports = []
     baseline = None
-    for readback, capture in zip(readbacks, captures[1:]):
+    for readback, capture in zip(readbacks, captures[2:6] if mediated else captures[1:]):
         require(readback["observer_task_removed"] is True and readback["independent"]["identity"] == "S-1-5-18" and
             readback["independent"]["observer_token_handles_closed"] is True, "standard native reader closure differs")
         tokens = readback["independent"]["effective_right_tokens"]
@@ -292,13 +339,21 @@ def reconcile(receipt, expected_head):
         reports.append(report)
     if native_captures is not None:
         boundary_id = json.loads(prepared[0])['protected_anchors']['boundary']['file_id']
-        public_results = [observation[key]['result'] for key in ('apply', 'recovery', 'replayed_apply', 'verification')]
+        public_results = ([observation['service_discovery']['result']] if mediated else []) + [
+            observation[key]['result'] for key in ('apply', 'recovery', 'replayed_apply', 'verification')] + (
+            [observation['source_free_service_discovery']['result']] if mediated else [])
         for entry, public_result in zip(native_captures, public_results):
             require(isinstance(entry, dict) and entry.keys() == {'command', 'request_id', 'native_json', 'sha256'} and
                 isinstance(entry['native_json'], str) and len(entry['native_json'].encode('utf-8')) <= 4 * 1024 * 1024 and
                 hashlib.sha256(entry['native_json'].encode('utf-8')).hexdigest() == entry['sha256'],
                 'standard native transport bytes/digest differ')
             native = load_json(entry['native_json'])
+            registered_admission(native, observation['service'], observation['service_sid'], client,
+                observation['service_sha256'], observation['volume_root'], boundary_id)
+            if entry['command'] == 'publisher.observe':
+                require(service_capability(native, entry['request_id'], int(receipt['windows_build'].split('.')[2])) ==
+                    public_result, 'service native/public capability differs')
+                continue
             require(native.get('schema') == 'usk.publisher_lab_service_observation.v1' and native.get('status') == 'pass',
                 'standard native response scope differs')
             if entry['command'] == 'installed.verify':
@@ -311,10 +366,9 @@ def reconcile(receipt, expected_head):
                     'standard native apply completion is ambiguous')
                 returned = next(value for value in responses if value is not None)
             require(returned == public_result, 'standard native/public completion bytes differ')
-            registered_admission(native, observation['service'], observation['service_sid'], client,
-                observation['service_sha256'], observation['volume_root'], boundary_id)
     return {"schema": "usk.publisher_standard_public_reconciliation.v1", "status": "bindings_consistent",
-        "head": expected_head, "standard_client_sid": client, "captured_clients": 5, "native_readbacks": 4,
+        "head": expected_head, "standard_client_sid": client, "captured_clients": len(commands), "native_readbacks": 4,
+        "service_observations_checked": 2 if mediated else 0,
         "phase_bindings_checked": sum(x["worker_security_phase_count"] for x in reports),
         "native_rows": len(baseline), "profile_qualified": False}
 

@@ -251,6 +251,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
     bool publication_effects_may_exist = false;
     std::unique_ptr<usk::platform::windows::PublisherRequestChannel> request_channel;
     std::unique_ptr<usk::platform::windows::RegisteredPublisherAdmission> registered_admission;
+    std::string capability_request_id;
     try {
         report_status(SERVICE_START_PENDING);
         stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -288,8 +289,17 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 service_name, std::wstring(service.service_sid.begin(),service.service_sid.end()),
                 authorized_client_sid, stop_event, 120000);
             const std::string request=request_channel->receive();
-            const auto schema=usk::json::parse(request).at("schema").as_string();
-            if (registered_reviewed_mode) {
+            const auto submitted=usk::json::parse(request);
+            const auto schema=submitted.at("schema").as_string();
+            if (schema == "usk.publisher_capability_request.v2") {
+                if (!registered_admission || submitted.as_object().size() != 2)
+                    throw std::runtime_error("service capability request lacks registered admission");
+                capability_request_id=submitted.at("request_id").as_string();
+                if (capability_request_id.empty() || capability_request_id.size() > 128 ||
+                    capability_request_id.find_first_not_of(
+                        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos)
+                    throw std::runtime_error("service capability request identity differs");
+            } else if (registered_reviewed_mode) {
                 // The registered command binds the original reviewed envelope.
                 // Later requests may select only verification or source-free
                 // recovery of that protected installation. Neither mode may
@@ -334,8 +344,20 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             if (applied != ERROR_SUCCESS) throw std::runtime_error(
                 "cannot protect disposable volume root; Win32 "+std::to_string(applied));
         };
-        const auto observed=usk::platform::windows::execute_candidate_restricted_publisher(config,publication_effects_may_exist);
-        auto response = usk::json::parse(observed);
+        usk::json::Value response;
+        if (!capability_request_id.empty()) {
+            using usk::json::Value;
+            response=Value(Value::Object{
+                {"schema", Value("usk.publisher_service_capability_observation.v1")},
+                {"status", Value("observed")}, {"request_id", Value(capability_request_id)},
+                {"service_name", Value(ascii(service_name))},
+                {"service_sid", registered_admission->evidence().at("service_sid")},
+                {"capability_observation", registered_admission->capability_observation(capability_request_id)}});
+        } else {
+            const auto observed=usk::platform::windows::execute_candidate_restricted_publisher(
+                config,publication_effects_may_exist);
+            response=usk::json::parse(observed);
+        }
         if (registered_admission) {
             const auto pid = static_cast<std::uint64_t>(GetCurrentProcessId());
             if (response.contains("process_id") && response.at("process_id").as_unsigned() != pid)
