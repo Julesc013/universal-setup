@@ -48,7 +48,7 @@ def document(row):
     return value
 
 
-def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False):
+def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allow_legacy_missing=False):
     require(isinstance(rows, list) and 0 < len(rows) <= 10000, 'coordination row budget exceeded')
     require(all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in rows), 'coordination row missing path')
     by_path = {row['path']: row for row in rows}
@@ -59,7 +59,8 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False):
     lease_rows = [row for row in rows if row['path'] == leases or row['path'].startswith(leases + '\\')]
     context_rows = [row for row in rows if row['path'] == operations or row['path'].startswith(operations + '\\')]
     if not lease_rows and not context_rows:
-        return None  # Historical producer has no lease evidence; no lease claim.
+        require(allow_legacy_missing, 'current producer is missing all installation coordination')
+        return None  # Explicit historical mode; no lease claim.
     require(lease_rows and context_rows, 'lease and original context must both be observed')
     install, operation = installed['install_id'], installed['transaction_id']
     require(all(isinstance(value, str) and re.fullmatch('[A-Za-z0-9_.-]{1,128}', value) for value in (install, operation)),
@@ -101,7 +102,7 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False):
     require(document(by_path[installed_path]) == installed, 'lease installed-state readback differs')
     state_revision = digest([{'record': filename, 'sha256': digest(installed)}])
     lease_files = sorted((row for row in lease_rows if not row['directory']), key=lambda row: row['path'])
-    require(0 < len(lease_files) <= 4096 and (allow_active or len(lease_files) % 2 == 0), 'terminal lease record closure differs')
+    require(0 < len(lease_files) <= 4096, 'lease record closure differs')
     history = []
     previous = None
     attempts = set()
@@ -111,11 +112,13 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False):
                 'state_root_identity', 'holder', 'generation', 'expected_state_revision', 'status',
                 'result_state_revision', 'predecessor_sha256', 'ownership_sha256', 'operation_context_sha256'},
                 'lease record is not closed')
-        generation = index // 2 + 1
-        active = index % 2 == 0
+        generation = value['generation']
+        active = value['status'] == 'active'
+        expected_generation = (1 if previous is None else previous['generation'] + 1) if active else (
+            0 if previous is None else previous['generation'])
         expected_name = f'g{generation:020d}-' + ('active' if active else 'terminal') + '.json'
         require(row['path'] == lease_directory + '\\' + expected_name and type(value['generation']) is int and
-                value['generation'] == generation and value['schema'] == 'usk.installation_lease_ownership.v1' and
+                1 <= generation <= 0xffffffffffffffff and generation == expected_generation and value['schema'] == 'usk.installation_lease_ownership.v1' and
                 value['install_id'] == install and value['operation'] == 'install_local' and value['operation_id'] == operation and
                 value['state_root_identity'] == state_identity and value['operation_context_sha256'] == roots['roots_sha256'],
                 'lease operation/root/context/generation differs')
@@ -131,22 +134,31 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False):
             require(value['attempt_id'] not in attempts, 'lease attempt reused')
             attempts.add(value['attempt_id'])
             require(value['status'] == 'active' and value['result_state_revision'] is None and
-                    value['expected_state_revision'] == (digest([]) if generation == 1 else state_revision) and
+                    value['expected_state_revision'] in ({digest([])} if previous is None else (
+                        {previous['expected_state_revision'], state_revision} if previous['status'] == 'active' else
+                        {previous['result_state_revision']})) and
                     value['predecessor_sha256'] == (None if previous is None else previous['ownership_sha256']),
                     'lease active transition differs')
+            if previous is not None and previous['status'] == 'active':
+                require(holder != previous['holder'], 'crash takeover reused the same holder identity')
         else:
-            expected = dict(previous, status='completed', result_state_revision=state_revision)
+            require(previous is not None and previous['status'] == 'active' and value['status'] in ('completed', 'handoff'),
+                    'lease terminal has no active predecessor')
+            require(value['result_state_revision'] in ({state_revision} if value['status'] == 'completed' else
+                    {digest([]), state_revision}), 'lease terminal revision differs')
+            expected = dict(previous, status=value['status'], result_state_revision=value['result_state_revision'])
             expected['ownership_sha256'] = digest({key: item for key, item in expected.items() if key != 'ownership_sha256'})
             require(value == expected, 'lease terminal transition differs')
         history.append(value)
         previous = value
+    require(allow_active or history[-1]['status'] == 'completed', 'current snapshot lacks completed ownership')
     return {'history': history, 'context_sha256': context['context_sha256'],
             'files': [context_path, roots_path] + [row['path'] for row in lease_files]}
 
 
-def transition(before, after, drive, installed, volume_root_id, *, readonly=False):
-    old = snapshot(before, drive, installed, volume_root_id)
-    new = snapshot(after, drive, installed, volume_root_id)
+def transition(before, after, drive, installed, volume_root_id, *, readonly=False, allow_legacy_missing=False):
+    old = snapshot(before, drive, installed, volume_root_id, allow_legacy_missing=allow_legacy_missing)
+    new = snapshot(after, drive, installed, volume_root_id, allow_legacy_missing=allow_legacy_missing)
     if readonly or old is None:
         require(before == after, 'read-only or historical request changed native rows')
         return
@@ -174,11 +186,11 @@ def main():
             value = json.load(stream)
     if value['mode'] == 'snapshot':
         result = snapshot(value['rows'], value['drive'], value['installed'], value['volume_root_id'],
-                          allow_active=value.get('allow_active') is True)
+                          allow_active=value.get('allow_active') is True, allow_legacy_missing=value.get('allow_legacy_missing') is True)
     else:
         require(value['mode'] in ('append', 'readonly'), 'unknown lease reconciliation mode')
         transition(value['before'], value['after'], value['drive'], value['installed'], value['volume_root_id'],
-                   readonly=value['mode'] == 'readonly')
+                   readonly=value['mode'] == 'readonly', allow_legacy_missing=value.get('allow_legacy_missing') is True)
         result = None
     print(canonical({'status': 'bindings_consistent', 'coordination': result, 'profile_qualified': False,
                      'publication_authority_granted': False}))

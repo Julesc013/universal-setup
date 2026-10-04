@@ -84,6 +84,12 @@ function Read-InstalledSnapshot {
     $script:observersClosed=$true
     Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid -ConsumerSid $accountSid `
         -VisibleRoot ($drive+'publication\destination\visible')
+    # Missing coordination cannot select a historical compatibility path.
+    $leaseRequest=@{mode='snapshot';rows=$readback.independent.rows;drive=$drive;installed=$installed;
+        volume_root_id=$readback.independent.volume_boundary.root.file_id}
+    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Current standard snapshot lacks valid installation coordination'}
     $prepared=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     $visible=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
     if($prepared.Count -ne 1 -or $visible.Count -ne 1){throw 'Standard native phase records are incomplete'}

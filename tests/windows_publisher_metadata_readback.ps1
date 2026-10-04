@@ -124,7 +124,7 @@ function Assert-IndependentMetadataCollisionPrefix {
     }
 }
 function Assert-IndependentMetadataProbe {
-    param($Result,[switch]$AllowPartialConsumerGrant)
+    param($Result,[switch]$AllowPartialConsumerGrant,[switch]$RequireInstallationLease)
     $drive=$Result.volume_drive_root
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
     $visibleRoot=([string]$Result.plan.target.root).Replace('/','\')
@@ -179,7 +179,7 @@ function Assert-IndependentMetadataProbe {
     $expected=@(($drive + 'setup-state\.usk-owned-root.v1.json'),$installedPath,$ownershipPath,$validatedPath,$completedPath)
     $leaseFiles=@($publicFiles|Where-Object {$_.path.StartsWith(($drive+'setup-state\state\leases\'),[StringComparison]::Ordinal)})
     $contextFiles=@($Result.independent.rows|Where-Object {$_.path.StartsWith(($drive+'installation-operations\'),[StringComparison]::Ordinal)})
-    if($leaseFiles.Count -gt 0 -or $contextFiles.Count -gt 0) {
+    if($RequireInstallationLease -or $leaseFiles.Count -gt 0 -or $contextFiles.Count -gt 0) {
         $leaseRequest=@{mode='snapshot';rows=$Result.independent.rows;drive=$drive;installed=$installed;
             volume_root_id=$Result.independent.volume_boundary.root.file_id;allow_active=[bool]$AllowPartialConsumerGrant}
         $leaseOutput=$leaseRequest|ConvertTo-Json -Depth 64 -Compress|

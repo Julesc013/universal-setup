@@ -134,7 +134,33 @@ class LeaseRecordReconciliationTests(unittest.TestCase):
 
     def test_historical_evidence_still_requires_every_row_unchanged(self):
         rows = [{'path': DRIVE + 'old.json', 'directory': False}]
-        self.assertIsNone(snapshot(rows, DRIVE, INSTALLED, ROOT))
-        transition(rows, copy.deepcopy(rows), DRIVE, INSTALLED, ROOT)
         with self.assertRaises(LeaseEvidenceError):
-            transition(rows, rows + [{'path': DRIVE + 'extra.json', 'directory': False}], DRIVE, INSTALLED, ROOT)
+            snapshot(rows, DRIVE, INSTALLED, ROOT)
+        with self.assertRaises(LeaseEvidenceError):
+            transition(rows, copy.deepcopy(rows), DRIVE, INSTALLED, ROOT)
+        self.assertIsNone(snapshot(rows, DRIVE, INSTALLED, ROOT, allow_legacy_missing=True))
+        transition(rows, copy.deepcopy(rows), DRIVE, INSTALLED, ROOT, allow_legacy_missing=True)
+        with self.assertRaises(LeaseEvidenceError):
+            transition(rows, rows + [{'path': DRIVE + 'extra.json', 'directory': False}], DRIVE, INSTALLED, ROOT,
+                       allow_legacy_missing=True)
+
+    def test_ended_holder_takeover_can_leave_prior_generation_active(self):
+        import json
+        rows = fixture(2)
+        # Synthetic history, without any native holder-liveness verdict.
+        rows = [row for row in rows if not row['path'].endswith('g00000000000000000001-terminal.json')]
+        first = json.loads(rows[-3]['content_json'])
+        second = json.loads(rows[-2]['content_json'])
+        second['predecessor_sha256'] = first['ownership_sha256']
+        second['expected_state_revision'] = first['expected_state_revision']
+        second['ownership_sha256'] = digest({key: value for key, value in second.items() if key != 'ownership_sha256'})
+        terminal = dict(second, status='completed', result_state_revision=json.loads(rows[-1]['content_json'])['result_state_revision'])
+        terminal['ownership_sha256'] = digest({key: value for key, value in terminal.items() if key != 'ownership_sha256'})
+        rows[-2] = record(rows[-2]['path'], second)
+        rows[-1] = record(rows[-1]['path'], terminal)
+        self.assertEqual(len(snapshot(rows, DRIVE, INSTALLED, ROOT)['history']), 3)
+        second['holder'] = first['holder']
+        second['ownership_sha256'] = digest({key: value for key, value in second.items() if key != 'ownership_sha256'})
+        rows[-2] = record(rows[-2]['path'], second)
+        with self.assertRaises(LeaseEvidenceError):
+            snapshot(rows, DRIVE, INSTALLED, ROOT)

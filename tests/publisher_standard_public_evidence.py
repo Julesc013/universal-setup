@@ -262,7 +262,7 @@ def installed_material(observation, rows, drive):
             "native payload/ownership bytes differ from reviewed plan")
 
 
-def reconcile(receipt, expected_head):
+def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False):
     require(receipt.get("status") == "volume_and_protected_publish_observed" and
         receipt.get("build_profile", {}).get("pull_request_head") == expected_head,
         "standard hosted source/result differs")
@@ -340,10 +340,12 @@ def reconcile(receipt, expected_head):
         require(rows and len(rows) <= 10000, "standard native row budget exceeded")
         try:
             if baseline is None:
-                lease_snapshot(rows, receipt["volume_root"], installed, readback["independent"]["volume_boundary"]["root"]["file_id"])
+                lease_snapshot(rows, receipt["volume_root"], installed, readback["independent"]["volume_boundary"]["root"]["file_id"],
+                    allow_legacy_missing=allow_legacy_missing_coordination)
             else:
                 lease_transition(baseline, rows, receipt["volume_root"], installed,
-                    readback["independent"]["volume_boundary"]["root"]["file_id"], readonly=capture["command"] == "installed.verify")
+                    readback["independent"]["volume_boundary"]["root"]["file_id"], readonly=capture["command"] == "installed.verify",
+                    allow_legacy_missing=allow_legacy_missing_coordination)
         except (LeaseEvidenceError, ValueError, KeyError, TypeError) as error:
             raise StandardEvidenceError("standard lease/native row transition differs: " + str(error)) from error
         baseline = rows
@@ -437,7 +439,7 @@ def reconcile(receipt, expected_head):
         "native_rows": len(baseline), "profile_qualified": False}
 
 
-def reconcile_native_model(receipt, expected_head, reviewed_source_tree):
+def reconcile_native_model(receipt, expected_head, reviewed_source_tree, *, allow_legacy_missing_coordination=False):
     """Current producer qualification input, with separately pinned review tree.
 
     Legacy reconciliation remains available above. It cannot stand in for
@@ -445,7 +447,7 @@ def reconcile_native_model(receipt, expected_head, reviewed_source_tree):
     """
     from publication_authority_reference import PublicationModelContext
     from publisher_native_profile_evidence import project, ROUTE
-    standard = reconcile(receipt, expected_head)
+    standard = reconcile(receipt, expected_head, allow_legacy_missing_coordination=allow_legacy_missing_coordination)
     observation = receipt['service_observation']
     require(isinstance(reviewed_source_tree, str) and re.fullmatch('[0-9a-f]{40}', reviewed_source_tree) and
         receipt['build_profile']['source_tree'] == reviewed_source_tree,
