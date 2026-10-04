@@ -25,6 +25,9 @@ public:
     // while the guard and executable remain held. This is observed provenance,
     // not source qualification, an export-history assertion or a new grant.
     usk::json::Value evidence() const;
+    // Service-mediated observation may activate SCM and acquire the controller
+    // guard. It reads admission facts without dispatching installation effects.
+    usk::json::Value capability_observation(const std::string& request_id) const;
 private:
     struct State;
     std::unique_ptr<State> state_;
@@ -32,8 +35,10 @@ private:
 // Discover the administrator-owned registration, bind the current caller,
 // start or reconnect, then use the authenticated one-request channel. No
 // caller-supplied volume, executable, SID or activation flag grants authority.
-// The closed capability request performs read-only discovery without creating
+// The v1 capability request performs read-only discovery without creating
 // controller locks, admitting a volume, starting SCM or dispatching effects.
+// V2 separately allows startup and the service-side controller guard while
+// observing retained admission; it does not dispatch installation effects.
 std::string submit_registered_publisher_request(const std::wstring& service_name,
     const std::string& request);
 }

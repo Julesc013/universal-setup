@@ -81,6 +81,41 @@ void test_terminal_response_binding() {
     require_publisher_response_binding(service, verify_request,
         R"({"schema":"usk.publisher_lab_service_observation.v1","status":"failed","error":"verify refused"})");
 }
+void test_service_observation_transport_binding() {
+    using usk::platform::windows::require_publisher_response_binding;
+    const std::wstring service = L"USK_PUB_0123456789abcdef0123456789abcdef";
+    const std::string request = R"({"schema":"usk.publisher_capability_request.v2","request_id":"observe.one"})";
+    // These leaf objects exercise transport binding only. The command validator
+    // separately requires the complete capability and admission contracts.
+    const std::string response = R"({"schema":"usk.publisher_service_capability_observation.v1","status":"observed","request_id":"observe.one","service_name":"USK_PUB_0123456789abcdef0123456789abcdef","service_sid":"S-1-5-80-1-2-3-4-5","process_id":123,"registered_admission":{},"capability_observation":{}})";
+    require_publisher_response_binding(service, request, response);
+    require_publisher_response_binding(service, request, response, 123);
+    refuses([&] { require_publisher_response_binding(service, request, response, 124); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "observe.one", "observe.stale")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "USK_PUB_0123456789abcdef0123456789abcdef", "USK_PUB_ffffffffffffffffffffffffffffffff")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "\"status\":\"observed\"", "\"status\":\"pass\"")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "usk.publisher_service_capability_observation.v1", "usk.publisher_lab_service_observation.v1")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "\"process_id\":123", "\"process_id\":0")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "\"process_id\":123", "\"process_id\":4294967296")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "\"process_id\":123", "\"process_id\":123.0")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "S-1-5-80-1-2-3-4-5", "")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "\"registered_admission\":{}", "\"registered_admission\":null")); });
+    refuses([&] { require_publisher_response_binding(service, request,
+        replaced(response, "\"capability_observation\":{}", "\"capability_observation\":{},\"extra\":true")); });
+    refuses([&] { require_publisher_response_binding(service,
+        R"({"schema":"usk.install_local_apply_request.v1","transaction_id":"tx.apply","plan_request":{"install_id":"install.one"}})", response); });
+    refuses([&] { require_publisher_response_binding(service,
+        replaced(request, "\"request_id\":\"observe.one\"", "\"request_id\":\"observe.one\",\"extra\":true"), response); });
+}
 std::wstring current_sid() {
     HANDLE token=nullptr;
     require(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)!=FALSE,"process token unavailable");
@@ -129,6 +164,7 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
 int main() {
     try {
         test_terminal_response_binding();
+        test_service_observation_transport_binding();
         const auto name=L"USK_transport_test_"+std::to_wstring(GetCurrentProcessId());
         const auto sid=current_sid();
         const std::wstring service_sid=L"S-1-5-80-1-2-3-4-5";

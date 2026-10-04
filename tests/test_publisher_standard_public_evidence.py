@@ -3,8 +3,10 @@
 """Synthetic policy contradictions; these records are never OS qualification."""
 import copy
 import hashlib
+import json
 import unittest
-from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set
+from pathlib import Path
+from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set, service_capability
 
 CLIENT = "S-1-5-21-1-2-3-1001"
 UNRELATED = "S-1-5-21-1-2-3-1002"
@@ -25,6 +27,56 @@ def policy():
 
 
 class StandardPublicPolicyTests(unittest.TestCase):
+    def test_service_capture_set_keeps_both_observations_and_all_install_requests(self):
+        commands = ['publisher.inspect', 'publisher.observe', 'install_local.apply', 'install_local.recover',
+            'install_local.apply', 'installed.verify', 'publisher.observe']
+        captures = [{'request_id': str(index)} for index in range(7)]
+        native = [{'command': command, 'request_id': str(index)} for index, command in enumerate(commands[1:], 1)]
+        require_native_capture_set(native, captures, commands)
+        for changed in (None, [], native[1:], native[:-1], list(reversed(native)), native + native[:1]):
+            with self.subTest(captures=changed), self.assertRaises(StandardEvidenceError):
+                require_native_capture_set(changed, captures, commands)
+        with self.assertRaises(StandardEvidenceError):
+            require_native_capture_set(None, captures, commands, allow_legacy_missing=True)
+        require_native_capture_set(None, captures[:1] + captures[2:6],
+            [commands[0]] + commands[2:6], allow_legacy_missing=True)
+
+    def test_service_observation_cannot_upgrade_authority_or_hide_effects(self):
+        schema = json.loads((Path(__file__).resolve().parents[1] /
+            'contracts/schema/setup/publisher_capability.v2.schema.json').read_text(encoding='utf-8'))
+        cap = {key: copy.deepcopy(value['const']) for key, value in schema['properties'].items() if 'const' in value}
+        cap.update(request_id='observed-1', platform={'os_family': 'Windows NT', 'native_arch': 'x64',
+            'process_arch': 'x64', 'windows_build': 20348, 'minimum_windows_build': 17763})
+        cap['binding'] = {'service_name': 'USK_PUB_' + 'a' * 32, 'service_sid': 'S-1-5-80-1-2-3-4-5',
+            'process_id': 99, 'caller_sid': CLIENT, 'binary_sha256': 'a' * 64,
+            'registration_sha256': 'b' * 64, 'target_admitted_sha256': 'c' * 64,
+            'volume_guid_root': r'\\?\Volume{12345678-1234-1234-1234-123456789abc}' + '\\',
+            'root_file_id': '0000000000000001:' + '0' * 31 + '1', 'volume_serial': '1'}
+        b = cap['binding']
+        admitted = {key: b[key] for key in ('service_name', 'service_sid', 'process_id', 'registration_sha256',
+            'target_admitted_sha256')}
+        admitted.update(configured_caller_sid=CLIENT, publisher_image={'sha256': 'a' * 64},
+            target_identity={'volume_identity': {'volume_root': b['volume_guid_root'],
+                'root_file_id': b['root_file_id'], 'volume_serial': '1'}})
+        native = {key: b[key] for key in ('service_name', 'service_sid', 'process_id')}
+        native.update(schema='usk.publisher_service_capability_observation.v1', status='observed',
+            request_id='observed-1', capability_observation=cap, registered_admission=admitted)
+        self.assertEqual(service_capability(native, 'observed-1', 20348), cap)
+        for key, claimed in [('availability', True), ('execution_lease_held', True), ('effects', []),
+                ('binding_provenance', 'fresh_boundary_security'), ('service_state', True)]:
+            bad = copy.deepcopy(native)
+            bad['capability_observation'][key] = claimed
+            with self.subTest(key=key), self.assertRaises(StandardEvidenceError):
+                service_capability(bad, 'observed-1', 20348)
+        bad = copy.deepcopy(native)
+        bad['capability_observation']['platform']['minimum_windows_build'] = 17763.0
+        with self.assertRaises(StandardEvidenceError):
+            service_capability(bad, 'observed-1', 20348)
+        bad = copy.deepcopy(native)
+        bad['registered_admission']['configured_caller_sid'] = UNRELATED
+        with self.assertRaises(StandardEvidenceError):
+            service_capability(bad, 'observed-1', 20348)
+
     def test_current_capture_set_requires_every_bound_public_request(self):
         commands = ['publisher.inspect', 'install_local.apply', 'install_local.recover', 'install_local.apply', 'installed.verify']
         captures = [{'request_id': str(index)} for index in range(5)]

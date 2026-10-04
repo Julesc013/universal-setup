@@ -96,7 +96,7 @@ function Read-InstalledSnapshot {
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
     $requestId='public.'+[guid]::NewGuid().ToString('N')
-    if($Command -ceq 'publisher.inspect'){$Payload.request_id=$requestId}
+    if($Command -cin @('publisher.inspect','publisher.observe')){$Payload.request_id=$requestId}
     $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
     $nativeOutput=Join-Path (Join-Path $lab 'native-observations') ($requestId+'.json')
     Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command=$Command;payload=$Payload;dry_run=($Command -ceq 'publisher.inspect')}
@@ -134,9 +134,14 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
             stdout_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant();
             stdout_prefix=$responseText.Substring(0,[Math]::Min(8192,$responseText.Length))}
         $result=$responseText|ConvertFrom-Json
+        $payloadMatches=if($Command -ceq 'publisher.observe') {
+            $result.result.schema -ceq 'usk.publisher_capability.v2' -and
+                $result.result.request_id -ceq $requestId -and
+                $result.result.availability -eq $false -and $result.result.execution_lease_held -eq $false
+        } else {$result.result.status -ceq 'ok'}
         $responseMatches=$exit -eq $ExpectedExit -and $result.schema -ceq 'usk.oneshot_response.v1' -and
             $result.request_id -ceq $requestId -and
-            ($ExpectedExit -ne 0 -or ($result.status -ceq 'ok' -and $result.result.status -ceq 'ok'))
+            ($ExpectedExit -ne 0 -or ($result.status -ceq 'ok' -and $payloadMatches))
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
@@ -162,7 +167,9 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
             }
             $nativeText=[IO.File]::ReadAllText($nativeOutput)
             $native=$nativeText|ConvertFrom-Json
-            if($native.schema -cne 'usk.publisher_lab_service_observation.v1' -or $native.status -cne 'pass' -or
+            $nativeSchema=if($Command -ceq 'publisher.observe'){'usk.publisher_service_capability_observation.v1'}else{'usk.publisher_lab_service_observation.v1'}
+            $nativeStatus=if($Command -ceq 'publisher.observe'){'observed'}else{'pass'}
+            if($native.schema -cne $nativeSchema -or $native.status -cne $nativeStatus -or
                 $null -eq $native.registered_admission){throw 'Standard native admission capture is incomplete'}
             $receipt.native_observations.Add([ordered]@{command=$Command;request_id=$requestId;
                 native_json=$nativeText;sha256=(Get-FileHash -LiteralPath $nativeOutput -Algorithm SHA256).Hash.ToLowerInvariant()})
@@ -232,6 +239,11 @@ try {
     $receipt['service_policy']=Read-ServicePolicy
     $receipt['discovery']=Invoke-StandardRequest 'publisher.inspect' @{schema='usk.publisher_capability_request.v1';request_id='inspect.'+$id} 2
     if($receipt.discovery.status -cne 'refused' -or $receipt.discovery.error.code -cne 'publisher_capability_unavailable'){throw 'Unqualified standard discovery did not refuse explicitly'}
+    $receipt['capability_protocol']='usk.publisher_capability.v2'
+    $receipt['service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v2';request_id='observe.'+$id}
+    if($receipt.service_discovery.result.schema -cne 'usk.publisher_capability.v2' -or
+        $receipt.service_discovery.result.availability -ne $false -or
+        $receipt.service_discovery.result.execution_lease_held -ne $false) {throw 'Service observation granted unavailable authority'}
     $receipt['apply']=Invoke-StandardRequest 'install_local.apply' $apply
     $installed=$receipt.apply.result.payload
     if($installed.install_id -cne $apply.plan_request.install_id -or $installed.transaction_id -cne $apply.transaction_id -or
@@ -259,6 +271,11 @@ try {
     if($receipt.verification.result.payload.status -cne 'pass' -or $receipt.verification.result.payload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
     if(($after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verified.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard verification changed target snapshot'}
+    $receipt['source_free_service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v2';request_id='observe-source-free.'+$id}
+    if(($receipt.service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress) -cne
+        ($receipt.source_free_service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress)) {
+        throw 'Source-free service observation changed retained admission bindings'
+    }
     $receipt.status='standard_public_install_verified_recovered'
 } catch {$receipt.status='failed';$receipt['failure']=$_.Exception.Message}
 finally {

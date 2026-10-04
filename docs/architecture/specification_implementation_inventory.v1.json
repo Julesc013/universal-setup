@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T12:06:12Z",
+  "generated_at": "2026-10-04T13:35:50Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -357,11 +357,11 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "4e0433ff717a13d5422d6c30ef30b00a38db9a55c9fb2634458545bd6fc83761"
+          "sha256": "6fea3b33ea8b595b8ef5251d96502bc4dd959af4a01745bd93da635bdfaf4302"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
-          "sha256": "4bd9819781db67738480f04d81e1cf0b58c8d4ccf545f56b4411a498bd7e312b"
+          "sha256": "c70c1ba55f803019828ab83f51617afb467bec3be29ad2c5e156a41be49e4854"
         }
       ],
       "acceptance_ids": [
@@ -1337,7 +1337,7 @@
       "spec_id": "USK-S-CAPS",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The ordinary machine publisher.inspect route emits a closed target-bound record with separate implementation, realization, availability, required privilege, permission, authority, qualification scope, support and recovery ceiling. It observes an existing registration and boundaries without granting execution authority or holding a lease. Full provider discovery/selection and acceptance qualification remain incomplete.",
+      "note": "The machine publisher.inspect v1 route keeps its read-only privileged discovery semantics. The separate publisher.observe v2 route mediates observation through the authenticated restricted service, explicitly allowing SCM startup and controller guard acquisition. It binds the held image and retained controller target admission with current disk identity checked, and preserves unavailable authority, incomplete qualification, unsupported state and no execution lease. Ordinary-account pre-install and source-free observations are implementation candidates awaiting hosted qualification; full provider selection and release acceptance remain incomplete.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
         "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72"
@@ -1365,19 +1365,51 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "4e0433ff717a13d5422d6c30ef30b00a38db9a55c9fb2634458545bd6fc83761"
+          "sha256": "6fea3b33ea8b595b8ef5251d96502bc4dd959af4a01745bd93da635bdfaf4302"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "d476ddf204547ff124e8ea8a5da3321c72f29b9314b450a4ec27ee1830464249"
+          "sha256": "f5f36bac6eb2913af266d8265cfbadd703642c02b547dfb729cd5bff6925e316"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
-          "sha256": "4bd9819781db67738480f04d81e1cf0b58c8d4ccf545f56b4411a498bd7e312b"
+          "sha256": "c70c1ba55f803019828ab83f51617afb467bec3be29ad2c5e156a41be49e4854"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
           "sha256": "8bd5a350a5e7cfaee34962a3364bccf5110a0fea13b4d2d22a840db3e9b180b8"
+        },
+        {
+          "path": "contracts/schema/setup/publisher_capability_request.v2.schema.json",
+          "sha256": "160c9d4a154d4327626292e3f4c71db264b4ff3a832b3275a7f45f3f150902e4"
+        },
+        {
+          "path": "contracts/schema/setup/publisher_capability.v2.schema.json",
+          "sha256": "29bbaa11b5183c036fabccbafa4ef7c821b15a1eb57a4c6c748877992be047ab"
+        },
+        {
+          "path": "tests/publisher_standard_public_evidence.py",
+          "sha256": "8133cd48eda32cfc2d3345b4e029c20472333ffc4518d63ac4394caa0380dd4f"
+        },
+        {
+          "path": "tests/test_publisher_standard_public_evidence.py",
+          "sha256": "4654a53c7084cb6536ba90da88a4d45d8f784a0c868045c4fb10e075e407cea6"
+        },
+        {
+          "path": "tests/windows_publisher_standard_public_probe.ps1",
+          "sha256": "98c9088052a69cf05c48a00649b74f8f92f4c9e8da4570b08c8cd7b9b52c38ce"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
+          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_request_channel.h",
+          "sha256": "e3dc6e3424fb45085443c6d26ef39040939099e12cbb7c8426474d9628848fb2"
+        },
+        {
+          "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
+          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
         }
       ],
       "acceptance_ids": [
@@ -3355,7 +3387,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
-          "sha256": "f175e3eed2ee42c98f3fbca2731c0cf63112e784b799add55cb74fa9e0fa6d90"
+          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
@@ -3363,7 +3395,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "f59c027b56402c9f9e241a48a324b38d24cb082f45494d41b0fabab796e9efd3"
+          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
@@ -3971,7 +4003,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "b8f2b82d99b51eb9c78ce586efd10c6c99dc970fecbed4458efee43987616393"
+          "sha256": "c27738c33b09e9851aae7e6d8078a2857112d6fccab64476fe9c7e581d128d10"
         },
         {
           "path": "CMakeLists.txt",
@@ -4147,11 +4179,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "d476ddf204547ff124e8ea8a5da3321c72f29b9314b450a4ec27ee1830464249"
+          "sha256": "f5f36bac6eb2913af266d8265cfbadd703642c02b547dfb729cd5bff6925e316"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
-          "sha256": "fb65e91da900c99afd18922b286893d24fefeb4c8d20e57ea4e424c1cb87fcea"
+          "sha256": "68afd7ffa79152a2b44a15022871f772687b52b8ef892c15f4e3e6cfd2fea820"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_data_partition.h",
@@ -4271,15 +4303,15 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f6c11f0cacc3d9558fba6ac2f2425a19fdc0826605e8d27000f847cae1dfb672"
+          "sha256": "98c9088052a69cf05c48a00649b74f8f92f4c9e8da4570b08c8cd7b9b52c38ce"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "40e9006514be0bc19223ac6b8d3e1cff90bfced7213f420f8dee36b58ec9d778"
+          "sha256": "8133cd48eda32cfc2d3345b4e029c20472333ffc4518d63ac4394caa0380dd4f"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "aa6ec688a3b3f7621eb6f5e54b0736234a80de26df1c807f5a1d7714f5d024fe"
+          "sha256": "4654a53c7084cb6536ba90da88a4d45d8f784a0c868045c4fb10e075e407cea6"
         },
         {
           "path": "tests/test_publisher_rename_evidence.py",
@@ -4435,7 +4467,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "b8f2b82d99b51eb9c78ce586efd10c6c99dc970fecbed4458efee43987616393"
+          "sha256": "c27738c33b09e9851aae7e6d8078a2857112d6fccab64476fe9c7e581d128d10"
         },
         {
           "path": "CMakeLists.txt",
@@ -4571,7 +4603,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
-          "sha256": "f175e3eed2ee42c98f3fbca2731c0cf63112e784b799add55cb74fa9e0fa6d90"
+          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
@@ -4579,7 +4611,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "f59c027b56402c9f9e241a48a324b38d24cb082f45494d41b0fabab796e9efd3"
+          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
@@ -4615,11 +4647,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "d476ddf204547ff124e8ea8a5da3321c72f29b9314b450a4ec27ee1830464249"
+          "sha256": "f5f36bac6eb2913af266d8265cfbadd703642c02b547dfb729cd5bff6925e316"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
-          "sha256": "fb65e91da900c99afd18922b286893d24fefeb4c8d20e57ea4e424c1cb87fcea"
+          "sha256": "68afd7ffa79152a2b44a15022871f772687b52b8ef892c15f4e3e6cfd2fea820"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_data_partition.h",
@@ -4747,15 +4779,15 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f6c11f0cacc3d9558fba6ac2f2425a19fdc0826605e8d27000f847cae1dfb672"
+          "sha256": "98c9088052a69cf05c48a00649b74f8f92f4c9e8da4570b08c8cd7b9b52c38ce"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "40e9006514be0bc19223ac6b8d3e1cff90bfced7213f420f8dee36b58ec9d778"
+          "sha256": "8133cd48eda32cfc2d3345b4e029c20472333ffc4518d63ac4394caa0380dd4f"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "aa6ec688a3b3f7621eb6f5e54b0736234a80de26df1c807f5a1d7714f5d024fe"
+          "sha256": "4654a53c7084cb6536ba90da88a4d45d8f784a0c868045c4fb10e075e407cea6"
         },
         {
           "path": "tests/test_publisher_rename_evidence.py",
@@ -6060,7 +6092,7 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "4e0433ff717a13d5422d6c30ef30b00a38db9a55c9fb2634458545bd6fc83761"
+          "sha256": "6fea3b33ea8b595b8ef5251d96502bc4dd959af4a01745bd93da635bdfaf4302"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
@@ -6132,7 +6164,7 @@
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
-          "sha256": "4e0433ff717a13d5422d6c30ef30b00a38db9a55c9fb2634458545bd6fc83761"
+          "sha256": "6fea3b33ea8b595b8ef5251d96502bc4dd959af4a01745bd93da635bdfaf4302"
         },
         {
           "path": "tests/native/usk_machine_process_probe.py",
