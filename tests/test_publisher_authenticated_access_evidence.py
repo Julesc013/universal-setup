@@ -6,7 +6,7 @@ import hashlib
 import struct
 import unittest
 
-from publisher_authenticated_access_evidence import RIGHTS, descriptor_facts, reconcile_client_capture
+from publisher_authenticated_access_evidence import RIGHTS, descriptor_facts, reconcile_client_capture, validate_client
 from publisher_execution_evidence import EvidenceError, canonical_sha, reconcile
 from test_publisher_execution_evidence import BUILD, SDK, SERVICE, SID, encode
 from test_publisher_native_profile_evidence import CLIENT, descriptor, profile_fixture
@@ -86,6 +86,16 @@ class AuthenticatedAccessTests(unittest.TestCase):
             changed['primary_token'][key] = replacement
             with self.subTest(key=key), self.assertRaises(ValueError):
                 reconcile_client_capture(client, changed)
+
+    def test_authenticated_token_sids_use_the_bounded_canonical_policy(self):
+        _, _, client = authenticated_fixture()
+        for principal in ('S-1-5-21-1-2-3-4294967296', 'S-1-5-32-0545',
+                          'S-1-281474976710656-1', 'S-1-5-' + '-'.join('1' for _ in range(16))):
+            for field in ('user_sid', 'groups', 'restricted_sids'):
+                changed = copy.deepcopy(client)
+                changed[field] = principal if field == 'user_sid' else [{'sid': principal, 'attributes': 7}]
+                with self.subTest(principal=principal, field=field), self.assertRaises(ValueError):
+                    validate_client(changed)
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import struct
+from publisher_execution_evidence import sid
 
 RIGHTS = {'write_or_add_file': 2, 'append_or_add_directory': 4, 'write_ea': 16,
           'delete_child': 64, 'write_attributes': 256, 'delete': 65536,
@@ -35,10 +36,6 @@ def closed(value, keys, message):
 
 def integer(value, minimum=0, maximum=0xffffffff):
     return type(value) is int and minimum <= value <= maximum
-
-
-def sid(value):
-    return isinstance(value, str) and len(value) <= 184 and re.fullmatch(r'S-1-[0-9]+(?:-[0-9]+)*', value) is not None
 
 
 def canonical_sha(value):
