@@ -190,7 +190,8 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
         observations.emplace_back(Value::Object{{"role", Value(item.role)}, {"file_id", Value(object.file_id)},
             {"handle_flags", Value(static_cast<std::uint64_t>(flags))},
             {"granted_access", Value(static_cast<std::uint64_t>(granted_access))},
-            {"granted_access_api", Value("NtQueryObject:ObjectBasicInformation")}});
+            {"granted_access_api", Value("NtQueryObject:ObjectBasicInformation")},
+            {"object_observation", publisher_handle_observation_json(object)}});
         bindings.emplace_back(item.role, item.expected_file_id);
     }
     const auto after = observe_current_restricted_publisher_service(service_name);
@@ -204,8 +205,8 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
         usk::json::canonical(security_before) == usk::json::canonical(security_after) &&
         usk::json::canonical(platform) == usk::json::canonical(observe_publisher_execution_platform()),
         "publisher execution service, process token or platform changed during observation");
-    Value result(Value::Object{{"schema", Value("usk.publisher_execution_observation.v4")},
-        {"scope", Value("supplied_held_service_handles_granted_access_and_worker_security")}, {"phase", Value(phase)},
+    Value result(Value::Object{{"schema", Value("usk.publisher_execution_observation.v5")},
+        {"scope", Value("supplied_held_service_handles_security_access_and_worker_security")}, {"phase", Value(phase)},
         {"platform", platform}, {"service", service_json(after)}, {"handles", Value(std::move(observations))},
         {"process_boundary", process_after}, {"worker_security", security_after}});
     require_publisher_execution_phase(result, service_name, after.service_sid, phase, bindings);
@@ -215,12 +216,14 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
 void require_publisher_execution_phase(const Value& value, const std::wstring& service_name,
     const std::string& service_sid, const std::string& phase,
     const std::vector<std::pair<std::string, std::string>>& object_bindings) {
-    const bool rights_bound = value.at("schema").as_string() == "usk.publisher_execution_observation.v4";
+    const bool metadata_bound = value.at("schema").as_string() == "usk.publisher_execution_observation.v5";
+    const bool rights_bound = metadata_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v4";
     const bool worker_bound = rights_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v3";
     const bool process_bound = worker_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v2";
     require(value.as_object().size() == (worker_bound ? 8u : process_bound ? 7u : 6u) &&
         (process_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v1") &&
-        value.at("scope").as_string() == (rights_bound ? "supplied_held_service_handles_granted_access_and_worker_security" :
+        value.at("scope").as_string() == (metadata_bound ? "supplied_held_service_handles_security_access_and_worker_security" :
+            rights_bound ? "supplied_held_service_handles_granted_access_and_worker_security" :
             worker_bound ? "supplied_held_service_handles_and_worker_security" :
             process_bound ? "supplied_held_service_handles_and_process_owner_dacl" : "supplied_held_service_handles") &&
         value.at("phase").as_string() == phase &&
@@ -262,7 +265,7 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
     for (std::size_t index = 0; index < roles.size(); ++index) {
         const auto& object = handles[index];
         const auto& id = object.at("file_id").as_string();
-        require(object.as_object().size() == (rights_bound ? 5u : 3u) && object.at("role").as_string() == roles[index] &&
+        require(object.as_object().size() == (metadata_bound ? 6u : rights_bound ? 5u : 3u) && object.at("role").as_string() == roles[index] &&
             object_bindings[index].first == roles[index] && id == object_bindings[index].second &&
             object.at("handle_flags").as_unsigned() == 0 && id.size() == 49 && id[16] == ':' &&
             hex(id.substr(0, 16), 16) && hex(id.substr(17), 32) && identities.insert(id).second,
@@ -274,16 +277,47 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
                 object.at("granted_access_api").as_string() == "NtQueryObject:ObjectBasicInformation",
                 "publisher execution held-handle access observation is invalid");
         }
+        if (metadata_bound) {
+            const auto& observed = object.at("object_observation");
+            require(observed.as_object().size() == 9 && observed.at("file_id").as_string() == id &&
+                observed.at("owner_sid").as_string() == "S-1-5-18" && observed.at("dacl_protected").as_boolean() &&
+                observed.at("attributes").as_unsigned() <= 0xffffffffu &&
+                (observed.at("attributes").as_unsigned() & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+                (observed.at("attributes").as_unsigned() & FILE_ATTRIBUTE_REPARSE_POINT) == 0 &&
+                observed.at("reparse_tag").as_unsigned() == 0 && observed.at("link_count").as_unsigned() == 1 &&
+                !observed.at("case_sensitive").as_boolean() && !observed.at("native_name").as_string().empty() &&
+                observed.at("dacl_aces").as_array().size() == 2,
+                "publisher execution retained same-handle security facts differ");
+            const auto& aces = observed.at("dacl_aces").as_array();
+            for (std::size_t ace_index = 0; ace_index < aces.size(); ++ace_index) {
+                const auto& ace = aces[ace_index];
+                require(ace.as_object().size() == 4 && ace.at("type").as_unsigned() == ACCESS_ALLOWED_ACE_TYPE &&
+                    ace.at("flags").as_unsigned() == 0 && ace.at("access_mask").as_unsigned() == FILE_ALL_ACCESS &&
+                    ace.at("sid").as_string() == (ace_index == 0 ? "S-1-5-18" : service_sid),
+                    "publisher execution same-handle protected ACE facts differ");
+            }
+        }
         if (index == 0) volume = id.substr(0, 16);
         require(id.substr(0, 16) == volume, "publisher execution retained handles span volumes");
     }
 }
 
 void require_publisher_execution_worker_match(const Value& earlier, const Value& later) {
-    for (const auto* key : {"schema", "scope", "platform", "service", "handles"}) {
+    for (const auto* key : {"schema", "scope", "platform", "service"}) {
         require(usk::json::canonical(earlier.at(key)) == usk::json::canonical(later.at(key)),
             "publisher execution worker or held object identity changed between phases");
     }
+    auto handles = later.at("handles");
+    if (earlier.at("schema").as_string() == "usk.publisher_execution_observation.v5" &&
+        later.at("schema").as_string() == "usk.publisher_execution_observation.v5" &&
+        earlier.at("phase").as_string() == "before_rename" && later.at("phase").as_string() == "visible_bound") {
+        // The surrounding phase/call reader binds both names to the sealed and
+        // visible native namespace. Every other same-handle fact stays equal.
+        handles.as_array().at(6).as_object().at("object_observation").as_object().at("native_name") =
+            earlier.at("handles").as_array().at(6).at("object_observation").at("native_name");
+    }
+    require(usk::json::canonical(earlier.at("handles")) == usk::json::canonical(handles),
+        "publisher execution same-handle facts changed across phases");
     require(earlier.contains("process_boundary") == later.contains("process_boundary"),
         "publisher execution process boundary disappeared between phases");
     if (earlier.contains("process_boundary")) {

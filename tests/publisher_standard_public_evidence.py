@@ -278,12 +278,16 @@ def reconcile(receipt, expected_head):
         require(report.get("worker_security_phase_count", 0) > 0 and
             report.get("creation_observation", {}).get("worker_security_checked") is True and
             report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
-        if json.loads(prepared[0])['schema'] == 'usk.publisher.lab_phase_evidence.v6':
+        prepared_schema = json.loads(prepared[0])['schema']
+        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7'):
             require_native_capture_set(native_captures, captures, commands)
         if native_captures is not None:
-            require(json.loads(prepared[0])['schema'] == 'usk.publisher.lab_phase_evidence.v6' and
+            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7') and
                 report.get('held_access_phase_count') == 5 and report.get('native_rename_calls_checked') == 1,
                 'current standard producer requires complete v6 access and actual rename bindings')
+            if prepared_schema == 'usk.publisher.lab_phase_evidence.v7':
+                require(report.get('same_handle_objects_checked') == 35,
+                    'current standard producer requires all seven same-handle security objects per phase')
         require(report == readback["execution_reconciliation"], "standard embedded native reconciliation differs")
         reports.append(report)
     if native_captures is not None:

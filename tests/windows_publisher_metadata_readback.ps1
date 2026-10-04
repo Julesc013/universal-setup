@@ -80,7 +80,7 @@ function Assert-IndependentMetadataCollisionPrefix {
         $destination.Count -ne 1 -or -not $destination[0].directory -or
         $root.Count -ne 1 -or -not $root[0].directory) {throw 'Metadata refusal lost its retained operation anchors'}
     $prepared=$preparedRows[0].content_json|ConvertFrom-Json
-    if($prepared.schema -cnotin @('usk.publisher.lab_phase_evidence.v2','usk.publisher.lab_phase_evidence.v3','usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6') -or
+    if($prepared.schema -cnotin @('usk.publisher.lab_phase_evidence.v2','usk.publisher.lab_phase_evidence.v3','usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7') -or
         $prepared.phase -cne 'lab_prepared_evidence' -or $prepared.service_sid -cne $ServiceSid -or
         $prepared.source_file_id -cne $root[0].file_id -or
         $prepared.destination_parent_file_id -cne $destination[0].file_id -or

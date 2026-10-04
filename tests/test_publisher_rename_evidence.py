@@ -5,13 +5,15 @@ import copy
 import hashlib
 import unittest
 
-from publisher_execution_evidence import EvidenceError, RENAME_SCHEMA, RIGHTS_SCHEMA, canonical_sha, reconcile
+from publisher_execution_evidence import EvidenceError, RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, canonical_sha, reconcile
+from publisher_creation_evidence import creation_graph
 from test_publisher_worker_security import security_creation_fixture
 from test_publisher_execution_evidence import BUILD, SDK, SERVICE, SID, encode
 
 
 def rename_fixture():
     prepared, visible = security_creation_fixture()
+    visible = copy.deepcopy(visible)
     prepared['schema'] = visible['schema'] = RIGHTS_SCHEMA
     prepared['sealed_tree']['root']['native_name'] = r'\publication\staging\candidate'
     visible['visible_tree']['root']['native_name'] = r'\publication\destination\visible'
@@ -124,3 +126,45 @@ class RenameEvidenceTests(unittest.TestCase):
         self.assertEqual(report['native_rename_calls_checked'], 1)
         self.assertEqual(report['held_access_phase_count'], 0)
         self.assertIs(report['profile_qualified'], False)
+
+    def test_complete_same_handle_security_facts_and_refusals(self):
+        prepared, visible = rename_fixture()
+        prepared['schema'] = visible['schema'] = METADATA_SCHEMA
+        anchors = prepared['protected_anchors']
+        objects = [anchors['boundary'], anchors['chain'][0]['object'], anchors['staging'],
+            anchors['destination_parent'], anchors['state'], anchors['journal'], prepared['sealed_tree']['root']]
+        names = ['\\', r'\publication', r'\publication\staging', r'\publication\destination',
+                 r'\publication\state', r'\publication\journal', r'\publication\staging\candidate']
+        for obj, name in zip(objects, names):
+            obj.update(native_name=name, owner_sid='S-1-5-18', dacl_protected=True,
+                attributes=0x10, reparse_tag=0, link_count=1, case_sensitive=False,
+                dacl_aces=[{'type': 0, 'flags': 0, 'access_mask': 0x1f01ff, 'sid': principal}
+                    for principal in ('S-1-5-18', SID)])
+        visible['protected_anchors'] = copy.deepcopy(anchors)
+        visible['visible_tree']['root'] = copy.deepcopy(objects[-1])
+        visible['visible_tree']['root']['native_name'] = r'\publication\destination\visible'
+        for row in prepared['execution_phases'] + visible['execution_phases']:
+            execution = row['execution']
+            execution.update(schema='usk.publisher_execution_observation.v5',
+                scope='supplied_held_service_handles_security_access_and_worker_security')
+            expected = objects if execution['phase'] != 'visible_bound' else objects[:-1] + [visible['visible_tree']['root']]
+            for handle, obj in zip(execution['handles'], expected):
+                handle['object_observation'] = copy.deepcopy(obj)
+            row['protected_anchors_sha256'] = canonical_sha(anchors)
+            tree = visible['visible_tree'] if execution['phase'] == 'visible_bound' else prepared['sealed_tree']
+            if execution['phase'] == 'protected_empty':
+                tree = dict(tree, descendants=[])
+            row['tree_sha256'] = canonical_sha(tree)
+        graph = creation_graph(anchors, prepared['sealed_tree'])
+        prepared['creation_evidence']['created_graph_sha256'] = canonical_sha(graph)
+        self.assertEqual(self.check(prepared, visible)['same_handle_objects_checked'], 35)
+        for field, value in [('owner_sid', SID), ('dacl_protected', 1), ('case_sensitive', 0),
+                             ('native_name', 'other'), ('link_count', True), ('attributes', True), ('reparse_tag', False)]:
+            changed = copy.deepcopy(visible)
+            changed['execution_phases'][0]['execution']['handles'][0]['object_observation'][field] = value
+            with self.subTest(field=field), self.assertRaises(EvidenceError):
+                self.check(prepared, changed)
+        changed = copy.deepcopy(visible)
+        del changed['execution_phases'][0]['execution']['handles'][0]['object_observation']
+        with self.assertRaises(EvidenceError):
+            self.check(prepared, changed)

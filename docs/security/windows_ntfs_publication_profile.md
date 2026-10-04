@@ -1990,3 +1990,16 @@ The reference model's independently pinned native API context preserves
 `GetHandleInformation`. Its original GetSecurityInfo context is unchanged;
 evidence cannot select a context or relabel one API as another. Complete
 native profile projection/model replay and hosted qualification remain pending.
+
+The v7 candidate also retains the independent phase observer's fresh native
+object facts for all seven held roles: identity and native name, owner,
+protected DACL and ordered ACEs, attributes/tag, links and case policy. Producer
+and retained-record readers require exact equality with each bound anchor or
+payload root. Execution v5 keeps the private SYSTEM/service descriptor closed.
+Within one worker, only the payload root's native name may change across the
+explicit before-rename/visible pair; its identity, rights, security and other
+facts remain equal. The surrounding call/tree checks bind both names. Earlier
+v5/v6 envelope and execution versions retain their original recovery semantics.
+The independent current standard decoder requires 35 such role observations
+across this case's five phases. This supplies native phase facts for projection;
+it does not by itself qualify a full ProfileEvidence trace or enable discovery.

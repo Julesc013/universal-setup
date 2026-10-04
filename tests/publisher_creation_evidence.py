@@ -142,9 +142,9 @@ def reconcile_creation(certificate, anchors, tree, execution):
            (frozenset({"worker_security"}) if worker_bound else frozenset()),
            "creation certificate keys differ")
     require(execution["schema"] in ("usk.publisher_execution_observation.v1", "usk.publisher_execution_observation.v2",
-            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4") and
+            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5") and
             worker_bound == (execution["schema"] in ("usk.publisher_execution_observation.v3",
-                                                    "usk.publisher_execution_observation.v4")) and
+                                                    "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5")) and
             process_bound == (execution["schema"] != "usk.publisher_execution_observation.v1") and
             process_bound == ("process_boundary" in execution) and worker_bound == ("worker_security" in execution),
             "creation certificate downgraded its original execution boundary")
