@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from publisher_execution_evidence import reconcile as reconcile_execution, sid
+from publisher_execution_evidence import reconcile as reconcile_execution, sid, load_json
 
 
 class StandardEvidenceError(ValueError):
@@ -126,6 +126,47 @@ def native_boundary(boundary):
         deny_mutation(boundary["device"]["checks"][actor])
 
 
+def registered_admission(native, service, service_sid, client, image_sha256, volume_root, boundary_id):
+    """Decode observed admission bindings; this does not certify source or mapped image bytes."""
+    value = native.get('registered_admission')
+    require(isinstance(value, dict) and value.keys() == {'schema', 'scope', 'service_name', 'service_sid',
+        'process_id', 'configured_caller_sid', 'publisher_image', 'registration_sha256',
+        'target_admitted_sha256', 'target_identity'}, 'registered admission observation is not closed')
+    require(value['schema'] == 'usk.publisher_registered_admission_observation.v1' and
+        value['scope'] == 'held_registered_service_image_and_controller_target_admission' and
+        value['service_name'] == service and value['service_sid'] == service_sid and
+        value['configured_caller_sid'] == client and integer(value['process_id'], 1) and
+        value['process_id'] == native.get('process_id'), 'registered service/process/caller binding differs')
+    image = value['publisher_image']
+    require(isinstance(image, dict) and image.keys() == {'path', 'volume_id', 'file_id', 'size_bytes', 'sha256'} and
+        all(isinstance(image[key], str) and 0 < len(image[key]) <= 32768 for key in ('path', 'volume_id', 'file_id')) and
+        integer(image['size_bytes'], 1, 0xffffffffffffffff) and image['sha256'] == image_sha256 and
+        isinstance(image_sha256, str) and re.fullmatch(r'[0-9a-f]{64}', image_sha256),
+        'registered executable differs from the independently built package')
+    target = value['target_identity']
+    require(isinstance(target, dict) and target.keys() == {'registration_sha256', 'volume_identity', 'disk_identity', 'metadata'} and
+        target['registration_sha256'] == value['registration_sha256'] and
+        isinstance(value['registration_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', value['registration_sha256']),
+        'registered target authority binding differs')
+    volume = target['volume_identity']
+    require(isinstance(volume, dict) and volume.keys() == {'volume_root', 'root_file_id', 'volume_serial'} and
+        volume['volume_root'] == volume_root and volume['root_file_id'] == boundary_id and
+        isinstance(boundary_id, str) and re.fullmatch(r'[0-9a-f]{16}:[0-9a-f]{32}', boundary_id) and
+        volume['volume_serial'] == str(int(boundary_id[:16], 16)), 'registered target differs from held native boundary')
+    admitted = {'schema': 'usk.publisher_target_admitted.v1', 'identity': target}
+    require(hashlib.sha256(canonical(admitted).encode('utf-8')).hexdigest() == value['target_admitted_sha256'],
+        'registered admitted-target canonical digest differs')
+    return value
+
+
+def require_native_capture_set(native_captures, captures, commands):
+    require(isinstance(native_captures, list) and len(native_captures) == 4 and
+        all(isinstance(x, dict) for x in native_captures) and
+        [x.get('command') for x in native_captures] == commands[1:] and
+        [x.get('request_id') for x in native_captures] == [x['request_id'] for x in captures[1:]],
+        'standard native response capture set differs')
+
+
 def installed_material(observation, rows, drive):
     apply = observation["apply_request"]
     request, plan = apply["plan_request"], observation["plan"]
@@ -179,6 +220,9 @@ def reconcile(receipt, expected_head):
     require(isinstance(captures, list) and [x["command"] for x in captures] == commands, "standard request capture set differs")
     require(len({x["request_id"] for x in captures}) == 5 and len({x["process_id"] for x in captures}) == 5,
         "standard request identities alias")
+    native_captures = observation.get('native_observations')
+    if native_captures is not None:
+        require_native_capture_set(native_captures, captures, commands)
     for capture in captures:
         require(capture.get("captured_before_primary_thread_resume") is True and integer(capture["process_id"], 1) and
             re.fullmatch(r"[1-9][0-9]{16,18}", capture["creation_file_time"]) and
@@ -234,9 +278,80 @@ def reconcile(receipt, expected_head):
         require(report.get("worker_security_phase_count", 0) > 0 and
             report.get("creation_observation", {}).get("worker_security_checked") is True and
             report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
+        prepared_schema = json.loads(prepared[0])['schema']
+        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7'):
+            require_native_capture_set(native_captures, captures, commands)
+        if native_captures is not None:
+            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7') and
+                report.get('held_access_phase_count') == 5 and report.get('native_rename_calls_checked') == 1,
+                'current standard producer requires complete v6 access and actual rename bindings')
+            if prepared_schema == 'usk.publisher.lab_phase_evidence.v7':
+                require(report.get('same_handle_objects_checked') == 35,
+                    'current standard producer requires all seven same-handle security objects per phase')
         require(report == readback["execution_reconciliation"], "standard embedded native reconciliation differs")
         reports.append(report)
+    if native_captures is not None:
+        boundary_id = json.loads(prepared[0])['protected_anchors']['boundary']['file_id']
+        public_results = [observation[key]['result'] for key in ('apply', 'recovery', 'replayed_apply', 'verification')]
+        for entry, public_result in zip(native_captures, public_results):
+            require(isinstance(entry, dict) and entry.keys() == {'command', 'request_id', 'native_json', 'sha256'} and
+                isinstance(entry['native_json'], str) and len(entry['native_json'].encode('utf-8')) <= 4 * 1024 * 1024 and
+                hashlib.sha256(entry['native_json'].encode('utf-8')).hexdigest() == entry['sha256'],
+                'standard native transport bytes/digest differ')
+            native = load_json(entry['native_json'])
+            require(native.get('schema') == 'usk.publisher_lab_service_observation.v1' and native.get('status') == 'pass',
+                'standard native response scope differs')
+            if entry['command'] == 'installed.verify':
+                returned = native.get('verify_response')
+            elif entry['command'] == 'install_local.recover':
+                returned = native.get('recovery_installed_response')
+            else:
+                responses = [native.get(key) for key in ('apply_response', 'recovery_installed_response')]
+                require(sum(value is not None for value in responses) == 1,
+                    'standard native apply completion is ambiguous')
+                returned = next(value for value in responses if value is not None)
+            require(returned == public_result, 'standard native/public completion bytes differ')
+            registered_admission(native, observation['service'], observation['service_sid'], client,
+                observation['service_sha256'], observation['volume_root'], boundary_id)
     return {"schema": "usk.publisher_standard_public_reconciliation.v1", "status": "bindings_consistent",
         "head": expected_head, "standard_client_sid": client, "captured_clients": 5, "native_readbacks": 4,
         "phase_bindings_checked": sum(x["worker_security_phase_count"] for x in reports),
         "native_rows": len(baseline), "profile_qualified": False}
+
+
+def reconcile_native_model(receipt, expected_head, reviewed_source_tree):
+    """Current producer qualification input, with separately pinned review tree.
+
+    Legacy reconciliation remains available above. It cannot stand in for
+    current v7 native model evidence or the reviewed production-route argument.
+    """
+    from publication_authority_reference import PublicationModelContext
+    from publisher_native_profile_evidence import project, ROUTE
+    standard = reconcile(receipt, expected_head)
+    observation = receipt['service_observation']
+    require(isinstance(reviewed_source_tree, str) and re.fullmatch('[0-9a-f]{40}', reviewed_source_tree) and
+        receipt['build_profile']['source_tree'] == reviewed_source_tree,
+        'current native model requires independently reviewed exact source tree')
+    context = PublicationModelContext(service_sid=observation['service_sid'],
+        sdk_version=observation['execution_build_context']['windows_sdk'], minimum_additional_ancestors=0,
+        namespace_layout='staging_anchor_with_payload_child', security_observation_api='GetKernelObjectSecurity',
+        provenance_profile='native_registered_controller_boundary', actor_profile='standard_and_filtered_same_account')
+    source = {'head': expected_head, 'source_tree': receipt['build_profile']['source_tree'],
+        'reviewed_source_tree': reviewed_source_tree, 'publisher_image_sha256': observation['service_sha256'],
+        'route': ROUTE, 'no_export_basis': 'reviewed_selected_route_source_argument'}
+    projections = []
+    for readback in observation['readbacks']:
+        snapshot = readback['independent']
+        prepared = [row['content_json'] for row in snapshot['rows'] if row['path'].endswith('\\lab-prepared-evidence.json')]
+        visible = [row['content_json'] for row in snapshot['rows'] if row['path'].endswith('\\lab-visible-evidence.json')]
+        require(len(prepared) == len(visible) == 1, 'current native model record set differs')
+        result = project(prepared[0], visible[0], snapshot, observation['service'], context, source)
+        report = result['execution_reconciliation']
+        require(report['phase_count'] == 5 and report['same_handle_objects_checked'] == 35 and
+            report['native_rename_calls_checked'] == 1 and result['model_result']['phase'] == 'visible_bound' and
+            result['terminal_consumer_delta_objects'] == 1 + len(load_json(prepared[0])['sealed_tree']['descendants']),
+            'current standard profile replay lacks complete native/consumer evidence')
+        projections.append(result)
+    return {'schema': 'usk.publisher.standard_native_model_reconciliation.v1', 'status': 'bindings_consistent',
+        'head': expected_head, 'source_tree': reviewed_source_tree, 'standard_reconciliation': standard,
+        'native_projections': projections, 'profile_qualified': False, 'publication_authority_granted': False}

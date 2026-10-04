@@ -334,7 +334,16 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             if (applied != ERROR_SUCCESS) throw std::runtime_error(
                 "cannot protect disposable volume root; Win32 "+std::to_string(applied));
         };
-        const auto data=usk::platform::windows::execute_candidate_restricted_publisher(config,publication_effects_may_exist);
+        const auto observed=usk::platform::windows::execute_candidate_restricted_publisher(config,publication_effects_may_exist);
+        auto response = usk::json::parse(observed);
+        if (registered_admission) {
+            const auto pid = static_cast<std::uint64_t>(GetCurrentProcessId());
+            if (response.contains("process_id") && response.at("process_id").as_unsigned() != pid)
+                throw std::runtime_error("native response worker process differs from the live host");
+            response.as_object().emplace("process_id", usk::json::Value(pid));
+            response.as_object().emplace("registered_admission", registered_admission->evidence());
+        }
+        const auto data = usk::json::canonical(response);
         if (!receipt_path.empty()) write_receipt(data);
         if (request_channel) {
             request_channel->reply(data);

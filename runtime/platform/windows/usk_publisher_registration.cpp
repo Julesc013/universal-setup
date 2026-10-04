@@ -1999,6 +1999,8 @@ struct RegisteredPublisherAdmission::State {
     std::unique_ptr<ServiceHandle> service;
     std::unique_ptr<usk::base::StableFile> binary;
     usk::json::Value service_access;
+    usk::json::Value admission_evidence;
+    std::wstring name;
 };
 
 RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& name,
@@ -2051,8 +2053,37 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
             usk::json::canonical(state_->service_access) ||
         current.process_id != observed.process_id || current.service_sid != observed.service_sid)
         throw std::runtime_error("registered publisher configuration changed during admission");
+    using usk::json::Value;
+    const auto& image = state_->binary->identity();
+    state_->name = name;
+    state_->admission_evidence = Value(Value::Object{
+        {"schema", Value("usk.publisher_registered_admission_observation.v1")},
+        {"scope", Value("held_registered_service_image_and_controller_target_admission")},
+        {"service_name", Value(utf8(name))}, {"service_sid", Value(observed.service_sid)},
+        {"process_id", Value(static_cast<std::uint64_t>(observed.process_id))},
+        {"configured_caller_sid", Value(utf8(caller))},
+        {"publisher_image", Value(Value::Object{
+            {"path", Value(utf8(args[0]))}, {"volume_id", Value(image.volume_id)},
+            {"file_id", Value(image.file_id)}, {"size_bytes", Value(image.size_bytes)},
+            {"sha256", binding.at("binary_sha256")}})},
+        {"registration_sha256", Value(usk::json::sha256_canonical(binding))},
+        {"target_admitted_sha256", Value(usk::json::sha256_canonical(admitted))},
+        {"target_identity", target}});
 }
 RegisteredPublisherAdmission::~RegisteredPublisherAdmission() = default;
+
+usk::json::Value RegisteredPublisherAdmission::evidence() const {
+    state_->binary->verify_unchanged();
+    const auto current = observe_current_restricted_publisher_service(state_->name);
+    if (current.process_id != state_->admission_evidence.at("process_id").as_unsigned() ||
+        current.service_sid != state_->admission_evidence.at("service_sid").as_string() ||
+        usk::json::canonical(observe_publisher_service_access(state_->service->get(),
+            state_->admission_evidence.at("configured_caller_sid").as_string())) !=
+                usk::json::canonical(state_->service_access))
+        throw std::runtime_error("registered publisher admission observation lost its held binding");
+    state_->binary->verify_unchanged();
+    return state_->admission_evidence;
+}
 
 std::string submit_registered_publisher_request(const std::wstring& name,
     const std::string& request) {

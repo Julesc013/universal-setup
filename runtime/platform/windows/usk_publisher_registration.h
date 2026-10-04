@@ -5,6 +5,7 @@
 #if defined(_WIN32)
 #include <string>
 #include <memory>
+#include "usk_json.h"
 namespace usk::platform::windows {
 // Internal controller entry point; the packaged CLI and machine client share
 // the same SCM, protected-binary and dedicated-volume admission implementation.
@@ -20,6 +21,10 @@ public:
     ~RegisteredPublisherAdmission();
     RegisteredPublisherAdmission(const RegisteredPublisherAdmission&) = delete;
     RegisteredPublisherAdmission& operator=(const RegisteredPublisherAdmission&) = delete;
+    // Retain the actual protected executable and controller admission binding
+    // while the guard and executable remain held. This is observed provenance,
+    // not source qualification, an export-history assertion or a new grant.
+    usk::json::Value evidence() const;
 private:
     struct State;
     std::unique_ptr<State> state_;

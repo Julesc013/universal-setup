@@ -94,6 +94,10 @@ int main() {
                     FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             const auto observed = observe_publisher_directory_handle(handle.get());
+            const auto access = usk::platform::windows::observe_publisher_handle_granted_access(handle.get());
+            check((access & (FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC)) ==
+                    (FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC) && (access & DELETE) == 0,
+                "native same-handle granted access differs from the held fixture rights");
             check(observed.file_id.size() == 49 && observed.file_id[16] == ':',
                 "composite native file identity is malformed");
             check(observed.native_name.size() >= 8 &&
@@ -142,6 +146,9 @@ int main() {
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             check(refused(limited.get()), "a handle lacking READ_CONTROL supplied security facts");
+            const auto access = usk::platform::windows::observe_publisher_handle_granted_access(limited.get());
+            check((access & FILE_READ_ATTRIBUTES) != 0 && (access & (READ_CONTROL | WRITE_DAC | DELETE)) == 0,
+                "native limited-handle access was inferred from the process or object DACL");
         }
         const auto file = root / "file.bin";
         {

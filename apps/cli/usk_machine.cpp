@@ -15,6 +15,7 @@
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_registration.h"
 #include "usk_stable_file.h"
+#include "usk_record_io.h"
 #include <cstdio>
 #include <fcntl.h>
 #include <io.h>
@@ -149,7 +150,7 @@ int main(int argc, char** argv)
         (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed")) {
         std::cerr << "usage: usk_machine --machine|--framed [--request-file path]"
             " [--context-file path] [--candidate-service NAME]"
-            " [--publisher NAME]"
+            " [--publisher NAME [--publisher-observation-file PATH]]"
             " | --product-info product.bundle.json"
             " | --product-select product.bundle.json [--select ID ...]"
             " | --candidate-service NAME --request-file path (Windows only)\n";
@@ -161,6 +162,7 @@ int main(int argc, char** argv)
 #ifdef _WIN32
     std::wstring candidate_service;
     std::wstring publisher_service;
+    const char* publisher_observation_file = nullptr;
 #endif
     for (int index = 2; index < argc; index += 2) {
         if (index + 1 >= argc || argv[index + 1][0] == '\0') {
@@ -187,6 +189,8 @@ int main(int argc, char** argv)
                 std::cerr << "usk_machine: invalid publisher service name\n";
                 return 2;
             }
+        } else if (option == "--publisher-observation-file" && publisher_observation_file == nullptr) {
+            publisher_observation_file = argv[index + 1];
 #endif
         } else {
             std::cerr << "usk_machine: invalid options\n";
@@ -195,6 +199,7 @@ int main(int argc, char** argv)
     }
 #ifdef _WIN32
     if ((!candidate_service.empty() && !publisher_service.empty()) ||
+        (publisher_observation_file != nullptr && publisher_service.empty()) ||
         ((!candidate_service.empty() || !publisher_service.empty()) && context_file != nullptr)) {
         std::cerr << "usk_machine: publisher service and planning context options are incompatible\n";
         return 2;
@@ -240,9 +245,16 @@ int main(int argc, char** argv)
                     });
             } else if (!publisher_service.empty()) {
                 result = usk::command::run_publisher_one_shot(request,
-                    [&publisher_service](const std::string& payload) {
-                        return usk::platform::windows::submit_registered_publisher_request(
+                    [&publisher_service, publisher_observation_file](const std::string& payload) {
+                        const auto observed = usk::platform::windows::submit_registered_publisher_request(
                             publisher_service, payload);
+                        // Opt-in diagnostics retain the exact received bytes;
+                        // they grant no authority and never replace an existing
+                        // file. A post-dispatch write failure remains unknown.
+                        if (publisher_observation_file != nullptr)
+                            usk::record_io::write_new_durable_text(
+                                std::filesystem::path(publisher_observation_file), observed);
+                        return observed;
                     });
             } else
 #endif

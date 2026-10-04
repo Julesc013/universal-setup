@@ -453,7 +453,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
     $record=$prepared[0].content_json|ConvertFrom-Json
-    if($record.schema -cne 'usk.publisher.lab_phase_evidence.v4' -or
+    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7') -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
         $receipt['native_execution_diagnostic']=@{schema=$record.schema;phase=$record.phase;
@@ -525,7 +525,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $visible=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
     if($visible.Count -eq 1) {
         $value=$visible[0].content_json|ConvertFrom-Json
-        if($value.schema -cne 'usk.publisher.lab_phase_evidence.v4' -or
+        if($value.schema -cne $record.schema -or
             $value.phase -cne 'lab_visible_evidence' -or
             $value.prepared_record_sha256 -cne $prepared[0].sha256 -or
             $value.source_file_id -cne $record.sealed_tree.root.file_id) {

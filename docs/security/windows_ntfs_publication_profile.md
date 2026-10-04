@@ -1919,6 +1919,107 @@ The launcher task definition and wrapper digest are checked before start,
 during polling and before removal. Its actual process identity is held through
 exit. Failed process/token/observer/task closure withholds account or backing
 volume disposal; remaining state belongs to the disposable runner VM.
-This standard-account candidate has not yet passed hosted qualification.
+PR #226 qualified these selected hosted standard-account observations at
+source `40158a6e8c09f78f5ad86c2dee202e028b563f11`, integrated as
+`fdcf3de75ccdc0190f52d01cfc004ca12b20f98f`. All seven CI jobs passed in
+run `37190416643`. Independent replay checked five pre-resume clients,
+four native readbacks, 28 stable rows and 20 phase bindings, together with
+the five existing public cases. The account/token/process/task cleanup
+barriers passed. This establishes that preprovisioned hosted path only.
 Complete native profile admission, capability discovery, leases, fencing,
 generations and release acceptance remain separate unfinished obligations.
+
+The next connected implementation retains the successful native rename's
+actual parent identity, destination component and name-not-found NTSTATUS,
+buffer/class/name lengths, no-replace flag and native/I/O success statuses.
+They come from the checked arguments and results of the held-handle primitive.
+The direct observation preserves its QPC interval. Failed and ambiguous calls
+keep their existing conservative exceptions. The v5 prepared/visible candidate
+binds the successful call to the durable visible record's exact root, parent,
+component and native names. Prepublish forward recovery retains its actual
+current-worker call; postrename recovery records `rename_call: null` because
+it observes visibility without observing the prior call. Closed C++ and Python
+readers require this distinction and preserve older record versions.
+
+The current execution v4 candidate queries `NtQueryObject` with
+`ObjectBasicInformation` on each of the seven already-held handles. It retains
+the actual granted mask and API beside the role, identity and noninheritance
+flags, and repeats the query across the same observation. The rename primitive
+checks DELETE on its source and FILE_ADD_SUBDIRECTORY on its exact destination
+parent before calling the native setter. Its v2 call record retains both masks;
+the durable reader binds them to the pre-rename phase's actual handle roles.
+The current v6 envelope requires these observations rather than accepting an
+older execution record as current producer evidence. These are current handle
+rights, not a requested mask, current-token AccessCheck, export-history claim
+or independent observation of every external process. Hosted qualification,
+scoped capability provenance, complete native profile admission and model
+replay remain unfinished; no availability or qualification flag changes.
+The v5 reader preserves checkpoint records with execution v3 and call v1;
+their recovery does not acquire a held-access claim retroactively.
+
+The registered service now retains an admission observation containing the
+held executable's native identity, size and package digest, actual service
+PID/SID, configured caller, registration digest and controller-admitted target
+identity/digest. It rechecks the held file and service access binding before
+returning the observation. This binds the on-disk executable and admitted
+target; it is not a measurement of mapped process image bytes. The optional
+machine diagnostic `--publisher-observation-file` preserves exact received
+bytes in a new durable file and refuses to replace an existing file. A failure
+after dispatch retains the existing unknown-outcome semantics.
+
+The standard-account qualification candidate captures four successful native
+replies alongside the ordinary public results. Its independent decoder binds
+the image to the separately built service digest, the admitted volume to the
+held boundary identity, and each capture to its public request. It requires
+v6, all five held-access phases and the successful original call for this
+uninterrupted case. Older receipts retain their narrower reconciliation.
+
+The selected registered production route has a separately reviewed source
+argument for no provider handle export: native creates omit OBJ_INHERIT,
+destination handles remain internal, source callbacks receive offset/buffer
+arguments, the rename instrumentation callback is absent, the client receives
+query/synchronization process rights and transport carries byte messages.
+The original DELETE-capable candidate is explicitly closed. This argument
+must be bound to the final reviewed source tree, selected route and retained
+executable digest; it excludes instrumentation and qualified SYSTEM/admin
+actors. It does not independently confirm every destructor close or enumerate
+historical external capabilities.
+
+The reference model's independently pinned native API context preserves
+`GetKernelObjectSecurity`, `NtQueryObject:ObjectBasicInformation` and
+`GetHandleInformation`. Its original GetSecurityInfo context is unchanged;
+evidence cannot select a context or relabel one API as another. Complete
+native profile projection/model replay and hosted qualification remain pending.
+
+The v7 candidate also retains the independent phase observer's fresh native
+object facts for all seven held roles: identity and native name, owner,
+protected DACL and ordered ACEs, attributes/tag, links and case policy. Producer
+and retained-record readers require exact equality with each bound anchor or
+payload root. Execution v5 keeps the private SYSTEM/service descriptor closed.
+Within one worker, only the payload root's native name may change across the
+explicit before-rename/visible pair; its identity, rights, security and other
+facts remain equal. The surrounding call/tree checks bind both names. Earlier
+v5/v6 envelope and execution versions retain their original recovery semantics.
+The independent current standard decoder requires 35 such role observations
+across this case's five phases. This supplies native phase facts for projection;
+it does not by itself qualify a full ProfileEvidence trace or enable discovery.
+
+The current independent reader additionally reconstructs the exact retained
+two-ACE owner/DACL with the group separately reobserved by stable file ID and
+runs native `AccessCheck` under its held client tokens. These results explicitly
+identify reconstructed descriptors; they are not live access checks at an
+earlier publication phase or retained raw descriptor bytes. The native model
+context distinguishes the captured standard client and its filtered derivative
+from an unrelated login or a generic untrusted principal. Original fixture
+defaults and their stricter provenance labels remain unchanged.
+
+The bounded native projection reconciles the seven actual held roles, volume
+facts, complete sealed/visible payload closure and successful native rename
+call through `visible_bound`. Independently observed terminal payload objects
+must have exactly the admitted non-inherited consumer RX delta, with no extra
+subtree objects. A missing original call on restart remains unknown in this
+model. The controller-owned volume boundary and reviewed production-route
+source argument have distinct provenance, bound to the reviewed source tree
+and retained executable digest. This retrospective consistency check grants
+no publication authority, asserts no global export history and does not close
+OD-001, full profile qualification or ordinary discovery.

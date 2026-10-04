@@ -137,6 +137,19 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
         throw std::runtime_error("publisher rename bound handles changed before call");
     }
     PublisherRenameInformation information(destination_parent, destination_component);
+    const auto source_access = observe_publisher_handle_granted_access(staged_root);
+    const auto parent_access = observe_publisher_handle_granted_access(destination_parent);
+    if ((source_access & DELETE) == 0 || (parent_access & FILE_ADD_SUBDIRECTORY) == 0) {
+        throw std::runtime_error("publisher rename held handles lack native mutation rights");
+    }
+    const auto* arguments = static_cast<const FILE_RENAME_INFO*>(information.data());
+    if (arguments->RootDirectory != destination_parent || arguments->ReplaceIfExists != FALSE ||
+        arguments->FileNameLength != destination_component.size() * sizeof(WCHAR)) {
+        throw std::runtime_error("publisher native rename arguments differ from bound inputs");
+    }
+    const bool replace_if_exists = arguments->ReplaceIfExists != FALSE;
+    const DWORD file_name_bytes = arguments->FileNameLength;
+    constexpr int information_class = 10; // FileRenameInformation
     using NtSetInformationFileFn = NTSTATUS (NTAPI *)(
         HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, int);
     const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
@@ -150,7 +163,7 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
         throw std::runtime_error("publisher native rename clock is unavailable");
     }
     const NTSTATUS status = nt_set(staged_root, &io, information.data(),
-        information.size(), 10 /* FileRenameInformation */);
+        information.size(), information_class);
     if (!QueryPerformanceCounter(&ended) || ended.QuadPart < started.QuadPart) {
         throw PublisherRenameUnconfirmed(
             "publisher native rename clock changed; retained recovery required");
@@ -185,7 +198,11 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
             throw std::runtime_error("publisher visible child did not rebind to staged root");
         }
         return {staged.file_id, staged.native_name, moved.native_name,
-            started.QuadPart, ended.QuadPart, frequency.QuadPart};
+            started.QuadPart, ended.QuadPart, frequency.QuadPart,
+            parent.file_id, destination_component, static_cast<std::uint32_t>(absent),
+            information_class, information.size(), file_name_bytes, replace_if_exists,
+            static_cast<std::uint32_t>(status), static_cast<std::uint32_t>(io.Status),
+            source_access, parent_access};
     } catch (const std::exception& failure) {
         throw PublisherRenameUnconfirmed(std::string("publisher rename returned success but ") +
             failure.what() + "; retained recovery required");

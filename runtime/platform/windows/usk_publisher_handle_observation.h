@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usk_json.h"
 
 namespace usk::platform::windows {
 
@@ -39,6 +40,11 @@ struct PublisherHandleObservation {
 // not clear the flag or turn an existing capability into publisher provenance.
 std::uint32_t observe_publisher_noninheritable_handle_flags(HANDLE handle);
 
+// Actual access granted to this already-held handle. No reopen, duplication,
+// requested-access inference or current-token AccessCheck is involved.
+// Failure to query the native object is a refusal, never a fallback mask.
+std::uint32_t observe_publisher_handle_granted_access(HANDLE handle);
+
 // Read-only facts from one already-opened directory handle. This is an
 // observation primitive, not a profile-admission or publication capability.
 // The caller must retain and independently revalidate the handle and its
@@ -49,6 +55,10 @@ PublisherHandleObservation observe_publisher_directory_handle(HANDLE handle);
 // facts for a regular file. case_sensitive is false because it is a directory
 // property; callers must not interpret it as a file case-policy observation.
 PublisherHandleObservation observe_publisher_file_handle(HANDLE handle);
+
+// Lossless closed projection of the observed native facts, without a policy
+// verdict, API relabelling or fabricated effective-access/descriptor digest.
+usk::json::Value publisher_handle_observation_json(const PublisherHandleObservation& observation);
 
 } // namespace usk::platform::windows
 #endif
