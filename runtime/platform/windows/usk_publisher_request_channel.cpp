@@ -265,11 +265,45 @@ void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
     }
 }
 void require_publisher_response_binding(const std::wstring& service_name,
-    const std::string& request, const std::string& response) {
+    const std::string& request, const std::string& response, DWORD expected_process_id) {
     usk::json::ParseLimits limits;
     limits.max_bytes = response_limit;
     limits.max_string_bytes = response_limit / 2u;
     const auto observed = usk::json::parse(response, limits);
+    limits.max_bytes = request_limit;
+    limits.max_string_bytes = request_limit / 2u;
+    const auto submitted = usk::json::parse(request, limits);
+    const std::string schema = submitted.at("schema").as_string();
+    std::string expected_service;
+    expected_service.reserve(service_name.size());
+    for (const wchar_t ch : service_name) {
+        if (ch < 0x20 || ch > 0x7e) {
+            throw std::runtime_error("publisher service name is not ASCII");
+        }
+        expected_service.push_back(static_cast<char>(ch));
+    }
+    if (schema == "usk.publisher_capability_request.v2") {
+        const auto& request_id = submitted.at("request_id").as_string();
+        if (submitted.as_object().size() != 2 || request_id.empty() || request_id.size() > 128 ||
+            request_id.find_first_not_of(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos ||
+            observed.as_object().size() != 8 ||
+            observed.at("schema").as_string() != "usk.publisher_service_capability_observation.v1" ||
+            observed.at("status").as_string() != "observed" ||
+            observed.at("request_id").as_string() != request_id ||
+            observed.at("service_name").as_string() != expected_service ||
+            observed.at("service_sid").as_string().empty() ||
+            observed.at("process_id").as_unsigned() == 0 ||
+            observed.at("process_id").as_unsigned() > 0xffffffffu ||
+            (expected_process_id != 0 && observed.at("process_id").as_unsigned() != expected_process_id) ||
+            observed.at("registered_admission").type() != usk::json::Value::Type::object ||
+            observed.at("capability_observation").type() != usk::json::Value::Type::object) {
+            throw std::runtime_error("publisher service observation differs from request or live server");
+        }
+        // The command validator checks the complete admission/capability leaves
+        // before exposing them. Transport admission never grants authority.
+        return;
+    }
     if (observed.at("schema").as_string() !=
             "usk.publisher_lab_service_observation.v1") {
         throw std::runtime_error("publisher response schema differs");
@@ -283,18 +317,6 @@ void require_publisher_response_binding(const std::wstring& service_name,
         throw std::runtime_error("publisher response status differs");
     }
 
-    limits.max_bytes = request_limit;
-    limits.max_string_bytes = request_limit / 2u;
-    const auto submitted = usk::json::parse(request, limits);
-    const std::string schema = submitted.at("schema").as_string();
-    std::string expected_service;
-    expected_service.reserve(service_name.size());
-    for (const wchar_t ch : service_name) {
-        if (ch < 0x20 || ch > 0x7e) {
-            throw std::runtime_error("publisher service name is not ASCII");
-        }
-        expected_service.push_back(static_cast<char>(ch));
-    }
     if (observed.contains("service_name")) {
         if (observed.at("service_name").as_string() != expected_service) {
             throw std::runtime_error("publisher response service identity differs");
@@ -426,7 +448,7 @@ std::string submit_publisher_request(const std::wstring& service_name,
     try {
         write_message(pipe.value, request, request_limit, nullptr, until);
         const std::string response = read_message(pipe.value, response_limit, nullptr, until);
-        require_publisher_response_binding(service_name, request, response);
+        require_publisher_response_binding(service_name, request, response, expected);
         return response;
     } catch(const std::exception& error) {
         throw PublisherRequestOutcomeUnknown(error.what());

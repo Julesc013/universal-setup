@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T13:12:06Z",
+  "generated_at": "2026-10-04T13:35:50Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1398,6 +1398,18 @@
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
           "sha256": "98c9088052a69cf05c48a00649b74f8f92f4c9e8da4570b08c8cd7b9b52c38ce"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
+          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_request_channel.h",
+          "sha256": "e3dc6e3424fb45085443c6d26ef39040939099e12cbb7c8426474d9628848fb2"
+        },
+        {
+          "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
+          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
         }
       ],
       "acceptance_ids": [
@@ -3375,7 +3387,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
-          "sha256": "f175e3eed2ee42c98f3fbca2731c0cf63112e784b799add55cb74fa9e0fa6d90"
+          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
@@ -3383,7 +3395,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "f59c027b56402c9f9e241a48a324b38d24cb082f45494d41b0fabab796e9efd3"
+          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
@@ -4591,7 +4603,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
-          "sha256": "f175e3eed2ee42c98f3fbca2731c0cf63112e784b799add55cb74fa9e0fa6d90"
+          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
@@ -4599,7 +4611,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "f59c027b56402c9f9e241a48a324b38d24cb082f45494d41b0fabab796e9efd3"
+          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
