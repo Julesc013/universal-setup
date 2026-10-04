@@ -33,6 +33,7 @@ struct InstallLeaseRequest {
     std::string attempt_id;
     std::string expected_state_revision;
     bool recovery = false;
+    std::string operation_context_sha256;
 };
 
 enum class InstallLeasePreviousHolder { unknown, live, ended, identity_reused };

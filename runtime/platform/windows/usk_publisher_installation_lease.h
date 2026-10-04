@@ -17,6 +17,29 @@ std::string observe_publisher_install_state_revision(HANDLE state_root,
 usk::transaction::InstallLeasePreviousHolder observe_publisher_previous_lease_holder(
     const usk::json::Value& holder);
 
+// Immutable original operation intent, protected on the admitted volume before
+// setup bootstrap or active ownership. Construction is read-only; prepare is
+// called only after ordinary reviewed-plan revalidation. No public JSON grants
+// this native context or permits changing an existing operation.
+class PublisherInstallOperationContext final {
+public:
+    PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
+        const std::string& install_id, const std::string& operation_id);
+    ~PublisherInstallOperationContext();
+    PublisherInstallOperationContext(const PublisherInstallOperationContext&) = delete;
+    PublisherInstallOperationContext& operator=(const PublisherInstallOperationContext&) = delete;
+    bool exists() const;
+    void prepare(const usk::json::Value& reviewed_snapshot, const std::string& initial_state_revision);
+    void bind_state_roots(HANDLE setup_root, HANDLE state_root);
+    std::string lease_binding_sha256() const;
+    const usk::json::Value& record() const;
+    void require_fence() const;
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 // Internal restricted-service backend. The caller retains the actual native
 // state root and volume/install guards for this entire lifetime. Initialization
 // of an empty protected repository is a separate bootstrap effect. Ownership

@@ -69,6 +69,7 @@ void request_identity(const InstallLeaseRequest& request)
             "generation_activate", "generation_retire"}.count(request.operation) == 0)
         throw std::runtime_error("installation lease request identity is invalid");
     revision(request.expected_state_revision);
+    revision(request.operation_context_sha256);
 }
 
 Value seal(Value value)
@@ -89,12 +90,13 @@ void require_install_lease_record(const Value& record)
 {
     members(record, {"schema", "install_id", "operation", "operation_id", "attempt_id",
         "state_root_identity", "holder", "generation", "expected_state_revision", "status",
-        "result_state_revision", "predecessor_sha256", "ownership_sha256"});
+        "result_state_revision", "predecessor_sha256", "ownership_sha256", "operation_context_sha256"});
     if (record.at("schema").as_string() != "usk.installation_lease_ownership.v1")
         throw std::runtime_error("installation lease schema is unsupported");
     request_identity({record.at("install_id").as_string(), record.at("operation").as_string(),
         record.at("operation_id").as_string(), record.at("attempt_id").as_string(),
-        record.at("expected_state_revision").as_string(), false});
+        record.at("expected_state_revision").as_string(), false,
+        record.at("operation_context_sha256").as_string()});
     root_identity(record.at("state_root_identity"));
     holder_identity(record.at("holder"));
     const auto generation = record.at("generation").as_unsigned();
@@ -138,7 +140,8 @@ Value derive_install_lease_ownership(const std::optional<Value>& previous,
             throw InstallLeaseStale();
         if (status != "completed") {
             if (!request.recovery || previous->at("operation").as_string() != request.operation ||
-                previous->at("operation_id").as_string() != request.operation_id)
+                previous->at("operation_id").as_string() != request.operation_id ||
+                previous->at("operation_context_sha256").as_string() != request.operation_context_sha256)
                 throw InstallLeaseConflict();
             if (status == "active" && previous_holder != InstallLeasePreviousHolder::ended &&
                 previous_holder != InstallLeasePreviousHolder::identity_reused) throw InstallLeaseConflict();
@@ -153,6 +156,7 @@ Value derive_install_lease_ownership(const std::optional<Value>& previous,
         {"schema", Value("usk.installation_lease_ownership.v1")},
         {"install_id", Value(request.install_id)}, {"operation", Value(request.operation)},
         {"operation_id", Value(request.operation_id)}, {"attempt_id", Value(request.attempt_id)},
+        {"operation_context_sha256", Value(request.operation_context_sha256)},
         {"state_root_identity", observed_state_root}, {"holder", observed_holder},
         {"generation", Value(generation)}, {"expected_state_revision", Value(observed_state_revision)},
         {"status", Value("active")}, {"result_state_revision", Value()},

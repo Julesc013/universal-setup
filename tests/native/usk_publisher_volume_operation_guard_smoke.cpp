@@ -216,7 +216,7 @@ int wmain(int argc, wchar_t** argv)
     // test directory supplies no protected-service or mutation authority.
     const std::string revision(64, 'a');
     const auto observed_protocol = usk::transaction::derive_install_lease_ownership({},
-        {"org.example.setup", "install_local", "test.operation", "test.attempt", revision, false},
+        {"org.example.setup", "install_local", "test.operation", "test.attempt", revision, false, std::string(64, 'd')},
         actual_identity, live_holder, revision);
     usk::transaction::require_install_lease_record(observed_protocol);
 

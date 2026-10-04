@@ -66,6 +66,13 @@ function Read-ServicePolicy {
     if(@($rows|Where-Object {$_.sid -ceq $accountSid -and $_.mask -eq 0x20015 -and $_.type -ceq 'AccessAllowed'}).Count -ne 1) {throw 'Configured standard start/query grant differs'}
     return [ordered]@{owner=$descriptor.Owner.Value;raw_security_diagnostic=$raw;aces=$rows}
 }
+function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
+    $leaseRequest=@{mode=$(if($Readonly){'readonly'}else{'append'});before=$Before.independent.rows;
+        after=$After.independent.rows;drive=$drive;installed=$installed;volume_root_id=$After.independent.volume_boundary.root.file_id}
+    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Standard installation lease/native row transition differs'}
+}
 function Read-InstalledSnapshot {
     $script:observersClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
@@ -261,19 +268,20 @@ try {
     $receipt['recovery']=Invoke-StandardRequest 'install_local.recover' @{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
         install_id=$installed.install_id;transaction_id=$installed.transaction_id}
     $recovered=Read-InstalledSnapshot;$receipt.readbacks.Add($recovered)
-    if(($before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($recovered.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard recovery changed target snapshot'}
+    Assert-LeaseTransition $before $recovered
     $receipt['replayed_apply']=Invoke-StandardRequest 'install_local.apply' $apply
     foreach($terminal in @($receipt.recovery,$receipt.replayed_apply)) {
         if(($terminal.result.payload|ConvertTo-Json -Depth 64 -Compress) -cne ($installed|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard source-free state changed'}
     }
     $after=Read-InstalledSnapshot;$receipt.readbacks.Add($after)
-    if(($recovered.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($after.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard replay changed target snapshot'}
+    Assert-LeaseTransition $recovered $after
     $verify=@{schema='usk.publisher_installed_verify_request.v1';request_id='verify.'+$id;install_id=$installed.install_id;
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
     $receipt['verification']=Invoke-StandardRequest 'installed.verify' $verify
     if($receipt.verification.result.payload.status -cne 'pass' -or $receipt.verification.result.payload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
     if(($after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verified.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard verification changed target snapshot'}
+    Assert-LeaseTransition $after $verified $true
     $receipt['source_free_service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v3';request_id='observe-source-free.'+$id}
     if(($receipt.service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress) -cne
         ($receipt.source_free_service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress)) {

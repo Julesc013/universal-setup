@@ -39,7 +39,7 @@ int main()
     holder_b.as_object().at("process_creation_time") = Value("00000000000000bb");
     const std::string revision_a(64, 'a'), revision_b(64, 'b'), revision_c(64, 'c');
     InstallLeaseRequest request{"org.example.setup", "install_local", "operation.1",
-        "attempt.a", revision_a, false};
+        "attempt.a", revision_a, false, std::string(64, 'd')};
     const auto first = derive_install_lease_ownership({}, request, root, holder_a, revision_a);
     require_install_lease_record(first);
     require_install_lease_start(first, revision_a);
@@ -66,6 +66,12 @@ int main()
                 (void)derive_install_lease_ownership(first, recovery, root, holder_b, revision_a, holder);
             })) return 3;
     }
+    auto changed_context = recovery;
+    changed_context.operation_context_sha256 = std::string(64, 'e');
+    if (!refuses<InstallLeaseConflict>([&] {
+            (void)derive_install_lease_ownership(first, changed_context, root, holder_b, revision_a,
+                InstallLeasePreviousHolder::ended);
+        })) return 16;
     for (const auto holder : {InstallLeasePreviousHolder::ended, InstallLeasePreviousHolder::identity_reused}) {
         const auto restarted = derive_install_lease_ownership(first, recovery, root, holder_b, revision_a, holder);
         if (restarted.at("generation").as_unsigned() != 2) return 4;
@@ -102,7 +108,7 @@ int main()
         })) return 10;
 
     const auto completed = finish_install_lease_ownership(second, root, holder_b, revision_c, false);
-    changed = {"org.example.setup", "repair", "operation.2", "attempt.c", revision_c, false};
+    changed = {"org.example.setup", "repair", "operation.2", "attempt.c", revision_c, false, std::string(64, 'e')};
     const auto third = derive_install_lease_ownership(completed, changed, root, holder_b, revision_c);
     if (third.at("generation").as_unsigned() != 3 ||
         !refuses<InstallLeaseStale>([&] {
@@ -124,6 +130,7 @@ int main()
         [](Value& x) { x.as_object().at("generation") = Value(std::uint64_t{2}); },
         [](Value& x) { x.as_object().at("result_state_revision") = Value(std::string(64, 'a')); },
         [](Value& x) { x.as_object().at("status") = Value("expired"); },
+        [](Value& x) { x.as_object().at("operation_context_sha256") = Value(""); },
         [](Value& x) { x.as_object().at("holder").as_object().at("process_id") = Value(std::uint64_t{0}); },
         [](Value& x) { x.as_object().at("holder").as_object().at("process_creation_time") = Value(std::string(16, '0')); },
         [](Value& x) { x.as_object().at("state_root_identity").as_object().at("volume_serial") = Value("018446744073709551615"); },

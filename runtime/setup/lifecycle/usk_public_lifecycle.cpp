@@ -356,6 +356,12 @@ std::string policy_digest(
 InstallPlanBundle build_install_plan(const Value& request, const PublicConfig& config,
     const Value* replay_source_context = nullptr)
 {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    const auto publisher_replay = replay_source_context ? std::optional<Value>{} :
+        usk::lifecycle::candidate_publisher_plan_replay(request);
+    if (publisher_replay) replay_source_context = &*publisher_replay;
+#endif
+
     auto requirement = usk::transaction::CommitAuthorityRequirement::legacy_observed;
     if (request.contains("required_commit_authority")) {
         exact_members(request, {"schema", "request_id", "created_at", "install_id", "archive", "target", "recipe", "required_commit_authority"});

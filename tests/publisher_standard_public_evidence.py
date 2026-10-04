@@ -336,7 +336,16 @@ def reconcile(receipt, expected_head):
             tokens["initiating"]["impersonation_level"] == tokens["filtered"]["impersonation_level"] == 2,
             "standard independent AccessCheck token type differs")
         rows = readback["independent"]["rows"]
-        require(rows and len(rows) <= 10000 and (baseline is None or rows == baseline), "standard request changed native target rows")
+        from publisher_installation_lease_evidence import snapshot as lease_snapshot, transition as lease_transition, LeaseEvidenceError
+        require(rows and len(rows) <= 10000, "standard native row budget exceeded")
+        try:
+            if baseline is None:
+                lease_snapshot(rows, receipt["volume_root"], installed, readback["independent"]["volume_boundary"]["root"]["file_id"])
+            else:
+                lease_transition(baseline, rows, receipt["volume_root"], installed,
+                    readback["independent"]["volume_boundary"]["root"]["file_id"], readonly=capture["command"] == "installed.verify")
+        except (LeaseEvidenceError, ValueError, KeyError, TypeError) as error:
+            raise StandardEvidenceError("standard lease/native row transition differs: " + str(error)) from error
         baseline = rows
         drive = receipt["volume_root"]
         target = installed["target_root"].replace("/", "\\")
