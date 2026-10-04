@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T11:07:40Z",
+  "generated_at": "2026-10-04T11:47:04Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -4087,7 +4087,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "fae10f491783364cb46d60c750bc43438b5a48051bb133ec764345c46d13d97c"
+          "sha256": "62b9cb749a169df0e5f7c0cd6092cd14861ba1f9c60c520a5386c038ec984f4b"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4275,7 +4275,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d167d2f5d576f437d4fde341d63aaa521e3f1e89ffa64f6ee4c04779b168e9c9"
+          "sha256": "40e9006514be0bc19223ac6b8d3e1cff90bfced7213f420f8dee36b58ec9d778"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -4284,6 +4284,14 @@
         {
           "path": "tests/test_publisher_rename_evidence.py",
           "sha256": "69109ec96dff7fd13f9046882ec844ecec936fb60e3d5105894fd23bf5fccb6e"
+        },
+        {
+          "path": "tests/publisher_native_profile_evidence.py",
+          "sha256": "7719a58a8e00042c2f5928abd0b83f7db06cb648248ae607ade4baf8bc03ebd2"
+        },
+        {
+          "path": "tests/test_publisher_native_profile_evidence.py",
+          "sha256": "d9c80a6f644c9687118fb3d7e47bbdf4c3c5989358e507bba8e8a9992357c142"
         }
       ],
       "acceptance_ids": [
@@ -4535,7 +4543,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "fae10f491783364cb46d60c750bc43438b5a48051bb133ec764345c46d13d97c"
+          "sha256": "62b9cb749a169df0e5f7c0cd6092cd14861ba1f9c60c520a5386c038ec984f4b"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4643,7 +4651,7 @@
         },
         {
           "path": "tests/publication_authority_reference.py",
-          "sha256": "297e5fe801852b739c3922402af3fc4233b14de37a64217c6659721f63729334"
+          "sha256": "4f51b02fd9fe13c78d2ac5def4f6c1c09ad9b16d22038a3873a2995f9ac4c946"
         },
         {
           "path": "tests/test_publication_authority_reference.py",
@@ -4743,7 +4751,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d167d2f5d576f437d4fde341d63aaa521e3f1e89ffa64f6ee4c04779b168e9c9"
+          "sha256": "40e9006514be0bc19223ac6b8d3e1cff90bfced7213f420f8dee36b58ec9d778"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -4752,6 +4760,14 @@
         {
           "path": "tests/test_publisher_rename_evidence.py",
           "sha256": "69109ec96dff7fd13f9046882ec844ecec936fb60e3d5105894fd23bf5fccb6e"
+        },
+        {
+          "path": "tests/publisher_native_profile_evidence.py",
+          "sha256": "7719a58a8e00042c2f5928abd0b83f7db06cb648248ae607ade4baf8bc03ebd2"
+        },
+        {
+          "path": "tests/test_publisher_native_profile_evidence.py",
+          "sha256": "d9c80a6f644c9687118fb3d7e47bbdf4c3c5989358e507bba8e8a9992357c142"
         }
       ],
       "acceptance_ids": [

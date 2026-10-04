@@ -1117,6 +1117,47 @@ if($ExpectedVolumeRoot) {
  $root['owner_dacl_sha256']=$checked['owner_dacl_sha256']
  $result['volume_boundary']=[ordered]@{root=$root;device=$effectiveRights.ReadVolumeDevice($DriveRoot,$ExpectedVolumeRoot,$ExpectedDiskNumber)}
 }
+if($effectiveRights -and $ExpectedVolumeRoot) {
+ # Evaluate a reconstructed descriptor from the native phase's closed
+ # owner/DACL facts and the separately reobserved group. This is explicitly
+ # not a live AccessCheck at that earlier phase, or retained raw phase bytes.
+ $preparedRows=@($rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-prepared-evidence.json'))
+ if($preparedRows.Count -eq 1) {
+  $prepared=$preparedRows[0].content_json|ConvertFrom-Json
+  if($prepared.schema -ceq 'usk.publisher.lab_phase_evidence.v7') {
+   $anchors=$prepared.protected_anchors;$tree=$prepared.sealed_tree
+   $objects=@($anchors.boundary)+@($anchors.chain|ForEach-Object object)+
+    @($anchors.staging,$anchors.destination_parent,$anchors.state,$anchors.journal,$tree.root)+
+    @($tree.descendants|ForEach-Object object)
+   if($objects.Count -gt 10000){throw 'Native descriptor projection exceeds its object bound'}
+   $projected=[Collections.Generic.List[object]]::new()
+   foreach($nativeObject in $objects) {
+    if($nativeObject.owner_sid -cne 'S-1-5-18' -or $nativeObject.dacl_protected -ne $true -or
+       @($nativeObject.dacl_aces).Count -ne 2){throw 'Native descriptor projection is not the closed private policy'}
+    $expectedSids=@('S-1-5-18',$ServiceSid)
+    for($aceIndex=0;$aceIndex -lt 2;++$aceIndex) {
+     $ace=$nativeObject.dacl_aces[$aceIndex]
+     if($ace.type -ne 0 -or $ace.flags -ne 0 -or $ace.access_mask -ne 0x1f01ff -or
+        $ace.sid -cne $expectedSids[$aceIndex]){throw 'Native descriptor projection ACE differs'}
+    }
+    $matched=@(@($rows)+@($result.volume_boundary.root)|Where-Object file_id -ceq $nativeObject.file_id)
+    if($matched.Count -ne 1){throw 'Native descriptor projection lacks an independent identity/group binding'}
+    $group=[Security.Principal.SecurityIdentifier]::new([string]$matched[0].effective_right_group_sid)
+    if($group.Value -cne $matched[0].effective_right_group_sid){throw 'Observed group is not canonical'}
+    $descriptor=[Security.AccessControl.RawSecurityDescriptor]::new(
+     ('O:SYG:'+ $group.Value +'D:P(A;;FA;;;SY)(A;;FA;;;'+$ServiceSid+')'))
+    $descriptorBytes=New-Object byte[] $descriptor.BinaryLength
+    $descriptor.GetBinaryForm($descriptorBytes,0)
+    $projected.Add([ordered]@{native_object=$nativeObject;observed_group_sid=$group.Value;
+     reconstructed_descriptor_hex=([BitConverter]::ToString($descriptorBytes)).Replace('-','').ToLowerInvariant();
+     checks=$effectiveRights.CheckDescriptor($descriptorBytes)})
+   }
+   $result['native_phase_descriptor_access']=[ordered]@{schema='usk.publisher.phase_descriptor_access.v1';
+    basis='native_closed_owner_dacl_with_independently_observed_group';
+    live_phase_access_check=$false;prepared_record_sha256=$preparedRows[0].sha256;objects=$projected}
+  }
+ }
+}
 $temporary=$Output+'.pending'
 # Closing all observer-owned token/process duplicates is part of the success
 # barrier. A missed observer emits no acknowledgement; its caller retains the

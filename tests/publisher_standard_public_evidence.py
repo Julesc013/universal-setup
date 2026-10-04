@@ -317,3 +317,41 @@ def reconcile(receipt, expected_head):
         "head": expected_head, "standard_client_sid": client, "captured_clients": 5, "native_readbacks": 4,
         "phase_bindings_checked": sum(x["worker_security_phase_count"] for x in reports),
         "native_rows": len(baseline), "profile_qualified": False}
+
+
+def reconcile_native_model(receipt, expected_head, reviewed_source_tree):
+    """Current producer qualification input, with separately pinned review tree.
+
+    Legacy reconciliation remains available above. It cannot stand in for
+    current v7 native model evidence or the reviewed production-route argument.
+    """
+    from publication_authority_reference import PublicationModelContext
+    from publisher_native_profile_evidence import project, ROUTE
+    standard = reconcile(receipt, expected_head)
+    observation = receipt['service_observation']
+    require(isinstance(reviewed_source_tree, str) and re.fullmatch('[0-9a-f]{40}', reviewed_source_tree) and
+        receipt['build_profile']['source_tree'] == reviewed_source_tree,
+        'current native model requires independently reviewed exact source tree')
+    context = PublicationModelContext(service_sid=observation['service_sid'],
+        sdk_version=observation['execution_build_context']['windows_sdk'], minimum_additional_ancestors=0,
+        namespace_layout='staging_anchor_with_payload_child', security_observation_api='GetKernelObjectSecurity',
+        provenance_profile='native_registered_controller_boundary', actor_profile='standard_and_filtered_same_account')
+    source = {'head': expected_head, 'source_tree': receipt['build_profile']['source_tree'],
+        'reviewed_source_tree': reviewed_source_tree, 'publisher_image_sha256': observation['service_sha256'],
+        'route': ROUTE, 'no_export_basis': 'reviewed_selected_route_source_argument'}
+    projections = []
+    for readback in observation['readbacks']:
+        snapshot = readback['independent']
+        prepared = [row['content_json'] for row in snapshot['rows'] if row['path'].endswith('\\lab-prepared-evidence.json')]
+        visible = [row['content_json'] for row in snapshot['rows'] if row['path'].endswith('\\lab-visible-evidence.json')]
+        require(len(prepared) == len(visible) == 1, 'current native model record set differs')
+        result = project(prepared[0], visible[0], snapshot, observation['service'], context, source)
+        report = result['execution_reconciliation']
+        require(report['phase_count'] == 5 and report['same_handle_objects_checked'] == 35 and
+            report['native_rename_calls_checked'] == 1 and result['model_result']['phase'] == 'visible_bound' and
+            result['terminal_consumer_delta_objects'] == 1 + len(load_json(prepared[0])['sealed_tree']['descendants']),
+            'current standard profile replay lacks complete native/consumer evidence')
+        projections.append(result)
+    return {'schema': 'usk.publisher.standard_native_model_reconciliation.v1', 'status': 'bindings_consistent',
+        'head': expected_head, 'source_tree': reviewed_source_tree, 'standard_reconciliation': standard,
+        'native_projections': projections, 'profile_qualified': False, 'publication_authority_granted': False}

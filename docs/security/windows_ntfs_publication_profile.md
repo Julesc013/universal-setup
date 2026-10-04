@@ -2003,3 +2003,23 @@ v5/v6 envelope and execution versions retain their original recovery semantics.
 The independent current standard decoder requires 35 such role observations
 across this case's five phases. This supplies native phase facts for projection;
 it does not by itself qualify a full ProfileEvidence trace or enable discovery.
+
+The current independent reader additionally reconstructs the exact retained
+two-ACE owner/DACL with the group separately reobserved by stable file ID and
+runs native `AccessCheck` under its held client tokens. These results explicitly
+identify reconstructed descriptors; they are not live access checks at an
+earlier publication phase or retained raw descriptor bytes. The native model
+context distinguishes the captured standard client and its filtered derivative
+from an unrelated login or a generic untrusted principal. Original fixture
+defaults and their stricter provenance labels remain unchanged.
+
+The bounded native projection reconciles the seven actual held roles, volume
+facts, complete sealed/visible payload closure and successful native rename
+call through `visible_bound`. Independently observed terminal payload objects
+must have exactly the admitted non-inherited consumer RX delta, with no extra
+subtree objects. A missing original call on restart remains unknown in this
+model. The controller-owned volume boundary and reviewed production-route
+source argument have distinct provenance, bound to the reviewed source tree
+and retained executable digest. This retrospective consistency check grants
+no publication authority, asserts no global export history and does not close
+OD-001, full profile qualification or ordinary discovery.
