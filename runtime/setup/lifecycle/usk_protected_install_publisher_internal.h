@@ -63,6 +63,10 @@ void require_candidate_snapshot_apply_binding(const usk::json::Value& snapshot);
 // Read-only original policy context from the live engine's held native record.
 // It is absent outside that engine, and a different plan request is refused.
 std::optional<usk::json::Value> candidate_publisher_plan_replay(const usk::json::Value& plan_request);
+// Read-only source preflight for a protected original bootstrap intent. Uses
+// the public archive grammar/budgets and exact actual identity/file closure;
+// it grants no target mutation or reviewed-plan acceptance.
+void require_candidate_bootstrap_source(const usk::json::Value& snapshot);
 // No exposed constructor, setter, callback or JSON activation can create the
 // operation-scoped context. Only the concrete live service engine creates it.
 std::optional<InstallResult> apply_in_candidate_publisher_context(

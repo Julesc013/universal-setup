@@ -48,7 +48,121 @@ def document(row):
     return value
 
 
-def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allow_legacy_missing=False):
+def native_object(row):
+    fields = ('file_id', 'attributes', 'link_count', 'case_sensitive')
+    require(all(key in row for key in fields) and 'owner' in row and 'protected' in row and 'raw_aces' in row,
+            'retained bootstrap lacks independent native facts')
+    return dict((key, row[key]) for key in fields) | {'owner_sid': row['owner'],
+        'dacl_protected': row['protected'], 'reparse_tag': row.get('reparse_tag', 0), 'dacl_aces': row['raw_aces']}
+
+
+def bootstrap_history(by_path, drive, context_directory, context_path, context, roots, volume_root_id, history):
+    prefix = context_path[:-5]
+    all_rows = [row for path, row in by_path.items() if path.startswith(context_directory + '\\')]
+    reservation_rows = sorted((row for row in all_rows if row['path'].startswith(prefix + '-bootstrap-')),
+                              key=lambda row: row['path'])
+    require(0 < len(reservation_rows) <= 64, 'current producer lacks bounded bootstrap reservations')
+    active = {value['generation']: value for value in history if value['status'] == 'active'}
+    expected_files, expected_directories = set(), set()
+    for index, row in enumerate(reservation_rows):
+        reserved = document(row)
+        require(reserved.keys() == {'schema', 'install_id', 'operation_id', 'context_sha256', 'roots_sha256',
+                'volume_root_identity', 'ownership', 'publication_absent', 'reservation_sha256'},
+                'bootstrap reservation is not closed')
+        ownership = reserved['ownership']
+        require(isinstance(ownership, dict) and type(ownership.get('generation')) is int and
+                ownership == active.get(ownership['generation']), 'bootstrap reserved ownership is not a native journal record')
+        generation = ownership['generation']
+        require(row['path'] == prefix + f'-bootstrap-g{generation:020d}.json' and
+                reserved['schema'] == 'usk.publication_bootstrap_reservation.v1' and
+                reserved['install_id'] == context['install_id'] and reserved['operation_id'] == context['operation_id'] and
+                reserved['context_sha256'] == context['context_sha256'] and reserved['roots_sha256'] == roots['roots_sha256'] and
+                reserved['volume_root_identity'] == root(volume_root_id) and reserved['publication_absent'] is True and
+                reserved['reservation_sha256'] == digest({key: value for key, value in reserved.items() if key != 'reservation_sha256'}),
+                'bootstrap reservation attempt/root/seal differs')
+        expected_files.add(row['path'])
+        move_path = prefix + f'-preserve-g{generation:020d}.json'
+        retained_path = prefix + f'-retained-g{generation:020d}'
+        require(index != len(reservation_rows) - 1 or move_path not in by_path,
+                'current live publication lacks an undisposed creation reservation')
+        prepared_path = drive + 'publication\\journal\\lab-prepared-evidence.json'
+        if index == len(reservation_rows) - 1 and prepared_path in by_path:
+            prepared = document(by_path[prepared_path])
+            origin = prepared.get('execution_origin')
+            require(origin in ('created_empty_in_current_worker', 'reopened_staged_tree'),
+                    'live publication has unknown native execution origin')
+            if origin == 'created_empty_in_current_worker':
+                require(isinstance(prepared.get('execution_phases'), list) and prepared['execution_phases'] and
+                        prepared['execution_phases'][0]['execution']['service']['process_id'] == ownership['holder']['process_id'],
+                        'live publication creation worker differs from its reserved native ownership')
+        if move_path not in by_path:
+            require(index == len(reservation_rows) - 1, 'earlier bootstrap reservation lacks a durable disposition')
+            continue
+        move = document(by_path[move_path])
+        expected_files.add(move_path)
+        require(move.get('install_id') == context['install_id'] and move.get('operation_id') == context['operation_id'] and
+                move.get('reservation_sha256') == reserved['reservation_sha256'] and
+                move.get('preservation_sha256') == digest({key: value for key, value in move.items() if key != 'preservation_sha256'}),
+                'bootstrap preservation scope/seal differs')
+        if move.get('schema') == 'usk.publication_bootstrap_absence.v1':
+            require(move.keys() == {'schema', 'install_id', 'operation_id', 'reservation_sha256',
+                    'closing_ownership', 'publication_absent', 'preservation_sha256'} and move['publication_absent'] is True and
+                    isinstance(move['closing_ownership'], dict) and type(move['closing_ownership'].get('generation')) is int and
+                    move['closing_ownership'] == active.get(move['closing_ownership']['generation']) and
+                    move['closing_ownership']['generation'] > generation,
+                    'bootstrap absence disposition is not bound to later native ownership')
+            continue
+        require(move.get('schema') == 'usk.publication_bootstrap_preservation.v1' and
+                move.keys() == {'schema', 'install_id', 'operation_id', 'reservation_sha256', 'source_name',
+                    'source_root_identity', 'destination_parent_identity', 'destination_name', 'tree', 'preservation_sha256'} and
+                move['source_name'] == 'publication' and move['destination_name'] == retained_path.rsplit('\\', 1)[1] and
+                move['destination_parent_identity'] == root(by_path[context_directory]['file_id']) and retained_path in by_path,
+                'bootstrap preservation destination/root differs')
+        require(ownership['expected_state_revision'] == digest([]) and
+                not any(value['generation'] == generation and value['status'] == 'completed' for value in history) and
+                any(value['generation'] > generation and value['status'] == 'active' for value in history),
+                'bootstrap preservation cannot retire a completed installation')
+        retained = by_path[retained_path]
+        tree = move['tree']
+        require(isinstance(tree, dict) and tree.keys() == {'root', 'root_streams', 'entries'} and
+                isinstance(tree['entries'], list) and len(tree['entries']) <= 5 and retained['directory'] is True and
+                native_object(retained) == tree['root'] and retained['streams'] == tree['root_streams'] and
+                retained['file_id'] == move['source_root_identity'], 'retained bootstrap root native facts differ')
+        expected_directories.add(retained_path)
+        present, snapshot_present = set(), False
+        for entry in tree['entries']:
+            require(isinstance(entry, dict) and entry.keys() == {'relative_path', 'object', 'bytes', 'sha256', 'streams'},
+                    'retained bootstrap entry is not closed')
+            name = entry['relative_path'].replace('/', '\\')
+            path = retained_path + '\\' + name
+            require(path in by_path, 'retained bootstrap descendant absent')
+            observed = by_path[path]
+            require(native_object(observed) == entry['object'] and observed['streams'] == entry['streams'] and
+                    observed['bytes'] == entry['bytes'] and (observed['sha256'] or '') == entry['sha256'],
+                    'retained bootstrap descendant identity/security/bytes differ')
+            if observed['directory']:
+                require(name in ('staging', 'destination', 'state', 'journal') and name not in present,
+                        'retained bootstrap has extra or aliased directories')
+                present.add(name)
+                expected_directories.add(path)
+            else:
+                require(name == 'journal\\lab-reviewed-plan.json' and not snapshot_present and
+                        type(observed['bytes']) is int and 0 <= observed['bytes'] <= 4 * 1024 * 1024,
+                        'retained bootstrap has product payload or extra files')
+                snapshot_present = True
+                original_bytes = (canonical(context['reviewed_snapshot']) + '\n').encode('utf-8')
+                require(observed['bytes'] <= len(original_bytes) and
+                        observed['sha256'] == hashlib.sha256(original_bytes[:observed['bytes']]).hexdigest(),
+                        'retained snapshot bytes are not an exact prefix of the original intent')
+                expected_files.add(path)
+        ordered = ('staging', 'destination', 'state', 'journal')
+        require(present == set(ordered[:len(present)]) and (not snapshot_present or len(present) == 4),
+                'retained bootstrap is not an exact creation-order prefix')
+    return expected_files, expected_directories
+
+
+def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allow_legacy_missing=False,
+             allow_legacy_missing_bootstrap=False):
     require(isinstance(rows, list) and 0 < len(rows) <= 10000, 'coordination row budget exceeded')
     require(all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in rows), 'coordination row missing path')
     by_path = {row['path']: row for row in rows}
@@ -72,11 +186,11 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allo
     roots_path = context_directory + '\\operation-' + digest(operation) + '-roots.json'
     directories = {leases, lease_directory, lease_directory + '\\pending',
                    operations, context_directory, context_directory + '\\pending'}
-    require({row['path'] for row in lease_rows + context_rows if row['directory']} == directories,
-            'coordination directory closure differs')
+    require(directories <= {row['path'] for row in lease_rows + context_rows if row['directory']},
+            'coordination base directories absent')
     context_files = [row for row in context_rows if not row['directory']]
-    require(len(context_files) == 2 and {row['path'] for row in context_files} == {context_path, roots_path},
-            'original operation context file closure differs')
+    require({context_path, roots_path} <= {row['path'] for row in context_files},
+            'original operation context files absent')
     context = document(by_path[context_path])
     require(context.keys() == {'schema', 'install_id', 'operation', 'operation_id', 'volume_root_identity',
             'initial_state_revision', 'reviewed_snapshot', 'context_sha256'}, 'operation context is not closed')
@@ -152,13 +266,26 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allo
         history.append(value)
         previous = value
     require(allow_active or history[-1]['status'] == 'completed', 'current snapshot lacks completed ownership')
+    reserved = any(row['path'].startswith(context_path[:-5] + '-bootstrap-') for row in context_files)
+    if not reserved and allow_legacy_missing_bootstrap:
+        bootstrap_files, bootstrap_directories = set(), set()
+    else:
+        bootstrap_files, bootstrap_directories = bootstrap_history(by_path, drive, context_directory, context_path,
+            context, roots, volume_root_id, history)
+    require({row['path'] for row in lease_rows + context_rows if row['directory']} == directories | bootstrap_directories and
+            {row['path'] for row in context_files} == {context_path, roots_path} | bootstrap_files,
+            'coordination bootstrap file/directory closure differs')
     return {'history': history, 'context_sha256': context['context_sha256'],
-            'files': [context_path, roots_path] + [row['path'] for row in lease_files]}
+            'bootstrap_protocol': 'reserved_creation' if reserved else 'historical_unreserved',
+            'files': [context_path, roots_path] + sorted(bootstrap_files) + [row['path'] for row in lease_files]}
 
 
-def transition(before, after, drive, installed, volume_root_id, *, readonly=False, allow_legacy_missing=False):
-    old = snapshot(before, drive, installed, volume_root_id, allow_legacy_missing=allow_legacy_missing)
-    new = snapshot(after, drive, installed, volume_root_id, allow_legacy_missing=allow_legacy_missing)
+def transition(before, after, drive, installed, volume_root_id, *, readonly=False, allow_legacy_missing=False,
+               allow_legacy_missing_bootstrap=False):
+    old = snapshot(before, drive, installed, volume_root_id, allow_legacy_missing=allow_legacy_missing,
+                   allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap)
+    new = snapshot(after, drive, installed, volume_root_id, allow_legacy_missing=allow_legacy_missing,
+                   allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap)
     if readonly or old is None:
         require(before == after, 'read-only or historical request changed native rows')
         return

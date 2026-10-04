@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 namespace usk::platform::windows {
+class PublisherInstallationLease;
 
 usk::json::Value observe_publisher_lease_holder();
 // Read-only native facts, without a protection/ownership verdict.
@@ -35,6 +36,13 @@ public:
     std::string lease_binding_sha256() const;
     const usk::json::Value& record() const;
     void require_fence() const;
+    // Read-only inspection of this operation's reserved, pre-candidate
+    // bootstrap. Only an exact original sourceful apply may preserve it.
+    bool bootstrap_resume_required() const;
+    // Requires the live native lease, never a supplied ownership document.
+    // Persists absence per attempt and any exact preservation intent before
+    // a no-replace move. Incomplete anchors remain protected and retained.
+    void prepare_publication(const PublisherInstallationLease& lease);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

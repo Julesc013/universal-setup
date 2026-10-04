@@ -3,6 +3,7 @@
 #include "usk_publisher_installation_lease.h"
 #if defined(_WIN32)
 #include "usk_publisher_anchor_create.h"
+#include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_metadata.h"
@@ -74,14 +75,45 @@ std::wstring record_name(const Value& record) {
 bool equal(const Value& left, const Value& right) {
     return usk::json::canonical(left) == usk::json::canonical(right);
 }
-std::string read_held_text(HANDLE handle, const std::string& sid, std::size_t limit) {
+std::wstring generation_name(std::uint64_t generation) {
+    std::wostringstream result;
+    result << L"g" << std::setfill(L'0') << std::setw(20) << generation;
+    return result.str();
+}
+Value bootstrap_tree_facts(const PublisherTreeObservation& tree) {
+    const auto streams = [](const std::vector<PublisherStreamObservation>& observed) {
+        Value::Array result;
+        for (const auto& stream : observed) {
+            if (stream.size < 0 || stream.allocation_size < 0) throw InstallLeaseStale();
+            result.emplace_back(Value::Object{
+                {"name", Value(std::filesystem::path(stream.name).u8string())},
+                {"size", Value(static_cast<std::uint64_t>(stream.size))},
+                {"allocation_size", Value(static_cast<std::uint64_t>(stream.allocation_size))}});
+        }
+        return Value(std::move(result));
+    };
+    const auto object = [](const PublisherHandleObservation& observed) {
+        auto result = publisher_handle_observation_json(observed);
+        result.as_object().erase("native_name");
+        return result;
+    };
+    Value::Array entries;
+    for (const auto& entry : tree.descendants) entries.emplace_back(Value::Object{
+        {"relative_path", Value(std::filesystem::path(entry.relative_path).u8string())},
+        {"object", object(entry.object)}, {"bytes", Value(entry.size)},
+        {"sha256", Value(entry.sha256)}, {"streams", streams(entry.streams)}});
+    return Value(Value::Object{{"root", object(tree.root)},
+        {"root_streams", streams(tree.root_streams)}, {"entries", Value(std::move(entries))}});
+}
+std::string read_held_text(HANDLE handle, const std::string& sid, std::size_t limit, bool allow_empty = false) {
     const auto before = observe_publisher_file_handle(handle);
     require_publisher_object_security_shape(before, sid);
     require_publisher_stream_shape(handle);
     LARGE_INTEGER size{};
     FILE_BASIC_INFO basic{};
     if (!GetFileSizeEx(handle, &size) || !GetFileInformationByHandleEx(handle, FileBasicInfo,
-            &basic, sizeof(basic)) || size.QuadPart <= 0 || static_cast<std::uint64_t>(size.QuadPart) > limit)
+            &basic, sizeof(basic)) || size.QuadPart < 0 || (!allow_empty && size.QuadPart == 0) ||
+            static_cast<std::uint64_t>(size.QuadPart) > limit)
         throw std::runtime_error("lease record size exceeds budget");
     std::string text(static_cast<std::size_t>(size.QuadPart), '\0');
     DWORD read = 0;
@@ -367,6 +399,240 @@ struct PublisherInstallOperationContext::Impl {
         load_roots();
         if (!roots_file || !equal(wanted, roots_record)) throw InstallLeaseStale();
     }
+    std::wstring bootstrap_name(const Value& reservation, const wchar_t* kind) const {
+        return context_name.substr(0, context_name.size() - 5) + kind +
+            generation_name(reservation.at("ownership").at("generation").as_unsigned());
+    }
+    Value reservation_for(const Value& ownership) const {
+        require_install_lease_record(ownership);
+        if (!roots_file || ownership.at("status").as_string() != "active" ||
+            ownership.at("install_id").as_string() != install_id ||
+            ownership.at("operation").as_string() != "install_local" ||
+            ownership.at("operation_id").as_string() != operation_id ||
+            ownership.at("operation_context_sha256").as_string() != roots_record.at("roots_sha256").as_string() ||
+            !equal(ownership.at("state_root_identity"), roots_record.at("state_root_identity"))) throw InstallLeaseStale();
+        Value result(Value::Object{{"schema", Value("usk.publication_bootstrap_reservation.v1")},
+            {"install_id", Value(install_id)}, {"operation_id", Value(operation_id)},
+            {"context_sha256", original.at("context_sha256")},
+            {"roots_sha256", roots_record.at("roots_sha256")},
+            {"volume_root_identity", volume_identity}, {"ownership", ownership},
+            {"publication_absent", Value(true)}});
+        result.as_object().emplace("reservation_sha256", Value(usk::json::sha256_canonical(result)));
+        return result;
+    }
+    void require_reserved_native_ownership(const Value& reservation) const {
+        const auto& ownership = reservation.at("ownership");
+        if (!equal(reservation, reservation_for(ownership))) throw InstallLeaseStale();
+        const auto setup_name = std::filesystem::u8path(original.at("reviewed_snapshot").at("setup_root").as_string()).filename().wstring();
+        const auto open = [&](HANDLE parent, const std::wstring& name) {
+            const auto entry = child(parent, name);
+            if (!entry) throw InstallLeaseStale();
+            return std::make_unique<Handle>(open_publisher_listed_child(parent, *entry));
+        };
+        auto setup = open(volume, setup_name);
+        auto state = open(setup->get(), L"state");
+        auto leases = open(state->get(), L"leases");
+        auto history = open(leases->get(), install_name);
+        const auto entry = child(history->get(), record_name(ownership));
+        if (!entry || !equal(read_record(history->get(), *entry, service_sid), ownership)) throw InstallLeaseStale();
+    }
+    std::vector<Value> reservations() const {
+        fence();
+        const auto prefix = context_name.substr(0, context_name.size() - 5) + L"-bootstrap-";
+        std::map<std::uint64_t, Value> ordered;
+        for (const auto& entry : observe_publisher_directory_entries(records->get())) {
+            if (entry.name.compare(0, prefix.size(), prefix) != 0) continue;
+            const auto text = read_text(records->get(), entry, service_sid, record_limit);
+            auto value = usk::json::parse(text);
+            require_reserved_native_ownership(value);
+            if (text != usk::json::canonical(value) + "\n" ||
+                entry.name != bootstrap_name(value, L"-bootstrap-") + L".json" ||
+                !ordered.emplace(value.at("ownership").at("generation").as_unsigned(), value).second)
+                throw InstallLeaseStale();
+        }
+        if (ordered.size() > 64) throw std::runtime_error("publication bootstrap attempt budget exhausted");
+        std::vector<Value> result;
+        for (auto& item : ordered) result.push_back(std::move(item.second));
+        return result;
+    }
+    PublisherTreeObservation partial_tree(HANDLE publication) const {
+        const auto tree = observe_publisher_tree(publication);
+        require_publisher_tree_security_shape(tree, service_sid);
+        require_publisher_stream_shape(tree.root_streams, true);
+        if (tree.descendants.size() > 5) throw InstallLeaseStale();
+        const std::vector<std::wstring> order{L"staging", L"destination", L"state", L"journal"};
+        std::set<std::wstring> present;
+        bool snapshot_present = false;
+        for (const auto& entry : tree.descendants) {
+            const bool directory_entry = (entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            require_publisher_stream_shape(entry.streams, directory_entry);
+            if (directory_entry) {
+                if (std::find(order.begin(), order.end(), entry.relative_path) == order.end() ||
+                    !present.insert(entry.relative_path).second) throw InstallLeaseStale();
+            } else {
+                if (entry.relative_path != L"journal\\lab-reviewed-plan.json" || snapshot_present ||
+                    entry.size > 4u * 1024u * 1024u) throw InstallLeaseStale();
+                snapshot_present = true;
+                const auto journal_entry = child(publication, L"journal");
+                if (!journal_entry) throw InstallLeaseStale();
+                Handle journal(open_publisher_listed_child(publication, *journal_entry));
+                const auto record_entry = child(journal.get(), L"lab-reviewed-plan.json");
+                if (!record_entry) throw InstallLeaseStale();
+                Handle record(open_publisher_listed_child(journal.get(), *record_entry));
+                const auto bytes = read_held_text(record.get(), service_sid, 4u * 1024u * 1024u, true);
+                const auto expected = usk::json::canonical(original.at("reviewed_snapshot")) + "\n";
+                if (bytes.size() > expected.size() || expected.compare(0, bytes.size(), bytes) != 0)
+                    throw InstallLeaseStale();
+            }
+        }
+        bool missing = false;
+        for (const auto& name : order) {
+            if (!present.count(name)) missing = true;
+            else if (missing) throw InstallLeaseStale();
+        }
+        if (snapshot_present && present.size() != order.size()) throw InstallLeaseStale();
+        require_publisher_tree_phase_match(tree, observe_publisher_tree(publication));
+        return tree;
+    }
+    bool bootstrap_resume_required() const {
+        const auto history = reservations();
+        if (history.empty()) return false; // Older partial roots are retained; no invented reservation.
+        const auto publication_entry = child(volume, L"publication");
+        if (!publication_entry) return true;
+        Handle publication(open_publisher_listed_child(volume, *publication_entry));
+        // A candidate or prepared record belongs to existing staged recovery,
+        // never the pre-candidate bootstrap preservation path.
+        const auto staging_entry = child(publication.get(), L"staging");
+        if (staging_entry) {
+            Handle staging(open_publisher_listed_child(publication.get(), *staging_entry));
+            if (child(staging.get(), L"candidate")) return false;
+        }
+        const auto journal_entry = child(publication.get(), L"journal");
+        if (journal_entry) {
+            Handle journal(open_publisher_listed_child(publication.get(), *journal_entry));
+            if (child(journal.get(), L"lab-prepared-evidence.json")) return false;
+        }
+        (void)partial_tree(publication.get());
+        return true;
+    }
+    Value read_bootstrap_record(const std::wstring& name) const {
+        const auto entry = child(records->get(), name);
+        if (!entry) throw InstallLeaseStale();
+        const auto text = read_text(records->get(), *entry, service_sid, 4u * 1024u * 1024u);
+        const auto value = usk::json::parse(text);
+        if (text != usk::json::canonical(value) + "\n") throw InstallLeaseStale();
+        return value;
+    }
+    void write_bootstrap_record(const std::wstring& name, const Value& value) {
+        fence();
+        if (child(records->get(), name)) {
+            if (!equal(read_bootstrap_record(name), value)) throw InstallLeaseStale();
+            return;
+        }
+        if (observe_publisher_directory_entries(records->get()).size() >= history_limit ||
+            observe_publisher_directory_entries(pending->get()).size() >= history_limit) throw InstallLeaseStale();
+        const auto text = usk::json::canonical(value) + "\n";
+        if (text.size() > 4u * 1024u * 1024u) throw InstallLeaseStale();
+        static std::atomic<std::uint64_t> sequence{0};
+        const auto temporary = L"bootstrap-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+            std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(++sequence);
+        Handle output(create_file_relative_with_descriptor(pending->get(), temporary, descriptor));
+        DWORD written = 0;
+        require_current_publisher_effect_fence();
+        if (!WriteFile(output.get(), text.data(), static_cast<DWORD>(text.size()), &written, nullptr) ||
+            written != text.size() || !FlushFileBuffers(output.get())) throw InstallLeaseStale();
+        publish_publisher_record_no_replace(output.get(), records->get(), name, service_sid);
+        if (!equal(read_bootstrap_record(name), value)) throw InstallLeaseStale();
+    }
+    void prepare_publication(const PublisherInstallationLease& lease) {
+        fence();
+        lease.require_start();
+        const auto current = reservation_for(lease.ownership());
+        auto history = reservations();
+        for (std::size_t index = 0; index < history.size(); ++index) {
+            const auto& reserved = history[index];
+            const auto move_name = bootstrap_name(reserved, L"-preserve-") + L".json";
+            const auto retained_name = bootstrap_name(reserved, L"-retained-");
+            const auto move_entry = child(records->get(), move_name);
+            const auto retained_entry = child(records->get(), retained_name);
+            const bool latest = index + 1 == history.size();
+            if (!move_entry && !retained_entry && !latest) throw InstallLeaseStale();
+            if (move_entry || retained_entry) {
+                if (!move_entry) throw InstallLeaseStale();
+                const auto move = read_bootstrap_record(move_name);
+                auto unsealed = move;
+                unsealed.as_object().erase("preservation_sha256");
+                if (move.at("schema").as_string() == "usk.publication_bootstrap_absence.v1") {
+                    Value absent(Value::Object{{"schema", Value("usk.publication_bootstrap_absence.v1")},
+                        {"install_id", Value(install_id)}, {"operation_id", Value(operation_id)},
+                        {"reservation_sha256", reserved.at("reservation_sha256")},
+                        {"closing_ownership", move.at("closing_ownership")}, {"publication_absent", Value(true)}});
+                    absent.as_object().emplace("preservation_sha256", Value(usk::json::sha256_canonical(absent)));
+                    const auto closing = reservation_for(move.at("closing_ownership"));
+                    require_reserved_native_ownership(closing);
+                    if (!equal(move, absent) || retained_entry ||
+                        closing.at("ownership").at("generation").as_unsigned() <= reserved.at("ownership").at("generation").as_unsigned())
+                        throw InstallLeaseStale();
+                    continue;
+                }
+                if (move.as_object().size() != 10 || move.at("schema").as_string() != "usk.publication_bootstrap_preservation.v1" ||
+                    move.at("reservation_sha256").as_string() != reserved.at("reservation_sha256").as_string() ||
+                    move.at("install_id").as_string() != install_id || move.at("operation_id").as_string() != operation_id ||
+                    !equal(move.at("destination_parent_identity"), root_identity(records->get(), service_sid)) ||
+                    move.at("destination_name").as_string() != std::filesystem::path(retained_name).u8string() ||
+                    move.at("source_name").as_string() != "publication" ||
+                    move.at("preservation_sha256").as_string() != usk::json::sha256_canonical(unsealed)) throw InstallLeaseStale();
+                if (retained_entry) {
+                    Handle retained(open_publisher_listed_child(records->get(), *retained_entry));
+                    if (!equal(move.at("tree"), bootstrap_tree_facts(partial_tree(retained.get()))) ||
+                        move.at("source_root_identity").as_string() != observe_publisher_directory_handle(retained.get()).file_id)
+                        throw InstallLeaseStale();
+                    continue;
+                }
+                if (!latest) throw InstallLeaseStale();
+            }
+            if (!latest) continue;
+            const auto publication_entry = child(volume, L"publication");
+            if (!publication_entry) {
+                if (move_entry) throw InstallLeaseStale();
+                if (!equal(reserved.at("ownership"), lease.ownership())) {
+                    Value absent(Value::Object{{"schema", Value("usk.publication_bootstrap_absence.v1")},
+                        {"install_id", Value(install_id)}, {"operation_id", Value(operation_id)},
+                        {"reservation_sha256", reserved.at("reservation_sha256")},
+                        {"closing_ownership", lease.ownership()}, {"publication_absent", Value(true)}});
+                    absent.as_object().emplace("preservation_sha256", Value(usk::json::sha256_canonical(absent)));
+                    write_bootstrap_record(move_name, absent);
+                }
+                continue;
+            }
+            if (equal(reserved.at("ownership"), lease.ownership())) throw InstallLeaseStale();
+            const auto previous_holder = observe_publisher_previous_lease_holder(reserved.at("ownership").at("holder"));
+            if (previous_holder != InstallLeasePreviousHolder::ended && previous_holder != InstallLeasePreviousHolder::identity_reused)
+                throw InstallLeaseConflict();
+            Handle publication(open_publisher_listed_child(volume, *publication_entry, false, true));
+            const auto tree = partial_tree(publication.get());
+            Value move(Value::Object{{"schema", Value("usk.publication_bootstrap_preservation.v1")},
+                {"install_id", Value(install_id)}, {"operation_id", Value(operation_id)},
+                {"reservation_sha256", reserved.at("reservation_sha256")},
+                {"source_name", Value("publication")}, {"source_root_identity", Value(tree.root.file_id)},
+                {"destination_parent_identity", root_identity(records->get(), service_sid)},
+                {"destination_name", Value(std::filesystem::path(retained_name).u8string())},
+                {"tree", bootstrap_tree_facts(tree)}});
+            move.as_object().emplace("preservation_sha256", Value(usk::json::sha256_canonical(move)));
+            write_bootstrap_record(move_name, move);
+            lease.require_start();
+            require_publisher_tree_phase_match(tree, partial_tree(publication.get()));
+            const auto parent = observe_publisher_directory_handle(records->get());
+            (void)probe_publisher_bound_rename_no_replace(publication.get(), records->get(), retained_name, tree.root, parent);
+            require_publisher_tree_phase_match(tree, partial_tree(publication.get()), parent.native_name + L"\\" + retained_name);
+            if (child(volume, L"publication")) throw InstallLeaseStale();
+        }
+        lease.require_start();
+        if (child(volume, L"publication")) throw InstallLeaseStale();
+        if (history.size() >= 64 && (history.empty() || !equal(history.back(), current)))
+            throw std::runtime_error("publication bootstrap attempt budget exhausted");
+        write_bootstrap_record(bootstrap_name(current, L"-bootstrap-") + L".json", current);
+    }
     void prepare(const Value& snapshot, const std::string& revision) {
         guard.require_owned(volume_root, install_id);
         if (revision != usk::json::sha256_canonical(Value(Value::Array{})))
@@ -429,6 +695,10 @@ std::string PublisherInstallOperationContext::lease_binding_sha256() const {
     return impl_->roots_record.at("roots_sha256").as_string();
 }
 const Value& PublisherInstallOperationContext::record() const { impl_->fence(); return impl_->original; }
+bool PublisherInstallOperationContext::bootstrap_resume_required() const { return impl_->bootstrap_resume_required(); }
+void PublisherInstallOperationContext::prepare_publication(const PublisherInstallationLease& lease) {
+    impl_->prepare_publication(lease);
+}
 void PublisherInstallOperationContext::require_fence() const { impl_->fence(); }
 
 struct PublisherInstallationLease::Impl {

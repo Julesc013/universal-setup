@@ -27,6 +27,7 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -1988,6 +1989,34 @@ Value execute_command(const std::string& command, const Value& request, const Pu
 }
 
 } // namespace
+
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+void usk::lifecycle::require_candidate_bootstrap_source(const Value& snapshot)
+{
+    usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot);
+    const auto& archive = snapshot.at("plan_request").at("archive");
+    auto payload = usk::archive::inspect_streaming_payload(
+        usk::json::canonical(archive_inspection_request(archive)), required_string(archive, "strip_prefix"));
+    if (payload.source_sha256 != snapshot.at("archive_sha256").as_string() ||
+        payload.source_sha256 != required_string(archive, "expected_sha256") ||
+        payload.source_identity_digest != snapshot.at("archive_identity_digest").as_string() ||
+        payload.entry_set_digest != snapshot.at("entry_set_digest").as_string())
+        throw PublicError("source_drift", "original bootstrap source identity changed");
+    std::map<std::string, std::pair<std::uint64_t, std::string>> expected, actual;
+    for (const auto& entry : snapshot.at("planned_entries").as_array()) {
+        const auto kind = required_string(entry, "entry_type");
+        if (kind == "directory") continue;
+        if (kind != "file" || !expected.emplace(required_string(entry, "relative_path"),
+                std::make_pair(entry.at("size_bytes").as_unsigned(), required_string(entry, "sha256"))).second)
+            throw PublicError("source_drift", "original bootstrap source closure differs");
+    }
+    for (const auto& file : payload.files)
+        if (!actual.emplace(file.relative_path, std::make_pair(file.size_bytes, file.sha256)).second)
+            throw PublicError("source_drift", "original bootstrap source aliases");
+    if (expected != actual) throw PublicError("source_drift", "original bootstrap selected files changed");
+    payload.validate_source();
+}
+#endif
 
 usk::lifecycle::InstallPlan usk::lifecycle::reviewed_install_plan_for_publisher(
     const std::string& request_json, const std::string& state_root,

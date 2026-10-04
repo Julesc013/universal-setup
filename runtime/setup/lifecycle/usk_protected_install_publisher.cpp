@@ -1234,6 +1234,8 @@ usk::lifecycle::InstallPlan restore_reviewed_install_plan(
     return plan;
 }
 
+ReviewedPlanBinding reviewed_plan_from_retained_snapshot(const std::string& record, bool require_request_binding);
+
 ReviewedPlanBinding reviewed_plan_from_protected_snapshot(HANDLE volume,
     const std::string& service_sid, bool require_request_binding, bool snapshot_only) {
     using namespace usk::platform::windows;
@@ -1270,6 +1272,11 @@ ReviewedPlanBinding reviewed_plan_from_protected_snapshot(HANDLE volume,
     const auto journal_reobserved = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_reobserved, service_sid);
     require_publisher_tree_phase_match(journal_tree, journal_reobserved);
+    return reviewed_plan_from_retained_snapshot(record, require_request_binding);
+}
+
+ReviewedPlanBinding reviewed_plan_from_retained_snapshot(const std::string& record, bool require_request_binding) {
+    using namespace usk::platform::windows;
     const auto snapshot = usk::json::parse(record);
     const bool consumer_bound=snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
     const bool caller_bound=consumer_bound || snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
@@ -3583,8 +3590,16 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> effect_fence;
         const auto start_installation_lease = [&](const ReviewedPlanBinding& reviewed, bool recovery) {
             if (!registered_admission) return;
-            if (installation_lease || !install_guard || !authenticated_request)
+            if (!install_guard || !authenticated_request)
                 throw std::runtime_error("registered effect lacks exclusive installation ownership");
+            if (installation_lease) {
+                if (recovery || !operation_context ||
+                    usk::json::canonical(operation_context->record().at("reviewed_snapshot")) + "\n" != reviewed.durable_snapshot)
+                    throw StaleReviewedInstallRequest();
+                operation_context->require_fence();
+                installation_lease->require_start();
+                return;
+            }
             registered_operation_admission = admit_current_registered_operation(volume, observed.service_sid, reviewed);
             if (!operation_context) operation_context =
                 std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
@@ -3648,6 +3663,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 installation_lease->require_fence();
             };
             effect_fence = std::make_unique<usk::platform::windows::ScopedPublisherEffectFence>(lease_fence);
+            if (!recovery) operation_context->prepare_publication(*installation_lease);
         };
         std::string apply_response;
         std::string recovery_installed_response;
@@ -3690,6 +3706,26 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                             "operator_acceptance_candidate", volume, volume_root, service_name, true);
                         original_replay=std::make_unique<ScopedOriginalOperationContext>(*operation_context);
                     }
+                    if (operation_context->bootstrap_resume_required()) {
+                        // Preserve the exact reserved partial ancestry before
+                        // ordinary planning. Its removal restores the original
+                        // target probe; no recorded policy digest substitutes
+                        // for a changed live target or source.
+                        usk::base::StableFile envelope{std::filesystem::path(reviewed_plan_envelope_path)};
+                        if (envelope.identity().size_bytes == 0 || envelope.identity().size_bytes > 1024u * 1024u ||
+                            envelope.sha256_hex() != snapshot.at("plan_envelope_sha256").as_string())
+                            throw StaleReviewedInstallRequest();
+                        const auto bytes = envelope.read(0, static_cast<std::size_t>(envelope.identity().size_bytes));
+                        envelope.verify_unchanged();
+                        const auto original_envelope = usk::json::parse(std::string(bytes.begin(), bytes.end()));
+                        if (original_envelope.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+                            usk::json::canonical(original_envelope.at("apply_request")) != *submitted_apply_request ||
+                            usk::json::canonical(original_envelope.at("plan_request")) != usk::json::canonical(snapshot.at("plan_request")))
+                            throw StaleReviewedInstallRequest();
+                        usk::lifecycle::require_candidate_bootstrap_source(snapshot);
+                        const auto original = reviewed_plan_from_retained_snapshot(usk::json::canonical(snapshot) + "\n", false);
+                        start_installation_lease(original, false);
+                    }
                 }
             }
 
@@ -3700,7 +3736,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 bool has_publication=false;
                 for (const auto& entry : observe_publisher_directory_entries(volume))
                     if (entry.name==L"publication") has_publication=true;
-                if (!has_publication && registered_admission && submitted_recovery_request) {
+                if (registered_admission && submitted_recovery_request) {
                     const auto request=usk::json::parse(*submitted_recovery_request);
                     if (request.as_object().size()!=4 ||
                         request.at("schema").as_string()!="usk.publisher_recovery_request.v1" ||
@@ -3710,10 +3746,17 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     operation_context=std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
                         volume_root,service_name,*install_guard,request.at("install_id").as_string(),
                         request.at("transaction_id").as_string());
-                    if (!operation_context->exists()) throw std::runtime_error("protected original operation unavailable");
-                    publication_effects_may_exist=true;
-                    (void)restore_reviewed_install_plan(usk::json::canonical(operation_context->record().at("reviewed_snapshot")));
-                    throw std::runtime_error("prepublication operation retained; retry exact original install_local.apply with its source");
+                    if (operation_context->exists()) {
+                        publication_effects_may_exist=true;
+                        (void)restore_reviewed_install_plan(usk::json::canonical(operation_context->record().at("reviewed_snapshot")));
+                        if (!has_publication || operation_context->bootstrap_resume_required())
+                            throw std::runtime_error("prepublication operation retained; retry exact original install_local.apply with its source");
+                    } else if (!has_publication) {
+                        throw std::runtime_error("protected original operation unavailable");
+                    }
+                    // A complete historical publication retains its existing
+                    // protected snapshot path. Missing intent cannot authorize
+                    // bootstrap preservation or qualify a new reservation.
                 }
                 OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
                 OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
@@ -3736,7 +3779,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         throw StaleReviewedInstallRequest();
                     }
                 }
-                install_guard.emplace(volume_root, plan.install_id, stop_event);
+                if (!install_guard) install_guard.emplace(volume_root, plan.install_id, stop_event);
                 start_installation_lease(reviewed_plan_from_protected_snapshot(volume, observed.service_sid, false, false), true);
             }
             if (verify_installed_request) {
