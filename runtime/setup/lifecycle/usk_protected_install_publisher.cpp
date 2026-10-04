@@ -3475,6 +3475,11 @@ void usk::platform::windows::require_candidate_publisher_execution_records(
 std::string usk::platform::windows::execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration& config, bool& publication_effects_may_exist) {
     ScopedExecution execution(config);
+        // Includes staged-only/snapshot replay, which can write metadata before
+        // a rename gate. Read-only verification keeps its historical ceiling.
+        if (registered_admission && !verify_installed_request &&
+            !publisher_registered_execution_platform_qualified(observe_publisher_execution_platform()))
+            throw usk::transaction::CommitAuthorityUnavailable();
         if (submitted_apply_request || submitted_recovery_request || submitted_verify_request) {
             usk::platform::windows::require_publisher_execution_platform(
                 usk::platform::windows::observe_publisher_execution_platform());
