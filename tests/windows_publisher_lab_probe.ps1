@@ -182,8 +182,10 @@ function Invoke-StandardPublicSystemTask {
         ('$startBinding='+(& $quote $startBinding)),
         '$process=Get-Process -Id $PID',
         '$binding=@{schema=''usk.publisher_standard_launcher.v1'';process_id=$PID;creation_file_time=$process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString();identity=$identity;image=$process.Path}',
-        '$stream=[IO.File]::Open($startBinding,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)',
+        '$pendingBinding=$startBinding+''.pending''',
+        '$stream=[IO.File]::Open($pendingBinding,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)',
         'try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes(($binding|ConvertTo-Json -Compress));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose();$process.Dispose()}',
+        '[IO.File]::Move($pendingBinding,$startBinding)',
         ('& '+(& $quote $probe)+' -VhdPath '+(& $quote $VhdPath)+' -VolumeRoot '+(& $quote $VolumeRoot)+
             ' -ServiceBinary '+(& $quote $ServiceBinary)+' -ServiceControlBinary '+(& $quote $ServiceControlBinary)+
             ' -MachineBinary '+(& $quote $MachineBinary)+' -OutputPath '+(& $quote $OutputPath)+' -PythonBinary '+(& $quote $python))) -join "`n"
