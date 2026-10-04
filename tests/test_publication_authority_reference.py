@@ -252,9 +252,63 @@ class PublicationAuthorityReferenceTests(unittest.TestCase):
                        {"service_sid": "S-1-5-80-1-2-3-4-4294967296"},
                        {"sdk_version": "10.0.17762.0"}, {"sdk_version": "10.0.026100.0"},
                        {"sdk_version": False}, {"minimum_additional_ancestors": True},
-                       {"minimum_additional_ancestors": -1}, {"minimum_additional_ancestors": 2}):
+                       {"minimum_additional_ancestors": -1}, {"minimum_additional_ancestors": 2},
+                       {"namespace_layout": False}, {"namespace_layout": "unbound_payload"}):
             with self.subTest(kwargs=kwargs), self.assertRaises(oracle.EvidenceError):
                 oracle.PublicationModelContext(**kwargs)
+
+    def _native_child_layout_variant(self):
+        resolver, context = self._bound_context_variant()
+        payload = deepcopy(resolver.evidence["protected_objects"][0])
+        payload.update(role="payload_root", observed_path=payload["observed_path"] + "/candidate")
+        resolver.evidence["protected_objects"][0]["file_id"] = "3478de651b6df063:" + "a" * 32
+        resolver.evidence["protected_objects"].append(payload)
+        resolver.evidence["covered_objects"].append("payload_root")
+        resolver.observation = {key: deepcopy(resolver.evidence[key]) for key in oracle.PHASE_OBSERVATION_KEYS}
+        resolver.post_observation = deepcopy(resolver.observation)
+        resolver.post_observation["protected_objects"][6]["observed_path"] = \
+            resolver.evidence["protected_objects"][1]["observed_path"] + "/" + resolver.evidence["destination_name"]
+        return resolver, oracle.PublicationModelContext(context.service_sid, context.sdk_version, 0,
+                                                        "staging_anchor_with_payload_child")
+
+    def test_explicit_native_layout_moves_payload_and_keeps_staging_anchor(self) -> None:
+        resolver, context = self._native_child_layout_variant()
+        events = resolver.events(["$through_visible", "$metadata"])
+        result = oracle.replay(oracle.initial_state(), events, context=context)
+        self.assertEqual(result.disposition, "completed")
+        self.assertEqual(result.state.profile.namespace_layout, context.namespace_layout)
+        self.assertEqual(result.state.profile.published_root.file_id, resolver.binding["root"]["file_id"])
+        self.assertEqual(result.state.post_rename_observation.protected_objects[0],
+                         result.state.profile.protected_objects[0])
+        self.assertEqual(result.state.post_rename_observation.protected_objects[6].observed_path,
+                         resolver.post_observation["protected_objects"][6]["observed_path"])
+        admitted = oracle.transition(oracle.initial_state(), events[0], context=context)
+        self.assertEqual(oracle.replay(admitted.state, events[1:]).disposition, "completed")
+        old_context = oracle.PublicationModelContext(context.service_sid, context.sdk_version, 0)
+        self.assertEqual(oracle.replay(oracle.initial_state(), events, context=old_context).disposition,
+                         "no_effect_refusal")
+
+    def test_native_layout_refuses_wrong_parent_alias_and_evidence_selected_layout(self) -> None:
+        resolver, context = self._native_child_layout_variant()
+        staging = resolver.evidence["protected_objects"][0]
+        for patch in ({"protected_objects.6.observed_path": "repo/destination/candidate"},
+                      {"protected_objects.6.file_id": staging["file_id"]},
+                      {"covered_objects": list(oracle.EXPECTED_COVERED_OBJECTS)}):
+            result = oracle.transition(oracle.initial_state(), {"action": "admit_profile",
+                "evidence": _patch(resolver.evidence, patch)}, context=context)
+            self.assertEqual(result.disposition, "no_effect_refusal")
+        claimed = deepcopy(resolver.evidence)
+        claimed["namespace_layout"] = context.namespace_layout
+        self.assertEqual(oracle.transition(oracle.initial_state(), {"action": "admit_profile", "evidence": claimed},
+            context=context).disposition, "no_effect_refusal")
+        events = resolver.events(["$through_visible", "$metadata"])
+        for event in events:
+            if event["action"] == "confirm_visible":
+                event["observation"]["protected_objects"][0]["observed_path"] = \
+                    event["observation"]["protected_objects"][6]["observed_path"]
+        result = oracle.replay(oracle.initial_state(), events, context=context)
+        self.assertEqual(result.disposition, "recovery_required")
+        self.assertTrue(result.state.retained)
 
     def test_fixture_has_closed_schema_profile_and_cases(self) -> None:
         self.assertEqual(set(self.fixture), {"schema", "profile", "cases"})

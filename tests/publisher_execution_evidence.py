@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: MIT
 """Read-only reconciliation of retained native execution records.
 
-These records cover supplied service handles, not global capabilities, object
-creation history, an atomic snapshot or complete publication qualification.
+These records cover supplied service handles. V4 also binds retained native
+successful-create observations to the sealed graph. Neither version establishes
+global capabilities, absent creation history, an atomic snapshot or complete
+publication qualification.
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import struct
 from typing import Any
 
 PREPARED_KEYS = frozenset({"schema", "phase", "service_sid", "volume_serial", "source_file_id",
@@ -139,8 +142,11 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
             re.fullmatch(r"10\.0\.[1-9][0-9]*\.0", sdk_version) is not None and
             17763 <= int(sdk_version.split(".")[2]) <= 0xFFFFFFFF, "independent execution context is invalid")
     prepared = load_json(prepared_json)
-    closed(prepared, PREPARED_KEYS, "prepared v3 record keys differ")
-    require(prepared["schema"] == SCHEMA and prepared["phase"] == "lab_prepared_evidence" and
+    require(isinstance(prepared, dict), "prepared native record is not an object")
+    creation_bound = prepared.get("schema") == "usk.publisher.lab_phase_evidence.v4"
+    closed(prepared, PREPARED_KEYS | ({"creation_evidence"} if creation_bound else set()),
+           "prepared native execution record keys differ")
+    require(prepared["schema"] in (SCHEMA, "usk.publisher.lab_phase_evidence.v4") and prepared["phase"] == "lab_prepared_evidence" and
             prepared["service_sid"] == service_sid and
             prepared["source_file_id"] == prepared["sealed_tree"]["root"]["file_id"] and
             prepared["destination_parent_file_id"] == prepared["protected_anchors"]["destination_parent"]["file_id"],
@@ -159,11 +165,20 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
                                          service_name, service_sid, windows_build, sdk_version))
         if len(executions) > 1:
             worker_match(executions[-2], executions[-1])
+    creation = None
+    if creation_bound:
+        require(fresh, "reopened staging cannot claim current-worker creation")
+        from publisher_creation_evidence import reconcile_creation
+        try:
+            creation = reconcile_creation(prepared["creation_evidence"], prepared["protected_anchors"],
+                                          prepared["sealed_tree"], executions[0])
+        except (ValueError, KeyError, TypeError, struct.error) as error:
+            raise EvidenceError("retained creation binding differs: " + str(error)) from error
     transition = "visible_record_absent"
     if visible_json is not None:
         visible = load_json(visible_json)
-        closed(visible, VISIBLE_KEYS, "visible v3 record keys differ")
-        require(visible["schema"] == SCHEMA and visible["phase"] == "lab_visible_evidence" and
+        closed(visible, VISIBLE_KEYS, "visible native execution record keys differ")
+        require(visible["schema"] == prepared["schema"] and visible["phase"] == "lab_visible_evidence" and
                 visible["prepared_record_sha256"] == hashlib.sha256(prepared_json.encode("utf-8")).hexdigest() and
                 all(visible[key] == prepared[key] for key in ("source_file_id", "destination_parent_file_id",
                     "destination_name", "selected_file_set_digest", "protected_anchors")) and
@@ -183,11 +198,14 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
             if len(visible_executions) > 1:
                 worker_match(visible_executions[-2], visible_executions[-1])
         executions.extend(visible_executions)
-    return {"schema": "usk.publisher_execution_reconciliation.v1", "status": "bindings_consistent",
+    report = {"schema": "usk.publisher_execution_reconciliation.v2" if creation else "usk.publisher_execution_reconciliation.v1", "status": "bindings_consistent",
             "prepared_origin": prepared["execution_origin"], "visible_transition": transition,
             "phase_count": len(executions), "held_roles_per_phase": len(ROLES),
             "worker_process_ids": sorted({x["service"]["process_id"] for x in executions}),
             "scope": "retained_native_execution_record_bindings", "profile_qualified": False}
+    if creation:
+        report["creation_observation"] = creation
+    return report
 
 
 def load_json(text: str) -> Any:

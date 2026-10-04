@@ -109,7 +109,7 @@ try {
                 $record=[IO.File]::ReadAllText($config.journal_path,
                     [Text.UTF8Encoding]::new($false,$true))
                 $parsed=$record|ConvertFrom-Json
-                if($parsed.schema -cnotin @('usk.publisher.lab_phase_evidence.v2','usk.publisher.lab_phase_evidence.v3') -or
+                if($parsed.schema -cnotin @('usk.publisher.lab_phase_evidence.v2','usk.publisher.lab_phase_evidence.v3','usk.publisher.lab_phase_evidence.v4') -or
                     $parsed.phase -cne 'lab_prepared_evidence') {
                     throw 'Prepared journal phase differs from protected intent'
                 }
