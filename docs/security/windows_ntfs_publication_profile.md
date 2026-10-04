@@ -1919,6 +1919,21 @@ The launcher task definition and wrapper digest are checked before start,
 during polling and before removal. Its actual process identity is held through
 exit. Failed process/token/observer/task closure withholds account or backing
 volume disposal; remaining state belongs to the disposable runner VM.
-This standard-account candidate has not yet passed hosted qualification.
+PR #226 qualified these selected hosted standard-account observations at
+source `40158a6e8c09f78f5ad86c2dee202e028b563f11`, integrated as
+`fdcf3de75ccdc0190f52d01cfc004ca12b20f98f`. All seven CI jobs passed in
+run `37190416643`. Independent replay checked five pre-resume clients,
+four native readbacks, 28 stable rows and 20 phase bindings, together with
+the five existing public cases. The account/token/process/task cleanup
+barriers passed. This establishes that preprovisioned hosted path only.
 Complete native profile admission, capability discovery, leases, fencing,
 generations and release acceptance remain separate unfinished obligations.
+
+The next connected implementation retains the successful native rename's
+actual parent identity, destination component and name-not-found NTSTATUS,
+buffer/class/name lengths, no-replace flag and native/I/O success statuses.
+They come from the checked arguments and results of the held-handle primitive.
+The direct observation preserves its QPC interval. Failed and ambiguous calls
+keep their existing conservative exceptions. Durable call evidence, complete
+native profile admission and model replay are still unfinished in this
+intermediate source checkpoint; no availability or qualification flag changes.

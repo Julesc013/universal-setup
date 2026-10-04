@@ -2669,7 +2669,18 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         json_quote(renamed.root_file_id) +
         ",\"former_name\":" + json_quote(ascii(renamed.former_name)) +
         ",\"visible_name\":" + json_quote(ascii(renamed.visible_name)) +
-        ",\"native_rename_call\":{\"clock\":\"qpc\",\"start_tick\":" +
+        ",\"native_rename_call\":{\"schema\":\"usk.publisher_bound_rename_call.v1\","
+            "\"api\":\"NtSetInformationFile\","
+            "\"destination_parent_file_id\":" + json_quote(renamed.destination_parent_file_id) +
+            ",\"destination_component\":" + json_quote(ascii(renamed.destination_component)) +
+            ",\"destination_absence_status\":" + std::to_string(renamed.destination_absence_status) +
+            ",\"information_class\":" + std::to_string(renamed.information_class) +
+            ",\"information_bytes\":" + std::to_string(renamed.information_bytes) +
+            ",\"file_name_bytes\":" + std::to_string(renamed.file_name_bytes) +
+            ",\"replace_if_exists\":" + (renamed.replace_if_exists ? "true" : "false") +
+            ",\"native_status\":" + std::to_string(renamed.native_status) +
+            ",\"io_status\":" + std::to_string(renamed.io_status) +
+            ",\"clock\":\"qpc\",\"start_tick\":" +
             std::to_string(renamed.native_call_start_tick) +
             ",\"end_tick\":" + std::to_string(renamed.native_call_end_tick) +
             ",\"frequency\":" + std::to_string(renamed.clock_frequency) + "}" +

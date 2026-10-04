@@ -27,6 +27,8 @@ public:
         : std::runtime_error(message) {}
 };
 
+// Returned only after native success and held-identity/visible-child checks.
+// Failed or ambiguous calls keep their conservative exception outcome.
 struct PublisherBoundRenameObservation {
     std::string root_file_id;
     std::wstring former_name;
@@ -34,10 +36,19 @@ struct PublisherBoundRenameObservation {
     std::int64_t native_call_start_tick;
     std::int64_t native_call_end_tick;
     std::int64_t clock_frequency;
+    std::string destination_parent_file_id;
+    std::wstring destination_component;
+    std::uint32_t destination_absence_status;
+    std::uint32_t information_class;
+    std::uint32_t information_bytes;
+    std::uint32_t file_name_bytes;
+    bool replace_if_exists;
+    std::uint32_t native_status;
+    std::uint32_t io_status;
 };
 
-// Disposable native mechanism probe only. Production use would require a
-// durable publish_prepared record and a sealed complete protected tree before
+// Handle-bound no-replace mechanism. A publication caller must retain a durable
+// publish_prepared record and a sealed complete protected tree before
 // invocation. This primitive neither creates that journal nor grants authority.
 PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
     HANDLE staged_root, HANDLE destination_parent,

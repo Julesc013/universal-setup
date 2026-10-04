@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T08:52:02Z",
+  "generated_at": "2026-10-04T09:31:08Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -3991,15 +3991,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
-          "sha256": "66e4f871749fbf7692ad1bef7ecb7e75c9a95851f645d207f7c7a30e72b8f0b6"
+          "sha256": "4cdf9ecf5e53733c2453c364cfaefcc9fb68544eee37eecd970c4fc198ebffb9"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.h",
-          "sha256": "7a93704aacaf3431a34e0636ebb1a7f40c639909003d8fa07aa9983b5a410b57"
+          "sha256": "7155907c40fba245dcabd3ce8f9babd1b7f1c092472c0e04e9db456fe16fbe40"
         },
         {
           "path": "tests/native/usk_publisher_bound_rename_smoke.cpp",
-          "sha256": "5f980b1968500952f19f633edaaad6298c3a64a9fb30ba170ad65d6a857e32a6"
+          "sha256": "14b05a6eaa2b3f0a5a20bfbc4e4822ae8a384e9151bd43e6c19319aa2ad57ca9"
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
@@ -4099,7 +4099,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "570fcf6a42c4cff69552fc69f3678d35ea18d0cfa076580a3f429fe866d2fa9e"
+          "sha256": "27fbe79cb7d5b8ab6c7bf31303a5f7cd5fc5fbc355ed4ac95c85c5e00428a4c0"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4443,15 +4443,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
-          "sha256": "66e4f871749fbf7692ad1bef7ecb7e75c9a95851f645d207f7c7a30e72b8f0b6"
+          "sha256": "4cdf9ecf5e53733c2453c364cfaefcc9fb68544eee37eecd970c4fc198ebffb9"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.h",
-          "sha256": "7a93704aacaf3431a34e0636ebb1a7f40c639909003d8fa07aa9983b5a410b57"
+          "sha256": "7155907c40fba245dcabd3ce8f9babd1b7f1c092472c0e04e9db456fe16fbe40"
         },
         {
           "path": "tests/native/usk_publisher_bound_rename_smoke.cpp",
-          "sha256": "5f980b1968500952f19f633edaaad6298c3a64a9fb30ba170ad65d6a857e32a6"
+          "sha256": "14b05a6eaa2b3f0a5a20bfbc4e4822ae8a384e9151bd43e6c19319aa2ad57ca9"
         },
         {
           "path": "tests/windows_publisher_unprivileged_probe.ps1",
@@ -4543,7 +4543,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "570fcf6a42c4cff69552fc69f3678d35ea18d0cfa076580a3f429fe866d2fa9e"
+          "sha256": "27fbe79cb7d5b8ab6c7bf31303a5f7cd5fc5fbc355ed4ac95c85c5e00428a4c0"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",

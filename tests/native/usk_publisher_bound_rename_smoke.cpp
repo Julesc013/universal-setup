@@ -237,7 +237,14 @@ int main() {
                 result.visible_name == expected_parent.native_name + L"\\visible" &&
                 result.native_call_start_tick > 0 &&
                 result.native_call_end_tick >= result.native_call_start_tick &&
-                result.clock_frequency > 0,
+                result.clock_frequency > 0 &&
+                result.destination_parent_file_id == expected_parent.file_id &&
+                result.destination_component == L"visible" &&
+                result.destination_absence_status == 0xc0000034u &&
+                result.information_class == 10 &&
+                result.file_name_bytes == 7 * sizeof(WCHAR) &&
+                result.information_bytes == sizeof(FILE_RENAME_INFO) + result.file_name_bytes &&
+                !result.replace_if_exists && result.native_status == 0 && result.io_status == 0,
                 "bound rename returned wrong identity or path");
             const auto visible = observe_visible_publisher_tree_against_seal(
                 parent.get(), L"visible", sealed);
