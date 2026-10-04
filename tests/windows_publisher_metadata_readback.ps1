@@ -80,7 +80,7 @@ function Assert-IndependentMetadataCollisionPrefix {
         $destination.Count -ne 1 -or -not $destination[0].directory -or
         $root.Count -ne 1 -or -not $root[0].directory) {throw 'Metadata refusal lost its retained operation anchors'}
     $prepared=$preparedRows[0].content_json|ConvertFrom-Json
-    if($prepared.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+    if($prepared.schema -cnotin @('usk.publisher.lab_phase_evidence.v2','usk.publisher.lab_phase_evidence.v3') -or
         $prepared.phase -cne 'lab_prepared_evidence' -or $prepared.service_sid -cne $ServiceSid -or
         $prepared.source_file_id -cne $root[0].file_id -or
         $prepared.destination_parent_file_id -cne $destination[0].file_id -or
@@ -93,7 +93,7 @@ function Assert-IndependentMetadataCollisionPrefix {
         ($completionRows.Count -and -not $visibleRows.Count)) {throw 'Metadata refusal private record prefix differs'}
     if($visibleRows.Count) {
         $visible=$visibleRows[0].content_json|ConvertFrom-Json
-        if($visibleRows[0].directory -or $visible.schema -cne 'usk.publisher.lab_phase_evidence.v2' -or
+        if($visibleRows[0].directory -or $visible.schema -cne $prepared.schema -or
             $visible.phase -cne 'lab_visible_evidence' -or
             $visible.prepared_record_sha256 -cne $preparedRows[0].sha256 -or
             $visible.source_file_id -cne $root[0].file_id -or

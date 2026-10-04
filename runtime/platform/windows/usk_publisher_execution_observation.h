@@ -1,0 +1,46 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+
+#ifndef USK_PUBLISHER_EXECUTION_OBSERVATION_H
+#define USK_PUBLISHER_EXECUTION_OBSERVATION_H
+
+#if defined(_WIN32)
+#include "usk_json.h"
+#include "usk_publisher_token_observation.h"
+#include <windows.h>
+#include <string>
+#include <vector>
+
+namespace usk::platform::windows {
+struct PublisherPhaseHandle {
+    std::string role;
+    HANDLE handle;
+    std::string expected_file_id;
+};
+
+// Read-only runtime/compiled SDK facts, also usable by ordinary test processes.
+// An observation is not admission of that process as a service.
+usk::json::Value observe_publisher_execution_platform();
+void require_publisher_execution_platform(const usk::json::Value& value);
+
+// Fresh SCM/process-token, runtime platform and actual held-handle facts.
+// This covers the supplied service-owned handles only. It does not establish
+// object creation history or enumerate capabilities outside the service.
+usk::json::Value observe_publisher_execution_phase(
+    const std::wstring& service_name, const std::string& phase,
+    const std::vector<PublisherPhaseHandle>& handles);
+
+// Closed retained evidence validation. The supplied bindings come from the
+// independently validated native anchor/tree record, never from this object.
+// A restart may have a new process/token identity; stable service and object
+// bindings remain mandatory. Within one worker require phase identity match.
+void require_publisher_execution_phase(
+    const usk::json::Value& value, const std::wstring& service_name,
+    const std::string& service_sid, const std::string& phase,
+    const std::vector<std::pair<std::string, std::string>>& object_bindings);
+
+void require_publisher_execution_worker_match(
+    const usk::json::Value& earlier, const usk::json::Value& later);
+} // namespace usk::platform::windows
+#endif
+#endif

@@ -35,6 +35,10 @@ struct PublisherHandleObservation {
     std::vector<ObservedAce> dacl_aces;
 };
 
+// Fresh GetHandleInformation flags. Rejects inherited-capable handles; does
+// not clear the flag or turn an existing capability into publisher provenance.
+std::uint32_t observe_publisher_noninheritable_handle_flags(HANDLE handle);
+
 // Read-only facts from one already-opened directory handle. This is an
 // observation primitive, not a profile-admission or publication capability.
 // The caller must retain and independently revalidate the handle and its

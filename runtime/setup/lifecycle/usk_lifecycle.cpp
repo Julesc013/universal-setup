@@ -1610,8 +1610,10 @@ static std::string require_held_publisher_evidence(
     const auto bound = json::parse(evidence.visible_record);
     const auto completion = json::parse(evidence.completion_record);
     const auto& binding = prepared.at("source_binding");
-    if (prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
-        bound.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" ||
+    require_candidate_publisher_execution_records(prepared, bound, evidence.service_name, service.service_sid);
+    if ((prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" &&
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v3") ||
+        bound.at("schema").as_string() != prepared.at("schema").as_string() ||
         (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
             snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
             snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") ||

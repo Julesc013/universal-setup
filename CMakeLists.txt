@@ -80,6 +80,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_consumer_access.cpp
     runtime/platform/windows/usk_publisher_tree_observation.cpp
     runtime/platform/windows/usk_publisher_token_observation.cpp
+    runtime/platform/windows/usk_publisher_execution_observation.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
     runtime/platform/windows/usk_publisher_registration.cpp
     runtime/platform/windows/usk_publisher_data_partition.cpp
@@ -87,6 +88,11 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_device_acl.cpp
     runtime/platform/windows/usk_publisher_volume_operation_guard.cpp)
   target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
+  # Bind the SDK selected by this generated VS build, rather than the installed
+  # SDK inventory or a test-runner assertion. Unknown generators remain unable
+  # to produce the restricted publisher's qualified-platform observations.
+  target_compile_definitions(usk_publisher_windows_static PRIVATE
+    USK_PUBLISHER_BUILD_SDK_VERSION="${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
   target_include_directories(usk_publisher_windows_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
   target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32 bcrypt shell32 ole32)

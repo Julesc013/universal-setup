@@ -78,5 +78,36 @@ int main(int argc, char** argv)
             return 2;
         }
     }
+    // Authenticated requests without the optional consumer-read policy must
+    // reach read-only platform/SCM admission. The service is deliberately
+    // absent and the ordinary process must cause no target effects.
+    for (const char* operation : {"apply", "recover", "verify"}) {
+        auto ungranted = config;
+        ungranted.prepare_disposable_boundary = {};
+        ungranted.submitted_apply_request.reset();
+        ungranted.submitted_recovery_request.reset();
+        ungranted.submitted_verify_request.reset();
+        if (std::string(operation) == "apply") ungranted.submitted_apply_request = "{}";
+        if (std::string(operation) == "recover") {
+            ungranted.recover_reviewed = true;
+            ungranted.submitted_recovery_request = "{}";
+        }
+        if (std::string(operation) == "verify") {
+            ungranted.verify_installed = true;
+            ungranted.submitted_verify_request = "{}";
+        }
+        bool reached_admission = false;
+        try { (void)execute_candidate_restricted_publisher(ungranted, effects); }
+        catch (const std::exception& error) {
+            const std::string diagnostic = error.what();
+            reached_admission = diagnostic == "publisher SCM handle is unavailable" ||
+                diagnostic == "publisher process is not the stable restricted SCM service" ||
+                diagnostic == "publisher execution platform is outside the bound Windows x64 SDK profile";
+        }
+        if (!reached_admission || effects || provisioned) {
+            std::cerr << "ungranted authenticated request did not reach read-only admission: " << operation << '\n';
+            return 6;
+        }
+    }
     return 0;
 }

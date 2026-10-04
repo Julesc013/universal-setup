@@ -218,8 +218,19 @@ PublisherTokenObservation observe_current_publisher_token() {
         throw std::runtime_error("publisher token user is truncated");
     }
     const auto* user = reinterpret_cast<const TOKEN_USER*>(user_buffer.data());
+    const auto statistics_buffer = token_info(token.get(), TokenStatistics);
+    if (statistics_buffer.size() != sizeof(TOKEN_STATISTICS)) {
+        throw std::runtime_error("publisher token statistics are malformed");
+    }
+    const auto& statistics = *reinterpret_cast<const TOKEN_STATISTICS*>(statistics_buffer.data());
+    const auto luid_value = [](const LUID& value) {
+        return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(value.HighPart)) << 32) |
+            value.LowPart;
+    };
     return {sid_text(user->User.Sid), token_groups(token.get(), TokenGroups),
-        token_groups(token.get(), TokenRestrictedSids), impersonating};
+        token_groups(token.get(), TokenRestrictedSids), impersonating,
+        {luid_value(statistics.TokenId), luid_value(statistics.AuthenticationId),
+            luid_value(statistics.ModifiedId), static_cast<std::uint32_t>(statistics.TokenType)}};
 }
 
 bool has_restricted_publisher_token_facts(
