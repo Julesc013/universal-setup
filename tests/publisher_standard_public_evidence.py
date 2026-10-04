@@ -327,16 +327,16 @@ def reconcile(receipt, expected_head):
             report.get("creation_observation", {}).get("worker_security_checked") is True and
             report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
         prepared_schema = json.loads(prepared[0])['schema']
-        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8'):
+        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
             require_native_capture_set(native_captures, captures, commands)
         if native_captures is not None:
-            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8') and
+            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9') and
                 report.get('held_access_phase_count') == 5 and report.get('native_rename_calls_checked') == 1,
                 'current standard producer requires complete v6 access and actual rename bindings')
-            if prepared_schema in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8'):
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
                 require(report.get('same_handle_objects_checked') == 35,
                     'current standard producer requires all seven same-handle security objects per phase')
-            if prepared_schema == 'usk.publisher.lab_phase_evidence.v8':
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
                 from publisher_authenticated_access_evidence import reconcile_client_capture, reconcile_registered_operation
                 require(report.get('authenticated_access_objects_checked') == 35,
                         'current standard producer requires authenticated access for every held phase role')

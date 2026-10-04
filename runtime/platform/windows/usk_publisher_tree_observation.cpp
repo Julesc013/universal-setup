@@ -5,6 +5,8 @@
 
 #if defined(_WIN32)
 #include "usk_publisher_directory_entries.h"
+#include "usk_publisher_execution_observation.h"
+#include "usk_publisher_request_channel.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_sha256.h"
@@ -450,6 +452,111 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root, bool backup_observa
             return order == CSTR_LESS_THAN;
         });
     return result;
+}
+
+usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
+    const PublisherTreeObservation& bound, const PublisherRequestChannel& request,
+    const usk::json::Value& client) {
+    using usk::json::Value;
+    constexpr std::size_t maximum_entries = 200000;
+    constexpr std::size_t maximum_bytes = 64 * 1024 * 1024;
+    if (!root || root == INVALID_HANDLE_VALUE || bound.descendants.size() > maximum_entries)
+        throw std::runtime_error("authenticated descendant access needs a bounded held tree");
+    const auto root_json = publisher_handle_observation_json(bound.root);
+    auto require_root = [&] {
+        if (usk::json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(root))) !=
+                usk::json::canonical(root_json) ||
+            !same_volume_facts(bound.volume, observe_local_ntfs_volume_handle(root)))
+            throw std::runtime_error("authenticated descendant root binding changed");
+    };
+    require_root();
+    const auto root_access = request.observe_authenticated_object_access(root);
+    if (usk::json::canonical(root_access.at("client")) != usk::json::canonical(client) ||
+        usk::json::canonical(root_access.at("native_object")) != usk::json::canonical(root_json))
+        throw std::runtime_error("authenticated descendant request/root binding differs");
+    std::map<std::wstring, const PublisherTreeEntry*> expected;
+    for (const auto& entry : bound.descendants) {
+        if (!expected.emplace(entry.relative_path, &entry).second)
+            throw std::runtime_error("authenticated descendant paths alias");
+    }
+    std::map<std::wstring, Value> observed;
+    std::size_t evidence_bytes = 0;
+    std::size_t live_listing_bytes = 0;
+    auto utf8_path = [](const std::wstring& path) {
+        if (path.empty() || path.size() > 128 * 256)
+            throw std::runtime_error("authenticated descendant path is unbounded");
+        const int count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.data(),
+            static_cast<int>(path.size()), nullptr, 0, nullptr, nullptr);
+        if (count <= 0) throw std::runtime_error("authenticated descendant path is not Unicode");
+        std::string result(static_cast<std::size_t>(count), '\0');
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.data(),
+                static_cast<int>(path.size()), result.data(), count, nullptr, nullptr) != count)
+            throw std::runtime_error("authenticated descendant path conversion changed");
+        return result;
+    };
+    std::function<void(HANDLE, const std::wstring&, unsigned)> visit;
+    visit = [&](HANDLE directory, const std::wstring& prefix, unsigned depth) {
+        if (depth > 128) throw std::runtime_error("authenticated descendant depth exceeds its bound");
+        const auto before = publisher_handle_observation_json(observe_publisher_directory_handle(directory));
+        const auto listed = observe_publisher_directory_entries(directory, maximum_bytes - live_listing_bytes);
+        std::size_t listing_bytes = 0;
+        for (const auto& child : listed)
+            listing_bytes += 2 * sizeof(PublisherDirectoryEntry) + 2 * child.name.size() * sizeof(WCHAR) + 128;
+        if (listing_bytes > maximum_bytes - live_listing_bytes)
+            throw std::runtime_error("authenticated descendant listing exceeds its bound");
+        live_listing_bytes += listing_bytes;
+        for (const auto& child : listed) {
+            const std::wstring path = prefix.empty() ? child.name : prefix + L"/" + child.name;
+            const auto found = expected.find(path);
+            if (found == expected.end() || observed.size() >= maximum_entries)
+                throw std::runtime_error("authenticated descendant closure has an extra entry");
+            const auto& entry = *found->second;
+            OwnedHandle held(open_publisher_listed_child(directory, child));
+            auto access = request.observe_authenticated_object_access(held.get());
+            const auto object = publisher_handle_observation_json(entry.object);
+            if (usk::json::canonical(access.at("client")) != usk::json::canonical(client) ||
+                usk::json::canonical(access.at("native_object")) != usk::json::canonical(object) ||
+                !same_volume_facts(bound.volume, observe_local_ntfs_volume_handle(held.get())) ||
+                !same_streams(entry.streams, observe_publisher_handle_streams(held.get())))
+                throw std::runtime_error("authenticated descendant client/object/volume/stream binding differs");
+            const auto size = standard_info(held.get());
+            const bool is_directory = (entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            if (size.NumberOfLinks != 1 || size.EndOfFile.QuadPart < 0 ||
+                (!is_directory && static_cast<std::uint64_t>(size.EndOfFile.QuadPart) != entry.size))
+                throw std::runtime_error("authenticated descendant size/link binding differs");
+            access.as_object().erase("client");
+            access.as_object().erase("native_object");
+            access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(client)));
+            access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(object)));
+            require_publisher_authenticated_object_access(access, client, object);
+            Value row(Value::Object{{"relative_path", Value(utf8_path(path))},
+                {"authenticated_access", std::move(access)}});
+            const auto bytes = usk::json::canonical(row).size();
+            if (bytes > maximum_bytes - evidence_bytes)
+                throw std::runtime_error("authenticated descendant evidence exceeds its bound");
+            evidence_bytes += bytes;
+            if (!observed.emplace(path, std::move(row)).second)
+                throw std::runtime_error("authenticated descendant identity was observed twice");
+            if (is_directory) visit(held.get(), path, depth + 1);
+            if (usk::json::canonical(publisher_handle_observation_json(is_directory ?
+                    observe_publisher_directory_handle(held.get()) : observe_publisher_file_handle(held.get()))) !=
+                    usk::json::canonical(object))
+                throw std::runtime_error("authenticated descendant facts changed on unwind");
+        }
+        live_listing_bytes -= listing_bytes;
+        if (usk::json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(directory))) !=
+                usk::json::canonical(before))
+            throw std::runtime_error("authenticated descendant parent changed during enumeration");
+    };
+    visit(root, L"", 0);
+    require_root();
+    if (observed.size() != expected.size())
+        throw std::runtime_error("authenticated descendant closure is incomplete");
+    Value::Array rows;
+    for (const auto& entry : bound.descendants) rows.push_back(std::move(observed.at(entry.relative_path)));
+    return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_descendant_access.v1")},
+        {"scope", Value("fresh_held_descriptors_for_bound_tree_no_content_rehash")},
+        {"client_sha256", Value(usk::json::sha256_canonical(client))}, {"objects", Value(std::move(rows))}});
 }
 
 void require_publisher_tree_exact_file_closure(

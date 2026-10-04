@@ -18,6 +18,7 @@
 #include <vector>
 
 namespace usk::platform::windows {
+class PublisherRequestChannel;
 
 struct PublisherTreeEntry {
     std::wstring relative_path;
@@ -76,6 +77,14 @@ struct PublisherAnchorSetObservation {
 // facts, streams, and file bytes. Protected-security admission, effective
 // rights, anchor facts, and phase equality are separate obligations.
 PublisherTreeObservation observe_publisher_tree(HANDLE root, bool backup_observation = false);
+
+// Enumerate the complete already-bound closure and check each descendant's
+// actual held descriptor under the live authenticated request token. This
+// observes identity/security/size/streams; content hashes remain the supplied
+// seal's facts. Handles remain private and close before publication.
+usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
+    const PublisherTreeObservation& bound, const PublisherRequestChannel& request,
+    const usk::json::Value& client);
 
 // Consistency oracle for two independently observed phases. A non-empty
 // visible_root_name permits only the expected root-prefix path transition;

@@ -253,6 +253,34 @@ void require_publisher_authenticated_object_access(const Value& access, const Va
 
 void require_publisher_execution_platform(const Value& value) { require_platform(value); }
 
+void require_publisher_authenticated_descendant_access(const Value& value,
+    const Value& client, const Value& tree) {
+    require(value.as_object().size() == 4 &&
+        value.at("schema").as_string() == "usk.publisher_authenticated_descendant_access.v1" &&
+        value.at("scope").as_string() == "fresh_held_descriptors_for_bound_tree_no_content_rehash" &&
+        value.at("client_sha256").as_string() == usk::json::sha256_canonical(client),
+        "publisher authenticated descendant scope/client binding differs");
+    const auto& rows = value.at("objects").as_array();
+    const auto& descendants = tree.at("descendants").as_array();
+    require(rows.size() == descendants.size() && rows.size() <= 200000,
+        "publisher authenticated descendant closure coverage differs");
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+        const auto& row = rows[index];
+        const auto& descendant = descendants[index];
+        require(row.as_object().size() == 2 &&
+            row.at("relative_path").as_string() == descendant.at("relative_path").as_string(),
+            "publisher authenticated descendant path/order binding differs");
+        const auto& access = row.at("authenticated_access");
+        require_publisher_authenticated_object_access(access, client, descendant.at("object"));
+        for (const auto& [name, requested] : access_rights) {
+            const auto& check = access.at("checks").at(name);
+            require(requested == MAXIMUM_ALLOWED ? (check.at("granted").as_unsigned() & mutation_rights) == 0 :
+                !check.at("allowed").as_boolean() && check.at("granted").as_unsigned() == 0,
+                "publisher authenticated caller retains mutation access to a protected descendant");
+        }
+    }
+}
+
 Value observe_publisher_execution_platform() {
     SYSTEM_INFO system{};
     GetNativeSystemInfo(&system);

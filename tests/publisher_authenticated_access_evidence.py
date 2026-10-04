@@ -124,6 +124,25 @@ def validate_operation_admission(prepared):
     return True
 
 
+def validate_descendant_access(value, client, tree):
+    """Fresh descriptor/token bindings; the sealed content digest is separate."""
+    closed(value, frozenset({'schema', 'scope', 'client_sha256', 'objects'}),
+           'authenticated descendant access keys differ')
+    require(value['schema'] == 'usk.publisher_authenticated_descendant_access.v1' and
+            value['scope'] == 'fresh_held_descriptors_for_bound_tree_no_content_rehash' and
+            value['client_sha256'] == canonical_sha(client), 'authenticated descendant scope/client differs')
+    rows, descendants = value['objects'], tree['descendants']
+    require(isinstance(rows, list) and len(rows) == len(descendants) <= 200000,
+            'authenticated descendant closure coverage differs')
+    for row, descendant in zip(rows, descendants):
+        closed(row, frozenset({'relative_path', 'authenticated_access'}),
+               'authenticated descendant row keys differ')
+        require(row['relative_path'] == descendant['relative_path'],
+                'authenticated descendant path/order differs')
+        validate_access(row['authenticated_access'], client, descendant['object'])
+    return len(rows)
+
+
 def reconcile_registered_operation(prepared, native_registration):
     require(validate_operation_admission(prepared), 'registered public path cannot promote null private admission')
     admission, target = prepared['operation_admission'], native_registration['target_identity']['volume_identity']

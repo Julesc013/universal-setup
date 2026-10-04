@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T16:03:36Z",
+  "generated_at": "2026-10-04T17:22:01Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1337,7 +1337,7 @@
       "spec_id": "USK-S-CAPS",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "PR #228 qualified publisher.observe v2 for the retained standard-account hosted case before installation and after source-free verification, while v1 read-only inspection remains unchanged. Discovery binds held image and retained controller target admission with current disk identity, permits startup/controller guarding, and retains unavailable authority, incomplete qualification, unsupported support and no execution lease. The next WIP connects the private authenticated identification token to fresh AccessCheck results and raw GetSecurityInfo descriptor bytes on seven held roles in execution v6/private phase v8. Stored protection and API control flags remain distinct; descriptor and token observations are bracketed. Independent decoding binds account/session facts without equating primary and impersonation token IDs. Registered requests now bind guarded native registration/image, held target, reviewed snapshot, caller/session and transaction before public protected apply. The native pre-publication gate consumes the creation certificate, same-handle phase closure, held rights and current admission; retained finalization also validates the successful bound rename. Source-free recovery rebinds the current caller/worker while preserving retained target/source facts. Private legacy phase records retain an explicit null operation admission and cannot qualify the registered public route. Hosted validation, complete publisher qualification, general provider availability, leases and release acceptance remain unfinished; discovery availability/support/lease dimensions remain unchanged.",
+      "note": "PR #228 qualified publisher.observe v2 for the retained standard-account hosted case before installation and after source-free verification, while v1 read-only inspection remains unchanged. Discovery binds held image and retained controller target admission with current disk identity, permits startup/controller guarding, and retains unavailable authority, incomplete qualification, unsupported support and no execution lease. The next WIP connects the private authenticated identification token to fresh AccessCheck results and raw GetSecurityInfo descriptor bytes on seven held roles in execution v6/private phase v8. Stored protection and API control flags remain distinct; descriptor and token observations are bracketed. Independent decoding binds account/session facts without equating primary and impersonation token IDs. Registered requests now bind guarded native registration/image, held target, reviewed snapshot, caller/session and transaction before public protected apply. The native pre-publication gate consumes the creation certificate, same-handle phase closure, held rights and current admission; retained finalization also validates the successful bound rename. Source-free recovery rebinds the current caller/worker while preserving retained target/source facts. Private legacy phase records retain an explicit null operation admission and cannot qualify the registered public route. Hosted validation, complete publisher qualification, general provider availability, leases and release acceptance remain unfinished; discovery availability/support/lease dimensions remain unchanged. The current private v9 candidate additionally enumerates the complete bound descendant closure and binds actual same-handle GetSecurityInfo/AccessCheck results to the held authenticated request token. It brackets the role and worker observations, observes identity/security/size/streams without claiming a second content rehash, and preserves earlier durable record versions for recovery. Current-v9 hosted execution, explicit unrelated-actor binding and full qualification remain pending; generic availability/support/lease dimensions are unchanged.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
         "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72"
@@ -1389,7 +1389,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "9b8659ae5e119a280c8b93c16e594db2f036973c1d60d4b8c7473c8535141c7a"
+          "sha256": "5d7d4ee8fad548c26bc1a50b64ebf0ee140065303876a9749b3a3d55ca10b775"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -1409,7 +1409,15 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "6322c1f4f4c49bbeaa660d85f8522a04bc8dbff342d5ebd95a3199a0ba1a6a02"
+          "sha256": "17e70c474846558fe29e48fde4e9128b33cd42065b568f149efaa208a60e55f5"
+        },
+        {
+          "path": "tests/publisher_authenticated_access_evidence.py",
+          "sha256": "fbdef0d0fa98837eb0c4ef77b7418d8e398f8c0c73a6630c0e1d6b7d907d90e1"
+        },
+        {
+          "path": "tests/test_publisher_authenticated_access_evidence.py",
+          "sha256": "a143dcbb1bbacaa874c0ef94c71b0b02cd08d2f66c2454e6e54a2cb6fbf7db81"
         }
       ],
       "acceptance_ids": [
@@ -2044,7 +2052,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         }
       ],
       "acceptance_ids": [
@@ -2075,7 +2083,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         }
       ],
       "acceptance_ids": [
@@ -2106,7 +2114,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         }
       ],
       "acceptance_ids": [
@@ -3057,7 +3065,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -3092,7 +3100,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -3127,7 +3135,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -3162,7 +3170,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -3395,7 +3403,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "6322c1f4f4c49bbeaa660d85f8522a04bc8dbff342d5ebd95a3199a0ba1a6a02"
+          "sha256": "17e70c474846558fe29e48fde4e9128b33cd42065b568f149efaa208a60e55f5"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
@@ -3971,11 +3979,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
-          "sha256": "fce04fa7f699d40ffe40e99b20d4b4fb7bff76d2d580a8b9b13efacd48a0f530"
+          "sha256": "8c40050365c00155a04e84faf6111e85ee2b6baea4d9946475680e4074ecfdc4"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
-          "sha256": "7865109678127de421d52a48b380fde7cf0bbc8d19ed1ad5af2cdd6f5086ec06"
+          "sha256": "a183890eca54a81bafee0833c7f223c5c392d80e903d2ad729845fa427040859"
         },
         {
           "path": "tests/native/usk_publisher_directory_entries_smoke.cpp",
@@ -4055,7 +4063,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -4119,7 +4127,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "8a9e2ba60355eceed5153650ce53ef16879900efaa4f8f0aed514ef668415e1e"
+          "sha256": "3b2f85bffae511c20efd4d9c71b1c8347b3be02ac779cbf3ee43ae21d9a6e41c"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4131,7 +4139,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "5989b224f1d51041b1ce220034e4fad4f684bb2966a9bbe626b1b2bfdd2b9991"
+          "sha256": "e4e21dadb1595769c9b306a26775a5061e4bc5ecd5195bb7d8a31d3d86d2bcd9"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4175,7 +4183,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "22ec493646c45790c86a1d1dcfdd14b121a2ae28be767aff5667bf93f0105983"
+          "sha256": "dc78f32682494df69a610a3d0ed175bca46e92f6cc0cb3e3493aa8c77816e0c7"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -4199,7 +4207,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "7699281b4dbeca422c1061730f7e67e453e8510663b46e4bc6eea4b60c50533b"
+          "sha256": "698f54a752bdce653815283b36f29bac2e8fc842c5ffa2be2f4486eadac442a3"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4215,11 +4223,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.h",
-          "sha256": "5742626fb87f0a0cba36addb85d08be9786c57aaffce22c7dcbc8f7588aa8f59"
+          "sha256": "1a91c5d0d7634bf369d42e21902198755e900d9a5ea5ee213e292712f74884fb"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.cpp",
-          "sha256": "6529d63ba31f9cd2abbf4bd40869188ae91fda99ab643a75bdb3873faf6d41ec"
+          "sha256": "d64064202bc624d0c0def47eafb55bc23bcc89e93191bbe4eb8f542f527aa77c"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_token_observation.h",
@@ -4227,7 +4235,7 @@
         },
         {
           "path": "tests/publisher_execution_evidence.py",
-          "sha256": "b67e4eb4137c6be91cad9d11cafbfcee3848129d72d548143d0b9fd8c0579d75"
+          "sha256": "38d98e768bea7deca2c741215bb8ac0a0d04622cff3a4cc69ea1be01b52d5c0b"
         },
         {
           "path": "tests/test_publisher_execution_evidence.py",
@@ -4307,7 +4315,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "9b8659ae5e119a280c8b93c16e594db2f036973c1d60d4b8c7473c8535141c7a"
+          "sha256": "5d7d4ee8fad548c26bc1a50b64ebf0ee140065303876a9749b3a3d55ca10b775"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -4319,11 +4327,19 @@
         },
         {
           "path": "tests/publisher_native_profile_evidence.py",
-          "sha256": "ce0b332d772213a90741b3a533d3ba40cb4616a73b0b9261c25107d6aeb14cc4"
+          "sha256": "348ac60a37c2aa98928cf71c2490bd9c47303d4cb5d7a7c68ea1fc969ffa0523"
         },
         {
           "path": "tests/test_publisher_native_profile_evidence.py",
           "sha256": "d9c80a6f644c9687118fb3d7e47bbdf4c3c5989358e507bba8e8a9992357c142"
+        },
+        {
+          "path": "tests/publisher_authenticated_access_evidence.py",
+          "sha256": "fbdef0d0fa98837eb0c4ef77b7418d8e398f8c0c73a6630c0e1d6b7d907d90e1"
+        },
+        {
+          "path": "tests/test_publisher_authenticated_access_evidence.py",
+          "sha256": "a143dcbb1bbacaa874c0ef94c71b0b02cd08d2f66c2454e6e54a2cb6fbf7db81"
         }
       ],
       "acceptance_ids": [
@@ -4443,11 +4459,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
-          "sha256": "fce04fa7f699d40ffe40e99b20d4b4fb7bff76d2d580a8b9b13efacd48a0f530"
+          "sha256": "8c40050365c00155a04e84faf6111e85ee2b6baea4d9946475680e4074ecfdc4"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
-          "sha256": "7865109678127de421d52a48b380fde7cf0bbc8d19ed1ad5af2cdd6f5086ec06"
+          "sha256": "a183890eca54a81bafee0833c7f223c5c392d80e903d2ad729845fa427040859"
         },
         {
           "path": "tests/native/usk_publisher_directory_entries_smoke.cpp",
@@ -4511,7 +4527,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -4575,7 +4591,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "8a9e2ba60355eceed5153650ce53ef16879900efaa4f8f0aed514ef668415e1e"
+          "sha256": "3b2f85bffae511c20efd4d9c71b1c8347b3be02ac779cbf3ee43ae21d9a6e41c"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4587,7 +4603,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "5989b224f1d51041b1ce220034e4fad4f684bb2966a9bbe626b1b2bfdd2b9991"
+          "sha256": "e4e21dadb1595769c9b306a26775a5061e4bc5ecd5195bb7d8a31d3d86d2bcd9"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4611,7 +4627,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "6322c1f4f4c49bbeaa660d85f8522a04bc8dbff342d5ebd95a3199a0ba1a6a02"
+          "sha256": "17e70c474846558fe29e48fde4e9128b33cd42065b568f149efaa208a60e55f5"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
@@ -4643,7 +4659,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "22ec493646c45790c86a1d1dcfdd14b121a2ae28be767aff5667bf93f0105983"
+          "sha256": "dc78f32682494df69a610a3d0ed175bca46e92f6cc0cb3e3493aa8c77816e0c7"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -4667,7 +4683,7 @@
         },
         {
           "path": "tests/windows_publisher_public_path_probe.ps1",
-          "sha256": "7699281b4dbeca422c1061730f7e67e453e8510663b46e4bc6eea4b60c50533b"
+          "sha256": "698f54a752bdce653815283b36f29bac2e8fc842c5ffa2be2f4486eadac442a3"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4691,11 +4707,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.h",
-          "sha256": "5742626fb87f0a0cba36addb85d08be9786c57aaffce22c7dcbc8f7588aa8f59"
+          "sha256": "1a91c5d0d7634bf369d42e21902198755e900d9a5ea5ee213e292712f74884fb"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_execution_observation.cpp",
-          "sha256": "6529d63ba31f9cd2abbf4bd40869188ae91fda99ab643a75bdb3873faf6d41ec"
+          "sha256": "d64064202bc624d0c0def47eafb55bc23bcc89e93191bbe4eb8f542f527aa77c"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_token_observation.h",
@@ -4703,7 +4719,7 @@
         },
         {
           "path": "tests/publisher_execution_evidence.py",
-          "sha256": "b67e4eb4137c6be91cad9d11cafbfcee3848129d72d548143d0b9fd8c0579d75"
+          "sha256": "38d98e768bea7deca2c741215bb8ac0a0d04622cff3a4cc69ea1be01b52d5c0b"
         },
         {
           "path": "tests/test_publisher_execution_evidence.py",
@@ -4783,7 +4799,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "9b8659ae5e119a280c8b93c16e594db2f036973c1d60d4b8c7473c8535141c7a"
+          "sha256": "5d7d4ee8fad548c26bc1a50b64ebf0ee140065303876a9749b3a3d55ca10b775"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -4795,11 +4811,19 @@
         },
         {
           "path": "tests/publisher_native_profile_evidence.py",
-          "sha256": "ce0b332d772213a90741b3a533d3ba40cb4616a73b0b9261c25107d6aeb14cc4"
+          "sha256": "348ac60a37c2aa98928cf71c2490bd9c47303d4cb5d7a7c68ea1fc969ffa0523"
         },
         {
           "path": "tests/test_publisher_native_profile_evidence.py",
           "sha256": "d9c80a6f644c9687118fb3d7e47bbdf4c3c5989358e507bba8e8a9992357c142"
+        },
+        {
+          "path": "tests/publisher_authenticated_access_evidence.py",
+          "sha256": "fbdef0d0fa98837eb0c4ef77b7418d8e398f8c0c73a6630c0e1d6b7d907d90e1"
+        },
+        {
+          "path": "tests/test_publisher_authenticated_access_evidence.py",
+          "sha256": "a143dcbb1bbacaa874c0ef94c71b0b02cd08d2f66c2454e6e54a2cb6fbf7db81"
         }
       ],
       "acceptance_ids": [
@@ -5231,7 +5255,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "451c7b793db77a7fd5b3714aa650916f22404c74337d0eac9bd2c483cf6d2bdb"
+          "sha256": "fd9f43afd2673a511cb1b9c36a980c18df662214a36c1d2cfe7e490cbd28da86"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",

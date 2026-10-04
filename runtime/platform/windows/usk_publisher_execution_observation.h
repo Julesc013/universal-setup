@@ -38,6 +38,9 @@ usk::json::Value observe_publisher_execution_phase(
 void require_publisher_authenticated_object_access(const usk::json::Value& access,
     const usk::json::Value& client, const usk::json::Value& object);
 
+void require_publisher_authenticated_descendant_access(const usk::json::Value& access,
+    const usk::json::Value& client, const usk::json::Value& tree);
+
 // Closed retained evidence validation. The supplied bindings come from the
 // independently validated native anchor/tree record, never from this object.
 // A restart may have a new process/token identity; stable service and object
