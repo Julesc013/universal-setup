@@ -33,6 +33,91 @@ bool rejects(const std::wstring& root)
     return false;
 }
 
+struct TestEvent {
+    TestEvent() : handle(CreateEventW(nullptr, TRUE, FALSE, nullptr)) {
+        if (!handle) throw std::runtime_error("cannot create owned guard-test event");
+    }
+    ~TestEvent() { CloseHandle(handle); }
+    HANDLE handle;
+};
+
+template<class Busy, class Acquire>
+bool bounded_acquisition_cases(Acquire acquire)
+{
+    using usk::platform::windows::PublisherOperationCancelled;
+    using usk::platform::windows::publisher_guard_max_wait_milliseconds;
+    TestEvent cancelled;
+    if (!SetEvent(cancelled.handle)) return false;
+    bool cancelled_before_acquisition = false;
+    try { auto guard = acquire(cancelled.handle, 0); }
+    catch (const PublisherOperationCancelled&) { cancelled_before_acquisition = true; }
+    if (!cancelled_before_acquisition || !ResetEvent(cancelled.handle)) return false;
+    bool refused_unbounded = false;
+    try { auto guard = acquire(nullptr, publisher_guard_max_wait_milliseconds + 1); }
+    catch (const std::invalid_argument&) { refused_unbounded = true; }
+    if (!refused_unbounded) return false;
+
+    {
+        auto holder = acquire(nullptr, 0);
+        std::atomic<int> deadline_result{0};
+        std::thread deadline_contender([&] {
+            const ULONGLONG started = GetTickCount64();
+            try { auto guard = acquire(nullptr, 50); deadline_result = 2; }
+            catch (const Busy&) {
+                const ULONGLONG elapsed = GetTickCount64() - started;
+                deadline_result = elapsed >= 30 && elapsed < 5000 ? 1 : 3;
+            } catch (...) { deadline_result = 4; }
+        });
+        deadline_contender.join();
+        if (deadline_result != 1) return false;
+
+        TestEvent contender_started;
+        std::atomic<int> cancellation_result{0};
+        std::thread cancelled_contender([&] {
+            if (!SetEvent(contender_started.handle)) { cancellation_result = 4; return; }
+            try { auto guard = acquire(cancelled.handle, 5000); cancellation_result = 2; }
+            catch (const PublisherOperationCancelled&) { cancellation_result = 1; }
+            catch (...) { cancellation_result = 3; }
+        });
+        const DWORD started_wait = WaitForSingleObject(contender_started.handle, 5000);
+        const BOOL cancellation_set = SetEvent(cancelled.handle);
+        cancelled_contender.join();
+        if (started_wait != WAIT_OBJECT_0 || !cancellation_set || cancellation_result != 1)
+            return false;
+    }
+    if (!ResetEvent(cancelled.handle)) return false;
+    // A separate thread must acquire after both refused attempts. This also
+    // checks that cancellation did not leave a recursive mutex acquisition.
+    std::atomic<int> successor_result{0};
+    std::thread successor([&] {
+        try { auto guard = acquire(nullptr, 0); successor_result = 1; }
+        catch (...) { successor_result = 2; }
+    });
+    successor.join();
+    if (successor_result != 1) return false;
+
+    TestEvent held;
+    TestEvent release;
+    std::atomic<int> holder_result{0};
+    std::thread releasing_holder([&] {
+        try {
+            auto guard = acquire(nullptr, 0);
+            if (!SetEvent(held.handle)) { holder_result = 3; return; }
+            holder_result = WaitForSingleObject(release.handle, 5000) == WAIT_OBJECT_0 ? 1 : 4;
+        } catch (...) { holder_result = 2; SetEvent(held.handle); }
+    });
+    const DWORD held_wait = WaitForSingleObject(held.handle, 5000);
+    std::thread release_signal([&] { Sleep(50); SetEvent(release.handle); });
+    bool acquired_after_release = false;
+    try {
+        auto guard = acquire(nullptr, 2000);
+        acquired_after_release = !guard.previous_owner_abandoned();
+    } catch (...) { }
+    release_signal.join();
+    releasing_holder.join();
+    return held_wait == WAIT_OBJECT_0 && holder_result == 1 && acquired_after_release;
+}
+
 int child_guard_result(const std::wstring& mode, const std::wstring& root,
     const std::wstring& install_id = L"")
 {
@@ -223,6 +308,14 @@ int wmain(int argc, wchar_t** argv)
     }
     CloseHandle(wrong_type);
     if (!refused_wrong_type) return 9;
+
+    const std::wstring wait_root = fresh_root();
+    if (!bounded_acquisition_cases<PublisherVolumeBusy>([&](HANDLE cancel, DWORD budget) {
+            return PublisherVolumeOperationGuard(wait_root, cancel, budget);
+        })) return 24;
+    if (!bounded_acquisition_cases<PublisherInstallBusy>([&](HANDLE cancel, DWORD budget) {
+            return PublisherInstallOperationGuard(wait_root, "org.example.setup", cancel, budget);
+        })) return 25;
     return 0;
 }
 #endif

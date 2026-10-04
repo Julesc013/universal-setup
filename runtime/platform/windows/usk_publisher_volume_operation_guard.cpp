@@ -9,6 +9,34 @@
 
 namespace usk::platform::windows {
 
+namespace {
+
+template<class Busy>
+bool acquire_guard(HANDLE mutex, HANDLE cancel_event, DWORD wait_milliseconds)
+{
+    const DWORD mutex_index = cancel_event ? 1u : 0u;
+    HANDLE handles[] = {cancel_event, mutex};
+    // Cancellation comes first when both objects are signalled. It never
+    // acquires the mutex or permits a timed takeover of a live holder.
+    const DWORD outcome = cancel_event ?
+        WaitForMultipleObjects(2, handles, FALSE, wait_milliseconds) :
+        WaitForSingleObject(mutex, wait_milliseconds);
+    if (outcome == WAIT_OBJECT_0 + mutex_index) return false;
+    if (outcome == WAIT_ABANDONED_0 + mutex_index) return true;
+    if (cancel_event && outcome == WAIT_OBJECT_0) throw PublisherOperationCancelled();
+    if (outcome == WAIT_TIMEOUT) throw Busy();
+    throw std::runtime_error("publisher operation guard wait failed; Win32 " +
+        std::to_string(GetLastError()));
+}
+
+void require_bounded_wait(DWORD wait_milliseconds)
+{
+    if (wait_milliseconds > publisher_guard_max_wait_milliseconds)
+        throw std::invalid_argument("publisher operation guard deadline exceeds its bound");
+}
+
+} // namespace
+
 std::wstring publisher_volume_operation_guard_name(const std::wstring& root)
 {
     const std::wstring prefix = L"\\\\?\\Volume{";
@@ -51,22 +79,23 @@ std::wstring publisher_install_operation_guard_name(const std::wstring& root,
     return name;
 }
 
-PublisherVolumeOperationGuard::PublisherVolumeOperationGuard(const std::wstring& root)
+PublisherVolumeOperationGuard::PublisherVolumeOperationGuard(const std::wstring& root,
+    HANDLE cancel_event, DWORD wait_milliseconds)
 {
+    require_bounded_wait(wait_milliseconds);
     const std::wstring name = publisher_volume_operation_guard_name(root);
     mutex_ = CreateMutexW(nullptr, FALSE, name.c_str());
     if (!mutex_) {
         throw std::runtime_error("publisher volume guard cannot open its named mutex");
     }
-    const DWORD outcome = WaitForSingleObject(mutex_, 0);
-    if (outcome == WAIT_OBJECT_0 || outcome == WAIT_ABANDONED) {
-        previous_owner_abandoned_ = outcome == WAIT_ABANDONED;
-        return;
+    try {
+        previous_owner_abandoned_ = acquire_guard<PublisherVolumeBusy>(
+            mutex_, cancel_event, wait_milliseconds);
+    } catch (...) {
+        CloseHandle(mutex_);
+        mutex_ = nullptr;
+        throw;
     }
-    CloseHandle(mutex_);
-    mutex_ = nullptr;
-    if (outcome == WAIT_TIMEOUT) throw PublisherVolumeBusy();
-    throw std::runtime_error("publisher volume guard wait failed");
 }
 
 PublisherVolumeOperationGuard::~PublisherVolumeOperationGuard()
@@ -78,22 +107,22 @@ PublisherVolumeOperationGuard::~PublisherVolumeOperationGuard()
 }
 
 PublisherInstallOperationGuard::PublisherInstallOperationGuard(const std::wstring& root,
-    const std::string& install_id)
+    const std::string& install_id, HANDLE cancel_event, DWORD wait_milliseconds)
 {
+    require_bounded_wait(wait_milliseconds);
     const std::wstring name = publisher_install_operation_guard_name(root, install_id);
     mutex_ = CreateMutexW(nullptr, FALSE, name.c_str());
     if (!mutex_) {
         throw std::runtime_error("publisher install guard cannot open its named mutex");
     }
-    const DWORD outcome = WaitForSingleObject(mutex_, 0);
-    if (outcome == WAIT_OBJECT_0 || outcome == WAIT_ABANDONED) {
-        previous_owner_abandoned_ = outcome == WAIT_ABANDONED;
-        return;
+    try {
+        previous_owner_abandoned_ = acquire_guard<PublisherInstallBusy>(
+            mutex_, cancel_event, wait_milliseconds);
+    } catch (...) {
+        CloseHandle(mutex_);
+        mutex_ = nullptr;
+        throw;
     }
-    CloseHandle(mutex_);
-    mutex_ = nullptr;
-    if (outcome == WAIT_TIMEOUT) throw PublisherInstallBusy();
-    throw std::runtime_error("publisher install guard wait failed");
 }
 
 PublisherInstallOperationGuard::~PublisherInstallOperationGuard()

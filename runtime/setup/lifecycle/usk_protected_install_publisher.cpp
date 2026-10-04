@@ -3486,15 +3486,15 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         }
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
-        const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root);
+        const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root, stop_event);
         std::optional<usk::platform::windows::PublisherInstallOperationGuard> install_guard;
         if (submitted_apply_request) {
             const auto request = usk::json::parse(*submitted_apply_request);
             install_guard.emplace(volume_root,
-                request.at("plan_request").at("install_id").as_string());
+                request.at("plan_request").at("install_id").as_string(), stop_event);
         } else if (submitted_verify_request) {
             const auto request = usk::json::parse(*submitted_verify_request);
-            install_guard.emplace(volume_root, request.at("install_id").as_string());
+            install_guard.emplace(volume_root, request.at("install_id").as_string(), stop_event);
         }
         // Both guards are held before source/installed-state revalidation and
         // before effects. Source-free legacy replay retains the volume guard.
@@ -3541,7 +3541,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         throw StaleReviewedInstallRequest();
                     }
                 }
-                install_guard.emplace(volume_root, plan.install_id);
+                install_guard.emplace(volume_root, plan.install_id, stop_event);
             }
             if (verify_installed_request) {
                 return verify_completed_install_in_service(volume, observed.service_sid);
