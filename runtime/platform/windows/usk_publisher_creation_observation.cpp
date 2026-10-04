@@ -3,6 +3,7 @@
 
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_process_boundary.h"
+#include "usk_publisher_worker_security.h"
 
 #if defined(_WIN32)
 #include "usk_publisher_directory_entries.h"
@@ -124,6 +125,7 @@ std::vector<unsigned char> creation_descriptor(const std::string& sid) {
 struct PublisherCreationCapture::Implementation {
     PublisherServiceObservation service;
     Value process_boundary;
+    Value worker_security;
     PublisherHandleObservation boundary;
     std::vector<unsigned char> descriptor;
     std::map<std::string, Value> entries;
@@ -143,6 +145,10 @@ struct PublisherCreationCapture::Implementation {
             service.token.process_groups);
         require(usk::json::canonical(process_current) == usk::json::canonical(process_boundary),
             "publisher creation process owner/DACL changed");
+        const auto security_current = observe_current_publisher_worker_security();
+        require_publisher_worker_security(security_current, service);
+        require(usk::json::canonical(security_current) == usk::json::canonical(worker_security),
+            "publisher creation token/default/thread security changed");
     }
 };
 
@@ -154,6 +160,8 @@ PublisherCreationCapture::PublisherCreationCapture(HANDLE boundary, const std::w
     state.process_boundary = observe_current_publisher_process_boundary();
     require_publisher_process_boundary(state.process_boundary, state.service.process_id,
         state.service.service_sid, state.service.token.process_groups);
+    state.worker_security = observe_current_publisher_worker_security();
+    require_publisher_worker_security(state.worker_security, state.service);
     state.require_worker();
     state.boundary = observe_publisher_directory_handle(boundary);
     require_publisher_object_security_shape(state.boundary, state.service.service_sid);
@@ -285,10 +293,11 @@ Value PublisherCreationCapture::certificate(const Value& anchors,
         require(found != state.entries.end() && usk::json::canonical(found->second) == usk::json::canonical(row),
             "publisher sealed graph contains an object without matching native creation lineage");
     }
-    auto result = Value(Value::Object{{"schema", Value("usk.publisher.creation_observation.v2")},
-        {"scope", Value("successful_service_file_create_calls_and_process_boundary_to_bound_graph")},
+    auto result = Value(Value::Object{{"schema", Value("usk.publisher.creation_observation.v3")},
+        {"scope", Value("successful_service_file_create_calls_and_worker_security_to_bound_graph")},
         {"creator", creator(state.service)}, {"native_call", call_profile()},
         {"process_boundary", state.process_boundary},
+        {"worker_security", state.worker_security},
         {"handle_flags", Value(std::uint64_t{0})},
         {"volume_boundary_file_id", Value(state.boundary.file_id)},
         {"creation_descriptor_sha256", Value(byte_digest(state.descriptor))},
@@ -303,15 +312,19 @@ void require_publisher_creation_certificate(const Value& certificate,
     const Value& anchors, const Value& tree, const Value& execution) {
     const auto descriptor = creation_descriptor(execution.at("service").at("service_sid").as_string());
     const auto graph = publisher_creation_graph(anchors, tree);
-    const bool process_bound = certificate.at("schema").as_string() == "usk.publisher.creation_observation.v2";
+    const bool worker_bound = certificate.at("schema").as_string() == "usk.publisher.creation_observation.v3";
+    const bool process_bound = worker_bound || certificate.at("schema").as_string() == "usk.publisher.creation_observation.v2";
     require((execution.at("schema").as_string() == "usk.publisher_execution_observation.v1" ||
-             execution.at("schema").as_string() == "usk.publisher_execution_observation.v2") &&
-        process_bound == (execution.at("schema").as_string() == "usk.publisher_execution_observation.v2") &&
-        process_bound == execution.contains("process_boundary"),
+             execution.at("schema").as_string() == "usk.publisher_execution_observation.v2" ||
+             execution.at("schema").as_string() == "usk.publisher_execution_observation.v3") &&
+        worker_bound == (execution.at("schema").as_string() == "usk.publisher_execution_observation.v3") &&
+        process_bound == (execution.at("schema").as_string() != "usk.publisher_execution_observation.v1") &&
+        process_bound == execution.contains("process_boundary") && worker_bound == execution.contains("worker_security"),
         "publisher creation certificate downgraded its original execution boundary");
-    require(certificate.as_object().size() == (process_bound ? 11u : 10u) &&
+    require(certificate.as_object().size() == (worker_bound ? 12u : process_bound ? 11u : 10u) &&
         (process_bound || certificate.at("schema").as_string() == "usk.publisher.creation_observation.v1") &&
-        certificate.at("scope").as_string() == (process_bound ?
+        certificate.at("scope").as_string() == (worker_bound ?
+            "successful_service_file_create_calls_and_worker_security_to_bound_graph" : process_bound ?
             "successful_service_file_create_calls_and_process_boundary_to_bound_graph" :
             "successful_service_file_create_calls_to_bound_graph") &&
         usk::json::canonical(certificate.at("creator")) == usk::json::canonical(execution_creator(execution)) &&
@@ -324,10 +337,14 @@ void require_publisher_creation_certificate(const Value& certificate,
         certificate.at("created_graph_sha256").as_string() == usk::json::sha256_canonical(graph),
         "publisher retained creation certificate differs from its sealed graph or creator binding");
     if (process_bound) {
-        require(execution.at("schema").as_string() == "usk.publisher_execution_observation.v2" &&
-            usk::json::canonical(certificate.at("process_boundary")) ==
+        require(usk::json::canonical(certificate.at("process_boundary")) ==
                 usk::json::canonical(execution.at("process_boundary")),
             "publisher creation process boundary differs from its original prepared worker");
+    }
+    if (worker_bound) {
+        require(usk::json::canonical(certificate.at("worker_security")) ==
+            usk::json::canonical(execution.at("worker_security")),
+            "publisher creation worker security differs from its original prepared worker");
     }
 }
 } // namespace usk::platform::windows

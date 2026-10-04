@@ -83,6 +83,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_execution_observation.cpp
     runtime/platform/windows/usk_publisher_creation_observation.cpp
     runtime/platform/windows/usk_publisher_process_boundary.cpp
+    runtime/platform/windows/usk_publisher_worker_security.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
     runtime/platform/windows/usk_publisher_registration.cpp
     runtime/platform/windows/usk_publisher_data_partition.cpp

@@ -1776,6 +1776,50 @@ wrong parents, aliases, missing coverage and an incorrectly moved staging
 anchor. This corrects the mapping, without supplying absent native profile
 predicates or treating a synthetic trace as publisher qualification.
 
+### Primary-token defaults and thread-policy integration candidate
+
+The same source feature now observes stored kernel-object OWNER/DACL facts
+for the current primary token and every thread returned for the publisher's
+own process by bracketed Toolhelp snapshots. Each thread query handle is
+non-inheritable and remains held through the repeated population and descriptor
+readback; process ownership, thread ID, creation time and non-exited status are
+checked. These handles are never exported. Token ID, authentication ID and
+modified ID bind the observed token to the independently corroborated SCM
+worker. The token's default owner and default DACL are observed as well.
+Every held thread is also queried for an attached impersonation token at both
+readbacks; only ERROR_NO_TOKEN is admitted. An existing token, access denial,
+anonymous-token error or any other indeterminate result refuses the observation.
+The retained thread facts require an explicit false impersonation state.
+
+Outside allow ACEs may grant only object-specific query/security-read rights.
+Token duplication, adjustment, assignment and impersonation rights, thread
+mutation rights, and owner/security mutation grants fail the policy. Outside
+default-DACL grants are restricted to READ_CONTROL, avoiding interpretation of
+generic or object-specific rights under a guessed future object mapping.
+Mutation-capable owners and grants remain limited to the excluded SYSTEM and
+administrator principals, actual publisher service SID and enabled publisher
+logon identity. Unknown ACE forms, NULL DACLs and incomplete thread populations
+are refused. No descriptor is changed by the observer.
+
+Fresh execution v3 and creation v3 records retain these worker-security facts
+alongside the process boundary. Creation rechecks them around each native
+create and binds the original facts to the first prepared phase. Retained
+readers preserve execution/creation v1/v2, but prohibit a new certificate from
+dropping the original execution's stronger binding. Same-worker phases and
+prepared/visible records preserve the complete security observation. Restart
+workers are independently validated without rewriting the original creator.
+The independent reconciliation distinguishes fully worker-bound phase counts
+and creation binding; fresh hosted fixtures require those stronger records.
+
+These are stored access policies and bracketed observations. Thread snapshots
+are not atomic; neither they nor current DACLs establish absence of previously
+exported capabilities or continuous protection throughout process history.
+Hosted worker-security qualification, complete native ProfileEvidence/model
+reconciliation and admission, standard-account public dispatch, supported
+target qualification and the outstanding recovery/lease predicates remain
+part of the existing finite publisher obligations. OD-001, profile availability
+and release acceptance are unchanged.
+
 ### Accepted native creation graph and process-boundary candidate
 
 PR #224 qualified the selected hosted native creation observations at source

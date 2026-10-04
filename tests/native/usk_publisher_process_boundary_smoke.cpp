@@ -3,6 +3,7 @@
 
 #include "usk_publisher_process_boundary.h"
 #include "usk_publisher_execution_observation.h"
+#include "usk_publisher_worker_security.h"
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -35,6 +36,65 @@ Value boundary() {
         {"dacl_aces", Value(Value::Array{ace("S-1-5-18", PROCESS_ALL_ACCESS),
             ace(service_sid, PROCESS_ALL_ACCESS), ace(consumer_sid, query_rights)})}});
 }
+Value::Object security_object(std::uint32_t query) {
+    return {{"owner_sid", Value("S-1-5-18")}, {"dacl_present", Value(true)}, {"dacl_protected", Value(false)},
+        {"dacl_aces", Value(Value::Array{ace("S-1-5-18", 0x1fffffu), ace(service_sid, 0x1fffffu), ace(consumer_sid, query)})}};
+}
+Value worker_security() {
+    auto primary = security_object(TOKEN_QUERY | TOKEN_QUERY_SOURCE | READ_CONTROL);
+    primary.emplace("token_id", Value("0000000000000500"));
+    primary.emplace("authentication_id", Value("0000000000000900"));
+    primary.emplace("modified_id", Value("0000000000000501"));
+    primary.emplace("default_owner_sid", Value("S-1-5-18"));
+    primary.emplace("default_dacl_aces", Value(Value::Array{ace("S-1-5-18", GENERIC_ALL),
+        ace(service_sid, GENERIC_ALL), ace(consumer_sid, READ_CONTROL)}));
+    auto thread = security_object(SYNCHRONIZE | READ_CONTROL | THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION);
+    thread.emplace("thread_id", Value(std::uint64_t{700}));
+    thread.emplace("creation_time", Value("0000000000000700"));
+    thread.emplace("thread_impersonating", Value(false));
+    return Value(Value::Object{{"schema", Value("usk.publisher_worker_security.v1")},
+        {"scope", Value("stored_primary_token_defaults_and_process_thread_owner_dacls")},
+        {"process_id", Value(std::uint64_t{500})}, {"current_thread_id", Value(std::uint64_t{700})},
+        {"primary_token", Value(std::move(primary))}, {"threads", Value(Value::Array{Value(std::move(thread))})}});
+}
+void worker_security_controls() {
+    const auto observed = observe_current_publisher_worker_security();
+    check(observed.as_object().size() == 6 && observed.at("process_id").as_unsigned() == GetCurrentProcessId() &&
+        observed.at("current_thread_id").as_unsigned() == GetCurrentThreadId() &&
+        observed.at("primary_token").as_object().size() == 9 && !observed.at("threads").as_array().empty(),
+        "actual primary-token/default-DACL/own-thread security unavailable");
+    PublisherServiceObservation service{};
+    service.process_id = 500; service.service_sid = service_sid; service.token.process_groups = groups;
+    service.token.identity = {0x500, 0x900, 0x501, TokenPrimary};
+    require_publisher_worker_security(worker_security(), service);
+    const auto refuses = [&](const std::function<void(Value&)>& change) {
+        auto value = worker_security(); change(value);
+        bool refused = false;
+        try { require_publisher_worker_security(value, service); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "worker security admitted an outside capability or contradictory record");
+    };
+    const std::uint32_t rights[] = {TOKEN_QUERY | TOKEN_QUERY_SOURCE | READ_CONTROL, READ_CONTROL,
+        SYNCHRONIZE | READ_CONTROL | THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION};
+    for (unsigned target = 0; target < 3; ++target) {
+        for (unsigned bit = 0; bit < 32; ++bit) {
+            const std::uint32_t right = std::uint32_t{1} << bit;
+            if (rights[target] & right) continue;
+            refuses([&](Value& value) {
+                auto& aces = target == 2 ? value.as_object().at("threads").as_array().front().as_object().at("dacl_aces") :
+                    value.as_object().at("primary_token").as_object().at(target == 1 ? "default_dacl_aces" : "dacl_aces");
+                aces.as_array().back().as_object().at("access_mask") = Value(static_cast<std::uint64_t>(rights[target] | right));
+            });
+        }
+    }
+    refuses([](Value& value) { value.as_object().at("primary_token").as_object().at("owner_sid") = Value(consumer_sid); });
+    refuses([](Value& value) { value.as_object().at("primary_token").as_object().at("default_owner_sid") = Value(consumer_sid); });
+    refuses([](Value& value) { value.as_object().at("current_thread_id") = Value(std::uint64_t{701}); });
+    refuses([](Value& value) { value.as_object().at("threads").as_array().clear(); });
+    refuses([](Value& value) { value.as_object().at("threads").as_array().push_back(value.at("threads").as_array().front()); });
+    refuses([](Value& value) { value.as_object().at("primary_token").as_object().at("token_id") = Value("0000000000000502"); });
+    refuses([](Value& value) { value.as_object().at("threads").as_array().front().as_object().at("thread_impersonating") = Value(true); });
+}
 } // namespace
 
 int main() {
@@ -45,6 +105,7 @@ int main() {
         check(actual.as_object().size() == 7 && actual.at("process_id").as_unsigned() == GetCurrentProcessId() &&
             actual.at("dacl_present").as_boolean() && !actual.at("owner_sid").as_string().empty(),
             "current process owner/DACL facts were not observed");
+        worker_security_controls();
 
         // Synthetic policy controls are separate from the native observation.
         require_publisher_process_boundary(boundary(), 500, service_sid, groups);
