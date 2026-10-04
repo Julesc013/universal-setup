@@ -159,13 +159,21 @@ def registered_admission(native, service, service_sid, client, image_sha256, vol
     return value
 
 
-def service_capability(native, request_id, windows_build):
+def service_capability(native, request_id, windows_build, *, protocol="usk.publisher_capability.v2", sdk_version=None):
     """Reconcile service observations; retained root facts are not fresh ACL proof."""
     require(isinstance(native, dict) and native.keys() == {'schema', 'status', 'request_id', 'service_name',
         'service_sid', 'process_id', 'registered_admission', 'capability_observation'} and
         native['schema'] == 'usk.publisher_service_capability_observation.v1' and native['status'] == 'observed' and
         native['request_id'] == request_id, 'service observation envelope differs')
     value = native['capability_observation']
+    require(protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3'), 'unknown service capability protocol')
+    scoped = protocol == 'usk.publisher_capability.v3'
+    if scoped:
+        require(isinstance(sdk_version, str) and len(sdk_version) <= 32 and
+            (not sdk_version or re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', sdk_version)),
+            'scoped capability compiled SDK differs')
+    qualified = scoped and windows_build == 20348 and sdk_version == '10.0.26100.0'
+
     constants = {'schema': 'usk.publisher_capability.v2', 'request_id': request_id,
         'provider_id': 'windows_nt_x64_local_ntfs_service_sid_noreplace_v1',
         'implementation': 'partial', 'realization': 'restricted_service', 'availability': False,
@@ -177,12 +185,29 @@ def service_capability(native, request_id, windows_build):
         'power_loss_qualified': False, 'revalidation_required_before_effects': True,
         'execution_lease_held': False, 'service_state': 4,
         'effects': ['service_start_may_occur', 'controller_guard_held_during_observation']}
-    require(isinstance(value, dict) and value.keys() == constants.keys() | {'platform', 'binding'} and
+
+    if scoped:
+        constants.update(schema=protocol, availability=qualified,
+            qualification='qualified_for_scope' if qualified else 'incomplete',
+            support='supported_for_scope' if qualified else 'unsupported',
+            qualification_scope='registered_public_apply_v9_process_restart_replay_verify',
+            recovery_ceiling='source_free_process_restart_v9')
+        bounds = value['qualification_bounds']
+        require(isinstance(bounds, dict) and bounds == {
+            'phase_schema': 'usk.publisher.lab_phase_evidence.v9',
+            'execution_schema': 'usk.publisher_execution_observation.v6',
+            'sdk_version': '10.0.26100.0', 'qualified_windows_build': 20348} and
+            integer(bounds['qualified_windows_build'], 20348, 20348), 'scoped qualification bounds differ')
+    require(isinstance(value, dict) and value.keys() == constants.keys() | {'platform', 'binding'} |
+        ({'qualification_bounds'} if scoped else set()) and
         all(type(value[key]) is type(expected) and value[key] == expected for key, expected in constants.items()),
         'service capability fabricated dimensions or effects')
     platform = value['platform']
-    require(platform == {'os_family': 'Windows NT', 'native_arch': 'x64', 'process_arch': 'x64',
-        'windows_build': windows_build, 'minimum_windows_build': 17763} and
+    expected_platform = {'os_family': 'Windows NT', 'native_arch': 'x64', 'process_arch': 'x64',
+        'windows_build': windows_build, 'minimum_windows_build': 17763}
+    if scoped:
+        expected_platform['sdk_version'] = sdk_version
+    require(platform == expected_platform and
         integer(platform['windows_build'], 17763, 0xffffffff) and
         integer(platform['minimum_windows_build'], 17763, 17763), 'service capability platform differs')
     admitted = native['registered_admission']
@@ -259,7 +284,7 @@ def reconcile(receipt, expected_head):
         re.fullmatch(r"[0-9a-f]{64}", build["publisher_project_sha256"]), "standard native build targets differ")
     captures = observation["client_captures"]
     service_protocol = observation.get('capability_protocol')
-    require(service_protocol is None or service_protocol == 'usk.publisher_capability.v2',
+    require(service_protocol is None or service_protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3'),
         'standard capability protocol is unknown')
     mediated = service_protocol is not None
     commands = ["publisher.inspect"] + (["publisher.observe"] if mediated else []) + [
@@ -380,7 +405,8 @@ def reconcile(receipt, expected_head):
             registered_admission(native, observation['service'], observation['service_sid'], client,
                 observation['service_sha256'], observation['volume_root'], boundary_id)
             if entry['command'] == 'publisher.observe':
-                require(service_capability(native, entry['request_id'], int(receipt['windows_build'].split('.')[2])) ==
+                require(service_capability(native, entry['request_id'], int(receipt['windows_build'].split('.')[2]),
+                    protocol=service_protocol, sdk_version=receipt['build_profile']['windows_sdk']) ==
                     public_result, 'service native/public capability differs')
                 continue
             require(native.get('schema') == 'usk.publisher_lab_service_observation.v1' and native.get('status') == 'pass',

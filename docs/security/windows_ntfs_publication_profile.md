@@ -1,6 +1,6 @@
 # Windows NTFS publication profile â€” candidate only
 
-`windows_nt_x64_local_ntfs_service_sid_noreplace_v1` is a proposed design, not a platform proof. Its production record remains `implementation: absent`, `availability: false`, `qualification: not_run`, and `support: unsupported`. Nothing here authorizes endpoint mutation or changes the runtime's current refusal behavior.
+`windows_nt_x64_local_ntfs_service_sid_noreplace_v1` has a connected registered installation and process-restart recovery implementation. Its complete native v9 admission path is undergoing qualification. Generic staged-child availability remains false, and existing v1/v2 discovery retains its conservative qualification and support dimensions. Source implementation and release acceptance remain separate.
 
 ## Exact admitted platform and adversary
 
@@ -2023,3 +2023,39 @@ source argument have distinct provenance, bound to the reviewed source tree
 and retained executable digest. This retrospective consistency check grants
 no publication authority, asserts no global export history and does not close
 OD-001, full profile qualification or ordinary discovery.
+
+
+## Authenticated native admission
+
+The actual request channel retains a query-only, non-inheritable identification
+token. The native v9 phase record binds fresh descriptor AccessChecks to that
+token for all seven held roles and every payload descendant. Complete ordered
+closure, object and volume identities, stream and size facts are checked under
+held descriptors. This descriptor collection does not rehash content; the
+separate sealing and publication content checks retain that responsibility.
+Descriptor continuity is checked before initial and recovery rename, and native
+postvalidation precedes public completion.
+
+The public context revalidates registered image, target, caller, reviewed source
+and transaction admission before controlled creation. Native creation and
+complete closure admission follow materialization and precede publication. An
+older null admission cannot become registered production evidence. Supported
+older recovery records retain their original evidence ceilings.
+
+Independent unrelated-login observations bind their actual SID, authentication
+session, token identity, populations and snapshot access results. The initiating
+actor may be privileged in those retained fixtures; Standard plus filtered
+same-account observations remain a separate scope. Reconstructed historical
+phase descriptors remain retrospective and do not replace fresh native checks.
+
+
+`publisher.observe` accepts an explicit v3 capability request while preserving
+v1/v2 semantics. Its scoped reporting is provisional until the exact producer
+and hosted data qualify. The initial supported tuple is native/process x64,
+Windows NT build 20348 and compiled SDK `10.0.26100.0`, with native phase v9 and
+execution v6. Other build/SDK tuples report unavailable, incomplete and
+unsupported. Positive availability describes the registered target/caller's
+eligibility for public apply, source-free process restart, replay and verify;
+each operation still requires fresh native revalidation. It does not qualify
+an existing installation or an older record, grant discovery authority or a
+lease, qualify power loss, enable generic strict plans, or accept a release.

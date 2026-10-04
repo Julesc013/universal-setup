@@ -90,9 +90,14 @@ void test_service_observation_transport_binding() {
     const std::string request = R"({"schema":"usk.publisher_capability_request.v2","request_id":"observe.one"})";
     // These leaf objects exercise transport binding only. The command validator
     // separately requires the complete capability and admission contracts.
-    const std::string response = R"({"schema":"usk.publisher_service_capability_observation.v1","status":"observed","request_id":"observe.one","service_name":"USK_PUB_0123456789abcdef0123456789abcdef","service_sid":"S-1-5-80-1-2-3-4-5","process_id":123,"registered_admission":{},"capability_observation":{}})";
+    const std::string response = R"({"schema":"usk.publisher_service_capability_observation.v1","status":"observed","request_id":"observe.one","service_name":"USK_PUB_0123456789abcdef0123456789abcdef","service_sid":"S-1-5-80-1-2-3-4-5","process_id":123,"registered_admission":{},"capability_observation":{"schema":"usk.publisher_capability.v2"}})";
     require_publisher_response_binding(service, request, response);
     require_publisher_response_binding(service, request, response, 123);
+    const auto v3_request = replaced(request, "request.v2", "request.v3");
+    const auto v3_response = replaced(response, "capability.v2", "capability.v3");
+    require_publisher_response_binding(service, v3_request, v3_response, 123);
+    refuses([&] { require_publisher_response_binding(service, v3_request, response, 123); });
+    refuses([&] { require_publisher_response_binding(service, request, v3_response, 123); });
     refuses([&] { require_publisher_response_binding(service, request, response, 124); });
     refuses([&] { require_publisher_response_binding(service, request,
         replaced(response, "observe.one", "observe.stale")); });
@@ -113,7 +118,7 @@ void test_service_observation_transport_binding() {
     refuses([&] { require_publisher_response_binding(service, request,
         replaced(response, "\"registered_admission\":{}", "\"registered_admission\":null")); });
     refuses([&] { require_publisher_response_binding(service, request,
-        replaced(response, "\"capability_observation\":{}", "\"capability_observation\":{},\"extra\":true")); });
+        replaced(response, "\"capability_observation\":{", "\"extra\":true,\"capability_observation\":{")); });
     refuses([&] { require_publisher_response_binding(service,
         R"({"schema":"usk.install_local_apply_request.v1","transaction_id":"tx.apply","plan_request":{"install_id":"install.one"}})", response); });
     refuses([&] { require_publisher_response_binding(service,

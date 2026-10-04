@@ -135,9 +135,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
             stdout_prefix=$responseText.Substring(0,[Math]::Min(8192,$responseText.Length))}
         $result=$responseText|ConvertFrom-Json
         $payloadMatches=if($Command -ceq 'publisher.observe') {
-            $result.result.schema -ceq 'usk.publisher_capability.v2' -and
+            $result.result.schema -ceq 'usk.publisher_capability.v3' -and
                 $result.result.request_id -ceq $requestId -and
-                $result.result.availability -eq $false -and $result.result.execution_lease_held -eq $false
+                $result.result.availability -eq $true -and $result.result.qualification -ceq 'qualified_for_scope' -and
+                $result.result.support -ceq 'supported_for_scope' -and $result.result.execution_lease_held -eq $false
         } else {$result.result.status -ceq 'ok'}
         $responseMatches=$exit -eq $ExpectedExit -and $result.schema -ceq 'usk.oneshot_response.v1' -and
             $result.request_id -ceq $requestId -and
@@ -239,11 +240,13 @@ try {
     $receipt['service_policy']=Read-ServicePolicy
     $receipt['discovery']=Invoke-StandardRequest 'publisher.inspect' @{schema='usk.publisher_capability_request.v1';request_id='inspect.'+$id} 2
     if($receipt.discovery.status -cne 'refused' -or $receipt.discovery.error.code -cne 'publisher_capability_unavailable'){throw 'Unqualified standard discovery did not refuse explicitly'}
-    $receipt['capability_protocol']='usk.publisher_capability.v2'
-    $receipt['service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v2';request_id='observe.'+$id}
-    if($receipt.service_discovery.result.schema -cne 'usk.publisher_capability.v2' -or
-        $receipt.service_discovery.result.availability -ne $false -or
-        $receipt.service_discovery.result.execution_lease_held -ne $false) {throw 'Service observation granted unavailable authority'}
+    $receipt['capability_protocol']='usk.publisher_capability.v3'
+    $receipt['service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v3';request_id='observe.'+$id}
+    if($receipt.service_discovery.result.schema -cne 'usk.publisher_capability.v3' -or
+        $receipt.service_discovery.result.availability -ne $true -or
+        $receipt.service_discovery.result.qualification -cne 'qualified_for_scope' -or
+        $receipt.service_discovery.result.support -cne 'supported_for_scope' -or
+        $receipt.service_discovery.result.execution_lease_held -ne $false) {throw 'Scoped service observation lost its qualified dimensions'}
     $receipt['apply']=Invoke-StandardRequest 'install_local.apply' $apply
     $installed=$receipt.apply.result.payload
     if($installed.install_id -cne $apply.plan_request.install_id -or $installed.transaction_id -cne $apply.transaction_id -or
@@ -271,7 +274,7 @@ try {
     if($receipt.verification.result.payload.status -cne 'pass' -or $receipt.verification.result.payload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
     if(($after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verified.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard verification changed target snapshot'}
-    $receipt['source_free_service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v2';request_id='observe-source-free.'+$id}
+    $receipt['source_free_service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v3';request_id='observe-source-free.'+$id}
     if(($receipt.service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress) -cne
         ($receipt.source_free_service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress)) {
         throw 'Source-free service observation changed retained admission bindings'

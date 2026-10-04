@@ -41,7 +41,7 @@ class StandardPublicPolicyTests(unittest.TestCase):
         require_native_capture_set(None, captures[:1] + captures[2:6],
             [commands[0]] + commands[2:6], allow_legacy_missing=True)
 
-    def test_service_observation_cannot_upgrade_authority_or_hide_effects(self):
+    def service_fixture(self):
         schema = json.loads((Path(__file__).resolve().parents[1] /
             'contracts/schema/setup/publisher_capability.v2.schema.json').read_text(encoding='utf-8'))
         cap = {key: copy.deepcopy(value['const']) for key, value in schema['properties'].items() if 'const' in value}
@@ -61,6 +61,10 @@ class StandardPublicPolicyTests(unittest.TestCase):
         native = {key: b[key] for key in ('service_name', 'service_sid', 'process_id')}
         native.update(schema='usk.publisher_service_capability_observation.v1', status='observed',
             request_id='observed-1', capability_observation=cap, registered_admission=admitted)
+        return cap, native
+
+    def test_service_observation_cannot_upgrade_authority_or_hide_effects(self):
+        cap, native = self.service_fixture()
         self.assertEqual(service_capability(native, 'observed-1', 20348), cap)
         for key, claimed in [('availability', True), ('execution_lease_held', True), ('effects', []),
                 ('binding_provenance', 'fresh_boundary_security'), ('service_state', True)]:
@@ -76,6 +80,37 @@ class StandardPublicPolicyTests(unittest.TestCase):
         bad['registered_admission']['configured_caller_sid'] = UNRELATED
         with self.assertRaises(StandardEvidenceError):
             service_capability(bad, 'observed-1', 20348)
+
+    def test_scoped_v3_qualifies_only_its_actual_build_and_sdk(self):
+        cap, native = self.service_fixture()
+        protocol = 'usk.publisher_capability.v3'
+        cap.update(schema=protocol, availability=True, qualification='qualified_for_scope',
+            support='supported_for_scope', qualification_scope='registered_public_apply_v9_process_restart_replay_verify',
+            recovery_ceiling='source_free_process_restart_v9', qualification_bounds={
+                'phase_schema': 'usk.publisher.lab_phase_evidence.v9',
+                'execution_schema': 'usk.publisher_execution_observation.v6',
+                'sdk_version': '10.0.26100.0', 'qualified_windows_build': 20348})
+        cap['platform']['sdk_version'] = '10.0.26100.0'
+        self.assertEqual(service_capability(native, 'observed-1', 20348, protocol=protocol,
+            sdk_version='10.0.26100.0'), cap)
+        with self.assertRaises(StandardEvidenceError):
+            service_capability(native, 'observed-1', 20348)
+        for build, sdk in ((22621, '10.0.26100.0'), (20348, '10.0.22621.0'), (20348, '')):
+            changed = copy.deepcopy(native)
+            c = changed['capability_observation']
+            c['platform'].update(windows_build=build, sdk_version=sdk)
+            with self.subTest(build=build, sdk=sdk), self.assertRaises(StandardEvidenceError):
+                service_capability(changed, 'observed-1', build, protocol=protocol, sdk_version=sdk)
+            c.update(availability=False, qualification='incomplete', support='unsupported')
+            self.assertEqual(service_capability(changed, 'observed-1', build, protocol=protocol,
+                sdk_version=sdk), c)
+        for field, wrong in (('phase_schema', 'usk.publisher.lab_phase_evidence.v8'),
+                ('execution_schema', 'usk.publisher_execution_observation.v5'),
+                ('sdk_version', '10.0.22621.0'), ('qualified_windows_build', 20348.0)):
+            changed = copy.deepcopy(native)
+            changed['capability_observation']['qualification_bounds'][field] = wrong
+            with self.subTest(field=field), self.assertRaises(StandardEvidenceError):
+                service_capability(changed, 'observed-1', 20348, protocol=protocol, sdk_version='10.0.26100.0')
 
     def test_current_capture_set_requires_every_bound_public_request(self):
         commands = ['publisher.inspect', 'install_local.apply', 'install_local.recover', 'install_local.apply', 'installed.verify']
