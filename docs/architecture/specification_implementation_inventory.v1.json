@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T05:22:09Z",
+  "generated_at": "2026-10-04T06:03:56Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -4247,7 +4247,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "35edf2f47eddf4ba93636e65591de0c8e4e3ed3ae43a14e15a5a58ae7445515b"
+          "sha256": "bd07466589d46db82212d6c04b47e6f42f1ef234f847c66028e300d0bc3b5afb"
         },
         {
           "path": "tests/publisher_worker_security.py",
@@ -4687,7 +4687,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "35edf2f47eddf4ba93636e65591de0c8e4e3ed3ae43a14e15a5a58ae7445515b"
+          "sha256": "bd07466589d46db82212d6c04b47e6f42f1ef234f847c66028e300d0bc3b5afb"
         },
         {
           "path": "tests/publisher_worker_security.py",

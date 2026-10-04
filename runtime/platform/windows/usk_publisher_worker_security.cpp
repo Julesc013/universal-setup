@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -213,49 +214,63 @@ Value observe_current_publisher_worker_security() {
     primary.emplace("token_id", Value(hex64(luid(before.TokenId))));
     primary.emplace("authentication_id", Value(hex64(luid(before.AuthenticationId))));
     primary.emplace("modified_id", Value(hex64(luid(before.ModifiedId))));
-    const auto ids = thread_ids();
+    auto ids = thread_ids();
+    std::map<DWORD, std::unique_ptr<Handle>> held_threads;
+    std::map<DWORD, Value> recorded_threads;
+    bool population_complete = false;
+    // Read-only Windows APIs can initialize additional owned helper threads.
+    // Extend coverage without dropping or refreshing any earlier observation;
+    // loss, identity/security changes and continued churn still refuse.
+    for (unsigned round = 0; round != 4; ++round) {
+        for (const auto id : ids) {
+            if (held_threads.count(id)) continue;
+            auto held = std::make_unique<Handle>(OpenThread(
+                THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE, FALSE, id));
+            const auto thread = held->get();
+            require(GetProcessIdOfThread(thread) == GetCurrentProcessId() && GetThreadId(thread) == id,
+                "publisher worker thread is not owned by this process");
+            require_no_thread_token(thread);
+            FILETIME creation{}, exit{}, kernel{}, user{};
+            require(GetThreadTimes(thread, &creation, &exit, &kernel, &user) &&
+                (creation.dwHighDateTime || creation.dwLowDateTime) && WaitForSingleObject(thread, 0) == WAIT_TIMEOUT,
+                "publisher worker observed thread is unavailable or exited");
+            auto facts = object_security(thread);
+            require(usk::json::canonical(Value(facts)) == usk::json::canonical(Value(object_security(thread))),
+                "publisher worker thread security changed during readback");
+            facts.emplace("thread_id", Value(static_cast<std::uint64_t>(id)));
+            facts.emplace("creation_time", Value(hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) |
+                creation.dwLowDateTime)));
+            facts.emplace("thread_impersonating", Value(false));
+            recorded_threads.emplace(id, Value(std::move(facts)));
+            held_threads.emplace(id, std::move(held));
+        }
+        for (const auto& item : held_threads) {
+            FILETIME creation{}, exit{}, kernel{}, user{};
+            const auto& recorded = recorded_threads.at(item.first);
+            const auto thread = item.second->get();
+            require(GetThreadTimes(thread, &creation, &exit, &kernel, &user) &&
+                GetProcessIdOfThread(thread) == GetCurrentProcessId() &&
+                GetThreadId(thread) == recorded.at("thread_id").as_unsigned() &&
+                WaitForSingleObject(thread, 0) == WAIT_TIMEOUT && recorded.at("creation_time").as_string() ==
+                    hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime),
+                "publisher worker held thread exited or changed identity");
+            auto repeated = object_security(thread);
+            require_no_thread_token(thread);
+            repeated.emplace("thread_id", recorded.at("thread_id"));
+            repeated.emplace("creation_time", recorded.at("creation_time"));
+            repeated.emplace("thread_impersonating", Value(false));
+            require(usk::json::canonical(Value(repeated)) == usk::json::canonical(recorded),
+                "publisher worker held thread security changed across population readback");
+        }
+        const auto final_ids = thread_ids();
+        if (final_ids == ids) { population_complete = true; break; }
+        require(std::includes(final_ids.begin(), final_ids.end(), ids.begin(), ids.end()),
+            "publisher worker lost an observed thread during population readback");
+        ids = final_ids;
+    }
+    require(population_complete, "publisher worker thread population did not settle within its observation bound");
     Value::Array threads;
-    std::vector<std::unique_ptr<Handle>> held_threads;
-    held_threads.reserve(ids.size());
-    for (const auto id : ids) {
-        held_threads.push_back(std::make_unique<Handle>(OpenThread(
-            THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE, FALSE, id)));
-        const auto thread = held_threads.back()->get();
-        require(GetProcessIdOfThread(thread) == GetCurrentProcessId() && GetThreadId(thread) == id,
-            "publisher worker thread is not owned by this process");
-        require_no_thread_token(thread);
-        FILETIME creation{}, exit{}, kernel{}, user{};
-        require(GetThreadTimes(thread, &creation, &exit, &kernel, &user) &&
-            (creation.dwHighDateTime || creation.dwLowDateTime) && WaitForSingleObject(thread, 0) == WAIT_TIMEOUT,
-            "publisher worker observed thread is unavailable or exited");
-        auto facts = object_security(thread);
-        require(usk::json::canonical(Value(facts)) == usk::json::canonical(Value(object_security(thread))),
-            "publisher worker thread security changed during readback");
-        facts.emplace("thread_id", Value(static_cast<std::uint64_t>(id)));
-        facts.emplace("creation_time", Value(hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) |
-            creation.dwLowDateTime)));
-        facts.emplace("thread_impersonating", Value(false));
-        threads.emplace_back(std::move(facts));
-    }
-    for (std::size_t index = 0; index != held_threads.size(); ++index) {
-        FILETIME creation{}, exit{}, kernel{}, user{};
-        const auto& recorded = threads[index];
-        const auto thread = held_threads[index]->get();
-        require(GetThreadTimes(thread, &creation, &exit, &kernel, &user) &&
-            GetProcessIdOfThread(thread) == GetCurrentProcessId() &&
-            GetThreadId(thread) == recorded.at("thread_id").as_unsigned() &&
-            WaitForSingleObject(thread, 0) == WAIT_TIMEOUT && recorded.at("creation_time").as_string() ==
-                hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime),
-            "publisher worker held thread exited or changed identity");
-        auto repeated = object_security(thread);
-        require_no_thread_token(thread);
-        repeated.emplace("thread_id", recorded.at("thread_id"));
-        repeated.emplace("creation_time", recorded.at("creation_time"));
-        repeated.emplace("thread_impersonating", Value(false));
-        require(usk::json::canonical(Value(repeated)) == usk::json::canonical(recorded),
-            "publisher worker held thread security changed across population readback");
-    }
-    require(ids == thread_ids(), "publisher worker thread population changed during observation");
+    for (auto& item : recorded_threads) threads.push_back(std::move(item.second));
     const auto after = statistics(token.get());
     require(luid(before.TokenId) == luid(after.TokenId) && luid(before.AuthenticationId) == luid(after.AuthenticationId) &&
         luid(before.ModifiedId) == luid(after.ModifiedId) &&

@@ -1859,3 +1859,23 @@ Primary-token access, token default DACL, thread security, already exported
 capabilities and uninterrupted provenance remain separate predicates. The
 candidate is not hosted-qualified and changes no availability, support,
 OD-001 resolution or release acceptance.
+
+### Bounded worker thread collection repair
+
+PR #225 head `ca349bb647a6fefc260307fd37d96b85ab6f0866` passed the
+selected x64 public installation, both worker-loss recoveries and both
+retained-refusal cases in run `37180022353`. Their 24 readbacks reconciled
+95 worker-security phase bindings. The run failed its Win32 own-process
+control because the thread population changed during observation; the log
+does not identify the direction of that change. This head is not
+merge-qualified.
+
+The repair extends the read-only collection for newly discovered owned
+threads, retaining every earlier handle and original fact. Each of at most
+four rounds rechecks all held thread identities, liveness, stored security
+and absence of attached tokens. Lost threads, changed facts, indeterminate
+observations or continued churn refuse. Success requires a stable final
+population. Existing native assertions and publication phase equalities
+remain required. Exact-head Win32 and hosted qualification are pending.
+The observation remains bracketed and does not establish an atomic census
+or capture transient threads between snapshots.
