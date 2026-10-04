@@ -1775,3 +1775,43 @@ transition context. Synthetic controls verify the complete native-layout trace,
 wrong parents, aliases, missing coverage and an incorrectly moved staging
 anchor. This corrects the mapping, without supplying absent native profile
 predicates or treating a synthetic trace as publisher qualification.
+
+### Accepted native creation graph and process-boundary candidate
+
+PR #224 qualified the selected hosted native creation observations at source
+`8e6a40c7227d7746025f12c5c8bb15eddc7306db`, integrated at
+`0c6c4a84db2fb50e35faf7dd492792ce5e9e8fd5`. Exact-head CI run
+`37174140222` passed all seven jobs. Independent reconciliation preserved the
+existing public installation, source-free recovery and retained-refusal checks
+and matched nine created objects per fixture across 24 native readbacks
+(216 graph bindings). Both worker-loss cases preserved the original creator
+certificate. Artifacts `11291764910`, `11292209049` and `11292169410` retain
+the ordinary, loss and refusal receipts. Their source tree matches the head;
+publisher-library and service-executable project digests bind separate build
+targets to the selected SDK. Every reconciliation retains `profile_qualified`
+as false. Full profile admission and standard-account dispatch remain open.
+
+The next candidate adds read-only OWNER/DACL observations of the actual worker
+process. Its policy accepts mutation-capable ownership or allow ACEs only for
+excluded SYSTEM/administrators and the independently bound publisher service
+or enabled publisher logon identity. Other allow ACEs grant only process or
+security identity-query rights. It rejects null DACLs, unsupported ACEs,
+untrusted ownership and any additional process rights for outside principals.
+An ordinary native control reads only its own process security; synthetic
+policy controls do not establish service admission or Windows qualification.
+
+Fresh execution observations use closed v2 records with the process boundary
+before and after each publication phase. Native create capture checks the same
+boundary before and after each successful create and seals it in a v2 creation
+certificate bound to the original prepared worker. Within one worker, a change
+or record downgrade refuses the binding. Restart retains the original birth
+boundary and observes its new worker separately. Readers preserve accepted v1
+execution/creation records and private v1/v2/v3/v4 phase records. Independent
+decoding distinguishes process-bound phase counts and checks the birth binding;
+the public hosted fixture requires the new facts for every fresh phase.
+
+This candidate's process observation describes stored process access policy.
+Primary-token access, token default DACL, thread security, already exported
+capabilities and uninterrupted provenance remain separate predicates. The
+candidate is not hosted-qualified and changes no availability, support,
+OD-001 resolution or release acceptance.

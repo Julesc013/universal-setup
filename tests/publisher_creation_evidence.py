@@ -136,15 +136,29 @@ CERTIFICATE_KEYS = frozenset({"schema", "scope", "creator", "native_call", "hand
 
 
 def reconcile_creation(certificate, anchors, tree, execution):
-    closed(certificate, CERTIFICATE_KEYS, "creation certificate keys differ")
-    require(certificate["schema"] == "usk.publisher.creation_observation.v1" and
-            certificate["scope"] == "successful_service_file_create_calls_to_bound_graph",
+    process_bound = isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v2"
+    closed(certificate, CERTIFICATE_KEYS | (frozenset({"process_boundary"}) if process_bound else frozenset()),
+           "creation certificate keys differ")
+    require(execution["schema"] in ("usk.publisher_execution_observation.v1", "usk.publisher_execution_observation.v2") and
+            process_bound == (execution["schema"] == "usk.publisher_execution_observation.v2") and
+            process_bound == ("process_boundary" in execution),
+            "creation certificate downgraded its original execution boundary")
+    require(certificate["schema"] in ("usk.publisher.creation_observation.v1", "usk.publisher.creation_observation.v2") and
+            certificate["scope"] == ("successful_service_file_create_calls_and_process_boundary_to_bound_graph" if
+                                     process_bound else "successful_service_file_create_calls_to_bound_graph"),
             "creation certificate schema/scope differs")
     closed(certificate["creator"], CREATOR_KEYS, "creation creator keys differ")
     require(certificate["creator"] == {key: execution["service"][key] for key in CREATOR_KEYS},
             "creation creator differs from original prepared worker")
     require(type(certificate["creator"]["process_id"]) is int and
             type(certificate["creator"]["token_type"]) is int, "creation creator integer types differ")
+    if process_bound:
+        require(execution["schema"] == "usk.publisher_execution_observation.v2" and
+                certificate["process_boundary"] == execution["process_boundary"],
+                "creation process boundary differs from original prepared worker")
+        from publisher_process_boundary import validate_process_boundary
+        validate_process_boundary(certificate["process_boundary"], execution["service"]["process_id"],
+                                  execution["service"]["service_sid"], execution["service"]["process_groups"])
     closed(certificate["native_call"], CALL_PROFILE, "creation call profile keys differ")
     require(all(type(certificate["native_call"][key]) is type(expected) and
                 certificate["native_call"][key] == expected for key, expected in CALL_PROFILE.items()),
@@ -158,7 +172,11 @@ def reconcile_creation(certificate, anchors, tree, execution):
     graph_sha = canonical_sha(graph)
     require(type(certificate["created_object_count"]) is int and certificate["created_object_count"] == len(graph) and
             certificate["created_graph_sha256"] == graph_sha, "creation certificate differs from sealed graph")
-    return {"schema": "usk.publisher_creation_reconciliation.v1", "status": "bindings_consistent",
+    report = {"schema": "usk.publisher_creation_reconciliation.v2" if process_bound else
+                        "usk.publisher_creation_reconciliation.v1", "status": "bindings_consistent",
             "created_object_count": len(graph), "created_graph_sha256": graph_sha,
             "creator_process_id": certificate["creator"]["process_id"],
             "scope": "retained_successful_create_graph_binding", "profile_qualified": False}
+    if process_bound:
+        report["process_boundary_checked"] = True
+    return report

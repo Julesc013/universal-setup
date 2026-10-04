@@ -78,10 +78,13 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
     require(value["protected_anchors_sha256"] == canonical_sha(anchors) and
             value["tree_sha256"] == canonical_sha(tree), "native phase canonical binding differs")
     execution = value["execution"]
-    closed(execution, frozenset({"schema", "scope", "phase", "platform", "service", "handles"}),
+    process_bound = isinstance(execution, dict) and execution.get("schema") == "usk.publisher_execution_observation.v2"
+    closed(execution, frozenset({"schema", "scope", "phase", "platform", "service", "handles"}) |
+           (frozenset({"process_boundary"}) if process_bound else frozenset()),
            "execution observation keys differ")
-    require(execution["schema"] == "usk.publisher_execution_observation.v1" and
-            execution["scope"] == "supplied_held_service_handles" and execution["phase"] == phase,
+    require(execution["schema"] in ("usk.publisher_execution_observation.v1", "usk.publisher_execution_observation.v2") and
+            execution["scope"] == ("supplied_held_service_handles_and_process_owner_dacl" if process_bound else
+                                   "supplied_held_service_handles") and execution["phase"] == phase,
             "execution phase identity or scope differs")
     platform = execution["platform"]
     closed(platform, PLATFORM_KEYS, "runtime platform keys differ")
@@ -116,6 +119,13 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
         require(len(selected) == 1 and (key != "process_groups" or
                 selected[0]["attributes"] & 4 and not selected[0]["attributes"] & 16),
                 "service SID is missing, disabled or deny-only in the token")
+    if process_bound:
+        from publisher_process_boundary import validate_process_boundary
+        try:
+            validate_process_boundary(execution["process_boundary"], service["process_id"], service_sid,
+                                      service["process_groups"])
+        except (ValueError, KeyError, TypeError) as error:
+            raise EvidenceError("retained process boundary differs: " + str(error)) from error
     bindings = object_bindings(anchors, tree)
     require(len(set(bindings)) == len(ROLES) and all(isinstance(x, str) and
             re.fullmatch(r"[0-9a-f]{16}:[0-9a-f]{32}", x) for x in bindings) and
@@ -130,8 +140,14 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
 
 
 def worker_match(earlier: dict, later: dict) -> None:
-    require(all(earlier[key] == later[key] for key in ("service", "platform", "handles")),
+    require(all(earlier[key] == later[key] for key in ("schema", "scope", "service", "platform", "handles")) and
+            earlier.get("process_boundary") == later.get("process_boundary"),
             "worker token/process/platform or held objects changed between phases")
+
+
+def record_continuity(earlier: dict, later: dict) -> None:
+    if all(earlier["service"][key] == later["service"][key] for key in ("process_id", "token_id")):
+        worker_match(earlier, later)
 
 
 def reconcile(prepared_json: str, visible_json: str | None, service_name: str, service_sid: str,
@@ -197,14 +213,19 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
                 service_name, service_sid, windows_build, sdk_version))
             if len(visible_executions) > 1:
                 worker_match(visible_executions[-2], visible_executions[-1])
+        record_continuity(executions[-1], visible_executions[0])
         executions.extend(visible_executions)
-    report = {"schema": "usk.publisher_execution_reconciliation.v2" if creation else "usk.publisher_execution_reconciliation.v1", "status": "bindings_consistent",
+    process_count = sum(x["schema"] == "usk.publisher_execution_observation.v2" for x in executions)
+    report = {"schema": "usk.publisher_execution_reconciliation.v3" if process_count else
+                       "usk.publisher_execution_reconciliation.v2" if creation else "usk.publisher_execution_reconciliation.v1", "status": "bindings_consistent",
             "prepared_origin": prepared["execution_origin"], "visible_transition": transition,
             "phase_count": len(executions), "held_roles_per_phase": len(ROLES),
             "worker_process_ids": sorted({x["service"]["process_id"] for x in executions}),
             "scope": "retained_native_execution_record_bindings", "profile_qualified": False}
     if creation:
         report["creation_observation"] = creation
+    if process_count:
+        report["process_bound_phase_count"] = process_count
     return report
 
 

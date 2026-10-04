@@ -49,6 +49,24 @@ def creation_fixture():
     return prepared, visible
 
 
+def process_creation_fixture():
+    prepared, visible = creation_fixture()
+    for row in prepared["execution_phases"] + visible["execution_phases"]:
+        execution = row["execution"]
+        execution["schema"] = "usk.publisher_execution_observation.v2"
+        execution["scope"] = "supplied_held_service_handles_and_process_owner_dacl"
+        execution["process_boundary"] = {"schema": "usk.publisher_process_boundary.v1",
+            "scope": "stored_current_process_owner_dacl", "process_id": execution["service"]["process_id"],
+            "owner_sid": "S-1-5-18", "dacl_present": True, "dacl_protected": False,
+            "dacl_aces": [{"type": 0, "flags": 0, "access_mask": 0x1FFFFF, "sid": "S-1-5-18"},
+                          {"type": 0, "flags": 0, "access_mask": 0x1FFFFF, "sid": SID},
+                          {"type": 0, "flags": 0, "access_mask": 0x101000, "sid": "S-1-5-21-1-2-3-1000"}]}
+    prepared["creation_evidence"].update(schema="usk.publisher.creation_observation.v2",
+        scope="successful_service_file_create_calls_and_process_boundary_to_bound_graph",
+        process_boundary=copy.deepcopy(prepared["execution_phases"][0]["execution"]["process_boundary"]))
+    return prepared, visible
+
+
 class CreationEvidenceTests(unittest.TestCase):
     def check(self, prepared, visible):
         if visible is not None:
@@ -73,6 +91,77 @@ class CreationEvidenceTests(unittest.TestCase):
             process_id=600, token_id=f"{600:016x}", modified_id=f"{601:016x}")
         report = self.check(prepared, visible)
         self.assertEqual(report["worker_process_ids"], [500, 600])
+        self.assertEqual(report["creation_observation"]["creator_process_id"], 500)
+
+    def test_process_bound_creation_and_each_phase(self):
+        prepared, visible = process_creation_fixture()
+        report = self.check(prepared, visible)
+        self.assertEqual(report["schema"], "usk.publisher_execution_reconciliation.v3")
+        self.assertEqual(report["process_bound_phase_count"], report["phase_count"])
+        self.assertEqual(report["creation_observation"]["schema"], "usk.publisher_creation_reconciliation.v2")
+        self.assertIs(report["creation_observation"]["process_boundary_checked"], True)
+        self.assertIs(report["profile_qualified"], False)
+        self.assertIs(report["creation_observation"]["profile_qualified"], False)
+
+    def test_process_boundary_restart_does_not_rewrite_original_birth(self):
+        prepared, visible = process_creation_fixture()
+        visible["execution_transition"] = "observed_visible_on_restart"
+        visible["execution_phases"] = visible["execution_phases"][1:]
+        later = visible["execution_phases"][0]["execution"]
+        later["service"].update(process_id=600, token_id=f"{600:016x}", modified_id=f"{601:016x}")
+        later["process_boundary"]["process_id"] = 600
+        original = copy.deepcopy(prepared["creation_evidence"])
+        report = self.check(prepared, visible)
+        self.assertEqual(report["worker_process_ids"], [500, 600])
+        self.assertEqual(report["process_bound_phase_count"], 4)
+        self.assertEqual(report["creation_observation"]["creator_process_id"], 500)
+        self.assertEqual(prepared["creation_evidence"], original)
+
+    def test_process_boundary_downgrade_change_and_outside_grants_refuse(self):
+        def downgrade(prepared, visible):
+            for row in prepared["execution_phases"] + visible["execution_phases"]:
+                row["execution"].update(schema="usk.publisher_execution_observation.v1",
+                                        scope="supplied_held_service_handles")
+                row["execution"].pop("process_boundary")
+        def downgrade_visible(prepared, visible):
+            for row in visible["execution_phases"]:
+                row["execution"].update(schema="usk.publisher_execution_observation.v1",
+                                        scope="supplied_held_service_handles")
+                row["execution"].pop("process_boundary")
+        def change_visible(prepared, visible):
+            for row in visible["execution_phases"]:
+                row["execution"]["process_boundary"]["dacl_protected"] = True
+        def downgrade_certificate(prepared, visible):
+            prepared["creation_evidence"].update(schema="usk.publisher.creation_observation.v1",
+                scope="successful_service_file_create_calls_to_bound_graph")
+            prepared["creation_evidence"].pop("process_boundary")
+        controls = {
+            "wrong birth process": lambda p, v: p["creation_evidence"]["process_boundary"].update(process_id=501),
+            "outside process duplicate": lambda p, v: p["execution_phases"][0]["execution"]["process_boundary"]["dacl_aces"][-1].update(access_mask=0x40),
+            "changed valid DACL": lambda p, v: p["execution_phases"][1]["execution"]["process_boundary"].update(dacl_protected=True),
+            "unknown phase scope": lambda p, v: p["execution_phases"][0]["execution"].update(scope="all_capabilities_excluded"),
+            "phase downgrade": downgrade,
+            "visible pair downgrade": downgrade_visible,
+            "visible pair changed boundary": change_visible,
+            "complete certificate downgrade": downgrade_certificate,
+            "legacy certificate with process field": lambda p, v: p["creation_evidence"].update(
+                schema="usk.publisher.creation_observation.v1", scope="successful_service_file_create_calls_to_bound_graph"),
+            "unknown process owner": lambda p, v: p["execution_phases"][0]["execution"]["process_boundary"].update(owner_sid="S-1-5-21-1-2-3-1000"),
+        }
+        for name, change in controls.items():
+            prepared, visible = process_creation_fixture()
+            change(prepared, visible)
+            with self.subTest(name=name), self.assertRaises((EvidenceError, ValueError, KeyError, TypeError)):
+                self.check(prepared, visible)
+
+    def test_separate_restart_worker_can_rename_with_its_own_process_boundary(self):
+        prepared, visible = process_creation_fixture()
+        for row in visible["execution_phases"]:
+            row["execution"]["service"].update(process_id=600, token_id=f"{600:016x}", modified_id=f"{601:016x}")
+            row["execution"]["process_boundary"].update(process_id=600, dacl_protected=True)
+        report = self.check(prepared, visible)
+        self.assertEqual(report["worker_process_ids"], [500, 600])
+        self.assertEqual(report["process_bound_phase_count"], 5)
         self.assertEqual(report["creation_observation"]["creator_process_id"], 500)
 
     def test_missing_or_contradictory_creation_refuses(self):

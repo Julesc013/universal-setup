@@ -82,6 +82,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_token_observation.cpp
     runtime/platform/windows/usk_publisher_execution_observation.cpp
     runtime/platform/windows/usk_publisher_creation_observation.cpp
+    runtime/platform/windows/usk_publisher_process_boundary.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
     runtime/platform/windows/usk_publisher_registration.cpp
     runtime/platform/windows/usk_publisher_data_partition.cpp
@@ -763,6 +764,14 @@ if(USK_BUILD_TESTS)
     usk_enable_strict_warnings(usk_publisher_creation_observation_smoke)
     add_test(NAME usk_publisher_creation_observation_smoke COMMAND usk_publisher_creation_observation_smoke)
     set_tests_properties(usk_publisher_creation_observation_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_process_boundary_smoke
+      tests/native/usk_publisher_process_boundary_smoke.cpp)
+    target_compile_features(usk_publisher_process_boundary_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_process_boundary_smoke PRIVATE usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_process_boundary_smoke)
+    add_test(NAME usk_publisher_process_boundary_smoke COMMAND usk_publisher_process_boundary_smoke)
+    set_tests_properties(usk_publisher_process_boundary_smoke PROPERTIES TIMEOUT 30)
 
     add_executable(usk_publisher_volume_stream_observation_smoke
       tests/native/usk_publisher_volume_stream_observation_smoke.cpp)
