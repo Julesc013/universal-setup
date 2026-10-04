@@ -127,13 +127,17 @@ def validate_operation_admission(prepared):
 def reconcile_registered_operation(prepared, native_registration):
     require(validate_operation_admission(prepared), 'registered public path cannot promote null private admission')
     admission, target = prepared['operation_admission'], native_registration['target_identity']['volume_identity']
+    retained_serial = target['volume_serial']
+    require(isinstance(retained_serial, str) and re.fullmatch(r'(?:0|[1-9][0-9]{0,19})', retained_serial) and
+            str(admission['volume_serial']) == retained_serial,
+            'native registration volume serial is not the exact canonical uint64 representation')
     expected = {'service_name': native_registration['service_name'], 'service_sid': native_registration['service_sid'],
         'service_process_id': native_registration['process_id'],
         'configured_caller_sid': native_registration['configured_caller_sid'],
         'registration_sha256': native_registration['registration_sha256'],
         'target_admitted_sha256': native_registration['target_admitted_sha256'],
         'publisher_image_sha256': native_registration['publisher_image']['sha256'],
-        'volume_guid_root': target['volume_root'], 'root_file_id': target['root_file_id'], 'volume_serial': target['volume_serial']}
+        'volume_guid_root': target['volume_root'], 'root_file_id': target['root_file_id'], 'volume_serial': int(retained_serial)}
     require(all(admission[key] == value for key, value in expected.items()),
             'public operation admission differs from independently retained native registration')
     return expected

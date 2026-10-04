@@ -1325,7 +1325,7 @@ usk::json::Value admit_current_registered_operation(HANDLE volume, const std::st
         registration.at("process_id").as_unsigned() != observed.process_id ||
         target.at("volume_root").as_string() != ascii(volume_root) ||
         target.at("root_file_id").as_string() != root.file_id ||
-        target.at("volume_serial").as_unsigned() != volume_facts.file_id_volume_serial)
+        target.at("volume_serial").as_string() != std::to_string(volume_facts.file_id_volume_serial))
         throw std::runtime_error("registered operation lost its live service or held target identity");
     auto access = authenticated_request->observe_authenticated_object_access(volume);
     const auto client = access.at("client");
@@ -1357,7 +1357,7 @@ usk::json::Value admit_current_registered_operation(HANDLE volume, const std::st
         {"target_admitted_sha256", registration.at("target_admitted_sha256")},
         {"publisher_image_sha256", registration.at("publisher_image").at("sha256")},
         {"volume_guid_root", target.at("volume_root")}, {"root_file_id", target.at("root_file_id")},
-        {"volume_serial", target.at("volume_serial")}, {"reviewed_plan_digest", Value(plan_digest)},
+        {"volume_serial", Value(volume_facts.file_id_volume_serial)}, {"reviewed_plan_digest", Value(plan_digest)},
         {"reviewed_plan_snapshot_sha256", Value(record_sha256(durable_snapshot))},
         {"transaction_id", Value(transaction_id)}});
 }

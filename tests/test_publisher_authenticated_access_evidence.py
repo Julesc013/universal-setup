@@ -59,7 +59,7 @@ def registered_fixture():
         'configured_caller_sid': CLIENT, 'registration_sha256': 'c' * 64, 'target_admitted_sha256': 'd' * 64,
         'publisher_image': {'sha256': 'e' * 64}, 'target_identity': {'volume_identity': {
             'volume_root': admission['volume_guid_root'], 'root_file_id': admission['root_file_id'],
-            'volume_serial': admission['volume_serial']}}}
+            'volume_serial': str(admission['volume_serial'])}}}
     return prepared, visible, registration
 
 
@@ -148,6 +148,20 @@ class AuthenticatedAccessTests(unittest.TestCase):
         self.assertFalse(validate_operation_admission(prepared))
         with self.assertRaises(ValueError):
             reconcile_registered_operation(prepared, registration)
+
+    def test_registration_serial_is_canonical_decimal_string_without_float_conversion(self):
+        prepared, _, registration = registered_fixture()
+        # This control checks this binding representation only; no execution or
+        # volume observation is claimed by these synthetic inputs.
+        serial = 12714473842410676888
+        prepared['volume_serial'] = prepared['operation_admission']['volume_serial'] = serial
+        registration['target_identity']['volume_identity']['volume_serial'] = str(serial)
+        self.assertEqual(reconcile_registered_operation(prepared, registration)['volume_serial'], serial)
+        for value in (serial, float(serial), '0' + str(serial), str(2 ** 64), '-1', '1e16'):
+            changed = copy.deepcopy(registration)
+            changed['target_identity']['volume_identity']['volume_serial'] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                reconcile_registered_operation(prepared, changed)
 
 
 if __name__ == '__main__':
