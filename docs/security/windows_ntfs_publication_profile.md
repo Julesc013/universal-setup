@@ -1934,6 +1934,11 @@ actual parent identity, destination component and name-not-found NTSTATUS,
 buffer/class/name lengths, no-replace flag and native/I/O success statuses.
 They come from the checked arguments and results of the held-handle primitive.
 The direct observation preserves its QPC interval. Failed and ambiguous calls
-keep their existing conservative exceptions. Durable call evidence, complete
-native profile admission and model replay are still unfinished in this
-intermediate source checkpoint; no availability or qualification flag changes.
+keep their existing conservative exceptions. The v5 prepared/visible candidate
+binds the successful call to the durable visible record's exact root, parent,
+component and native names. Prepublish forward recovery retains its actual
+current-worker call; postrename recovery records `rename_call: null` because
+it observes visibility without observing the prior call. Closed C++ and Python
+readers require this distinction and preserve older record versions. Its hosted
+qualification, same-handle independent rights, complete native profile admission
+and model replay remain unfinished; no availability or qualification flag changes.
