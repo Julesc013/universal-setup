@@ -1709,3 +1709,35 @@ also covers authenticated verification. The optional read grant retains its
 separate policy. The fixture keeps its v3 requirement and retains bounded
 format diagnostics on a future mismatch. Exact-head repair qualification is
 pending.
+
+PR #223 subsequently passed all seven jobs in run 37167620922 at
+eebcf6c4dde011d7b02978bc1d7e6d86a334684e. Separate review reproduced all five
+retained public receipts: 24 native snapshots, 598 cumulative closure rows and
+eight discovery reports. Raw phase bindings and fresh restart identities
+matched the selected runtime and SDK. Normal integration is
+833431c38b534380f6276f25674d3c01d4f5a127. This qualifies those supplied-handle
+records, with complete creation/capability provenance, standard-account public
+dispatch, full profile admission and release acceptance still open.
+
+### Native creation capture implementation checkpoint
+
+An internal thread-scoped recorder now observes the successful native
+create-only primitive's actual arguments, NTSTATUS and FILE_CREATED result.
+Activation requires the actual restricted service and its held protected
+volume boundary. Before and after each captured create it checks the worker
+token; it verifies the supplied creation descriptor, same parent identity,
+new child's name and identity, exact protected security and zero handle flags.
+Every parent must be that separately observed boundary or a directory already
+recorded by this worker. The volume boundary is never labelled service-created.
+The recorder copies no handle and rejects nested capture. Post-create
+observation failure closes its returned handle and retains the created object.
+
+Its bounded in-memory graph can be compared with a freshly sealed native tree
+and reduced to a compact canonical digest. The certificate binds the actual
+creator, native call profile and requested descriptor bytes. Reopened objects
+cannot acquire a birth record. At this checkpoint the recorder is compiled and
+has local graph/admission controls but is not yet activated by public lifecycle
+execution or retained in its durable records. Durable integration, independent
+readback reconciliation and hosted qualification are required before any
+creation-history claim. It does not establish capabilities outside the service,
+an atomic snapshot, complete profile qualification, availability or support.

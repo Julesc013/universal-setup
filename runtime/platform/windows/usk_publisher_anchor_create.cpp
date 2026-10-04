@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_anchor_create.h"
+#include "usk_publisher_creation_observation.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_tree_observation.h"
 
@@ -80,10 +81,12 @@ static HANDLE create_relative_with_descriptor(
     const ULONG options = (directory ? FILE_DIRECTORY_FILE : FILE_NON_DIRECTORY_FILE) |
         FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT |
         (directory ? 0 : write_through);
+    const ULONG file_attributes = directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+    const ULONG share_access = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    const auto creation_parent = prepare_publisher_creation_observation(parent, descriptor);
     const NTSTATUS outcome = nt_create(&created, access,
         &attributes, &io, nullptr,
-        directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, create_only,
+        file_attributes, share_access, create_only,
         options, nullptr, 0);
     constexpr ULONG created_new_object = 2; // FILE_CREATED in IO_STATUS_BLOCK.Information.
     if (outcome != 0 || !created || created == INVALID_HANDLE_VALUE ||
@@ -91,6 +94,17 @@ static HANDLE create_relative_with_descriptor(
         if (created && created != INVALID_HANDLE_VALUE) CloseHandle(created);
         throw std::runtime_error("Windows parent-bound create-only object failed; NTSTATUS " +
             std::to_string(static_cast<unsigned long>(outcome)));
+    }
+    try {
+        finish_publisher_creation_observation(creation_parent, parent, created, name, directory,
+            PublisherCreationCallObservation{access, attributes.Attributes, create_only,
+                options, share_access, file_attributes, static_cast<std::uint32_t>(outcome),
+                static_cast<std::uint64_t>(io.Information)});
+    } catch (...) {
+        // Closing a failed observation handle retains the successfully created
+        // object. Never turn post-create observation failure into no effect.
+        CloseHandle(created);
+        throw;
     }
     return created;
 }
