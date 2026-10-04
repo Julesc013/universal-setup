@@ -18,6 +18,7 @@
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_registration.h"
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
@@ -89,6 +90,8 @@ thread_local std::optional<std::string> submitted_recovery_request;
 thread_local std::optional<std::string> submitted_verify_request;
 thread_local std::string consumer_read_sid;
 thread_local const usk::platform::windows::PublisherRequestChannel* authenticated_request = nullptr;
+thread_local const usk::platform::windows::RegisteredPublisherAdmission* registered_admission = nullptr;
+thread_local std::optional<usk::json::Value> registered_operation_admission;
 thread_local bool interrupt_consumer_grant = false;
 struct ReviewedPlanBinding {
     std::string plan_digest;
@@ -725,25 +728,63 @@ std::size_t visible_record_field_count(const std::string& schema) {
     return is_execution_record_schema(schema) ? 11 : 9;
 }
 
+void require_registered_operation_record(const usk::json::Value& prepared) {
+    const auto& admission = prepared.at("operation_admission");
+    // Private legacy transports can retain authenticated phase observations;
+    // null explicitly retains that narrower scope and cannot qualify a route.
+    if (usk::json::canonical(admission) == "null") return;
+    const auto& execution = prepared.at("execution_phases").as_array().at(0).at("execution");
+    const auto& client = execution.at("authenticated_client");
+    const auto& source = prepared.at("source_binding");
+    if (admission.as_object().size() != 18 ||
+        admission.at("schema").as_string() != "usk.publisher_operation_admission.v1" ||
+        admission.at("scope").as_string() != "live_registered_request_and_held_volume_before_effects" ||
+        admission.at("route").as_string() != "registered_service_admitted_production" ||
+        admission.at("service_name").as_string() != execution.at("service").at("service_name").as_string() ||
+        admission.at("service_sid").as_string() != prepared.at("service_sid").as_string() ||
+        admission.at("service_process_id").as_unsigned() != execution.at("service").at("process_id").as_unsigned() ||
+        admission.at("configured_caller_sid").as_string() != client.at("user_sid").as_string() ||
+        admission.at("captured_client_process_id").as_unsigned() != client.at("captured_process_id").as_unsigned() ||
+        admission.at("authenticated_client_sha256").as_string() != usk::json::sha256_canonical(client) ||
+        admission.at("root_file_id").as_string() != prepared.at("protected_anchors").at("boundary").at("file_id").as_string() ||
+        admission.at("volume_serial").as_unsigned() != prepared.at("volume_serial").as_unsigned() ||
+        admission.at("reviewed_plan_digest").as_string() != source.at("reviewed_plan_digest").as_string() ||
+        admission.at("reviewed_plan_snapshot_sha256").as_string() != source.at("reviewed_plan_snapshot_sha256").as_string() ||
+        !usk::record_io::valid_identifier(admission.at("transaction_id").as_string()))
+        throw std::runtime_error("registered operation admission differs from its native phase, target or reviewed source");
+    for (const auto* key : {"registration_sha256", "target_admitted_sha256", "publisher_image_sha256"})
+        if (!lower_sha256_ascii(admission.at(key).as_string()))
+            throw std::runtime_error("registered operation admission has malformed provenance digests");
+    const auto& guid = admission.at("volume_guid_root").as_string();
+    if (guid.size() != 49 || guid.compare(0, 11, "\\\\?\\Volume{") != 0 || guid.compare(47, 2, "}\\") != 0)
+        throw std::runtime_error("registered operation admission volume GUID differs");
+    for (std::size_t index = 11; index < 47; ++index) {
+        const char ch = guid[index];
+        const bool separator = index == 19 || index == 24 || index == 29 || index == 34;
+        if (separator ? ch != '-' : !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')))
+            throw std::runtime_error("registered operation admission has a malformed volume GUID");
+    }
+}
+
 void require_prepared_execution_phases(const usk::json::Value& prepared,
     const std::string& service_sid, const std::wstring& expected_service_name = service_name) {
     const auto& schema = prepared.at("schema").as_string();
     const bool creation_bound = schema == "usk.publisher.lab_phase_evidence.v4" ||
         schema == "usk.publisher.lab_phase_evidence.v5" || schema == "usk.publisher.lab_phase_evidence.v6" ||
         (schema == "usk.publisher.lab_phase_evidence.v7" || schema == "usk.publisher.lab_phase_evidence.v8");
+    const bool authenticated_bound = schema == "usk.publisher.lab_phase_evidence.v8";
     if (!is_execution_record_schema(schema)) {
         if (prepared.contains("execution_phases") || prepared.contains("execution_origin") ||
-            prepared.contains("creation_evidence")) {
+            prepared.contains("creation_evidence") || prepared.contains("operation_admission")) {
             throw std::runtime_error("legacy prepared record cannot claim native execution phases");
         }
         return;
     }
-    if (prepared.as_object().size() != (creation_bound ? 14u : 13u) ||
+    if (prepared.as_object().size() != (authenticated_bound ? 15u : creation_bound ? 14u : 13u) ||
         (!creation_bound && prepared.contains("creation_evidence"))) {
         throw std::runtime_error("native prepared record is not its closed execution schema");
     }
     const auto& phases = prepared.at("execution_phases").as_array();
-    const bool authenticated_bound = schema == "usk.publisher.lab_phase_evidence.v8";
     if (schema == "usk.publisher.lab_phase_evidence.v6" || (schema == "usk.publisher.lab_phase_evidence.v7" || schema == "usk.publisher.lab_phase_evidence.v8")) {
         for (const auto& phase : phases) {
             const auto& execution_schema = phase.at("execution").at("schema").as_string();
@@ -779,6 +820,7 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
         usk::platform::windows::require_publisher_creation_certificate(prepared.at("creation_evidence"),
             prepared.at("protected_anchors"), prepared.at("sealed_tree"), phases.front().at("execution"));
     }
+    if (authenticated_bound) require_registered_operation_record(prepared);
 }
 
 void require_visible_execution_phase(const usk::json::Value& bound,
@@ -1265,6 +1307,99 @@ void require_public_mount_mapping(HANDLE volume, const std::string& setup_root,
     }
 }
 
+usk::json::Value admit_current_registered_operation(HANDLE volume, const std::string& service_sid,
+    const std::string& setup_root, const std::string& target_root, const std::string& plan_digest,
+    const std::string& durable_snapshot, const std::string& transaction_id) {
+    using namespace usk::platform::windows;
+    using usk::json::Value;
+    if (!registered_admission || !authenticated_request)
+        throw std::runtime_error("registered operation requires the held host admission and authenticated channel");
+    const auto registration = registered_admission->evidence();
+    const auto observed = observe_current_restricted_publisher_service(service_name);
+    const auto volume_facts = observe_local_ntfs_volume_handle(volume);
+    const auto root = observe_publisher_directory_handle(volume);
+    require_publisher_object_security_shape(root, service_sid);
+    const auto& target = registration.at("target_identity").at("volume_identity");
+    if (registration.at("service_name").as_string() != ascii(service_name) ||
+        registration.at("service_sid").as_string() != service_sid || observed.service_sid != service_sid ||
+        registration.at("process_id").as_unsigned() != observed.process_id ||
+        target.at("volume_root").as_string() != ascii(volume_root) ||
+        target.at("root_file_id").as_string() != root.file_id ||
+        target.at("volume_serial").as_unsigned() != volume_facts.file_id_volume_serial)
+        throw std::runtime_error("registered operation lost its live service or held target identity");
+    auto access = authenticated_request->observe_authenticated_object_access(volume);
+    const auto client = access.at("client");
+    if (client.at("user_sid").as_string() != registration.at("configured_caller_sid").as_string() ||
+        usk::json::canonical(access.at("native_object")) != usk::json::canonical(publisher_handle_observation_json(root)))
+        throw std::runtime_error("registered operation caller or held volume security changed");
+    access.as_object().erase("client");
+    access.as_object().erase("native_object");
+    access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(client)));
+    access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(publisher_handle_observation_json(root))));
+    require_publisher_authenticated_object_access(access, client, publisher_handle_observation_json(root));
+    constexpr DWORD mutation_mask = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD |
+        FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER;
+    for (const auto& [name, check] : access.at("checks").as_object())
+        if (name == "maximum_allowed" ? (check.at("granted").as_unsigned() & mutation_mask) != 0 :
+            check.at("allowed").as_boolean() || check.at("granted").as_unsigned() != 0)
+            throw std::runtime_error("registered operation caller retains mutation access to the volume boundary");
+    require_public_mount_mapping(volume, setup_root, target_root);
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_operation_admission.v1")},
+        {"scope", Value("live_registered_request_and_held_volume_before_effects")},
+        {"route", Value("registered_service_admitted_production")},
+        {"service_name", registration.at("service_name")}, {"service_sid", registration.at("service_sid")},
+        {"service_process_id", registration.at("process_id")},
+        {"configured_caller_sid", registration.at("configured_caller_sid")},
+        {"authenticated_client_sha256", Value(usk::json::sha256_canonical(client))},
+        {"captured_client_process_id", client.at("captured_process_id")},
+        {"registration_sha256", registration.at("registration_sha256")},
+        {"target_admitted_sha256", registration.at("target_admitted_sha256")},
+        {"publisher_image_sha256", registration.at("publisher_image").at("sha256")},
+        {"volume_guid_root", target.at("volume_root")}, {"root_file_id", target.at("root_file_id")},
+        {"volume_serial", target.at("volume_serial")}, {"reviewed_plan_digest", Value(plan_digest)},
+        {"reviewed_plan_snapshot_sha256", Value(record_sha256(durable_snapshot))},
+        {"transaction_id", Value(transaction_id)}});
+}
+
+usk::json::Value admit_current_registered_operation(HANDLE volume, const std::string& service_sid,
+    const ReviewedPlanBinding& reviewed) {
+    return admit_current_registered_operation(volume, service_sid, reviewed.setup_root,
+        reviewed.install_plan.target_root.u8string(), reviewed.plan_digest,
+        reviewed.durable_snapshot, reviewed.transaction_id);
+}
+
+void require_registered_recovery_binding(const usk::json::Value& prepared,
+    const usk::json::Value& current) {
+    if (prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v8") return;
+    require_registered_operation_record(prepared);
+    const auto& prior = prepared.at("operation_admission");
+    if (usk::json::canonical(prior) == "null")
+        throw std::runtime_error("registered recovery cannot promote a private legacy admission");
+    for (const auto& [key, value] : current.as_object()) {
+        if (key == "service_process_id" || key == "captured_client_process_id" || key == "authenticated_client_sha256") continue;
+        if (usk::json::canonical(prior.at(key)) != usk::json::canonical(value))
+            throw std::runtime_error("registered recovery differs from retained target, source or caller admission");
+    }
+}
+
+void require_current_registered_publication_admission(const usk::json::Value& prepared,
+    const usk::json::Value& before, const ReviewedPlanBinding& reviewed, HANDLE volume,
+    const std::string& service_sid) {
+    if (!registered_admission) return;
+    if (prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v8" ||
+        !registered_operation_admission ||
+        usk::json::canonical(prepared.at("operation_admission")) != usk::json::canonical(*registered_operation_admission) ||
+        usk::json::canonical(admit_current_registered_operation(volume, service_sid, reviewed)) !=
+            usk::json::canonical(*registered_operation_admission))
+        throw std::runtime_error("registered publication lacks its current operation-bound native admission");
+    require_prepared_execution_phases(prepared, service_sid);
+    require_native_execution_phase(before, "before_rename", service_sid,
+        prepared.at("protected_anchors"), prepared.at("sealed_tree"), service_name);
+    usk::platform::windows::require_publisher_execution_worker_match(prepared.at("execution_phases").as_array().back().at("execution"),
+        before.at("execution"));
+}
+
 void with_public_roots_bound(HANDLE volume, const usk::lifecycle::InstallPlan& plan,
     const std::string& expected_target_file_id, const std::function<void()>& action) {
     using namespace usk::platform::windows;
@@ -1702,6 +1837,16 @@ std::string observe_prepared_recovery(HANDLE volume,
             (void)restore_reviewed_install_plan(stored_snapshot);
         }
     }
+    if (registered_admission) {
+        if (!has_reviewed_snapshot)
+            throw std::runtime_error("registered recovery requires the durable reviewed snapshot");
+        const auto snapshot = usk::json::parse(stored_snapshot);
+        const auto plan = restore_reviewed_install_plan(stored_snapshot);
+        registered_operation_admission = admit_current_registered_operation(volume, service_sid,
+            plan.roots.state_root.parent_path().u8string(), plan.target_root.u8string(),
+            snapshot.at("plan_digest").as_string(), stored_snapshot, snapshot.at("transaction_id").as_string());
+        require_registered_recovery_binding(prepared, *registered_operation_admission);
+    }
     if (!expected_envelope_sha256.empty() || !expected_archive_sha256.empty()) {
         if (!has_reviewed_snapshot || !selected_v2 ||
             !lower_sha256_ascii(expected_envelope_sha256) ||
@@ -1861,6 +2006,17 @@ std::string observe_prepared_recovery(HANDLE volume,
             if (execution_bound) forward_execution_phases.push_back(capture_native_execution_phase(
                 "before_rename", forward_handles, anchors, actual_tree,
                 prepared_schema == "usk.publisher.lab_phase_evidence.v8"));
+            if (registered_admission && prepared_schema == "usk.publisher.lab_phase_evidence.v8") {
+                require_registered_recovery_binding(prepared, *registered_operation_admission);
+                const auto& current = forward_execution_phases.back().at("execution");
+                if (usk::json::sha256_canonical(current.at("authenticated_client")) !=
+                        registered_operation_admission->at("authenticated_client_sha256").as_string() ||
+                    current.at("service").at("process_id").as_unsigned() !=
+                        registered_operation_admission->at("service_process_id").as_unsigned())
+                    throw std::runtime_error("registered recovery phase lost its current authenticated worker binding");
+                require_native_execution_phase(forward_execution_phases.back(), "before_rename", service_sid,
+                    prepared.at("protected_anchors"), prepared.at("sealed_tree"), service_name);
+            }
             forward_rename_call = probe_publisher_bound_rename_no_replace(root.get(),
                 destination.get(), visible_component, observed_tree.root,
                 anchors.destination_parent.object);
@@ -2690,6 +2846,8 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             ",\"execution_phases\":" + usk::json::canonical(usk::json::Value(prepared_execution_phases)) +
             ",\"execution_origin\":" + json_quote(staged_only_reentry ?
                 "reopened_staged_tree" : "created_empty_in_current_worker") : std::string{}) +
+        (authenticated_bound ? ",\"operation_admission\":" + (registered_operation_admission ?
+            usk::json::canonical(*registered_operation_admission) : "null") : std::string{}) +
         (creation_evidence ? ",\"creation_evidence\":" + usk::json::canonical(*creation_evidence) : std::string{}) + "}");
     require_prepared_execution_phases(usk::json::parse(prepared), service_sid);
     if (reviewed_plan) {
@@ -2715,6 +2873,12 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
             visible_execution_phases.front().at("execution"));
     }
     PublisherBoundRenameObservation renamed;
+    if (registered_admission) {
+        if (!reviewed_plan || visible_execution_phases.empty())
+            throw std::runtime_error("registered publication requires the reviewed native phase closure");
+        require_current_registered_publication_admission(usk::json::parse(prepared),
+            visible_execution_phases.front(), *reviewed_plan, volume, service_sid);
+    }
     renamed = probe_publisher_bound_rename_no_replace(candidate.get(),
         destination.get(), visible_component, sealed.root,
         first.destination_parent.object);
@@ -2876,6 +3040,8 @@ struct ScopedExecution {
         if (config.authenticated_request && !config.submitted_apply_request &&
             !config.submitted_recovery_request && !config.submitted_verify_request)
             throw std::runtime_error("authenticated channel lacks an operation request");
+        if (config.registered_admission && (!config.authenticated_request || config.prepare_disposable_boundary))
+            throw std::runtime_error("registered operation requires its channel and an already protected target");
         service_name=config.service_name;
         receipt_path=config.receipt_path;
         volume_root=config.volume_root;
@@ -2925,12 +3091,16 @@ struct ScopedExecution {
         } else if (interrupt_consumer_grant) throw std::runtime_error("consumer fault requires admitted consumer policy");
         stop_event=config.stop_event;
         authenticated_request=config.authenticated_request;
+        registered_admission=config.registered_admission;
+        registered_operation_admission.reset();
         reviewed_install_reentry=false;
         execution_active=true;
     }
     ~ScopedExecution() { submitted_apply_request.reset(); submitted_recovery_request.reset();
         submitted_verify_request.reset();
         authenticated_request=nullptr;
+        registered_admission=nullptr;
+        registered_operation_admission.reset();
         consumer_read_sid.clear(); visible_component=L"visible"; execution_active=false; }
 };
 } // namespace
@@ -2982,6 +3152,10 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
     require_public_mount_mapping(context.volume,bound.setup_root,plan.target_root.u8string());
     usk::platform::windows::require_publisher_object_security_shape(
         usk::platform::windows::observe_publisher_directory_handle(context.volume),context.service_sid);
+    if (registered_admission && (!registered_operation_admission ||
+        usk::json::canonical(admit_current_registered_operation(context.volume, context.service_sid, bound)) !=
+            usk::json::canonical(*registered_operation_admission)))
+        throw std::runtime_error("public protected apply lacks the current native registered operation admission");
     plan.validate_source();
     context.entered=true;
     context.effects_may_exist=true;
@@ -3381,6 +3555,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     }
                     require_publisher_object_security_shape(observe_publisher_directory_handle(volume),observed.service_sid);
                     if (reviewed_plan && !reviewed_plan->apply_request.empty()) {
+                        if (registered_admission) registered_operation_admission =
+                            admit_current_registered_operation(volume, observed.service_sid, *reviewed_plan);
                         CandidateApplyContext context{volume,observed.service_sid,*reviewed_plan,publication_effects_may_exist,{}};
                         ScopedCandidateApply candidate(context);
                         int status=-1;

@@ -23,6 +23,10 @@ CLIENT_KEYS = {'schema', 'scope', 'captured_process_id', 'user_sid', 'token_type
                'groups', 'restricted_sids', 'privileges'}
 ACCESS_KEYS = {'schema', 'scope', 'client_sha256', 'native_object_sha256',
                'descriptor_api', 'descriptor_hex', 'observed_group_sid', 'checks'}
+OPERATION_KEYS = {'schema', 'scope', 'route', 'service_name', 'service_sid', 'service_process_id',
+    'configured_caller_sid', 'authenticated_client_sha256', 'captured_client_process_id', 'registration_sha256',
+    'target_admitted_sha256', 'publisher_image_sha256', 'volume_guid_root', 'root_file_id', 'volume_serial',
+    'reviewed_plan_digest', 'reviewed_plan_snapshot_sha256', 'transaction_id'}
 
 
 def require(condition, message):
@@ -85,6 +89,54 @@ def reconcile_client_capture(client, capture):
             'authenticated client differs from the independently captured primary account/session')
     return {'process_id': client['captured_process_id'], 'user_sid': client['user_sid'],
             'authentication_id': client['authentication_id'], 'scope': 'account_session_and_captured_pipe_pid'}
+
+
+def validate_operation_admission(prepared):
+    """Retained bindings only; a null private legacy record has no route admission."""
+    admission = prepared['operation_admission']
+    if admission is None:
+        return False
+    closed(admission, OPERATION_KEYS, 'registered operation admission keys differ')
+    execution = prepared['execution_phases'][0]['execution']
+    client, service = execution['authenticated_client'], execution['service']
+    source, anchors = prepared['source_binding'], prepared['protected_anchors']
+    require(admission['schema'] == 'usk.publisher_operation_admission.v1' and
+        admission['scope'] == 'live_registered_request_and_held_volume_before_effects' and
+        admission['route'] == 'registered_service_admitted_production' and
+        admission['service_name'] == service['service_name'] and admission['service_sid'] == prepared['service_sid'] and
+        integer(admission['service_process_id'], 1) and admission['service_process_id'] == service['process_id'] and
+        admission['configured_caller_sid'] == client['user_sid'] and
+        integer(admission['captured_client_process_id'], 1) and
+        admission['captured_client_process_id'] == client['captured_process_id'] and
+        admission['authenticated_client_sha256'] == canonical_sha(client) and
+        admission['root_file_id'] == anchors['boundary']['file_id'] and
+        integer(admission['volume_serial'], 0, 0xffffffffffffffff) and admission['volume_serial'] == prepared['volume_serial'] and
+        admission['reviewed_plan_digest'] == source['reviewed_plan_digest'] and
+        admission['reviewed_plan_snapshot_sha256'] == source['reviewed_plan_snapshot_sha256'] and
+        isinstance(admission['transaction_id'], str) and
+        re.fullmatch(r'[A-Za-z0-9._-]{1,128}', admission['transaction_id']),
+        'registered operation admission differs from native phase, target or reviewed source')
+    require(all(isinstance(admission[key], str) and re.fullmatch(r'[0-9a-f]{64}', admission[key]) for key in
+                ('registration_sha256', 'target_admitted_sha256', 'publisher_image_sha256')) and
+        isinstance(admission['volume_guid_root'], str) and re.fullmatch(
+            r'\\\\\?\\Volume\{[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\}\\', admission['volume_guid_root']),
+        'registered operation admission provenance or volume GUID differs')
+    return True
+
+
+def reconcile_registered_operation(prepared, native_registration):
+    require(validate_operation_admission(prepared), 'registered public path cannot promote null private admission')
+    admission, target = prepared['operation_admission'], native_registration['target_identity']['volume_identity']
+    expected = {'service_name': native_registration['service_name'], 'service_sid': native_registration['service_sid'],
+        'service_process_id': native_registration['process_id'],
+        'configured_caller_sid': native_registration['configured_caller_sid'],
+        'registration_sha256': native_registration['registration_sha256'],
+        'target_admitted_sha256': native_registration['target_admitted_sha256'],
+        'publisher_image_sha256': native_registration['publisher_image']['sha256'],
+        'volume_guid_root': target['volume_root'], 'root_file_id': target['root_file_id'], 'volume_serial': target['volume_serial']}
+    require(all(admission[key] == value for key, value in expected.items()),
+            'public operation admission differs from independently retained native registration')
+    return expected
 
 
 def descriptor_facts(encoded):

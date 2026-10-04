@@ -6,7 +6,8 @@ import hashlib
 import struct
 import unittest
 
-from publisher_authenticated_access_evidence import RIGHTS, descriptor_facts, reconcile_client_capture, validate_client
+from publisher_authenticated_access_evidence import (RIGHTS, descriptor_facts, reconcile_client_capture,
+    reconcile_registered_operation, validate_client, validate_operation_admission)
 from publisher_execution_evidence import EvidenceError, canonical_sha, reconcile
 from test_publisher_execution_evidence import BUILD, SDK, SERVICE, SID, encode
 from test_publisher_native_profile_evidence import CLIENT, descriptor, profile_fixture
@@ -15,6 +16,7 @@ from test_publisher_native_profile_evidence import CLIENT, descriptor, profile_f
 def authenticated_fixture():
     prepared, visible, _ = profile_fixture()
     prepared['schema'] = visible['schema'] = 'usk.publisher.lab_phase_evidence.v8'
+    prepared['operation_admission'] = None
     client = {'schema': 'usk.publisher_authenticated_client_observation.v1',
         'scope': 'held_authenticated_identification_token', 'captured_process_id': 101,
         'user_sid': CLIENT, 'token_type': 2, 'impersonation_level': 1,
@@ -36,6 +38,29 @@ def authenticated_fixture():
                 'checks': {name: {'requested': value, 'allowed': False, 'granted': 0} for name, value in RIGHTS.items()}}
     visible['prepared_record_sha256'] = hashlib.sha256(encode(prepared).encode()).hexdigest()
     return prepared, visible, client
+
+
+def registered_fixture():
+    prepared, visible, client = authenticated_fixture()
+    prepared['source_binding'].update(reviewed_plan_digest='a' * 64, reviewed_plan_snapshot_sha256='b' * 64)
+    service = prepared['execution_phases'][0]['execution']['service']
+    admission = {'schema': 'usk.publisher_operation_admission.v1',
+        'scope': 'live_registered_request_and_held_volume_before_effects',
+        'route': 'registered_service_admitted_production', 'service_name': SERVICE, 'service_sid': SID,
+        'service_process_id': service['process_id'], 'configured_caller_sid': CLIENT,
+        'authenticated_client_sha256': canonical_sha(client), 'captured_client_process_id': client['captured_process_id'],
+        'registration_sha256': 'c' * 64, 'target_admitted_sha256': 'd' * 64, 'publisher_image_sha256': 'e' * 64,
+        'volume_guid_root': '\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}\\',
+        'root_file_id': prepared['protected_anchors']['boundary']['file_id'], 'volume_serial': prepared['volume_serial'],
+        'reviewed_plan_digest': 'a' * 64, 'reviewed_plan_snapshot_sha256': 'b' * 64, 'transaction_id': 'tx.native'}
+    prepared['operation_admission'] = admission
+    visible['prepared_record_sha256'] = hashlib.sha256(encode(prepared).encode()).hexdigest()
+    registration = {'service_name': SERVICE, 'service_sid': SID, 'process_id': service['process_id'],
+        'configured_caller_sid': CLIENT, 'registration_sha256': 'c' * 64, 'target_admitted_sha256': 'd' * 64,
+        'publisher_image': {'sha256': 'e' * 64}, 'target_identity': {'volume_identity': {
+            'volume_root': admission['volume_guid_root'], 'root_file_id': admission['root_file_id'],
+            'volume_serial': admission['volume_serial']}}}
+    return prepared, visible, registration
 
 
 class AuthenticatedAccessTests(unittest.TestCase):
@@ -96,6 +121,33 @@ class AuthenticatedAccessTests(unittest.TestCase):
                 changed[field] = principal if field == 'user_sid' else [{'sid': principal, 'attributes': 7}]
                 with self.subTest(principal=principal, field=field), self.assertRaises(ValueError):
                     validate_client(changed)
+
+    def test_registered_operation_is_bound_to_native_target_plan_and_original_worker(self):
+        prepared, visible, registration = registered_fixture()
+        self.assertTrue(validate_operation_admission(prepared))
+        self.assertEqual(reconcile_registered_operation(prepared, registration)['root_file_id'],
+                         prepared['protected_anchors']['boundary']['file_id'])
+        result = reconcile(encode(prepared), encode(visible), SERVICE, SID, BUILD, SDK)
+        self.assertTrue(result['registered_operation_bound'])
+        self.assertIs(result['profile_qualified'], False)
+        for field, replacement in [('service_process_id', 9999), ('captured_client_process_id', 9998),
+            ('root_file_id', '0' * 49), ('volume_serial', 0), ('reviewed_plan_digest', '0' * 64),
+            ('authenticated_client_sha256', '0' * 64), ('transaction_id', 'bad/id')]:
+            changed = copy.deepcopy(prepared)
+            changed['operation_admission'][field] = replacement
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_operation_admission(changed)
+        changed = copy.deepcopy(registration)
+        changed['publisher_image']['sha256'] = '0' * 64
+        with self.assertRaises(ValueError):
+            reconcile_registered_operation(prepared, changed)
+
+    def test_private_authenticated_phase_cannot_be_promoted_to_registered_admission(self):
+        prepared, _, _ = authenticated_fixture()
+        _, _, registration = registered_fixture()
+        self.assertFalse(validate_operation_admission(prepared))
+        with self.assertRaises(ValueError):
+            reconcile_registered_operation(prepared, registration)
 
 
 if __name__ == '__main__':

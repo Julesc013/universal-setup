@@ -1611,6 +1611,10 @@ static std::string require_held_publisher_evidence(
     const auto completion = json::parse(evidence.completion_record);
     const auto& binding = prepared.at("source_binding");
     require_candidate_publisher_execution_records(prepared, bound, evidence.service_name, service.service_sid);
+    if (prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v8" &&
+        json::canonical(prepared.at("operation_admission")) != "null" &&
+        prepared.at("operation_admission").at("transaction_id").as_string() != snapshot.at("transaction_id").as_string())
+        throw std::runtime_error("publisher operation admission transaction differs from the durable snapshot");
     if ((prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v2" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v3" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v4" &&

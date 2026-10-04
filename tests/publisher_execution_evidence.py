@@ -264,7 +264,8 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
     rights_bound = metadata_bound or prepared.get("schema") == RIGHTS_SCHEMA
     rename_bound = rights_bound or prepared.get("schema") == RENAME_SCHEMA
     creation_bound = prepared.get("schema") in ("usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA)
-    closed(prepared, PREPARED_KEYS | ({"creation_evidence"} if creation_bound else set()),
+    closed(prepared, PREPARED_KEYS | ({"creation_evidence"} if creation_bound else set()) |
+           ({'operation_admission'} if authenticated_bound else set()),
            "prepared native execution record keys differ")
     require(prepared["schema"] in (SCHEMA, "usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA) and prepared["phase"] == "lab_prepared_evidence" and
             prepared["service_sid"] == service_sid and
@@ -364,6 +365,11 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
     if authenticated_bound:
         report['authenticated_access_objects_checked'] = sum(len(x['handles']) for x in executions)
         report['authenticated_actor_scope'] = 'actual_request_client_per_worker'
+        from publisher_authenticated_access_evidence import validate_operation_admission
+        try:
+            report['registered_operation_bound'] = validate_operation_admission(prepared)
+        except (ValueError, KeyError, TypeError) as error:
+            raise EvidenceError('registered operation binding differs: ' + str(error)) from error
     return report
 
 

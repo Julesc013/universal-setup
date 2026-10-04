@@ -337,7 +337,7 @@ def reconcile(receipt, expected_head):
                 require(report.get('same_handle_objects_checked') == 35,
                     'current standard producer requires all seven same-handle security objects per phase')
             if prepared_schema == 'usk.publisher.lab_phase_evidence.v8':
-                from publisher_authenticated_access_evidence import reconcile_client_capture
+                from publisher_authenticated_access_evidence import reconcile_client_capture, reconcile_registered_operation
                 require(report.get('authenticated_access_objects_checked') == 35,
                         'current standard producer requires authenticated access for every held phase role')
                 phases = json.loads(prepared[0])['execution_phases'] + json.loads(visible[0])['execution_phases']
@@ -349,6 +349,21 @@ def reconcile(receipt, expected_head):
                         reconcile_client_capture(actual_client, matched[0])
                     except (ValueError, KeyError, TypeError) as error:
                         raise StandardEvidenceError('authenticated phase client capture differs: ' + str(error)) from error
+                retained_prepared = json.loads(prepared[0])
+                first_client = phases[0]['execution']['authenticated_client']
+                original = [capture for capture in captures if capture['process_id'] == first_client['captured_process_id']]
+                native_apply = [entry for entry in native_captures if entry['command'] == 'install_local.apply' and
+                                entry['request_id'] == original[0]['request_id']]
+                require(len(native_apply) == 1 and report.get('registered_operation_bound') is True,
+                        'registered public path requires the original native apply admission')
+                native = load_json(native_apply[0]['native_json'])
+                try:
+                    reconcile_registered_operation(retained_prepared, native['registered_admission'])
+                    require(retained_prepared['operation_admission']['transaction_id'] ==
+                            native['apply_response']['payload']['transaction_id'],
+                            'registered operation transaction differs from native public completion')
+                except (ValueError, KeyError, TypeError) as error:
+                    raise StandardEvidenceError('registered public operation admission differs: ' + str(error)) from error
         require(report == readback["execution_reconciliation"], "standard embedded native reconciliation differs")
         reports.append(report)
     if native_captures is not None:

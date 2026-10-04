@@ -281,6 +281,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             if (service_admitted_client) {
                 registered_admission = std::make_unique<usk::platform::windows::RegisteredPublisherAdmission>(
                     service_name, volume_root, authorized_client_sid);
+                config.registered_admission=registered_admission.get();
             }
             const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
             if (grant_client_read || admit_client_observer)

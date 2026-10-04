@@ -9,6 +9,7 @@
 #include <optional>
 namespace usk::platform::windows {
 class PublisherRequestChannel;
+class RegisteredPublisherAdmission;
 // Private candidate host configuration. This is not a public SDK capability.
 // Live SCM/token and held-volume observations precede any execution. The lab
 // hook provisions its independently admitted disposable boundary only; apply
@@ -38,6 +39,7 @@ struct CandidatePublisherConfiguration {
     // Borrowed private channel; the host owns it across execution and reply.
     // Its authenticated identification token never enters configuration JSON.
     const PublisherRequestChannel* authenticated_request=nullptr;
+    const RegisteredPublisherAdmission* registered_admission=nullptr;
     std::function<void(HANDLE,const std::string&)> prepare_disposable_boundary;
 };
 class StaleReviewedInstallRequest final : public std::runtime_error {
