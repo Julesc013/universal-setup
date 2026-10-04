@@ -13,6 +13,7 @@
 #include <winioctl.h>
 
 #include "usk_publisher_registration.h"
+#include "usk_publisher_execution_observation.h"
 #include "usk_publisher_data_partition.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -2085,7 +2086,7 @@ usk::json::Value RegisteredPublisherAdmission::evidence() const {
     return state_->admission_evidence;
 }
 
-usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id) const {
+usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id, bool scoped_profile) const {
     using usk::json::Value;
     const auto admitted = evidence();
     const auto observed = observe_current_restricted_publisher_service(state_->name);
@@ -2096,7 +2097,7 @@ usk::json::Value RegisteredPublisherAdmission::capability_observation(const std:
     const auto& volume = target.at("volume_identity");
     // These are retained controller-admission bindings, with the current disk
     // identity checked by admission. They do not assert fresh boundary ACLs.
-    return Value(Value::Object{
+    auto result = Value(Value::Object{
         {"schema", Value("usk.publisher_capability.v2")}, {"request_id", Value(request_id)},
         {"provider_id", Value("windows_nt_x64_local_ntfs_service_sid_noreplace_v1")},
         {"implementation", Value("partial")}, {"realization", Value("restricted_service")},
@@ -2125,6 +2126,26 @@ usk::json::Value RegisteredPublisherAdmission::capability_observation(const std:
             {"volume_guid_root", volume.at("volume_root")},
             {"root_file_id", volume.at("root_file_id")},
             {"volume_serial", volume.at("volume_serial")}})}});
+    if (scoped_profile) {
+        // Qualified source-path bounds, not a grant from a query or a claim
+        // about historical records. All operation checks still precede effects.
+        const auto actual = observe_publisher_execution_platform();
+        const bool qualified = publisher_registered_execution_platform_qualified(actual);
+        auto& fields = result.as_object();
+        fields.at("schema") = Value("usk.publisher_capability.v3");
+        fields.at("availability") = Value(qualified);
+        fields.at("qualification") = Value(qualified ? "qualified_for_scope" : "incomplete");
+        fields.at("support") = Value(qualified ? "supported_for_scope" : "unsupported");
+        fields.at("qualification_scope") = Value("registered_public_apply_v9_process_restart_replay_verify");
+        fields.at("recovery_ceiling") = Value("source_free_process_restart_v9");
+        fields.at("platform").as_object().emplace("sdk_version", actual.at("sdk_version"));
+        fields.emplace("qualification_bounds", Value(Value::Object{
+            {"phase_schema", Value("usk.publisher.lab_phase_evidence.v9")},
+            {"execution_schema", Value("usk.publisher_execution_observation.v6")},
+            {"sdk_version", Value("10.0.26100.0")},
+            {"qualified_windows_build", Value(std::uint64_t{20348})}}));
+    }
+    return result;
 }
 
 std::string submit_registered_publisher_request(const std::wstring& name,
@@ -2145,8 +2166,9 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         const auto submitted = usk::json::parse(request, limits);
         schema = submitted.at("schema").as_string();
         if (schema == "usk.publisher_capability_request.v1" ||
-            schema == "usk.publisher_capability_request.v2") {
-            service_observation = schema == "usk.publisher_capability_request.v2";
+            schema == "usk.publisher_capability_request.v2" ||
+            schema == "usk.publisher_capability_request.v3") {
+            service_observation = schema != "usk.publisher_capability_request.v1";
             inspection_id = submitted.at("request_id").as_string();
             if (submitted.as_object().size() != 2 || inspection_id.empty() || inspection_id.size() > 128 ||
                 inspection_id.find_first_not_of(

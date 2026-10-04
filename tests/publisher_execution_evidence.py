@@ -37,6 +37,7 @@ RENAME_SCHEMA = "usk.publisher.lab_phase_evidence.v5"
 RIGHTS_SCHEMA = "usk.publisher.lab_phase_evidence.v6"
 METADATA_SCHEMA = "usk.publisher.lab_phase_evidence.v7"
 AUTHENTICATED_SCHEMA = "usk.publisher.lab_phase_evidence.v8"
+DESCENDANT_SCHEMA = "usk.publisher.lab_phase_evidence.v9"
 RENAME_KEYS = frozenset({"schema", "api", "source_file_id", "destination_parent_file_id", "destination_component",
     "former_name", "visible_name", "destination_absence_status", "information_class", "information_bytes",
     "file_name_bytes", "replace_if_exists", "native_status", "io_status", "clock", "start_tick", "end_tick", "frequency",
@@ -111,8 +112,10 @@ def object_bindings(anchors: dict, tree: dict) -> tuple[str, ...]:
 
 
 def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_name: str,
-                   service_sid: str, windows_build: int, sdk_version: str) -> dict:
-    closed(value, frozenset({"execution", "protected_anchors_sha256", "tree_sha256"}),
+                   service_sid: str, windows_build: int, sdk_version: str,
+                   descendants_bound: bool = False) -> dict:
+    closed(value, frozenset({"execution", "protected_anchors_sha256", "tree_sha256"}) |
+           ({'authenticated_descendants'} if descendants_bound else set()),
            "native phase binding keys differ")
     require(value["protected_anchors_sha256"] == canonical_sha(anchors) and
             value["tree_sha256"] == canonical_sha(tree), "native phase canonical binding differs")
@@ -223,6 +226,13 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
                 validate_access(handle['authenticated_access'], execution['authenticated_client'], expected_object)
             except (ValueError, KeyError, TypeError, struct.error) as error:
                 raise EvidenceError('authenticated phase access differs: ' + str(error)) from error
+    if descendants_bound:
+        require(authenticated_bound, 'descendant access requires an authenticated execution')
+        from publisher_authenticated_access_evidence import validate_descendant_access
+        try:
+            validate_descendant_access(value['authenticated_descendants'], execution['authenticated_client'], tree)
+        except (ValueError, KeyError, TypeError, struct.error) as error:
+            raise EvidenceError('authenticated descendant access differs: ' + str(error)) from error
     return execution
 
 
@@ -250,6 +260,23 @@ def record_continuity(earlier: dict, later: dict) -> None:
         worker_match(earlier, later)
 
 
+def descendant_continuity(earlier: dict, later: dict) -> None:
+    if earlier['execution']['phase'] == 'protected_empty':
+        return
+    first, second = earlier['authenticated_descendants']['objects'], later['authenticated_descendants']['objects']
+    require(len(first) == len(second), 'authenticated descendant phase closure changed')
+    old_service, new_service = earlier['execution']['service'], later['execution']['service']
+    same_worker = all(old_service[key] == new_service[key] for key in ('process_id', 'token_id'))
+    for before_row, after_row in zip(first, second):
+        require(before_row['relative_path'] == after_row['relative_path'], 'authenticated descendant phase path changed')
+        before, after = before_row['authenticated_access'], dict(after_row['authenticated_access'])
+        require(all(before[key] == after[key] for key in ('descriptor_api', 'descriptor_hex', 'observed_group_sid')),
+                'authenticated descendant descriptor changed across phases')
+        if same_worker:
+            after['native_object_sha256'] = before['native_object_sha256']
+            require(before == after, 'authenticated descendant access changed within one worker')
+
+
 def reconcile(prepared_json: str, visible_json: str | None, service_name: str, service_sid: str,
               windows_build: int, sdk_version: str) -> dict:
     require(isinstance(service_name, str) and re.fullmatch(r"USK_PUB_[0-9a-f]{32}", service_name) is not None and
@@ -259,15 +286,16 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
             17763 <= int(sdk_version.split(".")[2]) <= 0xFFFFFFFF, "independent execution context is invalid")
     prepared = load_json(prepared_json)
     require(isinstance(prepared, dict), "prepared native record is not an object")
-    authenticated_bound = prepared.get('schema') == AUTHENTICATED_SCHEMA
+    descendants_bound = prepared.get('schema') == DESCENDANT_SCHEMA
+    authenticated_bound = descendants_bound or prepared.get('schema') == AUTHENTICATED_SCHEMA
     metadata_bound = authenticated_bound or prepared.get('schema') == METADATA_SCHEMA
     rights_bound = metadata_bound or prepared.get("schema") == RIGHTS_SCHEMA
     rename_bound = rights_bound or prepared.get("schema") == RENAME_SCHEMA
-    creation_bound = prepared.get("schema") in ("usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA)
+    creation_bound = prepared.get("schema") in ("usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA, DESCENDANT_SCHEMA)
     closed(prepared, PREPARED_KEYS | ({"creation_evidence"} if creation_bound else set()) |
            ({'operation_admission'} if authenticated_bound else set()),
            "prepared native execution record keys differ")
-    require(prepared["schema"] in (SCHEMA, "usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA) and prepared["phase"] == "lab_prepared_evidence" and
+    require(prepared["schema"] in (SCHEMA, "usk.publisher.lab_phase_evidence.v4", RENAME_SCHEMA, RIGHTS_SCHEMA, METADATA_SCHEMA, AUTHENTICATED_SCHEMA, DESCENDANT_SCHEMA) and prepared["phase"] == "lab_prepared_evidence" and
             prepared["service_sid"] == service_sid and
             prepared["source_file_id"] == prepared["sealed_tree"]["root"]["file_id"] and
             prepared["destination_parent_file_id"] == prepared["protected_anchors"]["destination_parent"]["file_id"],
@@ -283,13 +311,15 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
         if name == "protected_empty":
             tree = dict(tree, descendants=[])
         executions.append(validate_phase(value, name, prepared["protected_anchors"], tree,
-                                         service_name, service_sid, windows_build, sdk_version))
+                                         service_name, service_sid, windows_build, sdk_version, descendants_bound))
         require(not rights_bound or executions[-1]['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5', 'usk.publisher_execution_observation.v6'),
                 "current prepared evidence requires actual held-handle rights")
         require(not metadata_bound or executions[-1]['schema'] == ('usk.publisher_execution_observation.v6' if authenticated_bound else 'usk.publisher_execution_observation.v5'),
                 'current prepared evidence requires same-handle security facts')
         if len(executions) > 1:
             worker_match(executions[-2], executions[-1])
+            if descendants_bound:
+                descendant_continuity(phases[len(executions) - 2], value)
     creation = None
     if creation_bound:
         require(fresh, "reopened staging cannot claim current-worker creation")
@@ -326,14 +356,18 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
         for value, name in zip(phases, names):
             tree = prepared["sealed_tree"] if name == "before_rename" else visible["visible_tree"]
             visible_executions.append(validate_phase(value, name, visible["protected_anchors"], tree,
-                service_name, service_sid, windows_build, sdk_version))
+                service_name, service_sid, windows_build, sdk_version, descendants_bound))
             require(not rights_bound or visible_executions[-1]['schema'] in ('usk.publisher_execution_observation.v4', 'usk.publisher_execution_observation.v5', 'usk.publisher_execution_observation.v6'),
                     "current visible evidence requires actual held-handle rights")
             require(not metadata_bound or visible_executions[-1]['schema'] == ('usk.publisher_execution_observation.v6' if authenticated_bound else 'usk.publisher_execution_observation.v5'),
                     'current visible evidence requires same-handle security facts')
             if len(visible_executions) > 1:
                 worker_match(visible_executions[-2], visible_executions[-1])
+                if descendants_bound:
+                    descendant_continuity(phases[len(visible_executions) - 2], value)
         record_continuity(executions[-1], visible_executions[0])
+        if descendants_bound:
+            descendant_continuity(prepared['execution_phases'][-1], phases[0])
         if renamed and rename_bound and visible['rename_call']['schema'] == 'usk.publisher_bound_rename_call.v2':
             call = visible['rename_call']
             handles = visible_executions[0]['handles']
@@ -370,6 +404,11 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
             report['registered_operation_bound'] = validate_operation_admission(prepared)
         except (ValueError, KeyError, TypeError) as error:
             raise EvidenceError('registered operation binding differs: ' + str(error)) from error
+    if descendants_bound:
+        bound_phases = prepared['execution_phases'] + (visible['execution_phases'] if visible_json is not None else [])
+        report['authenticated_descendant_objects_checked'] = sum(
+            len(phase['authenticated_descendants']['objects']) for phase in bound_phases)
+        report['descendant_access_scope'] = 'fresh_descriptor_and_request_token_no_content_rehash'
     return report
 
 

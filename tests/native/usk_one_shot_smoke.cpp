@@ -217,6 +217,54 @@ bool service_capability_checks()
         if (unknown.exit_code != 5 || usk::json::parse(unknown.document).at("status").as_string() != "unknown")
             return false;
     }
+    auto profile_request=usk::json::parse(request);
+    profile_request.as_object().at("payload").as_object().at("schema")=Value("usk.publisher_capability_request.v3");
+    const auto profile_input=usk::json::canonical(profile_request);
+    auto profile_response=response;
+    auto& profile=profile_response.as_object().at("capability_observation").as_object();
+    profile.at("schema")=Value("usk.publisher_capability.v3");
+    profile.at("availability")=Value(true);
+    profile.at("qualification")=Value("qualified_for_scope");
+    profile.at("support")=Value("supported_for_scope");
+    profile.at("qualification_scope")=Value("registered_public_apply_v9_process_restart_replay_verify");
+    profile.at("recovery_ceiling")=Value("source_free_process_restart_v9");
+    profile.at("platform").as_object().emplace("sdk_version",Value("10.0.26100.0"));
+    profile.emplace("qualification_bounds",Value(Value::Object{
+        {"phase_schema",Value("usk.publisher.lab_phase_evidence.v9")},
+        {"execution_schema",Value("usk.publisher_execution_observation.v6")},
+        {"sdk_version",Value("10.0.26100.0")},{"qualified_windows_build",Value(std::uint64_t{20348})}}));
+    if (usk::command::run_publisher_one_shot(profile_input,[&](const std::string&) {
+        return usk::json::canonical(profile_response);}).exit_code != 0) return false;
+    if (usk::command::run_candidate_one_shot(profile_input,[&](const std::string&) {
+        return usk::json::canonical(profile_response);}).exit_code != 0) return false;
+    if (usk::command::run_publisher_one_shot(profile_input,[&](const std::string&) {
+        return usk::json::canonical(response);}).exit_code != 5) return false;
+    if (usk::command::run_publisher_one_shot(request,[&](const std::string&) {
+        return usk::json::canonical(profile_response);}).exit_code != 5) return false;
+    for (int mode=0; mode<7; ++mode) {
+        auto invalid=profile_response;
+        auto& fields=invalid.as_object().at("capability_observation").as_object();
+        if (mode==0) fields.at("execution_lease_held")=Value(true);
+        if (mode==1) fields.at("power_loss_qualified")=Value(true);
+        if (mode==2) fields.at("authority")=Value("granted");
+        if (mode==3) fields.at("qualification_bounds").as_object().at("phase_schema")=Value("usk.publisher.lab_phase_evidence.v8");
+        if (mode==4) fields.at("qualification_bounds").as_object().emplace("unbound",Value(true));
+        if (mode==5) fields.at("platform").as_object().at("sdk_version")=Value("10.0.22621.0");
+        if (mode==6) fields.at("platform").as_object().at("windows_build")=Value(std::uint64_t{22621});
+        if (usk::command::run_publisher_one_shot(profile_input,[&](const std::string&) {
+            return usk::json::canonical(invalid);}).exit_code != 5) return false;
+    }
+    for (int mode=0; mode<2; ++mode) {
+        auto unavailable=profile_response;
+        auto& fields=unavailable.as_object().at("capability_observation").as_object();
+        fields.at("availability")=Value(false);
+        fields.at("qualification")=Value("incomplete");
+        fields.at("support")=Value("unsupported");
+        if (mode==0) fields.at("platform").as_object().at("sdk_version")=Value("10.0.22621.0");
+        if (mode==1) fields.at("platform").as_object().at("windows_build")=Value(std::uint64_t{22621});
+        if (usk::command::run_publisher_one_shot(profile_input,[&](const std::string&) {
+            return usk::json::canonical(unavailable);}).exit_code != 0) return false;
+    }
     const auto lost=usk::command::run_publisher_one_shot(request,
         [](const std::string&) -> std::string {throw std::runtime_error("lost service observation reply");});
     return lost.exit_code==5 && usk::json::parse(lost.document).at("error").at("code").as_string()==

@@ -23,6 +23,9 @@ struct PublisherPhaseHandle {
 // An observation is not admission of that process as a service.
 usk::json::Value observe_publisher_execution_platform();
 void require_publisher_execution_platform(const usk::json::Value& value);
+// Exact current production profile; historical observation parsing retains
+// its floor validator. A supplied observation alone grants no authority.
+bool publisher_registered_execution_platform_qualified(const usk::json::Value& value);
 
 // Fresh SCM/process-token, runtime platform, actual held-handle and process
 // owner/DACL facts. Token/thread security, object creation history and already
@@ -37,6 +40,9 @@ usk::json::Value observe_publisher_execution_phase(
 // that its control flags equal GetKernelObjectSecurity protection flags.
 void require_publisher_authenticated_object_access(const usk::json::Value& access,
     const usk::json::Value& client, const usk::json::Value& object);
+
+void require_publisher_authenticated_descendant_access(const usk::json::Value& access,
+    const usk::json::Value& client, const usk::json::Value& tree);
 
 // Closed retained evidence validation. The supplied bindings come from the
 // independently validated native anchor/tree record, never from this object.

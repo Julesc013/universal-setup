@@ -27,7 +27,7 @@ public:
     usk::json::Value evidence() const;
     // Service-mediated observation may activate SCM and acquire the controller
     // guard. It reads admission facts without dispatching installation effects.
-    usk::json::Value capability_observation(const std::string& request_id) const;
+    usk::json::Value capability_observation(const std::string& request_id, bool scoped_profile = false) const;
 private:
     struct State;
     std::unique_ptr<State> state_;

@@ -63,7 +63,54 @@ def registered_fixture():
     return prepared, visible, registration
 
 
+def descendant_fixture():
+    prepared, visible, _ = registered_fixture()
+    prepared['schema'] = visible['schema'] = 'usk.publisher.lab_phase_evidence.v9'
+    for phase in prepared['execution_phases'] + visible['execution_phases']:
+        execution = phase['execution']
+        tree = visible['visible_tree'] if execution['phase'] == 'visible_bound' else prepared['sealed_tree']
+        descendants = [] if execution['phase'] == 'protected_empty' else tree['descendants']
+        rows = []
+        for descendant in descendants:
+            access = copy.deepcopy(execution['handles'][6]['authenticated_access'])
+            access['native_object_sha256'] = canonical_sha(descendant['object'])
+            rows.append({'relative_path': descendant['relative_path'], 'authenticated_access': access})
+        phase['authenticated_descendants'] = {'schema': 'usk.publisher_authenticated_descendant_access.v1',
+            'scope': 'fresh_held_descriptors_for_bound_tree_no_content_rehash',
+            'client_sha256': canonical_sha(execution['authenticated_client']), 'objects': rows}
+    visible['prepared_record_sha256'] = hashlib.sha256(encode(prepared).encode()).hexdigest()
+    return prepared, visible
+
+
 class AuthenticatedAccessTests(unittest.TestCase):
+    def test_complete_descendant_phases_keep_content_and_access_scopes_separate(self):
+        prepared, visible = descendant_fixture()
+        result = reconcile(encode(prepared), encode(visible), SERVICE, SID, BUILD, SDK)
+        self.assertEqual(result['authenticated_access_objects_checked'], 35)
+        self.assertEqual(result['authenticated_descendant_objects_checked'], 4)
+        self.assertEqual(result['descendant_access_scope'], 'fresh_descriptor_and_request_token_no_content_rehash')
+        self.assertTrue(result['registered_operation_bound'])
+        self.assertFalse(result['profile_qualified'])
+
+    def test_descendant_closure_identity_caller_and_mutation_grants_are_required(self):
+        prepared, _ = descendant_fixture()
+        for change in ('missing', 'extra', 'path', 'object', 'client', 'grant', 'maximum', 'omitted', 'downgrade'):
+            changed = copy.deepcopy(prepared)
+            phase = changed['execution_phases'][1]
+            collection = phase['authenticated_descendants']
+            row = collection['objects'][0]
+            if change == 'missing': collection['objects'] = []
+            elif change == 'extra': collection['objects'].append(copy.deepcopy(row))
+            elif change == 'path': row['relative_path'] = 'other.bin'
+            elif change == 'object': row['authenticated_access']['native_object_sha256'] = '0' * 64
+            elif change == 'client': collection['client_sha256'] = '0' * 64
+            elif change == 'grant': row['authenticated_access']['checks']['delete'].update(allowed=True, granted=65536)
+            elif change == 'maximum': row['authenticated_access']['checks']['maximum_allowed'].update(allowed=True, granted=2)
+            elif change == 'omitted': del phase['authenticated_descendants']
+            elif change == 'downgrade': changed['schema'] = 'usk.publisher.lab_phase_evidence.v8'
+            with self.subTest(change=change), self.assertRaises(EvidenceError):
+                reconcile(encode(changed), None, SERVICE, SID, BUILD, SDK)
+
     def test_complete_phase_bindings_preserve_api_normalization_and_scope(self):
         prepared, visible, _ = authenticated_fixture()
         result = reconcile(encode(prepared), encode(visible), SERVICE, SID, BUILD, SDK)
@@ -72,6 +119,15 @@ class AuthenticatedAccessTests(unittest.TestCase):
         self.assertIs(result['profile_qualified'], False)
         access = prepared['execution_phases'][0]['execution']['handles'][0]['authenticated_access']
         self.assertEqual(descriptor_facts(access['descriptor_hex'])['api_control'], 0x8004)
+
+    def test_descendant_descriptor_group_drift_is_not_hidden_by_per_phase_consistency(self):
+        prepared, _ = descendant_fixture()
+        access = prepared['execution_phases'][2]['authenticated_descendants']['objects'][0]['authenticated_access']
+        raw = bytearray.fromhex(descriptor('S-1-5-18'))
+        struct.pack_into('<H', raw, 2, 0x8004)
+        access.update(observed_group_sid='S-1-5-18', descriptor_hex=raw.hex())
+        with self.assertRaisesRegex(EvidenceError, 'descriptor changed across phases'):
+            reconcile(encode(prepared), None, SERVICE, SID, BUILD, SDK)
 
     def test_descriptor_bounds_bindings_and_access_grants_are_checked(self):
         prepared, _, _ = authenticated_fixture()

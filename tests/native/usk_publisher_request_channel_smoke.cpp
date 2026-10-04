@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_execution_observation.h"
+#include "usk_publisher_tree_observation.h"
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
@@ -89,9 +90,14 @@ void test_service_observation_transport_binding() {
     const std::string request = R"({"schema":"usk.publisher_capability_request.v2","request_id":"observe.one"})";
     // These leaf objects exercise transport binding only. The command validator
     // separately requires the complete capability and admission contracts.
-    const std::string response = R"({"schema":"usk.publisher_service_capability_observation.v1","status":"observed","request_id":"observe.one","service_name":"USK_PUB_0123456789abcdef0123456789abcdef","service_sid":"S-1-5-80-1-2-3-4-5","process_id":123,"registered_admission":{},"capability_observation":{}})";
+    const std::string response = R"({"schema":"usk.publisher_service_capability_observation.v1","status":"observed","request_id":"observe.one","service_name":"USK_PUB_0123456789abcdef0123456789abcdef","service_sid":"S-1-5-80-1-2-3-4-5","process_id":123,"registered_admission":{},"capability_observation":{"schema":"usk.publisher_capability.v2"}})";
     require_publisher_response_binding(service, request, response);
     require_publisher_response_binding(service, request, response, 123);
+    const auto v3_request = replaced(request, "request.v2", "request.v3");
+    const auto v3_response = replaced(response, "capability.v2", "capability.v3");
+    require_publisher_response_binding(service, v3_request, v3_response, 123);
+    refuses([&] { require_publisher_response_binding(service, v3_request, response, 123); });
+    refuses([&] { require_publisher_response_binding(service, request, v3_response, 123); });
     refuses([&] { require_publisher_response_binding(service, request, response, 124); });
     refuses([&] { require_publisher_response_binding(service, request,
         replaced(response, "observe.one", "observe.stale")); });
@@ -112,7 +118,7 @@ void test_service_observation_transport_binding() {
     refuses([&] { require_publisher_response_binding(service, request,
         replaced(response, "\"registered_admission\":{}", "\"registered_admission\":null")); });
     refuses([&] { require_publisher_response_binding(service, request,
-        replaced(response, "\"capability_observation\":{}", "\"capability_observation\":{},\"extra\":true")); });
+        replaced(response, "\"capability_observation\":{", "\"extra\":true,\"capability_observation\":{")); });
     refuses([&] { require_publisher_response_binding(service,
         R"({"schema":"usk.install_local_apply_request.v1","transaction_id":"tx.apply","plan_request":{"install_id":"install.one"}})", response); });
     refuses([&] { require_publisher_response_binding(service,
@@ -135,10 +141,13 @@ std::wstring current_sid() {
 }
 class OwnedAccessDirectory {
 public:
-    explicit OwnedAccessDirectory(const std::wstring& sid) {
+    explicit OwnedAccessDirectory(const std::wstring& sid, bool full_access = false) {
+        static std::atomic<unsigned> sequence{0};
         path_ = std::filesystem::temp_directory_path() /
-            (L"usk-authenticated-access-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
-        const std::wstring sddl = L"O:" + sid + L"D:P(A;;0x001300a9;;;" + sid + L")";
+            (L"usk-authenticated-access-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(sequence.fetch_add(1)));
+        const std::wstring sddl = L"O:" + sid + L"D:P(A;;" +
+            (full_access ? L"FA" : L"0x001300a9") + L";;;" + sid + L")";
         PSECURITY_DESCRIPTOR descriptor = nullptr;
         require(ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1,
             &descriptor, nullptr) != FALSE, "owned access descriptor unavailable");
@@ -147,7 +156,7 @@ public:
         LocalFree(descriptor);
         require(created, "owned access directory creation failed");
         created_ = true;
-        handle_ = CreateFileW(path_.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+        handle_ = CreateFileW(path_.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (handle_ == INVALID_HANDLE_VALUE) {
@@ -163,9 +172,33 @@ public:
     OwnedAccessDirectory(const OwnedAccessDirectory&) = delete;
     OwnedAccessDirectory& operator=(const OwnedAccessDirectory&) = delete;
     HANDLE get() const { return handle_; }
+    const std::filesystem::path& path() const { return path_; }
 private:
     std::filesystem::path path_;
     HANDLE handle_ = INVALID_HANDLE_VALUE;
+    bool created_ = false;
+};
+class OwnedAccessFile {
+public:
+    explicit OwnedAccessFile(const std::filesystem::path& path) : path_(path) {
+        HANDLE file = CreateFileW(path_.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        require(file != INVALID_HANDLE_VALUE, "owned access file creation failed");
+        created_ = true;
+        DWORD written = 0;
+        const bool okay = WriteFile(file, "abc", 3, &written, nullptr) != FALSE && written == 3;
+        const bool closed = CloseHandle(file) != FALSE;
+        if (!okay || !closed) {
+            DeleteFileW(path_.c_str());
+            created_ = false;
+            throw std::runtime_error("owned access file write failed");
+        }
+    }
+    ~OwnedAccessFile() { if (created_) DeleteFileW(path_.c_str()); }
+    OwnedAccessFile(const OwnedAccessFile&) = delete;
+    OwnedAccessFile& operator=(const OwnedAccessFile&) = delete;
+private:
+    std::filesystem::path path_;
     bool created_ = false;
 };
 std::thread raw_client(const std::wstring& name, const std::string& message,
@@ -231,6 +264,29 @@ int main() {
                 "actual authenticated access check lost allowed/denied distinction");
             const auto client_facts = access.at("client");
             const auto native_object = access.at("native_object");
+            using namespace usk::platform::windows;
+            const auto empty_tree = observe_publisher_tree(directory.get());
+            const auto empty_access = observe_publisher_authenticated_descendant_access(
+                directory.get(), empty_tree, *channel, client_facts);
+            require(empty_access.at("objects").as_array().empty(), "empty authenticated closure gained descendants");
+            auto wrong_client = client_facts;
+            wrong_client.as_object().at("token_id") = usk::json::Value(std::uint64_t{0});
+            refuses([&] { (void)observe_publisher_authenticated_descendant_access(
+                directory.get(), empty_tree, *channel, wrong_client); });
+            OwnedAccessDirectory writable(sid, true);
+            OwnedAccessFile file(writable.path() / L"payload.bin");
+            const auto file_tree = observe_publisher_tree(writable.get());
+            const auto file_access = observe_publisher_authenticated_descendant_access(
+                writable.get(), file_tree, *channel, client_facts);
+            require(file_access.at("objects").as_array().size() == 1 &&
+                file_access.at("objects").as_array().front().at("relative_path").as_string() == "payload.bin" &&
+                file_access.at("objects").as_array().front().at("authenticated_access").at("checks")
+                    .at("write_or_add_file").at("allowed").as_boolean(),
+                "actual owned-file descriptor access lost the granted mutation control");
+            auto incomplete_tree = file_tree;
+            incomplete_tree.descendants.clear();
+            refuses([&] { (void)observe_publisher_authenticated_descendant_access(
+                writable.get(), incomplete_tree, *channel, client_facts); });
             auto compact = access;
             compact.as_object().erase("client");
             compact.as_object().erase("native_object");
@@ -254,6 +310,8 @@ int main() {
             refuses([&] { (void)channel->observe_authenticated_object_access(INVALID_HANDLE_VALUE); });
             refuses([&] { channel->receive(); });
             channel->reply("completed");
+            refuses([&] { (void)observe_publisher_authenticated_descendant_access(
+                writable.get(), file_tree, *channel, client_facts); });
             refuses([&] { (void)channel->observe_authenticated_object_access(directory.get()); });
             refuses([&] { channel->reply("duplicate"); });
             channel->wait_for_client_disconnect();

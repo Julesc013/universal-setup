@@ -126,6 +126,32 @@ int main() {
         check(platform.at("windows_build").as_unsigned() >= 17763 &&
             platform.at("sdk_version").as_string().compare(0, 5, "10.0.") == 0,
             "actual Windows build and selected build SDK were not bound");
+        auto qualified_platform = platform;
+        auto& qualified_fields = qualified_platform.as_object();
+        qualified_fields.at("native_arch") = usk::json::Value("x64");
+        qualified_fields.at("process_arch") = usk::json::Value("x64");
+        qualified_fields.at("major_version") = usk::json::Value(std::uint64_t{10});
+        qualified_fields.at("minor_version") = usk::json::Value(std::uint64_t{0});
+        qualified_fields.at("windows_build") = usk::json::Value(std::uint64_t{20348});
+        qualified_fields.at("sdk_version") = usk::json::Value("10.0.26100.0");
+        check(usk::platform::windows::publisher_registered_execution_platform_qualified(qualified_platform),
+            "exact registered production tuple was refused");
+        for (int mode = 0; mode < 8; ++mode) {
+            auto unsupported = qualified_platform;
+            auto& fields = unsupported.as_object();
+            if (mode == 0) fields.at("windows_build") = usk::json::Value(std::uint64_t{22621});
+            if (mode == 1) fields.at("sdk_version") = usk::json::Value("10.0.22621.0");
+            if (mode == 2) fields.at("process_arch") = usk::json::Value("x86");
+            if (mode == 3) fields.at("major_version") = usk::json::Value(std::uint64_t{11});
+            if (mode == 4) fields.at("sdk_version") = usk::json::Value("");
+            if (mode == 5) fields.emplace("unbound", usk::json::Value(true));
+            if (mode == 6) fields.at("windows_build") = usk::json::Value(true);
+            if (mode == 7) fields.at("native_arch") = usk::json::Value("unsupported");
+            check(!usk::platform::windows::publisher_registered_execution_platform_qualified(unsupported),
+                "unqualified registered production tuple was admitted");
+            if (mode < 2)
+                usk::platform::windows::require_publisher_execution_platform(unsupported);
+        }
         const std::string service_sid =
             "S-1-5-80-3180180915-1861177297-4117424284-3321057921-2519428456";
 #if defined(_WIN64)

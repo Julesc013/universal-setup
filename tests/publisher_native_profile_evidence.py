@@ -144,7 +144,7 @@ def project(prepared_json, visible_json, snapshot, service_name, context, source
         source_provenance['route'] == ROUTE and
         source_provenance['no_export_basis'] == 'reviewed_selected_route_source_argument', 'native source review/image binding differs')
     prepared, visible = load_json(prepared_json), load_json(visible_json) if visible_json is not None else None
-    require(prepared['schema'] in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8'),
+    require(prepared['schema'] in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'),
             'native profile projection requires current same-handle metadata')
     first_execution = prepared['execution_phases'][0]['execution']
     execution_report = reconcile(prepared_json, visible_json, service_name, context.service_sid,
@@ -173,8 +173,8 @@ def project(prepared_json, visible_json, snapshot, service_name, context, source
         tokens['initiating']['user_sid'] == tokens['filtered']['user_sid'],
         'native access token/account binding differs')
     if context.actor_profile == 'initiating_and_unrelated_login':
-        require(tokens['unrelated']['token_type'] == 2 and sid(tokens['unrelated']['user_sid']) and
-            tokens['unrelated']['user_sid'] != tokens['initiating']['user_sid'], 'unrelated login actor binding differs')
+        from publisher_actor_evidence import reconcile_unrelated_login
+        reconcile_unrelated_login(snapshot, context.service_sid)
     checks = {value['native_object']['file_id']: value for value in checked['objects']}
     require(len(checks) == len(objects) and set(checks) == {obj['file_id'] for obj in objects},
         'native phase descriptor identities alias or omit objects')
