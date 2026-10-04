@@ -173,7 +173,8 @@ function Invoke-StandardPublicSystemTask {
     $startBinding=Join-Path $LabRoot ($taskName+'.started.json')
     $quote={param([string]$value) "'"+$value.Replace("'","''")+"'"}
     $probe=Join-Path $PSScriptRoot 'windows_publisher_standard_public_probe.ps1'
-    $python=(Get-Command python -CommandType Application -ErrorAction Stop).Source
+    $python=(Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+    if(-not [IO.Path]::IsPathRooted($python) -or -not [IO.File]::Exists($python)){throw 'Owned standard Python interpreter is unavailable'}
     $body=@('$ErrorActionPreference=''Stop''',
         '$env:GITHUB_ACTIONS=''true''', '$env:RUNNER_ENVIRONMENT=''github-hosted''',
         ('$env:RUNNER_TEMP='+(& $quote $env:RUNNER_TEMP)),
