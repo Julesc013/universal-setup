@@ -698,6 +698,10 @@ void require_visible_execution_phase(const usk::json::Value& bound,
         }
         require_native_execution_phase(phases.back(), "visible_bound", service_sid,
             bound.at("protected_anchors"), bound.at("visible_tree"), expected_service_name);
+        const auto& prepared_phases = prepared.at("execution_phases").as_array();
+        if (prepared_phases.empty()) throw std::runtime_error("prepared native execution record is empty");
+        usk::platform::windows::require_publisher_execution_record_continuity(
+            prepared_phases.back().at("execution"), phases.front().at("execution"));
     } else if (bound.contains("execution_phases") || bound.contains("execution_transition")) {
         throw std::runtime_error("legacy visible record cannot claim a native execution phase");
     }

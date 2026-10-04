@@ -1775,3 +1775,107 @@ transition context. Synthetic controls verify the complete native-layout trace,
 wrong parents, aliases, missing coverage and an incorrectly moved staging
 anchor. This corrects the mapping, without supplying absent native profile
 predicates or treating a synthetic trace as publisher qualification.
+
+### Primary-token defaults and thread-policy integration candidate
+
+The same source feature now observes stored kernel-object OWNER/DACL facts
+for the current primary token and every thread returned for the publisher's
+own process by bracketed Toolhelp snapshots. Each thread query handle is
+non-inheritable and remains held through the repeated population and descriptor
+readback; process ownership, thread ID, creation time and non-exited status are
+checked. These handles are never exported. Token ID, authentication ID and
+modified ID bind the observed token to the independently corroborated SCM
+worker. The token's default owner and default DACL are observed as well.
+Every held thread is also queried for an attached impersonation token at both
+readbacks; only ERROR_NO_TOKEN is admitted. An existing token, access denial,
+anonymous-token error or any other indeterminate result refuses the observation.
+The retained thread facts require an explicit false impersonation state.
+
+Outside allow ACEs may grant only object-specific query/security-read rights.
+Token duplication, adjustment, assignment and impersonation rights, thread
+mutation rights, and owner/security mutation grants fail the policy. Outside
+default-DACL grants are restricted to READ_CONTROL, avoiding interpretation of
+generic or object-specific rights under a guessed future object mapping.
+Mutation-capable owners and grants remain limited to the excluded SYSTEM and
+administrator principals, actual publisher service SID and enabled publisher
+logon identity. Unknown ACE forms, NULL DACLs and incomplete thread populations
+are refused. No descriptor is changed by the observer.
+
+Fresh execution v3 and creation v3 records retain these worker-security facts
+alongside the process boundary. Creation rechecks them around each native
+create and binds the original facts to the first prepared phase. Retained
+readers preserve execution/creation v1/v2, but prohibit a new certificate from
+dropping the original execution's stronger binding. Same-worker phases and
+prepared/visible records preserve the complete security observation. Restart
+workers are independently validated without rewriting the original creator.
+The independent reconciliation distinguishes fully worker-bound phase counts
+and creation binding; fresh hosted fixtures require those stronger records.
+
+These are stored access policies and bracketed observations. Thread snapshots
+are not atomic; neither they nor current DACLs establish absence of previously
+exported capabilities or continuous protection throughout process history.
+Hosted worker-security qualification, complete native ProfileEvidence/model
+reconciliation and admission, standard-account public dispatch, supported
+target qualification and the outstanding recovery/lease predicates remain
+part of the existing finite publisher obligations. OD-001, profile availability
+and release acceptance are unchanged.
+
+### Accepted native creation graph and process-boundary candidate
+
+PR #224 qualified the selected hosted native creation observations at source
+`8e6a40c7227d7746025f12c5c8bb15eddc7306db`, integrated at
+`0c6c4a84db2fb50e35faf7dd492792ce5e9e8fd5`. Exact-head CI run
+`37174140222` passed all seven jobs. Independent reconciliation preserved the
+existing public installation, source-free recovery and retained-refusal checks
+and matched nine created objects per fixture across 24 native readbacks
+(216 graph bindings). Both worker-loss cases preserved the original creator
+certificate. Artifacts `11291764910`, `11292209049` and `11292169410` retain
+the ordinary, loss and refusal receipts. Their source tree matches the head;
+publisher-library and service-executable project digests bind separate build
+targets to the selected SDK. Every reconciliation retains `profile_qualified`
+as false. Full profile admission and standard-account dispatch remain open.
+
+The next candidate adds read-only OWNER/DACL observations of the actual worker
+process. Its policy accepts mutation-capable ownership or allow ACEs only for
+excluded SYSTEM/administrators and the independently bound publisher service
+or enabled publisher logon identity. Other allow ACEs grant only process or
+security identity-query rights. It rejects null DACLs, unsupported ACEs,
+untrusted ownership and any additional process rights for outside principals.
+An ordinary native control reads only its own process security; synthetic
+policy controls do not establish service admission or Windows qualification.
+
+Fresh execution observations use closed v2 records with the process boundary
+before and after each publication phase. Native create capture checks the same
+boundary before and after each successful create and seals it in a v2 creation
+certificate bound to the original prepared worker. Within one worker, a change
+or record downgrade refuses the binding. Restart retains the original birth
+boundary and observes its new worker separately. Readers preserve accepted v1
+execution/creation records and private v1/v2/v3/v4 phase records. Independent
+decoding distinguishes process-bound phase counts and checks the birth binding;
+the public hosted fixture requires the new facts for every fresh phase.
+
+This candidate's process observation describes stored process access policy.
+Primary-token access, token default DACL, thread security, already exported
+capabilities and uninterrupted provenance remain separate predicates. The
+candidate is not hosted-qualified and changes no availability, support,
+OD-001 resolution or release acceptance.
+
+### Bounded worker thread collection repair
+
+PR #225 head `ca349bb647a6fefc260307fd37d96b85ab6f0866` passed the
+selected x64 public installation, both worker-loss recoveries and both
+retained-refusal cases in run `37180022353`. Their 24 readbacks reconciled
+95 worker-security phase bindings. The run failed its Win32 own-process
+control because the thread population changed during observation; the log
+does not identify the direction of that change. This head is not
+merge-qualified.
+
+The repair extends the read-only collection for newly discovered owned
+threads, retaining every earlier handle and original fact. Each of at most
+four rounds rechecks all held thread identities, liveness, stored security
+and absence of attached tokens. Lost threads, changed facts, indeterminate
+observations or continued churn refuse. Success requires a stable final
+population. Existing native assertions and publication phase equalities
+remain required. Exact-head Win32 and hosted qualification are pending.
+The observation remains bracketed and does not establish an atomic census
+or capture transient threads between snapshots.

@@ -3,6 +3,8 @@
 
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_handle_observation.h"
+#include "usk_publisher_process_boundary.h"
+#include "usk_publisher_worker_security.h"
 
 #if defined(_WIN32)
 #include <algorithm>
@@ -166,6 +168,11 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
     const std::vector<PublisherPhaseHandle>& handles) {
     require(handles.size() == roles.size(), "publisher execution requires the seven distinct held roles");
     const auto before = observe_current_restricted_publisher_service(service_name);
+    const auto process_before = observe_current_publisher_process_boundary();
+    require_publisher_process_boundary(process_before, before.process_id, before.service_sid,
+        before.token.process_groups);
+    const auto security_before = observe_current_publisher_worker_security();
+    require_publisher_worker_security(security_before, before);
     const auto platform = observe_publisher_execution_platform();
     require_platform(platform);
     Value::Array observations;
@@ -183,12 +190,20 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
         bindings.emplace_back(item.role, item.expected_file_id);
     }
     const auto after = observe_current_restricted_publisher_service(service_name);
+    const auto process_after = observe_current_publisher_process_boundary();
+    require_publisher_process_boundary(process_after, after.process_id, after.service_sid,
+        after.token.process_groups);
+    const auto security_after = observe_current_publisher_worker_security();
+    require_publisher_worker_security(security_after, after);
     require(usk::json::canonical(service_json(before)) == usk::json::canonical(service_json(after)) &&
+        usk::json::canonical(process_before) == usk::json::canonical(process_after) &&
+        usk::json::canonical(security_before) == usk::json::canonical(security_after) &&
         usk::json::canonical(platform) == usk::json::canonical(observe_publisher_execution_platform()),
         "publisher execution service, process token or platform changed during observation");
-    Value result(Value::Object{{"schema", Value("usk.publisher_execution_observation.v1")},
-        {"scope", Value("supplied_held_service_handles")}, {"phase", Value(phase)},
-        {"platform", platform}, {"service", service_json(after)}, {"handles", Value(std::move(observations))}});
+    Value result(Value::Object{{"schema", Value("usk.publisher_execution_observation.v3")},
+        {"scope", Value("supplied_held_service_handles_and_worker_security")}, {"phase", Value(phase)},
+        {"platform", platform}, {"service", service_json(after)}, {"handles", Value(std::move(observations))},
+        {"process_boundary", process_after}, {"worker_security", security_after}});
     require_publisher_execution_phase(result, service_name, after.service_sid, phase, bindings);
     return result;
 }
@@ -196,9 +211,12 @@ Value observe_publisher_execution_phase(const std::wstring& service_name, const 
 void require_publisher_execution_phase(const Value& value, const std::wstring& service_name,
     const std::string& service_sid, const std::string& phase,
     const std::vector<std::pair<std::string, std::string>>& object_bindings) {
-    require(value.as_object().size() == 6 &&
-        value.at("schema").as_string() == "usk.publisher_execution_observation.v1" &&
-        value.at("scope").as_string() == "supplied_held_service_handles" &&
+    const bool worker_bound = value.at("schema").as_string() == "usk.publisher_execution_observation.v3";
+    const bool process_bound = worker_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v2";
+    require(value.as_object().size() == (worker_bound ? 8u : process_bound ? 7u : 6u) &&
+        (process_bound || value.at("schema").as_string() == "usk.publisher_execution_observation.v1") &&
+        value.at("scope").as_string() == (worker_bound ? "supplied_held_service_handles_and_worker_security" :
+            process_bound ? "supplied_held_service_handles_and_process_owner_dacl" : "supplied_held_service_handles") &&
         value.at("phase").as_string() == phase &&
         (phase == "protected_empty" || phase == "sealed" || phase == "publish_prepared" ||
             phase == "before_rename" || phase == "visible_bound"),
@@ -206,7 +224,7 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
     require_platform(value.at("platform"));
     const auto& service = value.at("service");
     const auto pid = service.at("process_id").as_unsigned();
-    const PublisherTokenObservation token{service.at("process_user_sid").as_string(),
+    PublisherTokenObservation token{service.at("process_user_sid").as_string(),
         parse_groups(service.at("process_groups")), parse_groups(service.at("process_restricted_sids")),
         service.at("thread_impersonating").as_boolean()};
     require(service.as_object().size() == 14 && service.at("service_name").as_string() == ascii_service_name(service_name) &&
@@ -216,9 +234,19 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
         service.at("service_state").as_unsigned() == SERVICE_RUNNING && pid > 0 && pid <= 0xffffffffu &&
         service.at("token_type").as_unsigned() == TokenPrimary &&
         has_restricted_publisher_token_facts(token, service_sid), "publisher execution retained service identity is invalid");
+    if (process_bound) require_publisher_process_boundary(value.at("process_boundary"),
+        static_cast<std::uint32_t>(pid), service_sid, token.process_groups);
     for (const auto* key : {"token_id", "authentication_id", "modified_id"}) {
         const auto& id = service.at(key).as_string();
         require(hex(id, 16) && id != "0000000000000000", "publisher execution retained token identity is invalid");
+    }
+    if (worker_bound) {
+        token.identity = {std::stoull(service.at("token_id").as_string(), nullptr, 16),
+            std::stoull(service.at("authentication_id").as_string(), nullptr, 16),
+            std::stoull(service.at("modified_id").as_string(), nullptr, 16), TokenPrimary};
+        const PublisherServiceObservation observed{service_name, service_sid, SERVICE_SID_TYPE_RESTRICTED,
+            SERVICE_WIN32_OWN_PROCESS, SERVICE_RUNNING, static_cast<std::uint32_t>(pid), token};
+        require_publisher_worker_security(value.at("worker_security"), observed);
     }
     const auto& handles = value.at("handles").as_array();
     require(handles.size() == roles.size() && object_bindings.size() == roles.size(),
@@ -239,9 +267,31 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
 }
 
 void require_publisher_execution_worker_match(const Value& earlier, const Value& later) {
-    for (const auto* key : {"platform", "service", "handles"}) {
+    for (const auto* key : {"schema", "scope", "platform", "service", "handles"}) {
         require(usk::json::canonical(earlier.at(key)) == usk::json::canonical(later.at(key)),
             "publisher execution worker or held object identity changed between phases");
+    }
+    require(earlier.contains("process_boundary") == later.contains("process_boundary"),
+        "publisher execution process boundary disappeared between phases");
+    if (earlier.contains("process_boundary")) {
+        require(usk::json::canonical(earlier.at("process_boundary")) ==
+            usk::json::canonical(later.at("process_boundary")),
+            "publisher execution process owner/DACL changed between phases");
+    }
+    require(earlier.contains("worker_security") == later.contains("worker_security"),
+        "publisher execution worker security disappeared between phases");
+    if (earlier.contains("worker_security")) {
+        require(usk::json::canonical(earlier.at("worker_security")) ==
+            usk::json::canonical(later.at("worker_security")),
+            "publisher execution token/default/thread security changed between phases");
+    }
+}
+void require_publisher_execution_record_continuity(const Value& earlier, const Value& later) {
+    const auto& first = earlier.at("service");
+    const auto& second = later.at("service");
+    if (first.at("process_id").as_unsigned() == second.at("process_id").as_unsigned() &&
+        first.at("token_id").as_string() == second.at("token_id").as_string()) {
+        require_publisher_execution_worker_match(earlier, later);
     }
 }
 } // namespace usk::platform::windows

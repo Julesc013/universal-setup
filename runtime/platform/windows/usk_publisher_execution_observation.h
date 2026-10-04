@@ -23,9 +23,9 @@ struct PublisherPhaseHandle {
 usk::json::Value observe_publisher_execution_platform();
 void require_publisher_execution_platform(const usk::json::Value& value);
 
-// Fresh SCM/process-token, runtime platform and actual held-handle facts.
-// This covers the supplied service-owned handles only. It does not establish
-// object creation history or enumerate capabilities outside the service.
+// Fresh SCM/process-token, runtime platform, actual held-handle and process
+// owner/DACL facts. Token/thread security, object creation history and already
+// exported capabilities are separate predicates, not inferred here.
 usk::json::Value observe_publisher_execution_phase(
     const std::wstring& service_name, const std::string& phase,
     const std::vector<PublisherPhaseHandle>& handles);
@@ -40,6 +40,12 @@ void require_publisher_execution_phase(
     const std::vector<std::pair<std::string, std::string>>& object_bindings);
 
 void require_publisher_execution_worker_match(
+    const usk::json::Value& earlier, const usk::json::Value& later);
+
+// Both phases must already be independently validated. A retained prepared
+// and visible record from the same observed process/primary-token identity
+// must retain the complete worker binding; restart identities are separate.
+void require_publisher_execution_record_continuity(
     const usk::json::Value& earlier, const usk::json::Value& later);
 } // namespace usk::platform::windows
 #endif

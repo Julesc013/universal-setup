@@ -541,10 +541,14 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $executionResult=& python -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $executionInput
     if($LASTEXITCODE -ne 0){throw 'Independent native execution record reconciliation failed'}
     $executionReport=($executionResult -join "`n")|ConvertFrom-Json
-    if($executionReport.schema -cne 'usk.publisher_execution_reconciliation.v2' -or
+    if($executionReport.schema -cne 'usk.publisher_execution_reconciliation.v4' -or
         $executionReport.status -cne 'bindings_consistent' -or $executionReport.profile_qualified -ne $false -or
         $executionReport.held_roles_per_phase -ne 7 -or
-        $executionReport.creation_observation.schema -cne 'usk.publisher_creation_reconciliation.v1' -or
+        $executionReport.process_bound_phase_count -ne $executionReport.phase_count -or
+        $executionReport.worker_security_phase_count -ne $executionReport.phase_count -or
+        $executionReport.creation_observation.schema -cne 'usk.publisher_creation_reconciliation.v3' -or
+        $executionReport.creation_observation.process_boundary_checked -ne $true -or
+        $executionReport.creation_observation.worker_security_checked -ne $true -or
         $executionReport.creation_observation.status -cne 'bindings_consistent' -or
         $executionReport.creation_observation.profile_qualified -ne $false -or
         $executionReport.creation_observation.created_object_count -lt 6) {
