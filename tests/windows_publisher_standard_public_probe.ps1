@@ -127,12 +127,32 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
         if((Get-Item -LiteralPath $stdout).Length -gt 4MB -or (Get-Item -LiteralPath $stderr).Length -gt 64KB -or
             ($ExpectedExit -eq 0 -and $diagnostic.Length) -or
             ($ExpectedExit -ne 0 -and $diagnostic -cnotmatch '^usk_machine: request refused\r?\n?$')) {throw 'Standard client output differs'}
-        $result=[IO.File]::ReadAllText($stdout)|ConvertFrom-Json
-        if($exit -ne $ExpectedExit -or $result.schema -cne 'usk.oneshot_response.v1' -or $result.request_id -cne $requestId -or
-            ($ExpectedExit -eq 0 -and ($result.status -cne 'ok' -or $result.result.status -cne 'ok'))) {throw 'Standard public response binding differs'}
+        $responseText=[IO.File]::ReadAllText($stdout)
+        $receipt['last_response_diagnostic']=[ordered]@{command=$Command;request_id=$requestId;exit_code=$exit;
+            stdout_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant();
+            stdout_prefix=$responseText.Substring(0,[Math]::Min(8192,$responseText.Length))}
+        $result=$responseText|ConvertFrom-Json
+        $responseMatches=$exit -eq $ExpectedExit -and $result.schema -ceq 'usk.oneshot_response.v1' -and
+            $result.request_id -ceq $requestId -and
+            ($ExpectedExit -ne 0 -or ($result.status -ceq 'ok' -and $result.result.status -ceq 'ok'))
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
+        if(-not $responseMatches) {
+            # Diagnose the measured failure using the same held client tokens.
+            # Partial rows are retained evidence only, never a successful install.
+            $script:observersClosed=$false
+            $diagnostic=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
+                -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
+                -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
+                -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number
+            $receipt['failed_request_readback']=$diagnostic
+            if(-not $diagnostic.observer_task_removed -or $diagnostic.independent.observer_token_handles_closed -ne $true){
+                throw 'Failed-request diagnostic observer closure is unconfirmed'
+            }
+            $script:observersClosed=$true
+            throw ('Standard public response binding differs: command='+$Command+' exit='+$exit+' status='+$result.status)
+        }
         if((Read-ServicePolicy|ConvertTo-Json -Depth 16 -Compress) -cne ($receipt.service_policy|ConvertTo-Json -Depth 16 -Compress)) {throw 'Service access policy changed across standard dispatch'}
         return $result
     } finally {
