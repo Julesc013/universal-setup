@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_consumer_access.h"
+#include "usk_publisher_metadata.h"
 #if defined(_WIN32)
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_security_descriptor.h"
@@ -66,6 +67,7 @@ std::size_t grant_publisher_consumer_read(HANDLE visible,
         single.root = before;
         (void)publisher_consumer_read_projection(single, service_sid, consumer_sid);
         if (before.dacl_aces.size() == 2) {
+            require_current_publisher_effect_fence();
             const DWORD error = SetSecurityInfo(object, SE_FILE_OBJECT,
                 DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
                 nullptr, nullptr, dacl, nullptr);

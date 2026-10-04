@@ -68,10 +68,13 @@ public:
     PublisherInstallOperationGuard(const PublisherInstallOperationGuard&) = delete;
     PublisherInstallOperationGuard& operator=(const PublisherInstallOperationGuard&) = delete;
     bool previous_owner_abandoned() const noexcept { return previous_owner_abandoned_; }
+    void require_owned(const std::wstring& volume_guid_root, const std::string& install_id) const;
 
 private:
     HANDLE mutex_ = nullptr;
     bool previous_owner_abandoned_ = false;
+    DWORD owner_thread_ = 0;
+    std::wstring name_;
 };
 
 } // namespace usk::platform::windows

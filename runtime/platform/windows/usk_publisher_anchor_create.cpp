@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_anchor_create.h"
+#include "usk_publisher_metadata.h"
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_tree_observation.h"
@@ -84,6 +85,7 @@ static HANDLE create_relative_with_descriptor(
     const ULONG file_attributes = directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
     const ULONG share_access = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
     const auto creation_parent = prepare_publisher_creation_observation(parent, descriptor);
+    require_current_publisher_effect_fence();
     const NTSTATUS outcome = nt_create(&created, access,
         &attributes, &io, nullptr,
         file_attributes, share_access, create_only,

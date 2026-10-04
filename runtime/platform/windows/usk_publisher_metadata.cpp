@@ -28,6 +28,7 @@
 namespace fs = std::filesystem;
 namespace usk::platform::windows {
 namespace {
+thread_local const std::function<void()>* effect_fence = nullptr;
 class OwnedHandle {
 public:
     explicit OwnedHandle(HANDLE handle) : handle_(handle) {
@@ -59,7 +60,17 @@ void require_boundary_rights(const PublisherHandleObservation& boundary,
     require_publisher_object_security_shape(boundary, service_sid);
 }
 
-void publish_record(HANDLE file, HANDLE parent, const std::wstring& name,
+} // namespace
+
+ScopedPublisherEffectFence::ScopedPublisherEffectFence(const std::function<void()>& check) {
+    if (effect_fence || !check) throw std::runtime_error("publisher effect fence scope is unavailable");
+    check();
+    effect_fence = &check;
+}
+ScopedPublisherEffectFence::~ScopedPublisherEffectFence() { effect_fence = nullptr; }
+void require_current_publisher_effect_fence() { if (effect_fence) (*effect_fence)(); }
+
+void publish_publisher_record_no_replace(HANDLE file, HANDLE parent, const std::wstring& name,
     const std::string& service_sid) {
     const auto before_file = observe_publisher_file_handle(file);
     const auto before_parent = observe_publisher_directory_handle(parent);
@@ -71,6 +82,7 @@ void publish_record(HANDLE file, HANDLE parent, const std::wstring& name,
     if (!rename) throw std::runtime_error("metadata native rename is unavailable");
     PublisherRenameInformation information(parent, name);
     IO_STATUS_BLOCK io{};
+    require_current_publisher_effect_fence();
     const NTSTATUS status = rename(file, &io, information.data(), information.size(),
         static_cast<FILE_INFORMATION_CLASS>(10)); // FileRenameInformation, ReplaceIfExists=false.
     if (status != 0 || io.Status != 0) {
@@ -90,7 +102,6 @@ void publish_record(HANDLE file, HANDLE parent, const std::wstring& name,
     }
     if (!FlushFileBuffers(file)) throw std::runtime_error("metadata published record flush failed");
 }
-} // namespace
 
 struct PublisherMetadataSession::Impl {
     HANDLE volume;
@@ -206,13 +217,14 @@ struct PublisherMetadataSession::Impl {
         while (offset < content.size()) {
             const DWORD requested = static_cast<DWORD>(std::min<std::size_t>(64u * 1024u, content.size() - offset));
             DWORD written = 0;
+            require_current_publisher_effect_fence();
             if (!WriteFile(file.get(), content.data() + offset, requested, &written, nullptr) || written != requested) {
                 throw std::runtime_error("protected metadata pending write failed");
             }
             offset += written;
         }
         if (!FlushFileBuffers(file.get())) throw std::runtime_error("protected metadata pending flush failed");
-        publish_record(file.get(), parent, name, service_sid);
+        publish_publisher_record_no_replace(file.get(), parent, name, service_sid);
     }
 
     void publish_initialized_root() {

@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T19:52:49Z",
+  "generated_at": "2026-10-04T21:14:44Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -52,11 +52,11 @@
     "OD-008"
   ],
   "counts": {
-    "absent": 48,
+    "absent": 46,
     "implemented": 29,
-    "outside_selected_release": 0,
-    "partial": 63,
-    "unverified": 4
+    "partial": 65,
+    "unverified": 4,
+    "outside_selected_release": 0
   },
   "requirements": [
     {
@@ -870,7 +870,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -994,7 +994,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -2497,21 +2497,61 @@
       "requirement_id": "USK-R-LEASE-001",
       "title": "Reject stale worker",
       "spec_id": "USK-S-LEASE",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "Closed ownership generations and a native restricted-service append-only journal bind actual state-root identity and process birth time. Registered install/recovery paths install before-effect fences at native creation, content write, rename, metadata publication and consumer grant. Live/unknown holders refuse transfer; recovery of ended/reused holders and explicit terminal handoff advance the generation. Native journal/service restart and stale-context qualification remain unfinished; no automatic timed takeover or qualified lease capability is claimed.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
       },
       "source_observations": [
         {
-          "path": "runtime/setup/transaction/README.md",
-          "sha256": "3a9368787ede8dafdf42507475d16efebbca2654d92588335a12666b51925d9b"
+          "path": "runtime/setup/transaction/usk_install_lease.h",
+          "sha256": "c6b099b7619fba5e1bc4b2635d05e13cbc45a7b91afd5801f49f565cc1872de5"
         },
         {
-          "path": "runtime/setup/transaction/usk_replacement_session.cpp",
-          "sha256": "d833a6bdc5f18ed171156d994ba09f7b7dc5be1034fa16e99acf730627bd4dd5"
+          "path": "runtime/setup/transaction/usk_install_lease.cpp",
+          "sha256": "42049fb791ebac262d8079deecb0e46b4672cb3b1aeb704324fbc506903093cb"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
+          "sha256": "40e55112663e70e7064ab8bec4dcf85027eef4c5421f3e76525413e9f9206d5d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
+          "sha256": "0376d4823e651947ec8659ce7f77409b4d0e722f5e0e55192ae45c35f8b48b2e"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
+          "sha256": "8694db203c1878b131bcf739f791288396dccfc1eeae83d4849bd05f282c23c6"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
+          "sha256": "053184f65174829971fdae7a7695d0ca30b45bc8ba49419a0a40898908bb0017"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.h",
+          "sha256": "6973fde0881310295a5e6e355f7fda94644032c865962177b8d80aceb0222992"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
+          "sha256": "573b55cf4aa1fe2fcffa5a0121ba3d3d9c45b89aff39f2f06f13ee469967b1cb"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
+          "sha256": "8458d7a140a1f6b15caefb4975c2940fa07c80a58664ccce84d26ac28c219843"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_lab_service.cpp",
+          "sha256": "b7d52b9f116db054c8c157463b66317525cf22677ae1a744b06004d52854013d"
+        },
+        {
+          "path": "tests/native/usk_install_lease_smoke.cpp",
+          "sha256": "262218ccdfbf226497d7b8dddd389247d54fd2ea04b8a5ba58f9bcdfb42bee97"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
+          "sha256": "1acd0933fa91b83b72567e735adbfe0ada6d4103ff00649b63fb38b453112e64"
         }
       ],
       "acceptance_ids": [
@@ -2530,35 +2570,59 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Registered publisher volume and per-install acquisition support bounded optional wait budgets and service cancellation; ready cancellation precedes lock acquisition and timeout preserves a live holder. Production calls retain a fail-fast budget. Durable holder inspection, revision fencing and a structured public conflicting-operation result remain unfinished.",
+      "note": "Volume and per-install acquisition have bounded optional waits and borrowed service cancellation; ready cancellation wins and timeout preserves a live holder. Production remains fail-fast. Guard ownership is bound to installation and owning thread; the service emits structured operation conflict/cancellation codes. Native process tests cover live and ended holders, and an old recorded birth time is classified independently of the actual current birth. Connected public conflict/deadline qualification remains unfinished.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
       },
       "source_observations": [
         {
-          "path": "runtime/setup/transaction/README.md",
-          "sha256": "3a9368787ede8dafdf42507475d16efebbca2654d92588335a12666b51925d9b"
+          "path": "runtime/setup/transaction/usk_install_lease.h",
+          "sha256": "c6b099b7619fba5e1bc4b2635d05e13cbc45a7b91afd5801f49f565cc1872de5"
         },
         {
-          "path": "runtime/setup/transaction/usk_replacement_session.cpp",
-          "sha256": "d833a6bdc5f18ed171156d994ba09f7b7dc5be1034fa16e99acf730627bd4dd5"
+          "path": "runtime/setup/transaction/usk_install_lease.cpp",
+          "sha256": "42049fb791ebac262d8079deecb0e46b4672cb3b1aeb704324fbc506903093cb"
         },
         {
-          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
-          "sha256": "d828b265148918d754e07e0896936aad6d1116f28b806c31539ed9aa1fc0d9ca"
+          "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
+          "sha256": "40e55112663e70e7064ab8bec4dcf85027eef4c5421f3e76525413e9f9206d5d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
+          "sha256": "0376d4823e651947ec8659ce7f77409b4d0e722f5e0e55192ae45c35f8b48b2e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
-          "sha256": "a7f84aef46aef53afdf1499d2624d4043bdb4f4c8a220e55aeb9c6ca647a2ab6"
+          "sha256": "8694db203c1878b131bcf739f791288396dccfc1eeae83d4849bd05f282c23c6"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
+          "sha256": "053184f65174829971fdae7a7695d0ca30b45bc8ba49419a0a40898908bb0017"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.h",
+          "sha256": "6973fde0881310295a5e6e355f7fda94644032c865962177b8d80aceb0222992"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
+          "sha256": "573b55cf4aa1fe2fcffa5a0121ba3d3d9c45b89aff39f2f06f13ee469967b1cb"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "3177ac9bcbb0138ab1d281bf2844aee849d0af65a5816ac14092332831e06291"
+          "sha256": "8458d7a140a1f6b15caefb4975c2940fa07c80a58664ccce84d26ac28c219843"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_lab_service.cpp",
+          "sha256": "b7d52b9f116db054c8c157463b66317525cf22677ae1a744b06004d52854013d"
+        },
+        {
+          "path": "tests/native/usk_install_lease_smoke.cpp",
+          "sha256": "262218ccdfbf226497d7b8dddd389247d54fd2ea04b8a5ba58f9bcdfb42bee97"
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "391b28dc871d4319e7f93b58c1a2b307f31c3c475003254562a255313383b0e2"
+          "sha256": "1acd0933fa91b83b72567e735adbfe0ada6d4103ff00649b63fb38b453112e64"
         }
       ],
       "acceptance_ids": [
@@ -2575,21 +2639,61 @@
       "requirement_id": "USK-R-LEASE-003",
       "title": "State after locking",
       "spec_id": "USK-S-LEASE",
-      "classification": "absent",
+      "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "No production implementation surface satisfying this requirement was found in the bound tree; cited placeholders or guards define the current boundary.",
+      "note": "The native backend observes the held protected installed-record set after OS locking, binds its canonical revision in durable ownership and rechecks it before product effects. Fresh install expects the empty record set; source-free recovery binds the durable original operation and observed current set. Empty protected layout bootstrap precedes ownership. Maintenance-plan revisions and connected stale-plan/native recovery qualification remain unfinished.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
       },
       "source_observations": [
         {
-          "path": "runtime/setup/transaction/README.md",
-          "sha256": "3a9368787ede8dafdf42507475d16efebbca2654d92588335a12666b51925d9b"
+          "path": "runtime/setup/transaction/usk_install_lease.h",
+          "sha256": "c6b099b7619fba5e1bc4b2635d05e13cbc45a7b91afd5801f49f565cc1872de5"
         },
         {
-          "path": "runtime/setup/transaction/usk_replacement_session.cpp",
-          "sha256": "d833a6bdc5f18ed171156d994ba09f7b7dc5be1034fa16e99acf730627bd4dd5"
+          "path": "runtime/setup/transaction/usk_install_lease.cpp",
+          "sha256": "42049fb791ebac262d8079deecb0e46b4672cb3b1aeb704324fbc506903093cb"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
+          "sha256": "40e55112663e70e7064ab8bec4dcf85027eef4c5421f3e76525413e9f9206d5d"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
+          "sha256": "0376d4823e651947ec8659ce7f77409b4d0e722f5e0e55192ae45c35f8b48b2e"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
+          "sha256": "8694db203c1878b131bcf739f791288396dccfc1eeae83d4849bd05f282c23c6"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
+          "sha256": "053184f65174829971fdae7a7695d0ca30b45bc8ba49419a0a40898908bb0017"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.h",
+          "sha256": "6973fde0881310295a5e6e355f7fda94644032c865962177b8d80aceb0222992"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
+          "sha256": "573b55cf4aa1fe2fcffa5a0121ba3d3d9c45b89aff39f2f06f13ee469967b1cb"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
+          "sha256": "8458d7a140a1f6b15caefb4975c2940fa07c80a58664ccce84d26ac28c219843"
+        },
+        {
+          "path": "apps/daemon/usk_publisher_lab_service.cpp",
+          "sha256": "b7d52b9f116db054c8c157463b66317525cf22677ae1a744b06004d52854013d"
+        },
+        {
+          "path": "tests/native/usk_install_lease_smoke.cpp",
+          "sha256": "262218ccdfbf226497d7b8dddd389247d54fd2ea04b8a5ba58f9bcdfb42bee97"
+        },
+        {
+          "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
+          "sha256": "1acd0933fa91b83b72567e735adbfe0ada6d4103ff00649b63fb38b453112e64"
         }
       ],
       "acceptance_ids": [
@@ -2781,7 +2885,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2816,7 +2920,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -2851,7 +2955,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -3443,7 +3547,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.cpp",
-          "sha256": "0d5d345bf0cf3b5342714160f1167fb1ed72078c14bdb6323b854f838ef056d4"
+          "sha256": "40ce1dcbad5d9ef0568b21c6d7ca56df98d54fcebd534bb13ca7493903a2373a"
         },
         {
           "path": "tests/windows_publisher_consumer_client.ps1",
@@ -3592,7 +3696,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         }
       ],
       "acceptance_ids": [
@@ -3628,7 +3732,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         }
       ],
       "acceptance_ids": [
@@ -3664,7 +3768,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         }
       ],
       "acceptance_ids": [
@@ -3740,7 +3844,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -3987,7 +4091,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_anchor_create.cpp",
-          "sha256": "099acd37f290ff705ea26a80e1a5e52268c125fdc539a29abdc591d30a1a6ead"
+          "sha256": "12c0907afe47e3bd59dc0261aeb6d7dd8354d965ae400a120fd87830d4c61327"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_stream_observation.cpp",
@@ -4043,11 +4147,11 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "22593a46f7849e9ad73c2b3f1aa83a57ef2576782b93016a2c8ea66f9d26f679"
+          "sha256": "b7d52b9f116db054c8c157463b66317525cf22677ae1a744b06004d52854013d"
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -4063,7 +4167,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
-          "sha256": "50a30173e1e2a855ffe3946ab0337f042248e4363b04ddead8c9d398d8c5b69e"
+          "sha256": "6f6f099f5c590e5fabeb046b0a9d6fbfa496c19f53b6e7e591ce9f872e0e51ed"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.h",
@@ -4087,7 +4191,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_staged_stream.cpp",
-          "sha256": "30118d443b48af6be0ce9322528898886cf1381da9045818762463e5ed2adfe8"
+          "sha256": "12ea3cf0a24eb21e17f624372ab3d1f30bdfbf8f0b25065dbaa5289dd66ccdb5"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_publisher_finalization_internal.h",
@@ -4107,15 +4211,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
-          "sha256": "a7f84aef46aef53afdf1499d2624d4043bdb4f4c8a220e55aeb9c6ca647a2ab6"
+          "sha256": "8694db203c1878b131bcf739f791288396dccfc1eeae83d4849bd05f282c23c6"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
-          "sha256": "d828b265148918d754e07e0896936aad6d1116f28b806c31539ed9aa1fc0d9ca"
+          "sha256": "053184f65174829971fdae7a7695d0ca30b45bc8ba49419a0a40898908bb0017"
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "391b28dc871d4319e7f93b58c1a2b307f31c3c475003254562a255313383b0e2"
+          "sha256": "1acd0933fa91b83b72567e735adbfe0ada6d4103ff00649b63fb38b453112e64"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
@@ -4123,11 +4227,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
-          "sha256": "767246b051c8a1a714484646147e2f8c1a91f6d005027c2f2e74414b23fb2121"
+          "sha256": "573b55cf4aa1fe2fcffa5a0121ba3d3d9c45b89aff39f2f06f13ee469967b1cb"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.h",
-          "sha256": "bfc9dff5c174d2a857fc1e3f0c48a56065a19be4aec56748c09ade0f6236fedb"
+          "sha256": "6973fde0881310295a5e6e355f7fda94644032c865962177b8d80aceb0222992"
         },
         {
           "path": "tests/windows_publisher_metadata_vm_probe.ps1",
@@ -4171,7 +4275,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "3177ac9bcbb0138ab1d281bf2844aee849d0af65a5816ac14092332831e06291"
+          "sha256": "8458d7a140a1f6b15caefb4975c2940fa07c80a58664ccce84d26ac28c219843"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4523,11 +4627,11 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "22593a46f7849e9ad73c2b3f1aa83a57ef2576782b93016a2c8ea66f9d26f679"
+          "sha256": "b7d52b9f116db054c8c157463b66317525cf22677ae1a744b06004d52854013d"
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "1fde92bd2ceae166085fca80aa54c3cf4634ba24465e358a39e185b104229745"
+          "sha256": "5cd28044a4f9a3517022eef47453b2574f3c8fde2cfd6d0b4b8399e49ed8ed1c"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -4543,7 +4647,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
-          "sha256": "50a30173e1e2a855ffe3946ab0337f042248e4363b04ddead8c9d398d8c5b69e"
+          "sha256": "6f6f099f5c590e5fabeb046b0a9d6fbfa496c19f53b6e7e591ce9f872e0e51ed"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.h",
@@ -4579,15 +4683,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.h",
-          "sha256": "a7f84aef46aef53afdf1499d2624d4043bdb4f4c8a220e55aeb9c6ca647a2ab6"
+          "sha256": "8694db203c1878b131bcf739f791288396dccfc1eeae83d4849bd05f282c23c6"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_volume_operation_guard.cpp",
-          "sha256": "d828b265148918d754e07e0896936aad6d1116f28b806c31539ed9aa1fc0d9ca"
+          "sha256": "053184f65174829971fdae7a7695d0ca30b45bc8ba49419a0a40898908bb0017"
         },
         {
           "path": "tests/native/usk_publisher_volume_operation_guard_smoke.cpp",
-          "sha256": "391b28dc871d4319e7f93b58c1a2b307f31c3c475003254562a255313383b0e2"
+          "sha256": "1acd0933fa91b83b72567e735adbfe0ada6d4103ff00649b63fb38b453112e64"
         },
         {
           "path": "tests/native/usk_publisher_volume_bound_setup_smoke.cpp",
@@ -4595,11 +4699,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
-          "sha256": "767246b051c8a1a714484646147e2f8c1a91f6d005027c2f2e74414b23fb2121"
+          "sha256": "573b55cf4aa1fe2fcffa5a0121ba3d3d9c45b89aff39f2f06f13ee469967b1cb"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.h",
-          "sha256": "bfc9dff5c174d2a857fc1e3f0c48a56065a19be4aec56748c09ade0f6236fedb"
+          "sha256": "6973fde0881310295a5e6e355f7fda94644032c865962177b8d80aceb0222992"
         },
         {
           "path": "tests/windows_publisher_metadata_vm_probe.ps1",
@@ -4643,7 +4747,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "3177ac9bcbb0138ab1d281bf2844aee849d0af65a5816ac14092332831e06291"
+          "sha256": "8458d7a140a1f6b15caefb4975c2940fa07c80a58664ccce84d26ac28c219843"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4675,7 +4779,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.cpp",
-          "sha256": "0d5d345bf0cf3b5342714160f1167fb1ed72078c14bdb6323b854f838ef056d4"
+          "sha256": "40ce1dcbad5d9ef0568b21c6d7ca56df98d54fcebd534bb13ca7493903a2373a"
         },
         {
           "path": "tests/windows_publisher_consumer_client.ps1",

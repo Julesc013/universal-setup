@@ -110,14 +110,15 @@ PublisherInstallOperationGuard::PublisherInstallOperationGuard(const std::wstrin
     const std::string& install_id, HANDLE cancel_event, DWORD wait_milliseconds)
 {
     require_bounded_wait(wait_milliseconds);
-    const std::wstring name = publisher_install_operation_guard_name(root, install_id);
-    mutex_ = CreateMutexW(nullptr, FALSE, name.c_str());
+    name_ = publisher_install_operation_guard_name(root, install_id);
+    mutex_ = CreateMutexW(nullptr, FALSE, name_.c_str());
     if (!mutex_) {
         throw std::runtime_error("publisher install guard cannot open its named mutex");
     }
     try {
         previous_owner_abandoned_ = acquire_guard<PublisherInstallBusy>(
             mutex_, cancel_event, wait_milliseconds);
+        owner_thread_ = GetCurrentThreadId();
     } catch (...) {
         CloseHandle(mutex_);
         mutex_ = nullptr;
@@ -131,6 +132,14 @@ PublisherInstallOperationGuard::~PublisherInstallOperationGuard()
         ReleaseMutex(mutex_);
         CloseHandle(mutex_);
     }
+}
+
+void PublisherInstallOperationGuard::require_owned(const std::wstring& root,
+    const std::string& install_id) const
+{
+    if (!mutex_ || owner_thread_ != GetCurrentThreadId() ||
+        name_ != publisher_install_operation_guard_name(root, install_id))
+        throw PublisherInstallBusy();
 }
 
 } // namespace usk::platform::windows

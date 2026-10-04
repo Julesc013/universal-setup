@@ -10,10 +10,29 @@
 #endif
 #include <windows.h>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 
 namespace usk::platform::windows {
+
+// Internal, operation-local fence. Only a live service lease supplies this
+// check; JSON and public callers cannot install or activate it. The borrowed
+// callback and lease must outlive this scope on the owning thread.
+class ScopedPublisherEffectFence final {
+public:
+    explicit ScopedPublisherEffectFence(const std::function<void()>& check);
+    ~ScopedPublisherEffectFence();
+    ScopedPublisherEffectFence(const ScopedPublisherEffectFence&) = delete;
+    ScopedPublisherEffectFence& operator=(const ScopedPublisherEffectFence&) = delete;
+    ScopedPublisherEffectFence(std::function<void()>&&) = delete;
+};
+void require_current_publisher_effect_fence();
+
+// Publish an already flushed, privately created protected record, relative
+// to a retained protected parent. No replacement or path-based reopen.
+void publish_publisher_record_no_replace(HANDLE file, HANDLE parent,
+    const std::wstring& name, const std::string& service_sid);
 
 // Internal restricted-service backend for setup metadata. Every new directory
 // and record receives its protected descriptor at creation. Records are flushed
