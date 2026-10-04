@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T13:35:50Z",
+  "generated_at": "2026-10-04T14:49:18Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1337,7 +1337,7 @@
       "spec_id": "USK-S-CAPS",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The machine publisher.inspect v1 route keeps its read-only privileged discovery semantics. The separate publisher.observe v2 route mediates observation through the authenticated restricted service, explicitly allowing SCM startup and controller guard acquisition. It binds the held image and retained controller target admission with current disk identity checked, and preserves unavailable authority, incomplete qualification, unsupported state and no execution lease. Ordinary-account pre-install and source-free observations are implementation candidates awaiting hosted qualification; full provider selection and release acceptance remain incomplete.",
+      "note": "PR #228 qualified the separate publisher.observe v2 route for the retained standard-account hosted case before installation and after source-free verification, while v1 read-only inspection semantics remain unchanged. The service binds held image and retained controller target admission with current disk identity, explicitly permits startup/controller guarding, and retains unavailable authority, incomplete qualification, unsupported state and no execution lease. The next unfinished native-admission batch retains the authenticated identification token and has a read-only current-descriptor AccessCheck observer; it is not yet connected to phase evidence or production admission. Full provider selection and release acceptance remain incomplete.",
       "spec_source": {
         "path": "spec/model/capabilities.md",
         "sha256": "5a0acbede4d0cf643ffa06c85b4e1548687046272087ce20d497883e4b3aad72"
@@ -1401,15 +1401,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
-          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
+          "sha256": "229910c197d36cb8a731077da84b6ce06075d2a41adeacc4153d7a6a7fa796be"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.h",
-          "sha256": "e3dc6e3424fb45085443c6d26ef39040939099e12cbb7c8426474d9628848fb2"
+          "sha256": "f3606ffa14ed5da3c3766b170799262bfa7b131ac573dafe392ca1813ae26c12"
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
+          "sha256": "1589c3ce3da46d78c37516b7c458da067ac64ef364106cd3147b20646cde12fa"
         }
       ],
       "acceptance_ids": [
@@ -3387,7 +3387,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
-          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
+          "sha256": "229910c197d36cb8a731077da84b6ce06075d2a41adeacc4153d7a6a7fa796be"
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
@@ -3395,7 +3395,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
+          "sha256": "1589c3ce3da46d78c37516b7c458da067ac64ef364106cd3147b20646cde12fa"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",
@@ -4603,7 +4603,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
-          "sha256": "b25c300895ee27b49cbc1ffdbaf04caeb3ab7d0b5db7e89e95231ef67022ea2b"
+          "sha256": "229910c197d36cb8a731077da84b6ce06075d2a41adeacc4153d7a6a7fa796be"
         },
         {
           "path": "apps/daemon/usk_publisher_client.cpp",
@@ -4611,7 +4611,7 @@
         },
         {
           "path": "tests/native/usk_publisher_request_channel_smoke.cpp",
-          "sha256": "b6cf1a234f57ba93bda53e79c95ab5a232b61c02d5dc7718715a0295d4081aa3"
+          "sha256": "1589c3ce3da46d78c37516b7c458da067ac64ef364106cd3147b20646cde12fa"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_consumer_access.h",

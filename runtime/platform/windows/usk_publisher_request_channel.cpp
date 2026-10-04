@@ -6,6 +6,7 @@
 #include <aclapi.h>
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_security_descriptor.h"
+#include "usk_publisher_handle_observation.h"
 #include "usk_json.h"
 #include <algorithm>
 #include <exception>
@@ -96,7 +97,86 @@ void write_message(HANDLE pipe, const std::string& bytes, DWORD limit, HANDLE st
         throw std::runtime_error("publisher transport partial message");
     }
 }
-void require_caller(HANDLE pipe, const std::wstring& expected) {
+std::string sid_text(PSID sid) {
+    LocalBuffer rendered;
+    if (!sid || !IsValidSid(sid) || !ConvertSidToStringSidW(sid, reinterpret_cast<LPWSTR*>(&rendered.value)))
+        throw std::runtime_error("authenticated client SID is unavailable");
+    const std::wstring wide(static_cast<wchar_t*>(rendered.value));
+    std::string text;
+    text.reserve(wide.size());
+    for (const wchar_t ch : wide) {
+        if (ch > 0x7f) throw std::runtime_error("authenticated client SID is not ASCII");
+        text.push_back(static_cast<char>(ch));
+    }
+    return text;
+}
+std::uint64_t luid_value(const LUID& value) {
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(value.HighPart)) << 32u) | value.LowPart;
+}
+std::vector<unsigned char> token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
+    DWORD needed = 0;
+    if (GetTokenInformation(token, kind, nullptr, 0, &needed) || GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+        needed == 0 || needed > 65536)
+        throw std::runtime_error("authenticated client token size is unavailable or exceeds its bound");
+    std::vector<unsigned char> bytes(needed);
+    DWORD returned = 0;
+    if (!GetTokenInformation(token, kind, bytes.data(), needed, &returned) || returned != needed)
+        throw std::runtime_error("authenticated client token changed during observation");
+    return bytes;
+}
+usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
+    using usk::json::Value;
+    const auto user = token_bytes(token, TokenUser);
+    const auto statistics = token_bytes(token, TokenStatistics);
+    const auto level = token_bytes(token, TokenImpersonationLevel);
+    if (user.size() < sizeof(TOKEN_USER) || statistics.size() != sizeof(TOKEN_STATISTICS) ||
+        level.size() != sizeof(SECURITY_IMPERSONATION_LEVEL) || process_id == 0)
+        throw std::runtime_error("authenticated client token layout differs");
+    const auto& stats = *reinterpret_cast<const TOKEN_STATISTICS*>(statistics.data());
+    const auto impersonation = *reinterpret_cast<const SECURITY_IMPERSONATION_LEVEL*>(level.data());
+    if (stats.TokenType != TokenImpersonation || impersonation < SecurityIdentification)
+        throw std::runtime_error("authenticated client token is not an identification token");
+    const auto groups = [&](TOKEN_INFORMATION_CLASS kind) {
+        const auto bytes = token_bytes(token, kind);
+        if (bytes.size() < sizeof(DWORD))
+            throw std::runtime_error("authenticated client group layout differs");
+        const auto* values = reinterpret_cast<const TOKEN_GROUPS*>(bytes.data());
+        if (values->GroupCount == 0) return Value(Value::Array{});
+        if (bytes.size() < offsetof(TOKEN_GROUPS, Groups))
+            throw std::runtime_error("authenticated client group array is truncated");
+        if (values->GroupCount > 1024 || values->GroupCount >
+            (bytes.size() - offsetof(TOKEN_GROUPS, Groups)) / sizeof(SID_AND_ATTRIBUTES))
+            throw std::runtime_error("authenticated client group count exceeds its bound");
+        Value::Array result;
+        for (DWORD index = 0; index < values->GroupCount; ++index)
+            result.emplace_back(Value::Object{{"sid", Value(sid_text(values->Groups[index].Sid))},
+                {"attributes", Value(static_cast<std::uint64_t>(values->Groups[index].Attributes))}});
+        return Value(std::move(result));
+    };
+    const auto privileges = token_bytes(token, TokenPrivileges);
+    if (privileges.size() < offsetof(TOKEN_PRIVILEGES, Privileges))
+        throw std::runtime_error("authenticated client privilege layout differs");
+    const auto* values = reinterpret_cast<const TOKEN_PRIVILEGES*>(privileges.data());
+    if (values->PrivilegeCount > 256 || values->PrivilegeCount >
+        (privileges.size() - offsetof(TOKEN_PRIVILEGES, Privileges)) / sizeof(LUID_AND_ATTRIBUTES))
+        throw std::runtime_error("authenticated client privilege count exceeds its bound");
+    Value::Array privilege_values;
+    for (DWORD index = 0; index < values->PrivilegeCount; ++index)
+        privilege_values.emplace_back(Value::Object{{"luid", Value(luid_value(values->Privileges[index].Luid))},
+            {"attributes", Value(static_cast<std::uint64_t>(values->Privileges[index].Attributes))}});
+    return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_client_observation.v1")},
+        {"scope", Value("held_authenticated_identification_token")},
+        {"captured_process_id", Value(static_cast<std::uint64_t>(process_id))},
+        {"user_sid", Value(sid_text(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid))},
+        {"token_type", Value(static_cast<std::uint64_t>(stats.TokenType))},
+        {"impersonation_level", Value(static_cast<std::uint64_t>(impersonation))},
+        {"token_id", Value(luid_value(stats.TokenId))},
+        {"authentication_id", Value(luid_value(stats.AuthenticationId))},
+        {"modified_id", Value(luid_value(stats.ModifiedId))},
+        {"groups", groups(TokenGroups)}, {"restricted_sids", groups(TokenRestrictedSids)},
+        {"privileges", Value(std::move(privilege_values))}});
+}
+HANDLE require_caller(HANDLE pipe, const std::wstring& expected) {
     if (!ImpersonateNamedPipeClient(pipe)) throw std::runtime_error("publisher caller identification failed");
     struct Revert {
         ~Revert() {
@@ -126,6 +206,10 @@ void require_caller(HANDLE pipe, const std::wstring& expected) {
         expected != static_cast<wchar_t*>(observed.value)) {
         throw std::runtime_error("publisher caller differs from admitted user");
     }
+    if (observe_publisher_noninheritable_handle_flags(token.value) != 0)
+        throw std::runtime_error("authenticated client token handle is inheritable");
+    token.value = nullptr;
+    return raw;
 }
 DWORD service_process(SC_HANDLE service) {
     SERVICE_STATUS_PROCESS status{};
@@ -181,10 +265,13 @@ std::wstring publisher_request_pipe_name(const std::wstring& service_name) {
 }
 struct PublisherRequestChannel::State {
     Handle pipe;
+    Handle client_token{nullptr};
+    ULONG client_process_id = 0;
+    usk::json::Value client_facts;
     std::wstring caller_sid;
     HANDLE stop;
     ULONGLONG until;
-    bool received = false, replied = false;
+    bool receive_started = false, received = false, replied = false;
     State(HANDLE p, std::wstring sid, HANDLE event, ULONGLONG end)
         : pipe(p), caller_sid(std::move(sid)), stop(event), until(end) {}
 };
@@ -214,7 +301,8 @@ PublisherRequestChannel::PublisherRequestChannel(const std::wstring& service_nam
 PublisherRequestChannel::~PublisherRequestChannel() = default;
 std::string PublisherRequestChannel::receive() {
     auto& state = *state_;
-    if (state.received) throw std::runtime_error("publisher endpoint accepts one request");
+    if (state.receive_started) throw std::runtime_error("publisher endpoint accepts one request");
+    state.receive_started = true;
     if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
     Io io;
     const BOOL connected = ConnectNamedPipe(state.pipe.value, &io.overlapped);
@@ -222,10 +310,102 @@ std::string PublisherRequestChannel::receive() {
     if (!connected && error == ERROR_PIPE_CONNECTED) SetEvent(io.event.value);
     else io.finish(state.pipe.value, connected, state.stop, state.until, error);
     auto request = read_message(state.pipe.value, request_limit, state.stop, state.until);
-    require_caller(state.pipe.value, state.caller_sid);
+    state.client_token.value = require_caller(state.pipe.value, state.caller_sid);
+    if (!GetNamedPipeClientProcessId(state.pipe.value, &state.client_process_id) || !state.client_process_id)
+        throw std::runtime_error("authenticated pipe client process is unavailable");
+    state.client_facts = client_token_facts(state.client_token.value, state.client_process_id);
     if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
     state.received = true;
     return request;
+}
+usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HANDLE object) const {
+    using usk::json::Value;
+    const auto& state = *state_;
+    if (!state.received || state.replied || !state.client_token.value || !object || object == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("authenticated access observation requires the active request and held object");
+    const auto before_client = client_token_facts(state.client_token.value, state.client_process_id);
+    if (usk::json::canonical(before_client) != usk::json::canonical(state.client_facts))
+        throw std::runtime_error("authenticated client token changed since admission");
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    if (!GetFileInformationByHandleEx(object, FileAttributeTagInfo, &attributes, sizeof(attributes)))
+        throw std::runtime_error("authenticated access object type is unavailable");
+    const bool directory = (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    const auto before = directory ? observe_publisher_directory_handle(object) : observe_publisher_file_handle(object);
+    LocalBuffer descriptor;
+    PSID owner = nullptr, group = nullptr;
+    PACL dacl = nullptr;
+    if (GetSecurityInfo(object, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
+        DACL_SECURITY_INFORMATION, &owner, &group, &dacl, nullptr,
+        reinterpret_cast<PSECURITY_DESCRIPTOR*>(&descriptor.value)) != ERROR_SUCCESS ||
+        !descriptor.value || !IsValidSecurityDescriptor(descriptor.value) || !group || !IsValidSid(group) ||
+        !dacl || !IsValidAcl(dacl) || sid_text(owner) != before.owner_sid || dacl->AceCount != before.dacl_aces.size())
+        throw std::runtime_error("fresh effective-access descriptor differs from held object security");
+    for (DWORD index = 0; index < dacl->AceCount; ++index) {
+        void* raw = nullptr;
+        if (!GetAce(dacl, index, &raw) || !raw)
+            throw std::runtime_error("fresh effective-access descriptor ACE is unavailable");
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw);
+        const auto& expected = before.dacl_aces[index];
+        if (ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE ||
+            ace->Header.AceSize < offsetof(ACCESS_ALLOWED_ACE, SidStart) + 8u ||
+            ace->Header.AceType != expected.type || ace->Header.AceFlags != expected.flags ||
+            ace->Mask != expected.access_mask)
+            throw std::runtime_error("fresh effective-access descriptor ACE differs from held object security");
+        const auto* sid_bytes = reinterpret_cast<const unsigned char*>(&ace->SidStart);
+        const auto sid_room = ace->Header.AceSize - offsetof(ACCESS_ALLOWED_ACE, SidStart);
+        if (sid_bytes[1] > SID_MAX_SUB_AUTHORITIES || 8u + 4u * sid_bytes[1] > sid_room ||
+            sid_text(const_cast<DWORD*>(&ace->SidStart)) != expected.sid)
+            throw std::runtime_error("fresh effective-access descriptor ACE differs from held object security");
+    }
+    const DWORD length = GetSecurityDescriptorLength(descriptor.value);
+    SECURITY_DESCRIPTOR_CONTROL control{};
+    DWORD revision = 0;
+    if (length < SECURITY_DESCRIPTOR_MIN_LENGTH || length > 65536 ||
+        !GetSecurityDescriptorControl(descriptor.value, &control, &revision) || (control & SE_SELF_RELATIVE) == 0)
+        throw std::runtime_error("fresh effective-access descriptor exceeds its bound");
+    static constexpr char hex[] = "0123456789abcdef";
+    const auto* bytes = static_cast<const unsigned char*>(descriptor.value);
+    std::string descriptor_hex;
+    descriptor_hex.reserve(static_cast<std::size_t>(length) * 2u);
+    for (DWORD index = 0; index < length; ++index) {
+        descriptor_hex.push_back(hex[bytes[index] >> 4u]);
+        descriptor_hex.push_back(hex[bytes[index] & 15u]);
+    }
+    Value::Object checks;
+    const std::vector<std::pair<std::string, DWORD>> rights{{"write_or_add_file", FILE_WRITE_DATA},
+        {"append_or_add_directory", FILE_APPEND_DATA}, {"write_ea", FILE_WRITE_EA},
+        {"delete_child", FILE_DELETE_CHILD}, {"write_attributes", FILE_WRITE_ATTRIBUTES},
+        {"delete", DELETE}, {"write_dac", WRITE_DAC}, {"write_owner", WRITE_OWNER},
+        {"maximum_allowed", MAXIMUM_ALLOWED}};
+    for (const auto& [name, requested] : rights) {
+        GENERIC_MAPPING mapping{FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS};
+        std::vector<unsigned char> privilege_storage(sizeof(PRIVILEGE_SET) + 16u * sizeof(LUID_AND_ATTRIBUTES));
+        DWORD privilege_length = static_cast<DWORD>(privilege_storage.size()), granted = 0;
+        BOOL allowed = FALSE;
+        const auto run = [&] { return AccessCheck(descriptor.value, state.client_token.value, requested, &mapping,
+            reinterpret_cast<PRIVILEGE_SET*>(privilege_storage.data()), &privilege_length, &granted, &allowed); };
+        if (!run()) {
+            if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || privilege_length < sizeof(PRIVILEGE_SET) ||
+                privilege_length > 65536)
+                throw std::runtime_error("fresh authenticated AccessCheck failed");
+            privilege_storage.resize(privilege_length);
+            if (!run()) throw std::runtime_error("fresh authenticated AccessCheck retry failed");
+        }
+        checks.emplace(name, Value(Value::Object{{"requested", Value(static_cast<std::uint64_t>(requested))},
+            {"allowed", Value(allowed != FALSE)}, {"granted", Value(static_cast<std::uint64_t>(granted))}}));
+    }
+    const auto after = directory ? observe_publisher_directory_handle(object) : observe_publisher_file_handle(object);
+    if (usk::json::canonical(publisher_handle_observation_json(before)) !=
+            usk::json::canonical(publisher_handle_observation_json(after)) ||
+        usk::json::canonical(before_client) !=
+            usk::json::canonical(client_token_facts(state.client_token.value, state.client_process_id)))
+        throw std::runtime_error("authenticated token or held object changed across access collection");
+    return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_object_access.v1")},
+        {"scope", Value("fresh_held_authenticated_token_and_file_descriptor")},
+        {"client", before_client}, {"native_object", publisher_handle_observation_json(before)},
+        {"descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL")},
+        {"descriptor_hex", Value(descriptor_hex)}, {"observed_group_sid", Value(sid_text(group))},
+        {"checks", Value(std::move(checks))}});
 }
 void PublisherRequestChannel::reply(const std::string& response) {
     auto& state = *state_;

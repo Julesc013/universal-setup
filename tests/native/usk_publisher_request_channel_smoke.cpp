@@ -5,6 +5,7 @@
 #include <sddl.h>
 #include <atomic>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -131,6 +132,41 @@ std::wstring current_sid() {
     LocalFree(text);
     return value;
 }
+class OwnedAccessDirectory {
+public:
+    explicit OwnedAccessDirectory(const std::wstring& sid) {
+        path_ = std::filesystem::temp_directory_path() /
+            (L"usk-authenticated-access-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
+        const std::wstring sddl = L"O:" + sid + L"D:P(A;;0x001300a9;;;" + sid + L")";
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        require(ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1,
+            &descriptor, nullptr) != FALSE, "owned access descriptor unavailable");
+        SECURITY_ATTRIBUTES attributes{sizeof(attributes), descriptor, FALSE};
+        const bool created = CreateDirectoryW(path_.c_str(), &attributes) != FALSE;
+        LocalFree(descriptor);
+        require(created, "owned access directory creation failed");
+        created_ = true;
+        handle_ = CreateFileW(path_.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle_ == INVALID_HANDLE_VALUE) {
+            RemoveDirectoryW(path_.c_str());
+            created_ = false;
+            throw std::runtime_error("owned access directory handle unavailable");
+        }
+    }
+    ~OwnedAccessDirectory() {
+        if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
+        if (created_) RemoveDirectoryW(path_.c_str());
+    }
+    OwnedAccessDirectory(const OwnedAccessDirectory&) = delete;
+    OwnedAccessDirectory& operator=(const OwnedAccessDirectory&) = delete;
+    HANDLE get() const { return handle_; }
+private:
+    std::filesystem::path path_;
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+    bool created_ = false;
+};
 std::thread raw_client(const std::wstring& name, const std::string& message,
     std::string& response, std::exception_ptr& failure,
     bool send_extra = false) {
@@ -171,6 +207,7 @@ int main() {
         std::string response;
         std::exception_ptr client_failure;
         auto channel=std::make_unique<PublisherRequestChannel>(name,service_sid,sid,nullptr,2000);
+        refuses([&] { (void)channel->observe_authenticated_object_access(INVALID_HANDLE_VALUE); });
         refuses([&] { PublisherRequestChannel duplicate(name,service_sid,sid,nullptr); });
         auto client=raw_client(name,"{\"reviewed\":true}",response,client_failure,true);
         try {
@@ -178,8 +215,23 @@ int main() {
             HANDLE token=nullptr;
             require(!OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&token) &&
                 GetLastError()==ERROR_NO_TOKEN,"caller impersonation retained");
+            OwnedAccessDirectory directory(sid);
+            const auto access = channel->observe_authenticated_object_access(directory.get());
+            const auto& observed_sid = access.at("client").at("user_sid").as_string();
+            require(access.at("schema").as_string() == "usk.publisher_authenticated_object_access.v1" &&
+                std::wstring(observed_sid.begin(), observed_sid.end()) == sid &&
+                access.at("client").at("captured_process_id").as_unsigned() == GetCurrentProcessId() &&
+                access.at("client").at("token_type").as_unsigned() == TokenImpersonation,
+                "authenticated access identity differs from actual pipe client");
+            require(!access.at("checks").at("write_or_add_file").at("allowed").as_boolean() &&
+                access.at("checks").at("write_or_add_file").at("granted").as_unsigned() == 0 &&
+                access.at("checks").at("delete").at("allowed").as_boolean() &&
+                access.at("checks").at("delete").at("granted").as_unsigned() == DELETE,
+                "actual authenticated access check lost allowed/denied distinction");
+            refuses([&] { (void)channel->observe_authenticated_object_access(INVALID_HANDLE_VALUE); });
             refuses([&] { channel->receive(); });
             channel->reply("completed");
+            refuses([&] { (void)channel->observe_authenticated_object_access(directory.get()); });
             refuses([&] { channel->reply("duplicate"); });
             channel->wait_for_client_disconnect();
         } catch (...) { channel.reset(); client.join(); throw; }
