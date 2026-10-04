@@ -22,7 +22,9 @@
 #include "usk_publisher_volume_operation_guard.h"
 #include "usk_publisher_device_acl.h"
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_consumer_access.h"
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_service_access.h"
 #include "usk_stable_file.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
@@ -205,11 +207,7 @@ void require_control_lock_shape(HANDLE handle, bool directory) {
     }
 }
 
-void create_protected_directory(const std::wstring& path, SECURITY_ATTRIBUTES& attributes) {
-    if (!CreateDirectoryW(path.c_str(), &attributes) &&
-        GetLastError() != ERROR_ALREADY_EXISTS) {
-        throw std::runtime_error("service control lock directory creation failed");
-    }
+void read_protected_control_directory(const std::wstring& path) {
     FileHandle directory(CreateFileW(path.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
@@ -219,9 +217,15 @@ void create_protected_directory(const std::wstring& path, SECURITY_ATTRIBUTES& a
     require_control_lock_shape(directory.get(), true);
 }
 
+void create_protected_directory(const std::wstring& path, SECURITY_ATTRIBUTES& attributes) {
+    if (!CreateDirectoryW(path.c_str(), &attributes) && GetLastError() != ERROR_ALREADY_EXISTS)
+        throw std::runtime_error("service control lock directory creation failed");
+    read_protected_control_directory(path);
+}
+
 class ServiceControlGuard {
 public:
-    explicit ServiceControlGuard(const std::wstring& service) {
+    explicit ServiceControlGuard(const std::wstring& service, bool read_existing = false) {
         LocalDescriptor directory_descriptor(
             L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
         SECURITY_ATTRIBUTES directory_attributes{sizeof(SECURITY_ATTRIBUTES),
@@ -243,8 +247,13 @@ public:
         }
         const auto root = program_files / L"Universal Setup";
         const auto locks = root / L"PublisherControl";
-        create_protected_directory(root.wstring(), directory_attributes);
-        create_protected_directory(locks.wstring(), directory_attributes);
+        if (read_existing) {
+            read_protected_control_directory(root.wstring());
+            read_protected_control_directory(locks.wstring());
+        } else {
+            create_protected_directory(root.wstring(), directory_attributes);
+            create_protected_directory(locks.wstring(), directory_attributes);
+        }
 
         LocalDescriptor file_descriptor(L"O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)");
         SECURITY_ATTRIBUTES file_attributes{sizeof(SECURITY_ATTRIBUTES),
@@ -252,8 +261,13 @@ public:
         // The generated SCM name is the global identity; a volume-specific
         // lock would allow two registrations to race over one executable.
         const auto path = locks / (service + L".lock");
-        FileHandle file(CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
-            0, &file_attributes, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
+        // A restricted service holds the existing administrative lock read-only.
+        // Zero sharing still excludes cooperating controllers; it neither creates
+        // nor writes a private administrative object.
+        const DWORD access = read_existing ? READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE :
+            GENERIC_READ | GENERIC_WRITE | READ_CONTROL;
+        FileHandle file(CreateFileW(path.c_str(), access,
+            0, read_existing ? nullptr : &file_attributes, read_existing ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
             FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (file.get() == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("publisher service control is active or its lock is unavailable");
@@ -870,7 +884,7 @@ void require_existing_command(const std::wstring& command,
     } else {
         throw std::runtime_error("existing service mode differs");
     }
-    if (mode == L"--admit-client-observer") {
+    if (mode == L"--admit-client-observer" || mode == L"--service-admitted-client") {
         if (index >= args.size() || args[index++] != mode)
             throw std::runtime_error("existing caller access mode differs");
     }
@@ -905,9 +919,10 @@ std::string utf8(const std::wstring& value) {
     return result;
 }
 
-usk::json::Value registration_volume_identity(const std::wstring& volume) {
+usk::json::Value registration_volume_identity(const std::wstring& volume, bool controller_backup = true) {
     require_volume(volume);
-    ScopedControllerPrivilege backup;
+    std::unique_ptr<ScopedControllerPrivilege> backup;
+    if (controller_backup) backup = std::make_unique<ScopedControllerPrivilege>();
     FileHandle root(CreateFileW(volume.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
@@ -1023,14 +1038,14 @@ void require_mutable_legacy_registration(const std::wstring& name) {
 }
 
 usk::json::Value read_registration_binding(const std::wstring& name,
-    const std::wstring& command, const std::wstring& volume) {
+    const std::wstring& command, const std::wstring& volume, bool controller_backup = true) {
     const auto value = read_protected_document(registration_binding_path(name));
     if (value.as_object().size() != 6 ||
         value.at("schema").as_string() != "usk.publisher_registration_binding.v1" ||
         value.at("service_name").as_string() != utf8(name) ||
         value.at("command").as_string() != utf8(command) ||
         usk::json::canonical(value.at("volume_identity")) !=
-            usk::json::canonical(registration_volume_identity(volume)))
+            usk::json::canonical(registration_volume_identity(volume, controller_backup)))
         throw std::runtime_error("publisher registration binding differs from live configuration");
     auto sid = publisher_service_sid(name);
     LPWSTR rendered = nullptr;
@@ -1471,6 +1486,7 @@ void register_service(const std::wstring& name, const std::wstring& binary,
     const std::wstring& digest, const std::wstring& caller,
     const std::wstring& binary_digest,
     const std::wstring& mode) {
+    if (mode == L"--service-admitted-client") require_publisher_consumer_sid(utf8(caller));
     require_file(envelope);
     if (!lower_sha256(digest) || !lower_sha256(binary_digest))
         throw std::runtime_error("registration digest is invalid");
@@ -1500,9 +1516,11 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         command_suffix(caller, mode);
     const auto expected = registration_binding(name, command, binary_digest, volume_identity);
     const bool resuming = protected_document_exists(intent_path);
+    const DWORD registration_access = SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS |
+        (mode == L"--service-admitted-client" ? READ_CONTROL | WRITE_DAC : 0u);
     std::unique_ptr<ServiceHandle> service = std::make_unique<ServiceHandle>(
         OpenServiceW(manager.get(), name.c_str(),
-            SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
+            registration_access));
     if (!service->get() && GetLastError() != ERROR_SERVICE_DOES_NOT_EXIST)
         throw std::runtime_error("publisher service presence is uncertain");
     usk::json::Value intent;
@@ -1558,7 +1576,7 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         reviewed.verify_unchanged();
         if (!service->get()) {
             service = std::make_unique<ServiceHandle>(CreateServiceW(manager.get(), name.c_str(),
-                display_name.c_str(), SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS,
+                display_name.c_str(), registration_access,
                 SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
                 command.c_str(), nullptr, nullptr, nullptr, L"LocalSystem", nullptr));
             if (!service->get())
@@ -1567,6 +1585,8 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         SERVICE_SID_INFO sid{SERVICE_SID_TYPE_RESTRICTED};
         if (!ChangeServiceConfig2W(service->get(), SERVICE_CONFIG_SERVICE_SID_INFO, &sid))
             throw std::runtime_error("restricted service SID configuration failed");
+        if (mode == L"--service-admitted-client")
+            grant_publisher_service_client_start(service->get(), utf8(caller));
         try {
             require_protected_binary(name, installed.path);
         } catch (const std::exception&) {
@@ -1974,11 +1994,71 @@ void retire_protected_binary(const std::wstring& name,
 
 } // namespace
 
+struct RegisteredPublisherAdmission::State {
+    std::unique_ptr<ServiceControlGuard> control;
+    std::unique_ptr<ServiceHandle> service;
+    std::unique_ptr<usk::base::StableFile> binary;
+    usk::json::Value service_access;
+};
+
+RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& name,
+    const std::wstring& volume, const std::wstring& caller) : state_(std::make_unique<State>()) {
+    // Actual SCM/current-token corroboration precedes every filesystem effect,
+    // including controller-guard creation. Caller text does not grant authority.
+    const auto observed = observe_current_restricted_publisher_service(name);
+    if (!generated_name(name)) throw std::runtime_error("registered publisher name differs");
+    require_volume(volume);
+    require_canonical_sid(caller);
+    require_publisher_consumer_sid(utf8(caller));
+    state_->control = std::make_unique<ServiceControlGuard>(name, true);
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!manager.get()) throw std::runtime_error("registered publisher SCM unavailable");
+    state_->service = std::make_unique<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL));
+    if (!state_->service->get()) throw std::runtime_error("registered publisher service unavailable");
+    const auto before = query_configuration(state_->service->get());
+    state_->service_access = observe_publisher_service_access(state_->service->get(), utf8(caller));
+    require_profile(before);
+    const auto args = command_arguments(before.binary_path);
+    if (args.size() < 8 || args[4] != volume)
+        throw std::runtime_error("registered publisher target differs from running worker");
+    require_existing_command(before.binary_path, name, args[0], volume, caller, L"--service-admitted-client");
+    wchar_t current_image[32768]{};
+    const auto length = GetModuleFileNameW(nullptr, current_image, static_cast<DWORD>(std::size(current_image)));
+    if (!length || length >= std::size(current_image) ||
+        CompareStringOrdinal(current_image, -1, args[0].c_str(), -1, TRUE) != CSTR_EQUAL)
+        throw std::runtime_error("registered publisher image differs from its actual process");
+    require_protected_binary(name, args[0]);
+    const auto binding = read_registration_binding(name, before.binary_path, volume, false);
+    const auto admitted = read_protected_document(registration_binding_path(name).parent_path() /
+        (name + L".target-admitted.json"));
+    const auto& target = admitted.at("identity");
+    if (observed.service_sid != binding.at("service_sid").as_string() || admitted.as_object().size() != 2 ||
+        admitted.at("schema").as_string() != "usk.publisher_target_admitted.v1" ||
+        target.at("registration_sha256").as_string() != usk::json::sha256_canonical(binding) ||
+        usk::json::canonical(target.at("volume_identity")) != usk::json::canonical(binding.at("volume_identity")) ||
+        usk::json::canonical(target.at("disk_identity")) != usk::json::canonical(dedicated_target_disk_identity(volume)))
+        throw std::runtime_error("registered publisher target admission differs from retained authority");
+    state_->binary = std::make_unique<usk::base::StableFile>(std::filesystem::path(args[0]));
+    if (state_->binary->sha256_hex() != binding.at("binary_sha256").as_string())
+        throw std::runtime_error("registered publisher executable differs from retained package digest");
+    state_->binary->verify_unchanged();
+    const auto after = query_configuration(state_->service->get());
+    require_profile(after);
+    const auto current = observe_current_restricted_publisher_service(name);
+    if (after.binary_path != before.binary_path || after.display_name != before.display_name ||
+        usk::json::canonical(observe_publisher_service_access(state_->service->get(), utf8(caller))) !=
+            usk::json::canonical(state_->service_access) ||
+        current.process_id != observed.process_id || current.service_sid != observed.service_sid)
+        throw std::runtime_error("registered publisher configuration changed during admission");
+}
+RegisteredPublisherAdmission::~RegisteredPublisherAdmission() = default;
+
 std::string submit_registered_publisher_request(const std::wstring& name,
     const std::string& request) {
-    // Keep discovery, admission and dispatch under the existing controller
-    // lock. A cooperating controller cannot reconfigure the service between
-    // validation and submission. The pipe separately binds its live process.
+    // Legacy privileged admission holds the controller guard here. The new
+    // registered mode holds it in the actual service while the ordinary client
+    // validates SCM's stored policy and binds the live pipe/PID/image.
     std::string schema;
     std::string inspection_id;
     std::uint64_t windows_build = 0;
@@ -2013,7 +2093,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
         if (!manager.get()) throw std::runtime_error("SCM connection is unavailable");
         service = std::make_unique<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
-            SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS |
+            SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL |
                 (inspection_id.empty() ? SERVICE_START : 0)));
         if (!service->get()) throw std::runtime_error("publisher registration is unavailable");
         const auto before = query_configuration(service->get());
@@ -2030,6 +2110,41 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         require_canonical_sid(caller);
         require_current_caller_sid(caller);
         require_volume(args[4]);
+        const bool service_admitted = args.size() >= 3 && args[args.size() - 3] == L"--service-admitted-client";
+        if (service_admitted) {
+            require_publisher_consumer_sid(utf8(caller));
+            const auto service_access = observe_publisher_service_access(service->get(), utf8(caller));
+            // The administrator-owned SCM command selects this service-side
+            // admission path. The actual worker checks its private records and
+            // disk identity under its controller guard before opening the pipe.
+            // The client binds the live pipe/PID/image before sending any bytes.
+            require_existing_command(before.binary_path, name, args[0], args[4], caller, L"--service-admitted-client");
+            if (CompareStringOrdinal(args[0].c_str(), -1, publisher_binary_path(name).c_str(), -1, TRUE) != CSTR_EQUAL)
+                throw std::runtime_error("registered publisher image is outside the protected installation");
+            if (!inspection_id.empty()) {
+                // V1 discovery requires five genuine private/raw-disk bindings.
+                // Recognize this mode and refuse after caller/SCM validation,
+                // without a guard, service start or fabricated digest.
+                throw std::runtime_error("standard publisher discovery evidence is unavailable");
+            }
+            SERVICE_STATUS_PROCESS status{};
+            DWORD needed = 0;
+            if (!QueryServiceStatusEx(service->get(), SC_STATUS_PROCESS_INFO,
+                reinterpret_cast<BYTE*>(&status), sizeof(status), &needed))
+                throw std::runtime_error("registered publisher process status unavailable");
+            if (status.dwCurrentState == SERVICE_STOPPED) {
+                if (!StartServiceW(service->get(), 0, nullptr) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING)
+                    throw std::runtime_error("registered publisher could not be started");
+            } else if (status.dwCurrentState != SERVICE_RUNNING && status.dwCurrentState != SERVICE_START_PENDING)
+                throw std::runtime_error("registered publisher is unavailable while stopping");
+            const auto after = query_configuration(service->get());
+            require_profile(after);
+            if (after.binary_path != before.binary_path || after.display_name != before.display_name ||
+                usk::json::canonical(observe_publisher_service_access(service->get(), utf8(caller))) !=
+                    usk::json::canonical(service_access))
+                throw std::runtime_error("registered publisher configuration changed before dispatch");
+            admitted_image = args[0];
+        } else {
         require_existing_command(before.binary_path, name, args[0], args[4], caller, mode);
         require_protected_binary(name, args[0]);
         const auto binding = read_registration_binding(name, before.binary_path, args[4]);
@@ -2176,6 +2291,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
                    status.dwCurrentState != SERVICE_START_PENDING) {
             throw std::runtime_error("publisher is unavailable while stopping");
         }
+        }
     } catch (const std::exception&) {
         // The authenticated service does not execute until it receives a
         // request. SCM startup by itself cannot authorize a publication.
@@ -2233,7 +2349,8 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
         const std::wstring mode = has_mode ? argv[argc - 1] : L"";
         if (!generated_name(name) ||
             (has_mode && mode != L"--admit-client-observer" &&
-                mode != L"--grant-client-read")) {
+                mode != L"--grant-client-read" && mode != L"--service-admitted-client") ||
+            (mode == L"--service-admitted-client" && !registration && !unregister)) {
             throw std::runtime_error("service name or caller access mode is invalid");
         }
         if (!retire) {

@@ -379,8 +379,20 @@ std::string submit_publisher_request(const std::wstring& service_name,
     // StartServiceW returns while ServiceMain may still be START_PENDING.
     // Wait only for that transition, before opening or writing the pipe.
     const auto expected = await_service_process(service.value, until);
-    Handle process(OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, expected));
-    if (!process.value || WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT) throw std::runtime_error("publisher process unavailable");
+    Handle process(nullptr);
+    while (!process.value) {
+        process.value = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, expected);
+        if (process.value) break;
+        const DWORD error = GetLastError();
+        // RUNNING precedes the service-side consumer query grant. A standard
+        // caller may arrive during that admission window. Wait only for that
+        // grant, under the original deadline and unchanged live SCM identity.
+        if (error != ERROR_ACCESS_DENIED || service_process(service.value) != expected ||
+            !remaining(until)) throw std::runtime_error("publisher process unavailable");
+        Sleep(std::min<DWORD>(remaining(until), 10));
+    }
+    if (WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT ||
+        service_process(service.value) != expected) throw std::runtime_error("publisher process unavailable");
     HANDLE raw = INVALID_HANDLE_VALUE;
     do {
         raw = CreateFileW(name.c_str(), client_access, 0, nullptr, OPEN_EXISTING,
