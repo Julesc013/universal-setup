@@ -17,6 +17,7 @@
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_registration.h"
 
 #if defined(USK_PRODUCTION_PUBLISHER) && defined(USK_TEST_REGISTERED_FAULT_GATE)
 #error Production publisher cannot include the registered fault gate
@@ -68,6 +69,7 @@ std::string reviewed_plan_envelope_sha256;
 std::wstring authorized_client_sid;
 bool grant_client_read = false;
 bool admit_client_observer = false;
+bool service_admitted_client = false;
 bool interrupt_consumer_grant = false;
 SERVICE_STATUS_HANDLE status_handle = nullptr;
 HANDLE stop_event = nullptr;
@@ -248,6 +250,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
     if (!status_handle) return;
     bool publication_effects_may_exist = false;
     std::unique_ptr<usk::platform::windows::PublisherRequestChannel> request_channel;
+    std::unique_ptr<usk::platform::windows::RegisteredPublisherAdmission> registered_admission;
     try {
         report_status(SERVICE_START_PENDING);
         stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -274,6 +277,10 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         config.reviewed_plan_envelope_sha256=reviewed_plan_envelope_sha256;
         config.stop_event=stop_event;
         if (!authorized_client_sid.empty()) {
+            if (service_admitted_client) {
+                registered_admission = std::make_unique<usk::platform::windows::RegisteredPublisherAdmission>(
+                    service_name, volume_root, authorized_client_sid);
+            }
             const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
             if (grant_client_read || admit_client_observer)
                 usk::platform::windows::admit_current_publisher_client_observer(service_name, authorized_client_sid);
@@ -366,6 +373,8 @@ int wmain(int argc, wchar_t** argv) {
     if (external_client) { authorized_client_sid=argv[argc-1]; argc-=2; }
     admit_client_observer = argc > 1 && std::wstring(argv[argc-1]) == L"--admit-client-observer";
     if (admit_client_observer) --argc;
+    service_admitted_client = argc > 1 && std::wstring(argv[argc-1]) == L"--service-admitted-client";
+    if (service_admitted_client) { --argc; grant_client_read = true; }
     interrupt_consumer_grant = argc > 1 && std::wstring(argv[argc-1]) == L"--interrupt-consumer-grant";
     if (interrupt_consumer_grant) --argc;
     if ((grant_client_read && (!external_client || admit_client_observer)) ||
@@ -536,6 +545,7 @@ int wmain(int argc, wchar_t** argv) {
     if ((campaign_vm_reviewed_recovery || campaign_vm_reviewed_source) &&
         !external_client) return 2;
     if (admit_client_observer && !registered_mode) return 2;
+    if (service_admitted_client && !registered_mode) return 2;
     service_name = argv[2];
     receipt_path = registered_fault ? argv[9] : registered_mode ? L"" : argv[3];
     volume_root = argv[4];

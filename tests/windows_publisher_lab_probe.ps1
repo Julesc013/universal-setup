@@ -21,6 +21,7 @@ param(
     [switch]$MachineRequestClient,
     [switch]$ControllerApply,
     [switch]$PublicInstallation,
+    [switch]$PublicStandardClient,
     [ValidateSet('none','prepublish','postrename')][string]$PublicPublicationLoss='none',
     [ValidateSet('none','payload_changed','metadata_collision')][string]$PublicPostRenameRefusal='none',
     [switch]$NonAdminClient,
@@ -35,6 +36,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$standardLauncherClosed=$false
+if($PublicStandardClient -and (-not $PublicInstallation -or $PublicPublicationLoss -cne 'none' -or $PublicPostRenameRefusal -cne 'none')) {
+    throw 'Standard public fixture requires its separate ordinary public installation lab'
+}
 if($PublicPublicationLoss -cne 'none' -and -not $PublicInstallation) {
     throw 'Ordinary public boundary loss requires the public installation probe'
 }
@@ -158,6 +163,126 @@ function Read-PublicBuildProfile([string]$Binary) {
         project_sha256=(Get-FileHash -LiteralPath $projectPath -Algorithm SHA256).Hash.ToLowerInvariant();
         probe_powershell=$PSVersionTable.PSVersion.ToString();probe_clr=[Environment]::Version.ToString()}
 }
+function Invoke-StandardPublicSystemTask {
+    param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
+        [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot)
+    # No local invocation can reach this: the outer lab has already required a
+    # fresh hosted VM and provisioned the exact disposable data disk.
+    $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
+    $script=Join-Path $LabRoot ($taskName+'.ps1')
+    $startBinding=Join-Path $LabRoot ($taskName+'.started.json')
+    $quote={param([string]$value) "'"+$value.Replace("'","''")+"'"}
+    $probe=Join-Path $PSScriptRoot 'windows_publisher_standard_public_probe.ps1'
+    $python=(Get-Command python -CommandType Application -ErrorAction Stop).Source
+    $body=@('$ErrorActionPreference=''Stop''',
+        '$env:GITHUB_ACTIONS=''true''', '$env:RUNNER_ENVIRONMENT=''github-hosted''',
+        ('$env:RUNNER_TEMP='+(& $quote $env:RUNNER_TEMP)),
+        '$identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
+        'if($identity -cne ''S-1-5-18''){throw ''Owned launcher identity differs''}',
+        ('$startBinding='+(& $quote $startBinding)),
+        '$process=Get-Process -Id $PID',
+        '$binding=@{schema=''usk.publisher_standard_launcher.v1'';process_id=$PID;creation_file_time=$process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString();identity=$identity;image=$process.Path}',
+        '$stream=[IO.File]::Open($startBinding,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)',
+        'try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes(($binding|ConvertTo-Json -Compress));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose();$process.Dispose()}',
+        ('& '+(& $quote $probe)+' -VhdPath '+(& $quote $VhdPath)+' -VolumeRoot '+(& $quote $VolumeRoot)+
+            ' -ServiceBinary '+(& $quote $ServiceBinary)+' -ServiceControlBinary '+(& $quote $ServiceControlBinary)+
+            ' -MachineBinary '+(& $quote $MachineBinary)+' -OutputPath '+(& $quote $OutputPath)+' -PythonBinary '+(& $quote $python))) -join "`n"
+    $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+    $acl=[Security.AccessControl.FileSecurity]::new()
+    $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'));$acl.SetAccessRuleProtection($true,$false)
+    foreach($principalSid in @('S-1-5-18','S-1-5-32-544')) {
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($principalSid),'FullControl','Allow'))
+    }
+    Set-Acl -LiteralPath $script -AclObject $acl
+    $command='& '+(& $quote $script)
+    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $taskImage=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $taskArguments='-NoProfile -NonInteractive -EncodedCommand '+$encoded
+    $action=New-ScheduledTaskAction -Execute $taskImage -Argument $taskArguments
+    $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null
+    $script:standardLauncherClosed=$false
+    $scriptSha256=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
+    $assertOwnedTask={param($task)
+        $principal=[Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        try {$principal=[Security.Principal.SecurityIdentifier]::new([string]$task.Principal.UserId)}
+        catch {$principal=[Security.Principal.NTAccount]::new([string]$task.Principal.UserId).Translate([Security.Principal.SecurityIdentifier])}
+        if($task.TaskName -cne $taskName -or $task.TaskPath -cne '\' -or $principal.Value -cne 'S-1-5-18' -or
+            $task.Principal.RunLevel -ne 'Highest' -or @($task.Actions).Count -ne 1 -or
+            $task.Actions[0].Execute -cne $taskImage -or $task.Actions[0].Arguments -cne $taskArguments -or
+            $task.Actions[0].WorkingDirectory -or
+            (Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant() -cne $scriptSha256) {
+            throw 'Owned SYSTEM standard task definition or protected wrapper changed'
+        }
+    }
+    $recordUnconfirmed={param([string]$reason)
+        $result=if(Test-Path -LiteralPath $OutputPath -PathType Leaf){
+            Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
+        }else{[pscustomobject]@{}}
+        foreach($item in @{status='failed';failure=$reason;client_cleanup_confirmed=$false;launcher_task_removed=$false}.GetEnumerator()) {
+            $result|Add-Member -NotePropertyName $item.Key -NotePropertyValue $item.Value -Force
+        }
+        [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+    }
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -ErrorAction Stop|Out-Null
+        $created=$true
+        & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $deadline=[DateTime]::UtcNow.AddMinutes(12)
+        do {
+            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            & $assertOwnedTask $task
+            $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+            if(-not $launcherProcess -and (Test-Path -LiteralPath $startBinding -PathType Leaf)) {
+                if((Get-Item -LiteralPath $startBinding).Length -gt 4096){throw 'Owned launcher start binding exceeds bound'}
+                $launcherBinding=Get-Content -LiteralPath $startBinding -Raw|ConvertFrom-Json
+                if($launcherBinding.schema -cne 'usk.publisher_standard_launcher.v1' -or
+                    $launcherBinding.identity -cne 'S-1-5-18' -or $launcherBinding.image -cne $taskImage -or
+                    $launcherBinding.process_id -le 0 -or $launcherBinding.creation_file_time -cnotmatch '^[1-9][0-9]{16,18}$') {
+                    throw 'Owned launcher start identity differs'
+                }
+                $launcherProcess=Get-Process -Id $launcherBinding.process_id -ErrorAction Stop;$null=$launcherProcess.Handle
+                if($launcherProcess.Path -cne $taskImage -or
+                    $launcherProcess.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -cne $launcherBinding.creation_file_time) {
+                    throw 'Held owned launcher process identity differs'
+                }
+            }
+            if($launcherProcess -and $launcherProcess.HasExited -and $info.LastRunTime.Year -gt 2000 -and
+                $task.State -in @('Ready','Disabled')) {$finished=$true;break}
+            Start-Sleep -Milliseconds 100
+        } while([DateTime]::UtcNow -lt $deadline)
+        if(-not $finished -or -not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
+            # Keep ownership unconfirmed; outer cleanup must retain backing
+            # storage until runner disposal if any client might still be live.
+            & $recordUnconfirmed 'owned SYSTEM standard task completion is unconfirmed'
+            throw 'Owned SYSTEM standard task did not complete with a receipt'
+        }
+        if($info.LastTaskResult -ne 0){throw 'Owned SYSTEM standard fixture failed; retained receipt contains its failure'}
+    } finally {
+        if($created -and $finished) {
+            try {
+                & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+                if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned standard task remains registered'}
+            } catch {
+                & $recordUnconfirmed 'owned SYSTEM standard task removal is unconfirmed'
+                throw
+            }
+        }
+        if(-not $finished){& $recordUnconfirmed 'owned SYSTEM launcher termination is unconfirmed'}
+        if($launcherProcess){$launcherProcess.Dispose()}
+    }
+    $result=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
+    $result|Add-Member -NotePropertyName launcher_task_removed -NotePropertyValue $true
+    $result|Add-Member -NotePropertyName launcher_task_result -NotePropertyValue ([uint32]$info.LastTaskResult)
+    $result|Add-Member -NotePropertyName launcher_task -NotePropertyValue $taskName
+    $result|Add-Member -NotePropertyName launcher_process -NotePropertyValue $launcherBinding
+    $result|Add-Member -NotePropertyName launcher_process_exit_confirmed -NotePropertyValue $true
+    [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+    $script:standardLauncherClosed=$true
+}
 try {
     if($PublicInstallation){$receipt['build_profile']=Read-PublicBuildProfile $ServiceBinary}
     $before = @(Get-Disk -ErrorAction Stop | Select-Object -ExpandProperty Number)
@@ -239,7 +364,11 @@ try {
     if ($ServiceBinary) {
         if (-not $DeviceAclBinary -and -not $PublicInstallation) { throw 'owned VHD device ACL helper is required' }
         $serviceOutput = Join-Path $lab 'service-probe.json'
-        if ($PublicInstallation) {
+        if ($PublicStandardClient) {
+            Invoke-StandardPublicSystemTask -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
+                -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
+                -MachineBinary $MachineBinary -OutputPath $serviceOutput -LabRoot $lab
+        } elseif ($PublicInstallation) {
             & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
@@ -259,7 +388,7 @@ try {
         }
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
-        $expected = if ($PublicPostRenameRefusal -cne 'none') { 'public_refusal_retained' } elseif ($PublicInstallation) { 'public_install_verified_recovered' } elseif ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
+        $expected = if ($PublicStandardClient) { 'standard_public_install_verified_recovered' } elseif ($PublicPostRenameRefusal -cne 'none') { 'public_refusal_retained' } elseif ($PublicInstallation) { 'public_install_verified_recovered' } elseif ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
         if ($receipt.service_observation.status -ne $expected) {
             throw 'protected publish service probe did not pass'
         }
@@ -278,6 +407,9 @@ try {
     }
 } finally {
     try {
+        if($PublicStandardClient -and -not $standardLauncherClosed){
+            throw 'Owned SYSTEM launcher cleanup unconfirmed; retain backing volume until runner VM disposal'
+        }
         if($receipt.service_observation -and $receipt.service_observation.client_cleanup_confirmed -eq $false){
             throw 'Owned client cleanup unconfirmed; retain backing volume until runner VM disposal'
         }
@@ -299,7 +431,7 @@ try {
         if (-not $failure) { $failure = 'disposable VHD cleanup failed' }
     }
     $receipt['completed_utc'] = [DateTime]::UtcNow.ToString('o')
-    $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $out -Encoding UTF8
+    $receipt | ConvertTo-Json -Depth 64 | Set-Content -LiteralPath $out -Encoding UTF8
 }
 
 if ($failure) { throw $failure }

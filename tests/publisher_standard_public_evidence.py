@@ -1,0 +1,242 @@
+# SPDX-FileCopyrightText: 2026 Jules C
+# SPDX-License-Identifier: MIT
+"""Independent bounded standard-client receipt reconciliation; no profile admission."""
+from __future__ import annotations
+import hashlib
+import json
+import re
+from publisher_execution_evidence import reconcile as reconcile_execution, sid
+
+
+class StandardEvidenceError(ValueError):
+    pass
+
+
+BYPASS_PRIVILEGES = frozenset({"SeBackupPrivilege", "SeRestorePrivilege", "SeDebugPrivilege", "SeImpersonatePrivilege",
+    "SeAssignPrimaryTokenPrivilege", "SeTcbPrivilege", "SeLoadDriverPrivilege", "SeCreateTokenPrivilege",
+    "SeTakeOwnershipPrivilege", "SeManageVolumePrivilege", "SeRelabelPrivilege", "SeSecurityPrivilege",
+    "SeDelegateSessionUserImpersonatePrivilege"})
+MUTATION_RIGHTS = {"write_or_add_file": 2, "append_or_add_directory": 4, "write_ea": 16,
+    "delete_child": 64, "write_attributes": 256, "delete": 65536, "write_dac": 262144, "write_owner": 524288}
+
+
+def require(condition, message):
+    if not condition:
+        raise StandardEvidenceError(message)
+
+
+def integer(value, minimum=0, maximum=0xffffffff):
+    return type(value) is int and minimum <= value <= maximum
+
+
+def canonical(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def client_token(facts, expected_sid):
+    require(isinstance(facts, dict) and facts.keys() == {
+        "user_sid", "groups", "privileges", "token_id", "authentication_id", "token_type", "impersonation_level"},
+        "standard primary token is not closed")
+    require(facts["user_sid"] == expected_sid and integer(facts["token_type"], 1, 1) and
+        facts["impersonation_level"] is None, "standard primary identity/type differs")
+    for key in ("token_id", "authentication_id"):
+        require(isinstance(facts[key], str) and re.fullmatch(r"[0-9a-f]{16}", facts[key]) and int(facts[key], 16),
+            "standard token identity is incomplete")
+    for key in ("groups", "privileges"):
+        require(isinstance(facts[key], list) and len(facts[key]) <= 2048, "standard token population exceeds bound")
+    for group in facts["groups"]:
+        require(isinstance(group, dict) and group.keys() == {"sid", "attributes"} and integer(group["attributes"]) and
+            sid(group["sid"]) and group["sid"] not in ("S-1-5-18", "S-1-5-32-544") and
+            not group["sid"].startswith("S-1-5-80-"), "standard token has privileged/service membership")
+    for privilege in facts["privileges"]:
+        require(isinstance(privilege, dict) and privilege.keys() == {"name", "attributes"} and
+            integer(privilege["attributes"]) and isinstance(privilege["name"], str) and
+            re.fullmatch(r"Se[A-Za-z]+Privilege", privilege["name"]) and
+            privilege["name"] not in BYPASS_PRIVILEGES and
+            (not privilege["attributes"] & 2 or privilege["name"] == "SeChangeNotifyPrivilege"),
+            "standard token has an enabled bypass privilege")
+
+
+def service_policy(value, client):
+    # The observer's closed owner/ACE projection is checked below. Raw SDDL is
+    # diagnostic provenance; this decoder does not parse it or claim equality.
+    require(isinstance(value, dict) and value.keys() == {"owner", "raw_security_diagnostic", "aces"} and
+        value["owner"] in ("S-1-5-18", "S-1-5-32-544") and isinstance(value["raw_security_diagnostic"], str) and
+        0 < len(value["raw_security_diagnostic"]) <= 65536 and isinstance(value["aces"], list) and len(value["aces"]) <= 4096,
+        "service owner/DACL readback differs")
+    grants = 0
+    for ace in value["aces"]:
+        require(isinstance(ace, dict) and ace.keys() == {"sid", "mask", "type", "flags"} and
+            sid(ace["sid"]) and integer(ace["mask"]) and integer(ace["flags"], 0, 0) and
+            ace["type"] in ("AccessAllowed", "AccessDenied"), "service ACE form differs")
+        allowed = 0x2018d | (0x10 if ace["sid"] == client else 0)
+        require(ace["type"] == "AccessDenied" or ace["sid"] in ("S-1-5-18", "S-1-5-32-544") or
+            not ace["mask"] & ~allowed, "service grants outside mutation")
+        grants += ace["sid"] == client and ace["type"] == "AccessAllowed" and ace["mask"] == 0x20015
+    require(grants == 1, "configured client start/query grant differs")
+
+
+def deny_mutation(checks):
+    require(isinstance(checks, dict) and checks.keys() == MUTATION_RIGHTS.keys() | {"maximum_allowed"},
+        "native mutation checks are incomplete")
+    for name, mask in MUTATION_RIGHTS.items():
+        check = checks[name]
+        require(isinstance(check, dict) and check.keys() == {"requested", "allowed", "granted"} and
+            integer(check["requested"], mask, mask) and check["allowed"] is False and
+            integer(check["granted"], 0, 0), "native mutation right is available")
+    maximum = checks["maximum_allowed"]
+    require(maximum.keys() == {"requested", "allowed", "granted"} and integer(maximum["requested"], 0x2000000, 0x2000000) and
+        type(maximum["allowed"]) is bool and integer(maximum["granted"]) and
+        not maximum["granted"] & sum(MUTATION_RIGHTS.values()) and
+        (maximum["allowed"] or maximum["granted"] == 0), "native maximum access permits mutation")
+
+
+def native_rows(rows, drive, visible, service, client):
+    require(isinstance(rows, list) and 0 < len(rows) <= 10000 and len({x["path"] for x in rows}) == len(rows) and
+        len({x["file_id"] for x in rows}) == len(rows), "native row identities alias")
+    for row in rows:
+        require(row["path"].startswith(drive) and re.fullmatch(r"[0-9a-f]{16}:[0-9a-f]{32}", row["file_id"]) and
+            row["native_name"] == row["path"][2:] and row["link_count"] == 1 and row["case_sensitive"] is False and
+            bool(row["attributes"] & 16) == row["directory"] and not row["attributes"] & 1024,
+            "native object identity/closure differs")
+        payload = row["path"] == visible or row["path"].startswith(visible + "\\")
+        aces = [{"type": 0, "flags": 0, "access_mask": 2032127, "sid": principal}
+                for principal in ("S-1-5-18", service)]
+        if payload:
+            aces.append({"type": 0, "flags": 0, "access_mask": 1179817, "sid": client})
+        require(row["owner"] == "S-1-5-18" and row["protected"] is True and row["raw_aces"] == aces,
+            "native private/payload access policy differs")
+        for actor in ("initiating", "filtered"):
+            deny_mutation(row["effective_rights"][actor])
+        if row["directory"]:
+            require(row["streams"] == [], "native directory streams differ")
+        else:
+            require(len(row["streams"]) == 1 and row["streams"][0]["name"] == "::$DATA" and
+                row["streams"][0]["size"] == row["bytes"] and re.fullmatch(r"[0-9a-f]{64}", row["sha256"]),
+                "native file streams/bytes differ")
+            if row.get("content_json"):
+                require(hashlib.sha256(row["content_json"].encode()).hexdigest() == row["sha256"],
+                    "native retained record digest differs")
+
+
+def native_boundary(boundary):
+    require(isinstance(boundary, dict) and boundary.keys() == {"root", "device"}, "standard volume boundary roles incomplete")
+    for actor in ("initiating", "filtered"):
+        deny_mutation(boundary["root"]["effective_rights"][actor])
+        deny_mutation(boundary["device"]["checks"][actor])
+
+
+def installed_material(observation, rows, drive):
+    apply = observation["apply_request"]
+    request, plan = apply["plan_request"], observation["plan"]
+    installed = observation["apply"]["result"]["payload"]
+    require(installed["install_id"] == request["install_id"] and installed["transaction_id"] == apply["transaction_id"] and
+        installed["created_at"] == apply["applied_at"] and installed["lifecycle_status"] == "installed" and
+        installed["target_root"].replace("/", "\\") == plan["target"]["root"].replace("/", "\\"),
+        "installed identity differs from the reviewed request")
+    by_path = {row["path"]: row for row in rows}
+    state = drive + "setup-state\\state\\"
+    installed_path = state + "installed\\" + installed["install_id"] + "." + installed["transaction_id"] + ".json"
+    require(json.loads(by_path[installed_path]["content_json"]) == installed, "native installed record differs from response")
+    ownership = json.loads(by_path[state + installed["ownership_manifest_ref"].replace("/", "\\")]["content_json"])
+    require(ownership["install_id"] == installed["install_id"] and
+        ownership["created_by_transaction_id"] == installed["transaction_id"] and
+        ownership["manifest_digest"] == installed["ownership_manifest_digest"], "native ownership binding differs")
+    entries = [x for x in plan["planned_entries"] if x["entry_type"] == "file"]
+    visible = installed["target_root"].replace("/", "\\")
+    files = {x["path"]: x for x in rows if not x["directory"] and x["path"].startswith(visible + "\\")}
+    require(len(files) == len(entries) == len(ownership["files"]), "native payload file closure differs")
+    for entry in entries:
+        row = files[visible + "\\" + entry["relative_path"].replace("/", "\\")]
+        owned = [x for x in ownership["files"] if x["relative_path"] == entry["relative_path"]]
+        require(row["sha256"] == entry["sha256"] and row["bytes"] == entry["size_bytes"] and len(owned) == 1 and
+            owned[0]["sha256"] == row["sha256"] and owned[0]["size_bytes"] == row["bytes"],
+            "native payload/ownership bytes differ from reviewed plan")
+
+
+def reconcile(receipt, expected_head):
+    require(receipt.get("status") == "volume_and_protected_publish_observed" and
+        receipt.get("build_profile", {}).get("pull_request_head") == expected_head,
+        "standard hosted source/result differs")
+    profile = receipt["build_profile"]
+    observation = receipt["service_observation"]
+    require(observation.get("schema") == "usk.publisher_standard_public_probe.v1" and
+        observation.get("status") == "standard_public_install_verified_recovered" and
+        observation.get("profile_qualified") is False and observation.get("source_free") is True and
+        observation.get("launcher_identity") == "S-1-5-18" and observation.get("client_cleanup_confirmed") is True and
+        observation.get("account_cleanup_confirmed") is True and observation.get("launcher_task_removed") is True and
+        observation.get("launcher_process_exit_confirmed") is True and integer(observation.get("launcher_task_result"), 0, 0),
+        "standard fixture scope/closure differs")
+    client = observation["account_sid"]
+    require(sid(client) and re.fullmatch(r"S-1-5-21-(?:[0-9]+-){3}[0-9]+", client) and
+        int(client.rsplit("-", 1)[1]) >= 1000, "standard account identity differs")
+    service_policy(observation["service_policy"], client)
+    build = observation["execution_build_context"]
+    require(build["windows_sdk"] == profile["windows_sdk"] and
+        re.fullmatch(r"[0-9a-f]{64}", build["publisher_project_sha256"]), "standard native build targets differ")
+    captures = observation["client_captures"]
+    commands = ["publisher.inspect", "install_local.apply", "install_local.recover", "install_local.apply", "installed.verify"]
+    require(isinstance(captures, list) and [x["command"] for x in captures] == commands, "standard request capture set differs")
+    require(len({x["request_id"] for x in captures}) == 5 and len({x["process_id"] for x in captures}) == 5,
+        "standard request identities alias")
+    for capture in captures:
+        require(capture.get("captured_before_primary_thread_resume") is True and integer(capture["process_id"], 1) and
+            re.fullmatch(r"[1-9][0-9]{16,18}", capture["creation_file_time"]) and
+            capture["image_sha256"] == observation["machine_sha256"], "standard pre-resume process/image binding differs")
+        client_token(capture["primary_token"], client)
+        launcher = capture["launcher_token"]
+        require(launcher["user_sid"] == "S-1-5-18" and integer(launcher["token_type"], 1, 1) and
+            {"SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege"} <=
+                {x["name"] for x in launcher["privileges"] if not x["attributes"] & 4},
+            "standard launcher lacks documented creation authority")
+    discovery = observation["discovery"]
+    require(discovery["status"] == "refused" and discovery["result"] is None and
+        discovery["error"]["code"] == "publisher_capability_unavailable", "standard discovery fabricated availability")
+    installed = observation["apply"]["result"]["payload"]
+    require(observation["recovery"]["result"]["payload"] == installed and
+        observation["replayed_apply"]["result"]["payload"] == installed and
+        observation["verification"]["result"]["payload"]["status"] == "pass", "standard public terminal results differ")
+    readbacks = observation["readbacks"]
+    require(isinstance(readbacks, list) and len(readbacks) == 4, "standard per-request native readbacks incomplete")
+    reports = []
+    baseline = None
+    for readback, capture in zip(readbacks, captures[1:]):
+        require(readback["observer_task_removed"] is True and readback["independent"]["identity"] == "S-1-5-18" and
+            readback["independent"]["observer_token_handles_closed"] is True, "standard native reader closure differs")
+        tokens = readback["independent"]["effective_right_tokens"]
+        context = tokens["capture_context"]
+        require(tokens["captured_client"]["process_id"] == capture["process_id"] and
+            tokens["captured_client"]["creation_file_time"] == capture["creation_file_time"] and
+            tokens["captured_client"]["exited_at_observation"] is True and
+            context["capture_sha256"] == capture["capture_sha256"] and context["command"] == capture["command"] and
+            context["request_id"] == capture["request_id"] and context["image_sha256"] == capture["image_sha256"] and
+            tokens["initiating"]["user_sid"] == client and tokens["filtered"]["user_sid"] == client and
+            tokens["initiating"]["token_id"] == capture["initiating_token_id"] and
+            tokens["filtered"]["token_id"] == capture["filtered_token_id"], "standard held-native client binding differs")
+        require(all(tokens["initiating"][key] == capture["primary_token"][key]
+            for key in ("authentication_id", "groups", "privileges")), "standard primary/independent initiating facts differ")
+        require(tokens["initiating"]["token_type"] == tokens["filtered"]["token_type"] == 2 and
+            tokens["initiating"]["impersonation_level"] == tokens["filtered"]["impersonation_level"] == 2,
+            "standard independent AccessCheck token type differs")
+        rows = readback["independent"]["rows"]
+        require(rows and len(rows) <= 10000 and (baseline is None or rows == baseline), "standard request changed native target rows")
+        baseline = rows
+        drive = receipt["volume_root"]
+        target = installed["target_root"].replace("/", "\\")
+        native_rows(rows, drive, target, observation["service_sid"], client)
+        installed_material(observation, rows, drive)
+        native_boundary(readback["independent"]["volume_boundary"])
+        prepared = [x["content_json"] for x in rows if x["path"].endswith("\\lab-prepared-evidence.json")]
+        visible = [x["content_json"] for x in rows if x["path"].endswith("\\lab-visible-evidence.json")]
+        require(len(prepared) == len(visible) == 1, "standard native phase records incomplete")
+        report = reconcile_execution(prepared[0], visible[0], observation["service"], observation["service_sid"],
+            int(receipt["windows_build"].split(".")[2]), build["windows_sdk"])
+        require(report.get("worker_security_phase_count", 0) > 0 and
+            report.get("creation_observation", {}).get("worker_security_checked") is True and
+            report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
+        require(report == readback["execution_reconciliation"], "standard embedded native reconciliation differs")
+        reports.append(report)
+    return {"schema": "usk.publisher_standard_public_reconciliation.v1", "status": "bindings_consistent",
+        "head": expected_head, "standard_client_sid": client, "captured_clients": 5, "native_readbacks": 4,
+        "phase_bindings_checked": sum(x["worker_security_phase_count"] for x in reports),
+        "native_rows": len(baseline), "profile_qualified": False}

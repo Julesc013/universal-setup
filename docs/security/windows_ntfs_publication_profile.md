@@ -1879,3 +1879,46 @@ population. Existing native assertions and publication phase equalities
 remain required. Exact-head Win32 and hosted qualification are pending.
 The observation remains bracketed and does not establish an atomic census
 or capture transient threads between snapshots.
+
+PR #225 repair head `f365d06adb5db0c3abb98b27562ecfc409eea8d4`
+passed all seven required jobs in run `37181771819`, including Win32 and
+the five existing hosted public fixtures. Independent reconciliation checked
+24 readbacks and 95 worker-security phase bindings; original creator facts
+remained stable across restart. Agent review and the merge oracle approved
+the exact head, integrated as `29c7c77ecc16b49e06251ab3e10f2e041e86cd21`.
+This qualifies those selected observations, with the provenance and profile
+limitations above retained.
+
+### Standard-account public dispatch candidate
+
+The explicit `--service-admitted-client` registration grants its configured
+standard consumer only SCM start, status/config query and READ_CONTROL.
+Both sides observe the stored service owner/DACL and refuse outside mutation
+authority. The restricted service admits its own private registration,
+target, volume identity and protected image before opening the request pipe;
+the ordinary client binds the configured caller and live restricted service
+through held SCM/process/pipe observations. It does not open private records,
+enable backup privilege or inspect the raw disk. Installed payload receives
+consumer read/execute access; private publication and setup records retain
+the SYSTEM/service policy. Standard `publisher.inspect` explicitly refuses
+as unavailable: its current five-binding v1 contract is not fabricated.
+
+The separate hosted candidate fixture creates a Users-only account on a
+fresh disposable VM. A bounded owned SYSTEM task authenticates that account,
+observes its actual primary token and creates each machine client suspended
+with only three inherited stdio handles. Present bypass privileges and
+SYSTEM, administrator or service membership refuse the standard-token claim.
+Independent SYSTEM readback uses held token duplicates after install,
+source-free recovery, replay and verification. The decoder binds their shared
+authentication/group/privilege facts to the pre-resume primary observation,
+checks mutation denials, private/payload ACLs, native rows, selected bytes,
+ownership and native creation/worker records. SCM SDDL is diagnostic
+provenance; independent decoding checks the closed owner/ACE projection.
+
+The launcher task definition and wrapper digest are checked before start,
+during polling and before removal. Its actual process identity is held through
+exit. Failed process/token/observer/task closure withholds account or backing
+volume disposal; remaining state belongs to the disposable runner VM.
+This standard-account candidate has not yet passed hosted qualification.
+Complete native profile admission, capability discovery, leases, fencing,
+generations and release acceptance remain separate unfinished obligations.

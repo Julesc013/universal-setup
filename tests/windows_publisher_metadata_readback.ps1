@@ -449,8 +449,10 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
                     if(needed<56)throw new Exception("Token statistics are incomplete");
                     result["token_id"]=unchecked((ulong)Marshal.ReadInt64(buffer,0)).ToString("x16");
                     result["authentication_id"]=unchecked((ulong)Marshal.ReadInt64(buffer,8)).ToString("x16");
-                    result["token_type"]=Marshal.ReadInt32(buffer,24);
-                    result["impersonation_level"]=Marshal.ReadInt32(buffer,28);
+                    int tokenType=Marshal.ReadInt32(buffer,24);
+                    if(tokenType!=1 && tokenType!=2)throw new Exception("Observed token type is unsupported");
+                    result["token_type"]=tokenType;
+                    result["impersonation_level"]=tokenType==2 ? (object)Marshal.ReadInt32(buffer,28) : null;
                 } else {
                     uint count=(uint)Marshal.ReadInt32(buffer);
                     int offset=information==2 ? (IntPtr.Size==8 ? 8 : 4) : 4;
@@ -480,6 +482,40 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
         foreach (Dictionary<string, object> row in (Dictionary<string, object>[])facts["groups"])
             if ((string)row["sid"]==sid && (((uint)row["attributes"] & 4)!=0) && (((uint)row["attributes"] & 16)==0)) return true;
         return false;
+    }
+    public static Dictionary<string,object> ObserveOwnedStandardPrimary(IntPtr token, string expectedSid) {
+        Dictionary<string,object> facts=Facts(token);
+        if((string)facts["user_sid"]!=expectedSid || (int)facts["token_type"]!=1 ||
+            !expectedSid.StartsWith("S-1-5-21-",StringComparison.Ordinal))
+            throw new Exception("Owned standard primary token identity differs");
+        foreach(Dictionary<string,object> group in (Dictionary<string,object>[])facts["groups"])
+            if((string)group["sid"]=="S-1-5-32-544" || (string)group["sid"]=="S-1-5-18" ||
+                ((string)group["sid"]).StartsWith("S-1-5-80-",StringComparison.Ordinal))
+                throw new Exception("Owned standard primary token contains privileged/service membership");
+        foreach(Dictionary<string,object> privilege in (Dictionary<string,object>[])facts["privileges"])
+            if(Array.IndexOf(new string[]{"SeBackupPrivilege","SeRestorePrivilege","SeDebugPrivilege","SeImpersonatePrivilege",
+                "SeAssignPrimaryTokenPrivilege","SeTcbPrivilege","SeLoadDriverPrivilege","SeCreateTokenPrivilege",
+                "SeTakeOwnershipPrivilege","SeManageVolumePrivilege","SeRelabelPrivilege","SeSecurityPrivilege",
+                "SeDelegateSessionUserImpersonatePrivilege"},(string)privilege["name"])>=0 ||
+                (((uint)privilege["attributes"] & 2)!=0 && (string)privilege["name"]!="SeChangeNotifyPrivilege"))
+                throw new Exception("Owned standard primary token retains a bypass privilege");
+        return facts;
+    }
+    public static Dictionary<string,object> ObserveOwnedStandardLauncher() {
+        IntPtr token=IntPtr.Zero;
+        try {
+            Require(OpenProcessToken(GetCurrentProcess(),8,out token),"Read owned standard launcher token");
+            Dictionary<string,object> facts=Facts(token);
+            if((string)facts["user_sid"]!="S-1-5-18" || (int)facts["token_type"]!=1)
+                throw new Exception("Owned standard launcher is not SYSTEM");
+            foreach(string required in new string[]{"SeAssignPrimaryTokenPrivilege","SeIncreaseQuotaPrivilege"}) {
+                bool found=false;
+                foreach(Dictionary<string,object> privilege in (Dictionary<string,object>[])facts["privileges"])
+                    if((string)privilege["name"]==required && (((uint)privilege["attributes"] & 4)==0))found=true;
+                if(!found)throw new Exception("Owned standard launcher lacks its documented creation privilege");
+            }
+            return facts;
+        } finally {if(token!=IntPtr.Zero)Require(CloseHandle(token),"Close owned launcher token query");}
     }
     static void ValidateUnrelated(Dictionary<string,object> facts, string expectedSid, string callerSid, string serviceSid) {
         if(String.IsNullOrEmpty(expectedSid) || expectedSid==callerSid || expectedSid==serviceSid ||
@@ -745,6 +781,34 @@ public sealed class UskPublisherEffectiveRights : IDisposable {
     }
 }
 
+public static class UskPublisherServiceSecurityReadback {
+    [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern IntPtr OpenSCManager(string machine,string database,uint access);
+    [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern IntPtr OpenService(IntPtr manager,string name,uint access);
+    [DllImport("advapi32.dll",SetLastError=true)]static extern bool QueryServiceObjectSecurity(IntPtr service,uint information,byte[] bytes,uint size,out uint needed);
+    [DllImport("advapi32.dll")]static extern bool CloseServiceHandle(IntPtr handle);
+    public static string Read(string name) {
+        if(!System.Text.RegularExpressions.Regex.IsMatch(name ?? "","^USK_PUB_[0-9a-f]{32}$"))
+            throw new Exception("Owned service security name differs");
+        IntPtr manager=IntPtr.Zero,service=IntPtr.Zero;
+        try {
+            manager=OpenSCManager(null,null,1);
+            if(manager==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error(),"Read owned SCM");
+            service=OpenService(manager,name,0x20000);
+            if(service==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error(),"Read owned service security");
+            uint size;
+            if(QueryServiceObjectSecurity(service,5,null,0,out size) || Marshal.GetLastWin32Error()!=122 || size<20 || size>1024*1024)
+                throw new Exception("Owned service security size unavailable");
+            byte[] bytes=new byte[size];uint returned;
+            if(!QueryServiceObjectSecurity(service,5,bytes,size,out returned) || returned>size)
+                throw new Win32Exception(Marshal.GetLastWin32Error(),"Read owned service owner/DACL");
+            RawSecurityDescriptor descriptor=new RawSecurityDescriptor(bytes,0);
+            return descriptor.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Access);
+        } finally {
+            try {if(service!=IntPtr.Zero && !CloseServiceHandle(service))throw new Exception("Owned service query handle close failed");}
+            finally {if(manager!=IntPtr.Zero && !CloseServiceHandle(manager))throw new Exception("Owned manager query handle close failed");}
+        }
+    }
+}
 public sealed class UskPublisherPausedClient : IDisposable {
     [StructLayout(LayoutKind.Sequential)] struct SecurityAttributes { public uint Length; public IntPtr Descriptor; [MarshalAs(UnmanagedType.Bool)] public bool Inherit; }
     [StructLayout(LayoutKind.Sequential)] struct Startup {
@@ -759,18 +823,57 @@ public sealed class UskPublisherPausedClient : IDisposable {
     [DllImport("kernel32.dll",SetLastError=true)]static extern bool UpdateProcThreadAttribute(IntPtr list,uint flags,IntPtr attribute,IntPtr value,IntPtr size,IntPtr previous,IntPtr returned);
     [DllImport("kernel32.dll")]static extern void DeleteProcThreadAttributeList(IntPtr list);
     [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool CreateProcess(string image,StringBuilder command,IntPtr processSecurity,IntPtr threadSecurity,bool inherit,uint flags,IntPtr environment,string directory,ref StartupEx startup,out ProcessInfo process);
+    [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool CreateProcessAsUser(IntPtr token,string image,StringBuilder command,IntPtr processSecurity,IntPtr threadSecurity,bool inherit,uint flags,IntPtr environment,string directory,ref StartupEx startup,out ProcessInfo process);
+    [DllImport("advapi32.dll",EntryPoint="LogonUserW",CharSet=CharSet.Unicode,SetLastError=true)]static extern bool LogonUser(string account,string domain,IntPtr password,int type,int provider,out IntPtr token);
+    [DllImport("advapi32.dll",SetLastError=true)]static extern bool OpenProcessToken(IntPtr process,uint access,out IntPtr token);
+    [DllImport("advapi32.dll",EntryPoint="GetTokenInformation",SetLastError=true)]static extern bool GetTokenSession(IntPtr token,int information,out uint session,uint size,out uint returned);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern bool ProcessIdToSessionId(uint process,out uint session);
+    [DllImport("userenv.dll",SetLastError=true)]static extern bool CreateEnvironmentBlock(out IntPtr environment,IntPtr token,bool inherit);
+    [DllImport("userenv.dll",SetLastError=true)]static extern bool DestroyEnvironmentBlock(IntPtr environment);
     [DllImport("kernel32.dll",SetLastError=true)]static extern bool GetProcessTimes(IntPtr process,out long creation,out long exit,out long kernel,out long user);
     [DllImport("kernel32.dll",SetLastError=true)]static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll")]static extern uint WaitForSingleObject(IntPtr process,uint timeout);
     [DllImport("kernel32.dll",SetLastError=true)]static extern bool TerminateProcess(IntPtr process,uint exit);
-    [DllImport("kernel32.dll")]static extern bool CloseHandle(IntPtr handle);
-    IntPtr process,thread;bool resumed;
+    [DllImport("kernel32.dll",SetLastError=true)]static extern bool CloseHandle(IntPtr handle);
+    IntPtr process,thread,ownedLoginPrimary,pendingEnvironment;bool resumed;
+    readonly List<IntPtr> pendingHandles=new List<IntPtr>();
     public uint ProcessId {get;private set;}
     public long CreationFileTime {get;private set;}
     public bool IsResumed {get{return resumed;}}
+    public Dictionary<string,object> OwnedStandardPrimaryFacts {get;private set;}
+    public Dictionary<string,object> OwnedStandardLauncherFacts {get;private set;}
     static void Require(bool ok,string operation){if(!ok)throw new Win32Exception(Marshal.GetLastWin32Error(),operation);}
-    public UskPublisherPausedClient(string image,string arguments,string stdout,string stderr) {
-        IntPtr input=IntPtr.Zero,output=IntPtr.Zero,error=IntPtr.Zero,list=IntPtr.Zero,handles=IntPtr.Zero;bool initialized=false;
+    public UskPublisherPausedClient(string image,string arguments,string stdout,string stderr)
+        : this(image,arguments,stdout,stderr,IntPtr.Zero,null) {}
+    public static UskPublisherPausedClient CreateOwnedStandard(string image,string arguments,string stdout,string stderr,
+        string account,System.Security.SecureString password,string expectedSid) {
+        if(!System.Text.RegularExpressions.Regex.IsMatch(account ?? "","^USKCLI_[0-9a-f]{13}$") ||
+            password==null || password.Length<16 || String.IsNullOrEmpty(expectedSid))
+            throw new Exception("Owned standard login binding is incomplete");
+        IntPtr secret=IntPtr.Zero,token=IntPtr.Zero;
+        try {
+            Dictionary<string,object> launcher=UskPublisherEffectiveRights.ObserveOwnedStandardLauncher();
+            secret=Marshal.SecureStringToGlobalAllocUnicode(password);
+            Require(LogonUser(account,".",secret,2,0,out token),"Authenticate owned standard client");
+            Dictionary<string,object> login=UskPublisherEffectiveRights.ObserveOwnedStandardPrimary(token,expectedSid);
+            uint session,returned,ownerSession;
+            Require(GetTokenSession(token,12,out session,4,out returned),"Read owned login session");
+            Require(ProcessIdToSessionId((uint)System.Diagnostics.Process.GetCurrentProcess().Id,out ownerSession),"Read owned launcher session");
+            if(returned!=4 || session!=ownerSession)throw new Exception("Owned standard stdio inheritance crosses sessions");
+            UskPublisherPausedClient launch=new UskPublisherPausedClient(image,arguments,stdout,stderr,token,expectedSid);
+            launch.ownedLoginPrimary=token;token=IntPtr.Zero;
+            launch.OwnedStandardLauncherFacts=launcher;
+            if((string)launch.OwnedStandardPrimaryFacts["authentication_id"]!=(string)login["authentication_id"]) {
+                launch.Dispose();throw new Exception("Owned standard client authentication identity differs from login");
+            }
+            return launch;
+        } finally {
+            if(secret!=IntPtr.Zero)Marshal.ZeroFreeGlobalAllocUnicode(secret);
+            if(token!=IntPtr.Zero)Require(CloseHandle(token),"Close owned standard login primary token");
+        }
+    }
+    UskPublisherPausedClient(string image,string arguments,string stdout,string stderr,IntPtr primary,string expectedSid) {
+        IntPtr input=IntPtr.Zero,output=IntPtr.Zero,error=IntPtr.Zero,list=IntPtr.Zero,handles=IntPtr.Zero,environment=IntPtr.Zero;bool initialized=false;
         try {
             image=Path.GetFullPath(image);stdout=Path.GetFullPath(stdout);stderr=Path.GetFullPath(stderr);
             if(image.IndexOf('"')>=0 || !File.Exists(image) || String.Equals(stdout,stderr,StringComparison.OrdinalIgnoreCase) ||
@@ -791,20 +894,51 @@ public sealed class UskPublisherPausedClient : IDisposable {
             StartupEx startup=new StartupEx{Info=new Startup{Size=(uint)Marshal.SizeOf(typeof(StartupEx)),Flags=0x100,Input=input,Output=output,Error=error},Attributes=list};
             ProcessInfo created;
             // CREATE_SUSPENDED, CREATE_NO_WINDOW, EXTENDED_STARTUPINFO_PRESENT.
-            Require(CreateProcess(image,command,IntPtr.Zero,IntPtr.Zero,true,0x08080004,IntPtr.Zero,Path.GetDirectoryName(stdout),ref startup,out created),"Create owned paused client");
+            if(primary==IntPtr.Zero) {
+                Require(CreateProcess(image,command,IntPtr.Zero,IntPtr.Zero,true,0x08080004,IntPtr.Zero,Path.GetDirectoryName(stdout),ref startup,out created),"Create owned paused client");
+            } else {
+                Require(CreateEnvironmentBlock(out environment,primary,false),"Create isolated owned standard environment");
+                Require(CreateProcessAsUser(primary,image,command,IntPtr.Zero,IntPtr.Zero,true,0x08080404,environment,Path.GetDirectoryName(stdout),ref startup,out created),"Create owned standard paused client");
+            }
             process=created.Process;thread=created.Thread;ProcessId=created.ProcessId;
             long creation,exit,kernel,user;Require(GetProcessTimes(process,out creation,out exit,out kernel,out user),"Read owned paused client creation");CreationFileTime=creation;
+            if(primary!=IntPtr.Zero) {
+                IntPtr actual=IntPtr.Zero;
+                try {
+                    Require(OpenProcessToken(process,8,out actual),"Read actual paused standard client token");
+                    OwnedStandardPrimaryFacts=UskPublisherEffectiveRights.ObserveOwnedStandardPrimary(actual,expectedSid);
+                } finally {if(actual!=IntPtr.Zero)Require(CloseHandle(actual),"Close actual paused standard token query");}
+            }
+            if(environment!=IntPtr.Zero) {
+                Require(DestroyEnvironmentBlock(environment),"Close isolated standard environment");environment=IntPtr.Zero;
+            }
         } catch {Dispose();throw;}
         finally {
             if(initialized)DeleteProcThreadAttributeList(list);if(list!=IntPtr.Zero)Marshal.FreeHGlobal(list);if(handles!=IntPtr.Zero)Marshal.FreeHGlobal(handles);
-            foreach(IntPtr handle in new IntPtr[]{input,output,error})if(handle!=IntPtr.Zero && handle!=new IntPtr(-1))CloseHandle(handle);
+            Exception failure=null;
+            CloseTemporary(ref input,ref failure);CloseTemporary(ref output,ref failure);CloseTemporary(ref error,ref failure);
+            if(environment!=IntPtr.Zero && !DestroyEnvironmentBlock(environment)) {
+                pendingEnvironment=environment;
+                if(failure==null)failure=new Win32Exception(Marshal.GetLastWin32Error(),"Close retained standard environment");
+            }
+            if(failure!=null) {try {Dispose();} catch(Exception cleanup) {throw new AggregateException(failure,cleanup);}throw failure;}
         }
+    }
+    void CloseTemporary(ref IntPtr handle,ref Exception failure) {
+        if(handle==IntPtr.Zero || handle==new IntPtr(-1)){handle=IntPtr.Zero;return;}
+        if(!CloseHandle(handle)) {pendingHandles.Add(handle);if(failure==null)failure=new Win32Exception(Marshal.GetLastWin32Error(),"Close owned client stdio handle");}
+        handle=IntPtr.Zero;
+    }
+    static void CloseOwned(ref IntPtr handle,string operation,ref Exception failure) {
+        if(handle==IntPtr.Zero)return;
+        if(CloseHandle(handle))handle=IntPtr.Zero;
+        else if(failure==null)failure=new Win32Exception(Marshal.GetLastWin32Error(),operation);
     }
     public void Resume() {
         if(resumed || thread==IntPtr.Zero)throw new Exception("Owned client primary thread can resume only once");
         uint prior=ResumeThread(thread);Require(prior!=0xffffffff,"Resume owned client primary thread");
         if(prior!=1)throw new Exception("Owned client suspension count differs");
-        resumed=true;CloseHandle(thread);thread=IntPtr.Zero;
+        resumed=true;Exception failure=null;CloseOwned(ref thread,"Close resumed owned client thread",ref failure);if(failure!=null)throw failure;
     }
     public void Dispose() {
         if(process!=IntPtr.Zero && WaitForSingleObject(process,0)!=0) {
@@ -812,8 +946,19 @@ public sealed class UskPublisherPausedClient : IDisposable {
             Require(TerminateProcess(process,125),"Terminate never-resumed owned client");
             if(WaitForSingleObject(process,5000)!=0)throw new Exception("Never-resumed owned client termination unconfirmed");
         }
-        if(thread!=IntPtr.Zero){CloseHandle(thread);thread=IntPtr.Zero;}
-        if(process!=IntPtr.Zero){CloseHandle(process);process=IntPtr.Zero;}
+        Exception failure=null;
+        CloseOwned(ref thread,"Close owned client thread",ref failure);
+        CloseOwned(ref process,"Close owned client process",ref failure);
+        CloseOwned(ref ownedLoginPrimary,"Close owned standard login token",ref failure);
+        for(int index=pendingHandles.Count-1;index>=0;--index) {
+            if(CloseHandle(pendingHandles[index]))pendingHandles.RemoveAt(index);
+            else if(failure==null)failure=new Win32Exception(Marshal.GetLastWin32Error(),"Close retained owned client stdio handle");
+        }
+        if(pendingEnvironment!=IntPtr.Zero) {
+            if(DestroyEnvironmentBlock(pendingEnvironment))pendingEnvironment=IntPtr.Zero;
+            else if(failure==null)failure=new Win32Exception(Marshal.GetLastWin32Error(),"Close retained standard environment");
+        }
+        if(failure!=null)throw failure;
     }
 }
 
