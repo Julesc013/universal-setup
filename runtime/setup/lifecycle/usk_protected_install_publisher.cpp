@@ -713,6 +713,12 @@ bool is_execution_record_schema(const std::string& schema) {
         schema == "usk.publisher.lab_phase_evidence.v6" || schema == "usk.publisher.lab_phase_evidence.v7";
 }
 
+std::size_t visible_record_field_count(const std::string& schema) {
+    if (schema == "usk.publisher.lab_phase_evidence.v5" ||
+        schema == "usk.publisher.lab_phase_evidence.v6" || schema == "usk.publisher.lab_phase_evidence.v7") return 12;
+    return is_execution_record_schema(schema) ? 11 : 9;
+}
+
 void require_prepared_execution_phases(const usk::json::Value& prepared,
     const std::string& service_sid, const std::wstring& expected_service_name = service_name) {
     const auto& schema = prepared.at("schema").as_string();
@@ -772,7 +778,7 @@ void require_visible_execution_phase(const usk::json::Value& bound,
         const bool metadata_bound = bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v7";
         const bool rights_bound = metadata_bound || bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v6";
         const bool rename_bound = rights_bound || bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v5";
-        if (bound.as_object().size() != (rename_bound ? 12u : 11u) ||
+        if (bound.as_object().size() != visible_record_field_count(bound.at("schema").as_string()) ||
             bound.at("schema").as_string() != prepared.at("schema").as_string()) {
             throw std::runtime_error("native visible record differs from its closed prepared execution schema");
         }
@@ -1765,7 +1771,7 @@ std::string observe_prepared_recovery(HANDLE volume,
     }
     if (has_visible_record) {
         const auto bound = usk::json::parse(stored_visible);
-        if (bound.as_object().size() != (execution_bound ? 11u : 9u) ||
+        if (bound.as_object().size() != visible_record_field_count(prepared_schema) ||
             bound.at("schema").as_string() != prepared_schema ||
             bound.at("phase").as_string() != "lab_visible_evidence" ||
             bound.at("source_file_id").as_string() !=
@@ -3078,7 +3084,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         ascii(anchors.destination_parent.object.native_name) + "\\" + ascii(visible_component);
     const std::string sealed_visible = prepared_tree_at_visible_name(
         prepared.at("sealed_tree"), staged_name, visible_name);
-    if (bound.as_object().size() != (execution_bound ? 11u : 9u) ||
+    if (bound.as_object().size() != visible_record_field_count(prepared.at("schema").as_string()) ||
         bound.at("schema").as_string() != prepared.at("schema").as_string() ||
         bound.at("phase").as_string() != "lab_visible_evidence" ||
         bound.at("source_file_id").as_string() != visible_tree.root.file_id ||

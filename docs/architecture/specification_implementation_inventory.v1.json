@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-04T11:47:04Z",
+  "generated_at": "2026-10-04T12:06:12Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -4099,7 +4099,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "b910e040e908aa11505838d015ebaa26a9a912fe7a5a7ffec6090a2dd0400683"
+          "sha256": "9c29798674ae394eeabed19ec6823475c00279e321e7f03c4383d3c00c2cfce0"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4555,7 +4555,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "b910e040e908aa11505838d015ebaa26a9a912fe7a5a7ffec6090a2dd0400683"
+          "sha256": "9c29798674ae394eeabed19ec6823475c00279e321e7f03c4383d3c00c2cfce0"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
