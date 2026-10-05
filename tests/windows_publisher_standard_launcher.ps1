@@ -85,6 +85,9 @@ function Read-StandardRegisteredTaskInformation {
         # this observation; plain values leave the helper, never an RCW.
         $action=$actions.Item(1)
         $actionType=$action.Type;$image=$action.Path;$arguments=$action.Arguments;$directory=$action.WorkingDirectory
+        # The launcher leaves this optional BSTR unset. Null and the empty
+        # string both mean no working directory; other types remain invalid.
+        if($null -eq $directory){$directory=''}
         if(-not ($actionType -is [int]) -or $actionType -ne 0 -or
             -not ($image -is [string]) -or -not ($arguments -is [string]) -or
             -not ($directory -is [string]) -or $directory.Length -ne 0) {

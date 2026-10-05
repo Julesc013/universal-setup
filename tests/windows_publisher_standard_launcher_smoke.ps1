@@ -134,6 +134,7 @@ function New-FixtureScheduler([string]$Mode) {
     if($Mode -ceq 'binding_user'){$task.Definition.Principal.UserId='S-1-5-19'}
     if($Mode -ceq 'binding_image'){$task.Definition.Actions.Action.Path='other-image'}
     if($Mode -ceq 'binding_arguments'){$task.Definition.Actions.Action.Arguments='other-arguments'}
+    if($Mode -ceq 'directory_unset'){$task.Definition.Actions.Action.WorkingDirectory=$null}
     $folder=[pscustomobject]@{ReferenceKind='folder';FixtureState=$state;RegisteredTask=$task}
     $folder|Add-Member -MemberType ScriptMethod -Name GetTask -Value {
         param($Name)
@@ -158,7 +159,7 @@ function New-FixtureScheduler([string]$Mode) {
     return [pscustomobject]@{State=$state;Scheduler=$scheduler}
 }
 foreach($case in @('positive','task_changed','connect','folder','task','action','wrong_identity','cleanup','task_and_cleanup','folder_cleanup',
-    'binding_user','binding_image','binding_arguments')) {
+    'binding_user','binding_image','binding_arguments','directory_unset')) {
     $fixture=New-FixtureScheduler $case;$state=$fixture.State;$failure=$null;$info=$null
     try {
         $info=Read-StandardRegisteredTaskInformation -TaskName $registeredName -RevalidateTask {
@@ -194,8 +195,10 @@ foreach($case in @('positive','task_changed','connect','folder','task','action',
         ($state.Released -join '|') -cne ($expectedReleased -join '|')) {
         throw ('Registered task observation/reverse cleanup order differs: '+$case)
     }
-    if($case -ceq 'positive') {
-        if($failure -or $info.LastTaskResult -ne 0){throw 'Actual registered task observation was lost'}
+    if($case -in @('positive','directory_unset')) {
+        if($failure -or $info.LastTaskResult -ne 0 -or $info.Actions[0].WorkingDirectory -cne '') {
+            throw 'Actual registered task observation or unset working directory was lost'
+        }
     } else {
         $expectedFailure=switch($case) {
             'task_changed' {'changed owned task'}
@@ -217,7 +220,7 @@ foreach($case in @('positive','task_changed','connect','folder','task','action',
 }
 foreach($case in @('state_text','state_boolean','state_range','user_empty','group','group_boolean','runlevel_text','runlevel_boolean',
     'runlevel','logon_text','logon','count_boolean','count','action_type_text','action_type','path_null',
-    'arguments_null','directory_null','directory','principal_null','actions_null','action_null')) {
+    'arguments_null','directory_boolean','directory_numeric','directory','principal_null','actions_null','action_null')) {
     $fixture=New-FixtureScheduler 'positive';$task=$fixture.Scheduler.Folder.RegisteredTask
     $principal=$task.Definition.Principal;$actions=$task.Definition.Actions;$action=$actions.Action
     switch($case) {
@@ -238,7 +241,8 @@ foreach($case in @('state_text','state_boolean','state_range','user_empty','grou
         'action_type' {$action.Type=5}
         'path_null' {$action.Path=$null}
         'arguments_null' {$action.Arguments=$null}
-        'directory_null' {$action.WorkingDirectory=$null}
+        'directory_boolean' {$action.WorkingDirectory=$false}
+        'directory_numeric' {$action.WorkingDirectory=0}
         'directory' {$action.WorkingDirectory='other'}
         'principal_null' {$task.Definition.Principal=$null}
         'actions_null' {$task.Definition.Actions=$null}
