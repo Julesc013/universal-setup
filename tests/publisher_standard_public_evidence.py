@@ -625,7 +625,8 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
         'required native installation guard/public conflict case is missing')
     if 'installation_guard_conflict' in observation:
         from publisher_install_guard_evidence import reconcile as reconcile_installation_guard
-        result['installation_guard_conflict'] = reconcile_installation_guard(observation, receipt['volume_root'])
+        result['installation_guard_conflict'] = reconcile_installation_guard(
+            observation, receipt['volume_unique_id'])
     return result
 
 

@@ -120,6 +120,29 @@ Value call_profile() {
 std::vector<unsigned char> creation_descriptor(const std::string& sid) {
     return make_publisher_directory_security_descriptor(std::wstring(sid.begin(), sid.end()));
 }
+
+std::string changed_fields(const Value& previous, const Value& current) {
+    std::string names;
+    for (const auto& field : previous.as_object()) {
+        if (!current.contains(field.first) || usk::json::canonical(field.second) !=
+                usk::json::canonical(current.at(field.first))) {
+            if (!names.empty()) names += ',';
+            names += field.first;
+        }
+    }
+    return names;
+}
+
+std::string worker_security_change_diagnostic(const Value& previous, const Value& current) {
+    // Both observations have passed the closed native worker-security policy.
+    // Describe the measured mismatch without refreshing any frozen fact or
+    // weakening the complete-snapshot equality requirement.
+    return "publisher creation token/default/thread security changed [changed_fields=" +
+        changed_fields(previous, current) + "; primary_fields=" +
+        changed_fields(previous.at("primary_token"), current.at("primary_token")) +
+        "; threads_before=" + std::to_string(previous.at("threads").as_array().size()) +
+        "; threads_after=" + std::to_string(current.at("threads").as_array().size()) + ']';
+}
 } // namespace
 
 struct PublisherCreationCapture::Implementation {
@@ -147,8 +170,9 @@ struct PublisherCreationCapture::Implementation {
             "publisher creation process owner/DACL changed");
         const auto security_current = observe_current_publisher_worker_security();
         require_publisher_worker_security(security_current, service);
-        require(usk::json::canonical(security_current) == usk::json::canonical(worker_security),
-            "publisher creation token/default/thread security changed");
+        if (usk::json::canonical(security_current) != usk::json::canonical(worker_security)) {
+            throw std::runtime_error(worker_security_change_diagnostic(worker_security, security_current));
+        }
     }
 };
 

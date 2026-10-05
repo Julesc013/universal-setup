@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T19:17:05Z",
+  "generated_at": "2026-10-05T20:01:09Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1389,7 +1389,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
+          "sha256": "84b116c11c063805bc3bfc34420d218348d5a4e2c6d6ddd746649bbf8a1b0470"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -2499,7 +2499,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The restricted-service backend persists immutable original intent before bootstrap, binds native volume/setup/state identities and holder PID plus birth time, and appends bounded generations with reserved terminal capacity. Effects require current native fences; live or unknown holders refuse transfer without timeout takeover. Integrated predecessors qualify actual ended-worker loss, generation2/3 completion and source-free recovery/replay/verify. PR236 f5cf5d3/treebf3e9f9/CI37349471796 passed all7/native55 and guarded23 receipts plus independently reviewed two late client receipts (bounded final25 reviewc0bfd52f). This includes nine constructed ordered prefixes and six constructed durable states after separately observed worker loss; it does not establish crashes at those constructed offsets, arbitrary issued-call errors or power loss. Literal PID reuse remains unobserved; the current profile transfers only from observed ended instances or birth mismatch and refuses live or unknown holders. The new fixture at203cc8d/CI37359131068 failed before its contention request: its live redirected-output read was refused, and release raced with failure-only CIM cancellation. Its failed raw receipt and cleanup uncertainty are retained. All nine prefix and six durable steps passed on that run, but the complete current cohort remains unqualified. The shared bounded output reader and graceful-release wait repair remain source-only until a successful fresh exact-head run. Whole WorkUnit and release acceptance remain NOT_RUN.",
+      "note": "The restricted-service backend persists immutable original intent before bootstrap, binds native volume/setup/state identities and holder PID plus birth time, and appends bounded generations with reserved terminal capacity. Effects require current native fences; live or unknown holders refuse transfer without timeout takeover. Integrated predecessors qualify actual ended-worker loss, generation2/3 completion and source-free recovery/replay/verify. PR236 f5cf5d3/treebf3e9f9/CI37349471796 passed all7/native55 and guarded23 receipts plus independently reviewed two late client receipts (bounded final25 reviewc0bfd52f). This includes nine constructed ordered prefixes and six constructed durable states after separately observed worker loss; it does not establish crashes at those constructed offsets, arbitrary issued-call errors or power loss. Literal PID reuse remains unobserved; the current profile transfers only from observed ended instances or birth mismatch and refuses live or unknown holders. The new fixture at203cc8d/CI37359131068 failed before its contention request: its live redirected-output read was refused, and release raced with failure-only CIM cancellation. Its failed raw receipt and cleanup uncertainty are retained. All nine prefix and six durable steps passed on that run, but the complete current cohort remains unqualified. The shared bounded output reader and graceful-release wait repair remain source-only until a successful fresh exact-head run. Whole WorkUnit and release acceptance remain NOT_RUN. At732f344/treea425772/CI37362537913 all24 publication/recovery/mutex stages reported success and their bounded raw receipts are retained. Native final CTest failed53/55: the first registered candidate refused a changed creation-security snapshot and retained its input root; the controller then refused that retained root. Fuzz and sanitizer jobs were cancelled without runner acquisition or executed steps. The current consumer correction replays the retained mutex observation with its canonical volume GUID and unchanged43 native rows; this replay does not qualify the changed source head. Bounded native field diagnostics preserve complete security-snapshot equality. Fresh complete qualification remains pending.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2655,7 +2655,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
+          "sha256": "84b116c11c063805bc3bfc34420d218348d5a4e2c6d6ddd746649bbf8a1b0470"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -2799,7 +2799,7 @@
         },
         {
           "path": "tests/publisher_install_guard_evidence.py",
-          "sha256": "bb795ff349069733db264fc644ba1d84f0334ad5d5e5905473ba2de379641a30"
+          "sha256": "8c7df8887bf6f5bd299f386c47bab3b93a3bc05d553b34155d6aa1843fec5f6f"
         },
         {
           "path": "tests/test_publisher_install_guard_evidence.py",
@@ -2826,7 +2826,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Native volume/install mutexes guard owning-thread effects and expose opaque operation references. Real native tests cover both guards, bounded wait/cancellation, release and process birth mismatch. Registered endpoint contention separately qualifies four public pre-request-byte conflicts/cancellations; actual paused-worker contention retains original ownership and completes the same installer. PR235 immutable-context refusals and PR236 f5cf5d3 current25 regressions remain qualified in their bounded scopes. Endpoint contention alone does not prove installation-mutex contention. The current separate hosted fixture holds only the native installation mutex, dispatches authenticated source-free installed.verify, requires failed/operation_conflict to public refused/exit4 with the same scope reference, preserves complete protected rows/boundary, releases the actual child normally and verifies again. The first203cc8d hosted run failed while reading live redirected holder output, before the contention request, and does not qualify the public mutex outcome. The repaired reader allows the existing writer while bounding and hashing observed bytes; failure cleanup waits for actual released-child exit before cancellation. Fresh exact-head runtime qualification is pending. Public installation-mutex wait/cancellation and live-holder transfer are not claimed. Whole WorkUnit and release acceptance remain NOT_RUN.",
+      "note": "Native volume/install mutexes guard owning-thread effects and expose opaque operation references. Real native tests cover both guards, bounded wait/cancellation, release and process birth mismatch. Registered endpoint contention separately qualifies four public pre-request-byte conflicts/cancellations; actual paused-worker contention retains original ownership and completes the same installer. PR235 immutable-context refusals and PR236 f5cf5d3 current25 regressions remain qualified in their bounded scopes. Endpoint contention alone does not prove installation-mutex contention. The current separate hosted fixture holds only the native installation mutex, dispatches authenticated source-free installed.verify, requires failed/operation_conflict to public refused/exit4 with the same scope reference, preserves complete protected rows/boundary, releases the actual child normally and verifies again. The first203cc8d hosted run failed while reading live redirected holder output, before the contention request, and does not qualify the public mutex outcome. The repaired reader allows the existing writer while bounding and hashing observed bytes; failure cleanup waits for actual released-child exit before cancellation. Fresh exact-head runtime qualification is pending. Public installation-mutex wait/cancellation and live-holder transfer are not claimed. Whole WorkUnit and release acceptance remain NOT_RUN. The732f344 hosted mutex case observed actual native operation_conflict, the matching authenticated public refusal, unchanged protected state, normal holder release and subsequent source-free verification. Its strict consumer had incorrectly supplied the DOS drive root for canonical coordination/admission; that wiring is corrected and the retained case replays. This is a bounded observation at732, not current-head or full-profile qualification; the complete732 CI failed later and fresh final qualification is pending.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2982,7 +2982,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
+          "sha256": "84b116c11c063805bc3bfc34420d218348d5a4e2c6d6ddd746649bbf8a1b0470"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -3126,7 +3126,7 @@
         },
         {
           "path": "tests/publisher_install_guard_evidence.py",
-          "sha256": "bb795ff349069733db264fc644ba1d84f0334ad5d5e5905473ba2de379641a30"
+          "sha256": "8c7df8887bf6f5bd299f386c47bab3b93a3bc05d553b34155d6aa1843fec5f6f"
         },
         {
           "path": "tests/test_publisher_install_guard_evidence.py",
@@ -3309,7 +3309,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
+          "sha256": "84b116c11c063805bc3bfc34420d218348d5a4e2c6d6ddd746649bbf8a1b0470"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -3453,7 +3453,7 @@
         },
         {
           "path": "tests/publisher_install_guard_evidence.py",
-          "sha256": "bb795ff349069733db264fc644ba1d84f0334ad5d5e5905473ba2de379641a30"
+          "sha256": "8c7df8887bf6f5bd299f386c47bab3b93a3bc05d553b34155d6aa1843fec5f6f"
         },
         {
           "path": "tests/test_publisher_install_guard_evidence.py",
@@ -5151,7 +5151,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_creation_observation.cpp",
-          "sha256": "74386010ce0ec5edd41f78c95a3f378c4051542e75566c3a843e452a96cd3433"
+          "sha256": "a00977d671d3f6e395001422b6b43e08e18ac69afaf08f1f02163fd3d7edcce3"
         },
         {
           "path": "tests/native/usk_publisher_creation_observation_smoke.cpp",
@@ -5219,7 +5219,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
+          "sha256": "84b116c11c063805bc3bfc34420d218348d5a4e2c6d6ddd746649bbf8a1b0470"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -5643,7 +5643,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_creation_observation.cpp",
-          "sha256": "74386010ce0ec5edd41f78c95a3f378c4051542e75566c3a843e452a96cd3433"
+          "sha256": "a00977d671d3f6e395001422b6b43e08e18ac69afaf08f1f02163fd3d7edcce3"
         },
         {
           "path": "tests/native/usk_publisher_creation_observation_smoke.cpp",
@@ -5711,7 +5711,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
+          "sha256": "84b116c11c063805bc3bfc34420d218348d5a4e2c6d6ddd746649bbf8a1b0470"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",

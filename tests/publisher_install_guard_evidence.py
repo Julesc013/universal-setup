@@ -81,7 +81,7 @@ def conflict_projection(native, response, request_id, reference):
             'inspection_reference': reference}}, 'public installation mutex refusal/inspection projection differs')
 
 
-def reconcile(observation, volume):
+def reconcile(observation, canonical_volume):
     record = observation['installation_guard_conflict']
     require(isinstance(record, dict) and record.keys() == {
         'schema', 'scope', 'profile_qualified', 'publication_authority_granted', 'source_free',
@@ -93,7 +93,10 @@ def reconcile(observation, volume):
         integer(record['before_readback_index'], 2, 2) and integer(record['after_release_readback_index'], 3, 3) and
         integer(record['exit_code'], 4, 4), 'bounded installation mutex conflict record differs')
     installed = observation['apply']['result']['payload']
-    reference = holder_binding(record['holder'], observation, volume, installed['install_id'])
+    # The mutex scope and registered target bind the observed volume GUID.
+    # Native rows retain their separately observed DOS paths; those paths
+    # cannot replace the canonical coordination or admission identity.
+    reference = holder_binding(record['holder'], observation, canonical_volume, installed['install_id'])
     payload = record['verify_payload']
     verified = observation['verification']['result']['payload']
     require(isinstance(payload, dict) and payload.keys() == {
@@ -121,7 +124,7 @@ def reconcile(observation, volume):
     before = observation['readbacks'][2]['independent']
     client = observation['account_sid']
     admitted = registered_admission(native, observation['service'], observation['service_sid'], client,
-        observation['service_sha256'], volume, before['volume_boundary']['root']['file_id'])
+        observation['service_sha256'], canonical_volume, before['volume_boundary']['root']['file_id'])
     positive = [json.loads(item['native_json']) for item in observation['native_observations']
         if item['command'] == 'installed.verify']
     require(len(positive) == 1, 'normal post-release native verification is missing')
