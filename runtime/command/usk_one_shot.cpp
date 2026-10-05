@@ -70,6 +70,33 @@ bool lower_hex(const std::string& value, std::size_t length)
         value.find_first_not_of("0123456789abcdef") == std::string::npos;
 }
 
+// These are diagnostics from the authenticated service, not reconstructed
+// native exceptions or a grant to retry. Preserve the service's effects status.
+const char* publisher_operation_error_code(const Value& observed)
+{
+    if (!observed.contains("error_code")) return nullptr;
+    const auto& code = observed.at("error_code").as_string();
+    if (code == "operation_conflict") return "operation_conflict";
+    if (code == "operation_cancelled") return "operation_cancelled";
+    if (code == "lease_stale") return "lease_stale";
+    if (code == "state_revision_stale") return "state_revision_stale";
+    return nullptr;
+}
+
+Value publisher_operation_diagnostic(const Value& observed, const char* code)
+{
+    if (!code || !observed.contains("operation_inspection_ref")) return Value();
+    const auto& reference = observed.at("operation_inspection_ref").as_string();
+    const std::string prefix = "usk.operation-inspection.v1:";
+    if (reference.compare(0, prefix.size(), prefix) != 0 ||
+        !lower_hex(reference.substr(prefix.size()), 64))
+        throw std::runtime_error("publisher operation inspection reference differs");
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_operation_diagnostic.v1")},
+        {"error_code", Value(code)},
+        {"inspection_reference", Value(reference)}});
+}
+
 bool sid_text(const std::string& value, bool service = false)
 {
     if (value.size() < 7 || value.size() > 184 || value.compare(0, 4, "S-1-") != 0) return false;
@@ -577,12 +604,18 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             return candidate_outcome(request_id, "ok",
                 retain_observation ? observed : public_response, nullptr, 0);
         }
-        if (status == "failed")
-            return candidate_outcome(request_id, "refused", retain_observation ? observed : Value(),
-                "publisher_failed", 4);
-        if (status == "recovery_required")
-            return candidate_outcome(request_id, "recovery_required", retain_observation ? observed : Value(),
-                "recovery_required", 5);
+        if (status == "failed") {
+            const auto code = publisher_operation_error_code(observed);
+            const auto diagnostic = publisher_operation_diagnostic(observed, code);
+            return candidate_outcome(request_id, "refused", retain_observation ? observed : diagnostic,
+                code ? code : "publisher_failed", 4);
+        }
+        if (status == "recovery_required") {
+            const auto code = publisher_operation_error_code(observed);
+            const auto diagnostic = publisher_operation_diagnostic(observed, code);
+            return candidate_outcome(request_id, "recovery_required", retain_observation ? observed : diagnostic,
+                code ? code : "recovery_required", 5);
+        }
     } catch (const usk::base::EffectRequestNotDispatched&) {
         return failure(request_id, "publisher_admission_refused");
     } catch (const std::exception&) {

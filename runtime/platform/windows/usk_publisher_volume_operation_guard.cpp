@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_volume_operation_guard.h"
+#include "usk_json.h"
 
 #if defined(_WIN32)
 #include <cstddef>
@@ -11,8 +12,21 @@ namespace usk::platform::windows {
 
 namespace {
 
+std::string guard_inspection_reference(const std::wstring& name)
+{
+    std::string ascii;
+    ascii.reserve(name.size());
+    for (const wchar_t ch : name) {
+        if (ch > 127) throw std::invalid_argument("publisher guard name is not ASCII");
+        ascii.push_back(static_cast<char>(ch));
+    }
+    return "usk.operation-inspection.v1:" +
+        usk::json::sha256_canonical(usk::json::Value(ascii));
+}
+
 template<class Busy>
-bool acquire_guard(HANDLE mutex, HANDLE cancel_event, DWORD wait_milliseconds)
+bool acquire_guard(HANDLE mutex, HANDLE cancel_event, DWORD wait_milliseconds,
+    const std::string& inspection_reference)
 {
     const DWORD mutex_index = cancel_event ? 1u : 0u;
     HANDLE handles[] = {cancel_event, mutex};
@@ -23,8 +37,8 @@ bool acquire_guard(HANDLE mutex, HANDLE cancel_event, DWORD wait_milliseconds)
         WaitForSingleObject(mutex, wait_milliseconds);
     if (outcome == WAIT_OBJECT_0 + mutex_index) return false;
     if (outcome == WAIT_ABANDONED_0 + mutex_index) return true;
-    if (cancel_event && outcome == WAIT_OBJECT_0) throw PublisherOperationCancelled();
-    if (outcome == WAIT_TIMEOUT) throw Busy();
+    if (cancel_event && outcome == WAIT_OBJECT_0) throw PublisherOperationCancelled(inspection_reference);
+    if (outcome == WAIT_TIMEOUT) throw Busy(inspection_reference);
     throw std::runtime_error("publisher operation guard wait failed; Win32 " +
         std::to_string(GetLastError()));
 }
@@ -90,7 +104,7 @@ PublisherVolumeOperationGuard::PublisherVolumeOperationGuard(const std::wstring&
     }
     try {
         previous_owner_abandoned_ = acquire_guard<PublisherVolumeBusy>(
-            mutex_, cancel_event, wait_milliseconds);
+            mutex_, cancel_event, wait_milliseconds, guard_inspection_reference(name));
     } catch (...) {
         CloseHandle(mutex_);
         mutex_ = nullptr;
@@ -117,7 +131,7 @@ PublisherInstallOperationGuard::PublisherInstallOperationGuard(const std::wstrin
     }
     try {
         previous_owner_abandoned_ = acquire_guard<PublisherInstallBusy>(
-            mutex_, cancel_event, wait_milliseconds);
+            mutex_, cancel_event, wait_milliseconds, guard_inspection_reference(name_));
         owner_thread_ = GetCurrentThreadId();
     } catch (...) {
         CloseHandle(mutex_);
@@ -139,7 +153,18 @@ void PublisherInstallOperationGuard::require_owned(const std::wstring& root,
 {
     if (!mutex_ || owner_thread_ != GetCurrentThreadId() ||
         name_ != publisher_install_operation_guard_name(root, install_id))
-        throw PublisherInstallBusy();
+        throw PublisherInstallBusy(guard_inspection_reference(name_));
+}
+
+std::string publisher_volume_operation_inspection_reference(const std::wstring& root)
+{
+    return guard_inspection_reference(publisher_volume_operation_guard_name(root));
+}
+
+std::string publisher_install_operation_inspection_reference(const std::wstring& root,
+    const std::string& install_id)
+{
+    return guard_inspection_reference(publisher_install_operation_guard_name(root, install_id));
 }
 
 } // namespace usk::platform::windows

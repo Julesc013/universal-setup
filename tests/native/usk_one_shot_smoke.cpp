@@ -273,6 +273,7 @@ bool service_capability_checks()
 
 bool publisher_projection_checks()
 {
+    using usk::json::Value;
     const std::string request = R"({"schema":"usk.oneshot_request.v1","request_id":"public-1","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-1","applied_at":"2026-10-03T11:00:00Z"},"dry_run":false})";
     const std::string completed = R"({"schema":"usk.command_response.v1","status":"ok","payload":{"schema":"usk.installed_state.v1","install_id":"example","transaction_id":"tx-1","lifecycle_status":"installed","created_at":"2026-10-03T11:00:00Z"}})";
     const std::string prefix = R"({"schema":"usk.publisher_lab_service_observation.v1","status":"pass","private_phase_evidence":"NATIVE_CANARY","apply_response":)";
@@ -304,6 +305,50 @@ bool publisher_projection_checks()
     const auto lost = usk::command::run_publisher_one_shot(request,
         [](const std::string&) -> std::string { throw std::runtime_error("lost reply"); });
     if (lost.exit_code != 5 || usk::json::parse(lost.document).at("status").as_string() != "unknown") return false;
+    const std::string reference = "usk.operation-inspection.v1:" + std::string(64, 'a');
+    for (const auto status : {"failed", "recovery_required"}) {
+        for (const auto code : {"operation_conflict", "operation_cancelled", "lease_stale", "state_revision_stale"}) {
+            const Value observation(Value::Object{
+                {"schema", Value("usk.publisher_lab_service_observation.v1")},
+                {"status", Value(status)}, {"error_code", Value(code)},
+                {"operation_inspection_ref", Value(reference)},
+                {"error", Value("PRIVATE_ERROR_CANARY")}});
+            const auto result = usk::command::run_publisher_one_shot(request,
+                [&](const std::string&) { return usk::json::canonical(observation); });
+            const auto projected = usk::json::parse(result.document);
+            const bool recovery_required = std::string(status) == "recovery_required";
+            if (result.exit_code != (recovery_required ? 5 : 4) ||
+                projected.at("status").as_string() != (recovery_required ? "recovery_required" : "refused") ||
+                projected.at("error").at("code").as_string() != code ||
+                projected.at("result").at("inspection_reference").as_string() != reference ||
+                projected.at("result").as_object().size() != 3 ||
+                result.document.find("PRIVATE_ERROR_CANARY") != std::string::npos)
+                return false;
+        }
+    }
+    Value refused(Value::Object{
+        {"schema", Value("usk.publisher_lab_service_observation.v1")},
+        {"status", Value("failed")}, {"error_code", Value("operation_conflict")}});
+    const auto without_reference = usk::command::run_publisher_one_shot(request,
+        [&](const std::string&) { return usk::json::canonical(refused); });
+    if (without_reference.exit_code != 4 ||
+        usk::json::parse(without_reference.document).at("result").type() != Value::Type::null_value) return false;
+    for (const auto& invalid : {Value("PRIVATE_REFERENCE_CANARY"),
+            Value("usk.operation-inspection.v1:" + std::string(63, 'a')),
+            Value("usk.operation-inspection.v1:" + std::string(64, 'A')), Value(false)}) {
+        refused.as_object()["operation_inspection_ref"] = invalid;
+        const auto result = usk::command::run_publisher_one_shot(request,
+            [&](const std::string&) { return usk::json::canonical(refused); });
+        if (result.exit_code != 5 ||
+            usk::json::parse(result.document).at("status").as_string() != "unknown" ||
+            result.document.find("PRIVATE_REFERENCE_CANARY") != std::string::npos) return false;
+    }
+    refused.as_object()["error_code"] = Value("unrecognized_native_code");
+    const auto unrecognized = usk::command::run_publisher_one_shot(request,
+        [&](const std::string&) { return usk::json::canonical(refused); });
+    if (unrecognized.exit_code != 4 ||
+        usk::json::parse(unrecognized.document).at("error").at("code").as_string() != "publisher_failed" ||
+        usk::json::parse(unrecognized.document).at("result").type() != Value::Type::null_value) return false;
     const std::string recovery = R"({"schema":"usk.oneshot_request.v1","request_id":"recovery-1","command":"install_local.recover","payload":{"schema":"usk.publisher_recovery_request.v1","install_id":"example","transaction_id":"tx-1"},"dry_run":false})";
     const auto recovered = usk::command::run_publisher_one_shot(recovery,
         [&replay](const std::string&) { return replay; });

@@ -388,6 +388,13 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             dynamic_cast<const PublisherOperationCancelled*>(&error) ? "operation_cancelled" :
             dynamic_cast<const InstallLeaseStale*>(&error) ? "lease_stale" :
             dynamic_cast<const InstallStateRevisionStale*>(&error) ? "state_revision_stale" : "";
+        std::string inspection_reference;
+        if (const auto* busy = dynamic_cast<const PublisherVolumeBusy*>(&error))
+            inspection_reference = busy->inspection_reference();
+        else if (const auto* install_busy = dynamic_cast<const PublisherInstallBusy*>(&error))
+            inspection_reference = install_busy->inspection_reference();
+        else if (const auto* cancelled = dynamic_cast<const PublisherOperationCancelled*>(&error))
+            inspection_reference = cancelled->inspection_reference();
         const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
                 json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
@@ -395,7 +402,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                     publication_effects_may_exist) ?
                     "recovery_required" : "failed") +
                 ",\"error\":" + json_quote(error.what()) +
-                (operation_error.empty() ? "" : ",\"error_code\":" + json_quote(operation_error)) + "}\n";
+                (operation_error.empty() ? "" : ",\"error_code\":" + json_quote(operation_error)) +
+                (inspection_reference.empty() ? "" :
+                    ",\"operation_inspection_ref\":" + json_quote(inspection_reference)) + "}\n";
         if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
         // An authenticated peer receives the actual refusal/retained-effects
         // result when delivery is possible; loss of transport stays unknown.

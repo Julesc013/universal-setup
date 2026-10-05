@@ -12,6 +12,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace usk::platform::windows {
 
@@ -20,23 +21,43 @@ namespace usk::platform::windows {
 // It does not replace the per-install lease and revision fencing contract.
 class PublisherVolumeBusy final : public std::runtime_error {
 public:
-    PublisherVolumeBusy() : std::runtime_error("publisher volume operation is active") {}
+    explicit PublisherVolumeBusy(std::string inspection_reference = {}) :
+        std::runtime_error("publisher volume operation is active"),
+        inspection_reference_(std::move(inspection_reference)) {}
+    const std::string& inspection_reference() const noexcept { return inspection_reference_; }
+private:
+    std::string inspection_reference_;
 };
 
 class PublisherInstallBusy final : public std::runtime_error {
 public:
-    PublisherInstallBusy() : std::runtime_error("publisher installation operation is active") {}
+    explicit PublisherInstallBusy(std::string inspection_reference = {}) :
+        std::runtime_error("publisher installation operation is active"),
+        inspection_reference_(std::move(inspection_reference)) {}
+    const std::string& inspection_reference() const noexcept { return inspection_reference_; }
+private:
+    std::string inspection_reference_;
 };
 
 class PublisherOperationCancelled final : public std::runtime_error {
 public:
-    PublisherOperationCancelled() : std::runtime_error("publisher operation acquisition cancelled") {}
+    explicit PublisherOperationCancelled(std::string inspection_reference = {}) :
+        std::runtime_error("publisher operation acquisition cancelled"),
+        inspection_reference_(std::move(inspection_reference)) {}
+    const std::string& inspection_reference() const noexcept { return inspection_reference_; }
+private:
+    std::string inspection_reference_;
 };
 
 inline constexpr DWORD publisher_guard_max_wait_milliseconds = 30000;
 
 std::wstring publisher_volume_operation_guard_name(const std::wstring& volume_guid_root);
 std::wstring publisher_install_operation_guard_name(const std::wstring& volume_guid_root,
+    const std::string& install_id);
+// Opaque diagnostic references to these exact coordination scopes. They do
+// not identify a current holder or grant inspection/publication authority.
+std::string publisher_volume_operation_inspection_reference(const std::wstring& volume_guid_root);
+std::string publisher_install_operation_inspection_reference(const std::wstring& volume_guid_root,
     const std::string& install_id);
 
 class PublisherVolumeOperationGuard final {
