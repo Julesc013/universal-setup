@@ -3109,6 +3109,7 @@ struct CandidateApplyContext {
     bool entered=false;
     std::function<void()> start_installation_lease;
     std::exception_ptr operation_failure;
+    std::exception_ptr preflight_stale_plan;
 };
 thread_local usk::platform::windows::PublisherInstallOperationContext* original_operation_context=nullptr;
 class ScopedOriginalOperationContext final {
@@ -3204,6 +3205,25 @@ struct ScopedExecution {
         consumer_read_sid.clear(); visible_component=L"visible"; execution_active=false; }
 };
 } // namespace
+
+void usk::lifecycle::retain_candidate_publisher_operation_failure(std::exception_ptr failure) {
+    if (!candidate_apply || !failure) return;
+    try { std::rethrow_exception(failure); }
+    catch (const std::exception& error) {
+        using namespace usk::platform::windows;
+        using namespace usk::transaction;
+        if (dynamic_cast<const InstallLeaseConflict*>(&error) || dynamic_cast<const InstallStateRevisionStale*>(&error) ||
+            dynamic_cast<const InstallLeaseStale*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
+            dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherOperationCancelled*>(&error) ||
+            (!candidate_apply->entered && dynamic_cast<const StaleReviewedInstallRequest*>(&error)))
+            candidate_apply->operation_failure = failure;
+    } catch (...) {}
+}
+
+void usk::lifecycle::retain_candidate_publisher_preflight_stale_plan(std::exception_ptr failure) {
+    if (candidate_apply && !candidate_apply->entered && failure)
+        candidate_apply->preflight_stale_plan = failure;
+}
 
 std::optional<usk::json::Value> usk::lifecycle::candidate_publisher_plan_replay(
     const usk::json::Value& plan_request) {
@@ -3302,12 +3322,7 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
         // Keep the actual typed cause across the private C-ABI call. Its JSON
         // reply remains conservatively recovery-required; caller-controlled
         // response strings cannot manufacture an exception or authority.
-        using namespace usk::platform::windows;
-        using namespace usk::transaction;
-        if (dynamic_cast<const InstallLeaseConflict*>(&error) || dynamic_cast<const InstallStateRevisionStale*>(&error) ||
-            dynamic_cast<const InstallLeaseStale*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
-            dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherOperationCancelled*>(&error))
-            context.operation_failure = std::current_exception();
+        retain_candidate_publisher_operation_failure(std::current_exception());
         throw ProtectedApplyEffectsRetained(error.what());
     }
     return completed;
@@ -3884,6 +3899,13 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         if (status != 0 || usk::json::parse(apply_response).at("status").as_string() != "ok" ||
                                 !context.entered || context.anchors.empty()) {
                             if (context.operation_failure) std::rethrow_exception(context.operation_failure);
+                            if (!context.entered && context.preflight_stale_plan) {
+                                // The actual public preflight exception was retained
+                                // while this native context was active. Its JSON
+                                // reply has no role in classifying the refusal.
+                                try { std::rethrow_exception(context.preflight_stale_plan); }
+                                catch (const std::exception& error) { throw StaleReviewedInstallRequest(error.what()); }
+                            }
                             throw std::runtime_error("protected ordinary apply refused: "+apply_response);
                         }
                         anchors=std::move(context.anchors);

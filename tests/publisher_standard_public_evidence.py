@@ -607,6 +607,9 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
     active_contention = reconcile_active_install_contention(observation, client)
     if active_contention is not None:
         result['active_install_contention'] = active_contention
+    if 'stale_plan_refusals' in observation:
+        from publisher_stale_plan_evidence import reconcile as reconcile_stale_plan
+        result['stale_plan_refusals'] = reconcile_stale_plan(observation, receipt['volume_root'])
     return result
 
 

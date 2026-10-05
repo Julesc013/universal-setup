@@ -317,7 +317,7 @@ bool publisher_projection_checks()
             observed.at("result").at("inspection_reference").as_string() != reference) return false;
     }
     for (const auto status : {"failed", "recovery_required"}) {
-        for (const auto code : {"operation_conflict", "operation_cancelled", "lease_stale", "state_revision_stale"}) {
+        for (const auto code : {"operation_conflict", "operation_cancelled", "lease_stale", "state_revision_stale", "stale_plan"}) {
             const Value observation(Value::Object{
                 {"schema", Value("usk.publisher_lab_service_observation.v1")},
                 {"status", Value(status)}, {"error_code", Value(code)},
@@ -327,7 +327,7 @@ bool publisher_projection_checks()
                 [&](const std::string&) { return usk::json::canonical(observation); });
             const auto projected = usk::json::parse(result.document);
             const bool recovery_required = std::string(status) == "recovery_required";
-            if (result.exit_code != (recovery_required ? 5 : 4) ||
+            if (!result.diagnostic.empty() || result.exit_code != (recovery_required ? 5 : 4) ||
                 projected.at("status").as_string() != (recovery_required ? "recovery_required" : "refused") ||
                 projected.at("error").at("code").as_string() != code ||
                 projected.at("result").at("inspection_reference").as_string() != reference ||

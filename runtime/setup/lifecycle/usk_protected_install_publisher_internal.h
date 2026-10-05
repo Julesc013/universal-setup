@@ -5,6 +5,7 @@
 #if defined(_WIN32)
 #include "usk_protected_publisher_finalization_internal.h"
 #include "usk_json.h"
+#include <exception>
 #include <functional>
 #include <optional>
 namespace usk::platform::windows {
@@ -46,6 +47,7 @@ class StaleReviewedInstallRequest final : public std::runtime_error {
 public:
     StaleReviewedInstallRequest() : std::runtime_error(
         "reviewed install reentry differs from durable plan and source") {}
+    explicit StaleReviewedInstallRequest(const std::string& reason) : std::runtime_error(reason) {}
 };
 std::string execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration&, bool& effects_may_exist);
@@ -60,6 +62,11 @@ public:
         std::runtime_error("protected apply may retain material; recovery required: " + reason) {}
 };
 void require_candidate_snapshot_apply_binding(const usk::json::Value& snapshot);
+// Only the active private engine can retain a real exception across its C-ABI
+// call. A public preflight stale-plan error is retained separately, before that
+// engine has entered apply; neither function interprets response JSON.
+void retain_candidate_publisher_operation_failure(std::exception_ptr failure);
+void retain_candidate_publisher_preflight_stale_plan(std::exception_ptr failure);
 // Read-only original policy context from the live engine's held native record.
 // It is absent outside that engine, and a different plan request is refused.
 std::optional<usk::json::Value> candidate_publisher_plan_replay(const usk::json::Value& plan_request);

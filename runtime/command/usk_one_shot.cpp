@@ -80,6 +80,7 @@ const char* publisher_operation_error_code(const Value& observed)
     if (code == "operation_cancelled") return "operation_cancelled";
     if (code == "lease_stale") return "lease_stale";
     if (code == "state_revision_stale") return "state_revision_stale";
+    if (code == "stale_plan") return "stale_plan";
     return nullptr;
 }
 
