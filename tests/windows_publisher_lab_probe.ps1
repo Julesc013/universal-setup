@@ -39,6 +39,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1')
 $standardLauncherClosed=$false
 if($PublicStandardActiveInstallContention -and (-not $PublicStandardClient -or
     $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss)) {
@@ -180,6 +181,8 @@ function Invoke-StandardPublicSystemTask {
     $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
     $script=Join-Path $LabRoot ($taskName+'.ps1')
     $startBinding=Join-Path $LabRoot ($taskName+'.started.json')
+    $acknowledgment=Join-Path $LabRoot ($taskName+'.acknowledged.json')
+    $launcherHelpers=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1'))
     $quote={param([string]$value) "'"+$value.Replace("'","''")+"'"}
     $probe=Join-Path $PSScriptRoot 'windows_publisher_standard_public_probe.ps1'
     $python=(Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
@@ -189,13 +192,19 @@ function Invoke-StandardPublicSystemTask {
         ('$env:RUNNER_TEMP='+(& $quote $env:RUNNER_TEMP)),
         '$identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
         'if($identity -cne ''S-1-5-18''){throw ''Owned launcher identity differs''}',
+        $launcherHelpers,
         ('$startBinding='+(& $quote $startBinding)),
+        ('$acknowledgment='+(& $quote $acknowledgment)),
+        ('$taskName='+(& $quote $taskName)),
         '$process=Get-Process -Id $PID',
         '$binding=@{schema=''usk.publisher_standard_launcher.v1'';process_id=$PID;creation_file_time=$process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString();identity=$identity;image=$process.Path}',
         '$pendingBinding=$startBinding+''.pending''',
         '$stream=[IO.File]::Open($pendingBinding,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)',
         'try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes(($binding|ConvertTo-Json -Compress));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose();$process.Dispose()}',
+        ('Set-Acl -LiteralPath $pendingBinding -AclObject (Get-Acl -LiteralPath '+(& $quote $script)+')'),
         '[IO.File]::Move($pendingBinding,$startBinding)',
+        '$bindingSha256=(Get-FileHash -LiteralPath $startBinding -Algorithm SHA256).Hash.ToLowerInvariant()',
+        'Wait-StandardLauncherAcknowledgment $acknowledgment ([pscustomobject]$binding) $taskName $bindingSha256',
         ('& '+(& $quote $probe)+' -VhdPath '+(& $quote $VhdPath)+' -VolumeRoot '+(& $quote $VolumeRoot)+
             ' -ServiceBinary '+(& $quote $ServiceBinary)+' -ServiceControlBinary '+(& $quote $ServiceControlBinary)+
             ' -MachineBinary '+(& $quote $MachineBinary)+' -OutputPath '+(& $quote $OutputPath)+' -PythonBinary '+(& $quote $python)+
@@ -216,7 +225,8 @@ function Invoke-StandardPublicSystemTask {
     $taskArguments='-NoProfile -NonInteractive -EncodedCommand '+$encoded
     $action=New-ScheduledTaskAction -Execute $taskImage -Argument $taskArguments
     $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
-    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null
+    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null;$launcherAcknowledged=$false
+    $launcherPhase='register_task'
     $script:standardLauncherClosed=$false
     $scriptSha256=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
     $assertOwnedTask={param($task)
@@ -235,22 +245,23 @@ function Invoke-StandardPublicSystemTask {
         $result=if(Test-Path -LiteralPath $OutputPath -PathType Leaf){
             Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
         }else{[pscustomobject]@{}}
-        foreach($item in @{status='failed';failure=$reason;client_cleanup_confirmed=$false;launcher_task_removed=$false}.GetEnumerator()) {
-            $result|Add-Member -NotePropertyName $item.Key -NotePropertyValue $item.Value -Force
-        }
+        $result=Update-StandardLauncherUnconfirmed $result $reason
         [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     }
     try {
         Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -ErrorAction Stop|Out-Null
         $created=$true
+        $launcherPhase='start_task'
         & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
         Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $launcherPhase='observe_task'
         $deadline=[DateTime]::UtcNow.AddMinutes(12)
         do {
             $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
             & $assertOwnedTask $task
             $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
             if(-not $launcherProcess -and (Test-Path -LiteralPath $startBinding -PathType Leaf)) {
+                $launcherPhase='read_start_binding'
                 if((Get-Item -LiteralPath $startBinding).Length -gt 4096){throw 'Owned launcher start binding exceeds bound'}
                 $launcherBinding=Get-Content -LiteralPath $startBinding -Raw|ConvertFrom-Json
                 if($launcherBinding.schema -cne 'usk.publisher_standard_launcher.v1' -or
@@ -258,13 +269,28 @@ function Invoke-StandardPublicSystemTask {
                     $launcherBinding.process_id -le 0 -or $launcherBinding.creation_file_time -cnotmatch '^[1-9][0-9]{16,18}$') {
                     throw 'Owned launcher start identity differs'
                 }
+                $launcherPhase='acquire_launcher_custody'
                 $launcherProcess=Get-Process -Id $launcherBinding.process_id -ErrorAction Stop;$null=$launcherProcess.Handle
                 if($launcherProcess.Path -cne $taskImage -or
-                    $launcherProcess.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -cne $launcherBinding.creation_file_time) {
+                    $launcherProcess.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -cne $launcherBinding.creation_file_time -or
+                    $launcherProcess.HasExited) {
                     throw 'Held owned launcher process identity differs'
                 }
+                $launcherPhase='acknowledge_launcher_custody'
+                & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+                $ack=[ordered]@{schema='usk.publisher_standard_launcher_ack.v1';task_name=$taskName;
+                    process_id=$launcherBinding.process_id;creation_file_time=$launcherBinding.creation_file_time;
+                    binding_sha256=(Get-FileHash -LiteralPath $startBinding -Algorithm SHA256).Hash.ToLowerInvariant()}
+                $pendingAcknowledgment=$acknowledgment+'.pending'
+                $ackStream=[IO.File]::Open($pendingAcknowledgment,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+                try {$ackBytes=[Text.UTF8Encoding]::new($false).GetBytes(($ack|ConvertTo-Json -Compress));$ackStream.Write($ackBytes,0,$ackBytes.Length);$ackStream.Flush($true)}
+                finally {$ackStream.Dispose()}
+                Set-Acl -LiteralPath $pendingAcknowledgment -AclObject $acl
+                [IO.File]::Move($pendingAcknowledgment,$acknowledgment)
+                $launcherAcknowledged=$true
+                $launcherPhase='observe_launcher_exit'
             }
-            if($launcherProcess -and $launcherProcess.HasExited -and $info.LastRunTime.Year -gt 2000 -and
+            if($launcherAcknowledged -and $launcherProcess -and $launcherProcess.HasExited -and $info.LastRunTime.Year -gt 2000 -and
                 $task.State -in @('Ready','Disabled')) {$finished=$true;break}
             Start-Sleep -Milliseconds 100
         } while([DateTime]::UtcNow -lt $deadline)
@@ -275,6 +301,14 @@ function Invoke-StandardPublicSystemTask {
             throw 'Owned SYSTEM standard task did not complete with a receipt'
         }
         if($info.LastTaskResult -ne 0){throw 'Owned SYSTEM standard fixture failed; retained receipt contains its failure'}
+    } catch {
+        $originalLauncherError=$_
+        & $recordUnconfirmed 'owned SYSTEM standard launcher failed; original diagnostic retained'
+        $failedResult=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
+        $diagnostic=Get-StandardLauncherErrorDiagnostic $originalLauncherError $launcherPhase
+        $failedResult|Add-Member -NotePropertyName launcher_error -NotePropertyValue $diagnostic -Force
+        [IO.File]::WriteAllText($OutputPath,($failedResult|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+        throw
     } finally {
         if($created -and $finished) {
             try {
@@ -295,6 +329,7 @@ function Invoke-StandardPublicSystemTask {
     $result|Add-Member -NotePropertyName launcher_task -NotePropertyValue $taskName
     $result|Add-Member -NotePropertyName launcher_process -NotePropertyValue $launcherBinding
     $result|Add-Member -NotePropertyName launcher_process_exit_confirmed -NotePropertyValue $true
+    $result|Add-Member -NotePropertyName launcher_start_acknowledged -NotePropertyValue $launcherAcknowledged
     [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     $script:standardLauncherClosed=$true
 }
@@ -414,6 +449,7 @@ try {
     }
 } catch {
     $failure = $_.Exception.Message
+    $receipt['failure_diagnostic']=Get-StandardLauncherErrorDiagnostic $_ 'outer_lab'
     $receipt.failure = $failure
     $receipt.status = 'failed'
     if ($ServiceBinary -and $serviceOutput -and
