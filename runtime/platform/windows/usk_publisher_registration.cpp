@@ -799,7 +799,10 @@ void require_exclusive_volume_admission(const std::wstring& name,
         throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
             std::to_string(GetLastError()));
     }
-    volume.close();
+    // Retain the hardened locking file object across remount and the fresh
+    // device-security check before releasing that native reference. Unlock has
+    // already completed; the new mount must independently pass the strict
+    // profile. A restored outside-mutation grant still refuses admission.
     observe_root(); // Remount through the same GUID and recheck the exact root.
     FileHandle remounted(CreateFileW(device.c_str(), READ_CONTROL | WRITE_DAC,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,

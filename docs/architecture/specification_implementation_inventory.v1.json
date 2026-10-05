@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T11:04:58Z",
+  "generated_at": "2026-10-05T11:13:42Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1369,7 +1369,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "483ab258671ee37251a494a4ff055340832059998aaf9cce9772b844124b36e6"
+          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
@@ -2563,7 +2563,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "483ab258671ee37251a494a4ff055340832059998aaf9cce9772b844124b36e6"
+          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -2734,7 +2734,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. PR235 source6fea0f3/CI37293863598 all7/native55of55, eight runtime receipts and both late receipts passed independent final review and live merge-check; normal mergea1fb2d4 records only the four immutable-context refusals, alongside prior passive/active predicates. No whole WorkUnit or release acceptance follows.",
+      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. PR235 source6fea0f3/CI37293863598 all7/native55of55, eight runtime receipts and both late receipts passed independent final review and live merge-check; normal mergea1fb2d4 records only the four immutable-context refusals, alongside prior passive/active predicates. PR236 initial source39c560e/CI37299371896 failed at strict remounted volume-device admission before public install, retaining the observed Authenticated Users modify grant and failed receipt. The new source keeps the hardened locking file object alive through the fresh strict remount/device check; its runtime effect remains unqualified. No whole WorkUnit or release acceptance follows.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2798,7 +2798,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "483ab258671ee37251a494a4ff055340832059998aaf9cce9772b844124b36e6"
+          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -3033,7 +3033,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "483ab258671ee37251a494a4ff055340832059998aaf9cce9772b844124b36e6"
+          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -4815,7 +4815,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "483ab258671ee37251a494a4ff055340832059998aaf9cce9772b844124b36e6"
+          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -5299,7 +5299,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "483ab258671ee37251a494a4ff055340832059998aaf9cce9772b844124b36e6"
+          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
