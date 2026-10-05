@@ -322,6 +322,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                     config.reviewed_plan_envelope_sha256.clear();
                     config.submitted_recovery_request=request;
                 } else if (schema == "usk.install_local_apply_request.v1") {
+                    if (registered_admission)
+                        (void)registered_admission->select_reviewed_operation(request, *request_channel,
+                            config.reviewed_plan_envelope_path, config.reviewed_plan_envelope_sha256);
                     config.submitted_apply_request=request;
                 } else {
                     throw std::runtime_error("registered publisher request schema is unavailable");

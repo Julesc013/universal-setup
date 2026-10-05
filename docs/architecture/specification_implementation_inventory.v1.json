@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T11:13:42Z",
+  "generated_at": "2026-10-05T12:19:11Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1369,7 +1369,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
+          "sha256": "46fa72fec3a50e7ddbe1349cd2f146667446bcf3ad84af9788f54a0c95286d41"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
@@ -2519,7 +2519,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "83efcfa5d149a0070d563897395f12490436467952d88072b5d276e14ebff331"
+          "sha256": "9fc8b961f390af778ecd66f08de40c3f27e4bb81dcc895829348a0055630b3d5"
         },
         {
           "path": "release/evidence/wu007-active-holder-partial-integration.v1.json",
@@ -2563,11 +2563,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
+          "sha256": "46fa72fec3a50e7ddbe1349cd2f146667446bcf3ad84af9788f54a0c95286d41"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
-          "sha256": "89e23a98abc898f9b03f066a6f2ebf81ca60d724bf9f1cf00e347dae670733d3"
+          "sha256": "773c45583b6f7e0b05724988e915c93f88eccfd177801d14ac28e2fcb628893f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -2587,7 +2587,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
+          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -2734,7 +2734,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. PR235 source6fea0f3/CI37293863598 all7/native55of55, eight runtime receipts and both late receipts passed independent final review and live merge-check; normal mergea1fb2d4 records only the four immutable-context refusals, alongside prior passive/active predicates. PR236 initial source39c560e/CI37299371896 failed at strict remounted volume-device admission before public install, retaining the observed Authenticated Users modify grant and failed receipt. The new source keeps the hardened locking file object alive through the fresh strict remount/device check; its runtime effect remains unqualified. No whole WorkUnit or release acceptance follows.",
+      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. PR235 source6fea0f3/CI37293863598 all7/native55of55, eight runtime receipts and both late receipts passed independent final review and live merge-check; normal mergea1fb2d4 records only the four immutable-context refusals, alongside prior passive/active predicates. PR236 initial source39c560e/CI37299371896 failed at strict remounted volume-device admission before public install, retaining the observed Authenticated Users modify grant and failed receipt. The new source keeps the hardened locking file object alive through the fresh strict remount/device check; current sourcea788940/CI37301765059 passed all7 jobs/native55of55 and all8 runtime plus both late receipts in independent review. This establishes the tested route, not the reset cause or a universal remedy. No whole WorkUnit or release acceptance follows.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2754,7 +2754,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "83efcfa5d149a0070d563897395f12490436467952d88072b5d276e14ebff331"
+          "sha256": "9fc8b961f390af778ecd66f08de40c3f27e4bb81dcc895829348a0055630b3d5"
         },
         {
           "path": "release/evidence/wu007-active-holder-partial-integration.v1.json",
@@ -2798,11 +2798,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
+          "sha256": "46fa72fec3a50e7ddbe1349cd2f146667446bcf3ad84af9788f54a0c95286d41"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
-          "sha256": "89e23a98abc898f9b03f066a6f2ebf81ca60d724bf9f1cf00e347dae670733d3"
+          "sha256": "773c45583b6f7e0b05724988e915c93f88eccfd177801d14ac28e2fcb628893f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -2822,7 +2822,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
+          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -2969,7 +2969,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The native backend observes protected installed records after acquiring actual volume/install OS guards, binds their canonical revision in durable ownership and rechecks before product effects. Fresh install expects an empty requested installed-record set; source-free recovery binds immutable original intent and the observed current revision. The current private C-ABI retains actual typed operation failures and a real public stale-plan exception only before apply entry; response JSON cannot manufacture a native exception. Structured stale_plan remains distinct from state_revision_stale, and unknown/recovery-required outcomes retain their effects status. Four new authenticated immutable-context cases compare native target/volume rows around sourceful and source-free refusals; PR235 source6fea0f3/CI37293863598 and normal mergea1fb2d4 qualified those four immutable-context refusals, not planA/commitB/applyA revision refusal. A new read-only native preflight now checks the guarded protected installed-record set before intent/bootstrap writes, rechecks current root bindings, and retains a separate actual typed refusal only if this invocation has not started operation writes. The later lease/revision checks remain. This delta is unqualified source; maintenance-plan revisions, changed-state native qualification and remaining finite recovery/fencing obligations are unfinished.",
+      "note": "The native backend observes protected installed records after acquiring actual volume/install OS guards, binds their canonical revision in durable ownership and rechecks before product effects. Fresh install expects an empty requested installed-record set; source-free recovery binds immutable original intent and the observed current revision. The current private C-ABI retains actual typed operation failures and a real public stale-plan exception only before apply entry; response JSON cannot manufacture a native exception. Structured stale_plan remains distinct from state_revision_stale, and unknown/recovery-required outcomes retain their effects status. Four new authenticated immutable-context cases compare native target/volume rows around sourceful and source-free refusals; PR235 source6fea0f3/CI37293863598 and normal mergea1fb2d4 qualified those four immutable-context refusals, not planA/commitB/applyA revision refusal. A new read-only native preflight now checks the guarded protected installed-record set before intent/bootstrap writes, rechecks current root bindings, and retains a separate actual typed refusal only if this invocation has not started operation writes. The later lease/revision checks remain. This delta is unqualified source; maintenance-plan revisions, changed-state native qualification and remaining finite recovery/fencing obligations are unfinished. PR236 sourcea788940/CI37301765059 independently qualifies regression of existing install/recovery and four immutable-context refusals, not changed-state revision refusal. The continuation source adds stopped administrative enrollment of immutable exact-request reviewed envelopes bound to actual registration, admitted target and configured caller; authenticated native selection holds the protected approval and envelope files through dispatch. A selected fresh initial install compares the actual installed-record revision under both OS guards before plan rebuild or retained replay. This enrollment and changed-state path are unfinished and not runtime-qualified; whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2989,7 +2989,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "83efcfa5d149a0070d563897395f12490436467952d88072b5d276e14ebff331"
+          "sha256": "9fc8b961f390af778ecd66f08de40c3f27e4bb81dcc895829348a0055630b3d5"
         },
         {
           "path": "release/evidence/wu007-active-holder-partial-integration.v1.json",
@@ -3033,11 +3033,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
+          "sha256": "46fa72fec3a50e7ddbe1349cd2f146667446bcf3ad84af9788f54a0c95286d41"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
-          "sha256": "89e23a98abc898f9b03f066a6f2ebf81ca60d724bf9f1cf00e347dae670733d3"
+          "sha256": "773c45583b6f7e0b05724988e915c93f88eccfd177801d14ac28e2fcb628893f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -3057,7 +3057,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
+          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4639,7 +4639,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "83efcfa5d149a0070d563897395f12490436467952d88072b5d276e14ebff331"
+          "sha256": "9fc8b961f390af778ecd66f08de40c3f27e4bb81dcc895829348a0055630b3d5"
         },
         {
           "path": "CMakeLists.txt",
@@ -4767,7 +4767,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
+          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4815,11 +4815,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
+          "sha256": "46fa72fec3a50e7ddbe1349cd2f146667446bcf3ad84af9788f54a0c95286d41"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
-          "sha256": "89e23a98abc898f9b03f066a6f2ebf81ca60d724bf9f1cf00e347dae670733d3"
+          "sha256": "773c45583b6f7e0b05724988e915c93f88eccfd177801d14ac28e2fcb628893f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_data_partition.h",
@@ -5119,7 +5119,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "83efcfa5d149a0070d563897395f12490436467952d88072b5d276e14ebff331"
+          "sha256": "9fc8b961f390af778ecd66f08de40c3f27e4bb81dcc895829348a0055630b3d5"
         },
         {
           "path": "CMakeLists.txt",
@@ -5239,7 +5239,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
+          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -5299,11 +5299,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "7477e60e34c22684ab149e89320661cbbe1a6f2d6930103952727e77cb622c79"
+          "sha256": "46fa72fec3a50e7ddbe1349cd2f146667446bcf3ad84af9788f54a0c95286d41"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
-          "sha256": "89e23a98abc898f9b03f066a6f2ebf81ca60d724bf9f1cf00e347dae670733d3"
+          "sha256": "773c45583b6f7e0b05724988e915c93f88eccfd177801d14ac28e2fcb628893f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_data_partition.h",

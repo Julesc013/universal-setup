@@ -3740,6 +3740,34 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 operation_context=std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
                     volume_root, service_name, *install_guard, apply.at("plan_request").at("install_id").as_string(),
                     apply.at("transaction_id").as_string());
+                if (!operation_context->exists() && registered_admission->has_selected_reviewed_operation()) {
+                    // A genuinely approved fresh initial install must compare
+                    // the current native installed revision before rebuilding a
+                    // plan or entering another operation's retained replay path.
+                    // The envelope comes from held protected enrollment files,
+                    // not a submitted pathname, activation field or JSON grant.
+                    const auto enrolled = registered_admission->selected_reviewed_envelope();
+                    const auto acceptance = std::filesystem::u8path(enrolled.at("acceptance_root").as_string());
+                    const auto setup = std::filesystem::u8path(enrolled.at("state_root").as_string());
+                    const auto target = std::filesystem::u8path(enrolled.at("plan_request").at("target").at("root").as_string());
+                    const auto component = selected_visible_component(target.u8string());
+                    if (acceptance != acceptance.root_path() || setup != acceptance / L"setup-state" ||
+                        target.lexically_normal() != acceptance / L"publication" / L"destination" / component ||
+                        usk::json::canonical(enrolled.at("apply_request")) != *submitted_apply_request)
+                        throw StaleReviewedInstallRequest();
+                    require_public_mount_mapping(volume, setup.u8string(), target.u8string());
+                    try {
+                        const bool existing_layout = usk::platform::windows::require_publisher_initial_install_state_revision(
+                            volume, volume_root, setup.filename().wstring(), *install_guard,
+                            apply.at("plan_request").at("install_id").as_string(), observed.service_sid);
+                        if (existing_layout)
+                            usk::lifecycle::initialize_setup_root_for_publisher(setup.u8string(), acceptance.u8string(),
+                                "operator_acceptance_candidate", volume, volume_root, service_name, true);
+                    } catch (const usk::transaction::InstallStateRevisionStale&) {
+                        if (operation_effects_started) throw;
+                        throw usk::platform::windows::InstallStateRevisionChangedBeforeEffects();
+                    }
+                }
                 if (operation_context->exists()) {
                     publication_effects_may_exist=true;
                     const auto& snapshot=operation_context->record().at("reviewed_snapshot");
