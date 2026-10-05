@@ -25,6 +25,7 @@ param(
     [switch]$PublicStandardBootstrapLoss,
     [switch]$PublicStandardBootstrapPreservationLoss,
     [switch]$PublicStandardActiveInstallContention,
+    [switch]$PublicStandardStalePlanQualification,
     [ValidateSet('none','prepublish','postrename')][string]$PublicPublicationLoss='none',
     [ValidateSet('none','payload_changed','metadata_collision')][string]$PublicPostRenameRefusal='none',
     [switch]$NonAdminClient,
@@ -44,6 +45,9 @@ $standardLauncherClosed=$false
 if($PublicStandardActiveInstallContention -and (-not $PublicStandardClient -or
     $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss)) {
     throw 'Active installer contention requires the original owned Standard public fixture'
+}
+if($PublicStandardStalePlanQualification -and -not $PublicStandardClient) {
+    throw 'Stale-plan qualification requires the owned Standard public fixture'
 }
 if(($PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss) -and -not $PublicStandardClient) {throw 'Registered bootstrap loss requires the owned standard fixture'}
 if($PublicStandardClient -and (-not $PublicInstallation -or $PublicPublicationLoss -cne 'none' -or $PublicPostRenameRefusal -cne 'none')) {
@@ -175,7 +179,7 @@ function Read-PublicBuildProfile([string]$Binary) {
 function Invoke-StandardPublicSystemTask {
     param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
         [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss,
-        [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention)
+        [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification)
     # No local invocation can reach this: the outer lab has already required a
     # fresh hosted VM and provisioned the exact disposable data disk.
     $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
@@ -210,7 +214,8 @@ function Invoke-StandardPublicSystemTask {
             ' -MachineBinary '+(& $quote $MachineBinary)+' -OutputPath '+(& $quote $OutputPath)+' -PythonBinary '+(& $quote $python)+
             $(if($BootstrapProcessLoss){' -BootstrapProcessLoss'}else{''})+
             $(if($BootstrapPreservationProcessLoss){' -BootstrapPreservationProcessLoss'}else{''})+
-            $(if($ActiveInstallContention){' -ActiveInstallContention'}else{''}))) -join "`n"
+            $(if($ActiveInstallContention){' -ActiveInstallContention'}else{''})+
+            $(if($StalePlanQualification){' -StalePlanQualification'}else{''}))) -join "`n"
     $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
     $acl=[Security.AccessControl.FileSecurity]::new()
@@ -420,7 +425,8 @@ try {
                 -MachineBinary $MachineBinary -OutputPath $serviceOutput -LabRoot $lab `
                 -BootstrapProcessLoss:($PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss) `
                 -BootstrapPreservationProcessLoss:$PublicStandardBootstrapPreservationLoss `
-                -ActiveInstallContention:$PublicStandardActiveInstallContention
+                -ActiveInstallContention:$PublicStandardActiveInstallContention `
+                -StalePlanQualification:$PublicStandardStalePlanQualification
         } elseif ($PublicInstallation) {
             & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `

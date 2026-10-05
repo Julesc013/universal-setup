@@ -387,7 +387,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 dynamic_cast<const InstallLeaseConflict*>(&error) ? "operation_conflict" :
             dynamic_cast<const PublisherOperationCancelled*>(&error) ? "operation_cancelled" :
             dynamic_cast<const InstallLeaseStale*>(&error) ? "lease_stale" :
-            dynamic_cast<const InstallStateRevisionStale*>(&error) ? "state_revision_stale" : "";
+            dynamic_cast<const InstallStateRevisionStale*>(&error) ? "state_revision_stale" :
+            dynamic_cast<const StaleReviewedInstallRequest*>(&error) ? "stale_plan" : "";
         std::string inspection_reference;
         if (const auto* busy = dynamic_cast<const PublisherVolumeBusy*>(&error))
             inspection_reference = busy->inspection_reference();
@@ -404,7 +405,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 ",\"error\":" + json_quote(error.what()) +
                 (operation_error.empty() ? "" : ",\"error_code\":" + json_quote(operation_error)) +
                 (inspection_reference.empty() ? "" :
-                    ",\"operation_inspection_ref\":" + json_quote(inspection_reference)) + "}\n";
+                    ",\"operation_inspection_ref\":" + json_quote(inspection_reference)) +
+                (registered_admission ? ",\"process_id\":" + std::to_string(GetCurrentProcessId()) +
+                    ",\"registered_admission\":" + usk::json::canonical(registered_admission->evidence()) : "") + "}\n";
         if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
         // An authenticated peer receives the actual refusal/retained-effects
         // result when delivery is possible; loss of transport stays unknown.

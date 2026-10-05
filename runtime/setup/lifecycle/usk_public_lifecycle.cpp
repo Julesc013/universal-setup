@@ -2127,6 +2127,10 @@ char* usk::lifecycle::public_command_json(
             command_name, usk::json::parse(std::string(request_json, request_size)), config, fault_injector));
         *out_command_status = USK_STATUS_OK;
     } catch (const PublicError& error) {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        if (error.code() == "stale_plan")
+            usk::lifecycle::retain_candidate_publisher_preflight_stale_plan(std::current_exception());
+#endif
         const bool invalid = error.code() == "invalid_argument";
         response = usk::json::canonical(response_error(
             invalid ? "invalid_argument" : "refused", error.code(), error.what()));
@@ -2148,6 +2152,9 @@ char* usk::lifecycle::public_command_json(
         response = usk::json::canonical(response_error("refused", "native_path_limit_exceeded", error.what()));
         *out_command_status = USK_STATUS_ERROR;
     } catch (const std::exception& error) {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        usk::lifecycle::retain_candidate_publisher_operation_failure(std::current_exception());
+#endif
         response = usk::json::canonical(response_error("refused", "lifecycle_refused", error.what()));
         *out_command_status = USK_STATUS_ERROR;
     }
