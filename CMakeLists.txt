@@ -144,6 +144,7 @@ add_library(usk_transaction_static STATIC
   runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
+  runtime/setup/transaction/usk_maintenance_effect_journal.cpp
 )
 target_compile_features(usk_transaction_static PUBLIC cxx_std_17)
 target_include_directories(usk_transaction_static PUBLIC
@@ -241,6 +242,7 @@ set(USK_CORE_SOURCES
   runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
+  runtime/setup/transaction/usk_maintenance_effect_journal.cpp
   runtime/setup/verify/usk_package_verify.cpp
 )
 set(USK_PRIVATE_INCLUDE_DIRS

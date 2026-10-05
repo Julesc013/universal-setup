@@ -57,6 +57,21 @@ remain recovery inputs rather than mutation or pathname cleanup authority;
 the stream journal retains incomplete effects for inspection. Operation-specific
 effect replay and public maintenance finalization are still incomplete.
 
+Maintenance also appends create-only `usk.maintenance_effect_record.v1` records
+under the original transaction's `.maintenance` directory. The first record binds
+that same source context and the journal directory observation. Each publication,
+backup, replacement, removal and metadata write has an intent before the effect
+and a completion afterward; the digest chain is sealed after operation cleanup.
+An interruption between the two records leaves an unresolved intent, including
+when the effect happened. Repair retains its original backup when replacement
+publication is uncertain rather than attempting an unrecorded compensating rename.
+Source-free inspection validates the closed record format, chain and context,
+with a 32 KiB record bound, a 64 MiB journal bound and at most 200,002 records.
+These are observations of the existing internal maintenance routines. They do
+not authenticate a writable journal, establish held native payload authority,
+or enable public maintenance replay. The registered maintenance route and
+operation-specific recovery remain unfinished.
+
 `recovery.inspect`, `recovery.plan`, and `recovery.apply` can complete the
 post-commit install-local window only after a caller has reviewed the exact
 recovery plan. `recovery.apply` accepts `selected_action: "finalize"` only for

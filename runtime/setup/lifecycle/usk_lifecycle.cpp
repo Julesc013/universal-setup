@@ -8,6 +8,7 @@
 #include "usk_audit_repository.h"
 #include "usk_json.h"
 #include "usk_record_io.h"
+#include "usk_maintenance_effect_journal.h"
 #include "usk_replacement_session.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
@@ -693,7 +694,12 @@ Value maintenance_source_context(
         {"audit_root", root_observation(spec.audit_root)}});
 }
 
-std::unique_ptr<usk::transaction::TransactionSession> begin_maintenance(
+struct MaintenanceSession {
+    std::unique_ptr<usk::transaction::TransactionSession> transaction;
+    std::unique_ptr<usk::transaction::MaintenanceEffectJournal> effects;
+};
+
+MaintenanceSession begin_maintenance(
     usk::transaction::TransactionSpec spec,
     const usk::state::InstalledState& installed,
     const std::string& policy_digest,
@@ -701,9 +707,80 @@ std::unique_ptr<usk::transaction::TransactionSession> begin_maintenance(
     usk::transaction::FaultInjector injector)
 {
     const Value context = maintenance_source_context(spec, installed, policy_digest, applied_at);
-    return usk::transaction::TransactionSession::begin_streaming(
-        std::move(spec), usk::json::sha256_canonical(context),
-        usk::json::canonical(context), std::move(injector));
+    const std::string text = usk::json::canonical(context);
+    auto transaction = usk::transaction::TransactionSession::begin_streaming(
+        spec, usk::json::sha256_canonical(context), text, injector);
+    auto effects = std::make_unique<usk::transaction::MaintenanceEffectJournal>(spec, text,
+        [injector](const std::string& phase, const std::string& point) {
+            if (injector) injector("effects." + phase, point);
+        });
+    return {std::move(transaction), std::move(effects)};
+}
+
+Value maintenance_file_observation(const fs::path& path, const std::string& relative_path,
+    const std::string& root_role = {})
+{
+    usk::base::StableFile file(path);
+    const auto identity = file.identity();
+    const auto sha256 = file.sha256_hex();
+    file.verify_unchanged();
+    Value result(Value::Object{{"relative_path", Value(relative_path)},
+        {"native_identity", Value(identity.volume_id + ":" + identity.file_id)},
+        {"sha256", Value(sha256)}, {"size_bytes", Value(identity.size_bytes)}});
+    if (!root_role.empty()) result.as_object().emplace("root_role", Value(root_role));
+    return result;
+}
+
+void maintenance_effect(usk::transaction::MaintenanceEffectJournal& journal,
+    const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation,
+    const std::string& kind, const Value& details, const std::function<void()>& effect)
+{
+    journal.begin_effect(kind, details);
+    if (injector) injector(operation, "effect." + kind + ".before_effect");
+    effect();
+    if (injector) injector(operation, "effect." + kind + ".after_effect");
+    journal.complete_effect();
+}
+
+Value maintenance_audit_binding(const usk::audit::AuditInput& input)
+{
+    return Value(Value::Object{{"created_at", Value(input.created_at)},
+        {"operation", Value(input.operation)}, {"phase", Value(input.phase)},
+        {"status", Value(input.status)}, {"subject_type", Value(input.subject_type)},
+        {"subject_id", Value(input.subject_id)}, {"details_digest", Value(input.details_digest)},
+        {"transaction_id", Value(input.transaction_id)}, {"plan_id", Value(input.plan_id)},
+        {"message", Value(input.message)}});
+}
+
+void maintenance_installed_write(usk::transaction::MaintenanceEffectJournal& journal,
+    const usk::state::StateRepository& repository, const usk::state::InstalledState& installed,
+    const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation)
+{
+    const std::string hash = usk::json::sha256_canonical(Value(Value::Object{
+        {"installed_state_digest", Value(installed_digest(installed))},
+        {"last_verification", Value(Value::Object{
+            {"report_id", Value(installed.last_verification.report_id)},
+            {"report_digest", Value(installed.last_verification.report_digest)},
+            {"status", Value(installed.last_verification.status)},
+            {"verified_at", Value(installed.last_verification.verified_at)}})}}));
+    journal.begin_effect("write_installed", Value(Value::Object{
+        {"install_id", Value(installed.install_id)}, {"state_digest", Value(hash)}}));
+    if (injector) injector(operation, "effect.write_installed.before_effect");
+    repository.write_installed(installed);
+    if (injector) injector(operation, "effect.write_installed.after_effect");
+    journal.complete_effect("applied", hash);
+}
+
+void maintenance_audit_append(usk::transaction::MaintenanceEffectJournal& journal,
+    const fs::path& audit_root, const std::string& chain_id, const usk::audit::AuditInput& input,
+    const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation)
+{
+    journal.begin_effect("append_audit", Value(Value::Object{{"chain_id", Value(chain_id)},
+        {"input_digest", Value(usk::json::sha256_canonical(maintenance_audit_binding(input)))}}));
+    if (injector) injector(operation, "effect.append_audit.before_effect");
+    const auto event = usk::audit::AuditRepository(audit_root).append(chain_id, input);
+    if (injector) injector(operation, "effect.append_audit.after_effect");
+    journal.complete_effect("applied", event.event_digest);
 }
 
 Value move_plan_payload(const usk::lifecycle::MovePlan& plan)
@@ -1078,7 +1155,9 @@ void ensure_same_preimage(
     }
 }
 
-void remove_empty_owned_tree(const fs::path& root)
+void remove_empty_owned_tree(const fs::path& root,
+    usk::transaction::MaintenanceEffectJournal& journal,
+    const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation)
 {
     if (!fs::exists(root)) return;
     usk::record_io::require_safe_directory(root);
@@ -1092,12 +1171,17 @@ void remove_empty_owned_tree(const fs::path& root)
     std::sort(directories.begin(), directories.end(), [](const fs::path& left, const fs::path& right) {
         return left.native().size() > right.native().size();
     });
+    directories.push_back(root);
     for (const fs::path& directory : directories) {
-        std::error_code error;
-        if (!fs::remove(directory, error) || error) throw std::runtime_error("cannot remove empty setup-owned directory");
+        const auto relative = directory == root ? std::string{} : directory.lexically_relative(root).generic_u8string();
+        maintenance_effect(journal, injector, operation, "remove_directory", Value(Value::Object{
+            {"root_role", Value("operation_target")}, {"relative_path", Value(relative)},
+            {"native_identity", Value(usk::transaction::observe_directory_identity(directory))}}), [&] {
+                std::error_code error;
+                if (!fs::remove(directory, error) || error)
+                    throw std::runtime_error("cannot remove empty setup-owned directory");
+            });
     }
-    std::error_code error;
-    if (!fs::remove(root, error) || error) throw std::runtime_error("cannot remove empty setup-owned operation root");
 }
 
 void remove_exact_file(const fs::path& path)
@@ -2038,7 +2122,8 @@ RepairResult apply_repair(
         [&](const std::string& state, const std::string& point) {
             if (fault_injector) fault_injector("repair", "transaction." + state + "." + point);
         });
-    auto& transaction = *transaction_holder;
+    auto& transaction = *transaction_holder.transaction;
+    auto& effects = *transaction_holder.effects;
     std::vector<fs::path> backups;
     try {
         for (const PayloadFile& file : plan.replacement_files) {
@@ -2051,7 +2136,9 @@ RepairResult apply_repair(
         if (cancellation && cancellation()) {
             throw std::runtime_error("lifecycle streaming operation was cancelled");
         }
-        transaction.commit_effect();
+        maintenance_effect(effects, fault_injector, "repair", "publish_target", Value(Value::Object{
+            {"native_identity", Value(transaction::observe_directory_identity(transaction.staging_root()))}}),
+            [&] { transaction.commit_effect(); });
         if (fault_injector) fault_injector("repair", "after_staging_commit");
         for (const PayloadFile& file : plan.replacement_files) {
             const fs::path destination = install_root / file.relative_path;
@@ -2059,20 +2146,29 @@ RepairResult apply_repair(
             const fs::path replacement = bundle / "payload" / file.relative_path;
             if (fs::exists(destination)) {
                 const fs::path backup = bundle / "backup" / file.relative_path;
-                fs::create_directories(backup.parent_path());
-                record_io::require_safe_directory(backup.parent_path());
-                record_io::rename_no_replace(destination, backup);
+                const Value observation = maintenance_file_observation(destination, file.relative_path);
+                maintenance_effect(effects, fault_injector, "repair", "backup_file", observation, [&] {
+                    fs::create_directories(backup.parent_path());
+                    record_io::require_safe_directory(backup.parent_path());
+                    record_io::rename_no_replace(destination, backup);
+                    if (json::canonical(maintenance_file_observation(backup, file.relative_path)) !=
+                        json::canonical(observation)) throw std::runtime_error("repair backup observation changed");
+                });
                 backups.push_back(backup);
-                try {
-                    record_io::rename_no_replace(replacement, destination);
-                } catch (...) {
-                    record_io::rename_no_replace(backup, destination);
-                    backups.pop_back();
-                    throw;
-                }
-            } else {
-                record_io::rename_no_replace(replacement, destination);
             }
+            const Value replacement_observation = maintenance_file_observation(replacement, file.relative_path);
+            if (replacement_observation.at("sha256").as_string() != file.sha256 ||
+                replacement_observation.at("size_bytes").as_unsigned() != file.size_bytes)
+                throw std::runtime_error("repair replacement changed before publication");
+            // Leave the original in its recorded backup when publication is
+            // uncertain. An unrecorded compensating rename would erase the
+            // recovery distinction between an intent and a completed effect.
+            maintenance_effect(effects, fault_injector, "repair", "replace_file", replacement_observation, [&] {
+                record_io::rename_no_replace(replacement, destination);
+                if (json::canonical(maintenance_file_observation(destination, file.relative_path)) !=
+                    json::canonical(replacement_observation))
+                    throw std::runtime_error("repair published replacement observation changed");
+            });
             if (fault_injector) fault_injector("repair", "during_owned_replacement");
         }
         VerificationReport after = verify_manifest(
@@ -2084,19 +2180,29 @@ RepairResult apply_repair(
         ownership.manifest_id = "ownership." + plan.install_id + "." + transaction_id;
         ownership.created_by_transaction_id = transaction_id;
         ownership.manifest_digest.clear();
+        effects.begin_effect("write_ownership", Value(Value::Object{{"manifest_id", Value(ownership.manifest_id)},
+            {"prior_manifest_digest", Value(current.second.manifest_digest)}}));
+        if (fault_injector) fault_injector("repair", "effect.write_ownership.before_effect");
         ownership = repository.write_ownership(std::move(ownership));
+        if (fault_injector) fault_injector("repair", "effect.write_ownership.after_effect");
+        effects.complete_effect("applied", ownership.manifest_digest);
         state::InstalledState installed = revised_state(
             current.first, ownership, transaction_id, applied_at, "verified", after);
         if (fault_injector) fault_injector("repair", "before_installed_state_commit");
-        repository.write_installed(installed);
+        maintenance_installed_write(effects, repository, installed, fault_injector, "repair");
         if (fault_injector) fault_injector("repair", "before_audit_completion");
-        audit::AuditRepository(plan.roots.audit_root).append(installed.audit_chain_id, audit::AuditInput{
+        maintenance_audit_append(effects, plan.roots.audit_root, installed.audit_chain_id, audit::AuditInput{
             applied_at, "repair", "completed", after.status == "pass" ? "pass" : "warn",
             "installation", plan.install_id, after.report_digest, transaction_id, plan.plan_id,
-            "owned repair effects verified; unknown content retained"});
+            "owned repair effects verified; unknown content retained"}, fault_injector, "repair");
         transaction.mark_committed();
-        for (const fs::path& backup : backups) remove_exact_file(backup);
-        remove_empty_owned_tree(bundle);
+        for (const fs::path& backup : backups) {
+            maintenance_effect(effects, fault_injector, "repair", "remove_file",
+                maintenance_file_observation(backup, backup.lexically_relative(bundle).generic_u8string(), "operation_target"),
+                [&] { remove_exact_file(backup); });
+        }
+        remove_empty_owned_tree(bundle, effects, fault_injector, "repair");
+        effects.seal();
         transaction.mark_completed();
         return {before, after, {planned_affected.begin(), planned_affected.end()},
                 after.unknown_paths, installed};
@@ -2193,7 +2299,8 @@ MoveResult apply_move(
         [&](const std::string& state, const std::string& point) {
             if (fault_injector) fault_injector("move", "transaction." + state + "." + point);
         });
-    auto& transaction = *transaction_holder;
+    auto& transaction = *transaction_holder.transaction;
+    auto& effects = *transaction_holder.effects;
     try {
         for (const PreimageFile& file : plan.complete_files) {
             stage_preimage_file(transaction, plan.old_root, plan.old_root_identity, file);
@@ -2203,7 +2310,9 @@ MoveResult apply_move(
         if (transaction::observe_directory_identity(plan.old_root) != plan.old_root_identity) {
             throw std::runtime_error("move source root changed before publication");
         }
-        transaction.commit_effect();
+        maintenance_effect(effects, fault_injector, "move", "publish_target", Value(Value::Object{
+            {"native_identity", Value(transaction::observe_directory_identity(transaction.staging_root()))}}),
+            [&] { transaction.commit_effect(); });
         if (fault_injector) fault_injector("move", "after_destination_commit");
 
         state::StateRepository repository(plan.roots.state_root);
@@ -2212,7 +2321,12 @@ MoveResult apply_move(
         ownership.target_root = plan.new_root.string();
         ownership.created_by_transaction_id = transaction_id;
         ownership.manifest_digest.clear();
+        effects.begin_effect("write_ownership", Value(Value::Object{{"manifest_id", Value(ownership.manifest_id)},
+            {"prior_manifest_digest", Value(current.second.manifest_digest)}}));
+        if (fault_injector) fault_injector("move", "effect.write_ownership.before_effect");
         ownership = repository.write_ownership(std::move(ownership));
+        if (fault_injector) fault_injector("move", "effect.write_ownership.after_effect");
+        effects.complete_effect("applied", ownership.manifest_digest);
         state::InstalledState provisional = current.first;
         provisional.target_root = plan.new_root.string();
         provisional.transaction_id = transaction_id;
@@ -2226,13 +2340,14 @@ MoveResult apply_move(
         state::InstalledState installed = revised_state(
             current.first, ownership, transaction_id, applied_at, "move_pending_acceptance", verification);
         if (fault_injector) fault_injector("move", "before_installed_state_commit");
-        repository.write_installed(installed);
+        maintenance_installed_write(effects, repository, installed, fault_injector, "move");
         if (fault_injector) fault_injector("move", "before_audit_completion");
-        audit::AuditRepository(plan.roots.audit_root).append(installed.audit_chain_id, audit::AuditInput{
+        maintenance_audit_append(effects, plan.roots.audit_root, installed.audit_chain_id, audit::AuditInput{
             applied_at, "move", "completed", verification.status == "pass" ? "pass" : "warn",
             "installation", plan.install_id, verification.report_digest, transaction_id, plan.plan_id,
-            "new root verified; old root retained pending acceptance"});
+            "new root verified; old root retained pending acceptance"}, fault_injector, "move");
         transaction.mark_committed();
+        effects.seal();
         transaction.mark_completed();
         return {verification, installed, plan.old_root};
     } catch (...) {
@@ -2408,23 +2523,27 @@ UninstallResult apply_uninstall(
         [&](const std::string& state, const std::string& point) {
             if (fault_injector) fault_injector("uninstall", "transaction." + state + "." + point);
         });
-    auto& transaction = *transaction_holder;
+    auto& transaction = *transaction_holder.transaction;
+    auto& effects = *transaction_holder.effects;
     UninstallResult result;
     result.retained_unknown_paths = plan.verification.unknown_paths;
     try {
         transaction.stage_file("operation.marker", {'u', 'n', 'i', 'n', 's', 't', 'a', 'l', 'l'});
         transaction.mark_staged();
         transaction.mark_verified();
-        transaction.commit_effect();
+        maintenance_effect(effects, fault_injector, "uninstall", "publish_target", Value(Value::Object{
+            {"native_identity", Value(transaction::observe_directory_identity(transaction.staging_root()))}}),
+            [&] { transaction.commit_effect(); });
         if (fault_injector) fault_injector("uninstall", "after_marker_commit");
         for (const auto& file : current.second.files) {
             const fs::path path = install_root / file.relative_path;
             if (!fs::exists(path)) continue;
             bool exact = false;
+            Value observation;
             try {
-                usk::base::StableFile actual(path);
-                exact = actual.identity().size_bytes == file.size_bytes && actual.sha256_hex() == file.sha256;
-                actual.verify_unchanged();
+                observation = maintenance_file_observation(path, file.relative_path, "installed");
+                exact = observation.at("size_bytes").as_unsigned() == file.size_bytes &&
+                    observation.at("sha256").as_string() == file.sha256;
             } catch (const std::exception&) {
                 exact = false;
             }
@@ -2432,7 +2551,8 @@ UninstallResult apply_uninstall(
                 result.retained_changed_owned_files.push_back(file.relative_path);
                 continue;
             }
-            remove_exact_file(path);
+            maintenance_effect(effects, fault_injector, "uninstall", "remove_file", observation,
+                [&] { remove_exact_file(path); });
             result.deleted_owned_files.push_back(file.relative_path);
             if (fault_injector) fault_injector("uninstall", "during_owned_file_removal");
         }
@@ -2443,11 +2563,38 @@ UninstallResult apply_uninstall(
         for (const std::string& relative : directories) {
             const fs::path path = install_root / relative;
             if (!fs::exists(path)) continue;
+            const auto identity = transaction::observe_directory_identity(path);
+            effects.begin_effect("remove_directory", Value(Value::Object{
+                {"root_role", Value("installed")}, {"relative_path", Value(relative)},
+                {"native_identity", Value(identity)}}));
+            if (fault_injector) fault_injector("uninstall", "effect.remove_directory.before_effect");
             std::error_code error;
-            if (!fs::remove(path, error) || error) result.retained_directories.push_back(relative);
+            const bool removed = fs::remove(path, error) && !error;
+            if (!removed) {
+                if (transaction::observe_directory_identity(path) != identity)
+                    throw std::runtime_error("retained uninstall directory observation changed");
+                result.retained_directories.push_back(relative);
+            }
+            if (fault_injector) fault_injector("uninstall", "effect.remove_directory.after_effect");
+            effects.complete_effect(removed ? "applied" : "retained");
         }
-        std::error_code root_error;
-        result.target_removed = fs::remove(install_root, root_error) && !root_error;
+        std::error_code root_observation_error;
+        const auto root_status = fs::symlink_status(install_root, root_observation_error);
+        if (!detail::maintenance_directory_present(root_status, root_observation_error)) {
+            result.target_removed = true;
+        } else {
+            const auto identity = transaction::observe_directory_identity(install_root);
+            effects.begin_effect("remove_directory", Value(Value::Object{
+                {"root_role", Value("installed")}, {"relative_path", Value("")},
+                {"native_identity", Value(identity)}}));
+            if (fault_injector) fault_injector("uninstall", "effect.remove_directory.before_effect");
+            std::error_code root_error;
+            result.target_removed = fs::remove(install_root, root_error) && !root_error;
+            if (!result.target_removed && transaction::observe_directory_identity(install_root) != identity)
+                throw std::runtime_error("retained uninstall root observation changed");
+            if (fault_injector) fault_injector("uninstall", "effect.remove_directory.after_effect");
+            effects.complete_effect(result.target_removed ? "applied" : "retained");
+        }
 
         VerificationReport final_verification = plan.verification;
         final_verification.report_id = "verify." + transaction_id + ".uninstall";
@@ -2461,15 +2608,19 @@ UninstallResult apply_uninstall(
         installed.last_verification = {final_verification.report_id, final_verification.report_digest,
                                        final_verification.status, applied_at};
         if (fault_injector) fault_injector("uninstall", "before_installed_state_commit");
-        state::StateRepository(plan.roots.state_root).write_installed(installed);
+        maintenance_installed_write(effects, state::StateRepository(plan.roots.state_root),
+            installed, fault_injector, "uninstall");
         if (fault_injector) fault_injector("uninstall", "before_audit_completion");
-        audit::AuditRepository(plan.roots.audit_root).append(installed.audit_chain_id, audit::AuditInput{
+        maintenance_audit_append(effects, plan.roots.audit_root, installed.audit_chain_id, audit::AuditInput{
             applied_at, "uninstall", "completed", result.target_removed ? "pass" : "warn",
             "installation", plan.install_id, final_verification.report_digest, transaction_id, plan.plan_id,
-            "only exact recorded owned state removed; changed and unknown content retained"});
+            "only exact recorded owned state removed; changed and unknown content retained"}, fault_injector, "uninstall");
         transaction.mark_committed();
-        remove_exact_file(marker / "operation.marker");
-        remove_empty_owned_tree(marker);
+        maintenance_effect(effects, fault_injector, "uninstall", "remove_file",
+            maintenance_file_observation(marker / "operation.marker", "operation.marker", "operation_target"),
+            [&] { remove_exact_file(marker / "operation.marker"); });
+        remove_empty_owned_tree(marker, effects, fault_injector, "uninstall");
+        effects.seal();
         transaction.mark_completed();
         result.installed_state = std::move(installed);
         return result;

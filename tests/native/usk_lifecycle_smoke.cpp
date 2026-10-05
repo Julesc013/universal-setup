@@ -5,6 +5,7 @@
 #include "usk_install_restart.h"
 #include "usk_lifecycle.h"
 #include "usk_maintenance_context_internal.h"
+#include "usk_maintenance_effect_journal.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
@@ -709,6 +710,139 @@ int maintenance_context_at_staging_boundary()
     return 0;
 }
 
+int maintenance_effect_interruption_proof()
+{
+    struct Boundary { const char* operation; const char* kind; const char* side; };
+    const Boundary boundaries[] = {
+        {"repair", "backup_file", "before_effect"}, {"repair", "backup_file", "after_effect"},
+        {"repair", "replace_file", "before_effect"}, {"repair", "replace_file", "after_effect"},
+        {"move", "publish_target", "before_effect"}, {"move", "publish_target", "after_effect"},
+        {"uninstall", "remove_file", "before_effect"}, {"uninstall", "remove_file", "after_effect"},
+        {"repair", "write_installed", "after_effect"}, {"move", "write_installed", "after_effect"},
+        {"uninstall", "write_installed", "after_effect"}, {"repair", "append_audit", "after_effect"},
+        {"move", "append_audit", "after_effect"}, {"uninstall", "append_audit", "after_effect"}};
+    for (const auto& boundary : boundaries) {
+        const std::string operation(boundary.operation), kind(boundary.kind), side(boundary.side);
+        const bool effect_happened = side == "after_effect";
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/portable";
+        fs::create_directories(target.parent_path());
+        const std::string install_id = "install.effects." + operation;
+        const auto install = usk::lifecycle::plan_install("plan.effects.install", install_id,
+            "2026-10-01T00:00:00Z", target, fixture.roots, recipe(), payload());
+        const auto original = usk::lifecycle::apply_install(install, install.plan_digest,
+            "tx.effects.install", "2026-10-01T00:00:01Z");
+        write_text(target / "keep.txt", "unknown content retained");
+        const std::string unknown_sha = usk::base::StableFile(target / "keep.txt").sha256_hex();
+        if (operation == "repair") write_text(target / "app/readme.txt", "damaged preimage retained");
+        const std::string original_readme_sha = usk::base::StableFile(target / "app/readme.txt").sha256_hex();
+        const std::string transaction_id = "tx.effects." + operation;
+        const fs::path destination = fixture.root / "targets/moved";
+        const fs::path operation_target = operation == "move" ? destination :
+            target.parent_path() / (".usk-" + operation + "-" + transaction_id);
+        const fs::path staging_parent = operation == "move" ? destination.parent_path() : fixture.roots.staging_parent;
+        std::string plan_id, plan_digest;
+        bool reached = false;
+        const auto interrupt = [&](const std::string& actual_operation, const std::string& point) {
+            if (actual_operation == operation && point == "effect." + kind + "." + side) {
+                reached = true;
+                throw std::runtime_error("maintenance effect interruption");
+            }
+        };
+        const bool interrupted = refuses([&] {
+            if (operation == "repair") {
+                const auto plan = usk::lifecycle::plan_repair(fixture.roots, install_id,
+                    "plan.effects.repair", "2026-10-01T00:00:02Z", payload());
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_repair(plan, plan_digest, transaction_id,
+                    "2026-10-01T00:00:03Z", interrupt);
+            } else if (operation == "move") {
+                const auto plan = usk::lifecycle::plan_move(fixture.roots, install_id,
+                    "plan.effects.move", "2026-10-01T00:00:02Z", destination);
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_move(plan, plan_digest, transaction_id,
+                    "2026-10-01T00:00:03Z", interrupt);
+            } else {
+                const auto plan = usk::lifecycle::plan_uninstall(fixture.roots, install_id,
+                    "plan.effects.uninstall", "2026-10-01T00:00:02Z");
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_uninstall(plan, plan_digest, transaction_id,
+                    "2026-10-01T00:00:03Z", interrupt);
+            }
+        });
+        if (!interrupted || !reached) throw std::runtime_error("maintenance effect boundary was not exercised");
+        // The plan and its source readers have gone out of scope. Inspect only
+        // the original transaction and its durable maintenance observations.
+        const usk::transaction::TransactionSpec spec{transaction_id, plan_id, plan_digest, operation,
+            staging_parent, operation_target, fixture.roots.state_root, fixture.roots.audit_root};
+        const auto transaction = usk::transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+        const auto context = usk::json::parse(history.source_context);
+        const auto original_snapshot = usk::state::StateRepository(fixture.roots.state_root).read_installed_snapshot(
+            install_id, context.at("original_installed_transaction_id").as_string());
+        if (history.sealed || history.pending_kind != kind ||
+            history.source_context != transaction.stream_source_context ||
+            original_snapshot.transaction_id != original.installed_state.transaction_id ||
+            context.at("ownership_manifest_digest").as_string() != original.ownership.manifest_digest ||
+            usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha)
+            throw std::runtime_error("maintenance interruption lost original context or unknown content");
+        if (kind == "backup_file") {
+            const fs::path backup = operation_target / "backup/app/readme.txt";
+            if (fs::exists(backup) != effect_happened || fs::exists(target / "app/readme.txt") == effect_happened ||
+                usk::base::StableFile(effect_happened ? backup : target / "app/readme.txt").sha256_hex() != original_readme_sha)
+                throw std::runtime_error("repair backup intent lost its damaged preimage");
+        } else if (kind == "replace_file") {
+            if (fs::exists(target / "app/readme.txt") != effect_happened ||
+                fs::exists(operation_target / "payload/app/readme.txt") == effect_happened ||
+                usk::base::StableFile(operation_target / "backup/app/readme.txt").sha256_hex() != original_readme_sha ||
+                (effect_happened && usk::base::StableFile(target / "app/readme.txt").sha256_hex() !=
+                    history.pending_details.at("sha256").as_string()))
+                throw std::runtime_error("repair replacement intent lost its retained backup or payload");
+        } else if (kind == "publish_target") {
+            if (fs::exists(destination) != effect_happened ||
+                usk::base::StableFile(target / "app/readme.txt").sha256_hex() != original_readme_sha ||
+                (effect_happened && usk::transaction::observe_directory_identity(destination) !=
+                    history.pending_details.at("native_identity").as_string()))
+                throw std::runtime_error("move publication intent changed the original root");
+        } else if (kind == "remove_file") {
+            const fs::path file = target / history.pending_details.at("relative_path").as_string();
+            if (fs::exists(file) == effect_happened ||
+                (!effect_happened && usk::base::StableFile(file).sha256_hex() !=
+                    history.pending_details.at("sha256").as_string()))
+                throw std::runtime_error("uninstall removal intent disagrees with its interruption boundary");
+        } else if (kind == "write_installed") {
+            const auto snapshot = usk::state::StateRepository(fixture.roots.state_root).read_installed_snapshot(
+                install_id, transaction_id);
+            if (snapshot.transaction_id != transaction_id || snapshot.created_at != context.at("applied_at").as_string())
+                throw std::runtime_error("maintenance installed-state effect was not retained");
+        } else if (kind == "append_audit") {
+            const auto chain = usk::audit::AuditRepository(fixture.roots.audit_root).read_and_validate_chain(
+                original.installed_state.audit_chain_id);
+            if (chain.back().transaction_id != transaction_id || chain.back().operation != operation)
+                throw std::runtime_error("maintenance audit effect was not retained");
+        }
+        auto mismatched = spec;
+        mismatched.plan_digest = std::string(64, 'f');
+        if (!refuses([&] { (void)usk::transaction::MaintenanceEffectJournal::inspect(mismatched,
+                transaction.stream_source_digest); }))
+            throw std::runtime_error("maintenance inspection accepted a different plan");
+        const auto repeated = usk::transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+        if (repeated.journal_digest != history.journal_digest || repeated.completed_effects != history.completed_effects ||
+            repeated.pending_kind != history.pending_kind || repeated.sealed)
+            throw std::runtime_error("source-free maintenance inspection changed its retained history");
+    }
+    return 0;
+}
+
+void require_sealed_maintenance(const usk::transaction::TransactionSpec& spec)
+{
+    const auto transaction = usk::transaction::TransactionSession::inspect_recovery(spec);
+    const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+    if (transaction.current_state != "completed" || !history.sealed || !history.pending_kind.empty() ||
+        history.completed_effects < 4u || history.source_context != transaction.stream_source_context)
+        throw std::runtime_error("completed maintenance did not seal its original effect history");
+}
+
 int run()
 {
     Fixture fixture;
@@ -779,6 +913,9 @@ int run()
         fixture.roots, "install.synthetic", "plan.synthetic.repair", "2026-07-14T00:10:06Z", payload());
     const auto repair_result = usk::lifecycle::apply_repair(
         repair_plan, repair_plan.plan_digest, "tx.synthetic.repair", "2026-07-14T00:10:07Z");
+    require_sealed_maintenance({"tx.synthetic.repair", repair_plan.plan_id, repair_plan.plan_digest, "repair",
+        fixture.roots.staging_parent, target.parent_path() / ".usk-repair-tx.synthetic.repair",
+        fixture.roots.state_root, fixture.roots.audit_root});
     if (repair_result.after.status != "warn" ||
         repair_result.repaired_files != std::vector<std::string>{"app/readme.txt"} ||
         repair_result.retained_unknown_paths != std::vector<std::string>{"user-created.txt"}) {
@@ -853,6 +990,8 @@ int run()
     }
     const auto move_result = usk::lifecycle::apply_move(
         move_plan, move_plan.plan_digest, "tx.synthetic.move", "2026-07-14T00:10:09Z");
+    require_sealed_maintenance({"tx.synthetic.move", move_plan.plan_id, move_plan.plan_digest, "move",
+        moved_target.parent_path(), moved_target, fixture.roots.state_root, fixture.roots.audit_root});
     if (move_result.verification.status != "warn" || !fs::is_directory(target) ||
         !fs::is_regular_file(moved_target / "app/bin/program.exe") ||
         !fs::is_regular_file(moved_target / "user-created.txt") ||
@@ -864,6 +1003,9 @@ int run()
         fixture.roots, "install.synthetic", "plan.synthetic.uninstall.blocked", "2026-07-14T00:10:10Z");
     const auto blocked = usk::lifecycle::apply_uninstall(
         blocked_plan, blocked_plan.plan_digest, "tx.synthetic.uninstall.blocked", "2026-07-14T00:10:11Z");
+    require_sealed_maintenance({"tx.synthetic.uninstall.blocked", blocked_plan.plan_id, blocked_plan.plan_digest, "uninstall",
+        fixture.roots.staging_parent, moved_target.parent_path() / ".usk-uninstall-tx.synthetic.uninstall.blocked",
+        fixture.roots.state_root, fixture.roots.audit_root});
     if (blocked.target_removed || blocked.deleted_owned_files.size() != 2 ||
         blocked.retained_unknown_paths != std::vector<std::string>{"user-created.txt"} ||
         blocked.installed_state.lifecycle_status != "uninstall_blocked" ||
@@ -876,6 +1018,9 @@ int run()
         fixture.roots, "install.synthetic", "plan.synthetic.uninstall.clean", "2026-07-14T00:10:12Z");
     const auto clean = usk::lifecycle::apply_uninstall(
         clean_plan, clean_plan.plan_digest, "tx.synthetic.uninstall.clean", "2026-07-14T00:10:13Z");
+    require_sealed_maintenance({"tx.synthetic.uninstall.clean", clean_plan.plan_id, clean_plan.plan_digest, "uninstall",
+        fixture.roots.staging_parent, moved_target.parent_path() / ".usk-uninstall-tx.synthetic.uninstall.clean",
+        fixture.roots.state_root, fixture.roots.audit_root});
     if (!clean.target_removed || fs::exists(moved_target) ||
         clean.installed_state.lifecycle_status != "retired") {
         return 10;
@@ -1586,6 +1731,9 @@ int main(int argc, char** argv)
         }
         if (const int maintenance = maintenance_context_at_staging_boundary()) {
             return maintenance;
+        }
+        if (const int effects = maintenance_effect_interruption_proof()) {
+            return effects;
         }
         if (const int streaming = streaming_install_and_fault_proof()) {
             return streaming;
