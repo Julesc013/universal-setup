@@ -28,6 +28,8 @@ param(
     [switch]$PublicStandardStalePlanQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$PublicStandardConstructedBootstrapPrefix='none',
+    [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
+    [string]$PublicStandardConstructedBootstrapDurableState='none',
     [ValidateSet('none','prepublish','postrename')][string]$PublicPublicationLoss='none',
     [ValidateSet('none','payload_changed','metadata_collision')][string]$PublicPostRenameRefusal='none',
     [switch]$NonAdminClient,
@@ -42,6 +44,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicStandardConstructedBootstrapDurableState -cne 'none' -and
+    (-not $PublicInstallation -or -not $PublicStandardClient -or -not $PublicStandardBootstrapLoss -or
+        $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardActiveInstallContention -or $PublicStandardStalePlanQualification -or
+        (($PublicStandardConstructedBootstrapDurableState -ceq 'next_reservation_absent') -ne [bool]$PublicStandardBootstrapPreservationLoss))) {
+    throw 'Constructed durable state requires its distinct owned public bootstrap fixture'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1')
 $standardLauncherClosed=$false
 if($PublicStandardConstructedBootstrapPrefix -cne 'none' -and
@@ -187,7 +195,7 @@ function Invoke-StandardPublicSystemTask {
     param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
         [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss,
         [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,
-        [string]$ConstructedBootstrapPrefix='none')
+        [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none')
     # No local invocation can reach this: the outer lab has already required a
     # fresh hosted VM and provisioned the exact disposable data disk.
     $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
@@ -224,7 +232,8 @@ function Invoke-StandardPublicSystemTask {
             $(if($BootstrapPreservationProcessLoss){' -BootstrapPreservationProcessLoss'}else{''})+
             $(if($ActiveInstallContention){' -ActiveInstallContention'}else{''})+
             $(if($StalePlanQualification){' -StalePlanQualification'}else{''})+
-            ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix))) -join "`n"
+            ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
+            ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))) -join "`n"
     $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
     $acl=[Security.AccessControl.FileSecurity]::new()
@@ -443,7 +452,8 @@ try {
                 -BootstrapPreservationProcessLoss:$PublicStandardBootstrapPreservationLoss `
                 -ActiveInstallContention:$PublicStandardActiveInstallContention `
                 -StalePlanQualification:$PublicStandardStalePlanQualification `
-                -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix
+                -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
+                -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {
             & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
@@ -508,7 +518,7 @@ try {
         if (-not $failure) { $failure = 'disposable VHD cleanup failed' }
     }
     $receipt['completed_utc'] = [DateTime]::UtcNow.ToString('o')
-    $receipt | ConvertTo-Json -Depth 64 | Set-Content -LiteralPath $out -Encoding UTF8
+    $receipt | ConvertTo-Json -Depth 64 -Compress | Set-Content -LiteralPath $out -Encoding UTF8
 }
 
 if ($failure) { throw $failure }

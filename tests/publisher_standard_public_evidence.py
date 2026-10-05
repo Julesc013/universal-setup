@@ -490,6 +490,13 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
         observation["verification"]["result"]["payload"]["status"] == "pass", "standard public terminal results differ")
     readbacks = observation["readbacks"]
     require(isinstance(readbacks, list) and len(readbacks) == 4, "standard per-request native readbacks incomplete")
+    durable_binding = _durable_bootstrap_binding(observation, captures, installed, readbacks[0], receipt['volume_root'])
+    fragment = None if durable_binding is None else durable_binding['fragment']
+    def lease_rows(rows):
+        if fragment is None:
+            return rows
+        from publisher_bootstrap_durable_state_evidence import without_retained_fragment
+        return without_retained_fragment(rows, fragment, receipt['volume_root'], installed)
     reports = []
     baseline = None
     for readback, capture in zip(readbacks, captures[2:6] if mediated else captures[1:]):
@@ -498,11 +505,11 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
         require(rows and len(rows) <= 10000, "standard native row budget exceeded")
         try:
             if baseline is None:
-                lease_snapshot(rows, receipt["volume_root"], installed, readback["independent"]["volume_boundary"]["root"]["file_id"],
+                lease_snapshot(lease_rows(rows), receipt["volume_root"], installed, readback["independent"]["volume_boundary"]["root"]["file_id"],
                     allow_legacy_missing=allow_legacy_missing_coordination,
                     allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap)
             else:
-                lease_transition(baseline, rows, receipt["volume_root"], installed,
+                lease_transition(lease_rows(baseline), lease_rows(rows), receipt["volume_root"], installed,
                     readback["independent"]["volume_boundary"]["root"]["file_id"], readonly=capture["command"] == "installed.verify",
                     allow_legacy_missing=allow_legacy_missing_coordination,
                     allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap)
@@ -593,7 +600,7 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
                 returned = next(value for value in responses if value is not None)
             require(returned == public_result, 'standard native/public completion bytes differ')
     bootstrap = reconcile_bootstrap_loss(observation, captures, installed, readbacks[0], receipt['volume_root'],
-        require_bootstrap_loss, require_preservation_loss=require_bootstrap_preservation_loss)
+        require_bootstrap_loss, require_preservation_loss=require_bootstrap_preservation_loss, durable_binding=durable_binding)
     result = {"schema": "usk.publisher_standard_public_reconciliation.v1", "status": "bindings_consistent",
         "head": expected_head, "standard_client_sid": client, "captured_clients": len(commands), "native_readbacks": 4,
         "service_observations_checked": 2 if mediated else 0,
@@ -681,8 +688,33 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
     return rows, {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']}
 
 
+def _durable_bootstrap_binding(observation, captures, installed, completed_readback, drive):
+    record = observation.get('constructed_bootstrap_durable_state')
+    if record is None:
+        return None
+    from publisher_bootstrap_durable_state_evidence import observed_fixture
+    require(isinstance(record, dict) and isinstance(record.get('case'), str) and
+        observation.get('constructed_bootstrap_prefix') is None and observation.get('bootstrap_loss') is not None,
+        'constructed durable state lacks distinct original process loss')
+    loss = observation['bootstrap_loss']
+    original_empty, holder = _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, 'bootstrap')
+    preserved = observation.get('bootstrap_preservation_loss')
+    require((record['case'] == 'next_reservation_absent') is (preserved is not None),
+        'constructed durable state mixes actual loss phases')
+    original, holders, source = original_empty, [holder], loss
+    if preserved is not None:
+        original, second = _bootstrap_loss_readback(preserved, observation, captures + [loss['client_capture']],
+            installed, completed_readback, drive, 'bootstrap_preserved')
+        holders.append(second)
+        source = preserved
+    constructed, fragment = observed_fixture(record, original, drive, installed, observation, source['client_capture'],
+        source['readback']['independent']['volume_boundary'])
+    return dict(original=original, constructed=constructed, holders=holders, fragment=fragment,
+        original_empty=original_empty if preserved is not None else None)
+
+
 def reconcile_bootstrap_loss(observation, captures, installed, completed_readback, drive, required=False, *,
-                             require_preservation_loss=False):
+                             require_preservation_loss=False, durable_binding=None):
     from publisher_installation_lease_evidence import bootstrap_takeover, bootstrap_preservation_takeover, constructed_prefix_takeover
     loss = observation.get('bootstrap_loss')
     preserved = observation.get('bootstrap_preservation_loss')
@@ -695,7 +727,17 @@ def reconcile_bootstrap_loss(observation, captures, installed, completed_readbac
         return None
     rows, holder = _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, 'bootstrap')
     volume_root_id = completed_readback['independent']['volume_boundary']['root']['file_id']
-    if constructed is not None:
+    durable = observation.get('constructed_bootstrap_durable_state')
+    if durable is not None:
+        from publisher_bootstrap_durable_state_evidence import reconcile as durable_reconcile
+        binding = durable_binding or _durable_bootstrap_binding(observation, captures, installed, completed_readback, drive)
+        result = durable_reconcile(durable['case'], binding['original'], binding['constructed'],
+            completed_readback['independent']['rows'], drive, installed, volume_root_id, binding['holders'],
+            durable['pending_name'], binding['original_empty'])
+        if preserved is not None:
+            require(preserved['reconciliation'] == loss['reconciliation'],
+                'durable state loss readbacks have different embedded reconciliation')
+    elif constructed is not None:
         from publisher_bootstrap_prefix_evidence import constructed_rows
         rows = constructed_rows(constructed, rows, drive, installed, observation, loss['client_capture'],
                                 loss['readback']['independent']['volume_boundary'])

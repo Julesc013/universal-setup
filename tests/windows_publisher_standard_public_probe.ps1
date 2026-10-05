@@ -13,7 +13,9 @@ param(
     [switch]$ActiveInstallContention,
     [switch]$StalePlanQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
-    [string]$ConstructedBootstrapPrefix='none'
+    [string]$ConstructedBootstrapPrefix='none',
+    [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
+    [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
 if($ActiveInstallContention -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss)) {
@@ -23,7 +25,15 @@ if($ConstructedBootstrapPrefix -cne 'none' -and
     (-not $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or $ActiveInstallContention -or $StalePlanQualification)) {
     throw 'Constructed prefix requires its separate owned empty-root loss fixture'
 }
+if($ConstructedBootstrapDurableState -cne 'none' -and
+    (-not $BootstrapProcessLoss -or $ActiveInstallContention -or $StalePlanQualification -or
+        $ConstructedBootstrapPrefix -cne 'none' -or
+        (($ConstructedBootstrapDurableState -ceq 'next_reservation_absent') -ne [bool]$BootstrapPreservationProcessLoss))) {
+    throw 'Constructed durable state requires its distinct actual process-loss phase'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_durable_state_writer.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_bootstrap_durable_state.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_active_worker.ps1')
@@ -84,20 +94,32 @@ function Read-ServicePolicy {
     if(@($rows|Where-Object {$_.sid -ceq $accountSid -and $_.mask -eq 0x20015 -and $_.type -ceq 'AccessAllowed'}).Count -ne 1) {throw 'Configured standard start/query grant differs'}
     return [ordered]@{owner=$descriptor.Owner.Value;raw_security_diagnostic=$raw;aces=$rows}
 }
+function Invoke-StandardLeaseEvidence($Request) {
+    $module='publisher_installation_lease_evidence.py'
+    if($ConstructedBootstrapDurableState.StartsWith('pending_',[StringComparison]::Ordinal)) {
+        $module='publisher_bootstrap_durable_state_evidence.py'
+        $Request['case']=$ConstructedBootstrapDurableState
+        $Request['original']=$receipt.bootstrap_loss.readback.independent.rows
+        $Request['constructed']=$receipt.constructed_bootstrap_durable_state.readback.independent.rows
+        $Request['pending_name']=$receipt.constructed_bootstrap_durable_state.pending_name
+    }
+    $Request|ConvertTo-Json -Depth 64 -Compress| & $PythonBinary -B (Join-Path $PSScriptRoot $module) --input -
+    if($LASTEXITCODE -ne 0){throw 'Standard installation lease/native row evidence differs'}
+}
 function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
     $leaseRequest=@{mode=$(if($Readonly){'readonly'}else{'append'});before=$Before.independent.rows;
         after=$After.independent.rows;drive=$drive;installed=$installed;volume_root_id=$After.independent.volume_boundary.root.file_id}
-    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
-        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Standard installation lease/native row transition differs'}
+    Invoke-StandardLeaseEvidence $leaseRequest|Out-Null
 }
-function Read-NativeSnapshot([switch]$PublicationPreserved) {
+function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][int]$PublicationReservedAbsentGeneration=0) {
     $script:observersClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
         -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
         -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
         -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number `
-        -AbsentPublicationPreservationPrefix $(if($PublicationPreserved){$script:bootstrapOperationPrefix}else{''})
+        -AbsentPublicationPreservationPrefix $(if($PublicationPreserved){$script:bootstrapOperationPrefix}else{''}) `
+        -AbsentPublicationReservationPrefix $(if($PublicationReservedAbsentGeneration){$script:bootstrapOperationPrefix}else{''}) `
+        -AbsentPublicationReservationGeneration $PublicationReservedAbsentGeneration
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18' -or
         $readback.independent.observer_token_handles_closed -ne $true){throw 'Standard independent reader cleanup differs'}
     $script:observersClosed=$true
@@ -110,9 +132,7 @@ function Read-InstalledSnapshot {
     # Missing coordination cannot select a historical compatibility path.
     $leaseRequest=@{mode='snapshot';rows=$readback.independent.rows;drive=$drive;installed=$installed;
         volume_root_id=$readback.independent.volume_boundary.root.file_id}
-    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
-        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Current standard snapshot lacks valid installation coordination'}
+    Invoke-StandardLeaseEvidence $leaseRequest|Out-Null
     $prepared=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     $visible=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
     if($prepared.Count -ne 1 -or $visible.Count -ne 1){throw 'Standard native phase records are incomplete'}
@@ -695,6 +715,12 @@ try {
         $null=Invoke-StandardRequest 'install_local.apply' $apply 5 -PreservationLoss
         $receipt.bootstrap_preservation_loss.readback=Read-NativeSnapshot -PublicationPreserved
     }
+    if($ConstructedBootstrapDurableState -cne 'none') {
+        $original=if($ConstructedBootstrapDurableState -ceq 'next_reservation_absent') {
+            $receipt.bootstrap_preservation_loss.readback
+        }else{$receipt.bootstrap_loss.readback}
+        $receipt['constructed_bootstrap_durable_state']=New-OwnedBootstrapDurableState $ConstructedBootstrapDurableState $original
+    }
     $receipt['apply']=Invoke-StandardRequest 'install_local.apply' $apply
     $installed=$receipt.apply.result.payload
     if($installed.install_id -cne $apply.plan_request.install_id -or $installed.transaction_id -cne $apply.transaction_id -or
@@ -720,8 +746,23 @@ try {
                 @{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time},
                 @{process_id=[int]$preserved.boundary.service_pid;process_creation_time=$preserved.boundary.process_creation_file_time})
         }
+        $bootstrapModule='publisher_installation_lease_evidence.py'
+        if($ConstructedBootstrapDurableState -cne 'none') {
+            $bootstrapModule='publisher_bootstrap_durable_state_evidence.py'
+            $bootstrapRequest=@{mode='constructed_durable_takeover';case=$ConstructedBootstrapDurableState;
+                original=$original.independent.rows;constructed=$receipt.constructed_bootstrap_durable_state.readback.independent.rows;
+                after=$before.independent.rows;drive=$drive;installed=$installed;
+                volume_root_id=$before.independent.volume_boundary.root.file_id;
+                pending_name=$receipt.constructed_bootstrap_durable_state.pending_name;
+                original_empty=$(if($BootstrapPreservationProcessLoss){$loss.readback.independent.rows}else{$null});
+                terminated_holders=@(@{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time})}
+            if($BootstrapPreservationProcessLoss) {
+                $bootstrapRequest.terminated_holders+=@{process_id=[int]$preserved.boundary.service_pid;
+                    process_creation_time=$preserved.boundary.process_creation_file_time}
+            }
+        }
         $decoded=$bootstrapRequest|ConvertTo-Json -Depth 64 -Compress|
-            & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
+            & $PythonBinary -B (Join-Path $PSScriptRoot $bootstrapModule) --input -
         if($LASTEXITCODE -ne 0){throw 'Registered bootstrap takeover/native preservation differs'}
         $receipt.bootstrap_loss.reconciliation=($decoded -join "`n")|ConvertFrom-Json
         if($BootstrapPreservationProcessLoss) {$receipt.bootstrap_preservation_loss.reconciliation=$receipt.bootstrap_loss.reconciliation}

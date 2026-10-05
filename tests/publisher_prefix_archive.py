@@ -25,40 +25,49 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def encode_receipts(records):
-    require(1 <= len(records) <= len(CASES), 'receipt count differs')
-    require(set(records) <= set(CASES), 'receipt case differs')
-    framed = bytearray(MAGIC)
+def format_budget(cases, magic):
+    require(isinstance(cases, tuple) and 1 <= len(cases) <= len(CASES) and len(set(cases)) == len(cases) and
+        all(isinstance(case, str) and case for case in cases) and isinstance(magic, bytes) and 0 < len(magic) <= 64,
+        'receipt format bound differs')
+    return len(magic) + 1 + len(cases) * (5 + RAW_MAX)
+
+
+def encode_receipts(records, *, cases=CASES, magic=MAGIC):
+    format_budget(cases, magic)
+    require(1 <= len(records) <= len(cases), 'receipt count differs')
+    require(set(records) <= set(cases), 'receipt case differs')
+    framed = bytearray(magic)
     framed.append(len(records))
-    for case in CASES:
+    for case in cases:
         if case not in records:
             continue
         raw = records[case]
         require(isinstance(raw, bytes) and 0 < len(raw) <= RAW_MAX, 'raw receipt bound differs')
-        framed.extend(struct.pack('<BI', CASES.index(case), len(raw)))
+        framed.extend(struct.pack('<BI', cases.index(case), len(raw)))
         framed.extend(raw)
     encoded = lzma.compress(framed, format=lzma.FORMAT_XZ, preset=6)
     require(0 < len(encoded) <= XZ_MAX, 'encoded receipt bound differs')
     return encoded
 
 
-def decode_receipts(encoded):
+def decode_receipts(encoded, *, cases=CASES, magic=MAGIC):
+    decoded_max = format_budget(cases, magic)
     require(isinstance(encoded, bytes) and 0 < len(encoded) <= XZ_MAX, 'encoded receipt bound differs')
     decoder = lzma.LZMADecompressor(format=lzma.FORMAT_XZ, memlimit=MEMORY_MAX)
-    framed = decoder.decompress(encoded, max_length=DECODED_MAX + 1)
-    require(len(framed) <= DECODED_MAX and decoder.eof and not decoder.unused_data,
+    framed = decoder.decompress(encoded, max_length=decoded_max + 1)
+    require(len(framed) <= decoded_max and decoder.eof and not decoder.unused_data,
             'decoded receipt budget, termination or trailing bytes differ')
-    require(framed.startswith(MAGIC) and len(framed) > len(MAGIC), 'receipt frame identity differs')
-    count = framed[len(MAGIC)]
-    require(1 <= count <= len(CASES), 'receipt count differs')
-    offset = len(MAGIC) + 1
+    require(framed.startswith(magic) and len(framed) > len(magic), 'receipt frame identity differs')
+    count = framed[len(magic)]
+    require(1 <= count <= len(cases), 'receipt count differs')
+    offset = len(magic) + 1
     records = {}
     for _ in range(count):
         require(offset + 5 <= len(framed), 'receipt header truncated')
         index, length = struct.unpack_from('<BI', framed, offset)
         offset += 5
-        require(index < len(CASES), 'receipt case differs')
-        case = CASES[index]
+        require(index < len(cases), 'receipt case differs')
+        case = cases[index]
         require(case not in records, 'duplicate receipt case')
         require(0 < length <= RAW_MAX and offset + length <= len(framed), 'raw receipt bound differs')
         records[case] = framed[offset:offset + length]
@@ -67,18 +76,20 @@ def decode_receipts(encoded):
     return records
 
 
-def pack_directory(directory, output):
-    paths = tuple(directory.glob('usk-wu007-prefix-*.json'))
-    require(1 <= len(paths) <= len(CASES), 'receipt file count differs')
+def pack_directory(directory, output, *, cases=CASES, magic=MAGIC, filename_prefix='usk-wu007-prefix-'):
+    format_budget(cases, magic)
+    require(filename_prefix in ('usk-wu007-prefix-', 'usk-wu007-durable-'), 'receipt filename prefix differs')
+    paths = tuple(directory.glob(filename_prefix + '*.json'))
+    require(1 <= len(paths) <= len(cases), 'receipt file count differs')
     records = {}
     for path in paths:
-        case = path.name.removeprefix('usk-wu007-prefix-').removesuffix('.json')
-        require(case in CASES and path.name == 'usk-wu007-prefix-' + case + '.json', 'receipt filename differs')
+        case = path.name.removeprefix(filename_prefix).removesuffix('.json')
+        require(case in cases and path.name == filename_prefix + case + '.json', 'receipt filename differs')
         require(not path.is_symlink() and path.is_file() and 0 < path.stat().st_size <= RAW_MAX,
                 'raw receipt file bound differs')
         with path.open('rb') as stream:
             records[case] = stream.read(RAW_MAX + 1)
-    encoded = encode_receipts(records)
+    encoded = encode_receipts(records, cases=cases, magic=magic)
     # Partial failed cohorts remain retainable, with their missing cases
     # reported by the collector. This transport cannot qualify them.
     with output.open('xb') as stream:
