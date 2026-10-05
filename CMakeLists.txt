@@ -667,6 +667,14 @@ if(USK_BUILD_TESTS)
         usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
       usk_enable_strict_warnings(usk_publisher_lab_service_fault)
 
+      # A private coordination-only hosted fixture; never registered as a service
+      # and never executed by local CTest. The owned lab retains its process.
+      add_executable(usk_publisher_install_guard_holder
+        tests/native/usk_publisher_install_guard_holder.cpp)
+      target_compile_features(usk_publisher_install_guard_holder PRIVATE cxx_std_17)
+      target_link_libraries(usk_publisher_install_guard_holder PRIVATE usk_publisher_windows_static)
+      usk_enable_strict_warnings(usk_publisher_install_guard_holder)
+
       add_executable(usk_publisher_lab_device_acl
         tests/native/usk_publisher_lab_device_acl.cpp)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)

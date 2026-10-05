@@ -26,6 +26,11 @@ param(
     [switch]$PublicStandardBootstrapPreservationLoss,
     [switch]$PublicStandardActiveInstallContention,
     [switch]$PublicStandardStalePlanQualification,
+    [switch]$PublicStandardInstallationGuardConflict,
+    [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
+    [string]$PublicStandardConstructedBootstrapPrefix='none',
+    [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
+    [string]$PublicStandardConstructedBootstrapDurableState='none',
     [ValidateSet('none','prepublish','postrename')][string]$PublicPublicationLoss='none',
     [ValidateSet('none','payload_changed','metadata_collision')][string]$PublicPostRenameRefusal='none',
     [switch]$NonAdminClient,
@@ -40,8 +45,23 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicStandardInstallationGuardConflict -and (-not $PublicInstallation -or -not $PublicStandardClient -or
+    $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
+    $PublicStandardStalePlanQualification -or $PublicStandardConstructedBootstrapPrefix -cne 'none' -or
+    $PublicStandardConstructedBootstrapDurableState -cne 'none')) {throw 'Installation guard requires its separate ordinary Standard lab'}
+if($PublicStandardConstructedBootstrapDurableState -cne 'none' -and
+    (-not $PublicInstallation -or -not $PublicStandardClient -or -not $PublicStandardBootstrapLoss -or
+        $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardActiveInstallContention -or $PublicStandardStalePlanQualification -or
+        (($PublicStandardConstructedBootstrapDurableState -ceq 'next_reservation_absent') -ne [bool]$PublicStandardBootstrapPreservationLoss))) {
+    throw 'Constructed durable state requires its distinct owned public bootstrap fixture'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1')
 $standardLauncherClosed=$false
+if($PublicStandardConstructedBootstrapPrefix -cne 'none' -and
+    (-not $PublicStandardClient -or -not $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or
+     $PublicStandardActiveInstallContention -or $PublicStandardStalePlanQualification)) {
+    throw 'Constructed prefix requires its separate owned Standard bootstrap loss lab'
+}
 if($PublicStandardActiveInstallContention -and (-not $PublicStandardClient -or
     $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss)) {
     throw 'Active installer contention requires the original owned Standard public fixture'
@@ -179,7 +199,8 @@ function Read-PublicBuildProfile([string]$Binary) {
 function Invoke-StandardPublicSystemTask {
     param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
         [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss,
-        [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification)
+        [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
+        [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none')
     # No local invocation can reach this: the outer lab has already required a
     # fresh hosted VM and provisioned the exact disposable data disk.
     $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
@@ -215,7 +236,10 @@ function Invoke-StandardPublicSystemTask {
             $(if($BootstrapProcessLoss){' -BootstrapProcessLoss'}else{''})+
             $(if($BootstrapPreservationProcessLoss){' -BootstrapPreservationProcessLoss'}else{''})+
             $(if($ActiveInstallContention){' -ActiveInstallContention'}else{''})+
-            $(if($StalePlanQualification){' -StalePlanQualification'}else{''}))) -join "`n"
+            $(if($StalePlanQualification){' -StalePlanQualification'}else{''})+
+            $(if($InstallationGuardConflict){' -InstallationGuardConflict'}else{''})+
+            ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
+            ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))) -join "`n"
     $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
     $acl=[Security.AccessControl.FileSecurity]::new()
@@ -230,7 +254,7 @@ function Invoke-StandardPublicSystemTask {
     $taskArguments='-NoProfile -NonInteractive -EncodedCommand '+$encoded
     $action=New-ScheduledTaskAction -Execute $taskImage -Argument $taskArguments
     $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
-    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null;$launcherAcknowledged=$false
+    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null;$launcherAcknowledged=$false;$info=$null
     $launcherPhase='register_task'
     $script:standardLauncherClosed=$false
     $scriptSha256=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -254,17 +278,15 @@ function Invoke-StandardPublicSystemTask {
         [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     }
     try {
-        Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -ErrorAction Stop|Out-Null
+        Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -ErrorAction Stop|Out-Null
         $created=$true
         $launcherPhase='start_task'
-        & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
-        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
+        Start-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
         $launcherPhase='observe_task'
         $deadline=[DateTime]::UtcNow.AddMinutes(12)
         do {
-            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-            & $assertOwnedTask $task
-            $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+            $info=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
             if(-not $launcherProcess -and (Test-Path -LiteralPath $startBinding -PathType Leaf)) {
                 $launcherPhase='read_start_binding'
                 if((Get-Item -LiteralPath $startBinding).Length -gt 4096){throw 'Owned launcher start binding exceeds bound'}
@@ -282,7 +304,7 @@ function Invoke-StandardPublicSystemTask {
                     throw 'Held owned launcher process identity differs'
                 }
                 $launcherPhase='acknowledge_launcher_custody'
-                & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+                $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
                 $ack=[ordered]@{schema='usk.publisher_standard_launcher_ack.v1';task_name=$taskName;
                     process_id=$launcherBinding.process_id;creation_file_time=$launcherBinding.creation_file_time;
                     binding_sha256=(Get-FileHash -LiteralPath $startBinding -Algorithm SHA256).Hash.ToLowerInvariant()}
@@ -295,8 +317,8 @@ function Invoke-StandardPublicSystemTask {
                 $launcherAcknowledged=$true
                 $launcherPhase='observe_launcher_exit'
             }
-            if($launcherAcknowledged -and $launcherProcess -and $launcherProcess.HasExited -and $info.LastRunTime.Year -gt 2000 -and
-                $task.State -in @('Ready','Disabled')) {$finished=$true;break}
+            $processExited=$launcherProcess -and $launcherProcess.HasExited
+            if(Test-StandardLauncherTerminalObservation $info $launcherAcknowledged $processExited) {$finished=$true;break}
             Start-Sleep -Milliseconds 100
         } while([DateTime]::UtcNow -lt $deadline)
         if(-not $finished -or -not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
@@ -312,17 +334,29 @@ function Invoke-StandardPublicSystemTask {
         $failedResult=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
         $diagnostic=Get-StandardLauncherErrorDiagnostic $originalLauncherError $launcherPhase
         $failedResult|Add-Member -NotePropertyName launcher_error -NotePropertyValue $diagnostic -Force
+        $processExited=$null
+        try {if($launcherProcess){$processExited=$launcherProcess.HasExited}} catch {}
+        $completion=Get-StandardLauncherCompletionDiagnostic $info $launcherAcknowledged $processExited
+        $failedResult|Add-Member -NotePropertyName launcher_completion_observation -NotePropertyValue $completion -Force
         [IO.File]::WriteAllText($OutputPath,($failedResult|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
         throw
     } finally {
         if($created -and $finished) {
             try {
-                & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
-                if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned standard task remains registered'}
+                $launcherPhase='revalidate_task_before_removal'
+                $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
+                $launcherPhase='unregister_owned_task'
+                Unregister-ScheduledTask -TaskName $taskName -TaskPath '\' -Confirm:$false -ErrorAction Stop
+                $launcherPhase='confirm_owned_task_absence'
+                Assert-StandardRegisteredTaskAbsent -TaskName $taskName
             } catch {
+                $originalRemovalError=$_
                 & $recordUnconfirmed 'owned SYSTEM standard task removal is unconfirmed'
-                throw
+                $failedResult=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
+                $diagnostic=Get-StandardLauncherErrorDiagnostic $originalRemovalError $launcherPhase
+                $failedResult|Add-Member -NotePropertyName launcher_removal_error -NotePropertyValue $diagnostic -Force
+                [IO.File]::WriteAllText($OutputPath,($failedResult|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+                throw $originalRemovalError
             }
         }
         if(-not $finished){& $recordUnconfirmed 'owned SYSTEM launcher termination is unconfirmed'}
@@ -331,6 +365,7 @@ function Invoke-StandardPublicSystemTask {
     $result=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
     $result|Add-Member -NotePropertyName launcher_task_removed -NotePropertyValue $true
     $result|Add-Member -NotePropertyName launcher_task_result -NotePropertyValue ([uint32]$info.LastTaskResult)
+    $result|Add-Member -NotePropertyName launcher_information_source -NotePropertyValue $info.observation_source
     $result|Add-Member -NotePropertyName launcher_task -NotePropertyValue $taskName
     $result|Add-Member -NotePropertyName launcher_process -NotePropertyValue $launcherBinding
     $result|Add-Member -NotePropertyName launcher_process_exit_confirmed -NotePropertyValue $true
@@ -426,7 +461,10 @@ try {
                 -BootstrapProcessLoss:($PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss) `
                 -BootstrapPreservationProcessLoss:$PublicStandardBootstrapPreservationLoss `
                 -ActiveInstallContention:$PublicStandardActiveInstallContention `
-                -StalePlanQualification:$PublicStandardStalePlanQualification
+                -StalePlanQualification:$PublicStandardStalePlanQualification `
+                -InstallationGuardConflict:$PublicStandardInstallationGuardConflict `
+                -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
+                -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {
             & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
@@ -491,7 +529,7 @@ try {
         if (-not $failure) { $failure = 'disposable VHD cleanup failed' }
     }
     $receipt['completed_utc'] = [DateTime]::UtcNow.ToString('o')
-    $receipt | ConvertTo-Json -Depth 64 | Set-Content -LiteralPath $out -Encoding UTF8
+    $receipt | ConvertTo-Json -Depth 64 -Compress | Set-Content -LiteralPath $out -Encoding UTF8
 }
 
 if ($failure) { throw $failure }

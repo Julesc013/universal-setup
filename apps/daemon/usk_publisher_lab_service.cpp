@@ -322,6 +322,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                     config.reviewed_plan_envelope_sha256.clear();
                     config.submitted_recovery_request=request;
                 } else if (schema == "usk.install_local_apply_request.v1") {
+                    if (registered_admission)
+                        (void)registered_admission->select_reviewed_operation(request, *request_channel,
+                            config.reviewed_plan_envelope_path, config.reviewed_plan_envelope_sha256);
                     config.submitted_apply_request=request;
                 } else {
                     throw std::runtime_error("registered publisher request schema is unavailable");
@@ -387,7 +390,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 dynamic_cast<const InstallLeaseConflict*>(&error) ? "operation_conflict" :
             dynamic_cast<const PublisherOperationCancelled*>(&error) ? "operation_cancelled" :
             dynamic_cast<const InstallLeaseStale*>(&error) ? "lease_stale" :
-            dynamic_cast<const InstallStateRevisionStale*>(&error) ? "state_revision_stale" :
+            dynamic_cast<const InstallStateRevisionStale*>(&error) ||
+                dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ? "state_revision_stale" :
             dynamic_cast<const StaleReviewedInstallRequest*>(&error) ? "stale_plan" : "";
         std::string inspection_reference;
         if (const auto* busy = dynamic_cast<const PublisherVolumeBusy*>(&error))
@@ -398,7 +402,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             inspection_reference = cancelled->inspection_reference();
         const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
-                json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
+                json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
+                    dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ?
                     "failed" : !verify_installed && (recover_visible_bound || reviewed_install_reentry ||
                     publication_effects_may_exist) ?
                     "recovery_required" : "failed") +
@@ -407,7 +412,11 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 (inspection_reference.empty() ? "" :
                     ",\"operation_inspection_ref\":" + json_quote(inspection_reference)) +
                 (registered_admission ? ",\"process_id\":" + std::to_string(GetCurrentProcessId()) +
-                    ",\"registered_admission\":" + usk::json::canonical(registered_admission->evidence()) : "") + "}\n";
+                    ",\"registered_admission\":" + usk::json::canonical(registered_admission->evidence()) : "") +
+                (registered_admission && registered_admission->has_selected_reviewed_operation() &&
+                    dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ?
+                    ",\"reviewed_operation_admission\":" + usk::json::canonical(
+                        registered_admission->selected_reviewed_operation_observation()) : "") + "}\n";
         if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
         // An authenticated peer receives the actual refusal/retained-effects
         // result when delivery is possible; loss of transport stays unknown.

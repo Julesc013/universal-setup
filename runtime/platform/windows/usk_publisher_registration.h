@@ -29,6 +29,16 @@ public:
     // Service-mediated observation may activate SCM and acquire the controller
     // guard. It reads admission facts without dispatching installation effects.
     usk::json::Value capability_observation(const std::string& request_id, bool scoped_profile = false) const;
+    // Select only an administrator-enrolled exact request under this held
+    // registration and the channel's actual authenticated caller. Both native
+    // approval/envelope files remain held against mutation through dispatch.
+    // Absence preserves the original immutable SCM-envelope route.
+    bool select_reviewed_operation(const std::string& request,
+        const PublisherRequestChannel& channel, std::wstring& envelope_path,
+        std::string& envelope_sha256);
+    bool has_selected_reviewed_operation() const noexcept;
+    usk::json::Value selected_reviewed_envelope() const;
+    usk::json::Value selected_reviewed_operation_observation() const;
 private:
     struct State;
     std::unique_ptr<State> state_;

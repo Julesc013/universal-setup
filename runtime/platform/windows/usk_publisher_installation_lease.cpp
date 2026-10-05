@@ -145,6 +145,29 @@ Value read_record(HANDLE parent, const PublisherDirectoryEntry& entry, const std
 }
 } // namespace
 
+void require_publisher_bootstrap_prefix_shape(const PublisherTreeObservation& tree) {
+    if (tree.descendants.size() > 5) throw InstallLeaseStale();
+    const std::vector<std::wstring> order{L"staging", L"destination", L"state", L"journal"};
+    std::set<std::wstring> present;
+    bool snapshot_present = false;
+    for (const auto& entry : tree.descendants) {
+        if ((entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+            if (std::find(order.begin(), order.end(), entry.relative_path) == order.end() ||
+                !present.insert(entry.relative_path).second) throw InstallLeaseStale();
+        } else {
+            if (entry.relative_path != L"journal/lab-reviewed-plan.json" || snapshot_present ||
+                entry.size > 4u * 1024u * 1024u) throw InstallLeaseStale();
+            snapshot_present = true;
+        }
+    }
+    bool missing = false;
+    for (const auto& name : order) {
+        if (!present.count(name)) missing = true;
+        else if (missing) throw InstallLeaseStale();
+    }
+    if (snapshot_present && present.size() != order.size()) throw InstallLeaseStale();
+}
+
 Value observe_publisher_lease_root_identity(HANDLE root) {
     const auto facts = observe_publisher_directory_handle(root);
     const auto volume = observe_local_ntfs_volume_handle(root);
@@ -186,6 +209,46 @@ std::string observe_publisher_install_state_revision(HANDLE state_root,
     for (const auto& [name, digest] : bindings)
         values.emplace_back(Value::Object{{"record", Value(std::filesystem::path(name).u8string())}, {"sha256", digest}});
     return usk::json::sha256_canonical(Value(std::move(values)));
+}
+
+bool require_publisher_initial_install_state_revision(HANDLE volume,
+    const std::wstring& volume_root, const std::wstring& setup_component,
+    const PublisherInstallOperationGuard& guard, const std::string& install_id,
+    const std::string& service_sid) {
+    guard.require_owned(volume_root, install_id);
+    const std::filesystem::path component(setup_component);
+    if (setup_component.empty() || component.has_root_path() ||
+        component.filename() != component || setup_component == L"." || setup_component == L".." ||
+        setup_component.find(L':') != std::wstring::npos || setup_component.find(L'\0') != std::wstring::npos)
+        throw std::runtime_error("lease setup component is invalid");
+    const auto volume_identity = root_identity(volume, service_sid);
+    const auto setup_entry = child(volume, setup_component);
+    const auto empty_revision = usk::json::sha256_canonical(Value(Value::Array{}));
+    std::string revision = empty_revision;
+    if (setup_entry) {
+        Handle setup(open_publisher_listed_child(volume, *setup_entry));
+        const auto setup_identity = root_identity(setup.get(), service_sid);
+        const auto state_entry = child(setup.get(), L"state");
+        if (!state_entry) throw std::runtime_error("lease existing state root unavailable");
+        Handle state(open_publisher_listed_child(setup.get(), *state_entry));
+        const auto state_identity = root_identity(state.get(), service_sid);
+        revision = observe_publisher_install_state_revision(state.get(), install_id, service_sid);
+        // Check current path bindings as well as the retained read handles.
+        const auto current_setup_entry = child(volume, setup_component);
+        if (!current_setup_entry) throw InstallLeaseStale();
+        Handle current_setup(open_publisher_listed_child(volume, *current_setup_entry));
+        const auto current_state_entry = child(current_setup.get(), L"state");
+        if (!current_state_entry) throw InstallLeaseStale();
+        Handle current_state(open_publisher_listed_child(current_setup.get(), *current_state_entry));
+        if (!equal(setup_identity, root_identity(current_setup.get(), service_sid)) ||
+            !equal(state_identity, root_identity(current_state.get(), service_sid))) throw InstallLeaseStale();
+    } else if (child(volume, setup_component)) {
+        throw InstallLeaseStale();
+    }
+    guard.require_owned(volume_root, install_id);
+    if (!equal(volume_identity, root_identity(volume, service_sid))) throw InstallLeaseStale();
+    if (revision != empty_revision) throw InstallStateRevisionStale();
+    return setup_entry.has_value();
 }
 
 Value observe_publisher_lease_holder() {
@@ -459,20 +522,11 @@ struct PublisherInstallOperationContext::Impl {
         const auto tree = observe_publisher_tree(publication);
         require_publisher_tree_security_shape(tree, service_sid);
         require_publisher_stream_shape(tree.root_streams, true);
-        if (tree.descendants.size() > 5) throw InstallLeaseStale();
-        const std::vector<std::wstring> order{L"staging", L"destination", L"state", L"journal"};
-        std::set<std::wstring> present;
-        bool snapshot_present = false;
+        require_publisher_bootstrap_prefix_shape(tree);
         for (const auto& entry : tree.descendants) {
             const bool directory_entry = (entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
             require_publisher_stream_shape(entry.streams, directory_entry);
-            if (directory_entry) {
-                if (std::find(order.begin(), order.end(), entry.relative_path) == order.end() ||
-                    !present.insert(entry.relative_path).second) throw InstallLeaseStale();
-            } else {
-                if (entry.relative_path != L"journal\\lab-reviewed-plan.json" || snapshot_present ||
-                    entry.size > 4u * 1024u * 1024u) throw InstallLeaseStale();
-                snapshot_present = true;
+            if (!directory_entry) {
                 const auto journal_entry = child(publication, L"journal");
                 if (!journal_entry) throw InstallLeaseStale();
                 Handle journal(open_publisher_listed_child(publication, *journal_entry));
@@ -485,12 +539,6 @@ struct PublisherInstallOperationContext::Impl {
                     throw InstallLeaseStale();
             }
         }
-        bool missing = false;
-        for (const auto& name : order) {
-            if (!present.count(name)) missing = true;
-            else if (missing) throw InstallLeaseStale();
-        }
-        if (snapshot_present && present.size() != order.size()) throw InstallLeaseStale();
         require_publisher_tree_phase_match(tree, observe_publisher_tree(publication));
         return tree;
     }

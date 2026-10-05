@@ -253,7 +253,9 @@ function Invoke-IndependentMetadataReadback {
         [string]$CallerSid='',[string]$ServiceSid='',
         [string]$ClientCaptureFile='',[string]$ClientCaptureSha256='',
         [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue,
-        [string]$AbsentPublicationPreservationPrefix='')
+        [string]$AbsentPublicationPreservationPrefix='',
+        [string]$AbsentPublicationReservationPrefix='',
+        [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0)
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
     }
@@ -282,6 +284,13 @@ function Invoke-IndependentMetadataReadback {
             'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$'))) {
         throw 'Publication-absent readback requires the bound preservation operation and volume'
     }
+    if(($AbsentPublicationReservationPrefix -ne '') -ne ($AbsentPublicationReservationGeneration -ne 0) -or
+        ($AbsentPublicationReservationPrefix -and ($AbsentPublicationPreservationPrefix -or $MetadataOnly -or
+            -not $ExpectedVolumeRoot -or -not $ClientCaptureFile -or $CallerProcessId -eq 0 -or
+            $AbsentPublicationReservationPrefix -cnotmatch ('^'+[regex]::Escape($DriveRoot)+
+                'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')))) {
+        throw 'Publication reserved-absence readback requires its exact generation, operation and native volume'
+    }
     $name='USK_METADATA_OBSERVER_'+$RunId
     $script=Join-Path $OutputRoot ('metadata-observer-'+$RunId+'.ps1')
     $output=Join-Path $OutputRoot ('metadata-observed-'+$RunId+'.json')
@@ -292,7 +301,9 @@ param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
     [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',[string]$CallerSid='',[string]$ServiceSid='',
     [string]$ClientCaptureFile='',[string]$ClientCaptureSha256='',
     [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue,
-    [string]$AbsentPublicationPreservationPrefix='')
+    [string]$AbsentPublicationPreservationPrefix='',
+        [string]$AbsentPublicationReservationPrefix='',
+        [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0)
 $ErrorActionPreference='Stop'
 function Test-PublisherHeldCaptureRequestContext([string]$RequestId,[string]$Command) {
     return (($RequestId -cmatch '^public\.[0-9a-f]{32}$' -and
@@ -1073,6 +1084,15 @@ if($AbsentPublicationPreservationPrefix) {
    'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')) {
   throw 'Independent publication absence mode binding differs'
  }
+}
+if(($AbsentPublicationReservationPrefix -ne '') -ne ($AbsentPublicationReservationGeneration -ne 0) -or
+ ($AbsentPublicationReservationPrefix -and ($AbsentPublicationPreservationPrefix -or $MetadataOnly -or
+  -not $effectiveRights -or -not $ExpectedVolumeRoot -or
+  $AbsentPublicationReservationPrefix -cnotmatch ('^'+[regex]::Escape($DriveRoot)+
+   'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')))) {
+ throw 'Independent reserved publication absence mode binding differs'
+}
+if($AbsentPublicationPreservationPrefix -or $AbsentPublicationReservationPrefix) {
  $absenceRoot=[UskMetadataFacts]::ReadClosure($DriveRoot)
  $absenceBefore=[UskMetadataFacts]::RequireAbsentLeaf($DriveRoot+'publication')
 }
@@ -1080,7 +1100,7 @@ if(-not $MetadataOnly) {
 foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'),($DriveRoot+'installation-operations'))) {
  if(-not (Test-Path -LiteralPath $top -PathType Container)) {
   if($top -ceq ($DriveRoot+'setup-state') -or $top -ceq ($DriveRoot+'installation-operations')){continue}
-  if($AbsentPublicationPreservationPrefix -and $top -ceq ($DriveRoot+'publication')){continue}
+  if(($AbsentPublicationPreservationPrefix -or $AbsentPublicationReservationPrefix) -and $top -ceq ($DriveRoot+'publication')){continue}
   throw 'Protected publication root is absent during independent readback'
  }
  $pending.Push((Get-Item -LiteralPath $top -Force))
@@ -1174,6 +1194,43 @@ if($AbsentPublicationPreservationPrefix) {
   win32_error_before=$absenceBefore;win32_error_after=$absenceAfter;
   preservation_record_path=$preservation;retained_root_path=$retained}
 }
+if($AbsentPublicationReservationPrefix) {
+ $absenceAfter=[UskMetadataFacts]::RequireAbsentLeaf($DriveRoot+'publication')
+ $generation=$AbsentPublicationReservationGeneration.ToString('D20')
+ $reservation=$AbsentPublicationReservationPrefix+'-bootstrap-g'+$generation+'.json'
+ $installName=Split-Path -Leaf (Split-Path -Parent $AbsentPublicationReservationPrefix)
+ $ownership=$DriveRoot+'setup-state\state\leases\'+$installName+'\g'+$generation+'-active.json'
+ $reservationRows=@($rows|Where-Object {$_.path -ceq $reservation -and -not $_.directory})
+ $ownershipRows=@($rows|Where-Object {$_.path -ceq $ownership -and -not $_.directory})
+ if([string]$absenceRoot[0] -cne $result.volume_boundary.root.file_id -or
+  $reservationRows.Count -ne 1 -or $ownershipRows.Count -ne 1 -or
+  @($rows|Where-Object {$_.path -ceq ($AbsentPublicationReservationPrefix+'-preserve-g'+$generation+'.json') -or
+   $_.path -ceq ($AbsentPublicationReservationPrefix+'-retained-g'+$generation)}).Count -ne 0) {
+  throw 'Independent reserved absence lost its exact current reservation, native ownership or volume binding'
+ }
+ $reserved=$reservationRows[0].content_json|ConvertFrom-Json
+ $active=$ownershipRows[0].content_json|ConvertFrom-Json
+ if($reserved.schema -cne 'usk.publication_bootstrap_reservation.v1' -or $reserved.publication_absent -ne $true -or
+  -not ($active.generation -is [int] -or $active.generation -is [long]) -or
+  $active.generation -ne $AbsentPublicationReservationGeneration -or $active.status -cne 'active' -or
+  ($reserved.ownership|ConvertTo-Json -Depth 64 -Compress) -cne ($active|ConvertTo-Json -Depth 64 -Compress)) {
+  throw 'Independent reserved absence has contradictory native reservation/active ownership'
+ }
+ $priorRetained=$AbsentPublicationReservationPrefix+'-retained-g00000000000000000001'
+ $priorPreservation=$AbsentPublicationReservationPrefix+'-preserve-g00000000000000000001.json'
+ $retainedRows=@($rows|Where-Object {$_.path -ceq $priorRetained -and $_.directory})
+ $preservationRows=@($rows|Where-Object {$_.path -ceq $priorPreservation -and -not $_.directory})
+ if(($AbsentPublicationReservationGeneration -eq 1 -and ($retainedRows.Count -ne 0 -or $preservationRows.Count -ne 0)) -or
+  ($AbsentPublicationReservationGeneration -eq 2 -and ($retainedRows.Count -ne 1 -or $preservationRows.Count -ne 1))) {
+  throw 'Independent reserved absence prior preservation shape differs'
+ }
+ $result['publication_absence']=[ordered]@{schema='usk.publisher_reserved_publication_absence.v1';
+  path=($DriveRoot+'publication');parent_root_identity=$result.volume_boundary.root.file_id;
+  win32_error_before=$absenceBefore;win32_error_after=$absenceAfter;
+  generation=$AbsentPublicationReservationGeneration;reservation_record_path=$reservation;ownership_record_path=$ownership;
+  previous_preservation_record_path=$(if($AbsentPublicationReservationGeneration -eq 2){$priorPreservation}else{$null});
+  previous_retained_root_path=$(if($AbsentPublicationReservationGeneration -eq 2){$priorRetained}else{$null})}
+}
 if($effectiveRights -and $ExpectedVolumeRoot) {
  # Evaluate a reconstructed descriptor from the native phase's closed
  # owner/DACL facts and the separately reobserved group. This is explicitly
@@ -1250,6 +1307,9 @@ try {
     }
     if($AbsentPublicationPreservationPrefix) {
         $command+=" -AbsentPublicationPreservationPrefix '"+$AbsentPublicationPreservationPrefix+"'"
+    }
+    if($AbsentPublicationReservationPrefix) {
+        $command+=" -AbsentPublicationReservationPrefix '"+$AbsentPublicationReservationPrefix+"' -AbsentPublicationReservationGeneration "+$AbsentPublicationReservationGeneration
     }
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)

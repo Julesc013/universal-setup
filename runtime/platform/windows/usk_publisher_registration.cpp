@@ -226,7 +226,8 @@ void create_protected_directory(const std::wstring& path, SECURITY_ATTRIBUTES& a
 
 class ServiceControlGuard {
 public:
-    explicit ServiceControlGuard(const std::wstring& service, bool read_existing = false) {
+    explicit ServiceControlGuard(const std::wstring& service, bool read_existing = false,
+        bool write_existing = false) {
         LocalDescriptor directory_descriptor(
             L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
         SECURITY_ATTRIBUTES directory_attributes{sizeof(SECURITY_ATTRIBUTES),
@@ -248,7 +249,7 @@ public:
         }
         const auto root = program_files / L"Universal Setup";
         const auto locks = root / L"PublisherControl";
-        if (read_existing) {
+        if (read_existing || write_existing) {
             read_protected_control_directory(root.wstring());
             read_protected_control_directory(locks.wstring());
         } else {
@@ -268,7 +269,8 @@ public:
         const DWORD access = read_existing ? READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE :
             GENERIC_READ | GENERIC_WRITE | READ_CONTROL;
         FileHandle file(CreateFileW(path.c_str(), access,
-            0, read_existing ? nullptr : &file_attributes, read_existing ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
+            0, (read_existing || write_existing) ? nullptr : &file_attributes,
+            (read_existing || write_existing) ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
             FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (file.get() == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("publisher service control is active or its lock is unavailable");
@@ -799,7 +801,10 @@ void require_exclusive_volume_admission(const std::wstring& name,
         throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
             std::to_string(GetLastError()));
     }
-    volume.close();
+    // Retain the hardened locking file object across remount and the fresh
+    // device-security check before releasing that native reference. Unlock has
+    // already completed; the new mount must independently pass the strict
+    // profile. A restored outside-mutation grant still refuses admission.
     observe_root(); // Remount through the same GUID and recheck the exact root.
     FileHandle remounted(CreateFileW(device.c_str(), READ_CONTROL | WRITE_DAC,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
@@ -957,9 +962,10 @@ std::filesystem::path registration_binding_path(const std::wstring& name) {
     return publisher_binary_path(name).parent_path() / (name + L".binding.json");
 }
 
-void write_protected_document(const std::filesystem::path& path, const usk::json::Value& value) {
-    const auto bytes = usk::json::canonical(value) + "\n";
-    if (bytes.size() > 16384) throw std::runtime_error("registration binding exceeds bound");
+void write_protected_bytes(const std::filesystem::path& path,
+    const std::string& bytes, std::size_t maximum_bytes) {
+    if (bytes.empty() || bytes.size() > maximum_bytes)
+        throw std::runtime_error("protected controller file exceeds bound");
     LocalDescriptor descriptor(L"O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)");
     SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), descriptor.get(), FALSE};
     GUID nonce{};
@@ -992,6 +998,10 @@ void write_protected_document(const std::filesystem::path& path, const usk::json
             throw std::runtime_error("failed registration binding must be retained for recovery");
         throw;
     }
+}
+
+void write_protected_document(const std::filesystem::path& path, const usk::json::Value& value) {
+    write_protected_bytes(path, usk::json::canonical(value) + "\n", 16384);
 }
 
 usk::json::Value registration_binding(const std::wstring& name,
@@ -1677,6 +1687,142 @@ std::string read_reviewed_apply(const std::wstring& envelope_path,
     return usk::json::canonical(request);
 }
 
+std::filesystem::path reviewed_operation_path(const std::wstring& name,
+    const std::string& request_sha256, bool envelope) {
+    const std::wstring digest(request_sha256.begin(), request_sha256.end());
+    if (!lower_sha256(digest)) throw std::runtime_error("reviewed operation identity is invalid");
+    return registration_binding_path(name).parent_path() /
+        (name + L".operation-" + digest + (envelope ? L".envelope.json" : L".approval.json"));
+}
+
+std::unique_ptr<FileHandle> hold_protected_reviewed_file(const std::filesystem::path& path,
+    std::uint64_t maximum_bytes) {
+    auto file = std::make_unique<FileHandle>(CreateFileW(path.c_str(),
+        GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr,
+        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (file->get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("protected reviewed operation is unavailable");
+    require_control_lock_shape(file->get(), false);
+    require_publisher_stream_shape(file->get());
+    const auto observed = observe_publisher_file_handle(file->get());
+    LARGE_INTEGER size{};
+    if (observed.link_count != 1 || !GetFileSizeEx(file->get(), &size) ||
+        size.QuadPart <= 0 || static_cast<std::uint64_t>(size.QuadPart) > maximum_bytes)
+        throw std::runtime_error("protected reviewed operation shape or size differs");
+    return file;
+}
+
+usk::json::Value parse_reviewed_operation_envelope(const std::string& bytes,
+    const std::string& request) {
+    usk::json::ParseLimits limits;
+    limits.max_bytes = 1024u * 1024u;
+    limits.max_string_bytes = 512u * 1024u;
+    const auto envelope = usk::json::parse(bytes, limits);
+    if (envelope.as_object().size() != 7 ||
+        envelope.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+        envelope.at("activation").as_string() != "operator_acceptance_candidate" ||
+        envelope.at("apply_request").at("schema").as_string() != "usk.install_local_apply_request.v1" ||
+        envelope.at("apply_request").at("confirmation").as_string() != "APPLY" ||
+        usk::json::canonical(envelope.at("apply_request")) != request ||
+        usk::json::canonical(envelope.at("apply_request").at("plan_request")) !=
+            usk::json::canonical(envelope.at("plan_request")) ||
+        envelope.at("apply_request").at("reviewed_plan_digest").as_string() !=
+            envelope.at("reviewed_plan_digest").as_string() ||
+        envelope.at("apply_request").at("reviewed_plan_id").as_string() !=
+            envelope.at("plan_request").at("request_id").as_string())
+        throw std::runtime_error("protected reviewed envelope differs from exact approved request");
+    return envelope;
+}
+
+usk::json::Value enroll_reviewed_operation(const std::wstring& name, const std::wstring& envelope_path,
+    const std::wstring& envelope_digest, const std::wstring& apply_path) {
+    // The administrative write access to the existing native controller lock
+    // is required before any store effect. An ordinary client cannot enroll.
+    ServiceControlGuard control(name, false, true);
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    ServiceHandle service(manager.get() ? OpenServiceW(manager.get(), name.c_str(),
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL) : nullptr);
+    if (!service.get()) throw std::runtime_error("reviewed operation registration unavailable");
+    require_stopped(service.get());
+    const auto before = query_configuration(service.get());
+    require_profile(before);
+    const auto args = command_arguments(before.binary_path);
+    if (args.size() < 10 || args[5] != L"--reviewed-plan-envelope" ||
+        args[args.size() - 3] != L"--service-admitted-client")
+        throw std::runtime_error("reviewed operation needs an owned admitted registration");
+    const auto caller = args.back();
+    require_existing_command(before.binary_path, name, args[0], args[4], caller,
+        L"--service-admitted-client");
+    require_protected_binary(name, args[0]);
+    const auto binding = read_registration_binding(name, before.binary_path, args[4]);
+    const auto admitted = read_protected_document(registration_binding_path(name).parent_path() /
+        (name + L".target-admitted.json"));
+    const auto& target = admitted.at("identity");
+    if (admitted.as_object().size() != 2 ||
+        admitted.at("schema").as_string() != "usk.publisher_target_admitted.v1" ||
+        target.at("registration_sha256").as_string() != usk::json::sha256_canonical(binding) ||
+        usk::json::canonical(target.at("volume_identity")) != usk::json::canonical(binding.at("volume_identity")) ||
+        usk::json::canonical(target.at("disk_identity")) != usk::json::canonical(dedicated_target_disk_identity(args[4])))
+        throw std::runtime_error("reviewed operation target admission differs");
+    const auto request = read_reviewed_apply(envelope_path, envelope_digest, apply_path);
+    usk::base::StableFile source{std::filesystem::path(envelope_path)};
+    if (!source.identity().size_bytes || source.identity().size_bytes > 1024u * 1024u ||
+        source.sha256_hex() != utf8(envelope_digest))
+        throw std::runtime_error("reviewed envelope changed before enrollment");
+    const auto raw = source.read(0, static_cast<std::size_t>(source.identity().size_bytes));
+    const std::string bytes(raw.begin(), raw.end());
+    (void)parse_reviewed_operation_envelope(bytes, request);
+    const auto request_sha = usk::json::sha256_canonical(usk::json::parse(request));
+    const auto blob_path = reviewed_operation_path(name, request_sha, true);
+    const auto approval_path = reviewed_operation_path(name, request_sha, false);
+    using usk::json::Value;
+    const Value approval(Value::Object{
+        {"schema", Value("usk.publisher_reviewed_operation_approval.v1")},
+        {"registration_sha256", Value(usk::json::sha256_canonical(binding))},
+        {"target_admitted_sha256", Value(usk::json::sha256_canonical(admitted))},
+        {"caller_sid", Value(utf8(caller))}, {"request_sha256", Value(request_sha)},
+        {"envelope_sha256", Value(utf8(envelope_digest))},
+        {"envelope_size_bytes", Value(source.identity().size_bytes)}});
+    // Existing final objects are never overwritten. An exact stopped retry
+    // may complete a protected blob whose approval publication was interrupted.
+    bool store_effects_may_exist = false;
+    try {
+    if (!protected_document_exists(blob_path)) {
+        store_effects_may_exist = true;
+        write_protected_bytes(blob_path, bytes, 1024u * 1024u);
+    }
+    const auto held_blob = hold_protected_reviewed_file(blob_path, 1024u * 1024u);
+    usk::base::StableFile blob(blob_path);
+    if (blob.identity().size_bytes != source.identity().size_bytes ||
+        blob.sha256_hex() != utf8(envelope_digest))
+        throw std::runtime_error("retained reviewed envelope differs; never replace it");
+    source.verify_unchanged();
+    blob.verify_unchanged();
+    const auto after = query_configuration(service.get());
+    require_profile(after);
+    require_stopped(service.get());
+    if (before.binary_path != after.binary_path || before.display_name != after.display_name ||
+        usk::json::canonical(read_registration_binding(name, after.binary_path, args[4])) !=
+            usk::json::canonical(binding))
+        throw std::runtime_error("reviewed operation registration changed during enrollment");
+    if (protected_document_exists(approval_path)) {
+        if (usk::json::canonical(read_protected_document(approval_path)) != usk::json::canonical(approval))
+            throw std::runtime_error("retained reviewed operation approval differs");
+    } else {
+        store_effects_may_exist = true;
+        write_protected_document(approval_path, approval);
+    }
+    const auto actual = read_protected_document(approval_path);
+    if (usk::json::canonical(actual) != usk::json::canonical(approval))
+        throw std::runtime_error("reviewed operation durable approval readback differs");
+    return actual;
+    } catch (const std::exception& error) {
+        if (store_effects_may_exist)
+            throw PublisherRequestOutcomeUnknown(std::string("reviewed operation store effects may exist: ") + error.what());
+        throw;
+    }
+}
+
 int report_registered_response(const std::wstring& name, const std::string& request) {
     std::string response;
     std::string status;
@@ -2016,6 +2162,10 @@ struct RegisteredPublisherAdmission::State {
     std::unique_ptr<usk::base::StableFile> binary;
     usk::json::Value service_access;
     usk::json::Value admission_evidence;
+    std::unique_ptr<FileHandle> selected_approval_file, selected_envelope_file;
+    std::unique_ptr<usk::base::StableFile> selected_envelope_source;
+    usk::json::Value selected_approval, selected_envelope;
+    std::filesystem::path selected_approval_path;
     std::wstring name;
 };
 
@@ -2098,7 +2248,86 @@ usk::json::Value RegisteredPublisherAdmission::evidence() const {
                 usk::json::canonical(state_->service_access))
         throw std::runtime_error("registered publisher admission observation lost its held binding");
     state_->binary->verify_unchanged();
+    if (state_->selected_envelope_source) {
+        require_control_lock_shape(state_->selected_approval_file->get(), false);
+        require_control_lock_shape(state_->selected_envelope_file->get(), false);
+        require_publisher_stream_shape(state_->selected_approval_file->get());
+        require_publisher_stream_shape(state_->selected_envelope_file->get());
+        if (usk::json::canonical(read_protected_document(state_->selected_approval_path)) !=
+                usk::json::canonical(state_->selected_approval))
+            throw std::runtime_error("held reviewed operation approval changed");
+        state_->selected_envelope_source->verify_unchanged();
+    }
     return state_->admission_evidence;
+}
+
+bool RegisteredPublisherAdmission::select_reviewed_operation(const std::string& request,
+    const PublisherRequestChannel& channel, std::wstring& envelope_path,
+    std::string& envelope_sha256) {
+    if (state_->selected_envelope_source)
+        throw std::runtime_error("one-request registration already selected its operation");
+    const auto admission = evidence();
+    const auto parsed = usk::json::parse(request);
+    const auto canonical = usk::json::canonical(parsed);
+    const auto request_sha = usk::json::sha256_canonical(parsed);
+    const auto approval_path = reviewed_operation_path(state_->name, request_sha, false);
+    if (!protected_document_exists(approval_path)) return false;
+    auto held_approval = hold_protected_reviewed_file(approval_path, 16384);
+    const auto approval = read_protected_document(approval_path);
+    const auto client = channel.observe_authenticated_object_access(held_approval->get()).at("client");
+    if (approval.as_object().size() != 7 ||
+        approval.at("schema").as_string() != "usk.publisher_reviewed_operation_approval.v1" ||
+        approval.at("registration_sha256").as_string() != admission.at("registration_sha256").as_string() ||
+        approval.at("target_admitted_sha256").as_string() != admission.at("target_admitted_sha256").as_string() ||
+        approval.at("caller_sid").as_string() != admission.at("configured_caller_sid").as_string() ||
+        client.at("user_sid").as_string() != approval.at("caller_sid").as_string() ||
+        approval.at("request_sha256").as_string() != request_sha)
+        throw std::runtime_error("protected reviewed operation approval binding differs");
+    const auto blob_path = reviewed_operation_path(state_->name, request_sha, true);
+    auto held_blob = hold_protected_reviewed_file(blob_path, 1024u * 1024u);
+    auto source = std::make_unique<usk::base::StableFile>(blob_path);
+    if (source->identity().size_bytes != approval.at("envelope_size_bytes").as_unsigned() ||
+        source->sha256_hex() != approval.at("envelope_sha256").as_string())
+        throw std::runtime_error("approved reviewed envelope native bytes differ");
+    const auto bytes = source->read(0, static_cast<std::size_t>(source->identity().size_bytes));
+    const auto envelope = parse_reviewed_operation_envelope(std::string(bytes.begin(), bytes.end()), canonical);
+    source->verify_unchanged();
+    state_->selected_approval_file = std::move(held_approval);
+    state_->selected_envelope_file = std::move(held_blob);
+    state_->selected_envelope_source = std::move(source);
+    state_->selected_approval_path = approval_path;
+    state_->selected_approval = approval;
+    state_->selected_envelope = envelope;
+    (void)evidence();
+    envelope_path = blob_path.wstring();
+    envelope_sha256 = approval.at("envelope_sha256").as_string();
+    return true;
+}
+
+bool RegisteredPublisherAdmission::has_selected_reviewed_operation() const noexcept {
+    return state_->selected_envelope_source != nullptr;
+}
+
+usk::json::Value RegisteredPublisherAdmission::selected_reviewed_envelope() const {
+    if (!has_selected_reviewed_operation())
+        throw std::runtime_error("no protected reviewed operation was selected");
+    (void)evidence();
+    return state_->selected_envelope;
+}
+
+usk::json::Value RegisteredPublisherAdmission::selected_reviewed_operation_observation() const {
+    if (!has_selected_reviewed_operation())
+        throw std::runtime_error("no native reviewed operation is held");
+    (void)evidence();
+    using usk::json::Value;
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_selected_reviewed_operation_observation.v1")},
+        {"scope", Value("authenticated_exact_request_and_held_protected_enrollment_files")},
+        {"approval", state_->selected_approval},
+        {"approval_sha256", Value(usk::json::sha256_canonical(state_->selected_approval))},
+        {"approval_file", publisher_handle_observation_json(observe_publisher_file_handle(state_->selected_approval_file->get()))},
+        {"envelope_sha256", Value(state_->selected_envelope_source->sha256_hex())},
+        {"envelope_file", publisher_handle_observation_json(observe_publisher_file_handle(state_->selected_envelope_file->get()))}});
 }
 
 usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id, bool scoped_profile) const {
@@ -2441,6 +2670,26 @@ std::string submit_registered_publisher_request(const std::wstring& name,
 }
 
 int publisher_service_control_main(int argc, wchar_t** argv) {
+    if (argc >= 2 && std::wstring(argv[1]) == L"--enroll-reviewed-operation") {
+        if (argc != 6 || !generated_name(argv[2])) return 2;
+        try {
+            const auto approval = enroll_reviewed_operation(argv[2], argv[3], argv[4], argv[5]);
+            using usk::json::Value;
+            std::cout << usk::json::canonical(Value(Value::Object{
+                {"schema", Value("usk.publisher_service_control.v1")},
+                {"status", Value("reviewed_operation_enrolled")},
+                {"service", Value(utf8(argv[2]))}, {"approval", approval}})) << '\n';
+            std::cout.flush();
+            if (!std::cout) throw PublisherRequestOutcomeUnknown("reviewed operation approval output unavailable");
+            return 0;
+        } catch (const PublisherRequestOutcomeUnknown& error) {
+            std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
+            return 5;
+        } catch (const std::exception& error) {
+            std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
+            return 3;
+        }
+    }
     if (argc >= 2 && std::wstring(argv[1]) == L"--provision-target") {
         if (argc != 4 || !generated_name(argv[2]) ||
             std::wstring(argv[3]) != L"--confirm-empty-volume") return 2;
@@ -2475,7 +2724,7 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
         (!start || (argc != 6 && argc != 7)) &&
         (!unregister || (argc != 6 && argc != 7)) &&
         (!retire || argc != 6)) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --verify-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID\n";
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --verify-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID | --enroll-reviewed-operation NAME ENVELOPE SHA256 APPLY_FILE\n";
         return 2;
     }
     try {

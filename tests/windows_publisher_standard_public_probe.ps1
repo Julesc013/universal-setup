@@ -11,16 +11,38 @@ param(
     [switch]$BootstrapProcessLoss,
     [switch]$BootstrapPreservationProcessLoss,
     [switch]$ActiveInstallContention,
-    [switch]$StalePlanQualification
+    [switch]$StalePlanQualification,
+    [switch]$InstallationGuardConflict,
+    [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
+    [string]$ConstructedBootstrapPrefix='none',
+    [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
+    [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
+if($InstallationGuardConflict -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
+    $ActiveInstallContention -or $StalePlanQualification -or $ConstructedBootstrapPrefix -cne 'none' -or
+    $ConstructedBootstrapDurableState -cne 'none')) {throw 'Installation guard case requires its separate ordinary source-free lab'}
 if($ActiveInstallContention -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss)) {
     throw 'Active holder contention requires the original uninterrupted installer'
 }
+if($ConstructedBootstrapPrefix -cne 'none' -and
+    (-not $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or $ActiveInstallContention -or $StalePlanQualification)) {
+    throw 'Constructed prefix requires its separate owned empty-root loss fixture'
+}
+if($ConstructedBootstrapDurableState -cne 'none' -and
+    (-not $BootstrapProcessLoss -or $ActiveInstallContention -or $StalePlanQualification -or
+        $ConstructedBootstrapPrefix -cne 'none' -or
+        (($ConstructedBootstrapDurableState -ceq 'next_reservation_absent') -ne [bool]$BootstrapPreservationProcessLoss))) {
+    throw 'Constructed durable state requires its distinct actual process-loss phase'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_durable_state_writer.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_bootstrap_durable_state.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_active_worker.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_bootstrap_prefix.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_install_guard_fixture.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -41,6 +63,7 @@ $drive=[string]$volume.DriveLetter+':\'
 $id=[guid]::NewGuid().ToString('N');$service='USK_PUB_'+$id;$accountName='USKCLI_'+$id.Substring(0,13)
 $accountSid='';$accountCreated=$false;$clientsClosed=$true;$registered=$false;$secret=$null
 $observersClosed=$true;$clientTokenLease=$null;$clientCaptureFile=Join-Path $lab 'public-client-token.json';$clientCaptureSha256=''
+$installGuardHolderClosed=$true
 $activeContenderClosed=$true;$activeWorkerRestored=$true;$activeRetainedTokenLease=$null;$activeRetainedOriginalTokenLease=$null
 $ownerCreation=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
 $publisherBuild=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($ServiceBinary)))
@@ -77,20 +100,32 @@ function Read-ServicePolicy {
     if(@($rows|Where-Object {$_.sid -ceq $accountSid -and $_.mask -eq 0x20015 -and $_.type -ceq 'AccessAllowed'}).Count -ne 1) {throw 'Configured standard start/query grant differs'}
     return [ordered]@{owner=$descriptor.Owner.Value;raw_security_diagnostic=$raw;aces=$rows}
 }
+function Invoke-StandardLeaseEvidence($Request) {
+    $module='publisher_installation_lease_evidence.py'
+    if($ConstructedBootstrapDurableState.StartsWith('pending_',[StringComparison]::Ordinal)) {
+        $module='publisher_bootstrap_durable_state_evidence.py'
+        $Request['case']=$ConstructedBootstrapDurableState
+        $Request['original']=$receipt.bootstrap_loss.readback.independent.rows
+        $Request['constructed']=$receipt.constructed_bootstrap_durable_state.readback.independent.rows
+        $Request['pending_name']=$receipt.constructed_bootstrap_durable_state.pending_name
+    }
+    $Request|ConvertTo-Json -Depth 64 -Compress| & $PythonBinary -B (Join-Path $PSScriptRoot $module) --input -
+    if($LASTEXITCODE -ne 0){throw 'Standard installation lease/native row evidence differs'}
+}
 function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
     $leaseRequest=@{mode=$(if($Readonly){'readonly'}else{'append'});before=$Before.independent.rows;
         after=$After.independent.rows;drive=$drive;installed=$installed;volume_root_id=$After.independent.volume_boundary.root.file_id}
-    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
-        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Standard installation lease/native row transition differs'}
+    Invoke-StandardLeaseEvidence $leaseRequest|Out-Null
 }
-function Read-NativeSnapshot([switch]$PublicationPreserved) {
+function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][int]$PublicationReservedAbsentGeneration=0) {
     $script:observersClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
         -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
         -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
         -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number `
-        -AbsentPublicationPreservationPrefix $(if($PublicationPreserved){$script:bootstrapOperationPrefix}else{''})
+        -AbsentPublicationPreservationPrefix $(if($PublicationPreserved){$script:bootstrapOperationPrefix}else{''}) `
+        -AbsentPublicationReservationPrefix $(if($PublicationReservedAbsentGeneration){$script:bootstrapOperationPrefix}else{''}) `
+        -AbsentPublicationReservationGeneration $PublicationReservedAbsentGeneration
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18' -or
         $readback.independent.observer_token_handles_closed -ne $true){throw 'Standard independent reader cleanup differs'}
     $script:observersClosed=$true
@@ -103,9 +138,7 @@ function Read-InstalledSnapshot {
     # Missing coordination cannot select a historical compatibility path.
     $leaseRequest=@{mode='snapshot';rows=$readback.independent.rows;drive=$drive;installed=$installed;
         volume_root_id=$readback.independent.volume_boundary.root.file_id}
-    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
-        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
-    if($LASTEXITCODE -ne 0){throw 'Current standard snapshot lacks valid installation coordination'}
+    Invoke-StandardLeaseEvidence $leaseRequest|Out-Null
     $prepared=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     $visible=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
     if($prepared.Count -ne 1 -or $visible.Count -ne 1){throw 'Standard native phase records are incomplete'}
@@ -355,12 +388,17 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     }
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
-    [switch]$StalePlanRefusal) {
+    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
     $processLoss=$BootstrapLoss -or $PreservationLoss
-    if($StalePlanRefusal -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss)) {
+    $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal -or $InstallGuardRefusal
+    if(($StalePlanRefusal -and $StateRevisionRefusal) -or
+        (($StalePlanRefusal -or $StateRevisionRefusal) -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss))) {
         throw 'Stale-plan case requires a completed authenticated refusal'
     }
+    if($InstallGuardRefusal -and ($StalePlanRefusal -or $StateRevisionRefusal -or $processLoss -or
+        -not $InstallationGuardConflict -or $Command -cne 'installed.verify' -or $ExpectedExit -ne 4 -or
+        -not $receipt.Contains('installation_guard_conflict'))) {throw 'Installation guard refusal scope differs'}
     $lossKey=if($PreservationLoss){'bootstrap_preservation_loss'}else{'bootstrap_loss'}
     $lossPhase=if($PreservationLoss){'bootstrap_preserved'}else{'bootstrap'}
     if(($BootstrapLoss -and $PreservationLoss) -or ($processLoss -and
@@ -415,6 +453,8 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $registeredCommand `
                 -ServiceBinarySha256 $receipt.service_sha256 -BootstrapOperationPrefix $operationPrefix
         } elseif($StalePlanRefusal) {$script:stalePlanCase.client_capture=$clientCapture}
+        elseif($StateRevisionRefusal) {$script:stateRevisionCase.client_capture=$clientCapture}
+        elseif($InstallGuardRefusal) {$receipt.installation_guard_conflict.client_capture=$clientCapture}
         else {$receipt.client_captures.Add($clientCapture)}
         $launch.Resume()
         if($ActiveInstallContention -and $Command -ceq 'install_local.apply' -and -not $processLoss -and
@@ -425,9 +465,9 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         $process.WaitForExit();$exit=$process.ExitCode
         $diagnostic=[IO.File]::ReadAllText($stderr)
         if((Get-Item -LiteralPath $stdout).Length -gt 4MB -or (Get-Item -LiteralPath $stderr).Length -gt 64KB -or
-            (($ExpectedExit -eq 0 -or $StalePlanRefusal) -and $diagnostic.Length) -or
+            (($ExpectedExit -eq 0 -or $structuredRefusal) -and $diagnostic.Length) -or
             ($processLoss -and $diagnostic.Length) -or
-            ($ExpectedExit -ne 0 -and -not $processLoss -and -not $StalePlanRefusal -and
+            ($ExpectedExit -ne 0 -and -not $processLoss -and -not $structuredRefusal -and
                 $diagnostic -cnotmatch '^usk_machine: request refused\r?\n?$')) {throw 'Standard client output differs'}
         $responseText=[IO.File]::ReadAllText($stdout)
         $receipt['last_response_diagnostic']=[ordered]@{command=$Command;request_id=$requestId;exit_code=$exit;
@@ -455,6 +495,21 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 $result.error.code -ceq 'stale_plan'
             $script:stalePlanCase.response=$result
         }
+        if($StateRevisionRefusal) {
+            $responseMatches=$responseMatches -and $result.status -ceq 'refused' -and $null -eq $result.result -and
+                $result.error.code -ceq 'state_revision_stale'
+            $script:stateRevisionCase.response=$result
+        }
+        if($InstallGuardRefusal) {
+            $reference=$receipt.installation_guard_conflict.holder.native_ready.operation_inspection_ref
+            $responseMatches=$responseMatches -and $result.status -ceq 'refused' -and
+                $result.error.code -ceq 'operation_conflict' -and
+                $result.result.schema -ceq 'usk.publisher_operation_diagnostic.v1' -and
+                $result.result.error_code -ceq 'operation_conflict' -and
+                $result.result.inspection_reference -ceq $reference
+            $receipt.installation_guard_conflict.response=$result
+            $receipt.installation_guard_conflict.exit_code=$exit
+        }
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
@@ -474,14 +529,14 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             throw ('Standard public response binding differs: command='+$Command+' exit='+$exit+' status='+$result.status)
         }
         if((Read-ServicePolicy|ConvertTo-Json -Depth 16 -Compress) -cne ($receipt.service_policy|ConvertTo-Json -Depth 16 -Compress)) {throw 'Service access policy changed across standard dispatch'}
-        if($ExpectedExit -eq 0 -or $StalePlanRefusal) {
+        if($ExpectedExit -eq 0 -or $structuredRefusal) {
             if(-not (Test-Path -LiteralPath $nativeOutput) -or (Get-Item -LiteralPath $nativeOutput).Length -gt 4MB) {
                 throw 'Standard native response capture is missing or exceeds its bound'
             }
             $nativeText=[IO.File]::ReadAllText($nativeOutput)
             $native=$nativeText|ConvertFrom-Json
             $nativeSchema=if($Command -ceq 'publisher.observe'){'usk.publisher_service_capability_observation.v1'}else{'usk.publisher_lab_service_observation.v1'}
-            $nativeStatus=if($StalePlanRefusal){'failed'}elseif($Command -ceq 'publisher.observe'){'observed'}else{'pass'}
+            $nativeStatus=if($structuredRefusal){'failed'}elseif($Command -ceq 'publisher.observe'){'observed'}else{'pass'}
             if($native.schema -cne $nativeSchema -or $native.status -cne $nativeStatus -or
                 $null -eq $native.registered_admission){throw 'Standard native admission capture is incomplete'}
             $nativeCapture=[ordered]@{command=$Command;request_id=$requestId;
@@ -489,6 +544,17 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             if($StalePlanRefusal) {
                 if($native.error_code -cne 'stale_plan'){throw 'Native stale-plan reason was not preserved'}
                 $script:stalePlanCase.native_observation=$nativeCapture
+            } elseif($StateRevisionRefusal) {
+                if($native.error_code -cne 'state_revision_stale' -or $null -eq $native.reviewed_operation_admission){
+                    throw 'Native approved-operation revision refusal was not preserved'
+                }
+                $script:stateRevisionCase.native_observation=$nativeCapture
+            } elseif($InstallGuardRefusal) {
+                if($native.error_code -cne 'operation_conflict' -or
+                    $native.operation_inspection_ref -cne $receipt.installation_guard_conflict.holder.native_ready.operation_inspection_ref) {
+                    throw 'Authenticated native installation guard reason/reference differs'
+                }
+                $receipt.installation_guard_conflict.native_observation=$nativeCapture
             } else {$receipt.native_observations.Add($nativeCapture)}
         }
         return $result
@@ -537,6 +603,27 @@ function Invoke-StalePlanCases([int]$BaselineIndex,[bool]$SourceFree) {
         $script:stalePlanCase=$null
     }
 }
+function Invoke-ChangedStateCase([int]$BaselineIndex,[bool]$SourceFree) {
+    $baseline=$receipt.readbacks[$BaselineIndex]
+    $script:stateRevisionCase=[ordered]@{source_free=$SourceFree;client_capture=$null;
+        response=$null;native_observation=$null;readback=$null}
+    $receipt.changed_state_revision.cases.Add($script:stateRevisionCase)
+    $null=Invoke-StandardRequest 'install_local.apply' $applyA 4 -StateRevisionRefusal
+    $readback=Read-InstalledSnapshot
+    if(($readback.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
+        ($baseline.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
+        ($readback.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress) -cne
+        ($baseline.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Approved Plan A refusal changed committed Plan B native material'
+    }
+    $digest=$readback.independent.rows|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_stale_plan_evidence.py') --rows-digest
+    if($LASTEXITCODE -ne 0 -or [string]$digest -cnotmatch '^[0-9a-f]{64}$'){throw 'Changed-state native row digest failed'}
+    $readback.independent.rows=[ordered]@{schema='usk.publisher_native_rows_reference.v1';
+        baseline_readback_index=$BaselineIndex;sha256=[string]$digest}
+    $script:stateRevisionCase.readback=$readback
+    $script:stateRevisionCase=$null
+}
 try {
     Initialize-PublisherMetadataNativeTypes
     if(Get-LocalUser -Name $accountName -ErrorAction SilentlyContinue){throw 'Owned standard account name exists'}
@@ -575,6 +662,32 @@ try {
     $binding=($bound -join "`n")|ConvertFrom-Json;$apply=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
     $receipt['plan_request']=Get-Content -LiteralPath $inputs.request_file -Raw|ConvertFrom-Json
     $receipt['plan']=$planned.result.payload;$receipt['apply_request']=$apply
+    if($StalePlanQualification) {
+        # Plan A is independently produced by the real machine planner while
+        # the target is still empty. Only its authored request identity differs
+        # from B; no apply digest or installed record is manufactured.
+        $requestA=$receipt.plan_request|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+        $requestA.request_id='planA.'+$id;$requestA.payload.request_id=$requestA.request_id
+        $requestAPath=Join-Path $fixture 'plan-a-request.json';Write-Json $requestAPath $requestA
+        $planAOutput=& $MachineBinary --machine --request-file $requestAPath --context-file $context
+        if($LASTEXITCODE -ne 0){throw 'Independent initial Plan A failed'}
+        $planAResponsePath=Join-Path $fixture 'plan-a-response.json'
+        [IO.File]::WriteAllText($planAResponsePath,($planAOutput -join "`n")+"`n",$utf8)
+        $boundA=& $PythonBinary -B (Join-Path $PSScriptRoot '..\tools\usk_bundle_apply_binding.py') --request-file $requestAPath `
+            --response-file $planAResponsePath --acceptance-root $drive --state-root ($drive+'setup-state') `
+            --transaction-id ('installA.'+$id) --applied-at ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')) `
+            --output-dir (Join-Path $fixture 'binding-a')
+        if($LASTEXITCODE -ne 0){throw 'Real Plan A reviewed binding failed'}
+        $bindingA=($boundA -join "`n")|ConvertFrom-Json
+        $applyA=Get-Content -LiteralPath $bindingA.apply_file -Raw|ConvertFrom-Json
+        $receipt['changed_state_revision']=[ordered]@{schema='usk.publisher_changed_state_revision_probe.v1';
+            scope='approved_initial_plan_a_commit_b_apply_a_before_effects';profile_qualified=$false;
+            publication_authority_granted=$false;plan_a_request=$requestA;
+            plan_a_response=($planAOutput -join "`n")|ConvertFrom-Json;apply_a=$applyA;
+            planned_at_file_time=[DateTime]::UtcNow.ToFileTimeUtc().ToString();enrolled_at_file_time=$null;
+            envelope_a_json=[IO.File]::ReadAllText($bindingA.envelope_file);
+            enrollments=[Collections.Generic.List[object]]::new();cases=[Collections.Generic.List[object]]::new()}
+    }
     $registration=& $ServiceControlBinary --register $service $ServiceBinary $VolumeRoot $binding.envelope_file `
         $binding.envelope_sha256 $accountSid $receipt.service_sha256 --service-admitted-client
     if($LASTEXITCODE -ne 0 -or ($registration|ConvertFrom-Json).status -cne 'registered'){throw 'Standard registration failed'}
@@ -588,6 +701,19 @@ try {
     Set-Acl -LiteralPath $fixture -AclObject $inputAcl
     & $ServiceControlBinary --provision-target $service --confirm-empty-volume|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Standard target admission failed'}
+    if($StalePlanQualification) {
+        foreach($approved in @($bindingA,$binding)) {
+            $enrollment=& $ServiceControlBinary --enroll-reviewed-operation $service $approved.envelope_file `
+                $approved.envelope_sha256 $approved.apply_file
+            if($LASTEXITCODE -ne 0){throw 'Administrative reviewed-operation enrollment failed'}
+            $observedEnrollment=($enrollment -join "`n")|ConvertFrom-Json
+            if($observedEnrollment.status -cne 'reviewed_operation_enrolled' -or $observedEnrollment.service -cne $service){
+                throw 'Reviewed operation enrollment response differs'
+            }
+            $receipt.changed_state_revision.enrollments.Add($observedEnrollment)
+        }
+        $receipt.changed_state_revision.enrolled_at_file_time=[DateTime]::UtcNow.ToFileTimeUtc().ToString()
+    }
     $receipt['service_policy']=Read-ServicePolicy
     $receipt['discovery']=Invoke-StandardRequest 'publisher.inspect' @{schema='usk.publisher_capability_request.v1';request_id='inspect.'+$id} 2
     if($receipt.discovery.status -cne 'refused' -or $receipt.discovery.error.code -cne 'publisher_capability_unavailable'){throw 'Unqualified standard discovery did not refuse explicitly'}
@@ -601,6 +727,9 @@ try {
     if($BootstrapProcessLoss) {
         $null=Invoke-StandardRequest 'install_local.apply' $apply 5 -BootstrapLoss
         $receipt.bootstrap_loss.readback=Read-NativeSnapshot
+        if($ConstructedBootstrapPrefix -cne 'none') {
+            $receipt['constructed_bootstrap_prefix']=New-OwnedBootstrapPrefix $ConstructedBootstrapPrefix $receipt.bootstrap_loss.readback
+        }
     }
     if($BootstrapPreservationProcessLoss) {
         if(-not $BootstrapProcessLoss){throw 'Preservation loss requires the original reserved bootstrap loss'}
@@ -612,6 +741,12 @@ try {
         $null=Invoke-StandardRequest 'install_local.apply' $apply 5 -PreservationLoss
         $receipt.bootstrap_preservation_loss.readback=Read-NativeSnapshot -PublicationPreserved
     }
+    if($ConstructedBootstrapDurableState -cne 'none') {
+        $original=if($ConstructedBootstrapDurableState -ceq 'next_reservation_absent') {
+            $receipt.bootstrap_preservation_loss.readback
+        }else{$receipt.bootstrap_loss.readback}
+        $receipt['constructed_bootstrap_durable_state']=New-OwnedBootstrapDurableState $ConstructedBootstrapDurableState $original
+    }
     $receipt['apply']=Invoke-StandardRequest 'install_local.apply' $apply
     $installed=$receipt.apply.result.payload
     if($installed.install_id -cne $apply.plan_request.install_id -or $installed.transaction_id -cne $apply.transaction_id -or
@@ -622,6 +757,12 @@ try {
         $bootstrapRequest=@{mode='bootstrap_takeover';before=$loss.readback.independent.rows;after=$before.independent.rows;
             drive=$drive;installed=$installed;volume_root_id=$before.independent.volume_boundary.root.file_id;
             terminated_holder=@{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time}}
+        if($ConstructedBootstrapPrefix -cne 'none') {
+            $bootstrapRequest.mode='constructed_prefix_takeover'
+            $bootstrapRequest.before=$receipt.constructed_bootstrap_prefix.readback.independent.rows
+            $bootstrapRequest.case=$ConstructedBootstrapPrefix
+            $bootstrapRequest.snapshot_size_bytes=$receipt.constructed_bootstrap_prefix.snapshot_size_bytes
+        }
         if($BootstrapPreservationProcessLoss) {
             $preserved=$receipt.bootstrap_preservation_loss
             $bootstrapRequest.mode='bootstrap_preservation_takeover'
@@ -631,8 +772,23 @@ try {
                 @{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time},
                 @{process_id=[int]$preserved.boundary.service_pid;process_creation_time=$preserved.boundary.process_creation_file_time})
         }
+        $bootstrapModule='publisher_installation_lease_evidence.py'
+        if($ConstructedBootstrapDurableState -cne 'none') {
+            $bootstrapModule='publisher_bootstrap_durable_state_evidence.py'
+            $bootstrapRequest=@{mode='constructed_durable_takeover';case=$ConstructedBootstrapDurableState;
+                original=$original.independent.rows;constructed=$receipt.constructed_bootstrap_durable_state.readback.independent.rows;
+                after=$before.independent.rows;drive=$drive;installed=$installed;
+                volume_root_id=$before.independent.volume_boundary.root.file_id;
+                pending_name=$receipt.constructed_bootstrap_durable_state.pending_name;
+                original_empty=$(if($BootstrapPreservationProcessLoss){$loss.readback.independent.rows}else{$null});
+                terminated_holders=@(@{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time})}
+            if($BootstrapPreservationProcessLoss) {
+                $bootstrapRequest.terminated_holders+=@{process_id=[int]$preserved.boundary.service_pid;
+                    process_creation_time=$preserved.boundary.process_creation_file_time}
+            }
+        }
         $decoded=$bootstrapRequest|ConvertTo-Json -Depth 64 -Compress|
-            & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
+            & $PythonBinary -B (Join-Path $PSScriptRoot $bootstrapModule) --input -
         if($LASTEXITCODE -ne 0){throw 'Registered bootstrap takeover/native preservation differs'}
         $receipt.bootstrap_loss.reconciliation=($decoded -join "`n")|ConvertFrom-Json
         if($BootstrapPreservationProcessLoss) {$receipt.bootstrap_preservation_loss.reconciliation=$receipt.bootstrap_loss.reconciliation}
@@ -643,6 +799,7 @@ try {
             scope='authenticated_immutable_apply_context_before_effects';profile_qualified=$false;
             publication_authority_granted=$false;cases=[Collections.Generic.List[object]]::new()}
         Invoke-StalePlanCases 0 $false
+        Invoke-ChangedStateCase 0 $false
     }
     $exactFixture=[IO.Path]::GetFullPath($fixture)
     if($exactFixture -cne [IO.Path]::GetFullPath((Join-Path $lab 'standard-authored-inputs')) -or
@@ -655,6 +812,7 @@ try {
     $recovered=Read-InstalledSnapshot;$receipt.readbacks.Add($recovered)
     Assert-LeaseTransition $before $recovered
     if($StalePlanQualification){Invoke-StalePlanCases 1 $true}
+    if($StalePlanQualification){Invoke-ChangedStateCase 1 $true}
     $receipt['replayed_apply']=Invoke-StandardRequest 'install_local.apply' $apply
     foreach($terminal in @($receipt.recovery,$receipt.replayed_apply)) {
         if(($terminal.result.payload|ConvertTo-Json -Depth 64 -Compress) -cne ($installed|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard source-free state changed'}
@@ -663,6 +821,7 @@ try {
     Assert-LeaseTransition $recovered $after
     $verify=@{schema='usk.publisher_installed_verify_request.v1';request_id='verify.'+$id;install_id=$installed.install_id;
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+    if($InstallationGuardConflict){Invoke-InstallGuardVerificationConflict $verify}
     $receipt['verification']=Invoke-StandardRequest 'installed.verify' $verify
     if($receipt.verification.result.payload.status -cne 'pass' -or $receipt.verification.result.payload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
@@ -681,7 +840,7 @@ finally {
         try {$clientTokenLease.Dispose();$clientTokenLease=$null}
         catch {$clientsClosed=$false;$receipt.status='failed';$receipt['cleanup_failure']=$_.Exception.Message}
     }
-    $receipt.client_cleanup_confirmed=$clientsClosed -and $observersClosed -and $null -eq $clientTokenLease -and
+    $receipt.client_cleanup_confirmed=$clientsClosed -and $observersClosed -and $installGuardHolderClosed -and $null -eq $clientTokenLease -and
         $activeContenderClosed -and $activeWorkerRestored -and $null -eq $activeRetainedTokenLease -and
         $null -eq $activeRetainedOriginalTokenLease
     if($accountCreated -and $receipt.client_cleanup_confirmed) {

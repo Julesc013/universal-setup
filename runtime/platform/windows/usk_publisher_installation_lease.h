@@ -9,12 +9,28 @@
 #include <memory>
 namespace usk::platform::windows {
 class PublisherInstallationLease;
+struct PublisherTreeObservation;
+
+// Internal data-shape check using the native tree observer's slash paths.
+// Security, held handles, exact original bytes and ownership remain separate
+// mandatory native checks; passing this helper grants no publication effects.
+void require_publisher_bootstrap_prefix_shape(const PublisherTreeObservation& tree);
 
 usk::json::Value observe_publisher_lease_holder();
 // Read-only native facts, without a protection/ownership verdict.
 usk::json::Value observe_publisher_lease_root_identity(HANDLE root);
 std::string observe_publisher_install_state_revision(HANDLE state_root,
     const std::string& install_id, const std::string& service_sid);
+// Read-only fresh-install preflight under the actual installation guard. An
+// absent setup root represents empty state; existing state/installed roots
+// must be complete and safe. The caller separately validates the full setup
+// ownership marker and layout read-only before preparing durable intent.
+// This creates no context, layout or ownership record and grants no effects.
+// Returns whether the actual setup root was present.
+bool require_publisher_initial_install_state_revision(HANDLE volume,
+    const std::wstring& volume_root, const std::wstring& setup_component,
+    const PublisherInstallOperationGuard& guard, const std::string& install_id,
+    const std::string& service_sid);
 usk::transaction::InstallLeasePreviousHolder observe_publisher_previous_lease_holder(
     const usk::json::Value& holder);
 
