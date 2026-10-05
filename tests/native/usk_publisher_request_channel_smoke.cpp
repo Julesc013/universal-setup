@@ -3,6 +3,7 @@
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
+#include "usk_effect_dispatch.h"
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
@@ -124,6 +125,116 @@ void test_service_observation_transport_binding() {
     refuses([&] { require_publisher_response_binding(service,
         replaced(request, "\"request_id\":\"observe.one\"", "\"request_id\":\"observe.one\",\"extra\":true"), response); });
 }
+struct OwnedHandle {
+    HANDLE value;
+    explicit OwnedHandle(HANDLE handle) : value(handle) {}
+    ~OwnedHandle() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+    OwnedHandle(const OwnedHandle&) = delete;
+    OwnedHandle& operator=(const OwnedHandle&) = delete;
+};
+void test_endpoint_acquisition(const std::wstring& name, const std::wstring& sid,
+    const std::wstring& service_sid) {
+    using namespace usk::platform::windows;
+    using Refusal = usk::base::EffectRequestNotDispatched;
+    const auto reference = publisher_request_inspection_reference(name);
+    auto lower = name;
+    for (auto& ch : lower) if (ch >= L'A' && ch <= L'Z') ch = ch - L'A' + L'a';
+    require(reference == publisher_request_inspection_reference(lower) &&
+        reference != publisher_request_inspection_reference(name + L"_other"),
+        "endpoint reference does not preserve its canonical scope");
+    auto channel = std::make_unique<PublisherRequestChannel>(name, service_sid, sid, nullptr, 2000);
+    OwnedHandle first(connect_publisher_request_endpoint(name, 2000));
+    require(first.value != INVALID_HANDLE_VALUE, "first owned endpoint connection absent");
+    const auto expect_refusal = [&](const char* label, const PublisherRequestOptions& options, Refusal::Reason expected) {
+        bool refused = false;
+        const auto call_began = GetTickCount64();
+        try { OwnedHandle unexpected(connect_publisher_request_endpoint(name, 1000, options)); }
+        catch (const Refusal& error) {
+            refused = error.reason() == expected && error.inspection_reference() == reference;
+            if (!refused) {
+                std::cerr << "endpoint " << label << ": expected reason " << static_cast<int>(expected)
+                    << ", actual reason " << static_cast<int>(error.reason())
+                    << ", scope matches " << (error.inspection_reference() == reference)
+                    << ", elapsed milliseconds " << GetTickCount64() - call_began << '\n';
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "endpoint " << label << ": unexpected generic refusal after "
+                << GetTickCount64() - call_began << " milliseconds: " << error.what() << '\n';
+            throw;
+        }
+        require(refused, "endpoint refusal lost its actual reason or scope reference");
+        DWORD available = 99;
+        require(PeekNamedPipe(first.value, nullptr, 0, nullptr, &available, nullptr) && available == 0,
+            "refusal disturbed the existing empty connection");
+    };
+    const auto began = GetTickCount64();
+    expect_refusal("fail_fast", {}, Refusal::Reason::operation_conflict);
+    require(GetTickCount64() - began < 500, "default endpoint conflict was not fail-fast");
+    PublisherRequestOptions timed;
+    timed.conflict_wait_milliseconds = 60;
+    const auto timed_begin = GetTickCount64();
+    expect_refusal("deadline", timed, Refusal::Reason::operation_conflict);
+    require(GetTickCount64() - timed_begin >= 60 && GetTickCount64() - timed_begin < 1000,
+        "endpoint conflict ignored its bounded deadline");
+    OwnedHandle cancel(CreateEventW(nullptr, TRUE, TRUE, nullptr));
+    require(cancel.value != nullptr, "endpoint cancellation event absent");
+    PublisherRequestOptions cancelled;
+    cancelled.cancel_event = cancel.value;
+    cancelled.conflict_wait_milliseconds = 1000;
+    expect_refusal("ready_cancel", cancelled, Refusal::Reason::operation_cancelled);
+    require(ResetEvent(cancel.value) != FALSE, "endpoint cancellation reset failed");
+    std::exception_ptr cancellation_failure;
+    std::atomic<bool> started{false};
+    std::thread waiting([&] {
+        try { started.store(true); expect_refusal("async_cancel", cancelled, Refusal::Reason::operation_cancelled); }
+        catch (...) { cancellation_failure = std::current_exception(); }
+    });
+    while (!started.load()) Sleep(1);
+    Sleep(20);
+    const bool signalled = SetEvent(cancel.value) != FALSE;
+    waiting.join();
+    require(signalled, "endpoint cancellation signal failed");
+    if (cancellation_failure) std::rethrow_exception(cancellation_failure);
+    // Deadline/cancellation leave the existing connection owned. A waiting
+    // contender succeeds only after the fixture owner creates a new endpoint.
+    PublisherRequestOptions bounded_wait;
+    bounded_wait.conflict_wait_milliseconds = 1000;
+    std::exception_ptr connection_failure;
+    std::atomic<bool> connected{false};
+    started.store(false);
+    std::thread contender([&] {
+        try {
+            started.store(true);
+            OwnedHandle connection(connect_publisher_request_endpoint(name, 2000, bounded_wait));
+            connected.store(connection.value != INVALID_HANDLE_VALUE);
+        } catch (...) { connection_failure = std::current_exception(); }
+    });
+    while (!started.load()) Sleep(1);
+    Sleep(20);
+    const bool closed = CloseHandle(first.value) != FALSE;
+    first.value = INVALID_HANDLE_VALUE;
+    channel.reset();
+    try { channel = std::make_unique<PublisherRequestChannel>(name, service_sid, sid, nullptr, 2000); }
+    catch (...) { contender.join(); throw; }
+    contender.join();
+    require(closed, "owned endpoint release failed");
+    if (connection_failure) std::rethrow_exception(connection_failure);
+    require(connected.load(), "bounded contender did not connect to the fresh owned endpoint");
+    PublisherRequestChannel ready(name + L"_ready", service_sid, sid, nullptr, 2000);
+    require(SetEvent(cancel.value) != FALSE, "ready cancellation signal failed");
+    bool ready_cancelled = false;
+    try { OwnedHandle unexpected(connect_publisher_request_endpoint(name + L"_ready", 1000, cancelled)); }
+    catch (const Refusal& error) { ready_cancelled = error.reason() == Refusal::Reason::operation_cancelled; }
+    require(ready_cancelled, "available endpoint overrode ready cancellation");
+    auto excessive = bounded_wait;
+    excessive.conflict_wait_milliseconds = publisher_request_max_conflict_wait_milliseconds + 1;
+    refuses([&] { OwnedHandle unexpected(connect_publisher_request_endpoint(name, 1000, excessive)); });
+    bool generic_missing = false;
+    try { OwnedHandle unexpected(connect_publisher_request_endpoint(name + L"_missing", 25)); }
+    catch (const Refusal&) { throw std::runtime_error("generic missing endpoint became typed admission"); }
+    catch (const std::runtime_error&) { generic_missing = true; }
+    require(generic_missing, "generic missing endpoint control did not fail");
+}
 std::wstring current_sid() {
     HANDLE token=nullptr;
     require(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)!=FALSE,"process token unavailable");
@@ -238,6 +349,7 @@ int main() {
         const auto name=L"USK_transport_test_"+std::to_wstring(GetCurrentProcessId());
         const auto sid=current_sid();
         const std::wstring service_sid=L"S-1-5-80-1-2-3-4-5";
+        test_endpoint_acquisition(name + L"_acquisition", sid, service_sid);
         std::string response;
         std::exception_ptr client_failure;
         auto channel=std::make_unique<PublisherRequestChannel>(name,service_sid,sid,nullptr,2000);
@@ -334,6 +446,13 @@ int main() {
           // Closing the server releases a possibly blocked client writer.
           oversized.reset(); large_client.join(); }
         { PublisherRequestChannel denied(name,service_sid,L"S-1-5-21-1-2-3-500",nullptr,25);
+          bool generic_denied = false;
+          try { OwnedHandle unexpected(usk::platform::windows::connect_publisher_request_endpoint(name, 25)); }
+          catch (const usk::base::EffectRequestNotDispatched&) {
+              throw std::runtime_error("generic denied endpoint became typed admission");
+          }
+          catch (const std::runtime_error&) { generic_denied = true; }
+          require(generic_denied, "generic denied endpoint control did not fail");
           HANDLE raw=CreateFileW(usk::platform::windows::publisher_request_pipe_name(name).c_str(),
               FILE_READ_DATA|FILE_WRITE_DATA,0,nullptr,OPEN_EXISTING,0,nullptr);
           if(raw!=INVALID_HANDLE_VALUE) CloseHandle(raw);

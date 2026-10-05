@@ -6,6 +6,7 @@
 #include <string>
 #include <memory>
 #include "usk_json.h"
+#include "usk_publisher_request_channel.h"
 namespace usk::platform::windows {
 // Internal controller entry point; the packaged CLI and machine client share
 // the same SCM, protected-binary and dedicated-volume admission implementation.
@@ -40,7 +41,7 @@ private:
 // V2 separately allows startup and the service-side controller guard while
 // observing retained admission; it does not dispatch installation effects.
 std::string submit_registered_publisher_request(const std::wstring& service_name,
-    const std::string& request);
+    const std::string& request, const PublisherRequestOptions& options = {});
 }
 #endif
 #endif

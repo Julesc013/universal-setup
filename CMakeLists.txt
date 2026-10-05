@@ -609,12 +609,28 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_candidate_context_smoke COMMAND usk_publisher_candidate_context_smoke)
     set_tests_properties(usk_publisher_candidate_context_smoke PROPERTIES TIMEOUT 30)
     add_executable(usk_publisher_request_channel_smoke tests/native/usk_publisher_request_channel_smoke.cpp)
+    add_executable(usk_publisher_registered_contention_probe
+      tests/native/usk_publisher_registered_contention_probe.cpp runtime/command/usk_one_shot.cpp)
+    target_compile_features(usk_publisher_registered_contention_probe PRIVATE cxx_std_17)
+    target_include_directories(usk_publisher_registered_contention_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command")
+    target_link_libraries(usk_publisher_registered_contention_probe PRIVATE usk_publisher_windows_static usk_static)
+    usk_enable_strict_warnings(usk_publisher_registered_contention_probe)
     add_executable(usk_neutral_payload tests/fixtures/authoring/neutral_one_file/hello.c)
     target_compile_features(usk_publisher_request_channel_smoke PRIVATE cxx_std_17)
     target_link_libraries(usk_publisher_request_channel_smoke PRIVATE usk_publisher_windows_static)
     usk_enable_strict_warnings(usk_publisher_request_channel_smoke)
     add_test(NAME usk_publisher_request_channel_smoke COMMAND usk_publisher_request_channel_smoke)
-    set_tests_properties(usk_publisher_request_channel_smoke PROPERTIES TIMEOUT 15)
+    # Its sub-second deadlines need a scheduled signalling thread. Run it
+    # separately from CTest's concurrent compiler/package subprocesses.
+    set_tests_properties(usk_publisher_request_channel_smoke PROPERTIES TIMEOUT 15 RUN_SERIAL TRUE)
+    add_test(NAME usk_publisher_held_capture_context_smoke
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_held_capture_context_smoke.ps1")
+    set_tests_properties(usk_publisher_held_capture_context_smoke PROPERTIES TIMEOUT 15)
+    add_test(NAME usk_publisher_standard_client_cleanup_smoke
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_standard_client_cleanup_smoke.ps1")
+    set_tests_properties(usk_publisher_standard_client_cleanup_smoke PROPERTIES TIMEOUT 15)
     if(TARGET usk_machine)
       add_test(NAME usk_publisher_candidate_apply_process_smoke
         COMMAND "${Python3_EXECUTABLE}"

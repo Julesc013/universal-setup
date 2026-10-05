@@ -16,6 +16,7 @@
 #include "usk_publisher_registration.h"
 #include "usk_stable_file.h"
 #include "usk_record_io.h"
+#include "usk_effect_dispatch.h"
 #include <cstdio>
 #include <fcntl.h>
 #include <io.h>
@@ -24,6 +25,55 @@
 
 namespace {
 #ifdef _WIN32
+SRWLOCK publisher_cancel_lock = SRWLOCK_INIT;
+HANDLE publisher_cancel_event = nullptr;
+
+BOOL WINAPI publisher_console_control(DWORD control)
+{
+    if (control != CTRL_C_EVENT && control != CTRL_BREAK_EVENT) return FALSE;
+    AcquireSRWLockShared(&publisher_cancel_lock);
+    const bool handled = publisher_cancel_event && SetEvent(publisher_cancel_event);
+    ReleaseSRWLockShared(&publisher_cancel_lock);
+    return handled ? TRUE : FALSE;
+}
+
+class PublisherConsoleCancellation final {
+public:
+    PublisherConsoleCancellation()
+    {
+        event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!event_) throw usk::base::EffectRequestNotDispatched();
+        AcquireSRWLockExclusive(&publisher_cancel_lock);
+        publisher_cancel_event = event_;
+        ReleaseSRWLockExclusive(&publisher_cancel_lock);
+        // Detached automation has no console signal source; API callers can
+        // still supply their own borrowed cancellation event.
+        registered_ = GetConsoleCP() != 0;
+        if (registered_ && !SetConsoleCtrlHandler(publisher_console_control, TRUE)) {
+            close();
+            throw usk::base::EffectRequestNotDispatched();
+        }
+    }
+    ~PublisherConsoleCancellation() { close(); }
+    PublisherConsoleCancellation(const PublisherConsoleCancellation&) = delete;
+    PublisherConsoleCancellation& operator=(const PublisherConsoleCancellation&) = delete;
+    HANDLE event() const noexcept { return event_; }
+private:
+    void close() noexcept
+    {
+        if (registered_) SetConsoleCtrlHandler(publisher_console_control, FALSE);
+        // Removal does not rely on joining a callback already running. The
+        // lock prevents a callback from signalling a closed/reused handle.
+        AcquireSRWLockExclusive(&publisher_cancel_lock);
+        publisher_cancel_event = nullptr;
+        if (event_) CloseHandle(event_);
+        event_ = nullptr;
+        ReleaseSRWLockExclusive(&publisher_cancel_lock);
+    }
+    HANDLE event_ = nullptr;
+    bool registered_ = false;
+};
+
 bool generated_service_name(const std::wstring& name)
 {
     if (name.size() != 40 || name.compare(0, 8, L"USK_PUB_") != 0) return false;
@@ -150,7 +200,7 @@ int main(int argc, char** argv)
         (std::string(argv[1]) != "--machine" && std::string(argv[1]) != "--framed")) {
         std::cerr << "usage: usk_machine --machine|--framed [--request-file path]"
             " [--context-file path] [--candidate-service NAME]"
-            " [--publisher NAME [--publisher-observation-file PATH]]"
+            " [--publisher NAME [--publisher-wait-ms 0..30000] [--publisher-observation-file PATH]]"
             " | --product-info product.bundle.json"
             " | --product-select product.bundle.json [--select ID ...]"
             " | --candidate-service NAME --request-file path (Windows only)\n";
@@ -163,6 +213,8 @@ int main(int argc, char** argv)
     std::wstring candidate_service;
     std::wstring publisher_service;
     const char* publisher_observation_file = nullptr;
+    DWORD publisher_wait_milliseconds = 0;
+    bool publisher_wait_supplied = false;
 #endif
     for (int index = 2; index < argc; index += 2) {
         if (index + 1 >= argc || argv[index + 1][0] == '\0') {
@@ -191,6 +243,19 @@ int main(int argc, char** argv)
             }
         } else if (option == "--publisher-observation-file" && publisher_observation_file == nullptr) {
             publisher_observation_file = argv[index + 1];
+        } else if (option == "--publisher-wait-ms" && !publisher_wait_supplied) {
+            const std::string value(argv[index + 1]);
+            if (value.size() > 5 || value.find_first_not_of("0123456789") != std::string::npos) {
+                std::cerr << "usk_machine: invalid publisher wait\n";
+                return 2;
+            }
+            for (const char ch : value)
+                publisher_wait_milliseconds = publisher_wait_milliseconds * 10u + static_cast<DWORD>(ch - '0');
+            if (publisher_wait_milliseconds > usk::platform::windows::publisher_request_max_conflict_wait_milliseconds) {
+                std::cerr << "usk_machine: invalid publisher wait\n";
+                return 2;
+            }
+            publisher_wait_supplied = true;
 #endif
         } else {
             std::cerr << "usk_machine: invalid options\n";
@@ -200,6 +265,7 @@ int main(int argc, char** argv)
 #ifdef _WIN32
     if ((!candidate_service.empty() && !publisher_service.empty()) ||
         (publisher_observation_file != nullptr && publisher_service.empty()) ||
+        (publisher_wait_supplied && publisher_service.empty()) ||
         ((!candidate_service.empty() || !publisher_service.empty()) && context_file != nullptr)) {
         std::cerr << "usk_machine: publisher service and planning context options are incompatible\n";
         return 2;
@@ -245,9 +311,13 @@ int main(int argc, char** argv)
                     });
             } else if (!publisher_service.empty()) {
                 result = usk::command::run_publisher_one_shot(request,
-                    [&publisher_service, publisher_observation_file](const std::string& payload) {
+                    [&publisher_service, publisher_observation_file, publisher_wait_milliseconds](const std::string& payload) {
+                        PublisherConsoleCancellation cancellation;
+                        usk::platform::windows::PublisherRequestOptions options;
+                        options.cancel_event = cancellation.event();
+                        options.conflict_wait_milliseconds = publisher_wait_milliseconds;
                         const auto observed = usk::platform::windows::submit_registered_publisher_request(
-                            publisher_service, payload);
+                            publisher_service, payload, options);
                         // Opt-in diagnostics retain the exact received bytes;
                         // they grant no authority and never replace an existing
                         // file. A post-dispatch write failure remains unknown.

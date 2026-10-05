@@ -294,6 +294,11 @@ param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
     [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue,
     [string]$AbsentPublicationPreservationPrefix='')
 $ErrorActionPreference='Stop'
+function Test-PublisherHeldCaptureRequestContext([string]$RequestId,[string]$Command) {
+    return (($RequestId -cmatch '^public\.[0-9a-f]{32}$' -and
+        $Command -cin @('install_local.apply','install_local.recover','installed.verify')) -or
+        ($RequestId -cmatch '^contention\.[0-9a-f]{32}$' -and $Command -ceq 'registered_contention'))
+}
  Add-Type -TypeDefinition @"
 using System;
 using System.IO;
@@ -1004,8 +1009,7 @@ if($CallerProcessId -ne 0) {
   if($capture.schema -cne 'usk.publisher.held_client_token.v1' -or
    $capture.owner_process_id -ne $CallerProcessId -or $capture.owner_creation_file_time -cne $CallerCreationFileTime -or
    $capture.client_creation_file_time -cnotmatch '^[1-9][0-9]{16,18}$' -or
-   $capture.request_id -cnotmatch '^public\.[0-9a-f]{32}$' -or
-   $capture.command -cnotin @('install_local.apply','install_local.recover','installed.verify') -or
+   -not (Test-PublisherHeldCaptureRequestContext $capture.request_id $capture.command) -or
    $capture.client_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
    (Get-FileHash -LiteralPath $capture.client_image_path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $capture.client_sha256) {
    throw 'Held client capture context differs'

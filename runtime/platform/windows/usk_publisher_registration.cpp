@@ -2164,7 +2164,7 @@ usk::json::Value RegisteredPublisherAdmission::capability_observation(const std:
 }
 
 std::string submit_registered_publisher_request(const std::wstring& name,
-    const std::string& request) {
+    const std::string& request, const PublisherRequestOptions& options) {
     // Legacy privileged admission holds the controller guard here. The new
     // registered mode holds it in the actual service while the ordinary client
     // validates SCM's stored policy and binds the live pipe/PID/image.
@@ -2194,6 +2194,18 @@ std::string submit_registered_publisher_request(const std::wstring& name,
             schema != "usk.publisher_recovery_request.v1" &&
             schema != "usk.publisher_installed_verify_request.v1")
             throw std::runtime_error("publisher request schema is unavailable");
+        if (options.conflict_wait_milliseconds > publisher_request_max_conflict_wait_milliseconds)
+            throw std::invalid_argument("publisher contention wait exceeds bound");
+        if (options.cancel_event) {
+            const DWORD cancelled = WaitForSingleObject(options.cancel_event, 0);
+            if (cancelled == WAIT_OBJECT_0)
+                throw usk::base::EffectRequestNotDispatched(
+                    usk::base::EffectRequestNotDispatched::Reason::operation_cancelled,
+                    publisher_request_inspection_reference(name));
+            if (cancelled != WAIT_TIMEOUT) throw std::runtime_error("publisher cancellation event unavailable");
+        }
+    } catch (const usk::base::EffectRequestNotDispatched&) {
+        throw;
     } catch (const std::exception&) {
         throw usk::base::EffectRequestNotDispatched();
     }
@@ -2412,8 +2424,20 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         // request. SCM startup by itself cannot authorize a publication.
         throw usk::base::EffectRequestNotDispatched();
     }
-    // From here on no exception is translated into a known refusal.
-    return submit_publisher_request(name, request, 120000, admitted_image);
+    // The concrete transport owns the exact first-write boundary. Its typed
+    // non-dispatch result cannot turn a lost post-write reply into a refusal.
+    try {
+        return submit_publisher_request(name, request, 120000, admitted_image, options);
+    } catch (const usk::base::EffectRequestNotDispatched&) {
+        throw;
+    } catch (const PublisherRequestOutcomeUnknown&) {
+        throw;
+    } catch (const std::exception&) {
+        // The concrete transport wraps every exception after an attempted
+        // write as outcome-unknown. Only its remaining pre-write exceptions
+        // reach this admission refusal; raw candidate behavior is unchanged.
+        throw usk::base::EffectRequestNotDispatched();
+    }
 }
 
 int publisher_service_control_main(int argc, wchar_t** argv) {

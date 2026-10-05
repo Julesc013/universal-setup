@@ -44,6 +44,7 @@ if($publisherSdk.Count -ne 1 -or $publisherSdk[0] -cnotmatch '^10\.0\.[1-9][0-9]
 $utf8=[Text.UTF8Encoding]::new($false)
 $installedBinary=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$service+'.exe')
 $receipt=[ordered]@{schema='usk.publisher_standard_public_probe.v1';status='not_run';service=$service;
+    installed_binary=$installedBinary;
     volume_root=$VolumeRoot;account_name=$accountName;client_cleanup_confirmed=$false;account_cleanup_confirmed=$false;
     profile_qualified=$false;launcher_identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -114,6 +115,106 @@ function Read-InstalledSnapshot {
     $readback|Add-Member -NotePropertyName execution_reconciliation -NotePropertyValue $report
     return $readback
 }
+function Close-StandardPublisherClient($Process,$Launch,[bool]$LaunchAttempted=$true) {
+    $script:clientsClosed=$false;$closureConfirmed=$false;$processDisposed=$false
+    try {
+        if($LaunchAttempted -and -not $Launch){throw 'Standard launch attempted without returned custody; retain account'}
+        if($Launch -and -not $Launch.IsResumed){$Launch.Dispose()}
+        if($Process) {
+            # A retained descendant set still needs checking after root exit.
+            $closure=Stop-OwnedPublisherProcessTree $Process
+            if($closure.confirmed -ne $true){throw 'Standard client process closure is unconfirmed'}
+        } elseif($Launch -and $Launch.IsResumed) {
+            throw 'Resumed standard client has no held process for closure'
+        }
+        $closureConfirmed=$true
+    } finally {
+        try {
+            if($Process){$Process.Dispose()}
+            $processDisposed=$true
+        } finally {
+            if($Launch){$Launch.Dispose()}
+            $script:clientsClosed=$closureConfirmed -and $processDisposed
+        }
+    }
+}
+function Invoke-RegisteredEndpointContention {
+    if((Get-Service $service).Status -ne 'Stopped'){throw 'Contention fixture did not begin at a stopped service'}
+    $probeBinary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_registered_contention_probe.exe'
+    if(-not (Test-Path -LiteralPath $probeBinary)){throw 'Registered contention producer is unavailable'}
+    $probeHash=(Get-FileHash -LiteralPath $probeBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+    $requestId='contention.'+[guid]::NewGuid().ToString('N')
+    $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
+    Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command='install_local.apply';payload=$apply;dry_run=$false}
+    $record=[ordered]@{schema='usk.publisher_registered_contention_probe.v1';scope='registered_endpoint_before_effect_request_bytes';
+        profile_qualified=$false;producer_sha256=$probeHash;request_sha256=(Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant();
+        client_capture=$null;native_observation=$null;before=$null;after=$null;worker_stopped=$false}
+    $receipt['registered_contention']=$record
+    $launch=$null;$process=$null;$launchAttempted=$false;$script:clientsClosed=$false
+    try {
+        $probeAcl=Get-Acl -LiteralPath $probeBinary
+        $probeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($accountSid),'ReadAndExecute','Allow'))
+        Set-Acl -LiteralPath $probeBinary -AclObject $probeAcl
+        if($clientTokenLease) {
+            if(-not $observersClosed -or (Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $clientCaptureSha256){
+                throw 'Prior standard observer/capture is not closed and stable'
+            }
+            $clientTokenLease.Dispose();$script:clientTokenLease=$null
+            [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
+        }
+        $launchAttempted=$true
+        $launch=[UskPublisherPausedClient]::CreateOwnedStandard($probeBinary,
+            ($service+' "'+$request+'" '+$receipt.service_sha256),$stdout,$stderr,$accountName,$secret,$accountSid)
+        $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
+        $script:clientTokenLease=[UskPublisherEffectiveRights]::new($launch.ProcessId,$launch.CreationFileTime,$accountSid,$sid)
+        $capture=$clientTokenLease.CaptureBinding($PID,[long]$ownerCreation,$probeBinary)
+        $capture['client_sha256']=$probeHash;$capture['request_id']=$requestId;$capture['command']='registered_contention'
+        Write-Json $clientCaptureFile $capture
+        $script:clientCaptureSha256=(Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $record.client_capture=[ordered]@{request_id=$requestId;command='registered_contention';process_id=$launch.ProcessId;
+            creation_file_time=$launch.CreationFileTime.ToString();captured_before_primary_thread_resume=$true;
+            primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$probeHash;
+            capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
+        $record.before=Read-NativeSnapshot
+        Start-Service -Name $service -ErrorAction Stop
+        (Get-Service $service).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+        $launch.Resume()
+        if(-not $process.WaitForExit(60000)){throw 'Registered contention producer exceeded its deadline'}
+        $process.WaitForExit()
+        $stdoutLength=(Get-Item -LiteralPath $stdout).Length;$stderrLength=(Get-Item -LiteralPath $stderr).Length
+        if($process.ExitCode -ne 0 -or $stdoutLength -gt 1MB -or $stderrLength -ne 0){
+            $errorBytes=[byte[]]::new(4096);$errorStream=[IO.File]::OpenRead($stderr)
+            try {$errorCount=$errorStream.Read($errorBytes,0,$errorBytes.Length)} finally {$errorStream.Dispose()}
+            # Failed fixture diagnostics are retained privately; a successful
+            # closed evidence record never contains this additional field.
+            $record['producer_failure']=[ordered]@{exit_code=$process.ExitCode;stdout_bytes=$stdoutLength;
+                stderr_bytes=$stderrLength;stderr_excerpt=[Text.Encoding]::UTF8.GetString($errorBytes,0,$errorCount)}
+            throw 'Registered contention producer failed'
+        }
+        $record.native_observation=[IO.File]::ReadAllText($stdout)|ConvertFrom-Json
+        $native=$record.native_observation
+        if($native.schema -cne 'usk.publisher_registered_contention_observation.v1' -or $native.status -cne 'pass' -or
+            $native.profile_qualified -ne $false -or $native.scope -cne $record.scope -or
+            $native.request_sha256 -cne $record.request_sha256 -or $native.worker_expected_image_sha256 -cne $receipt.service_sha256 -or
+            -not [string]::Equals($native.worker_process_image_path,$installedBinary,[StringComparison]::OrdinalIgnoreCase) -or
+            $native.caller_process_id -ne $launch.ProcessId -or
+            [string]$native.caller_process_creation_time -cne $launch.CreationFileTime.ToString()){
+            throw 'Registered contention native source/client binding differs'
+        }
+        $deadline=[DateTime]::UtcNow.AddSeconds(30)
+        while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
+        if((Get-Service $service).Status -ne 'Stopped'){throw 'Registered contention worker did not stop after endpoint release'}
+        $record.worker_stopped=$true
+        $record.after=Read-NativeSnapshot
+        if(($record.before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($record.after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
+            ($record.before.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($record.after.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress)){
+            throw 'Registered pre-dispatch contention changed the independently observed target'
+        }
+    } finally {Close-StandardPublisherClient $process $launch $launchAttempted}
+}
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
     $processLoss=$BootstrapLoss -or $PreservationLoss
@@ -137,8 +238,9 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         $clientTokenLease.Dispose();$script:clientTokenLease=$null
         [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
     }
-    $launch=$null;$process=$null;$bootstrapObserver=$null;$script:clientsClosed=$false
+    $launch=$null;$process=$null;$bootstrapObserver=$null;$launchAttempted=$false;$script:clientsClosed=$false
     try {
+        $launchAttempted=$true
         $launch=[UskPublisherPausedClient]::CreateOwnedStandard($MachineBinary,('--machine --publisher '+$service+
             ' --request-file "'+$request+'" --publisher-observation-file "'+$nativeOutput+'"'),$stdout,$stderr,$accountName,$secret,$accountSid)
         $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
@@ -238,13 +340,8 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 Remove-OwnedProductionBoundaryObserver $bootstrapObserver
                 $script:observersClosed=$true
             }
-            if($process -and -not $process.HasExited) {
-                if($launch -and -not $launch.IsResumed){$launch.Dispose()}
-                else {Stop-OwnedPublisherProcessTree $process|Out-Null}
-            }
         } finally {
-            if($process){$process.Dispose()}
-            if($launch){$launch.Dispose();$script:clientsClosed=$true}
+            Close-StandardPublisherClient $process $launch $launchAttempted
         }
     }
 }
@@ -347,6 +444,7 @@ try {
         $receipt.bootstrap_loss.reconciliation=($decoded -join "`n")|ConvertFrom-Json
         if($BootstrapPreservationProcessLoss) {$receipt.bootstrap_preservation_loss.reconciliation=$receipt.bootstrap_loss.reconciliation}
     }
+    Invoke-RegisteredEndpointContention
     $exactFixture=[IO.Path]::GetFullPath($fixture)
     if($exactFixture -cne [IO.Path]::GetFullPath((Join-Path $lab 'standard-authored-inputs')) -or
         (Get-Item -LiteralPath $exactFixture).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Owned standard source cleanup escaped'}

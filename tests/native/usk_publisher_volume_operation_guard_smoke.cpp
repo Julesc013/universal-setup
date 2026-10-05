@@ -244,6 +244,15 @@ int wmain(int argc, wchar_t** argv)
     }
     {
         PublisherInstallOperationGuard owner(root, "org.example.setup");
+        const auto inspection_reference =
+            usk::platform::windows::publisher_install_operation_inspection_reference(root, "org.example.setup");
+        if (inspection_reference.size() != std::string("usk.operation-inspection.v1:").size() + 64 ||
+            inspection_reference != usk::platform::windows::publisher_install_operation_inspection_reference(
+                lower, "org.example.setup") ||
+            inspection_reference == usk::platform::windows::publisher_install_operation_inspection_reference(
+                root, "org.example.other") ||
+            inspection_reference == usk::platform::windows::publisher_volume_operation_inspection_reference(root))
+            return 42;
         if (owner.previous_owner_abandoned()) return 12;
         owner.require_owned(root, "org.example.setup");
         bool wrong_install_refused = false;
@@ -258,8 +267,8 @@ int wmain(int argc, wchar_t** argv)
             try {
                 PublisherInstallOperationGuard second(lower, "org.example.setup");
                 contender_result = 2;
-            } catch (const PublisherInstallBusy&) {
-                contender_result = 1;
+            } catch (const PublisherInstallBusy& busy) {
+                contender_result = busy.inspection_reference() == inspection_reference ? 1 : 6;
             } catch (...) {
                 contender_result = 3;
             }
