@@ -9,6 +9,12 @@
 #include <memory>
 namespace usk::platform::windows {
 class PublisherInstallationLease;
+struct PublisherTreeObservation;
+
+// Internal data-shape check using the native tree observer's slash paths.
+// Security, held handles, exact original bytes and ownership remain separate
+// mandatory native checks; passing this helper grants no publication effects.
+void require_publisher_bootstrap_prefix_shape(const PublisherTreeObservation& tree);
 
 usk::json::Value observe_publisher_lease_holder();
 // Read-only native facts, without a protection/ownership verdict.

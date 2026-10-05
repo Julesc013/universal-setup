@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T14:27:36Z",
+  "generated_at": "2026-10-05T14:58:38Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2547,11 +2547,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
-          "sha256": "79efbfbed9856248f5e010d20b7cd55b4feb6ba2945626bd79ef5885aa4a81a4"
+          "sha256": "f61e9b97d6e4f626d768d02ab9f02dc68c18d675956ff38511b65bdf1dae47d0"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
-          "sha256": "bb5fbb084b4967b6240ac70960dc92a0d40a31de1fb90f7a91298f696d206924"
+          "sha256": "03a1cb85aa3e59c5b1179bebfac81f7a5ccc3eaf62f03468aed9efd9a696bad1"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
@@ -2740,6 +2740,18 @@
         {
           "path": ".github/workflows/ci.yml",
           "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
+          "sha256": "8c40050365c00155a04e84faf6111e85ee2b6baea4d9946475680e4074ecfdc4"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
+          "sha256": "a183890eca54a81bafee0833c7f223c5c392d80e903d2ad729845fa427040859"
+        },
+        {
+          "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
+          "sha256": "ae4cf61605a9df4f664f6142f27a9cfedc1bf7278e5188594c37ece9c970aa75"
         }
       ],
       "acceptance_ids": [
@@ -2806,11 +2818,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
-          "sha256": "79efbfbed9856248f5e010d20b7cd55b4feb6ba2945626bd79ef5885aa4a81a4"
+          "sha256": "f61e9b97d6e4f626d768d02ab9f02dc68c18d675956ff38511b65bdf1dae47d0"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
-          "sha256": "bb5fbb084b4967b6240ac70960dc92a0d40a31de1fb90f7a91298f696d206924"
+          "sha256": "03a1cb85aa3e59c5b1179bebfac81f7a5ccc3eaf62f03468aed9efd9a696bad1"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
@@ -2999,6 +3011,18 @@
         {
           "path": ".github/workflows/ci.yml",
           "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
+          "sha256": "8c40050365c00155a04e84faf6111e85ee2b6baea4d9946475680e4074ecfdc4"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
+          "sha256": "a183890eca54a81bafee0833c7f223c5c392d80e903d2ad729845fa427040859"
+        },
+        {
+          "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
+          "sha256": "ae4cf61605a9df4f664f6142f27a9cfedc1bf7278e5188594c37ece9c970aa75"
         }
       ],
       "acceptance_ids": [
@@ -3065,11 +3089,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
-          "sha256": "79efbfbed9856248f5e010d20b7cd55b4feb6ba2945626bd79ef5885aa4a81a4"
+          "sha256": "f61e9b97d6e4f626d768d02ab9f02dc68c18d675956ff38511b65bdf1dae47d0"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
-          "sha256": "bb5fbb084b4967b6240ac70960dc92a0d40a31de1fb90f7a91298f696d206924"
+          "sha256": "03a1cb85aa3e59c5b1179bebfac81f7a5ccc3eaf62f03468aed9efd9a696bad1"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
@@ -3258,6 +3282,18 @@
         {
           "path": ".github/workflows/ci.yml",
           "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
+          "sha256": "8c40050365c00155a04e84faf6111e85ee2b6baea4d9946475680e4074ecfdc4"
+        },
+        {
+          "path": "runtime/platform/windows/usk_publisher_tree_observation.h",
+          "sha256": "a183890eca54a81bafee0833c7f223c5c392d80e903d2ad729845fa427040859"
+        },
+        {
+          "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
+          "sha256": "ae4cf61605a9df4f664f6142f27a9cfedc1bf7278e5188594c37ece9c970aa75"
         }
       ],
       "acceptance_ids": [
@@ -4691,7 +4727,7 @@
         },
         {
           "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
-          "sha256": "f2c6b47f62f87cb45a18d2d78996d3e67b5c1a1dddd883e4f8b264a94dee7d9d"
+          "sha256": "ae4cf61605a9df4f664f6142f27a9cfedc1bf7278e5188594c37ece9c970aa75"
         },
         {
           "path": "runtime/platform/windows/README.md",
@@ -5179,7 +5215,7 @@
         },
         {
           "path": "tests/native/usk_publisher_tree_observation_smoke.cpp",
-          "sha256": "f2c6b47f62f87cb45a18d2d78996d3e67b5c1a1dddd883e4f8b264a94dee7d9d"
+          "sha256": "ae4cf61605a9df4f664f6142f27a9cfedc1bf7278e5188594c37ece9c970aa75"
         },
         {
           "path": "runtime/platform/windows/README.md",

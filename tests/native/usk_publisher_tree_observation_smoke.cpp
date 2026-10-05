@@ -4,6 +4,7 @@
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_security_descriptor.h"
+#include "usk_publisher_installation_lease.h"
 
 #include <aclapi.h>
 #include <windows.h>
@@ -107,6 +108,13 @@ void check_closure_refused(const PublisherTreeObservation& tree,
     }
     throw std::runtime_error(message);
 }
+
+void check_bootstrap_prefix_refused(const PublisherTreeObservation& tree) {
+    try {
+        usk::platform::windows::require_publisher_bootstrap_prefix_shape(tree);
+    } catch (const usk::transaction::InstallLeaseStale&) { return; }
+    throw std::runtime_error("noncanonical bootstrap prefix shape accepted");
+}
 } // namespace
 
 int main() {
@@ -117,6 +125,42 @@ int main() {
         check(fs::create_directory(base), "fixture parent already exists");
         const auto root = base / "staging";
         check(fs::create_directory(root), "fixture root already exists");
+        {
+            // Actual ordinary temporary captures exercise the shared path/shape
+            // check. They confer no protected publisher or takeover authority.
+            const auto bootstrap = base / "bootstrap";
+            check(fs::create_directory(bootstrap), "bootstrap fixture root creation failed");
+            for (const auto& name : {"staging", "destination", "state", "journal"})
+                check(fs::create_directory(bootstrap / name), "bootstrap fixture anchor creation failed");
+            const auto snapshot = bootstrap / "journal" / "lab-reviewed-plan.json";
+            for (const auto length : {DWORD{0}, DWORD{1}}) {
+                write_payload(snapshot, "{", length);
+                {
+                    auto held = open_directory(bootstrap);
+                    const auto tree = observe_publisher_tree(held.get());
+                    const auto entry = std::find_if(tree.descendants.begin(), tree.descendants.end(),
+                        [](const auto& value) { return value.relative_path == L"journal/lab-reviewed-plan.json"; });
+                    check(entry != tree.descendants.end() && entry->size == length &&
+                        entry->streams.size() == 1 && entry->streams[0].size == length,
+                        "native snapshot prefix path/byte/stream capture differs");
+                    usk::platform::windows::require_publisher_bootstrap_prefix_shape(tree);
+                    auto wrong_separator = tree;
+                    const auto changed = std::find_if(wrong_separator.descendants.begin(), wrong_separator.descendants.end(),
+                        [](const auto& value) { return value.relative_path == L"journal/lab-reviewed-plan.json"; });
+                    changed->relative_path = L"journal\\lab-reviewed-plan.json";
+                    check_bootstrap_prefix_refused(wrong_separator);
+                }
+                check(fs::remove(snapshot), "bootstrap snapshot fixture removal failed");
+            }
+            check(fs::remove(bootstrap / "state"), "bootstrap gap fixture removal failed");
+            {
+                auto held = open_directory(bootstrap);
+                check_bootstrap_prefix_refused(observe_publisher_tree(held.get()));
+            }
+            for (const auto& name : {"staging", "destination", "journal"})
+                check(fs::remove(bootstrap / name), "bootstrap fixture anchor removal failed");
+            check(fs::remove(bootstrap), "bootstrap fixture root removal failed");
+        }
         {
             using namespace usk::platform::windows;
             const std::wstring marker = L".usk-owned-root.v1.json";

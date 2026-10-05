@@ -145,6 +145,29 @@ Value read_record(HANDLE parent, const PublisherDirectoryEntry& entry, const std
 }
 } // namespace
 
+void require_publisher_bootstrap_prefix_shape(const PublisherTreeObservation& tree) {
+    if (tree.descendants.size() > 5) throw InstallLeaseStale();
+    const std::vector<std::wstring> order{L"staging", L"destination", L"state", L"journal"};
+    std::set<std::wstring> present;
+    bool snapshot_present = false;
+    for (const auto& entry : tree.descendants) {
+        if ((entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+            if (std::find(order.begin(), order.end(), entry.relative_path) == order.end() ||
+                !present.insert(entry.relative_path).second) throw InstallLeaseStale();
+        } else {
+            if (entry.relative_path != L"journal/lab-reviewed-plan.json" || snapshot_present ||
+                entry.size > 4u * 1024u * 1024u) throw InstallLeaseStale();
+            snapshot_present = true;
+        }
+    }
+    bool missing = false;
+    for (const auto& name : order) {
+        if (!present.count(name)) missing = true;
+        else if (missing) throw InstallLeaseStale();
+    }
+    if (snapshot_present && present.size() != order.size()) throw InstallLeaseStale();
+}
+
 Value observe_publisher_lease_root_identity(HANDLE root) {
     const auto facts = observe_publisher_directory_handle(root);
     const auto volume = observe_local_ntfs_volume_handle(root);
@@ -499,20 +522,11 @@ struct PublisherInstallOperationContext::Impl {
         const auto tree = observe_publisher_tree(publication);
         require_publisher_tree_security_shape(tree, service_sid);
         require_publisher_stream_shape(tree.root_streams, true);
-        if (tree.descendants.size() > 5) throw InstallLeaseStale();
-        const std::vector<std::wstring> order{L"staging", L"destination", L"state", L"journal"};
-        std::set<std::wstring> present;
-        bool snapshot_present = false;
+        require_publisher_bootstrap_prefix_shape(tree);
         for (const auto& entry : tree.descendants) {
             const bool directory_entry = (entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
             require_publisher_stream_shape(entry.streams, directory_entry);
-            if (directory_entry) {
-                if (std::find(order.begin(), order.end(), entry.relative_path) == order.end() ||
-                    !present.insert(entry.relative_path).second) throw InstallLeaseStale();
-            } else {
-                if (entry.relative_path != L"journal\\lab-reviewed-plan.json" || snapshot_present ||
-                    entry.size > 4u * 1024u * 1024u) throw InstallLeaseStale();
-                snapshot_present = true;
+            if (!directory_entry) {
                 const auto journal_entry = child(publication, L"journal");
                 if (!journal_entry) throw InstallLeaseStale();
                 Handle journal(open_publisher_listed_child(publication, *journal_entry));
@@ -525,12 +539,6 @@ struct PublisherInstallOperationContext::Impl {
                     throw InstallLeaseStale();
             }
         }
-        bool missing = false;
-        for (const auto& name : order) {
-            if (!present.count(name)) missing = true;
-            else if (missing) throw InstallLeaseStale();
-        }
-        if (snapshot_present && present.size() != order.size()) throw InstallLeaseStale();
         require_publisher_tree_phase_match(tree, observe_publisher_tree(publication));
         return tree;
     }
