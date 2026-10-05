@@ -9,12 +9,17 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputPath,
     [Parameter(Mandatory=$true)][string]$PythonBinary,
     [switch]$BootstrapProcessLoss,
-    [switch]$BootstrapPreservationProcessLoss
+    [switch]$BootstrapPreservationProcessLoss,
+    [switch]$ActiveInstallContention
 )
 $ErrorActionPreference='Stop'
+if($ActiveInstallContention -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss)) {
+    throw 'Active holder contention requires the original uninterrupted installer'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_active_worker.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -35,6 +40,7 @@ $drive=[string]$volume.DriveLetter+':\'
 $id=[guid]::NewGuid().ToString('N');$service='USK_PUB_'+$id;$accountName='USKCLI_'+$id.Substring(0,13)
 $accountSid='';$accountCreated=$false;$clientsClosed=$true;$registered=$false;$secret=$null
 $observersClosed=$true;$clientTokenLease=$null;$clientCaptureFile=Join-Path $lab 'public-client-token.json';$clientCaptureSha256=''
+$activeContenderClosed=$true;$activeWorkerRestored=$true;$activeRetainedTokenLease=$null;$activeRetainedOriginalTokenLease=$null
 $ownerCreation=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
 $publisherBuild=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($ServiceBinary)))
 $publisherProjectPath=Join-Path $publisherBuild 'usk_publisher_windows_static.vcxproj'
@@ -138,18 +144,27 @@ function Close-StandardPublisherClient($Process,$Launch,[bool]$LaunchAttempted=$
         }
     }
 }
-function Invoke-RegisteredEndpointContention {
-    if((Get-Service $service).Status -ne 'Stopped'){throw 'Contention fixture did not begin at a stopped service'}
+function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$null,$WorkerPause=$null) {
+    $activeHolder=$null -ne $HeldWorker
+    if($activeHolder) {
+        if(-not $WorkerPause -or $HeldWorker.HasExited -or (Get-Service $service).Status -ne 'Running') {
+            throw 'Active contention fixture lacks a held live worker'
+        }
+        $WorkerPause.RequirePaused()
+    } elseif((Get-Service $service).Status -ne 'Stopped'){throw 'Contention fixture did not begin at a stopped service'}
     $probeBinary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_registered_contention_probe.exe'
     if(-not (Test-Path -LiteralPath $probeBinary)){throw 'Registered contention producer is unavailable'}
     $probeHash=(Get-FileHash -LiteralPath $probeBinary -Algorithm SHA256).Hash.ToLowerInvariant()
     $requestId='contention.'+[guid]::NewGuid().ToString('N')
     $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
     Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command='install_local.apply';payload=$apply;dry_run=$false}
-    $record=[ordered]@{schema='usk.publisher_registered_contention_probe.v1';scope='registered_endpoint_before_effect_request_bytes';
+    $record=[ordered]@{schema='usk.publisher_registered_contention_probe.v1';scope=$(if($activeHolder){
+            'active_install_holder_endpoint_before_effect_request_bytes'
+        }else{'registered_endpoint_before_effect_request_bytes'});
         profile_qualified=$false;producer_sha256=$probeHash;request_sha256=(Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant();
         client_capture=$null;native_observation=$null;before=$null;after=$null;worker_stopped=$false}
-    $receipt['registered_contention']=$record
+    $receipt[$(if($activeHolder){'active_install_contention'}else{'registered_contention'})]=$record
+    if($activeHolder){$record['paused_worker']=$WorkerPause.Observation()}
     $launch=$null;$process=$null;$launchAttempted=$false;$script:clientsClosed=$false
     try {
         $probeAcl=Get-Acl -LiteralPath $probeBinary
@@ -164,8 +179,10 @@ function Invoke-RegisteredEndpointContention {
             [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
         }
         $launchAttempted=$true
+        $arguments=$service+' "'+$request+'" '+$receipt.service_sha256
+        if($activeHolder){$arguments+=' '+$HeldWorker.Id+' '+$HeldWorker.StartTime.ToUniversalTime().ToFileTimeUtc()}
         $launch=[UskPublisherPausedClient]::CreateOwnedStandard($probeBinary,
-            ($service+' "'+$request+'" '+$receipt.service_sha256),$stdout,$stderr,$accountName,$secret,$accountSid)
+            $arguments,$stdout,$stderr,$accountName,$secret,$accountSid)
         $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
         $script:clientTokenLease=[UskPublisherEffectiveRights]::new($launch.ProcessId,$launch.CreationFileTime,$accountSid,$sid)
         $capture=$clientTokenLease.CaptureBinding($PID,[long]$ownerCreation,$probeBinary)
@@ -177,8 +194,26 @@ function Invoke-RegisteredEndpointContention {
             primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$probeHash;
             capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
         $record.before=Read-NativeSnapshot
-        Start-Service -Name $service -ErrorAction Stop
-        (Get-Service $service).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+        if($activeHolder) {
+            $leaseRequest=@{mode='snapshot';rows=$record.before.independent.rows;drive=$drive;
+                installed=@{install_id=$apply.plan_request.install_id;transaction_id=$apply.transaction_id};
+                allow_active=$true;allow_initial_empty_state=$true;
+                volume_root_id=$record.before.independent.volume_boundary.root.file_id}
+            $decoded=$leaseRequest|ConvertTo-Json -Depth 64 -Compress|
+                & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
+            if($LASTEXITCODE -ne 0){throw 'Active contention lacks independently reconciled native ownership'}
+            $record['lease_before']=($decoded -join "`n")|ConvertFrom-Json
+            $history=@($record.lease_before.coordination.history)
+            if($history.Count -ne 1 -or $history[0].status -cne 'active' -or $history[0].generation -ne 1 -or
+                $history[0].holder.process_id -ne $HeldWorker.Id -or
+                $history[0].holder.process_creation_time -cne $HeldWorker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16')) {
+                throw 'Active contention native generation/holder differs'
+            }
+            $WorkerPause.RequirePaused()
+        } else {
+            Start-Service -Name $service -ErrorAction Stop
+            (Get-Service $service).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+        }
         $launch.Resume()
         if(-not $process.WaitForExit(60000)){throw 'Registered contention producer exceeded its deadline'}
         $process.WaitForExit()
@@ -202,10 +237,18 @@ function Invoke-RegisteredEndpointContention {
             [string]$native.caller_process_creation_time -cne $launch.CreationFileTime.ToString()){
             throw 'Registered contention native source/client binding differs'
         }
-        $deadline=[DateTime]::UtcNow.AddSeconds(30)
-        while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
-        if((Get-Service $service).Status -ne 'Stopped'){throw 'Registered contention worker did not stop after endpoint release'}
-        $record.worker_stopped=$true
+        if($activeHolder) {
+            $WorkerPause.RequirePaused()
+            if($native.worker_process_id -ne $HeldWorker.Id -or
+                [string]$native.worker_process_creation_time -cne $HeldWorker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()) {
+                throw 'Active contention producer observed a different worker'
+            }
+        } else {
+            $deadline=[DateTime]::UtcNow.AddSeconds(30)
+            while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
+            if((Get-Service $service).Status -ne 'Stopped'){throw 'Registered contention worker did not stop after endpoint release'}
+            $record.worker_stopped=$true
+        }
         $record.after=Read-NativeSnapshot
         if(($record.before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
             ($record.after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
@@ -214,6 +257,101 @@ function Invoke-RegisteredEndpointContention {
             throw 'Registered pre-dispatch contention changed the independently observed target'
         }
     } finally {Close-StandardPublisherClient $process $launch $launchAttempted}
+}
+function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
+    $script:activeContenderClosed=$false;$script:activeWorkerRestored=$false
+    $deadline=[DateTime]::UtcNow.AddSeconds(30)
+    $candidate=$drive+'publication\staging\candidate'
+    $worker=$null;$pause=$null;$pauseAttempted=$false
+    $priorToken=$clientTokenLease;$priorCaptureFile=$clientCaptureFile;$priorCaptureSha256=$clientCaptureSha256
+    $script:activeRetainedOriginalTokenLease=$priorToken
+    $retainedCapture=Join-Path $lab ('active-retained-installer-'+[guid]::NewGuid().ToString('N')+'.json')
+    $captureMoved=$false;$captureRestored=$false
+    try {
+        # Observe only this fixture's real installer. No production gate or
+        # authority transfer is introduced; its held lease remains active.
+        while([DateTime]::UtcNow -lt $deadline) {
+            if($Installer.HasExited){throw 'Active installer observation window already passed'}
+            if(Test-Path -LiteralPath $candidate) {
+                $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'") -ErrorAction Stop
+                if($registration.State -ceq 'Running' -and $registration.ProcessId -gt 0) {
+                    $worker=Get-Process -Id $registration.ProcessId -ErrorAction Stop;$null=$worker.Handle
+                    break
+                }
+            }
+            Start-Sleep -Milliseconds 1
+        }
+        if(-not $worker){throw 'Active installer native candidate was not observed before its deadline'}
+        $pauseAttempted=$true
+        $pause=Start-OwnedPublisherWorkerPause -Process $worker -Service $service -VhdPath $VhdPath `
+            -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
+            -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256
+        if(-not $observersClosed -or (Get-FileHash -LiteralPath $priorCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorCaptureSha256) {
+            throw 'Original active installer capture is not stable and closed'
+        }
+        [IO.File]::Move($priorCaptureFile,$retainedCapture);$captureMoved=$true
+        $script:clientTokenLease=$null
+        $script:clientCaptureSha256=''
+        Invoke-RegisteredEndpointContention -HeldWorker $worker -WorkerPause $pause
+        if(-not $script:clientsClosed){throw 'Active contender cleanup remains unconfirmed'}
+        $script:activeContenderClosed=$true
+        $pause.RequirePaused()
+        $receipt.active_install_contention['installer_live_before_resume']=-not $Installer.HasExited
+        if($Installer.HasExited){throw 'First installer ended during active contention'}
+    } finally {
+        try {
+            if($clientTokenLease -and $clientTokenLease -ne $priorToken) {
+                $script:activeRetainedTokenLease=$clientTokenLease
+                if($observersClosed) {$clientTokenLease.Dispose();$script:activeRetainedTokenLease=$null}
+            }
+            if($captureMoved) {
+                if(-not $observersClosed){throw 'Active observer still borrows its capture; retain both token leases'}
+                if(Test-Path -LiteralPath $priorCaptureFile) {
+                    if((Get-FileHash -LiteralPath $priorCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $clientCaptureSha256) {
+                        throw 'Active contender capture changed before checked retirement'
+                    }
+                    [IO.File]::Move($priorCaptureFile,(Join-Path $lab ('retired-active-contender-'+[guid]::NewGuid().ToString('N')+'.json')))
+                }
+                [IO.File]::Move($retainedCapture,$priorCaptureFile)
+                if((Get-FileHash -LiteralPath $priorCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorCaptureSha256) {
+                    throw 'Original active installer capture differs after restoration'
+                }
+            }
+            $script:clientTokenLease=$priorToken;$script:clientCaptureFile=$priorCaptureFile
+            $script:clientCaptureSha256=$priorCaptureSha256;$captureRestored=$true
+            $script:activeRetainedOriginalTokenLease=$null
+        } finally {
+            $script:clientsClosed=$false # The first installer still needs checked closure.
+            try {
+                $pauseFailure=$null
+                try {
+                    if($pause){$pause.Dispose();$script:activeWorkerRestored=$true}
+                    elseif($pauseAttempted){throw 'Worker pause attempted without returned custody'}
+                } catch {$pauseFailure=$_.Exception}
+                if($pauseFailure) {
+                    # A failed constructor/restoration must not strand this
+                    # owned worker. Recheck the same private registration and
+                    # retained process before bounded failure-only termination.
+                    if($worker -and -not $worker.HasExited) {
+                        $current=Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'") -ErrorAction Stop
+                        if($current.ProcessId -ne $worker.Id -or $current.PathName -cne $registeredCommand -or
+                            -not [string]::Equals($worker.Path,$installedBinary,[StringComparison]::OrdinalIgnoreCase) -or
+                            (Get-FileHash -LiteralPath $installedBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.service_sha256) {
+                            throw 'Failed pause worker ownership is unconfirmed; retain the lab'
+                        }
+                        $termination=Stop-OwnedPublisherProcessTree -Process $worker -RequireLiveKill
+                        if(-not $termination.confirmed){throw 'Failed pause worker termination is unconfirmed'}
+                        $receipt['failed_active_worker_termination']=$termination
+                    }
+                    throw $pauseFailure
+                }
+                if($receipt.Contains('active_install_contention')) {
+                    $receipt.active_install_contention['worker_pause_restored']=$activeWorkerRestored -and $captureRestored
+                    if(-not $captureRestored){$script:activeWorkerRestored=$false}
+                }
+            } finally {if($worker){$worker.Dispose()}}
+        }
+    }
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
@@ -273,6 +411,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 -ServiceBinarySha256 $receipt.service_sha256 -BootstrapOperationPrefix $operationPrefix
         } else {$receipt.client_captures.Add($clientCapture)}
         $launch.Resume()
+        if($ActiveInstallContention -and $Command -ceq 'install_local.apply' -and -not $processLoss -and
+            -not $receipt.Contains('active_install_contention')) {
+            Invoke-ActiveInstallContention $process
+        }
         if(-not $process.WaitForExit(120000)) {throw 'Standard public client exceeded its deadline'}
         $process.WaitForExit();$exit=$process.ExitCode
         $diagnostic=[IO.File]::ReadAllText($stderr)
@@ -364,8 +506,9 @@ try {
     $machineAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($account.SID,'ReadAndExecute','Allow'))
     Set-Acl -LiteralPath $MachineBinary -AclObject $machineAcl
     $fixture=Join-Path $lab 'standard-authored-inputs';New-Item -ItemType Directory -Path $fixture|Out-Null
-    $generated=& $PythonBinary -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') --output $fixture `
-        --target ($drive+'publication\destination\visible') --request-id ('standard.'+$id)
+    $fixtureArguments=@('--output',$fixture,'--target',($drive+'publication\destination\visible'),'--request-id',('standard.'+$id))
+    if($ActiveInstallContention){$fixtureArguments+=@('--core-bytes','33554432')}
+    $generated=& $PythonBinary -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') @fixtureArguments
     if($LASTEXITCODE -ne 0){throw 'Standard authored fixture failed'}
     $inputs=($generated -join "`n")|ConvertFrom-Json
     $context=Join-Path $lab 'context.json'
@@ -481,7 +624,9 @@ finally {
         try {$clientTokenLease.Dispose();$clientTokenLease=$null}
         catch {$clientsClosed=$false;$receipt.status='failed';$receipt['cleanup_failure']=$_.Exception.Message}
     }
-    $receipt.client_cleanup_confirmed=$clientsClosed -and $observersClosed -and $null -eq $clientTokenLease
+    $receipt.client_cleanup_confirmed=$clientsClosed -and $observersClosed -and $null -eq $clientTokenLease -and
+        $activeContenderClosed -and $activeWorkerRestored -and $null -eq $activeRetainedTokenLease -and
+        $null -eq $activeRetainedOriginalTokenLease
     if($accountCreated -and $receipt.client_cleanup_confirmed) {
         try {
             $remaining=Get-LocalUser -Name $accountName -ErrorAction Stop

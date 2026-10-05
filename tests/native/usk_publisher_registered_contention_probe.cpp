@@ -107,7 +107,8 @@ Value outcome_case(const std::string& label, Value request, const std::wstring& 
         {"exit_code", Value(std::uint64_t{4})}, {"response", response}});
 }
 int run(const std::wstring& service_name, const std::filesystem::path& request_path,
-    const std::string& expected_image_sha256) {
+    const std::string& expected_image_sha256, DWORD held_worker_pid = 0,
+    const std::string& held_worker_birth = {}) {
     // The SYSTEM fixture launcher enforces the owned hosted target. It creates
     // this ordinary client with an isolated user environment, so runner flags
     // are not inherited and cannot serve as this client's execution authority.
@@ -128,16 +129,27 @@ int run(const std::wstring& service_name, const std::filesystem::path& request_p
     ServiceHandle service(OpenServiceW(manager.value, service_name.c_str(), SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG));
     require(service.value != nullptr, "fixture registration unavailable");
     const DWORD expected_pid = worker_pid(service.value);
-    // Occupy the actual endpoint without sending a request. This qualifies
-    // endpoint contention only; it does not assert an active installation lease.
-    Handle connection(connect_publisher_request_endpoint(service_name, 30000));
-    ULONG server_pid = 0;
-    require(GetNamedPipeServerProcessId(connection.value, &server_pid) && server_pid == expected_pid,
-        "fixture connection is not the held SCM worker endpoint");
+    const bool active_holder = held_worker_pid != 0;
+    require(!active_holder || expected_pid == held_worker_pid,
+        "active fixture worker differs from the retained holder");
+    // The original mode occupies an empty endpoint. The active-holder mode
+    // borrows an independently retained installer; it must never open the
+    // fixture's first connection or send another installer request here.
+    // PID/birth facts alone do not establish native installation ownership.
+    // The hosted controller must separately retain that ownership observation.
+    Handle connection(INVALID_HANDLE_VALUE);
+    if (!active_holder) {
+        connection.value = connect_publisher_request_endpoint(service_name, 30000);
+        ULONG server_pid = 0;
+        require(GetNamedPipeServerProcessId(connection.value, &server_pid) && server_pid == expected_pid,
+            "fixture connection is not the held SCM worker endpoint");
+    }
     Handle worker(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, expected_pid));
     require(worker.value != nullptr && WaitForSingleObject(worker.value, 0) == WAIT_TIMEOUT,
         "fixture worker is unavailable");
     const auto worker_birth = birth(worker.value);
+    require(!active_holder || std::to_string(worker_birth) == held_worker_birth,
+        "active fixture worker birth differs from the retained holder");
     std::wstring image(32768, L'\0');
     DWORD image_size = static_cast<DWORD>(image.size());
     require(QueryFullProcessImageNameW(worker.value, 0, image.data(), &image_size) && image_size,
@@ -195,7 +207,8 @@ int run(const std::wstring& service_name, const std::filesystem::path& request_p
     const std::string service_ascii = utf8(service_name);
     const auto observation = Value(Value::Object{
         {"schema", Value("usk.publisher_registered_contention_observation.v1")}, {"status", Value("pass")},
-        {"scope", Value("registered_endpoint_before_effect_request_bytes")}, {"profile_qualified", Value(false)},
+        {"scope", Value(active_holder ? "active_install_holder_endpoint_before_effect_request_bytes" :
+            "registered_endpoint_before_effect_request_bytes")}, {"profile_qualified", Value(false)},
         {"service_name", Value(service_ascii)}, {"inspection_reference", Value(reference)},
         {"worker_process_id", Value(static_cast<std::uint64_t>(expected_pid))},
         {"worker_process_creation_time", Value(worker_birth)}, {"worker_alive_after_cases", Value(true)},
@@ -205,20 +218,39 @@ int run(const std::wstring& service_name, const std::filesystem::path& request_p
         {"worker_expected_image_sha256", Value(expected_image_sha256)}, {"request_sha256", Value(input.sha256_hex())},
         {"caller_process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
         {"caller_process_creation_time", Value(birth(GetCurrentProcess()))}, {"cases", Value(cases)}});
-    // Close the owned connection first; the one-request worker may now stop.
-    require(CloseHandle(connection.value) != FALSE, "fixture connection closure failed");
-    connection.value = INVALID_HANDLE_VALUE;
+    // Only the original mode owns a first connection. The active installer
+    // remains under the hosted controller's checked process custody.
+    if (!active_holder) {
+        require(CloseHandle(connection.value) != FALSE, "fixture connection closure failed");
+        connection.value = INVALID_HANDLE_VALUE;
+    }
     std::cout << usk::json::canonical(observation) << '\n';
     return std::cout ? 0 : 1;
 }
 }
 int wmain(int argc, wchar_t** argv) {
     try {
-        if (argc != 4) return 2;
+        if (argc != 4 && argc != 6) return 2;
         const std::wstring digest(argv[3]);
         require(digest.size() == 64 && digest.find_first_not_of(L"0123456789abcdef") == std::wstring::npos,
             "fixture image digest differs");
-        return run(argv[1], std::filesystem::path(argv[2]), utf8(digest));
+        DWORD holder_pid = 0;
+        std::string holder_birth;
+        if (argc == 6) {
+            const std::wstring pid_text(argv[4]), birth_text(argv[5]);
+            require(!pid_text.empty() && pid_text.size() <= 10 && pid_text[0] != L'0' &&
+                pid_text.find_first_not_of(L"0123456789") == std::wstring::npos &&
+                !birth_text.empty() && birth_text.size() <= 20 && birth_text[0] != L'0' &&
+                birth_text.find_first_not_of(L"0123456789") == std::wstring::npos,
+                "active fixture holder identity is not canonical");
+            const auto parsed = std::stoull(pid_text);
+            require(parsed <= MAXDWORD, "active fixture holder PID exceeds its bound");
+            holder_pid = static_cast<DWORD>(parsed);
+            // Exact comparison with independently read FILETIME below also
+            // rejects overflow without narrowing or accepting a PID alone.
+            holder_birth = utf8(birth_text);
+        }
+        return run(argv[1], std::filesystem::path(argv[2]), utf8(digest), holder_pid, holder_birth);
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
 #endif

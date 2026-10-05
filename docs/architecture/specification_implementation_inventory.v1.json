@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T04:52:14Z",
+  "generated_at": "2026-10-05T05:26:20Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1389,7 +1389,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -1397,7 +1397,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "8946db3b225bde878706f2edf39f48ef29d79198190eb11ff0eeeb14faa6993d"
+          "sha256": "82fa7ff50b8f31d00c50dd9c90b44bb58b1f3da3da233f9c9ae7c5836bab8ca0"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -2511,11 +2511,19 @@
         },
         {
           "path": "tests/native/usk_publisher_registered_contention_probe.cpp",
-          "sha256": "a3897fd03366d75580882554a8978e9ac7401728857d6ddba62bd462939874ef"
+          "sha256": "b3b070d76e9d7eaf580fdeff04a271303707b06a57b363545ecd75563476fc94"
+        },
+        {
+          "path": "tests/windows_publisher_active_worker.ps1",
+          "sha256": "42e04c27ea5fb73d8043b4737164b57069049d49a7626b95b986e4ea3e0770bd"
+        },
+        {
+          "path": "tests/test_publisher_active_install_contention_evidence.py",
+          "sha256": "d11097752421d0673104c48313335d53d1dd4c4b03a3ea729dc47d1dfff8cab5"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/test_publisher_registered_contention_evidence.py",
@@ -2631,7 +2639,7 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "80c121bbe6ff3f8ed4f0749e4e5c8ac93740fe4a7726054d53031fbc02595c6b"
+          "sha256": "0a3a6feaaab5bd88873fa1b16e008e47a3bc79c8d68f197255e704b539deef98"
         },
         {
           "path": "tests/test_publisher_installation_lease_evidence.py",
@@ -2639,11 +2647,11 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "8946db3b225bde878706f2edf39f48ef29d79198190eb11ff0eeeb14faa6993d"
+          "sha256": "82fa7ff50b8f31d00c50dd9c90b44bb58b1f3da3da233f9c9ae7c5836bab8ca0"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2651,7 +2659,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
+          "sha256": "1db59675810dc4899a18fc169cafcf22de264a72c893b8f8802f465ca73df5c5"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -2698,7 +2706,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Volume and per-install acquisition have bounded optional waits and borrowed service cancellation; ready cancellation wins and timeout preserves a live holder. Production remains fail-fast. Guard ownership is bound to installation and owning thread. Native conflict/cancellation carries an opaque hash of its exact canonical coordination scope; that diagnostic identifies no current holder and grants no authority. The service emits structured operation conflict/cancellation/stale codes, and public one-shot projection preserves those codes plus the bounded reference while keeping recovery-required and unknown outcomes conservative. The registered public transport now binds known non-dispatch to its exact first-write boundary, provides fail-fast endpoint contention with an opaque scope reference, optional waiting bounded to30seconds, and borrowed cancellation. CLI --publisher-wait-ms and console CtrlC/Break connect those controls. Once a write is attempted, partial/lost/cancelled I/O remains unknown. Native owned single-instance endpoint tests measure fail-fast, deadline, ready/asynchronous cancellation, and connection only after its owner recreates an endpoint; actual installation mutex/live/ended-holder tests and the legacy candidate unknown ceiling remain covered. Local tests alone do not qualify the complete acceptance fixture; active installation-holder contention and stale-state qualification remain unfinished. The hosted Standard fixture now includes a compiled ordinary-client producer for four actual registered endpoint outcomes, with independent pre/post target and volume readbacks pinned to the completed installation and explicit live-before/exited-after client tokens. This fixture covers occupied IPC before effects, not an active installation lease. Its closed decoder and synthetic contradictions are tested; actual hosted endpoint execution qualified in PR233, while full lease acceptance remains pending. Private executable security and isolated client environment are preserved; held worker path and launcher-expected digest are distinct facts. The producer retains actual registered-call start/signal/completion QPC ordering and requires the call still active at signalling; the decoder rejects zero, missing or contradictory asynchronous ordering. Exact held-reader nonce/command pairs are tested without executing the observer. Both Standard client paths use checked retained-tree closure and process/launch disposal before confirming cleanup; inert failure controls keep closure unconfirmed. PR233 exact sourcea47ab40/tree5991447, CI37263265499 and normal merge7ba2ac1 qualify all12 occupied-endpoint outcomes across three Standard-client cases. Final independent review reconciled36 snapshots/155 phase bindings and machine3transition/all6stage coverage; cleanup is confirmed. Deadline78ms and asynchronous cancellation47/47/63ms retain actual QPC ordering, unchanged native rows39/43/44 and unchanged volume boundaries. Public installation/source-free recovery/replay/verify and retained refusals pass. The failed09dd Win32 result remains preserved and unqualified. The additional partial integration receipt accepts no whole WorkUnit or predecessor. Scope is registered_endpoint_before_effect_request_bytes only; active installation-holder contention, stale fencing, all interruption prefixes and arbitrary uncertain native outcomes remain unfinished. The worker digest remains launcher provenance and model profile_qualified remains false.",
+      "note": "Volume and per-install acquisition have bounded optional waits and borrowed service cancellation; ready cancellation wins and timeout preserves a live holder. Production remains fail-fast. Guard ownership is bound to installation and owning thread. Native conflict/cancellation carries an opaque hash of its exact canonical coordination scope; that diagnostic identifies no current holder and grants no authority. The service emits structured operation conflict/cancellation/stale codes, and public one-shot projection preserves those codes plus the bounded reference while keeping recovery-required and unknown outcomes conservative. The registered public transport now binds known non-dispatch to its exact first-write boundary, provides fail-fast endpoint contention with an opaque scope reference, optional waiting bounded to30seconds, and borrowed cancellation. CLI --publisher-wait-ms and console CtrlC/Break connect those controls. Once a write is attempted, partial/lost/cancelled I/O remains unknown. Native owned single-instance endpoint tests measure fail-fast, deadline, ready/asynchronous cancellation, and connection only after its owner recreates an endpoint; actual installation mutex/live/ended-holder tests and the legacy candidate unknown ceiling remain covered. Local tests alone do not qualify the complete acceptance fixture; active installation-holder contention and stale-state qualification remain unfinished. The hosted Standard fixture now includes a compiled ordinary-client producer for four actual registered endpoint outcomes, with independent pre/post target and volume readbacks pinned to the completed installation and explicit live-before/exited-after client tokens. This fixture covers occupied IPC before effects, not an active installation lease. Its closed decoder and synthetic contradictions are tested; actual hosted endpoint execution qualified in PR233, while full lease acceptance remains pending. Private executable security and isolated client environment are preserved; held worker path and launcher-expected digest are distinct facts. The producer retains actual registered-call start/signal/completion QPC ordering and requires the call still active at signalling; the decoder rejects zero, missing or contradictory asynchronous ordering. Exact held-reader nonce/command pairs are tested without executing the observer. Both Standard client paths use checked retained-tree closure and process/launch disposal before confirming cleanup; inert failure controls keep closure unconfirmed. PR233 exact sourcea47ab40/tree5991447, CI37263265499 and normal merge7ba2ac1 qualify all12 occupied-endpoint outcomes across three Standard-client cases. Final independent review reconciled36 snapshots/155 phase bindings and machine3transition/all6stage coverage; cleanup is confirmed. Deadline78ms and asynchronous cancellation47/47/63ms retain actual QPC ordering, unchanged native rows39/43/44 and unchanged volume boundaries. Public installation/source-free recovery/replay/verify and retained refusals pass. The failed09dd Win32 result remains preserved and unqualified. The additional partial integration receipt accepts no whole WorkUnit or predecessor. Scope is registered_endpoint_before_effect_request_bytes only; active installation-holder contention, stale fencing, all interruption prefixes and arbitrary uncertain native outcomes remain unfinished. The worker digest remains launcher provenance and model profile_qualified remains false. The active-holder continuation is unfinished source: the owned hosted SYSTEM controller binds the mounted disposable VHD, exact SCM command/private executable and live PID+birth before checked worker-thread pause/restoration. A separately captured ordinary SDK client contends while independently read native rows require original generation1 active ownership and an empty installed-state directory. The before/after target and volume snapshots must agree, and the original installer must remain live before checked restoration and subsequently complete normally. Contender, observer-token and worker-restoration failures remain sticky for account cleanup. Forty-five data checks and inert native-helper compilation pass locally; actual hosted execution, final source/runtime review and acceptance remain pending. No production gate, live takeover or publisher authority is introduced.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2710,11 +2718,19 @@
         },
         {
           "path": "tests/native/usk_publisher_registered_contention_probe.cpp",
-          "sha256": "a3897fd03366d75580882554a8978e9ac7401728857d6ddba62bd462939874ef"
+          "sha256": "b3b070d76e9d7eaf580fdeff04a271303707b06a57b363545ecd75563476fc94"
+        },
+        {
+          "path": "tests/windows_publisher_active_worker.ps1",
+          "sha256": "42e04c27ea5fb73d8043b4737164b57069049d49a7626b95b986e4ea3e0770bd"
+        },
+        {
+          "path": "tests/test_publisher_active_install_contention_evidence.py",
+          "sha256": "d11097752421d0673104c48313335d53d1dd4c4b03a3ea729dc47d1dfff8cab5"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/test_publisher_registered_contention_evidence.py",
@@ -2830,7 +2846,7 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "80c121bbe6ff3f8ed4f0749e4e5c8ac93740fe4a7726054d53031fbc02595c6b"
+          "sha256": "0a3a6feaaab5bd88873fa1b16e008e47a3bc79c8d68f197255e704b539deef98"
         },
         {
           "path": "tests/test_publisher_installation_lease_evidence.py",
@@ -2838,11 +2854,11 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "8946db3b225bde878706f2edf39f48ef29d79198190eb11ff0eeeb14faa6993d"
+          "sha256": "82fa7ff50b8f31d00c50dd9c90b44bb58b1f3da3da233f9c9ae7c5836bab8ca0"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2850,7 +2866,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
+          "sha256": "1db59675810dc4899a18fc169cafcf22de264a72c893b8f8802f465ca73df5c5"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -2909,11 +2925,19 @@
         },
         {
           "path": "tests/native/usk_publisher_registered_contention_probe.cpp",
-          "sha256": "a3897fd03366d75580882554a8978e9ac7401728857d6ddba62bd462939874ef"
+          "sha256": "b3b070d76e9d7eaf580fdeff04a271303707b06a57b363545ecd75563476fc94"
+        },
+        {
+          "path": "tests/windows_publisher_active_worker.ps1",
+          "sha256": "42e04c27ea5fb73d8043b4737164b57069049d49a7626b95b986e4ea3e0770bd"
+        },
+        {
+          "path": "tests/test_publisher_active_install_contention_evidence.py",
+          "sha256": "d11097752421d0673104c48313335d53d1dd4c4b03a3ea729dc47d1dfff8cab5"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/test_publisher_registered_contention_evidence.py",
@@ -3029,7 +3053,7 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "80c121bbe6ff3f8ed4f0749e4e5c8ac93740fe4a7726054d53031fbc02595c6b"
+          "sha256": "0a3a6feaaab5bd88873fa1b16e008e47a3bc79c8d68f197255e704b539deef98"
         },
         {
           "path": "tests/test_publisher_installation_lease_evidence.py",
@@ -3037,11 +3061,11 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "8946db3b225bde878706f2edf39f48ef29d79198190eb11ff0eeeb14faa6993d"
+          "sha256": "82fa7ff50b8f31d00c50dd9c90b44bb58b1f3da3da233f9c9ae7c5836bab8ca0"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -3049,7 +3073,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
+          "sha256": "1db59675810dc4899a18fc169cafcf22de264a72c893b8f8802f465ca73df5c5"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4072,7 +4096,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "81af17cb78f085ed539127d0a04664dc5679d0c5b7b9e1f2341de8494c4495eb"
+          "sha256": "3977169cd2b110d6dd3bcf14a41512033905482652f4dd2ab52f985cb955a448"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4108,7 +4132,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "81af17cb78f085ed539127d0a04664dc5679d0c5b7b9e1f2341de8494c4495eb"
+          "sha256": "3977169cd2b110d6dd3bcf14a41512033905482652f4dd2ab52f985cb955a448"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4144,7 +4168,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "81af17cb78f085ed539127d0a04664dc5679d0c5b7b9e1f2341de8494c4495eb"
+          "sha256": "3977169cd2b110d6dd3bcf14a41512033905482652f4dd2ab52f985cb955a448"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4527,7 +4551,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
+          "sha256": "1db59675810dc4899a18fc169cafcf22de264a72c893b8f8802f465ca73df5c5"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4831,11 +4855,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "8946db3b225bde878706f2edf39f48ef29d79198190eb11ff0eeeb14faa6993d"
+          "sha256": "82fa7ff50b8f31d00c50dd9c90b44bb58b1f3da3da233f9c9ae7c5836bab8ca0"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -5323,11 +5347,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "8946db3b225bde878706f2edf39f48ef29d79198190eb11ff0eeeb14faa6993d"
+          "sha256": "82fa7ff50b8f31d00c50dd9c90b44bb58b1f3da3da233f9c9ae7c5836bab8ca0"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "caaaf0527661992e8a85222d1c0a305c833c3f35c433a0b956fb675f7cddb047"
+          "sha256": "2783839b6de04467fd6ba3c73d33cb43ffc61dbdb7db4c9c23d9ed0a8851a2ac"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
