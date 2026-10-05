@@ -49,7 +49,9 @@ Repair, move and uninstall now bind an `usk.maintenance_source_context.v1`
 document in the first durable transaction journal, before staging creation.
 It records the original immutable installed-state transaction and digest,
 ownership manifest, reviewed plan and policy, applied time, operation target,
-and native observations of the installed and setup roots. Reopening the original
+and native observations of the installed and setup roots. No-follow installed-root
+status checks refuse linked, wrong-type and indeterminate observations; a genuinely
+missing root can retain a null identity with its observed parent. Reopening the original
 installed snapshot does not require the source archive. These observations
 remain recovery inputs rather than mutation or pathname cleanup authority;
 the stream journal retains incomplete effects for inspection. Operation-specific

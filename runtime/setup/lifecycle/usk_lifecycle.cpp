@@ -3,6 +3,7 @@
 
 #include "usk_lifecycle.h"
 #include "usk_install_restart.h"
+#include "usk_maintenance_context_internal.h"
 
 #include "usk_audit_repository.h"
 #include "usk_json.h"
@@ -663,7 +664,10 @@ Value maintenance_source_context(
             {"root", Value(root.generic_u8string())}});
     };
     const fs::path installed_root = fs::absolute(installed.target_root).lexically_normal();
-    const bool installed_root_exists = fs::exists(installed_root);
+    std::error_code installed_root_error;
+    const auto installed_root_status = fs::symlink_status(installed_root, installed_root_error);
+    const bool installed_root_exists = usk::lifecycle::detail::maintenance_directory_present(
+        installed_root_status, installed_root_error);
     const Value installed_root_identity = installed_root_exists ?
         Value(usk::transaction::observe_directory_identity(installed_root)) : Value();
     return Value(Value::Object{

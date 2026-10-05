@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T21:25:47Z",
+  "generated_at": "2026-10-05T21:38:53Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2068,7 +2068,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         }
       ],
       "acceptance_ids": [
@@ -2099,7 +2099,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         }
       ],
       "acceptance_ids": [
@@ -2130,7 +2130,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         }
       ],
       "acceptance_ids": [
@@ -3969,7 +3969,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4004,7 +4004,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4039,7 +4039,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4074,7 +4074,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4967,7 +4967,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -5439,7 +5439,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -5763,7 +5763,7 @@
       "spec_id": "USK-S-REC",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. New interruption checks exercise that boundary; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/journal-recovery.md",
         "sha256": "f737c4f0b8485816262cc3a82fd0549ffa280ad8685b86d95644f0c765a8b179"
@@ -5783,11 +5783,15 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "f6c29e75f8f3428a830682d968934186edf9636e99e6cad40068efe1bcadf3ce"
+          "sha256": "112d08e460339b744691fa90bf68906a726ae33319053ae27117321cd9e31cdd"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
+          "sha256": "2fee92b01a55c21d4a05895a614874185bed6750e5a5609911ddd9450cedab41"
         }
       ],
       "acceptance_ids": [
@@ -5806,7 +5810,7 @@
       "spec_id": "USK-S-REC",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. New interruption checks exercise that boundary; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/journal-recovery.md",
         "sha256": "f737c4f0b8485816262cc3a82fd0549ffa280ad8685b86d95644f0c765a8b179"
@@ -5826,11 +5830,15 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "f6c29e75f8f3428a830682d968934186edf9636e99e6cad40068efe1bcadf3ce"
+          "sha256": "112d08e460339b744691fa90bf68906a726ae33319053ae27117321cd9e31cdd"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
+          "sha256": "2fee92b01a55c21d4a05895a614874185bed6750e5a5609911ddd9450cedab41"
         }
       ],
       "acceptance_ids": [
@@ -6191,11 +6199,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "f6c29e75f8f3428a830682d968934186edf9636e99e6cad40068efe1bcadf3ce"
+          "sha256": "112d08e460339b744691fa90bf68906a726ae33319053ae27117321cd9e31cdd"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
@@ -6758,7 +6766,7 @@
       "spec_id": "USK-S-TXN",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. New interruption checks exercise that boundary; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/state-machine.md",
         "sha256": "c3a967c94067bf4fcad5c34e85a8a11768e9a9fb6e77d7a6cdd4cf2ff5f87ef5"
@@ -6778,11 +6786,15 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "f6c29e75f8f3428a830682d968934186edf9636e99e6cad40068efe1bcadf3ce"
+          "sha256": "112d08e460339b744691fa90bf68906a726ae33319053ae27117321cd9e31cdd"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
+          "sha256": "2fee92b01a55c21d4a05895a614874185bed6750e5a5609911ddd9450cedab41"
         }
       ],
       "acceptance_ids": [
@@ -6803,7 +6815,7 @@
       "spec_id": "USK-S-TXN",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. New interruption checks exercise that boundary; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. Operation-specific effect journals, source-free finalization and the registered production maintenance route remain incomplete. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/state-machine.md",
         "sha256": "c3a967c94067bf4fcad5c34e85a8a11768e9a9fb6e77d7a6cdd4cf2ff5f87ef5"
@@ -6823,11 +6835,15 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "60ca0cd925db89b366f24f1a47ee2a419de46be73a07a9c7998e8572d97c7be5"
+          "sha256": "37fd1478f7ff5e3f7ee36e07ccc732738d21345fcae0ad3990948dd66b5d3635"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "f6c29e75f8f3428a830682d968934186edf9636e99e6cad40068efe1bcadf3ce"
+          "sha256": "112d08e460339b744691fa90bf68906a726ae33319053ae27117321cd9e31cdd"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
+          "sha256": "2fee92b01a55c21d4a05895a614874185bed6750e5a5609911ddd9450cedab41"
         }
       ],
       "acceptance_ids": [
@@ -6897,7 +6913,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/README.md",
-          "sha256": "5f5e3ca871ad74adf048720d647fe72480db1e8c9f47ddb9ca88708668a54474"
+          "sha256": "0c68bf5e19fec6f64fa8564168f3774c40ece927685fadab240c064962dccb1e"
         }
       ],
       "acceptance_ids": [
@@ -6928,7 +6944,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/README.md",
-          "sha256": "5f5e3ca871ad74adf048720d647fe72480db1e8c9f47ddb9ca88708668a54474"
+          "sha256": "0c68bf5e19fec6f64fa8564168f3774c40ece927685fadab240c064962dccb1e"
         }
       ],
       "acceptance_ids": [

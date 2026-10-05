@@ -4,6 +4,7 @@
 #include "usk_audit_repository.h"
 #include "usk_install_restart.h"
 #include "usk_lifecycle.h"
+#include "usk_maintenance_context_internal.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
@@ -548,6 +549,79 @@ void damage_isolated_owned_file(const fs::path& root, std::uint64_t expected_siz
     }
     for (const int descriptor : held) ::close(descriptor);
 #endif
+}
+
+int maintenance_directory_status_proof()
+{
+    using usk::lifecycle::detail::maintenance_directory_present;
+    using fs::file_type;
+    if (!maintenance_directory_present(fs::file_status(file_type::directory), {}) ||
+        maintenance_directory_present(fs::file_status(file_type::not_found), {}) ||
+        maintenance_directory_present(fs::file_status(file_type::not_found),
+            std::make_error_code(std::errc::no_such_file_or_directory))) {
+        throw std::runtime_error("maintenance directory/absence status classification differs");
+    }
+    for (const auto type : {file_type::symlink, file_type::regular, file_type::unknown,
+            file_type::none, file_type::block, file_type::character, file_type::fifo, file_type::socket}) {
+        if (!refuses([&] { (void)maintenance_directory_present(fs::file_status(type), {}); })) {
+            throw std::runtime_error("maintenance accepted a non-directory status");
+        }
+    }
+    for (const auto error : {std::errc::permission_denied, std::errc::not_a_directory,
+            std::errc::too_many_symbolic_link_levels, std::errc::io_error}) {
+        if (!refuses([&] { (void)maintenance_directory_present(fs::file_status(file_type::not_found),
+                std::make_error_code(error)); })) {
+            throw std::runtime_error("maintenance accepted an indeterminate absence error");
+        }
+    }
+    for (const auto type : {file_type::directory, file_type::symlink, file_type::none}) {
+        if (!refuses([&] { (void)maintenance_directory_present(fs::file_status(type),
+                std::make_error_code(std::errc::no_such_file_or_directory)); })) {
+            throw std::runtime_error("maintenance accepted contradictory absence metadata");
+        }
+    }
+    return 0;
+}
+
+int maintenance_absent_root_context_proof()
+{
+    Fixture fixture;
+    const fs::path target = fixture.root / "targets/portable";
+    fs::create_directories(target.parent_path());
+    const auto install = usk::lifecycle::plan_install("plan.absent.install", "install.absent",
+        "2026-10-01T00:00:00Z", target, fixture.roots, recipe(), payload());
+    const auto original = usk::lifecycle::apply_install(install, install.plan_digest,
+        "tx.absent.install", "2026-10-01T00:00:01Z");
+    // Remove only these known fixture files and then their empty directories.
+    for (const fs::path& path : {target / "app/bin/program.exe", target / "app/readme.txt",
+            target / "app/bin", target / "app", target}) {
+        if (!fs::remove(path)) throw std::runtime_error("cannot prepare the absent owned fixture root");
+    }
+    const auto plan = usk::lifecycle::plan_uninstall(fixture.roots, "install.absent",
+        "plan.absent.uninstall", "2026-10-01T00:00:03Z");
+    bool reached_journal = false;
+    if (!refuses([&] { (void)usk::lifecycle::apply_uninstall(plan, plan.plan_digest,
+            "tx.absent.uninstall", "2026-10-01T00:00:04Z",
+            [&](const std::string&, const std::string& point) {
+                if (point == "transaction.staging.after_journal") {
+                    reached_journal = true;
+                    throw std::runtime_error("absent-root journal interruption");
+                }
+            }); }) || !reached_journal) {
+        throw std::runtime_error("genuine missing maintenance root did not reach its journal");
+    }
+    const auto inspected = usk::transaction::TransactionSession::inspect_recovery({
+        "tx.absent.uninstall", plan.plan_id, plan.plan_digest, "uninstall", fixture.roots.staging_parent,
+        target.parent_path() / ".usk-uninstall-tx.absent.uninstall", fixture.roots.state_root, fixture.roots.audit_root});
+    const auto context = usk::json::parse(inspected.stream_source_context);
+    if (context.at("installed_root").at("native_identity").type() != usk::json::Value::Type::null_value ||
+        context.at("original_installed_transaction_id").as_string() != original.installed_state.transaction_id ||
+        inspected.stream_source_digest != usk::json::sha256_canonical(context) || fs::exists(target) ||
+        inspected.staging_exists || inspected.target_exists ||
+        inspected.available_actions != std::vector<std::string>{"abandon"}) {
+        throw std::runtime_error("genuine absence was not retained without recreating the root");
+    }
+    return 0;
 }
 
 int maintenance_context_at_staging_boundary()
@@ -1503,6 +1577,12 @@ int main(int argc, char** argv)
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
         if (const int protected_visible = protected_visible_finalization_proof()) {
             return protected_visible;
+        }
+        if (const int status_proof = maintenance_directory_status_proof()) {
+            return status_proof;
+        }
+        if (const int absent_root = maintenance_absent_root_context_proof()) {
+            return absent_root;
         }
         if (const int maintenance = maintenance_context_at_staging_boundary()) {
             return maintenance;
