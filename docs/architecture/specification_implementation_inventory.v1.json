@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T09:57:51Z",
+  "generated_at": "2026-10-05T10:37:54Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2499,12 +2499,16 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The restricted-service native backend persists immutable original operation intent before setup bootstrap, binds actual protected volume/setup/state identities and PID plus birth time, and appends ownership generations with finite journal budgets and reserved terminal capacity. Before-effect fences cover creation, content write, rename, metadata publication and consumer grant. Live or unknown prior holders refuse transfer; no timeout grants takeover. PR231 source3383c3d/CI37246243862 qualified one bound worker loss, preservation of an empty publication root and generation2 completion. PR232 source89c0034/CI37251475610 attempt2 qualified a second loss after the completed preservation move, native publication/reservation absence and generation3 completion, then source-free recovery/replay/verify. Their partial receipts do not accept this whole WorkUnit. All creation-order anchor/snapshot prefixes, arbitrary uncertain outcomes and complete stale/recovery acceptance remain unfinished. New stale-context cases remain unqualified source; no live takeover or whole lease capability is claimed.",
+      "note": "The restricted-service native backend persists immutable original operation intent before setup bootstrap, binds actual protected volume/setup/state identities and PID plus birth time, and appends ownership generations with finite journal budgets and reserved terminal capacity. Before-effect fences cover creation, content write, rename, metadata publication and consumer grant. Live or unknown prior holders refuse transfer; no timeout grants takeover. PR231 source3383c3d/CI37246243862 qualified one bound worker loss, preservation of an empty publication root and generation2 completion. PR232 source89c0034/CI37251475610 attempt2 qualified a second loss after the completed preservation move, native publication/reservation absence and generation3 completion, then source-free recovery/replay/verify. Their partial receipts do not accept this whole WorkUnit. All creation-order anchor/snapshot prefixes, arbitrary uncertain outcomes and complete stale/recovery acceptance remain unfinished. PR235 source6fea0f3/CI37293863598 qualified four authenticated sourceful/source-free immutable-context refusals with independently bound unchanged native target/volume readbacks; normal mergea1fb2d4 and a partial receipt retain that bounded scope. No live takeover or whole lease capability is claimed.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
       },
       "source_observations": [
+        {
+          "path": "release/evidence/wu007-stale-context-partial-integration.v1.json",
+          "sha256": "a2671c9b09c55e17f6d27ad2ca6aaf2d20ef06c7c9f771159d72ec3faaf8bdfc"
+        },
         {
           "path": "CMakeLists.txt",
           "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
@@ -2730,12 +2734,16 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. Fresh current-head hosted qualification remains pending. No whole WorkUnit or release acceptance follows.",
+      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. PR235 source6fea0f3/CI37293863598 all7/native55of55, eight runtime receipts and both late receipts passed independent final review and live merge-check; normal mergea1fb2d4 records only the four immutable-context refusals, alongside prior passive/active predicates. No whole WorkUnit or release acceptance follows.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
       },
       "source_observations": [
+        {
+          "path": "release/evidence/wu007-stale-context-partial-integration.v1.json",
+          "sha256": "a2671c9b09c55e17f6d27ad2ca6aaf2d20ef06c7c9f771159d72ec3faaf8bdfc"
+        },
         {
           "path": "CMakeLists.txt",
           "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
@@ -2961,12 +2969,16 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The native backend observes protected installed records after acquiring actual volume/install OS guards, binds their canonical revision in durable ownership and rechecks before product effects. Fresh install expects an empty requested installed-record set; source-free recovery binds immutable original intent and the observed current revision. The current private C-ABI retains actual typed operation failures and a real public stale-plan exception only before apply entry; response JSON cannot manufacture a native exception. Structured stale_plan remains distinct from state_revision_stale, and unknown/recovery-required outcomes retain their effects status. Four new authenticated immutable-context cases compare native target/volume rows around sourceful and source-free refusals; these are unfinished source, not proof of planA/commitB/applyA revision refusal. Maintenance-plan revisions, changed-state native qualification and the remaining finite recovery/fencing obligations are unfinished.",
+      "note": "The native backend observes protected installed records after acquiring actual volume/install OS guards, binds their canonical revision in durable ownership and rechecks before product effects. Fresh install expects an empty requested installed-record set; source-free recovery binds immutable original intent and the observed current revision. The current private C-ABI retains actual typed operation failures and a real public stale-plan exception only before apply entry; response JSON cannot manufacture a native exception. Structured stale_plan remains distinct from state_revision_stale, and unknown/recovery-required outcomes retain their effects status. Four new authenticated immutable-context cases compare native target/volume rows around sourceful and source-free refusals; PR235 source6fea0f3/CI37293863598 and normal mergea1fb2d4 qualified those four immutable-context refusals, not planA/commitB/applyA revision refusal. Maintenance-plan revisions, changed-state native qualification and the remaining finite recovery/fencing obligations are unfinished.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
       },
       "source_observations": [
+        {
+          "path": "release/evidence/wu007-stale-context-partial-integration.v1.json",
+          "sha256": "a2671c9b09c55e17f6d27ad2ca6aaf2d20ef06c7c9f771159d72ec3faaf8bdfc"
+        },
         {
           "path": "CMakeLists.txt",
           "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
