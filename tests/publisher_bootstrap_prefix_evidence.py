@@ -39,6 +39,38 @@ def prefix(case, context_row):
     return 4, raw[:length]
 
 
+def named_prefix_rows(case, snapshot_size, rows, drive, installed):
+    """Bind the named live-CLI case to the actual original context and tree."""
+    require(isinstance(rows, list) and 0 < len(rows) <= 10000 and
+        all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in rows),
+        'constructed prefix row/path budget differs')
+    by_path = {row['path']: row for row in rows}
+    require(len(by_path) == len(rows), 'constructed prefix paths alias')
+    publication = drive + 'publication'
+    context_path = (drive + 'installation-operations\\install-' + digest(installed['install_id']) +
+                    '\\operation-' + digest(installed['transaction_id']) + '.json')
+    require(context_path in by_path and publication in by_path and by_path[publication]['directory'] is True,
+        'constructed prefix original context/root absent')
+    count, raw = prefix(case, by_path[context_path])
+    require(snapshot_size is None if raw is None else type(snapshot_size) is int and snapshot_size == len(raw),
+        'constructed prefix typed snapshot length differs')
+    expected = {publication + '\\' + anchor for anchor in ANCHORS[:count]}
+    snapshot_path = publication + '\\journal\\lab-reviewed-plan.json'
+    if raw is not None:
+        expected.add(snapshot_path)
+    require({path for path in by_path if path.startswith(publication + '\\')} == expected,
+        'constructed prefix named tree shape differs')
+    require(all(by_path[path]['directory'] is True for path in expected if path != snapshot_path),
+        'constructed prefix anchor is not an ordinary native directory')
+    if raw is not None:
+        row = by_path[snapshot_path]
+        require(row['directory'] is False and type(row['bytes']) is int and row['bytes'] == len(raw) and
+            row['sha256'] == hashlib.sha256(raw).hexdigest() and
+            isinstance(row.get('content_json'), str) and row['content_json'].encode('utf-8') == raw,
+            'constructed snapshot bytes differ from exact original prefix')
+    return count, raw
+
+
 def constructed_rows(record, original_rows, drive, installed, observation, capture, volume_boundary):
     from publisher_standard_public_evidence import reader_rows, native_rows, native_boundary
     require(isinstance(record, dict) and record.keys() == {
@@ -75,6 +107,7 @@ def constructed_rows(record, original_rows, drive, installed, observation, captu
     native_boundary(readback['independent']['volume_boundary'])
     require(readback['independent']['volume_boundary'] == volume_boundary and
             'publication_absence' not in readback['independent'], 'constructed prefix volume boundary differs')
+    named_prefix_rows(record['case'], record['snapshot_size_bytes'], rows, drive, installed)
     new = {row['path']: row for row in rows}
     added = {publication + '\\' + anchor for anchor in ANCHORS[:count]}
     snapshot_path = publication + '\\journal\\lab-reviewed-plan.json'

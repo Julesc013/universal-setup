@@ -337,8 +337,8 @@ def constructed_prefix_takeover(before, after, drive, installed, volume_root_id,
     The original empty-root process-loss and the construction must be retained
     and checked separately. This result never labels construction as a crash.
     """
-    from publisher_bootstrap_prefix_evidence import CASES, SCOPE
-    require(case in CASES, 'constructed prefix takeover case differs')
+    from publisher_bootstrap_prefix_evidence import SCOPE, named_prefix_rows
+    named_prefix_rows(case, snapshot_size, before, drive, installed)
     result = bootstrap_takeover(before, after, drive, installed, volume_root_id, terminated_holder)
     return dict(result, schema='usk.publisher_constructed_prefix_takeover_reconciliation.v1',
                 scope=SCOPE, case=case, snapshot_size_bytes=snapshot_size,

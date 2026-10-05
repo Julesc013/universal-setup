@@ -4,15 +4,54 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
 import test_publisher_installation_lease_evidence as lease_fixture
 from publisher_bootstrap_prefix_evidence import ANCHORS, CASES, SCOPE, constructed_rows, prefix
-from publisher_installation_lease_evidence import LeaseEvidenceError, digest
+from publisher_installation_lease_evidence import LeaseEvidenceError, digest, constructed_prefix_takeover
 
 
 class ConstructedPrefixEvidenceTests(unittest.TestCase):
+    def test_direct_takeover_cannot_label_empty_root_as_named_prefix(self):
+        before, after, holder = lease_fixture.takeover_fixture(0)
+        for case, length in (('anchors_1', None), ('snapshot_full', -1), ('snapshot_empty', False)):
+            with self.subTest(case=case), self.assertRaises(LeaseEvidenceError):
+                constructed_prefix_takeover(before, after, lease_fixture.DRIVE, lease_fixture.INSTALLED,
+                    lease_fixture.ROOT, holder, case, length)
+
+    def test_direct_takeover_checks_actual_typed_size_and_bytes(self):
+        original = lease_fixture.takeover_fixture(4, 1)
+        for mode in ('length_negative', 'length_bool', 'length_wrong', 'bytes', 'case'):
+            before, after, holder = copy.deepcopy(original)
+            size, case = 1, 'snapshot_first'
+            if mode == 'length_negative': size = -1
+            elif mode == 'length_bool': size = True
+            elif mode == 'length_wrong': size = 2
+            elif mode == 'bytes': next(row for row in before if row['path'].endswith('lab-reviewed-plan.json'))['sha256'] = '0' * 64
+            else: case = 'snapshot_full'
+            with self.subTest(mode=mode), self.assertRaises(LeaseEvidenceError):
+                constructed_prefix_takeover(before, after, lease_fixture.DRIVE, lease_fixture.INSTALLED,
+                    lease_fixture.ROOT, holder, case, size)
+        before, after, holder = original
+        result = constructed_prefix_takeover(before, after, lease_fixture.DRIVE, lease_fixture.INSTALLED,
+            lease_fixture.ROOT, holder, 'snapshot_first', 1)
+        self.assertEqual(result['retained_objects'], 6)
+        self.assertFalse(result['native_crash_at_constructed_prefix_observed'])
+
+    def test_live_cli_rejects_empty_root_labelled_full_snapshot(self):
+        before, after, holder = lease_fixture.takeover_fixture(0)
+        request = dict(mode='constructed_prefix_takeover', before=before, after=after, drive=lease_fixture.DRIVE,
+            installed=lease_fixture.INSTALLED, volume_root_id=lease_fixture.ROOT, terminated_holder=holder,
+            case='snapshot_full', snapshot_size_bytes=-1)
+        result = subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('publisher_installation_lease_evidence.py')),
+            '--input', '-'], input=json.dumps(request), capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '')
+
     def fixture(self, case='snapshot_middle'):
         drive, installed = lease_fixture.DRIVE, dict(lease_fixture.INSTALLED, target_root='U:/publication/destination/visible')
         before, _, _ = lease_fixture.takeover_fixture(0)
