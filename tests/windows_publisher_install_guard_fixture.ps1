@@ -62,6 +62,43 @@ public sealed class UskPublisherInstallGuardEvents : IDisposable {
 }
 '@
 }
+function Read-InstallGuardFixtureOutput([string]$Path) {
+    # Start-Process keeps its redirect writer open while the child holds the
+    # mutex. A reader must allow that existing writer, while bounding and
+    # rechecking the exact bytes that form the readiness observation.
+    $stream=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+    try {
+        $length=$stream.Length
+        if($length -gt 4KB){throw 'Installation holder output exceeds bound'}
+        $bytes=[byte[]]::new([int]$length);$offset=0
+        while($offset -lt $bytes.Length) {
+            $count=$stream.Read($bytes,$offset,$bytes.Length-$offset)
+            if($count -le 0){throw 'Installation holder output ended during observation'}
+            $offset+=$count
+        }
+        if($stream.Length -ne $length -or $stream.ReadByte() -ne -1){throw 'Installation holder output changed during observation'}
+        $digest=[Security.Cryptography.SHA256]::Create()
+        try {$sha=([BitConverter]::ToString($digest.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()}
+        finally {$digest.Dispose()}
+        return [pscustomobject]@{text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes);sha256=$sha;bytes=$length}
+    } finally {$stream.Dispose()}
+}
+function Read-InstallGuardFixtureReadyOutput([string]$Path,$Holder,[ValidateRange(1,10000)][int]$TimeoutMilliseconds=10000) {
+    # The native event follows its stdout flush, but Start-Process forwards
+    # the redirected line asynchronously. Incomplete output cannot establish
+    # readiness; retain the live child's custody throughout this bounded wait.
+    $watch=[Diagnostics.Stopwatch]::StartNew()
+    do {
+        if($Holder.HasExited){throw 'Installation holder exited before readiness output'}
+        $output=Read-InstallGuardFixtureOutput $Path
+        if($output.bytes -gt 0 -and $output.text.EndsWith("`n")) {
+            if($Holder.HasExited){throw 'Installation holder exited during readiness output'}
+            return $output
+        }
+        [Threading.Thread]::Sleep(10)
+    } while($watch.ElapsedMilliseconds -lt $TimeoutMilliseconds)
+    throw 'Installation holder complete readiness output is unconfirmed'
+}
 function Complete-InstallGuardFixtureCleanup($Holder,$Events,$HeldImage,[bool]$LaunchAttempted,[bool]$NormalExit) {
     $closed=$true;$first=$null
     $processClosed=$NormalExit
@@ -71,8 +108,16 @@ function Complete-InstallGuardFixtureCleanup($Holder,$Events,$HeldImage,[bool]$L
     if($Holder -and -not $NormalExit) {
         if($Events) {try {$Events.Release()}catch {$closed=$false;$first=$_}}
         try {
-            $closure=Stop-OwnedPublisherProcessTree $Holder
-            if($closure.confirmed -ne $true){throw 'Installation holder process closure is unconfirmed'}
+            # This private native child launches no descendants. Give its
+            # release path time to close normally before failure-only tree
+            # cancellation observes a disappearing process through CIM.
+            if(-not $Holder.WaitForExit(10000)) {
+                $closure=Stop-OwnedPublisherProcessTree $Holder
+                if($closure.confirmed -ne $true){throw 'Installation holder process closure is unconfirmed'}
+            } else {
+                $Holder.WaitForExit()
+                if(-not $Holder.HasExited){throw 'Installation holder normal closure is unconfirmed'}
+            }
             $processClosed=$true
         } catch {$closed=$false;if(-not $first){$first=$_}}
     } elseif($LaunchAttempted -and -not $Holder) {
@@ -131,7 +176,8 @@ function Invoke-InstallGuardVerificationConflict($Verify) {
         if((Get-Item -LiteralPath $stdout).Length -gt 4KB -or (Get-Item -LiteralPath $stderr).Length -ne 0) {
             throw 'Native installation guard readiness budget differs'
         }
-        $nativeReadyText=[IO.File]::ReadAllText($stdout)
+        $readyOutput=Read-InstallGuardFixtureReadyOutput $stdout $holder
+        $nativeReadyText=$readyOutput.text
         $nativeReady=$nativeReadyText|ConvertFrom-Json
         if($nativeReady.schema -cne 'usk.publisher_install_guard_holder.v1' -or
             $nativeReady.scope -cne 'owned_installation_mutex_only_no_product_effects' -or
@@ -151,7 +197,7 @@ function Invoke-InstallGuardVerificationConflict($Verify) {
             verify_payload=$Verify;before_readback_index=2;after_release_readback_index=3;
             holder=[ordered]@{native_ready=$nativeReady;native_ready_json=$nativeReadyText;image_path=$binary;image_sha256=$imageSha;
                 project_sha256=(Get-FileHash -LiteralPath $project -Algorithm SHA256).Hash.ToLowerInvariant();
-                ready_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant();
+                ready_sha256=$readyOutput.sha256;
                 parent_process_id=$PID;parent_creation_file_time=$ownerCreation;volume_root=$VolumeRoot;
                 events_scope='unique_protected_system_only_ready_and_release';
                 alive_before_request=$true;alive_after_response=$false;alive_after_readback=$false;
@@ -188,7 +234,7 @@ function Invoke-InstallGuardVerificationConflict($Verify) {
             foreach($entry in @(@{role='stdout';path=$stdout},@{role='stderr';path=$stderr})) {
                 if([IO.File]::Exists($entry.path)) {
                     if((Get-Item -LiteralPath $entry.path).Length -le 4KB) {
-                        $diagnostic[$entry.role]=[IO.File]::ReadAllText($entry.path)
+                        $diagnostic[$entry.role]=(Read-InstallGuardFixtureOutput $entry.path).text
                     } else {$diagnostic[$entry.role]='output exceeds retained diagnostic bound'}
                 }
             }

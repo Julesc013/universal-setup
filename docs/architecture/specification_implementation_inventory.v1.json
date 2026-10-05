@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T18:47:06Z",
+  "generated_at": "2026-10-05T19:17:05Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2499,7 +2499,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The restricted-service backend persists immutable original intent before bootstrap, binds native volume/setup/state identities and holder PID plus birth time, and appends bounded generations with reserved terminal capacity. Effects require current native fences; live or unknown holders refuse transfer without timeout takeover. Integrated predecessors qualify actual ended-worker loss, generation2/3 completion and source-free recovery/replay/verify. PR236 f5cf5d3/treebf3e9f9/CI37349471796 passed all7/native55 and guarded23 receipts plus independently reviewed two late client receipts (bounded final25 reviewc0bfd52f). This includes nine constructed ordered prefixes and six constructed durable states after separately observed worker loss; it does not establish crashes at those constructed offsets, arbitrary issued-call errors or power loss. Literal PID reuse remains unobserved; the current profile transfers only from observed ended instances or birth mismatch and refuses live or unknown holders. The current native installation-mutex public-response fixture is source-only until executed on its own exact head. Whole WorkUnit and release acceptance remain NOT_RUN.",
+      "note": "The restricted-service backend persists immutable original intent before bootstrap, binds native volume/setup/state identities and holder PID plus birth time, and appends bounded generations with reserved terminal capacity. Effects require current native fences; live or unknown holders refuse transfer without timeout takeover. Integrated predecessors qualify actual ended-worker loss, generation2/3 completion and source-free recovery/replay/verify. PR236 f5cf5d3/treebf3e9f9/CI37349471796 passed all7/native55 and guarded23 receipts plus independently reviewed two late client receipts (bounded final25 reviewc0bfd52f). This includes nine constructed ordered prefixes and six constructed durable states after separately observed worker loss; it does not establish crashes at those constructed offsets, arbitrary issued-call errors or power loss. Literal PID reuse remains unobserved; the current profile transfers only from observed ended instances or birth mismatch and refuses live or unknown holders. The new fixture at203cc8d/CI37359131068 failed before its contention request: its live redirected-output read was refused, and release raced with failure-only CIM cancellation. Its failed raw receipt and cleanup uncertainty are retained. All nine prefix and six durable steps passed on that run, but the complete current cohort remains unqualified. The shared bounded output reader and graceful-release wait repair remain source-only until a successful fresh exact-head run. Whole WorkUnit and release acceptance remain NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2795,7 +2795,7 @@
         },
         {
           "path": "tests/windows_publisher_install_guard_fixture.ps1",
-          "sha256": "5d8f1422cf6a75cd8e4f2aa138a77cfe870f0f963a7b09a741a758f88cb14d45"
+          "sha256": "0f72be9d9388f021a9e2c9b674520610fd51273a81c26d5d8e179ff44d0ef60b"
         },
         {
           "path": "tests/publisher_install_guard_evidence.py",
@@ -2826,7 +2826,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Native volume/install mutexes guard owning-thread effects and expose opaque operation references. Real native tests cover both guards, bounded wait/cancellation, release and process birth mismatch. Registered endpoint contention separately qualifies four public pre-request-byte conflicts/cancellations; actual paused-worker contention retains original ownership and completes the same installer. PR235 immutable-context refusals and PR236 f5cf5d3 current25 regressions remain qualified in their bounded scopes. Endpoint contention alone does not prove installation-mutex contention. The current separate hosted fixture holds only the native installation mutex, dispatches authenticated source-free installed.verify, requires failed/operation_conflict to public refused/exit4 with the same scope reference, preserves complete protected rows/boundary, releases the actual child normally and verifies again. Its native execution is pending. Public installation-mutex wait/cancellation and live-holder transfer are not claimed. Whole WorkUnit and release acceptance remain NOT_RUN.",
+      "note": "Native volume/install mutexes guard owning-thread effects and expose opaque operation references. Real native tests cover both guards, bounded wait/cancellation, release and process birth mismatch. Registered endpoint contention separately qualifies four public pre-request-byte conflicts/cancellations; actual paused-worker contention retains original ownership and completes the same installer. PR235 immutable-context refusals and PR236 f5cf5d3 current25 regressions remain qualified in their bounded scopes. Endpoint contention alone does not prove installation-mutex contention. The current separate hosted fixture holds only the native installation mutex, dispatches authenticated source-free installed.verify, requires failed/operation_conflict to public refused/exit4 with the same scope reference, preserves complete protected rows/boundary, releases the actual child normally and verifies again. The first203cc8d hosted run failed while reading live redirected holder output, before the contention request, and does not qualify the public mutex outcome. The repaired reader allows the existing writer while bounding and hashing observed bytes; failure cleanup waits for actual released-child exit before cancellation. Fresh exact-head runtime qualification is pending. Public installation-mutex wait/cancellation and live-holder transfer are not claimed. Whole WorkUnit and release acceptance remain NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -3122,7 +3122,7 @@
         },
         {
           "path": "tests/windows_publisher_install_guard_fixture.ps1",
-          "sha256": "5d8f1422cf6a75cd8e4f2aa138a77cfe870f0f963a7b09a741a758f88cb14d45"
+          "sha256": "0f72be9d9388f021a9e2c9b674520610fd51273a81c26d5d8e179ff44d0ef60b"
         },
         {
           "path": "tests/publisher_install_guard_evidence.py",
@@ -3449,7 +3449,7 @@
         },
         {
           "path": "tests/windows_publisher_install_guard_fixture.ps1",
-          "sha256": "5d8f1422cf6a75cd8e4f2aa138a77cfe870f0f963a7b09a741a758f88cb14d45"
+          "sha256": "0f72be9d9388f021a9e2c9b674520610fd51273a81c26d5d8e179ff44d0ef60b"
         },
         {
           "path": "tests/publisher_install_guard_evidence.py",
