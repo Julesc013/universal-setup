@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T13:54:02Z",
+  "generated_at": "2026-10-05T14:27:36Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2687,7 +2687,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "1b54a6ca99045759ea90b094c120704df96d526b0d07e8979a8736feb2cfb30a"
+          "sha256": "3a04187f6cb1adffca73af87185bf8b2af5c5e9608887b03e2ac045054e9cb28"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2707,11 +2707,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher.ps1",
-          "sha256": "dd58e786b77040ea0bbea9c42f5f1dfa5fbc020cfad24ca7338525e59592ef38"
+          "sha256": "1553b90679fb9ead6789b6dd3546cf1216e5818a7237fd4d73991a2d63a05c9d"
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
-          "sha256": "f60b71c297fc5e623870c8dfd5cefeb8ca2f2c231ab9e33879a1af33d2afe89e"
+          "sha256": "c9287c4bf3568db0e04ab1c184d3711936cd7f3f3f4fe1f4846b4c0bba5626ab"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -2946,7 +2946,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "1b54a6ca99045759ea90b094c120704df96d526b0d07e8979a8736feb2cfb30a"
+          "sha256": "3a04187f6cb1adffca73af87185bf8b2af5c5e9608887b03e2ac045054e9cb28"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2966,11 +2966,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher.ps1",
-          "sha256": "dd58e786b77040ea0bbea9c42f5f1dfa5fbc020cfad24ca7338525e59592ef38"
+          "sha256": "1553b90679fb9ead6789b6dd3546cf1216e5818a7237fd4d73991a2d63a05c9d"
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
-          "sha256": "f60b71c297fc5e623870c8dfd5cefeb8ca2f2c231ab9e33879a1af33d2afe89e"
+          "sha256": "c9287c4bf3568db0e04ab1c184d3711936cd7f3f3f4fe1f4846b4c0bba5626ab"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -3205,7 +3205,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "1b54a6ca99045759ea90b094c120704df96d526b0d07e8979a8736feb2cfb30a"
+          "sha256": "3a04187f6cb1adffca73af87185bf8b2af5c5e9608887b03e2ac045054e9cb28"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -3225,11 +3225,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher.ps1",
-          "sha256": "dd58e786b77040ea0bbea9c42f5f1dfa5fbc020cfad24ca7338525e59592ef38"
+          "sha256": "1553b90679fb9ead6789b6dd3546cf1216e5818a7237fd4d73991a2d63a05c9d"
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
-          "sha256": "f60b71c297fc5e623870c8dfd5cefeb8ca2f2c231ab9e33879a1af33d2afe89e"
+          "sha256": "c9287c4bf3568db0e04ab1c184d3711936cd7f3f3f4fe1f4846b4c0bba5626ab"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -4707,7 +4707,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "1b54a6ca99045759ea90b094c120704df96d526b0d07e8979a8736feb2cfb30a"
+          "sha256": "3a04187f6cb1adffca73af87185bf8b2af5c5e9608887b03e2ac045054e9cb28"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",

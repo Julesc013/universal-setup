@@ -273,8 +273,7 @@ function Invoke-StandardPublicSystemTask {
         do {
             $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
             & $assertOwnedTask $task
-            $info=Read-StandardLauncherTaskInformation `
-                -ReadInformation {Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop} `
+            $info=Read-StandardRegisteredTaskInformation -TaskName $taskName `
                 -RevalidateTask {& $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)}
             if(-not $launcherProcess -and (Test-Path -LiteralPath $startBinding -PathType Leaf)) {
                 $launcherPhase='read_start_binding'
@@ -342,6 +341,7 @@ function Invoke-StandardPublicSystemTask {
     $result=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
     $result|Add-Member -NotePropertyName launcher_task_removed -NotePropertyValue $true
     $result|Add-Member -NotePropertyName launcher_task_result -NotePropertyValue ([uint32]$info.LastTaskResult)
+    $result|Add-Member -NotePropertyName launcher_information_source -NotePropertyValue $info.observation_source
     $result|Add-Member -NotePropertyName launcher_task -NotePropertyValue $taskName
     $result|Add-Member -NotePropertyName launcher_process -NotePropertyValue $launcherBinding
     $result|Add-Member -NotePropertyName launcher_process_exit_confirmed -NotePropertyValue $true

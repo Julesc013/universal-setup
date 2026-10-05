@@ -16,39 +16,69 @@ function Update-StandardLauncherUnconfirmed {
 
 function Get-StandardLauncherErrorDiagnostic {
     param($ErrorRecord,[string]$Phase)
-    $exception=$ErrorRecord.Exception;$nativeCode=$null;$cimNativeCode=$null;$cimStatusCode=$null
+    $exception=$ErrorRecord.Exception;$nativeCode=$null;$cimNativeCode=$null;$cimStatusCode=$null;$comHresult=$null
     for($depth=0;$exception -and $depth -lt 8;$depth++) {
         if($exception -is [Microsoft.Management.Infrastructure.CimException]) {
             $cimNativeCode=[int]$exception.NativeErrorCode;$cimStatusCode=[uint32]$exception.StatusCode
         }
+        if($exception -is [Runtime.InteropServices.COMException]){$comHresult=$exception.HResult}
         if($exception -is [ComponentModel.Win32Exception]){$nativeCode=$exception.NativeErrorCode;break}
         $exception=$exception.InnerException
     }
     $message=[string]$ErrorRecord.Exception.Message;$stack=[string]$ErrorRecord.ScriptStackTrace
     return [ordered]@{phase=$Phase;exception_type=$ErrorRecord.Exception.GetType().FullName;
         hresult=$ErrorRecord.Exception.HResult;native_error_code=$nativeCode;
-        cim_native_error_code=$cimNativeCode;cim_status_code=$cimStatusCode;
+        cim_native_error_code=$cimNativeCode;cim_status_code=$cimStatusCode;com_hresult=$comHresult;
         message_excerpt=$message.Substring(0,[Math]::Min(2048,$message.Length));
         script_name=$ErrorRecord.InvocationInfo.ScriptName;script_line=$ErrorRecord.InvocationInfo.ScriptLineNumber;
         stack_excerpt=$stack.Substring(0,[Math]::Min(4096,$stack.Length))}
 }
 
-function Read-StandardLauncherTaskInformation {
-    param([Parameter(Mandatory=$true)][scriptblock]$ReadInformation,
-        [Parameter(Mandatory=$true)][scriptblock]$RevalidateTask)
-    for($attempt=1;$attempt -le 3;$attempt++) {
-        # A missing/changed task or wrapper fails outside the retry catch.
-        & $RevalidateTask|Out-Null
-        try {return (& $ReadInformation)}
-        catch [Microsoft.Management.Infrastructure.CimException] {
-            $code=$_.Exception.NativeErrorCode;$status=$_.Exception.StatusCode
-            $retryable=$code -in @([Microsoft.Management.Infrastructure.NativeErrorCode]::Failed,
-                [Microsoft.Management.Infrastructure.NativeErrorCode]::NotFound) -or
-                ($code -eq [Microsoft.Management.Infrastructure.NativeErrorCode]::Ok -and $status -in @(1,6))
-            if(-not $retryable -or $attempt -eq 3){throw}
-            Start-Sleep -Milliseconds 100
+function ConvertTo-StandardRegisteredTaskInformation {
+    param($RegisteredTask,[string]$TaskName)
+    $name=$RegisteredTask.Name;$path=$RegisteredTask.Path
+    $time=$RegisteredTask.LastRunTime;$result=$RegisteredTask.LastTaskResult
+    if(-not ($name -is [string]) -or $name -cne $TaskName -or
+        -not ($path -is [string]) -or $path -cne ('\'+$TaskName) -or
+        -not ($time -is [DateTime]) -or
+        -not ($result -is [int] -or $result -is [long] -or $result -is [uint32]) -or
+        [long]$result -lt [int]::MinValue -or [long]$result -gt [uint32]::MaxValue) {
+        throw 'Exact registered task information identity/type differs'
+    }
+    return [pscustomobject]@{LastRunTime=$time;LastTaskResult=[long]$result;
+        observation_source='TaskScheduler.IRegisteredTask'}
+}
+
+function Read-StandardRegisteredTaskInformation {
+    param([Parameter(Mandatory=$true)][string]$TaskName,
+        [Parameter(Mandatory=$true)][scriptblock]$RevalidateTask,
+        [scriptblock]$CreateScheduler={New-Object -ComObject 'Schedule.Service'},
+        [scriptblock]$ReleaseReference={param($Reference)
+            if([Runtime.InteropServices.Marshal]::IsComObject($Reference)) {
+                [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($Reference)
+            }})
+    if($TaskName -cnotmatch '^USK_STANDARD_PUBLIC_[0-9a-f]{32}$'){throw 'Owned registered task name differs'}
+    & $RevalidateTask|Out-Null
+    $scheduler=$null;$folder=$null;$task=$null;$failure=$null;$information=$null
+    try {
+        $scheduler=& $CreateScheduler
+        $scheduler.Connect()
+        $folder=$scheduler.GetFolder('\')
+        $task=$folder.GetTask($TaskName)
+        $information=ConvertTo-StandardRegisteredTaskInformation $task $TaskName
+    } catch {$failure=$_}
+    finally {
+        # All three references belong to this read. Attempt every release,
+        # retaining the first observation failure or cleanup failure.
+        foreach($reference in @($task,$folder,$scheduler)) {
+            if($null -ne $reference) {
+                try {& $ReleaseReference $reference|Out-Null}
+                catch {if($null -eq $failure){$failure=$_}}
+            }
         }
     }
+    if($null -ne $failure){throw $failure}
+    return $information
 }
 
 function Assert-StandardLauncherAcknowledgment {

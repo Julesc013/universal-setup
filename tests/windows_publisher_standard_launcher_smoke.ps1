@@ -75,33 +75,116 @@ function New-FixtureCimFailure([uint32]$Status) {
         return [Microsoft.Management.Infrastructure.CimException]::new($data)
     } finally {$data.Dispose()}
 }
-foreach($code in @(1,6)) {
-    $attempts=[int[]]@(0,0)
-    $failure=New-FixtureCimFailure $code
-    $information=Read-StandardLauncherTaskInformation -RevalidateTask {$attempts[1]++} -ReadInformation {
-        $attempts[0]++;if($attempts[0] -lt 3){throw $failure};[pscustomobject]@{actual_observation='returned'}
-    }
-    if($attempts[0] -ne 3 -or $attempts[1] -ne 3 -or $information.actual_observation -cne 'returned') {
-        throw 'Finite task-info retries omitted actual observation or task revalidation'
-    }
-}
-foreach($case in @('persistent','access_denied','task_changed','ordinary_error')) {
-    $attempts=[int[]]@(0,0);$refused=$false
-    $failure=New-FixtureCimFailure $(if($case -ceq 'access_denied'){2}else{1})
-    try {
-        $null=Read-StandardLauncherTaskInformation -RevalidateTask {
-            $attempts[1]++;if($case -ceq 'task_changed' -and $attempts[1] -eq 2){throw 'changed owned task'}
-        } -ReadInformation {
-            $attempts[0]++;if($case -ceq 'ordinary_error'){throw 'ordinary failure'};throw $failure
-        }
-    } catch {$refused=$true}
-    $expected=if($case -ceq 'persistent'){3}else{1}
-    if(-not $refused -or $attempts[0] -ne $expected -or $attempts[1] -gt 3) {
-        throw ('Task information failure was retried without a finite admitted observation: '+$case)
-    }
-}
 try {throw (New-FixtureCimFailure 6)} catch {$cimDiagnostic=Get-StandardLauncherErrorDiagnostic $_ 'observe_launcher_exit'}
 if($cimDiagnostic.cim_status_code -ne 6 -or $null -eq $cimDiagnostic.cim_native_error_code) {
     throw 'Original finite CIM status diagnostic was discarded'
 }
-'Launcher startup: acknowledgment/closure controls and finite revalidated CIM metadata reads checked; no tasks executed'
+try {throw [Runtime.InteropServices.COMException]::new('owned metadata failure',-2147024894)}
+catch {$comDiagnostic=Get-StandardLauncherErrorDiagnostic $_ 'observe_launcher_exit'}
+if($comDiagnostic.com_hresult -ne -2147024894){throw 'Original COM HRESULT diagnostic was discarded'}
+
+$registeredName='USK_STANDARD_PUBLIC_'+('a'*32)
+function New-FixtureRegisteredTask {
+    [pscustomobject]@{ReferenceKind='task';Name=$registeredName;Path=('\'+$registeredName);
+        LastRunTime=[DateTime]::new(2026,10,5);LastTaskResult=0}
+}
+foreach($case in @('name','path','null_time','text_time','null_result','text_result','boolean_result','fractional_result','overflow_result')) {
+    $task=New-FixtureRegisteredTask
+    switch($case) {
+        'name' {$task.Name='other'}
+        'path' {$task.Path='\other\'+$registeredName}
+        'null_time' {$task.LastRunTime=$null}
+        'text_time' {$task.LastRunTime='2026-10-05'}
+        'null_result' {$task.LastTaskResult=$null}
+        'text_result' {$task.LastTaskResult='0'}
+        'boolean_result' {$task.LastTaskResult=$false}
+        'fractional_result' {$task.LastTaskResult=0.0}
+        'overflow_result' {$task.LastTaskResult=4294967296L}
+    }
+    $refused=$false;try {$null=ConvertTo-StandardRegisteredTaskInformation $task $registeredName}catch{$refused=$true}
+    if(-not $refused){throw ('Contradictory registered task metadata accepted: '+$case)}
+}
+foreach($result in @(0,1,-2147024894,[uint32]::MaxValue)) {
+    $task=New-FixtureRegisteredTask;$task.LastTaskResult=$result
+    $info=ConvertTo-StandardRegisteredTaskInformation $task $registeredName
+    if($info.LastTaskResult -ne $result -or $info.LastRunTime -ne $task.LastRunTime -or
+        $info.observation_source -cne 'TaskScheduler.IRegisteredTask') {
+        throw 'Actual registered task result was replaced or its source lost'
+    }
+}
+function New-FixtureScheduler([string]$Mode) {
+    $state=[pscustomobject]@{Mode=$Mode;Calls=[Collections.Generic.List[string]]::new();
+        Released=[Collections.Generic.List[string]]::new()}
+    $task=New-FixtureRegisteredTask
+    if($Mode -ceq 'wrong_identity'){$task.Path='\other'}
+    $folder=[pscustomobject]@{ReferenceKind='folder';FixtureState=$state;RegisteredTask=$task}
+    $folder|Add-Member -MemberType ScriptMethod -Name GetTask -Value {
+        param($Name)
+        $this.FixtureState.Calls.Add('task:'+$Name)
+        if($this.FixtureState.Mode -in @('task','task_and_cleanup')){throw 'original task observation failure'}
+        return $this.RegisteredTask
+    }
+    $scheduler=[pscustomobject]@{ReferenceKind='scheduler';FixtureState=$state;Folder=$folder}
+    $scheduler|Add-Member -MemberType ScriptMethod -Name Connect -Value {
+        $this.FixtureState.Calls.Add('connect')
+        if($this.FixtureState.Mode -ceq 'connect'){throw 'original connect observation failure'}
+    }
+    $scheduler|Add-Member -MemberType ScriptMethod -Name GetFolder -Value {
+        param($Path)
+        $this.FixtureState.Calls.Add('folder:'+$Path)
+        if($this.FixtureState.Mode -ceq 'folder'){throw 'original folder observation failure'}
+        return $this.Folder
+    }
+    return [pscustomobject]@{State=$state;Scheduler=$scheduler}
+}
+foreach($case in @('positive','task_changed','connect','folder','task','wrong_identity','cleanup','task_and_cleanup','folder_cleanup')) {
+    $fixture=New-FixtureScheduler $case;$state=$fixture.State;$failure=$null;$info=$null
+    try {
+        $info=Read-StandardRegisteredTaskInformation -TaskName $registeredName -RevalidateTask {
+            $state.Calls.Add('revalidate');if($state.Mode -ceq 'task_changed'){throw 'changed owned task'}
+        }.GetNewClosure() -CreateScheduler {
+            $state.Calls.Add('create');return $fixture.Scheduler
+        }.GetNewClosure() -ReleaseReference {
+            param($Reference)
+            $state.Released.Add($Reference.ReferenceKind)
+            if(($state.Mode -in @('cleanup','task_and_cleanup') -and $Reference.ReferenceKind -ceq 'folder') -or
+                ($state.Mode -ceq 'folder_cleanup' -and $Reference.ReferenceKind -ceq 'folder')) {
+                throw 'reference cleanup failure'
+            }
+        }.GetNewClosure()
+    } catch {$failure=$_}
+    $expectedCalls=@('revalidate','create','connect','folder:\',('task:'+$registeredName))
+    $expectedReleased=@('task','folder','scheduler')
+    switch($case) {
+        'task_changed' {$expectedCalls=@('revalidate');$expectedReleased=@()}
+        'connect' {$expectedCalls=@('revalidate','create','connect');$expectedReleased=@('scheduler')}
+        'folder' {$expectedCalls=@('revalidate','create','connect','folder:\');$expectedReleased=@('scheduler')}
+        'task' {$expectedReleased=@('folder','scheduler')}
+        'task_and_cleanup' {$expectedReleased=@('folder','scheduler')}
+    }
+    if(($state.Calls -join '|') -cne ($expectedCalls -join '|') -or
+        ($state.Released -join '|') -cne ($expectedReleased -join '|')) {
+        throw ('Registered task observation/reverse cleanup order differs: '+$case)
+    }
+    if($case -ceq 'positive') {
+        if($failure -or $info.LastTaskResult -ne 0){throw 'Actual registered task observation was lost'}
+    } else {
+        $expectedFailure=switch($case) {
+            'task_changed' {'changed owned task'}
+            'connect' {'original connect observation failure'}
+            'folder' {'original folder observation failure'}
+            'wrong_identity' {'identity/type differs'}
+            'cleanup' {'reference cleanup failure'}
+            'folder_cleanup' {'reference cleanup failure'}
+            default {'original task observation failure'}
+        }
+        if(-not $failure -or $failure.Exception.Message -notmatch [regex]::Escape($expectedFailure) -or $null -ne $info) {
+            throw ('Registered task failure became a successful observation or lost its original error: '+$case)
+        }
+    }
+}
+$opened=[int[]]@(0);$refused=$false
+try {$null=Read-StandardRegisteredTaskInformation -TaskName 'not-owned' -RevalidateTask {} -CreateScheduler {$opened[0]++}}
+catch {$refused=$true}
+if(-not $refused -or $opened[0] -ne 0){throw 'Unowned task name reached scheduler access'}
+'Launcher startup: acknowledgment, metadata identity/types, original errors and reference cleanup checked; no tasks executed'
