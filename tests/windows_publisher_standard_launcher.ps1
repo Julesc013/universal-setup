@@ -16,17 +16,39 @@ function Update-StandardLauncherUnconfirmed {
 
 function Get-StandardLauncherErrorDiagnostic {
     param($ErrorRecord,[string]$Phase)
-    $exception=$ErrorRecord.Exception;$nativeCode=$null
+    $exception=$ErrorRecord.Exception;$nativeCode=$null;$cimNativeCode=$null;$cimStatusCode=$null
     for($depth=0;$exception -and $depth -lt 8;$depth++) {
+        if($exception -is [Microsoft.Management.Infrastructure.CimException]) {
+            $cimNativeCode=[int]$exception.NativeErrorCode;$cimStatusCode=[uint32]$exception.StatusCode
+        }
         if($exception -is [ComponentModel.Win32Exception]){$nativeCode=$exception.NativeErrorCode;break}
         $exception=$exception.InnerException
     }
     $message=[string]$ErrorRecord.Exception.Message;$stack=[string]$ErrorRecord.ScriptStackTrace
     return [ordered]@{phase=$Phase;exception_type=$ErrorRecord.Exception.GetType().FullName;
         hresult=$ErrorRecord.Exception.HResult;native_error_code=$nativeCode;
+        cim_native_error_code=$cimNativeCode;cim_status_code=$cimStatusCode;
         message_excerpt=$message.Substring(0,[Math]::Min(2048,$message.Length));
         script_name=$ErrorRecord.InvocationInfo.ScriptName;script_line=$ErrorRecord.InvocationInfo.ScriptLineNumber;
         stack_excerpt=$stack.Substring(0,[Math]::Min(4096,$stack.Length))}
+}
+
+function Read-StandardLauncherTaskInformation {
+    param([Parameter(Mandatory=$true)][scriptblock]$ReadInformation,
+        [Parameter(Mandatory=$true)][scriptblock]$RevalidateTask)
+    for($attempt=1;$attempt -le 3;$attempt++) {
+        # A missing/changed task or wrapper fails outside the retry catch.
+        & $RevalidateTask|Out-Null
+        try {return (& $ReadInformation)}
+        catch [Microsoft.Management.Infrastructure.CimException] {
+            $code=$_.Exception.NativeErrorCode;$status=$_.Exception.StatusCode
+            $retryable=$code -in @([Microsoft.Management.Infrastructure.NativeErrorCode]::Failed,
+                [Microsoft.Management.Infrastructure.NativeErrorCode]::NotFound) -or
+                ($code -eq [Microsoft.Management.Infrastructure.NativeErrorCode]::Ok -and $status -in @(1,6))
+            if(-not $retryable -or $attempt -eq 3){throw}
+            Start-Sleep -Milliseconds 100
+        }
+    }
 }
 
 function Assert-StandardLauncherAcknowledgment {

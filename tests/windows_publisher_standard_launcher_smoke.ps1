@@ -65,4 +65,43 @@ if($diagnostic.native_error_code -ne 2 -or $diagnostic.phase -cne 'acquire_launc
     $diagnostic.message_excerpt.Length -gt 2048 -or $diagnostic.stack_excerpt.Length -gt 4096) {
     throw 'Original launcher diagnostic lost its finite native failure context'
 }
-'Launcher startup: matching acknowledgment accepted; ten contradictions, byte/deadline budgets and original Win32 diagnostic checked'
+function New-FixtureCimFailure([uint32]$Status) {
+    $data=[Microsoft.Management.Infrastructure.CimInstance]::new('CIM_Error')
+    try {
+        $data.CimInstanceProperties.Add([Microsoft.Management.Infrastructure.CimProperty]::Create(
+            'CIMStatusCode',$Status,[Microsoft.Management.Infrastructure.CimType]::UInt32,[Microsoft.Management.Infrastructure.CimFlags]::None))
+        $data.CimInstanceProperties.Add([Microsoft.Management.Infrastructure.CimProperty]::Create(
+            'Message','owned synthetic information read failure',[Microsoft.Management.Infrastructure.CimType]::String,[Microsoft.Management.Infrastructure.CimFlags]::None))
+        return [Microsoft.Management.Infrastructure.CimException]::new($data)
+    } finally {$data.Dispose()}
+}
+foreach($code in @(1,6)) {
+    $attempts=[int[]]@(0,0)
+    $failure=New-FixtureCimFailure $code
+    $information=Read-StandardLauncherTaskInformation -RevalidateTask {$attempts[1]++} -ReadInformation {
+        $attempts[0]++;if($attempts[0] -lt 3){throw $failure};[pscustomobject]@{actual_observation='returned'}
+    }
+    if($attempts[0] -ne 3 -or $attempts[1] -ne 3 -or $information.actual_observation -cne 'returned') {
+        throw 'Finite task-info retries omitted actual observation or task revalidation'
+    }
+}
+foreach($case in @('persistent','access_denied','task_changed','ordinary_error')) {
+    $attempts=[int[]]@(0,0);$refused=$false
+    $failure=New-FixtureCimFailure $(if($case -ceq 'access_denied'){2}else{1})
+    try {
+        $null=Read-StandardLauncherTaskInformation -RevalidateTask {
+            $attempts[1]++;if($case -ceq 'task_changed' -and $attempts[1] -eq 2){throw 'changed owned task'}
+        } -ReadInformation {
+            $attempts[0]++;if($case -ceq 'ordinary_error'){throw 'ordinary failure'};throw $failure
+        }
+    } catch {$refused=$true}
+    $expected=if($case -ceq 'persistent'){3}else{1}
+    if(-not $refused -or $attempts[0] -ne $expected -or $attempts[1] -gt 3) {
+        throw ('Task information failure was retried without a finite admitted observation: '+$case)
+    }
+}
+try {throw (New-FixtureCimFailure 6)} catch {$cimDiagnostic=Get-StandardLauncherErrorDiagnostic $_ 'observe_launcher_exit'}
+if($cimDiagnostic.cim_status_code -ne 6 -or $null -eq $cimDiagnostic.cim_native_error_code) {
+    throw 'Original finite CIM status diagnostic was discarded'
+}
+'Launcher startup: acknowledgment/closure controls and finite revalidated CIM metadata reads checked; no tasks executed'

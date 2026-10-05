@@ -273,7 +273,9 @@ function Invoke-StandardPublicSystemTask {
         do {
             $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
             & $assertOwnedTask $task
-            $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+            $info=Read-StandardLauncherTaskInformation `
+                -ReadInformation {Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop} `
+                -RevalidateTask {& $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)}
             if(-not $launcherProcess -and (Test-Path -LiteralPath $startBinding -PathType Leaf)) {
                 $launcherPhase='read_start_binding'
                 if((Get-Item -LiteralPath $startBinding).Length -gt 4096){throw 'Owned launcher start binding exceeds bound'}
