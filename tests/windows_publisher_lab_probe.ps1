@@ -248,7 +248,7 @@ function Invoke-StandardPublicSystemTask {
     $taskArguments='-NoProfile -NonInteractive -EncodedCommand '+$encoded
     $action=New-ScheduledTaskAction -Execute $taskImage -Argument $taskArguments
     $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
-    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null;$launcherAcknowledged=$false
+    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null;$launcherAcknowledged=$false;$info=$null
     $launcherPhase='register_task'
     $script:standardLauncherClosed=$false
     $scriptSha256=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -311,8 +311,8 @@ function Invoke-StandardPublicSystemTask {
                 $launcherAcknowledged=$true
                 $launcherPhase='observe_launcher_exit'
             }
-            if($launcherAcknowledged -and $launcherProcess -and $launcherProcess.HasExited -and $info.LastRunTime.Year -gt 2000 -and
-                $info.State -in @('Ready','Disabled')) {$finished=$true;break}
+            $processExited=$launcherProcess -and $launcherProcess.HasExited
+            if(Test-StandardLauncherTerminalObservation $info $launcherAcknowledged $processExited) {$finished=$true;break}
             Start-Sleep -Milliseconds 100
         } while([DateTime]::UtcNow -lt $deadline)
         if(-not $finished -or -not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
@@ -328,6 +328,10 @@ function Invoke-StandardPublicSystemTask {
         $failedResult=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
         $diagnostic=Get-StandardLauncherErrorDiagnostic $originalLauncherError $launcherPhase
         $failedResult|Add-Member -NotePropertyName launcher_error -NotePropertyValue $diagnostic -Force
+        $processExited=$null
+        try {if($launcherProcess){$processExited=$launcherProcess.HasExited}} catch {}
+        $completion=Get-StandardLauncherCompletionDiagnostic $info $launcherAcknowledged $processExited
+        $failedResult|Add-Member -NotePropertyName launcher_completion_observation -NotePropertyValue $completion -Force
         [IO.File]::WriteAllText($OutputPath,($failedResult|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
         throw
     } finally {

@@ -65,6 +65,36 @@ if($diagnostic.native_error_code -ne 2 -or $diagnostic.phase -cne 'acquire_launc
     $diagnostic.message_excerpt.Length -gt 2048 -or $diagnostic.stack_excerpt.Length -gt 4096) {
     throw 'Original launcher diagnostic lost its finite native failure context'
 }
+$information=[pscustomobject]@{State='Ready';LastRunTime=[DateTime]::new(2026,10,5);
+    LastTaskResult=0x00041301;observation_source='TaskScheduler.IRegisteredTask'}
+if(Test-StandardLauncherTerminalObservation $information $true $true) {
+    throw 'Sequential ready/running-result observation was accepted as terminal'
+}
+$information.LastTaskResult=0
+if(-not (Test-StandardLauncherTerminalObservation $information $true $true)) {
+    throw 'Acknowledged exited zero-result launcher was not terminal'
+}
+foreach($case in @('unacknowledged','live','running_state','unrun')) {
+    $information.State=if($case -ceq 'running_state'){'Running'}else{'Ready'}
+    $information.LastRunTime=if($case -ceq 'unrun'){[DateTime]::new(1899,12,30)}else{[DateTime]::new(2026,10,5)}
+    if(Test-StandardLauncherTerminalObservation $information ($case -cne 'unacknowledged') ($case -cne 'live')) {
+        throw ('Incomplete launcher became terminal: '+$case)
+    }
+}
+$information.State='Disabled';$information.LastRunTime=[DateTime]::new(2026,10,5);$information.LastTaskResult=1
+if(-not (Test-StandardLauncherTerminalObservation $information $true $true)) {
+    throw 'Actual terminal failure was hidden as a running observation'
+}
+$completion=Get-StandardLauncherCompletionDiagnostic $information $true $true
+if($completion.last_task_result -ne 1 -or $completion.state -cne 'Disabled' -or
+    -not $completion.process_exit_confirmed -or $completion.atomic_snapshot -or $completion.qualification_granted) {
+    throw 'Observed nonzero completion diagnostic was changed or promoted'
+}
+$completion=Get-StandardLauncherCompletionDiagnostic $null $false $null
+if($null -ne $completion.last_task_result -or $null -ne $completion.process_exit_confirmed -or
+    $completion.start_acknowledged -or $completion.qualification_granted) {
+    throw 'Unknown launcher completion acquired a result or exit claim'
+}
 function New-FixtureCimFailure([uint32]$Status) {
     $data=[Microsoft.Management.Infrastructure.CimInstance]::new('CIM_Error')
     try {

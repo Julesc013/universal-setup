@@ -14,6 +14,26 @@ function Update-StandardLauncherUnconfirmed {
     return $Result
 }
 
+function Test-StandardLauncherTerminalObservation {
+    param($Information,[bool]$Acknowledged,[bool]$ProcessExitConfirmed)
+    # COM properties are sequential reads. A ready state can be read after
+    # the earlier result still reported SCHED_S_TASK_RUNNING (WinError.h).
+    # Keep polling that observation; every successful terminal still needs 0.
+    return $Acknowledged -and $ProcessExitConfirmed -and $Information.LastRunTime.Year -gt 2000 -and
+        $Information.State -in @('Ready','Disabled') -and $Information.LastTaskResult -ne 0x00041301
+}
+
+function Get-StandardLauncherCompletionDiagnostic {
+    param($Information,[bool]$Acknowledged,$ProcessExitConfirmed)
+    return [ordered]@{schema='usk.publisher_standard_launcher_completion_observation.v1';
+        observation_source=$(if($Information){$Information.observation_source}else{$null});
+        state=$(if($Information){$Information.State}else{$null});
+        last_task_result=$(if($Information){$Information.LastTaskResult}else{$null});
+        last_run_time=$(if($Information){$Information.LastRunTime.ToString('o')}else{$null});
+        start_acknowledged=$Acknowledged;process_exit_confirmed=$ProcessExitConfirmed;
+        atomic_snapshot=$false;qualification_granted=$false}
+}
+
 function Get-StandardLauncherErrorDiagnostic {
     param($ErrorRecord,[string]$Phase)
     $exception=$ErrorRecord.Exception;$nativeCode=$null;$cimNativeCode=$null;$cimStatusCode=$null;$comHresult=$null
