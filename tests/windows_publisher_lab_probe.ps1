@@ -263,18 +263,15 @@ function Invoke-StandardPublicSystemTask {
         [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     }
     try {
-        Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -ErrorAction Stop|Out-Null
+        Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -ErrorAction Stop|Out-Null
         $created=$true
         $launcherPhase='start_task'
-        & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
-        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
+        Start-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
         $launcherPhase='observe_task'
         $deadline=[DateTime]::UtcNow.AddMinutes(12)
         do {
-            $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-            & $assertOwnedTask $task
-            $info=Read-StandardRegisteredTaskInformation -TaskName $taskName `
-                -RevalidateTask {& $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)}
+            $info=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
             if(-not $launcherProcess -and (Test-Path -LiteralPath $startBinding -PathType Leaf)) {
                 $launcherPhase='read_start_binding'
                 if((Get-Item -LiteralPath $startBinding).Length -gt 4096){throw 'Owned launcher start binding exceeds bound'}
@@ -292,7 +289,7 @@ function Invoke-StandardPublicSystemTask {
                     throw 'Held owned launcher process identity differs'
                 }
                 $launcherPhase='acknowledge_launcher_custody'
-                & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+                $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
                 $ack=[ordered]@{schema='usk.publisher_standard_launcher_ack.v1';task_name=$taskName;
                     process_id=$launcherBinding.process_id;creation_file_time=$launcherBinding.creation_file_time;
                     binding_sha256=(Get-FileHash -LiteralPath $startBinding -Algorithm SHA256).Hash.ToLowerInvariant()}
@@ -306,7 +303,7 @@ function Invoke-StandardPublicSystemTask {
                 $launcherPhase='observe_launcher_exit'
             }
             if($launcherAcknowledged -and $launcherProcess -and $launcherProcess.HasExited -and $info.LastRunTime.Year -gt 2000 -and
-                $task.State -in @('Ready','Disabled')) {$finished=$true;break}
+                $info.State -in @('Ready','Disabled')) {$finished=$true;break}
             Start-Sleep -Milliseconds 100
         } while([DateTime]::UtcNow -lt $deadline)
         if(-not $finished -or -not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
@@ -327,9 +324,9 @@ function Invoke-StandardPublicSystemTask {
     } finally {
         if($created -and $finished) {
             try {
-                & $assertOwnedTask (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
-                if(Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue){throw 'Owned standard task remains registered'}
+                $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
+                Unregister-ScheduledTask -TaskName $taskName -TaskPath '\' -Confirm:$false -ErrorAction Stop
+                Assert-StandardRegisteredTaskAbsent -TaskName $taskName
             } catch {
                 & $recordUnconfirmed 'owned SYSTEM standard task removal is unconfirmed'
                 throw

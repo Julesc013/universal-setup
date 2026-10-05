@@ -85,8 +85,21 @@ if($comDiagnostic.com_hresult -ne -2147024894){throw 'Original COM HRESULT diagn
 
 $registeredName='USK_STANDARD_PUBLIC_'+('a'*32)
 function New-FixtureRegisteredTask {
+    $action=[pscustomobject]@{ReferenceKind='action';Type=0;Path='owned-image';Arguments='owned-arguments';WorkingDirectory=''}
+    $actions=[pscustomobject]@{ReferenceKind='actions';Count=1;Action=$action;FixtureState=$null}
+    $actions|Add-Member -MemberType ScriptMethod -Name Item -Value {
+        param($Index)
+        if($Index -ne 1){throw 'COM action index differs'}
+        if($this.FixtureState){
+            $this.FixtureState.Calls.Add('action:1')
+            if($this.FixtureState.Mode -ceq 'action'){throw 'original action observation failure'}
+        }
+        return $this.Action
+    }
+    $principal=[pscustomobject]@{ReferenceKind='principal';UserId='S-1-5-18';GroupId='';RunLevel=1;LogonType=5}
+    $definition=[pscustomobject]@{ReferenceKind='definition';Principal=$principal;Actions=$actions}
     [pscustomobject]@{ReferenceKind='task';Name=$registeredName;Path=('\'+$registeredName);
-        LastRunTime=[DateTime]::new(2026,10,5);LastTaskResult=0}
+        LastRunTime=[DateTime]::new(2026,10,5);LastTaskResult=0;State=3;Definition=$definition}
 }
 foreach($case in @('name','path','null_time','text_time','null_result','text_result','boolean_result','fractional_result','overflow_result')) {
     $task=New-FixtureRegisteredTask
@@ -116,12 +129,18 @@ function New-FixtureScheduler([string]$Mode) {
     $state=[pscustomobject]@{Mode=$Mode;Calls=[Collections.Generic.List[string]]::new();
         Released=[Collections.Generic.List[string]]::new()}
     $task=New-FixtureRegisteredTask
+    $task.Definition.Actions.FixtureState=$state
     if($Mode -ceq 'wrong_identity'){$task.Path='\other'}
+    if($Mode -ceq 'binding_user'){$task.Definition.Principal.UserId='S-1-5-19'}
+    if($Mode -ceq 'binding_image'){$task.Definition.Actions.Action.Path='other-image'}
+    if($Mode -ceq 'binding_arguments'){$task.Definition.Actions.Action.Arguments='other-arguments'}
     $folder=[pscustomobject]@{ReferenceKind='folder';FixtureState=$state;RegisteredTask=$task}
     $folder|Add-Member -MemberType ScriptMethod -Name GetTask -Value {
         param($Name)
         $this.FixtureState.Calls.Add('task:'+$Name)
         if($this.FixtureState.Mode -in @('task','task_and_cleanup')){throw 'original task observation failure'}
+        if($this.FixtureState.Mode -ceq 'missing'){throw [Runtime.InteropServices.COMException]::new('exact task absent',-2147024894)}
+        if($this.FixtureState.Mode -ceq 'access'){throw [Runtime.InteropServices.COMException]::new('task access denied',-2147024891)}
         return $this.RegisteredTask
     }
     $scheduler=[pscustomobject]@{ReferenceKind='scheduler';FixtureState=$state;Folder=$folder}
@@ -133,15 +152,23 @@ function New-FixtureScheduler([string]$Mode) {
         param($Path)
         $this.FixtureState.Calls.Add('folder:'+$Path)
         if($this.FixtureState.Mode -ceq 'folder'){throw 'original folder observation failure'}
+        if($this.FixtureState.Mode -ceq 'folder_missing'){throw [Runtime.InteropServices.COMException]::new('folder absent',-2147024894)}
         return $this.Folder
     }
     return [pscustomobject]@{State=$state;Scheduler=$scheduler}
 }
-foreach($case in @('positive','task_changed','connect','folder','task','wrong_identity','cleanup','task_and_cleanup','folder_cleanup')) {
+foreach($case in @('positive','task_changed','connect','folder','task','action','wrong_identity','cleanup','task_and_cleanup','folder_cleanup',
+    'binding_user','binding_image','binding_arguments')) {
     $fixture=New-FixtureScheduler $case;$state=$fixture.State;$failure=$null;$info=$null
     try {
         $info=Read-StandardRegisteredTaskInformation -TaskName $registeredName -RevalidateTask {
+            param($Observed)
             $state.Calls.Add('revalidate');if($state.Mode -ceq 'task_changed'){throw 'changed owned task'}
+            if($Observed.TaskName -cne $registeredName -or $Observed.TaskPath -cne '\' -or
+                $Observed.Actions[0].Execute -cne 'owned-image' -or $Observed.Actions[0].Arguments -cne 'owned-arguments' -or
+                $Observed.Principal.UserId -cne 'S-1-5-18') {
+                throw 'Plain definition binding differs'
+            }
         }.GetNewClosure() -CreateScheduler {
             $state.Calls.Add('create');return $fixture.Scheduler
         }.GetNewClosure() -ReleaseReference {
@@ -153,14 +180,15 @@ foreach($case in @('positive','task_changed','connect','folder','task','wrong_id
             }
         }.GetNewClosure()
     } catch {$failure=$_}
-    $expectedCalls=@('revalidate','create','connect','folder:\',('task:'+$registeredName))
-    $expectedReleased=@('task','folder','scheduler')
+    $expectedCalls=@('create','connect','folder:\',('task:'+$registeredName),'action:1','revalidate')
+    $expectedReleased=@('action','actions','principal','definition','task','folder','scheduler')
     switch($case) {
-        'task_changed' {$expectedCalls=@('revalidate');$expectedReleased=@()}
-        'connect' {$expectedCalls=@('revalidate','create','connect');$expectedReleased=@('scheduler')}
-        'folder' {$expectedCalls=@('revalidate','create','connect','folder:\');$expectedReleased=@('scheduler')}
-        'task' {$expectedReleased=@('folder','scheduler')}
-        'task_and_cleanup' {$expectedReleased=@('folder','scheduler')}
+        'connect' {$expectedCalls=@('create','connect');$expectedReleased=@('scheduler')}
+        'folder' {$expectedCalls=@('create','connect','folder:\');$expectedReleased=@('scheduler')}
+        'task' {$expectedCalls=$expectedCalls[0..3];$expectedReleased=@('folder','scheduler')}
+        'task_and_cleanup' {$expectedCalls=$expectedCalls[0..3];$expectedReleased=@('folder','scheduler')}
+        'wrong_identity' {$expectedCalls=$expectedCalls[0..3];$expectedReleased=@('task','folder','scheduler')}
+        'action' {$expectedCalls=$expectedCalls[0..4];$expectedReleased=@('actions','principal','definition','task','folder','scheduler')}
     }
     if(($state.Calls -join '|') -cne ($expectedCalls -join '|') -or
         ($state.Released -join '|') -cne ($expectedReleased -join '|')) {
@@ -176,6 +204,10 @@ foreach($case in @('positive','task_changed','connect','folder','task','wrong_id
             'wrong_identity' {'identity/type differs'}
             'cleanup' {'reference cleanup failure'}
             'folder_cleanup' {'reference cleanup failure'}
+            'action' {'original action observation failure'}
+            'binding_user' {'Plain definition binding differs'}
+            'binding_image' {'Plain definition binding differs'}
+            'binding_arguments' {'Plain definition binding differs'}
             default {'original task observation failure'}
         }
         if(-not $failure -or $failure.Exception.Message -notmatch [regex]::Escape($expectedFailure) -or $null -ne $info) {
@@ -183,8 +215,67 @@ foreach($case in @('positive','task_changed','connect','folder','task','wrong_id
         }
     }
 }
+foreach($case in @('state_text','state_boolean','state_range','user_empty','group','group_boolean','runlevel_text','runlevel_boolean',
+    'runlevel','logon_text','logon','count_boolean','count','action_type_text','action_type','path_null',
+    'arguments_null','directory_null','directory','principal_null','actions_null','action_null')) {
+    $fixture=New-FixtureScheduler 'positive';$task=$fixture.Scheduler.Folder.RegisteredTask
+    $principal=$task.Definition.Principal;$actions=$task.Definition.Actions;$action=$actions.Action
+    switch($case) {
+        'state_text' {$task.State='3'}
+        'state_boolean' {$task.State=$true}
+        'state_range' {$task.State=5}
+        'user_empty' {$principal.UserId=''}
+        'group' {$principal.GroupId='S-1-5-32-544'}
+        'group_boolean' {$principal.GroupId=$false}
+        'runlevel_text' {$principal.RunLevel='1'}
+        'runlevel_boolean' {$principal.RunLevel=$true}
+        'runlevel' {$principal.RunLevel=0}
+        'logon_text' {$principal.LogonType='5'}
+        'logon' {$principal.LogonType=1}
+        'count_boolean' {$actions.Count=$true}
+        'count' {$actions.Count=2}
+        'action_type_text' {$action.Type='0'}
+        'action_type' {$action.Type=5}
+        'path_null' {$action.Path=$null}
+        'arguments_null' {$action.Arguments=$null}
+        'directory_null' {$action.WorkingDirectory=$null}
+        'directory' {$action.WorkingDirectory='other'}
+        'principal_null' {$task.Definition.Principal=$null}
+        'actions_null' {$task.Definition.Actions=$null}
+        'action_null' {$actions.Action=$null}
+    }
+    $observed=[int[]]@(0);$refused=$false
+    try {$null=Read-StandardRegisteredTaskInformation -TaskName $registeredName -RevalidateTask {$observed[0]++} `
+        -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {}}
+    catch {$refused=$true}
+    if(-not $refused -or $observed[0] -ne 0){throw ('Contradictory COM definition reached binding validation: '+$case)}
+}
+foreach($value in 0..4) {
+    $fixture=New-FixtureScheduler 'positive';$fixture.Scheduler.Folder.RegisteredTask.State=$value
+    $info=Read-StandardRegisteredTaskInformation -TaskName $registeredName -RevalidateTask {} `
+        -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {}
+    if($info.State -cne @('Unknown','Disabled','Queued','Ready','Running')[$value]){throw 'Actual task state mapping differs'}
+}
+foreach($case in @('missing','positive','task','access','folder_missing','connect','cleanup')) {
+    $mode=if($case -ceq 'cleanup'){'missing'}else{$case}
+    $fixture=New-FixtureScheduler $mode;$state=$fixture.State;$failure=$null
+    try {Assert-StandardRegisteredTaskAbsent -TaskName $registeredName `
+        -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {
+            param($Reference)
+            $state.Released.Add($Reference.ReferenceKind)
+            if($case -ceq 'cleanup' -and $Reference.ReferenceKind -ceq 'folder'){throw 'absence cleanup failed'}
+        }.GetNewClosure()}
+    catch {$failure=$_}
+    if(($case -ceq 'missing') -ne ($null -eq $failure)){throw ('Unconfirmed task absence became successful: '+$case)}
+    $released=if($case -ceq 'positive'){'task|folder|scheduler'}elseif($case -in @('connect','folder_missing')){'scheduler'}else{'folder|scheduler'}
+    if(($state.Released -join '|') -cne $released){throw ('Absence reference cleanup order differs: '+$case)}
+}
 $opened=[int[]]@(0);$refused=$false
 try {$null=Read-StandardRegisteredTaskInformation -TaskName 'not-owned' -RevalidateTask {} -CreateScheduler {$opened[0]++}}
 catch {$refused=$true}
 if(-not $refused -or $opened[0] -ne 0){throw 'Unowned task name reached scheduler access'}
+$refused=$false
+try {Assert-StandardRegisteredTaskAbsent -TaskName 'not-owned' -CreateScheduler {$opened[0]++}}
+catch {$refused=$true}
+if(-not $refused -or $opened[0] -ne 0){throw 'Unowned task absence reached scheduler access'}
 'Launcher startup: acknowledgment, metadata identity/types, original errors and reference cleanup checked; no tasks executed'
