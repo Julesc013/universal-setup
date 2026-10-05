@@ -154,15 +154,41 @@ void validate_effect(const std::string& operation, const std::string& kind, cons
             !digest(details.at("prior_manifest_digest").as_string()))
             throw std::runtime_error("maintenance ownership binding is invalid");
     } else if (kind == "write_installed") {
-        exact_keys(details, {"install_id", "state_digest"});
+        std::set<std::string> keys{"install_id", "state_digest"};
+        if (details.as_object().count("state_revision")) keys.insert("state_revision");
+        exact_keys(details, keys);
         if (!usk::record_io::valid_identifier(details.at("install_id").as_string()) ||
             !digest(details.at("state_digest").as_string()))
             throw std::runtime_error("maintenance installed-state binding is invalid");
+        if (keys.count("state_revision")) {
+            const auto& revision = details.at("state_revision");
+            exact_keys(revision, {"target_root", "ownership_manifest_ref", "ownership_manifest_digest",
+                "transaction_id", "created_at", "lifecycle_status", "last_verification"});
+            for (const char* key : {"target_root", "ownership_manifest_ref", "transaction_id",
+                    "created_at", "lifecycle_status"}) (void)revision.at(key).as_string();
+            if (!digest(revision.at("ownership_manifest_digest").as_string()))
+                throw std::runtime_error("maintenance installed-state ownership digest is invalid");
+            const auto& verification = revision.at("last_verification");
+            exact_keys(verification, {"report_id", "report_digest", "status", "verified_at"});
+            for (const char* key : {"report_id", "status", "verified_at"}) (void)verification.at(key).as_string();
+            if (!digest(verification.at("report_digest").as_string()))
+                throw std::runtime_error("maintenance installed-state verification digest is invalid");
+        }
     } else if (kind == "append_audit") {
-        exact_keys(details, {"chain_id", "input_digest"});
+        std::set<std::string> keys{"chain_id", "input_digest"};
+        if (details.as_object().count("input")) keys.insert("input");
+        exact_keys(details, keys);
         if (!usk::record_io::valid_identifier(details.at("chain_id").as_string()) ||
             !digest(details.at("input_digest").as_string()))
             throw std::runtime_error("maintenance audit binding is invalid");
+        if (keys.count("input")) {
+            const auto& input = details.at("input");
+            exact_keys(input, {"created_at", "operation", "phase", "status", "subject_type",
+                "subject_id", "details_digest", "transaction_id", "plan_id", "message"});
+            for (const auto& member : input.as_object()) (void)member.second.as_string();
+            if (usk::json::sha256_canonical(input) != details.at("input_digest").as_string())
+                throw std::runtime_error("maintenance audit postimage digest differs");
+        }
     } else {
         throw std::runtime_error("maintenance effect kind is unknown");
     }

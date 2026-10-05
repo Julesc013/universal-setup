@@ -6,6 +6,7 @@
 #include "usk_lifecycle.h"
 #include "usk_maintenance_context_internal.h"
 #include "usk_maintenance_effect_journal.h"
+#include "usk_record_io.h"
 #include "usk_maintenance_recovery_internal.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
@@ -730,7 +731,7 @@ int maintenance_effect_interruption_proof()
         {"repair", "write_installed", "after_effect"}, {"move", "write_installed", "after_effect"},
         {"uninstall", "write_installed", "after_effect"}, {"repair", "append_audit", "after_effect"},
         {"move", "append_audit", "after_effect"}, {"uninstall", "append_audit", "after_effect"}};
-    for (const auto& boundary : boundaries) {
+    for (const bool use_executor : {false, true}) for (const auto& boundary : boundaries) {
         const std::string operation(boundary.operation), kind(boundary.kind), side(boundary.side);
         const bool effect_happened = side == "after_effect";
         Fixture fixture;
@@ -862,7 +863,101 @@ int maintenance_effect_interruption_proof()
         if (repeated.journal_digest != history.journal_digest || repeated.completed_effects != history.completed_effects ||
             repeated.pending_kind != history.pending_kind || repeated.sealed)
             throw std::runtime_error("source-free maintenance inspection changed its retained history");
-        if (effect_happened) {
+        if (use_executor) {
+            // This is an ordinary owned-fixture backend, not a native service
+            // lease or proof of protected payload authority. It exercises the
+            // executor with the original source readers already out of scope.
+            std::size_t gates = 0, applied_effects = 0;
+            usk::lifecycle::detail::MaintenanceRecoveryOperations operations;
+            operations.require_authority = [&](const auto& actual_spec, const auto& actual_transaction, const auto& actual_history) {
+                ++gates;
+                const auto current = usk::state::StateRepository(spec.state_root).read_installed(install_id);
+                if (actual_spec.transaction_id != transaction_id || actual_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                    actual_history.source_context != history.source_context ||
+                    (current.transaction_id != original.installed_state.transaction_id && current.transaction_id != transaction_id) ||
+                    usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha)
+                    throw std::runtime_error("fixture recovery operation binding changed");
+            };
+            operations.apply_effect = [&](const auto& actual_spec, const auto& actual_history) {
+                ++applied_effects;
+                const auto& effect = actual_history.pending_details;
+                if (kind == "backup_file") {
+                    const fs::path relative = fs::u8path(effect.at("relative_path").as_string());
+                    const fs::path backup = operation_target / "backup" / relative;
+                    fs::create_directories(backup.parent_path());
+                    usk::record_io::require_safe_directory(backup.parent_path());
+                    usk::record_io::rename_no_replace(target / relative, backup);
+                } else if (kind == "replace_file") {
+                    const fs::path relative = fs::u8path(effect.at("relative_path").as_string());
+                    usk::record_io::rename_no_replace(operation_target / "payload" / relative, target / relative);
+                } else if (kind == "remove_file" || kind == "remove_directory") {
+                    const fs::path root = effect.at("root_role").as_string() == "installed" ? target : operation_target;
+                    const fs::path path = root / fs::u8path(effect.at("relative_path").as_string());
+                    if (!fs::remove(path)) {
+                        if (kind == "remove_directory") return std::string("retained");
+                        throw std::runtime_error("fixture recovery removal did not happen");
+                    }
+                } else if (kind == "write_ownership") {
+                    (void)usk::state::StateRepository(spec.state_root).write_ownership(
+                        usk::lifecycle::detail::maintenance_ownership_postimage(actual_spec, actual_history));
+                } else if (kind == "write_installed") {
+                    usk::state::StateRepository(spec.state_root).write_installed(
+                        usk::lifecycle::detail::maintenance_installed_postimage(actual_spec, actual_history));
+                } else if (kind == "append_audit") {
+                    (void)usk::audit::AuditRepository(spec.audit_root).append(effect.at("chain_id").as_string(),
+                        usk::lifecycle::detail::maintenance_audit_postimage(actual_spec, actual_history));
+                } else {
+                    throw std::runtime_error("fixture has no resumable publication backend");
+                }
+                return std::string("applied");
+            };
+            const auto recover = [&](const auto& backend, const std::string& transaction_hash, const std::string& history_hash,
+                    usk::transaction::FaultInjector inject = {}) {
+                return usk::lifecycle::detail::recover_pending_maintenance_effect(spec, transaction_hash,
+                    history_hash, backend, std::move(inject));
+            };
+            const usk::lifecycle::detail::MaintenanceRecoveryOperations absent_backend;
+            if (!refuses([&] { (void)recover(absent_backend, transaction.snapshot_sha256, history.journal_digest); }) ||
+                !refuses([&] { (void)recover(operations, std::string(64, 'f'), history.journal_digest); }) ||
+                !refuses([&] { (void)recover(operations, transaction.snapshot_sha256, std::string(64, 'f')); }) ||
+                gates != 0u || applied_effects != 0u)
+                throw std::runtime_error("maintenance recovery accepted a missing backend or changed exact snapshot");
+            if (!effect_happened && kind == "publish_target") {
+                if (transaction.commit_started || transaction.current_state != "recovery_required" ||
+                    !refuses([&] { (void)recover(operations, transaction.snapshot_sha256, history.journal_digest); }) ||
+                    applied_effects != 0u ||
+                    usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest).journal_digest != history.journal_digest)
+                    throw std::runtime_error("maintenance recovery published an original retained precommit transaction");
+                continue;
+            }
+            auto denied = operations;
+            denied.require_authority = [](const auto&, const auto&, const auto&) { throw std::runtime_error("fixture fence refused"); };
+            if (!refuses([&] { (void)recover(denied, transaction.snapshot_sha256, history.journal_digest); }) || applied_effects != 0u)
+                throw std::runtime_error("maintenance recovery bypassed its operation fence");
+            if (!effect_happened) {
+                auto no_effect = operations;
+                no_effect.apply_effect = [](const auto&, const auto&) { return std::string("applied"); };
+                if (!refuses([&] { (void)recover(no_effect, transaction.snapshot_sha256, history.journal_digest); }) ||
+                    usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest).journal_digest != history.journal_digest)
+                    throw std::runtime_error("maintenance recovery recorded an effect without its actual postcondition");
+                if (!refuses([&] { (void)recover(operations, transaction.snapshot_sha256, history.journal_digest,
+                        [](const auto& state, const auto& point) {
+                            if (state == "pending_effect" && point == "after_effect") throw std::runtime_error("fixture resumed-effect interruption");
+                        }); }) || applied_effects != 1u ||
+                    usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest).journal_digest != history.journal_digest ||
+                    usk::lifecycle::detail::reconcile_maintenance_effect(spec).state != "compatible_after_effect")
+                    throw std::runtime_error("maintenance recovery lost an uncertain resumed effect");
+            }
+            const auto resolved_observation = recover(operations, transaction.snapshot_sha256, history.journal_digest);
+            const auto resolved = usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest);
+            if (resolved_observation.state != "no_pending_effect" || !resolved.pending_kind.empty() || resolved.sealed ||
+                resolved.completed_effects != history.completed_effects + 1u ||
+                applied_effects != (effect_happened ? 0u : 1u) ||
+                usk::transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != transaction.snapshot_sha256 ||
+                usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha ||
+                !refuses([&] { (void)recover(operations, transaction.snapshot_sha256, history.journal_digest); }))
+                throw std::runtime_error("maintenance pending-effect recovery changed context, replayed twice or claimed transaction completion");
+        } else if (effect_happened) {
             // This fixture independently observed the after-effect boundary.
             // A production resumer needs its native authority and current
             // revision in addition to the read-only compatibility result.

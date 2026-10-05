@@ -764,13 +764,28 @@ std::string maintenance_installed_digest(const usk::state::InstalledState& insta
             {"verified_at", Value(installed.last_verification.verified_at)}})}}));
 }
 
+Value maintenance_installed_revision(const usk::state::InstalledState& installed)
+{
+    return Value(Value::Object{{"target_root", Value(installed.target_root)},
+        {"ownership_manifest_ref", Value(installed.ownership_manifest_ref)},
+        {"ownership_manifest_digest", Value(installed.ownership_manifest_digest)},
+        {"transaction_id", Value(installed.transaction_id)}, {"created_at", Value(installed.created_at)},
+        {"lifecycle_status", Value(installed.lifecycle_status)},
+        {"last_verification", Value(Value::Object{
+            {"report_id", Value(installed.last_verification.report_id)},
+            {"report_digest", Value(installed.last_verification.report_digest)},
+            {"status", Value(installed.last_verification.status)},
+            {"verified_at", Value(installed.last_verification.verified_at)}})}});
+}
+
 void maintenance_installed_write(usk::transaction::MaintenanceEffectJournal& journal,
     const usk::state::StateRepository& repository, const usk::state::InstalledState& installed,
     const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation)
 {
     const std::string hash = maintenance_installed_digest(installed);
     journal.begin_effect("write_installed", Value(Value::Object{
-        {"install_id", Value(installed.install_id)}, {"state_digest", Value(hash)}}));
+        {"install_id", Value(installed.install_id)}, {"state_digest", Value(hash)},
+        {"state_revision", maintenance_installed_revision(installed)}}));
     if (injector) injector(operation, "effect.write_installed.before_effect");
     repository.write_installed(installed);
     if (injector) injector(operation, "effect.write_installed.after_effect");
@@ -782,7 +797,8 @@ void maintenance_audit_append(usk::transaction::MaintenanceEffectJournal& journa
     const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation)
 {
     journal.begin_effect("append_audit", Value(Value::Object{{"chain_id", Value(chain_id)},
-        {"input_digest", Value(usk::json::sha256_canonical(maintenance_audit_binding(input)))}}));
+        {"input_digest", Value(usk::json::sha256_canonical(maintenance_audit_binding(input)))},
+        {"input", maintenance_audit_binding(input)}}));
     if (injector) injector(operation, "effect.append_audit.before_effect");
     const auto event = usk::audit::AuditRepository(audit_root).append(chain_id, input);
     if (injector) injector(operation, "effect.append_audit.after_effect");
@@ -2639,6 +2655,193 @@ UninstallResult apply_uninstall(
 }
 
 namespace detail {
+namespace {
+state::InstalledState maintenance_original_effect(const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history, const std::string& kind)
+{
+    const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
+    const auto actual = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+    const auto observation = reconcile_maintenance_effect(spec);
+    if (history.source_digest != actual.source_digest || history.journal_digest != actual.journal_digest ||
+        history.source_context != actual.source_context || history.pending_kind != kind ||
+        actual.pending_kind != kind || json::canonical(history.pending_details) != json::canonical(actual.pending_details) ||
+        (observation.state != "compatible_before_effect" && observation.state != "compatible_after_effect"))
+        throw std::runtime_error("maintenance metadata postimage does not bind the current pending effect");
+    const auto context = json::parse(actual.source_context);
+    return state::StateRepository(spec.state_root).read_installed_snapshot(context.at("install_id").as_string(),
+        context.at("original_installed_transaction_id").as_string());
+}
+
+state::OwnershipManifest maintenance_expected_ownership(const transaction::TransactionSpec& spec,
+    const state::InstalledState& original)
+{
+    const auto& reference = original.ownership_manifest_ref;
+    auto ownership = state::StateRepository(spec.state_root).read_ownership(reference.substr(10, reference.size() - 15));
+    if (ownership.manifest_digest != original.ownership_manifest_digest)
+        throw std::runtime_error("maintenance original ownership changed");
+    if (spec.operation != "uninstall") {
+        ownership.manifest_id = "ownership." + original.install_id + "." + spec.transaction_id;
+        ownership.created_by_transaction_id = spec.transaction_id;
+        ownership.manifest_digest.clear();
+        if (spec.operation == "move") ownership.target_root = spec.target_root.string();
+    }
+    return ownership;
+}
+
+bool maintenance_same_ownership(const state::OwnershipManifest& actual, const state::OwnershipManifest& expected)
+{
+    if (actual.manifest_id != expected.manifest_id || actual.install_id != expected.install_id ||
+        actual.created_by_transaction_id != expected.created_by_transaction_id ||
+        fs::absolute(actual.target_root).lexically_normal() != fs::absolute(expected.target_root).lexically_normal() ||
+        actual.directories != expected.directories || actual.files.size() != expected.files.size()) return false;
+    for (std::size_t index = 0; index < actual.files.size(); ++index) {
+        if (actual.files[index].relative_path != expected.files[index].relative_path ||
+            actual.files[index].sha256 != expected.files[index].sha256 ||
+            actual.files[index].size_bytes != expected.files[index].size_bytes) return false;
+    }
+    return true;
+}
+} // namespace
+
+state::OwnershipManifest maintenance_ownership_postimage(const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history)
+{
+    const auto original = maintenance_original_effect(spec, history, "write_ownership");
+    auto ownership = maintenance_expected_ownership(spec, original);
+    if (spec.operation == "uninstall" || history.pending_details.at("manifest_id").as_string() != ownership.manifest_id ||
+        history.pending_details.at("prior_manifest_digest").as_string() != original.ownership_manifest_digest)
+        throw std::runtime_error("maintenance ownership postimage differs from the original operation");
+    return ownership;
+}
+
+state::InstalledState maintenance_installed_postimage(const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history)
+{
+    auto installed = maintenance_original_effect(spec, history, "write_installed");
+    if (!history.pending_details.as_object().count("state_revision"))
+        throw std::runtime_error("legacy maintenance intent has no installed-state postimage");
+    const auto context = json::parse(history.source_context);
+    const auto expected_ownership = maintenance_expected_ownership(spec, installed);
+    const auto ownership = state::StateRepository(spec.state_root).read_ownership(expected_ownership.manifest_id);
+    if (!maintenance_same_ownership(ownership, expected_ownership))
+        throw std::runtime_error("maintenance postimage ownership differs from the original closure");
+    const auto& revision = history.pending_details.at("state_revision");
+    const auto& verification = revision.at("last_verification");
+    const std::string expected_status = spec.operation == "repair" ? "verified" : "move_pending_acceptance";
+    const std::string report_suffix = spec.operation == "repair" ? ".after" : spec.operation == "move" ? ".new" : ".uninstall";
+    if (history.pending_details.at("install_id").as_string() != installed.install_id ||
+        revision.at("transaction_id").as_string() != spec.transaction_id ||
+        revision.at("created_at").as_string() != context.at("applied_at").as_string() ||
+        !valid_timestamp(revision.at("created_at").as_string()) || revision.at("created_at").as_string() <= installed.created_at ||
+        fs::absolute(fs::u8path(revision.at("target_root").as_string())).lexically_normal() !=
+            fs::absolute(expected_ownership.target_root).lexically_normal() ||
+        revision.at("ownership_manifest_ref").as_string() != "ownership/" + ownership.manifest_id + ".json" ||
+        revision.at("ownership_manifest_digest").as_string() != ownership.manifest_digest ||
+        (spec.operation == "uninstall" ?
+            (revision.at("lifecycle_status").as_string() != "retired" && revision.at("lifecycle_status").as_string() != "uninstall_blocked") :
+            revision.at("lifecycle_status").as_string() != expected_status) ||
+        verification.at("report_id").as_string() != "verify." + spec.transaction_id + report_suffix ||
+        verification.at("verified_at").as_string() != context.at("applied_at").as_string() ||
+        (verification.at("status").as_string() != "pass" && verification.at("status").as_string() != "warn"))
+        throw std::runtime_error("maintenance installed-state postimage differs from the original operation");
+    installed.target_root = revision.at("target_root").as_string();
+    installed.ownership_manifest_ref = revision.at("ownership_manifest_ref").as_string();
+    installed.ownership_manifest_digest = revision.at("ownership_manifest_digest").as_string();
+    installed.transaction_id = revision.at("transaction_id").as_string();
+    installed.created_at = revision.at("created_at").as_string();
+    installed.lifecycle_status = revision.at("lifecycle_status").as_string();
+    installed.last_verification = {verification.at("report_id").as_string(), verification.at("report_digest").as_string(),
+        verification.at("status").as_string(), verification.at("verified_at").as_string()};
+    if (maintenance_installed_digest(installed) != history.pending_details.at("state_digest").as_string())
+        throw std::runtime_error("maintenance installed-state postimage digest differs");
+    return installed;
+}
+
+audit::AuditInput maintenance_audit_postimage(const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history)
+{
+    const auto original = maintenance_original_effect(spec, history, "append_audit");
+    if (!history.pending_details.as_object().count("input"))
+        throw std::runtime_error("legacy maintenance intent has no audit postimage");
+    const auto context = json::parse(history.source_context);
+    const auto& input = history.pending_details.at("input");
+    const auto installed = state::StateRepository(spec.state_root).read_installed_snapshot(original.install_id, spec.transaction_id);
+    if (history.pending_details.at("chain_id").as_string() != original.audit_chain_id ||
+        input.at("created_at").as_string() != context.at("applied_at").as_string() ||
+        input.at("operation").as_string() != spec.operation || input.at("phase").as_string() != "completed" ||
+        input.at("subject_type").as_string() != "installation" || input.at("subject_id").as_string() != original.install_id ||
+        input.at("transaction_id").as_string() != spec.transaction_id || input.at("plan_id").as_string() != spec.plan_id ||
+        input.at("details_digest").as_string() != installed.last_verification.report_digest ||
+        input.at("status").as_string() != installed.last_verification.status ||
+        (input.at("status").as_string() != "pass" && input.at("status").as_string() != "warn") ||
+        json::sha256_canonical(input) != history.pending_details.at("input_digest").as_string())
+        throw std::runtime_error("maintenance audit postimage differs from the completed installed revision");
+    return {input.at("created_at").as_string(), input.at("operation").as_string(), input.at("phase").as_string(),
+        input.at("status").as_string(), input.at("subject_type").as_string(), input.at("subject_id").as_string(),
+        input.at("details_digest").as_string(), input.at("transaction_id").as_string(), input.at("plan_id").as_string(),
+        input.at("message").as_string()};
+}
+
+MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transaction::TransactionSpec& spec,
+    const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
+    const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector)
+{
+    if (!operations.require_authority || !operations.apply_effect || !sha256(expected_transaction_snapshot_sha256) ||
+        !sha256(expected_history_digest)) throw std::runtime_error("maintenance recovery has no operation-owned backend or exact snapshot");
+    const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
+    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+    if (transaction.snapshot_sha256 != expected_transaction_snapshot_sha256 || history.journal_digest != expected_history_digest ||
+        history.sealed || history.pending_kind.empty() || !transaction.commit_started ||
+        (transaction.current_state != "committing" && transaction.current_state != "committed" &&
+         transaction.current_state != "recovery_required"))
+        throw std::runtime_error("maintenance recovery snapshot changed or transaction is not resumable");
+    const auto pin = [&] {
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto effects = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        if (current.snapshot_sha256 != transaction.snapshot_sha256 || effects.journal_digest != history.journal_digest)
+            throw std::runtime_error("maintenance recovery changed during its pending effect");
+        operations.require_authority(spec, current, effects);
+    };
+    pin();
+    auto observation = reconcile_maintenance_effect(spec);
+    std::string outcome = "applied";
+    if (observation.state == "compatible_before_effect") {
+        // Old hash-only metadata intents remain inspectable, but cannot supply
+        // a missing write. No reconstructed or newly chosen postimage is used.
+        if (history.pending_kind == "write_ownership") (void)maintenance_ownership_postimage(spec, history);
+        if (history.pending_kind == "write_installed") (void)maintenance_installed_postimage(spec, history);
+        if (history.pending_kind == "append_audit") (void)maintenance_audit_postimage(spec, history);
+        if (injector) injector("pending_effect", "before_effect");
+        pin();
+        outcome = operations.apply_effect(spec, history);
+        if (injector) injector("pending_effect", "after_effect");
+        pin();
+        observation = reconcile_maintenance_effect(spec);
+        const bool retained = outcome == "retained" && history.pending_kind == "remove_directory" &&
+            observation.state == "compatible_before_effect";
+        if (!retained && (outcome != "applied" || observation.state != "compatible_after_effect"))
+            throw std::runtime_error("maintenance recovery effect has no bound postcondition");
+    } else if (observation.state != "compatible_after_effect") {
+        throw std::runtime_error("maintenance recovery pending effect is indeterminate");
+    }
+    if (observation.source_digest != history.source_digest || observation.history_digest != history.journal_digest ||
+        observation.pending_kind != history.pending_kind)
+        throw std::runtime_error("maintenance recovery postcondition changed its original binding");
+    if (injector) injector("pending_effect", "before_completion");
+    pin();
+    auto records = transaction::MaintenanceEffectJournal::resume(spec, history.source_digest, history.journal_digest);
+    records->complete_effect(outcome, observation.result_digest);
+    const auto current = transaction::TransactionSession::inspect_recovery(spec);
+    const auto completed = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+    if (current.snapshot_sha256 != transaction.snapshot_sha256 || completed.source_context != history.source_context ||
+        completed.sealed || !completed.pending_kind.empty() || completed.completed_effects != history.completed_effects + 1u ||
+        completed.next_sequence != history.next_sequence + 1u)
+        throw std::runtime_error("maintenance recovery completion differs from its exact original history");
+    operations.require_authority(spec, current, completed);
+    if (injector) injector("pending_effect", "after_completion");
+    return reconcile_maintenance_effect(spec);
+}
+
 MaintenanceEffectReconciliation reconcile_maintenance_effect(const transaction::TransactionSpec& spec)
 {
     const auto transaction = transaction::TransactionSession::inspect_recovery(spec);

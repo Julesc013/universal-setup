@@ -85,6 +85,22 @@ actor or grant effect completion: the registered resumer still needs current
 native custody, revision, operation and worker fences before completing or
 executing an effect. Whole maintenance recovery and public routing remain WIP.
 
+New installed-state intents retain a bounded revision postimage, and audit
+intents retain the bounded canonical input. Read-only reconstructors join these
+with the original immutable installed snapshot and ownership rather than
+choosing new metadata during replay. Legacy hash-only intents remain readable;
+they cannot supply a missing installed-state or audit write.
+
+The internal pending-effect executor requires an operation-owned backend that
+retains native custody and checks its revision, generation and worker fences.
+It has no pathname fallback. It pins the transaction and effect history around
+the effect and completion record, requires a durable commit-start transition,
+refuses rolled-back or terminal transactions,
+and retains an unresolved intent after an uncertain effect. Resolving one
+intent neither resumes nor completes the whole transaction. Ordinary fixture
+backends exercise this orchestration; a registered native maintenance backend
+and its hosted runtime qualification remain unfinished.
+
 `recovery.inspect`, `recovery.plan`, and `recovery.apply` can complete the
 post-commit install-local window only after a caller has reviewed the exact
 recovery plan. `recovery.apply` accepts `selected_action: "finalize"` only for
