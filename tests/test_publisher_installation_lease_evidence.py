@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from publisher_installation_lease_evidence import canonical, digest, snapshot, transition, bootstrap_takeover, LeaseEvidenceError
+from publisher_installation_lease_evidence import canonical, digest, snapshot, transition, bootstrap_takeover, bootstrap_preservation_takeover, LeaseEvidenceError
 
 DRIVE = 'U:\\'
 ROOT = '0000000000000001:' + 'a' * 32
@@ -154,7 +154,83 @@ def takeover_fixture(anchor_count=4, snapshot_bytes=None):
     return before, after, {'process_id': 101, 'process_creation_time': '0000000000000001'}
 
 
+def preservation_takeover_fixture():
+    before, after, first_holder = takeover_fixture(4, 7)
+    prefix = CONTEXTS + '\\operation-' + digest(INSTALLED['transaction_id'])
+    second = json.loads(next(row for row in after if row['path'] == LEASES + '\\g00000000000000000002-active.json')['content_json'])
+    third = dict(second, generation=3, attempt_id='attempt.3',
+        holder={'process_id': 103, 'process_creation_time': '0000000000000003'},
+        predecessor_sha256=second['ownership_sha256'])
+    third['ownership_sha256'] = digest({key: value for key, value in third.items() if key != 'ownership_sha256'})
+    terminal = json.loads(next(row for row in after if row['path'] == LEASES + '\\g00000000000000000002-terminal.json')['content_json'])
+    terminal = dict(third, status='completed', result_state_revision=terminal['result_state_revision'])
+    terminal['ownership_sha256'] = digest({key: value for key, value in terminal.items() if key != 'ownership_sha256'})
+    reservation = json.loads(next(row for row in after if row['path'] == prefix + '-bootstrap-g00000000000000000002.json')['content_json'])
+    reservation['ownership'] = third
+    reservation['reservation_sha256'] = digest({key: value for key, value in reservation.items() if key != 'reservation_sha256'})
+    after = [row for row in after if row['path'] not in {LEASES + '\\g00000000000000000002-terminal.json',
+        prefix + '-bootstrap-g00000000000000000002.json'}]
+    for path, value in ((LEASES + '\\g00000000000000000003-active.json', third),
+                        (LEASES + '\\g00000000000000000003-terminal.json', terminal),
+                        (prefix + '-bootstrap-g00000000000000000003.json', reservation)):
+        row = record(path, value)
+        row['native_name'] = path[2:]
+        after.append(row)
+    retained = prefix + '-retained-g00000000000000000001'
+    publication = DRIVE + 'publication'
+    paths = {retained + row['path'][len(publication):] if row['path'] == publication or
+             row['path'].startswith(publication + '\\') else row['path'] for row in before} | {
+                 prefix + '-preserve-g00000000000000000001.json', LEASES + '\\g00000000000000000002-active.json'}
+    preserved = copy.deepcopy([row for row in after if row['path'] in paths])
+    return before, preserved, after, [first_holder, second['holder']]
+
+
 class LeaseRecordReconciliationTests(unittest.TestCase):
+    def test_preservation_loss_requires_exact_moved_tree_and_third_owner(self):
+        before, preserved, after, holders = preservation_takeover_fixture()
+        report = bootstrap_preservation_takeover(before, preserved, after, DRIVE, INSTALLED, ROOT, holders)
+        self.assertTrue(report['preservation_reentry_checked'])
+        self.assertEqual(report['replacement_generation'], 3)
+        self.assertFalse(report['publication_authority_granted'])
+        with self.assertRaises(LeaseEvidenceError):
+            bootstrap_takeover(before, after, DRIVE, INSTALLED, ROOT, holders[0])
+
+    def test_preservation_loss_cannot_invent_or_alias_native_holders(self):
+        before, preserved, after, holders = preservation_takeover_fixture()
+        for key, value in (('process_id', 999), ('process_creation_time', '0000000000000009')):
+            changed = copy.deepcopy(holders)
+            changed[1][key] = value
+            with self.subTest(key=key), self.assertRaises(LeaseEvidenceError):
+                bootstrap_preservation_takeover(before, preserved, after, DRIVE, INSTALLED, ROOT, changed)
+        with self.assertRaises(LeaseEvidenceError):
+            bootstrap_preservation_takeover(before, preserved, after, DRIVE, INSTALLED, ROOT, holders[:1])
+
+    def test_preservation_loss_rejects_missing_changed_or_extra_objects(self):
+        before, preserved, after, holders = preservation_takeover_fixture()
+        for suffix in ('-preserve-g00000000000000000001.json', '-retained-g00000000000000000001',
+                       'g00000000000000000002-active.json'):
+            changed = [row for row in preserved if not row['path'].endswith(suffix)]
+            with self.subTest(missing=suffix), self.assertRaises(LeaseEvidenceError):
+                bootstrap_preservation_takeover(before, changed, after, DRIVE, INSTALLED, ROOT, holders)
+        for suffix in ('publication', 'installation-operations\\pending\\draft.json'):
+            changed = preserved + [{'path': DRIVE + suffix, 'directory': True}]
+            with self.subTest(extra=suffix), self.assertRaises(LeaseEvidenceError):
+                bootstrap_preservation_takeover(before, changed, after, DRIVE, INSTALLED, ROOT, holders)
+        for key, value in (('file_id', ROOT), ('owner', 'S-1-5-32-544'), ('bytes', 100), ('native_name', '\\other')):
+            changed = copy.deepcopy(preserved)
+            next(row for row in changed if row['path'].endswith('lab-reviewed-plan.json'))[key] = value
+            with self.subTest(changed=key), self.assertRaises(LeaseEvidenceError):
+                bootstrap_preservation_takeover(before, changed, after, DRIVE, INSTALLED, ROOT, holders)
+
+    def test_preservation_loss_cli_consumes_both_interrupted_readbacks(self):
+        before, preserved, after, holders = preservation_takeover_fixture()
+        payload = canonical(dict(mode='bootstrap_preservation_takeover', before=before, preserved=preserved, after=after,
+            drive=DRIVE, installed=INSTALLED, volume_root_id=ROOT, terminated_holders=holders))
+        result = subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('publisher_installation_lease_evidence.py')),
+            '--input', '-'], input=payload, text=True, encoding='utf-8', capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['coordination']['replacement_generation'], 3)
+
     def test_bootstrap_oracle_cli_loads_stdin_and_file_before_dispatch(self):
         before, after, holder = takeover_fixture(4, 7)
         request = canonical({'mode': 'bootstrap_takeover', 'before': before, 'after': after, 'drive': DRIVE,

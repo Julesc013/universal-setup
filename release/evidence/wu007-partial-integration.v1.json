@@ -1,0 +1,81 @@
+{
+  "schema": "universal.workunit_partial_integration.v1",
+  "status": "partial",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-007",
+  "source_commit": "3383c3dbe826d943800c44cfcdf88108c24e7de6",
+  "source_tree": "d6f48c7cf63f1682b785ced4c05570fa973f8951",
+  "pull_request": 231,
+  "merge_commit": "216d58c47cea2435a98d3a2e1f22753097f7908a",
+  "successful_ci_run": 37246243862,
+  "agent_review_comment_id": 5986158266,
+  "reviewer_context": "/root/review_pr216",
+  "compiled_source_commit": "8bd7591991fe6571e808d1d72338d99d8d5feb29",
+  "compiled_source_tree": "d6f48c7cf63f1682b785ced4c05570fa973f8951",
+  "qualified_scope": "Registered ordinary installation, source-free recovery/replay/verify and forced native process-loss bootstrap takeover preserving one empty publication root.",
+  "native_bootstrap": {
+    "schema": "usk.publisher_bootstrap_takeover_reconciliation.v1",
+    "status": "bindings_consistent",
+    "terminated_holder": {
+      "process_id": 1420,
+      "process_creation_time": "01dd545ef65adb75"
+    },
+    "replacement_generation": 2,
+    "retained_root_identity": "1eaaf29daaf2711f:39000000000001000000000000000000",
+    "retained_objects": 1,
+    "profile_qualified": false,
+    "publication_authority_granted": false
+  },
+  "runtime_evidence": [
+    {
+      "case": "ordinary",
+      "artifact_id": 11319735773,
+      "sha256": "5191c6781507c38ce68440a1fbe7a69efcf6b68d952adb4788d9aa622a1ea746",
+      "bytes": 1654218
+    },
+    {
+      "case": "prepublish",
+      "artifact_id": 11318983532,
+      "sha256": "0ff5902fca6c812ec9b37386c69bc3d5341a38a86440fbf3a5bb7e7d250a5645",
+      "bytes": 1954851
+    },
+    {
+      "case": "postrename",
+      "artifact_id": 11318983532,
+      "sha256": "bcf7bd1518d8d8316d0396f3c0552877a33ec93767a3b93af0c030c8c3806f73",
+      "bytes": 1849775
+    },
+    {
+      "case": "payload_changed",
+      "artifact_id": 11319756199,
+      "sha256": "6c14dff6c5b6390c6615fd86e513b5a053d8c1df882c9b3a3d1cd30d44a9fc71",
+      "bytes": 1579985
+    },
+    {
+      "case": "metadata_collision",
+      "artifact_id": 11319756199,
+      "sha256": "5602ce0e91c39140271683800ec71805613879e323f552d2cde634ec3319c9d9",
+      "bytes": 1758807
+    },
+    {
+      "case": "standard",
+      "artifact_id": 11319800873,
+      "sha256": "461da1eea24a07f229fb3e9da71c4cd29c90b50ff26ca3e3f941fbe8145697d4",
+      "bytes": 2104517
+    },
+    {
+      "case": "bootstrap",
+      "artifact_id": 11319870578,
+      "sha256": "d198661cc22c39551327af41795eb83b1def9d4aa7abdedc46d599e76feda569",
+      "bytes": 2350018
+    }
+  ],
+  "qualification_limit": "Native/process x64 Windows NT build 20348, SDK 10.0.26100.0, v143/MSVC 19.44, phase v9/execution v6. Actual bootstrap preserved one empty root only. No whole lease WorkUnit, specification, release, power-loss, generic strict or wider platform acceptance.",
+  "remaining": [
+    "all_anchor_and_snapshot_prefixes",
+    "uncertain_move_reentry",
+    "public_contention_and_stale_fencing",
+    "remaining_product_workunits"
+  ],
+  "accepted_predecessor_receipt": false
+}

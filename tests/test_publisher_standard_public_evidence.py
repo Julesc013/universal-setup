@@ -31,6 +31,10 @@ class StandardPublicPolicyTests(unittest.TestCase):
         self.assertIsNone(reconcile_bootstrap_loss({}, [], {}, {}, 'U:\\'))
         with self.assertRaises(StandardEvidenceError):
             reconcile_bootstrap_loss({}, [], {}, {}, 'U:\\', required=True)
+        with self.assertRaises(StandardEvidenceError):
+            reconcile_bootstrap_loss({}, [], {}, {}, 'U:\\', require_preservation_loss=True)
+        with self.assertRaises(StandardEvidenceError):
+            reconcile_bootstrap_loss({'bootstrap_preservation_loss': {}}, [], {}, {}, 'U:\\')
 
     def test_service_capture_set_keeps_both_observations_and_all_install_requests(self):
         commands = ['publisher.inspect', 'publisher.observe', 'install_local.apply', 'install_local.recover',

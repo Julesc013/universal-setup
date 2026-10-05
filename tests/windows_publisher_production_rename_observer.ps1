@@ -15,7 +15,7 @@ $result=[ordered]@{schema='usk.publisher.production_rename_observer.v1';status='
     termination=$null;failure=$null}
 try {
     if($config.schema -cne 'usk.publisher.production_rename_observer_config.v1' -or
-        $config.phase -cnotin @('bootstrap','prepublish','postrename') -or
+        $config.phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename') -or
         $result.identity -cne 'S-1-5-18' -or
         $config.service_name -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
         $config.service_binary_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
@@ -23,7 +23,7 @@ try {
         $config.drive_letter -cnotmatch '^[A-Z]$' -or
         $config.visible_path -cne ($config.drive_letter+':\publication\destination\visible') -or
         $config.journal_path -cne ($config.drive_letter+':\publication\journal\lab-'+
-            $(if($config.phase -cin @('bootstrap','prepublish')){'prepared'}else{'visible'})+'-evidence.json') -or
+            $(if($config.phase -cin @('bootstrap','bootstrap_preserved','prepublish')){'prepared'}else{'visible'})+'-evidence.json') -or
         $config.volume_guid_root -cnotmatch '^\\\\\?\\Volume\{[0-9a-f-]{36}\}\\$' -or
         (Split-Path -Parent $config.ready_path) -cne $PSScriptRoot -or
         (Split-Path -Parent $config.output_path) -cne $PSScriptRoot -or
@@ -62,17 +62,68 @@ try {
     $held|Add-Member -NotePropertyName UskOwnedTree -NotePropertyValue $owned
     $publication=$config.drive_letter+':\publication'
     $candidate=$publication+'\staging\candidate'
-    if($config.phase -ceq 'bootstrap') {
-        if(Test-Path -LiteralPath $publication){throw 'Bootstrap observer did not precede publication creation'}
+    if($config.phase -cin @('bootstrap','bootstrap_preserved')) {
+        if($config.phase -ceq 'bootstrap' -and (Test-Path -LiteralPath $publication)){
+            throw 'Bootstrap observer did not precede publication creation'
+        }
         $result['process_creation_file_time']=$held.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16')
         $result['publication_before_kill']=$false;$result['publication_after_kill']=$false
         $result['candidate_before_kill']=$false;$result['candidate_after_kill']=$false
+    }
+    if($config.phase -ceq 'bootstrap_preserved') {
+        if($config.bootstrap_operation_prefix -cnotmatch ('^'+[regex]::Escape($config.drive_letter+':\')+
+            'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')) {
+            throw 'Preservation observer prefix escaped the owned volume'
+        }
+        $retained=$config.bootstrap_operation_prefix+'-retained-g00000000000000000001'
+        $preservation=$config.bootstrap_operation_prefix+'-preserve-g00000000000000000001.json'
+        $replacement=$config.bootstrap_operation_prefix+'-bootstrap-g00000000000000000002.json'
+        if(-not (Test-Path -LiteralPath $publication) -or (Test-Path -LiteralPath $retained) -or
+            (Test-Path -LiteralPath $preservation) -or (Test-Path -LiteralPath $replacement) -or
+            -not (Test-Path -LiteralPath ($config.bootstrap_operation_prefix+'-bootstrap-g00000000000000000001.json'))) {
+            throw 'Preservation observer did not precede the original root disposition'
+        }
+        foreach($name in @('retained','preservation','replacement_reservation')) {
+            $result[$name+'_before_kill']=$false;$result[$name+'_after_kill']=$false
+        }
+        $result['bootstrap_operation_prefix']=$config.bootstrap_operation_prefix
     }
     [IO.File]::WriteAllText($config.ready_path,
         "usk.publisher.production_rename_observer_ready.v1`n",[Text.UTF8Encoding]::new($false))
     $deadline=[DateTime]::UtcNow.AddSeconds(120)
     while([DateTime]::UtcNow -lt $deadline) {
         if($held.HasExited){throw 'Production service exited before visible rename'}
+        if($config.phase -ceq 'bootstrap_preserved') {
+            if(-not (Test-Path -LiteralPath $retained)){Start-Sleep -Milliseconds 1;continue}
+            $result.boundary_seen_utc=[DateTime]::UtcNow.ToString('o')
+            $result.retained_before_kill=$true
+            $result.preservation_before_kill=Test-Path -LiteralPath $preservation
+            $result.publication_before_kill=Test-Path -LiteralPath $publication
+            $result.replacement_reservation_before_kill=Test-Path -LiteralPath $replacement
+            $result.candidate_before_kill=Test-Path -LiteralPath $candidate
+            $result.journal_before_kill=Test-Path -LiteralPath $config.journal_path
+            if(-not $result.preservation_before_kill -or $result.publication_before_kill -or
+                $result.replacement_reservation_before_kill -or $result.candidate_before_kill -or $result.journal_before_kill) {
+                $result.status='window_missed_preservation_already_passed';break
+            }
+            $result.termination=Stop-OwnedPublisherProcessTree $held -RequireLiveKill
+            $result.retained_after_kill=Test-Path -LiteralPath $retained
+            $result.preservation_after_kill=Test-Path -LiteralPath $preservation
+            $result.publication_after_kill=Test-Path -LiteralPath $publication
+            $result.replacement_reservation_after_kill=Test-Path -LiteralPath $replacement
+            $result.candidate_after_kill=Test-Path -LiteralPath $candidate
+            $result.journal_after_kill=Test-Path -LiteralPath $config.journal_path
+            $result.visible_after_kill=Test-Path -LiteralPath $config.visible_path
+            if((Get-Volume -DriveLetter $config.drive_letter -ErrorAction Stop).UniqueId -cne $config.volume_guid_root) {
+                throw 'Preservation observer volume changed during termination'
+            }
+            $result.status=if($result.retained_after_kill -and $result.preservation_after_kill -and
+                -not $result.publication_after_kill -and -not $result.replacement_reservation_after_kill -and
+                -not $result.candidate_after_kill -and -not $result.journal_after_kill -and -not $result.visible_after_kill) {
+                'terminated_publication_preserved'
+            }else{'window_missed_preservation_raced_kill'}
+            break
+        }
         if($config.phase -ceq 'bootstrap') {
             if(-not (Test-Path -LiteralPath $publication)){Start-Sleep -Milliseconds 1;continue}
             $result.boundary_seen_utc=[DateTime]::UtcNow.ToString('o')
@@ -174,5 +225,5 @@ try {
         ($result|ConvertTo-Json -Depth 8 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     [IO.File]::Move($outputTemp,$config.output_path)
 }
-if($result.status -cnotin @('terminated_publication_bootstrap','terminated_prepared_prerename',
+if($result.status -cnotin @('terminated_publication_bootstrap','terminated_publication_preserved','terminated_prepared_prerename',
     'terminated_postrename_prejournal')){exit 1}
