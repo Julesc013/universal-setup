@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T01:01:34Z",
+  "generated_at": "2026-10-05T01:25:22Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1389,7 +1389,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d8db510e562703cb893d1159a9baaeb1d63e11a26d1456ebb5d08dec25fe0ba1"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -2579,7 +2579,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d8db510e562703cb893d1159a9baaeb1d63e11a26d1456ebb5d08dec25fe0ba1"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -2595,11 +2595,11 @@
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "8d83677a9015d3eb7b70dd0f578bb1115544e8ec9dba43fdbaaa20ab67981bd2"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "88581bddad50e4bfd0cf00a3b575fc8ff1900fc1052304f72fcd8749821a1e36"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -2718,7 +2718,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d8db510e562703cb893d1159a9baaeb1d63e11a26d1456ebb5d08dec25fe0ba1"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -2734,11 +2734,11 @@
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "8d83677a9015d3eb7b70dd0f578bb1115544e8ec9dba43fdbaaa20ab67981bd2"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "88581bddad50e4bfd0cf00a3b575fc8ff1900fc1052304f72fcd8749821a1e36"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -2857,7 +2857,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d8db510e562703cb893d1159a9baaeb1d63e11a26d1456ebb5d08dec25fe0ba1"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -2873,11 +2873,11 @@
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "8d83677a9015d3eb7b70dd0f578bb1115544e8ec9dba43fdbaaa20ab67981bd2"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "88581bddad50e4bfd0cf00a3b575fc8ff1900fc1052304f72fcd8749821a1e36"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -4523,7 +4523,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "88581bddad50e4bfd0cf00a3b575fc8ff1900fc1052304f72fcd8749821a1e36"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -4551,7 +4551,7 @@
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "8d83677a9015d3eb7b70dd0f578bb1115544e8ec9dba43fdbaaa20ab67981bd2"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_owned_metadata_collision.ps1",
@@ -4655,7 +4655,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d8db510e562703cb893d1159a9baaeb1d63e11a26d1456ebb5d08dec25fe0ba1"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -5007,7 +5007,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "88581bddad50e4bfd0cf00a3b575fc8ff1900fc1052304f72fcd8749821a1e36"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -5035,7 +5035,7 @@
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "8d83677a9015d3eb7b70dd0f578bb1115544e8ec9dba43fdbaaa20ab67981bd2"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_owned_metadata_collision.ps1",
@@ -5147,7 +5147,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "d8db510e562703cb893d1159a9baaeb1d63e11a26d1456ebb5d08dec25fe0ba1"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",

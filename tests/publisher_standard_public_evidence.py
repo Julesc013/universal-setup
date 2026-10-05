@@ -496,6 +496,12 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
         from publisher_installation_lease_evidence import digest
         expected_prefix = drive + 'installation-operations\\install-' + digest(installed['install_id']) + '\\operation-' + digest(installed['transaction_id'])
         require(boundary['bootstrap_operation_prefix'] == expected_prefix and
+            boundary['single_worker_closure_confirmed'] is True and
+            boundary['termination']['method'] == 'TerminateProcess_owned_held_root' and
+            integer(boundary['termination']['process_id'], 1) and
+            boundary['termination']['process_id'] == boundary['service_pid'] and
+            boundary['termination']['process_creation_file_time'] == boundary['process_creation_file_time'] and
+            integer(boundary['termination']['native_wait_result'], 0, 0) and
             all(boundary[key] is True for key in ('retained_before_kill', 'retained_after_kill',
                 'preservation_before_kill', 'preservation_after_kill')) and
             all(boundary[key] is False for key in ('replacement_reservation_before_kill', 'replacement_reservation_after_kill')),

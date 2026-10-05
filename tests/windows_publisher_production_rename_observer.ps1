@@ -5,6 +5,115 @@ param([Parameter(Mandatory=$true)][string]$ConfigPath)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'owned-process.ps1')
 $config=Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop|ConvertFrom-Json
+if($config.phase -ceq 'bootstrap_preserved') {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+public sealed class UskOwnedPreservationBoundary {
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern uint GetFileAttributes(string path);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern uint GetProcessId(IntPtr process);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool GetProcessTimes(IntPtr process, out long birth, out long exit, out long kernel, out long user);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool TerminateProcess(IntPtr process, uint exitCode);
+    readonly Process ownedProcess;
+    readonly IntPtr handle;
+    readonly uint processId;
+    readonly long creationTime;
+    readonly string publication, retained, preservation, reservation, candidate, journal, visible;
+    public UskOwnedPreservationBoundary(Process owned, uint expectedProcessId, long expectedCreationTime,
+        string publicationPath, string operationPrefix) {
+        if(owned == null || expectedProcessId == (uint)Process.GetCurrentProcess().Id)
+            throw new InvalidOperationException("Owned boundary requires a separate held worker");
+        ownedProcess=owned;
+        handle=owned.Handle;
+        processId=expectedProcessId;
+        creationTime=expectedCreationTime;
+        publication=publicationPath;
+        retained=operationPrefix+"-retained-g00000000000000000001";
+        preservation=operationPrefix+"-preserve-g00000000000000000001.json";
+        reservation=operationPrefix+"-bootstrap-g00000000000000000002.json";
+        candidate=publication+"\\staging\\candidate";
+        journal=publication+"\\journal\\lab-prepared-evidence.json";
+        visible=publication+"\\destination\\visible";
+        RequireBoundLiveWorker();
+    }
+    void RequireBoundLiveWorker() {
+        long birth, exit, kernel, user;
+        if(GetProcessId(handle)!=processId || !GetProcessTimes(handle,out birth,out exit,out kernel,out user) ||
+            birth!=creationTime || WaitForSingleObject(handle,0)!=258)
+            throw new InvalidOperationException("Owned boundary held PID/birth/liveness differs");
+        GC.KeepAlive(ownedProcess);
+    }
+    static bool Present(string path, bool directory, bool parentMayBeAbsent) {
+        uint attributes=GetFileAttributes(path);
+        if(attributes==0xffffffff) {
+            int error=Marshal.GetLastWin32Error();
+            if(error==2 || (parentMayBeAbsent && error==3)) return false;
+            throw new Win32Exception(error,"Owned boundary path observation failed");
+        }
+        if((attributes&1024)!=0 || ((attributes&16)!=0)!=directory)
+            throw new InvalidOperationException("Owned boundary object type or reparse differs");
+        return true;
+    }
+    public Dictionary<string,object> ObserveAndTerminate() {
+        var timer=Stopwatch.StartNew();
+        while(timer.ElapsedMilliseconds<120000) {
+            RequireBoundLiveWorker();
+            if(!Present(retained,true,false)) { Thread.SpinWait(128); continue; }
+            var result=new Dictionary<string,object>();
+            result["boundary_seen_utc"]=DateTime.UtcNow.ToString("o");
+            result["retained_before_kill"]=true;
+            result["preservation_before_kill"]=Present(preservation,false,false);
+            result["publication_before_kill"]=Present(publication,true,false);
+            result["replacement_reservation_before_kill"]=Present(reservation,false,false);
+            result["candidate_before_kill"]=Present(candidate,true,true);
+            result["journal_before_kill"]=Present(journal,false,true);
+            if(!(bool)result["preservation_before_kill"] || (bool)result["publication_before_kill"] ||
+                (bool)result["replacement_reservation_before_kill"] || (bool)result["candidate_before_kill"] ||
+                (bool)result["journal_before_kill"]) {
+                result["status"]="window_missed_preservation_already_passed";
+                return result;
+            }
+            RequireBoundLiveWorker();
+            if(!TerminateProcess(handle,1))
+                throw new Win32Exception(Marshal.GetLastWin32Error(),"Owned bound worker termination failed");
+            uint wait=WaitForSingleObject(handle,5000);
+            if(wait!=0) throw new InvalidOperationException("Owned bound worker termination is unconfirmed");
+            result["termination"]=new Dictionary<string,object> {
+                {"confirmed",true},{"terminated",1},{"kill_invoked",true},
+                {"method","TerminateProcess_owned_held_root"},
+                {"process_id",processId},{"process_creation_file_time",creationTime.ToString("x16")},
+                {"native_wait_result",wait}};
+            result["retained_after_kill"]=Present(retained,true,false);
+            result["preservation_after_kill"]=Present(preservation,false,false);
+            result["publication_after_kill"]=Present(publication,true,false);
+            result["replacement_reservation_after_kill"]=Present(reservation,false,false);
+            result["candidate_after_kill"]=Present(candidate,true,true);
+            result["journal_after_kill"]=Present(journal,false,true);
+            result["visible_after_kill"]=Present(visible,true,true);
+            result["status"]=(bool)result["retained_after_kill"] && (bool)result["preservation_after_kill"] &&
+                !(bool)result["publication_after_kill"] && !(bool)result["replacement_reservation_after_kill"] &&
+                !(bool)result["candidate_after_kill"] && !(bool)result["journal_after_kill"] &&
+                !(bool)result["visible_after_kill"] ? "terminated_publication_preserved" :
+                    "window_missed_preservation_raced_kill";
+            GC.KeepAlive(ownedProcess);
+            return result;
+        }
+        throw new TimeoutException("Owned preservation boundary deadline expired");
+    }
+}
+'@
+}
 $result=[ordered]@{schema='usk.publisher.production_rename_observer.v1';status='not_run';
     identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;
     service_name=$config.service_name;service_pid=$config.process_id;
@@ -87,6 +196,8 @@ try {
             $result[$name+'_before_kill']=$false;$result[$name+'_after_kill']=$false
         }
         $result['bootstrap_operation_prefix']=$config.bootstrap_operation_prefix
+        $fastBoundary=[UskOwnedPreservationBoundary]::new($held,[uint32]$config.process_id,
+            $held.StartTime.ToUniversalTime().ToFileTimeUtc(),$publication,$config.bootstrap_operation_prefix)
     }
     [IO.File]::WriteAllText($config.ready_path,
         "usk.publisher.production_rename_observer_ready.v1`n",[Text.UTF8Encoding]::new($false))
@@ -94,34 +205,23 @@ try {
     while([DateTime]::UtcNow -lt $deadline) {
         if($held.HasExited){throw 'Production service exited before visible rename'}
         if($config.phase -ceq 'bootstrap_preserved') {
-            if(-not (Test-Path -LiteralPath $retained)){Start-Sleep -Milliseconds 1;continue}
-            $result.boundary_seen_utc=[DateTime]::UtcNow.ToString('o')
-            $result.retained_before_kill=$true
-            $result.preservation_before_kill=Test-Path -LiteralPath $preservation
-            $result.publication_before_kill=Test-Path -LiteralPath $publication
-            $result.replacement_reservation_before_kill=Test-Path -LiteralPath $replacement
-            $result.candidate_before_kill=Test-Path -LiteralPath $candidate
-            $result.journal_before_kill=Test-Path -LiteralPath $config.journal_path
-            if(-not $result.preservation_before_kill -or $result.publication_before_kill -or
-                $result.replacement_reservation_before_kill -or $result.candidate_before_kill -or $result.journal_before_kill) {
-                $result.status='window_missed_preservation_already_passed';break
-            }
-            $result.termination=Stop-OwnedPublisherProcessTree $held -RequireLiveKill
-            $result.retained_after_kill=Test-Path -LiteralPath $retained
-            $result.preservation_after_kill=Test-Path -LiteralPath $preservation
-            $result.publication_after_kill=Test-Path -LiteralPath $publication
-            $result.replacement_reservation_after_kill=Test-Path -LiteralPath $replacement
-            $result.candidate_after_kill=Test-Path -LiteralPath $candidate
-            $result.journal_after_kill=Test-Path -LiteralPath $config.journal_path
-            $result.visible_after_kill=Test-Path -LiteralPath $config.visible_path
+            $native=$fastBoundary.ObserveAndTerminate()
+            foreach($key in $native.Keys){$result[$key]=$native[$key]}
+            if($result.status -cne 'terminated_publication_preserved'){break}
+            # This selected publisher route executes one worker. Confirm the
+            # exact recorded process and refuse unresolved descendants; the
+            # fast native termination never kills a process opened by PID.
+            $closure=Stop-OwnedPublisherProcessTree $held
+            if(-not $closure.confirmed -or $closure.terminated -ne 1){throw 'Native held-worker closure differs'}
+            $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$config.process_id) -ErrorAction Stop|
+                Where-Object {-not $_.CreationDate -or
+                    ($_.CreationDate.ToUniversalTime().Ticks -ge [long]$config.process_creation_ticks -and
+                     $_.CreationDate.ToUniversalTime() -le [DateTime]::Parse($result.boundary_seen_utc).ToUniversalTime().AddSeconds(5))})
+            if($children.Count){throw 'Owned worker has unresolved descendants; retain lab material'}
+            $result['single_worker_closure_confirmed']=$true
             if((Get-Volume -DriveLetter $config.drive_letter -ErrorAction Stop).UniqueId -cne $config.volume_guid_root) {
                 throw 'Preservation observer volume changed during termination'
             }
-            $result.status=if($result.retained_after_kill -and $result.preservation_after_kill -and
-                -not $result.publication_after_kill -and -not $result.replacement_reservation_after_kill -and
-                -not $result.candidate_after_kill -and -not $result.journal_after_kill -and -not $result.visible_after_kill) {
-                'terminated_publication_preserved'
-            }else{'window_missed_preservation_raced_kill'}
             break
         }
         if($config.phase -ceq 'bootstrap') {

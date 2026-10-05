@@ -139,6 +139,11 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
                 $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$')) -or
         ($Phase -ceq 'bootstrap_preserved' -and
             ($result.publication_before_kill -or $result.publication_after_kill -or
+                $result.single_worker_closure_confirmed -ne $true -or
+                $result.termination.method -cne 'TerminateProcess_owned_held_root' -or
+                $result.termination.process_id -ne $result.service_pid -or
+                $result.termination.process_creation_file_time -cne $result.process_creation_file_time -or
+                $result.termination.native_wait_result -ne 0 -or
                 -not $result.retained_before_kill -or -not $result.retained_after_kill -or
                 -not $result.preservation_before_kill -or -not $result.preservation_after_kill -or
                 $result.replacement_reservation_before_kill -or $result.replacement_reservation_after_kill -or
