@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T10:50:49Z",
+  "generated_at": "2026-10-05T11:04:58Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2547,11 +2547,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
-          "sha256": "a9b30e61abd17d6294cc3f14858af1e9994238dd7285a6b248e68cf9c4cbaa49"
+          "sha256": "79efbfbed9856248f5e010d20b7cd55b4feb6ba2945626bd79ef5885aa4a81a4"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
-          "sha256": "ae68bc8810081c0c186f9439e160df15c088c41ab0697c0958478e1127be8492"
+          "sha256": "bb5fbb084b4967b6240ac70960dc92a0d40a31de1fb90f7a91298f696d206924"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
@@ -2587,7 +2587,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e78b75e87085bcea73055ab98a6e99cc596886b7f29bcb66d489b7172610bb0b"
+          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -2782,11 +2782,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
-          "sha256": "a9b30e61abd17d6294cc3f14858af1e9994238dd7285a6b248e68cf9c4cbaa49"
+          "sha256": "79efbfbed9856248f5e010d20b7cd55b4feb6ba2945626bd79ef5885aa4a81a4"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
-          "sha256": "ae68bc8810081c0c186f9439e160df15c088c41ab0697c0958478e1127be8492"
+          "sha256": "bb5fbb084b4967b6240ac70960dc92a0d40a31de1fb90f7a91298f696d206924"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
@@ -2822,7 +2822,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e78b75e87085bcea73055ab98a6e99cc596886b7f29bcb66d489b7172610bb0b"
+          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -3017,11 +3017,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.cpp",
-          "sha256": "a9b30e61abd17d6294cc3f14858af1e9994238dd7285a6b248e68cf9c4cbaa49"
+          "sha256": "79efbfbed9856248f5e010d20b7cd55b4feb6ba2945626bd79ef5885aa4a81a4"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_installation_lease.h",
-          "sha256": "ae68bc8810081c0c186f9439e160df15c088c41ab0697c0958478e1127be8492"
+          "sha256": "bb5fbb084b4967b6240ac70960dc92a0d40a31de1fb90f7a91298f696d206924"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.cpp",
@@ -3057,7 +3057,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e78b75e87085bcea73055ab98a6e99cc596886b7f29bcb66d489b7172610bb0b"
+          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -4767,7 +4767,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e78b75e87085bcea73055ab98a6e99cc596886b7f29bcb66d489b7172610bb0b"
+          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -5239,7 +5239,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e78b75e87085bcea73055ab98a6e99cc596886b7f29bcb66d489b7172610bb0b"
+          "sha256": "807cb3eab9189c644d427831730acc27cb20d484dc20d553fdc5c11c7d3d039d"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",

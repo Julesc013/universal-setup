@@ -3107,7 +3107,7 @@ struct CandidateApplyContext {
     bool& effects_may_exist;
     std::string anchors;
     bool entered=false;
-    bool revision_refusal_before_effects=true;
+    bool refusal_before_effects=true;
     std::function<void()> require_initial_state_revision;
     std::function<void()> start_installation_lease;
     std::exception_ptr operation_failure;
@@ -3217,14 +3217,15 @@ void usk::lifecycle::retain_candidate_publisher_operation_failure(std::exception
         if (dynamic_cast<const InstallLeaseConflict*>(&error) || dynamic_cast<const InstallStateRevisionStale*>(&error) ||
             dynamic_cast<const InstallLeaseStale*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
             dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherOperationCancelled*>(&error) ||
-            (!candidate_apply->entered && (dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
+            (!candidate_apply->entered && candidate_apply->refusal_before_effects &&
+                (dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
                 dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error))))
             candidate_apply->operation_failure = failure;
     } catch (...) {}
 }
 
 void usk::lifecycle::retain_candidate_publisher_preflight_stale_plan(std::exception_ptr failure) {
-    if (candidate_apply && !candidate_apply->entered && failure)
+    if (candidate_apply && !candidate_apply->entered && candidate_apply->refusal_before_effects && failure)
         candidate_apply->preflight_stale_plan = failure;
 }
 
@@ -3304,7 +3305,7 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
         catch (const usk::transaction::InstallStateRevisionStale&) {
             // This private callback reads held protected roots only. No intent,
             // bootstrap or ownership write may precede a known refusal.
-            if (!context.revision_refusal_before_effects) throw;
+            if (!context.refusal_before_effects) throw;
             throw usk::platform::windows::InstallStateRevisionChangedBeforeEffects();
         }
     }
@@ -3623,9 +3624,18 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             if (!install_guard || !authenticated_request)
                 throw std::runtime_error("registered revision preflight lacks installation ownership");
             require_public_mount_mapping(volume, reviewed.setup_root, reviewed.install_plan.target_root.u8string());
-            usk::platform::windows::require_publisher_initial_install_state_revision(volume,
+            const bool existing_layout = usk::platform::windows::require_publisher_initial_install_state_revision(volume,
                 volume_root, std::filesystem::u8path(reviewed.setup_root).filename().wstring(),
                 *install_guard, reviewed.install_plan.install_id, observed.service_sid);
+            if (existing_layout) {
+                // Existing-only initialization is a read-only check: the held
+                // metadata session checks native protection, and the public
+                // initializer reads the ownership marker and requires the full
+                // layout. Missing/incompatible layout cannot precede intent.
+                usk::lifecycle::initialize_setup_root_for_publisher(reviewed.setup_root,
+                    reviewed.acceptance_root, "operator_acceptance_candidate", volume,
+                    volume_root, service_name, true);
+            }
         };
         const auto start_installation_lease = [&](const ReviewedPlanBinding& reviewed, bool recovery) {
             if (!registered_admission) return;
@@ -3634,7 +3644,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             if (installation_lease) {
                 if (recovery || !operation_context ||
                     usk::json::canonical(operation_context->record().at("reviewed_snapshot")) + "\n" != reviewed.durable_snapshot)
-                    throw StaleReviewedInstallRequest();
+                    throw usk::lifecycle::ProtectedApplyEffectsRetained(
+                        "native ownership initializer differs after operation writes");
                 operation_context->require_fence();
                 installation_lease->require_start();
                 return;
@@ -3906,6 +3917,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                             std::optional<ReviewedPlanBinding>{} :
                             std::optional<ReviewedPlanBinding>{require_reviewed_selected_plan()};
                     if (config.prepare_disposable_boundary) {
+                        operation_effects_started=true;
                         publication_effects_may_exist=true;
                         config.prepare_disposable_boundary(volume,observed.service_sid);
                     }
@@ -3914,7 +3926,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         if (registered_admission) registered_operation_admission =
                             admit_current_registered_operation(volume, observed.service_sid, *reviewed_plan);
                         CandidateApplyContext context{volume,observed.service_sid,*reviewed_plan,publication_effects_may_exist,{}};
-                        context.revision_refusal_before_effects = !operation_effects_started;
+                        context.refusal_before_effects = !operation_effects_started;
                         context.require_initial_state_revision = [&] { require_initial_state_revision(*reviewed_plan); };
                         context.start_installation_lease = [&] { start_installation_lease(*reviewed_plan, false); };
                         ScopedCandidateApply candidate(context);
@@ -3929,7 +3941,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         if (status != 0 || usk::json::parse(apply_response).at("status").as_string() != "ok" ||
                                 !context.entered || context.anchors.empty()) {
                             if (context.operation_failure) std::rethrow_exception(context.operation_failure);
-                            if (!context.entered && context.preflight_stale_plan) {
+                            if (!context.entered && context.refusal_before_effects && context.preflight_stale_plan) {
                                 // The actual public preflight exception was retained
                                 // while this native context was active. Its JSON
                                 // reply has no role in classifying the refusal.

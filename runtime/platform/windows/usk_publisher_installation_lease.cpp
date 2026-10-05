@@ -188,7 +188,7 @@ std::string observe_publisher_install_state_revision(HANDLE state_root,
     return usk::json::sha256_canonical(Value(std::move(values)));
 }
 
-void require_publisher_initial_install_state_revision(HANDLE volume,
+bool require_publisher_initial_install_state_revision(HANDLE volume,
     const std::wstring& volume_root, const std::wstring& setup_component,
     const PublisherInstallOperationGuard& guard, const std::string& install_id,
     const std::string& service_sid) {
@@ -225,6 +225,7 @@ void require_publisher_initial_install_state_revision(HANDLE volume,
     guard.require_owned(volume_root, install_id);
     if (!equal(volume_identity, root_identity(volume, service_sid))) throw InstallLeaseStale();
     if (revision != empty_revision) throw InstallStateRevisionStale();
+    return setup_entry.has_value();
 }
 
 Value observe_publisher_lease_holder() {
