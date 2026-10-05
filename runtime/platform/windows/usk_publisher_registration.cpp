@@ -642,10 +642,12 @@ void require_volume(const std::wstring& value) {
 }
 
 // Locking NTFS dismounts it. The remounted volume device can lose the
-// per-service ACE installed by the dedicated-volume provisioner. Reinstate
-// only that exact service SID after the lock and before starting SCM.
+// per-service ACE installed by the dedicated-volume provisioner. The known
+// Windows Authenticated Users modify grant must first be reduced to read and
+// execute. This routine is reached only after exact protected-root admission
+// and a successful exclusive volume lock. Unknown outside mutation refuses.
 void require_volume_device_service_access(HANDLE volume,
-    const std::vector<BYTE>& service_sid) {
+    const std::vector<BYTE>& service_sid, bool allow_locked_default = false) {
     if (!volume || volume == INVALID_HANDLE_VALUE)
         throw std::runtime_error("publisher device handle is unavailable for ACL admission");
     const auto inspect = [&](PSID owner, PACL dacl) {
@@ -663,9 +665,19 @@ void require_volume_device_service_access(HANDLE volume,
         throw std::runtime_error("publisher volume device DACL is unavailable; Win32 " +
             std::to_string(read_error));
     bool already_granted = false;
-    try { already_granted = inspect(before_owner, before); }
+    std::vector<BYTE> restricted_default;
+    try {
+        try { already_granted = inspect(before_owner, before); }
+        catch (const std::exception&) {
+            if (!allow_locked_default) throw;
+            restricted_default = usk::platform::windows::restrict_publisher_default_device_acl(
+                before_owner, before, const_cast<BYTE*>(service_sid.data()));
+            before = reinterpret_cast<PACL>(restricted_default.data());
+            already_granted = inspect(before_owner, before);
+        }
+    }
     catch (...) { LocalFree(before_descriptor); throw; }
-    if (!already_granted) {
+    if (!already_granted || !restricted_default.empty()) {
         EXPLICIT_ACCESS_W grant{};
         grant.grfAccessPermissions = FILE_ALL_ACCESS;
         grant.grfAccessMode = GRANT_ACCESS;
@@ -674,15 +686,18 @@ void require_volume_device_service_access(HANDLE volume,
         grant.Trustee.TrusteeType = TRUSTEE_IS_USER;
         grant.Trustee.ptstrName = reinterpret_cast<LPWSTR>(
             const_cast<BYTE*>(service_sid.data()));
-        PACL updated = nullptr;
-        const DWORD compose_error = SetEntriesInAclW(1, &grant, before, &updated);
-        if (compose_error != ERROR_SUCCESS || !updated) {
-            LocalFree(before_descriptor);
-            throw std::runtime_error("publisher volume device service ACE cannot be composed");
+        PACL updated = before;
+        if (!already_granted) {
+            updated = nullptr;
+            const DWORD compose_error = SetEntriesInAclW(1, &grant, before, &updated);
+            if (compose_error != ERROR_SUCCESS || !updated) {
+                LocalFree(before_descriptor);
+                throw std::runtime_error("publisher volume device service ACE cannot be composed");
+            }
         }
         const DWORD set_error = SetSecurityInfo(volume, SE_FILE_OBJECT,
             DACL_SECURITY_INFORMATION, nullptr, nullptr, updated, nullptr);
-        LocalFree(updated);
+        if (!already_granted) LocalFree(updated);
         if (set_error != ERROR_SUCCESS) {
             LocalFree(before_descriptor);
             throw std::runtime_error("publisher volume device service ACE cannot be installed; Win32 " +
@@ -774,7 +789,7 @@ void require_exclusive_volume_admission(const std::wstring& name,
     // Inspect and repair its device ACL before any other process can acquire a
     // newly granted raw-volume handle after unlock.
     try {
-        require_volume_device_service_access(volume.get(), sid);
+        require_volume_device_service_access(volume.get(), sid, true);
     } catch (const std::exception& error) {
         throw std::runtime_error(
             std::string("locked publisher volume device ACL admission: ") + error.what());

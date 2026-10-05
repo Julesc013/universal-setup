@@ -4,6 +4,8 @@
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_staged_stream.h"
 #include "usk_publisher_volume_operation_guard.h"
+#include "usk_publisher_installation_lease.h"
+#include "usk_publisher_metadata.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_archive_payload.h"
@@ -33,8 +35,10 @@
 
 #include <stdexcept>
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
+#include <exception>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -979,6 +983,7 @@ void write_journal_phase(HANDLE journal, const std::wstring& name,
         OwnedHandle file(usk::platform::windows::create_file_relative_with_descriptor(
             journal, name, descriptor));
         DWORD written = 0;
+        usk::platform::windows::require_current_publisher_effect_fence();
         if (record.size() > MAXDWORD ||
             !WriteFile(file.get(), record.data(), static_cast<DWORD>(record.size()),
                 &written, nullptr) || written != record.size() ||
@@ -1229,8 +1234,10 @@ usk::lifecycle::InstallPlan restore_reviewed_install_plan(
     return plan;
 }
 
-ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
-    const std::string& service_sid, bool require_request_binding = true) {
+ReviewedPlanBinding reviewed_plan_from_retained_snapshot(const std::string& record, bool require_request_binding);
+
+ReviewedPlanBinding reviewed_plan_from_protected_snapshot(HANDLE volume,
+    const std::string& service_sid, bool require_request_binding, bool snapshot_only) {
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{
         L"staging", L"destination", L"state", L"journal"};
@@ -1239,26 +1246,37 @@ ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
     require_publisher_anchor_set_security_shape(anchors, service_sid);
     OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
     OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
-    if (!recovery_journal_has_snapshot_only(volume, service_sid)) {
+    if (snapshot_only && !recovery_journal_has_snapshot_only(volume, service_sid)) {
         throw std::runtime_error("recovery snapshot-only journal changed");
     }
     const auto journal_tree = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_tree, service_sid);
+    const auto snapshot_entry = std::find_if(journal_tree.descendants.begin(), journal_tree.descendants.end(),
+        [](const auto& entry) { return entry.relative_path == L"lab-reviewed-plan.json"; });
     if (journal_tree.root.file_id != anchors.journal.object.file_id ||
-        journal_tree.descendants.size() != 1 ||
-        journal_tree.descendants.front().relative_path !=
-            L"lab-reviewed-plan.json") {
+        journal_tree.descendants.empty() || journal_tree.descendants.size() > 3 ||
+        (snapshot_only && journal_tree.descendants.size() != 1) || snapshot_entry == journal_tree.descendants.end()) {
         throw std::runtime_error("recovery snapshot file identity or security differs");
     }
     const std::string record = read_phase_record(
         journal.get(), L"lab-reviewed-plan.json");
-    if (journal_tree.descendants.front().size != record.size() ||
-        journal_tree.descendants.front().sha256 != record_sha256(record)) {
+    for (const auto& entry : journal_tree.descendants) {
+        if ((entry.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
+            (entry.relative_path != L"lab-reviewed-plan.json" && entry.relative_path != L"lab-prepared-evidence.json" &&
+                entry.relative_path != L"lab-visible-evidence.json"))
+            throw std::runtime_error("recovery journal closure differs");
+    }
+    if (snapshot_entry->size != record.size() || snapshot_entry->sha256 != record_sha256(record)) {
         throw std::runtime_error("recovery snapshot bytes changed during observation");
     }
     const auto journal_reobserved = observe_publisher_tree(journal.get());
     require_publisher_tree_security_shape(journal_reobserved, service_sid);
     require_publisher_tree_phase_match(journal_tree, journal_reobserved);
+    return reviewed_plan_from_retained_snapshot(record, require_request_binding);
+}
+
+ReviewedPlanBinding reviewed_plan_from_retained_snapshot(const std::string& record, bool require_request_binding) {
+    using namespace usk::platform::windows;
     const auto snapshot = usk::json::parse(record);
     const bool consumer_bound=snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
     const bool caller_bound=consumer_bound || snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
@@ -1337,6 +1355,11 @@ ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
         snapshot.at("transaction_id").as_string(),
         snapshot.at("applied_at").as_string(), std::move(plan),
         std::move(payload)};
+}
+
+ReviewedPlanBinding reviewed_plan_from_snapshot_only(HANDLE volume,
+    const std::string& service_sid, bool require_request_binding = true) {
+    return reviewed_plan_from_protected_snapshot(volume, service_sid, require_request_binding, true);
 }
 
 void require_public_mount_mapping(HANDLE volume, const std::string& setup_root,
@@ -3084,6 +3107,20 @@ struct CandidateApplyContext {
     bool& effects_may_exist;
     std::string anchors;
     bool entered=false;
+    std::function<void()> start_installation_lease;
+    std::exception_ptr operation_failure;
+};
+thread_local usk::platform::windows::PublisherInstallOperationContext* original_operation_context=nullptr;
+class ScopedOriginalOperationContext final {
+public:
+    explicit ScopedOriginalOperationContext(usk::platform::windows::PublisherInstallOperationContext& context) {
+        if (original_operation_context) throw std::runtime_error("nested original operation context");
+        context.require_fence();
+        original_operation_context=&context;
+    }
+    ~ScopedOriginalOperationContext() { original_operation_context=nullptr; }
+    ScopedOriginalOperationContext(const ScopedOriginalOperationContext&)=delete;
+    ScopedOriginalOperationContext& operator=(const ScopedOriginalOperationContext&)=delete;
 };
 thread_local CandidateApplyContext* candidate_apply=nullptr;
 class ScopedCandidateApply final {
@@ -3168,6 +3205,23 @@ struct ScopedExecution {
 };
 } // namespace
 
+std::optional<usk::json::Value> usk::lifecycle::candidate_publisher_plan_replay(
+    const usk::json::Value& plan_request) {
+    if (!original_operation_context) return std::nullopt;
+    if (!execution_active || !registered_admission || !authenticated_request || !submitted_apply_request)
+        throw std::runtime_error("original operation replay lacks the live authenticated engine");
+    const auto& snapshot=original_operation_context->record().at("reviewed_snapshot");
+    require_candidate_snapshot_apply_binding(snapshot);
+    if (usk::json::canonical(snapshot.at("plan_request")) != usk::json::canonical(plan_request))
+        throw StaleReviewedInstallRequest();
+    return usk::json::Value(usk::json::Value::Object{
+        {"archive_sha256",snapshot.at("archive_sha256")},
+        {"archive_identity_digest",snapshot.at("archive_identity_digest")},
+        {"entry_set_digest",snapshot.at("entry_set_digest")},
+        {"policy_digest",snapshot.at("policy_digest")},
+        {"policy_context",snapshot.at("restart_policy_context")}});
+}
+
 void usk::lifecycle::require_candidate_snapshot_apply_binding(const usk::json::Value& snapshot) {
     const bool consumer_bound = snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
     const bool caller_bound = consumer_bound || snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
@@ -3237,8 +3291,23 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
         selected.selected_payload.files.push_back(std::move(entry));
     }
     try {
+        // The public dispatcher has already rebuilt and matched the reviewed
+        // plan before entering this context. Bootstrap can legitimately change
+        // its owned setup-root identity only after that stale-plan check.
+        if (registered_admission && !context.start_installation_lease)
+            throw std::runtime_error("registered apply lacks its native ownership initializer");
+        if (context.start_installation_lease) context.start_installation_lease();
         context.anchors=observe_protected_anchors(context.volume,context.service_sid,selected,false,&completed);
     } catch (const std::exception& error) {
+        // Keep the actual typed cause across the private C-ABI call. Its JSON
+        // reply remains conservatively recovery-required; caller-controlled
+        // response strings cannot manufacture an exception or authority.
+        using namespace usk::platform::windows;
+        using namespace usk::transaction;
+        if (dynamic_cast<const InstallLeaseConflict*>(&error) || dynamic_cast<const InstallStateRevisionStale*>(&error) ||
+            dynamic_cast<const InstallLeaseStale*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
+            dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherOperationCancelled*>(&error))
+            context.operation_failure = std::current_exception();
         throw ProtectedApplyEffectsRetained(error.what());
     }
     return completed;
@@ -3486,19 +3555,19 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         }
         const auto observed =
             usk::platform::windows::observe_current_restricted_publisher_service(service_name);
-        const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root);
+        const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root, stop_event);
         std::optional<usk::platform::windows::PublisherInstallOperationGuard> install_guard;
         if (submitted_apply_request) {
             const auto request = usk::json::parse(*submitted_apply_request);
             install_guard.emplace(volume_root,
-                request.at("plan_request").at("install_id").as_string());
+                request.at("plan_request").at("install_id").as_string(), stop_event);
         } else if (submitted_verify_request) {
             const auto request = usk::json::parse(*submitted_verify_request);
-            install_guard.emplace(volume_root, request.at("install_id").as_string());
+            install_guard.emplace(volume_root, request.at("install_id").as_string(), stop_event);
         }
         // Both guards are held before source/installed-state revalidation and
         // before effects. Source-free legacy replay retains the volume guard.
-        const DWORD root_access = recover_prepared || verify_installed_request ?
+        const DWORD root_access = (recover_prepared && !registered_admission) || verify_installed_request ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
                 READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE);
@@ -3509,6 +3578,93 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             throw std::runtime_error("cannot open admitted publisher volume root; Win32 "+std::to_string(GetLastError()));
         }
         OwnedHandle held_volume(volume);
+        // Ancestors, OS ownership, the lease, and its borrowed callback all
+        // survive every product effect, including public state and consumer
+        // finalization. Read-only verification never creates a lease.
+        std::unique_ptr<usk::platform::windows::PublisherInstallOperationContext> operation_context;
+        std::unique_ptr<ScopedOriginalOperationContext> original_replay;
+        bool operation_context_was_present=false;
+        std::unique_ptr<OwnedHandle> lease_setup_root, lease_state_root;
+        std::unique_ptr<usk::platform::windows::PublisherInstallationLease> installation_lease;
+        std::function<void()> lease_fence;
+        std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> effect_fence;
+        const auto start_installation_lease = [&](const ReviewedPlanBinding& reviewed, bool recovery) {
+            if (!registered_admission) return;
+            if (!install_guard || !authenticated_request)
+                throw std::runtime_error("registered effect lacks exclusive installation ownership");
+            if (installation_lease) {
+                if (recovery || !operation_context ||
+                    usk::json::canonical(operation_context->record().at("reviewed_snapshot")) + "\n" != reviewed.durable_snapshot)
+                    throw StaleReviewedInstallRequest();
+                operation_context->require_fence();
+                installation_lease->require_start();
+                return;
+            }
+            registered_operation_admission = admit_current_registered_operation(volume, observed.service_sid, reviewed);
+            if (!operation_context) operation_context =
+                std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
+                    volume_root, service_name, *install_guard, reviewed.install_plan.install_id, reviewed.transaction_id);
+            operation_context_was_present = operation_context->exists();
+            // Durable original intent precedes even empty setup bootstrap. A
+            // restart can recover the exact reviewed policy before active
+            // ownership or a public publication snapshot exists.
+            publication_effects_may_exist = true;
+            operation_context->prepare(usk::json::parse(reviewed.durable_snapshot),
+                usk::json::sha256_canonical(usk::json::Value(usk::json::Value::Array{})));
+
+            // Empty repository bootstrap creates protected layout only. It is
+            // conservatively reported as an effect and supplies the real state
+            // root identity needed before the ownership record can be created.
+            const auto setup_component = std::filesystem::u8path(reviewed.setup_root).filename().wstring();
+            bool existing_layout = false;
+            for (const auto& entry : observe_publisher_directory_entries(volume)) {
+                if (CompareStringOrdinal(entry.name.c_str(), -1, setup_component.c_str(), -1, TRUE) == CSTR_EQUAL) {
+                    if (entry.name != setup_component || existing_layout)
+                        throw std::runtime_error("installation setup-root name is ambiguous");
+                    existing_layout = true;
+                }
+            }
+            if (!existing_layout) publication_effects_may_exist = true;
+            usk::lifecycle::initialize_setup_root_for_publisher(reviewed.setup_root,
+                reviewed.acceptance_root, "operator_acceptance_candidate", volume, volume_root, service_name,
+                existing_layout);
+            lease_setup_root = std::make_unique<OwnedHandle>(open_exact_lab_child(volume, setup_component, true));
+            lease_state_root = std::make_unique<OwnedHandle>(open_exact_lab_child(lease_setup_root->get(),
+                L"state", true, false, true));
+            operation_context->bind_state_roots(lease_setup_root->get(), lease_state_root->get());
+            const std::function<std::string()> revision = [&, install_id = reviewed.install_plan.install_id] {
+                return usk::platform::windows::observe_publisher_install_state_revision(
+                    lease_state_root->get(), install_id, observed.service_sid);
+            };
+            const auto holder = usk::platform::windows::observe_publisher_lease_holder();
+            static std::atomic<std::uint64_t> attempt_sequence{0};
+            usk::transaction::InstallLeaseRequest request{reviewed.install_plan.install_id, "install_local",
+                reviewed.transaction_id, "attempt." + std::to_string(GetCurrentProcessId()) + "." +
+                    holder.at("process_creation_time").as_string() + "." + std::to_string(++attempt_sequence),
+                recovery ? revision() : operation_context->record().at("initial_state_revision").as_string(),
+                recovery || operation_context_was_present,
+                operation_context->lease_binding_sha256()};
+            publication_effects_may_exist = true;
+            installation_lease = std::make_unique<usk::platform::windows::PublisherInstallationLease>(
+                lease_state_root->get(), volume_root, service_name, *install_guard, request, revision);
+            installation_lease->require_start();
+            const auto setup_id = observe_publisher_directory_handle(lease_setup_root->get()).file_id;
+            const auto state_id = observe_publisher_directory_handle(lease_state_root->get()).file_id;
+            lease_fence = [&, setup_component, setup_id, state_id] {
+                OwnedHandle current_setup(open_exact_lab_child(volume, setup_component));
+                OwnedHandle current_state(open_exact_lab_child(current_setup.get(), L"state"));
+                const auto setup_facts = observe_publisher_directory_handle(current_setup.get());
+                const auto state_facts = observe_publisher_directory_handle(current_state.get());
+                require_publisher_object_security_shape(setup_facts, observed.service_sid);
+                require_publisher_object_security_shape(state_facts, observed.service_sid);
+                if (setup_facts.file_id != setup_id || state_facts.file_id != state_id)
+                    throw usk::transaction::InstallLeaseStale();
+                operation_context->require_fence();
+                installation_lease->require_fence();
+            };
+            effect_fence = std::make_unique<usk::platform::windows::ScopedPublisherEffectFence>(lease_fence);
+            if (!recovery) operation_context->prepare_publication(*installation_lease);
+        };
         std::string apply_response;
         std::string recovery_installed_response;
         usk::platform::windows::PublisherVolumeObservation volume_observation;
@@ -3516,10 +3672,92 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         bool snapshot_only_replay = false;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
+            if (registered_admission && !verify_installed_request) {
+                // Existing durable coordination or publication remains an
+                // effect even if a subsequent read-only admission check fails.
+                for (const auto& entry : observe_publisher_directory_entries(volume)) {
+                    if (CompareStringOrdinal(entry.name.c_str(),-1,L"installation-operations",-1,TRUE)==CSTR_EQUAL ||
+                        CompareStringOrdinal(entry.name.c_str(),-1,L"publication",-1,TRUE)==CSTR_EQUAL)
+                        publication_effects_may_exist=true;
+                }
+            }
+            if (registered_admission && submitted_apply_request) {
+                const auto apply=usk::json::parse(*submitted_apply_request);
+                operation_context=std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
+                    volume_root, service_name, *install_guard, apply.at("plan_request").at("install_id").as_string(),
+                    apply.at("transaction_id").as_string());
+                if (operation_context->exists()) {
+                    publication_effects_may_exist=true;
+                    const auto& snapshot=operation_context->record().at("reviewed_snapshot");
+                    (void)restore_reviewed_install_plan(usk::json::canonical(snapshot));
+                    if (snapshot.at("plan_envelope_sha256").as_string() != reviewed_plan_envelope_sha256)
+                        throw StaleReviewedInstallRequest();
+                    const auto setup_component=std::filesystem::u8path(snapshot.at("setup_root").as_string()).filename().wstring();
+                    bool setup_exists=false;
+                    for (const auto& entry : observe_publisher_directory_entries(volume)) {
+                        if (CompareStringOrdinal(entry.name.c_str(),-1,setup_component.c_str(),-1,TRUE)==CSTR_EQUAL) {
+                            if (entry.name != setup_component || setup_exists) throw StaleReviewedInstallRequest();
+                            setup_exists=true;
+                        }
+                    }
+                    if (setup_exists) {
+                        usk::lifecycle::initialize_setup_root_for_publisher(snapshot.at("setup_root").as_string(),
+                            std::filesystem::u8path(snapshot.at("setup_root").as_string()).root_path().u8string(),
+                            "operator_acceptance_candidate", volume, volume_root, service_name, true);
+                        original_replay=std::make_unique<ScopedOriginalOperationContext>(*operation_context);
+                    }
+                    if (operation_context->bootstrap_resume_required()) {
+                        // Preserve the exact reserved partial ancestry before
+                        // ordinary planning. Its removal restores the original
+                        // target probe; no recorded policy digest substitutes
+                        // for a changed live target or source.
+                        usk::base::StableFile envelope{std::filesystem::path(reviewed_plan_envelope_path)};
+                        if (envelope.identity().size_bytes == 0 || envelope.identity().size_bytes > 1024u * 1024u ||
+                            envelope.sha256_hex() != snapshot.at("plan_envelope_sha256").as_string())
+                            throw StaleReviewedInstallRequest();
+                        const auto bytes = envelope.read(0, static_cast<std::size_t>(envelope.identity().size_bytes));
+                        envelope.verify_unchanged();
+                        const auto original_envelope = usk::json::parse(std::string(bytes.begin(), bytes.end()));
+                        if (original_envelope.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+                            usk::json::canonical(original_envelope.at("apply_request")) != *submitted_apply_request ||
+                            usk::json::canonical(original_envelope.at("plan_request")) != usk::json::canonical(snapshot.at("plan_request")))
+                            throw StaleReviewedInstallRequest();
+                        usk::lifecycle::require_candidate_bootstrap_source(snapshot);
+                        const auto original = reviewed_plan_from_retained_snapshot(usk::json::canonical(snapshot) + "\n", false);
+                        start_installation_lease(original, false);
+                    }
+                }
+            }
+
             if ((recover_snapshot_only || recover_reviewed) && !install_guard) {
                 // Source-free recovery has no submitted apply request from which
                 // to name the install guard. Bind it to the protected snapshot
                 // while the volume guard is held, before recovery can mutate.
+                bool has_publication=false;
+                for (const auto& entry : observe_publisher_directory_entries(volume))
+                    if (entry.name==L"publication") has_publication=true;
+                if (registered_admission && submitted_recovery_request) {
+                    const auto request=usk::json::parse(*submitted_recovery_request);
+                    if (request.as_object().size()!=4 ||
+                        request.at("schema").as_string()!="usk.publisher_recovery_request.v1" ||
+                        !usk::record_io::valid_identifier(request.at("request_id").as_string()))
+                        throw StaleReviewedInstallRequest();
+                    install_guard.emplace(volume_root,request.at("install_id").as_string(),stop_event);
+                    operation_context=std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
+                        volume_root,service_name,*install_guard,request.at("install_id").as_string(),
+                        request.at("transaction_id").as_string());
+                    if (operation_context->exists()) {
+                        publication_effects_may_exist=true;
+                        (void)restore_reviewed_install_plan(usk::json::canonical(operation_context->record().at("reviewed_snapshot")));
+                        if (!has_publication || operation_context->bootstrap_resume_required())
+                            throw std::runtime_error("prepublication operation retained; retry exact original install_local.apply with its source");
+                    } else if (!has_publication) {
+                        throw std::runtime_error("protected original operation unavailable");
+                    }
+                    // A complete historical publication retains its existing
+                    // protected snapshot path. Missing intent cannot authorize
+                    // bootstrap preservation or qualify a new reservation.
+                }
                 OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
                 OwnedHandle journal(open_exact_lab_child(publication.get(), L"journal"));
                 const std::string record = read_phase_record(
@@ -3541,7 +3779,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         throw StaleReviewedInstallRequest();
                     }
                 }
-                install_guard.emplace(volume_root, plan.install_id);
+                if (!install_guard) install_guard.emplace(volume_root, plan.install_id, stop_event);
+                start_installation_lease(reviewed_plan_from_protected_snapshot(volume, observed.service_sid, false, false), true);
             }
             if (verify_installed_request) {
                 return verify_completed_install_in_service(volume, observed.service_sid);
@@ -3566,6 +3805,12 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     selected_archive_mode && selected_archive_path.empty() &&
                     !reviewed_plan_envelope_path.empty() && submitted_apply_request;
                 if (reviewed_source_reentry) reviewed_install_reentry = true;
+                if (registered_admission && publication_present && !installation_lease &&
+                    (recover_snapshot_only || recover_reviewed || !reviewed_plan_envelope_path.empty())) {
+                    start_installation_lease(reviewed_plan_from_protected_snapshot(volume,
+                        observed.service_sid, !reviewed_source_reentry && !submitted_recovery_request ? true : false,
+                        false), true);
+                }
                 if (recover_snapshot_only || recover_reviewed || reviewed_source_reentry) {
                     publication_effects_may_exist = publication_present;
                     if (!publication_present) {
@@ -3626,6 +3871,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         if (registered_admission) registered_operation_admission =
                             admit_current_registered_operation(volume, observed.service_sid, *reviewed_plan);
                         CandidateApplyContext context{volume,observed.service_sid,*reviewed_plan,publication_effects_may_exist,{}};
+                        context.start_installation_lease = [&] { start_installation_lease(*reviewed_plan, false); };
                         ScopedCandidateApply candidate(context);
                         int status=-1;
                         char* raw=usk_public_lifecycle_command_json("install_local.apply",
@@ -3637,6 +3883,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         usk_public_lifecycle_command_free(raw);
                         if (status != 0 || usk::json::parse(apply_response).at("status").as_string() != "ok" ||
                                 !context.entered || context.anchors.empty()) {
+                            if (context.operation_failure) std::rethrow_exception(context.operation_failure);
                             throw std::runtime_error("protected ordinary apply refused: "+apply_response);
                         }
                         anchors=std::move(context.anchors);
@@ -3710,6 +3957,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             consumer_access = "{\"status\":\"read_execute_granted\",\"consumer_sid\":" +
                 json_quote(consumer_read_sid) + ",\"objects\":" + std::to_string(objects) + "}";
         }
+        if (installation_lease) installation_lease->finish(false);
         const std::string data =
             "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
             json_quote(recover_prepared && !recover_visible_bound ?

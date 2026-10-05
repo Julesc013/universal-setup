@@ -15,7 +15,7 @@ $result=[ordered]@{schema='usk.publisher.production_rename_observer.v1';status='
     termination=$null;failure=$null}
 try {
     if($config.schema -cne 'usk.publisher.production_rename_observer_config.v1' -or
-        $config.phase -cnotin @('prepublish','postrename') -or
+        $config.phase -cnotin @('bootstrap','prepublish','postrename') -or
         $result.identity -cne 'S-1-5-18' -or
         $config.service_name -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
         $config.service_binary_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
@@ -23,7 +23,7 @@ try {
         $config.drive_letter -cnotmatch '^[A-Z]$' -or
         $config.visible_path -cne ($config.drive_letter+':\publication\destination\visible') -or
         $config.journal_path -cne ($config.drive_letter+':\publication\journal\lab-'+
-            $(if($config.phase -ceq 'prepublish'){'prepared'}else{'visible'})+'-evidence.json') -or
+            $(if($config.phase -cin @('bootstrap','prepublish')){'prepared'}else{'visible'})+'-evidence.json') -or
         $config.volume_guid_root -cnotmatch '^\\\\\?\\Volume\{[0-9a-f-]{36}\}\\$' -or
         (Split-Path -Parent $config.ready_path) -cne $PSScriptRoot -or
         (Split-Path -Parent $config.output_path) -cne $PSScriptRoot -or
@@ -60,11 +60,42 @@ try {
     $owned=[Collections.Generic.List[object]]::new()
     $owned.Add($process)
     $held|Add-Member -NotePropertyName UskOwnedTree -NotePropertyValue $owned
+    $publication=$config.drive_letter+':\publication'
+    $candidate=$publication+'\staging\candidate'
+    if($config.phase -ceq 'bootstrap') {
+        if(Test-Path -LiteralPath $publication){throw 'Bootstrap observer did not precede publication creation'}
+        $result['process_creation_file_time']=$held.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16')
+        $result['publication_before_kill']=$false;$result['publication_after_kill']=$false
+        $result['candidate_before_kill']=$false;$result['candidate_after_kill']=$false
+    }
     [IO.File]::WriteAllText($config.ready_path,
         "usk.publisher.production_rename_observer_ready.v1`n",[Text.UTF8Encoding]::new($false))
     $deadline=[DateTime]::UtcNow.AddSeconds(120)
     while([DateTime]::UtcNow -lt $deadline) {
         if($held.HasExited){throw 'Production service exited before visible rename'}
+        if($config.phase -ceq 'bootstrap') {
+            if(-not (Test-Path -LiteralPath $publication)){Start-Sleep -Milliseconds 1;continue}
+            $result.boundary_seen_utc=[DateTime]::UtcNow.ToString('o')
+            $result.publication_before_kill=$true
+            $result.candidate_before_kill=Test-Path -LiteralPath $candidate
+            $result.journal_before_kill=Test-Path -LiteralPath $config.journal_path
+            if($result.candidate_before_kill -or $result.journal_before_kill) {
+                $result.status='window_missed_bootstrap_already_passed';break
+            }
+            $result.termination=Stop-OwnedPublisherProcessTree $held -RequireLiveKill
+            $result.publication_after_kill=Test-Path -LiteralPath $publication
+            $result.candidate_after_kill=Test-Path -LiteralPath $candidate
+            $result.journal_after_kill=Test-Path -LiteralPath $config.journal_path
+            $result.visible_after_kill=Test-Path -LiteralPath $config.visible_path
+            if((Get-Volume -DriveLetter $config.drive_letter -ErrorAction Stop).UniqueId -cne $config.volume_guid_root) {
+                throw 'Bootstrap observer volume changed during termination'
+            }
+            $result.status=if($result.publication_after_kill -and -not $result.candidate_after_kill -and
+                -not $result.journal_after_kill -and -not $result.visible_after_kill) {
+                'terminated_publication_bootstrap'
+            }else{'window_missed_bootstrap_raced_kill'}
+            break
+        }
         $journalPresent=$false
         $visiblePresent=$false
         if($config.phase -ceq 'prepublish') {
@@ -143,5 +174,5 @@ try {
         ($result|ConvertTo-Json -Depth 8 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     [IO.File]::Move($outputTemp,$config.output_path)
 }
-if($result.status -cnotin @('terminated_prepared_prerename',
+if($result.status -cnotin @('terminated_publication_bootstrap','terminated_prepared_prerename',
     'terminated_postrename_prejournal')){exit 1}

@@ -124,7 +124,7 @@ function Assert-IndependentMetadataCollisionPrefix {
     }
 }
 function Assert-IndependentMetadataProbe {
-    param($Result,[switch]$AllowPartialConsumerGrant)
+    param($Result,[switch]$AllowPartialConsumerGrant,[switch]$RequireInstallationLease)
     $drive=$Result.volume_drive_root
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
     $visibleRoot=([string]$Result.plan.target.root).Replace('/','\')
@@ -177,7 +177,18 @@ function Assert-IndependentMetadataProbe {
     $completed=Get-ExactRecord $completedPath
     $publicFiles=@($Result.independent.rows|Where-Object { -not $_.directory -and $_.path.StartsWith(($drive + 'setup-state\'),[StringComparison]::Ordinal) })
     $expected=@(($drive + 'setup-state\.usk-owned-root.v1.json'),$installedPath,$ownershipPath,$validatedPath,$completedPath)
-    if ($publicFiles.Count -ne 5 -or @($publicFiles|Where-Object {$_.path -cnotin $expected}).Count -ne 0) { throw 'Independent public record closure differs' }
+    $leaseFiles=@($publicFiles|Where-Object {$_.path.StartsWith(($drive+'setup-state\state\leases\'),[StringComparison]::Ordinal)})
+    $contextFiles=@($Result.independent.rows|Where-Object {$_.path.StartsWith(($drive+'installation-operations\'),[StringComparison]::Ordinal)})
+    if($RequireInstallationLease -or $leaseFiles.Count -gt 0 -or $contextFiles.Count -gt 0) {
+        $leaseRequest=@{mode='snapshot';rows=$Result.independent.rows;drive=$drive;installed=$installed;
+            volume_root_id=$Result.independent.volume_boundary.root.file_id;allow_active=[bool]$AllowPartialConsumerGrant}
+        $leaseOutput=$leaseRequest|ConvertTo-Json -Depth 64 -Compress|
+            & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
+        if($LASTEXITCODE -ne 0){throw 'Independent installation lease/context closure differs'}
+        $leaseReport=($leaseOutput -join "`n")|ConvertFrom-Json
+        $expected+=@($leaseReport.coordination.files|Where-Object {$_.StartsWith(($drive+'setup-state\'),[StringComparison]::Ordinal)})
+    }
+    if ($publicFiles.Count -ne $expected.Count -or @($publicFiles|Where-Object {$_.path -cnotin $expected}).Count -ne 0) { throw 'Independent public record closure differs' }
     $target=$Result.plan.target.root.Replace('/','\')
     if ($marker.schema -ne 'usk.setup_owned_root.v1' -or $marker.acceptance_root.Replace('/','\') -cne ($drive + '') -or
         $installed.schema -ne 'usk.installed_state.v1' -or $installed.install_id -ne $installId -or
@@ -1036,9 +1047,9 @@ try {
 $rows=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
 if(-not $MetadataOnly) {
-foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'))) {
+foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'),($DriveRoot+'installation-operations'))) {
  if(-not (Test-Path -LiteralPath $top -PathType Container)) {
-  if($top -ceq ($DriveRoot+'setup-state')){continue}
+  if($top -ceq ($DriveRoot+'setup-state') -or $top -ceq ($DriveRoot+'installation-operations')){continue}
   throw 'Protected publication root is absent during independent readback'
  }
  $pending.Push((Get-Item -LiteralPath $top -Force))

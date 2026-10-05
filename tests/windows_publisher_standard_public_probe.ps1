@@ -7,11 +7,13 @@ param(
     [Parameter(Mandatory=$true)][string]$ServiceControlBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
     [Parameter(Mandatory=$true)][string]$OutputPath,
-    [Parameter(Mandatory=$true)][string]$PythonBinary
+    [Parameter(Mandatory=$true)][string]$PythonBinary,
+    [switch]$BootstrapProcessLoss
 )
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -66,7 +68,14 @@ function Read-ServicePolicy {
     if(@($rows|Where-Object {$_.sid -ceq $accountSid -and $_.mask -eq 0x20015 -and $_.type -ceq 'AccessAllowed'}).Count -ne 1) {throw 'Configured standard start/query grant differs'}
     return [ordered]@{owner=$descriptor.Owner.Value;raw_security_diagnostic=$raw;aces=$rows}
 }
-function Read-InstalledSnapshot {
+function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
+    $leaseRequest=@{mode=$(if($Readonly){'readonly'}else{'append'});before=$Before.independent.rows;
+        after=$After.independent.rows;drive=$drive;installed=$installed;volume_root_id=$After.independent.volume_boundary.root.file_id}
+    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Standard installation lease/native row transition differs'}
+}
+function Read-NativeSnapshot {
     $script:observersClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
         -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
@@ -77,6 +86,16 @@ function Read-InstalledSnapshot {
     $script:observersClosed=$true
     Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid -ConsumerSid $accountSid `
         -VisibleRoot ($drive+'publication\destination\visible')
+    return $readback
+}
+function Read-InstalledSnapshot {
+    $readback=Read-NativeSnapshot
+    # Missing coordination cannot select a historical compatibility path.
+    $leaseRequest=@{mode='snapshot';rows=$readback.independent.rows;drive=$drive;installed=$installed;
+        volume_root_id=$readback.independent.volume_boundary.root.file_id}
+    $leaseRequest|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Current standard snapshot lacks valid installation coordination'}
     $prepared=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     $visible=@($readback.independent.rows|Where-Object path -ceq ($drive+'publication\journal\lab-visible-evidence.json'))
     if($prepared.Count -ne 1 -or $visible.Count -ne 1){throw 'Standard native phase records are incomplete'}
@@ -93,8 +112,10 @@ function Read-InstalledSnapshot {
     $readback|Add-Member -NotePropertyName execution_reconciliation -NotePropertyValue $report
     return $readback
 }
-function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
+function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
+    if($BootstrapLoss -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 5 -or
+        -not $BootstrapProcessLoss -or $receipt.Contains('bootstrap_loss'))) {throw 'Bootstrap interruption request differs'}
     $requestId='public.'+[guid]::NewGuid().ToString('N')
     if($Command -cin @('publisher.inspect','publisher.observe')){$Payload.request_id=$requestId}
     $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
@@ -107,7 +128,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
         $clientTokenLease.Dispose();$script:clientTokenLease=$null
         [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
     }
-    $launch=$null;$process=$null;$script:clientsClosed=$false
+    $launch=$null;$process=$null;$bootstrapObserver=$null;$script:clientsClosed=$false
     try {
         $launch=[UskPublisherPausedClient]::CreateOwnedStandard($MachineBinary,('--machine --publisher '+$service+
             ' --request-file "'+$request+'" --publisher-observation-file "'+$nativeOutput+'"'),$stdout,$stderr,$accountName,$secret,$accountSid)
@@ -118,17 +139,33 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
         if(Test-Path -LiteralPath $clientCaptureFile){throw 'Standard held-client capture already exists'}
         Write-Json $clientCaptureFile $capture
         $script:clientCaptureSha256=(Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant()
-        $receipt.client_captures.Add([ordered]@{request_id=$requestId;command=$Command;process_id=$launch.ProcessId;
+        $clientCapture=[ordered]@{request_id=$requestId;command=$Command;process_id=$launch.ProcessId;
             creation_file_time=$launch.CreationFileTime.ToString();captured_before_primary_thread_resume=$true;
             primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$receipt.machine_sha256;
-            capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id})
+            capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
+        if($BootstrapLoss) {
+            $receipt['bootstrap_loss']=[ordered]@{schema='usk.publisher_registered_bootstrap_loss.v1';
+                client_capture=$clientCapture;response=$null;boundary=$null;readback=$null;reconciliation=$null}
+            # The production worker waits for authenticated RPC. Start only the
+            # exact owned fixture service while this ordinary client is paused.
+            Start-Service -Name $service -ErrorAction Stop
+            (Get-Service $service).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+            $observerRoot=Join-Path $lab 'bootstrap-observer'
+            New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
+            $script:observersClosed=$false
+            $bootstrapObserver=Start-OwnedProductionBoundaryObserver -Phase bootstrap -Service $service `
+                -ObserverRoot $observerRoot -VhdPath $VhdPath -VolumeRoot $VolumeRoot -DriveRoot $drive `
+                -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $registeredCommand `
+                -ServiceBinarySha256 $receipt.service_sha256
+        } else {$receipt.client_captures.Add($clientCapture)}
         $launch.Resume()
         if(-not $process.WaitForExit(120000)) {throw 'Standard public client exceeded its deadline'}
         $process.WaitForExit();$exit=$process.ExitCode
         $diagnostic=[IO.File]::ReadAllText($stderr)
         if((Get-Item -LiteralPath $stdout).Length -gt 4MB -or (Get-Item -LiteralPath $stderr).Length -gt 64KB -or
             ($ExpectedExit -eq 0 -and $diagnostic.Length) -or
-            ($ExpectedExit -ne 0 -and $diagnostic -cnotmatch '^usk_machine: request refused\r?\n?$')) {throw 'Standard client output differs'}
+            ($BootstrapLoss -and $diagnostic.Length) -or
+            ($ExpectedExit -ne 0 -and -not $BootstrapLoss -and $diagnostic -cnotmatch '^usk_machine: request refused\r?\n?$')) {throw 'Standard client output differs'}
         $responseText=[IO.File]::ReadAllText($stdout)
         $receipt['last_response_diagnostic']=[ordered]@{command=$Command;request_id=$requestId;exit_code=$exit;
             stdout_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -143,6 +180,13 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
         $responseMatches=$exit -eq $ExpectedExit -and $result.schema -ceq 'usk.oneshot_response.v1' -and
             $result.request_id -ceq $requestId -and
             ($ExpectedExit -ne 0 -or ($result.status -ceq 'ok' -and $payloadMatches))
+        if($BootstrapLoss) {
+            $responseMatches=$responseMatches -and $result.status -ceq 'unknown' -and $null -eq $result.result -and
+                $result.error.code -ceq 'publisher_outcome_unknown' -and -not (Test-Path -LiteralPath $nativeOutput)
+            $receipt.bootstrap_loss.response=$result
+            $receipt.bootstrap_loss.boundary=Complete-OwnedProductionBoundaryObserver $bootstrapObserver bootstrap
+            $script:observersClosed=$true
+        }
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
@@ -178,6 +222,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0) 
         return $result
     } finally {
         try {
+            if($bootstrapObserver -and -not $bootstrapObserver.removed) {
+                Remove-OwnedProductionBoundaryObserver $bootstrapObserver
+                $script:observersClosed=$true
+            }
             if($process -and -not $process.HasExited) {
                 if($launch -and -not $launch.IsResumed){$launch.Dispose()}
                 else {Stop-OwnedPublisherProcessTree $process|Out-Null}
@@ -229,6 +277,7 @@ try {
         $binding.envelope_sha256 $accountSid $receipt.service_sha256 --service-admitted-client
     if($LASTEXITCODE -ne 0 -or ($registration|ConvertFrom-Json).status -cne 'registered'){throw 'Standard registration failed'}
     $registered=$true
+    $registeredCommand=(Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'") -ErrorAction Stop).PathName
     $sid=[Security.Principal.NTAccount]::new('NT SERVICE\'+$service).Translate([Security.Principal.SecurityIdentifier]).Value
     $receipt['service_sid']=$sid
     $inputAcl=Get-Acl -LiteralPath $fixture
@@ -247,11 +296,25 @@ try {
         $receipt.service_discovery.result.qualification -cne 'qualified_for_scope' -or
         $receipt.service_discovery.result.support -cne 'supported_for_scope' -or
         $receipt.service_discovery.result.execution_lease_held -ne $false) {throw 'Scoped service observation lost its qualified dimensions'}
+    if($BootstrapProcessLoss) {
+        $null=Invoke-StandardRequest 'install_local.apply' $apply 5 -BootstrapLoss
+        $receipt.bootstrap_loss.readback=Read-NativeSnapshot
+    }
     $receipt['apply']=Invoke-StandardRequest 'install_local.apply' $apply
     $installed=$receipt.apply.result.payload
     if($installed.install_id -cne $apply.plan_request.install_id -or $installed.transaction_id -cne $apply.transaction_id -or
         $installed.created_at -cne $apply.applied_at -or $installed.lifecycle_status -cne 'installed'){throw 'Standard installed state identity differs'}
     $before=Read-InstalledSnapshot;$receipt.readbacks.Add($before)
+    if($BootstrapProcessLoss) {
+        $loss=$receipt.bootstrap_loss
+        $bootstrapRequest=@{mode='bootstrap_takeover';before=$loss.readback.independent.rows;after=$before.independent.rows;
+            drive=$drive;installed=$installed;volume_root_id=$before.independent.volume_boundary.root.file_id;
+            terminated_holder=@{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time}}
+        $decoded=$bootstrapRequest|ConvertTo-Json -Depth 64 -Compress|
+            & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
+        if($LASTEXITCODE -ne 0){throw 'Registered bootstrap takeover/native preservation differs'}
+        $receipt.bootstrap_loss.reconciliation=($decoded -join "`n")|ConvertFrom-Json
+    }
     $exactFixture=[IO.Path]::GetFullPath($fixture)
     if($exactFixture -cne [IO.Path]::GetFullPath((Join-Path $lab 'standard-authored-inputs')) -or
         (Get-Item -LiteralPath $exactFixture).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Owned standard source cleanup escaped'}
@@ -261,19 +324,20 @@ try {
     $receipt['recovery']=Invoke-StandardRequest 'install_local.recover' @{schema='usk.publisher_recovery_request.v1';request_id='recover.'+$id;
         install_id=$installed.install_id;transaction_id=$installed.transaction_id}
     $recovered=Read-InstalledSnapshot;$receipt.readbacks.Add($recovered)
-    if(($before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($recovered.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard recovery changed target snapshot'}
+    Assert-LeaseTransition $before $recovered
     $receipt['replayed_apply']=Invoke-StandardRequest 'install_local.apply' $apply
     foreach($terminal in @($receipt.recovery,$receipt.replayed_apply)) {
         if(($terminal.result.payload|ConvertTo-Json -Depth 64 -Compress) -cne ($installed|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard source-free state changed'}
     }
     $after=Read-InstalledSnapshot;$receipt.readbacks.Add($after)
-    if(($recovered.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($after.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard replay changed target snapshot'}
+    Assert-LeaseTransition $recovered $after
     $verify=@{schema='usk.publisher_installed_verify_request.v1';request_id='verify.'+$id;install_id=$installed.install_id;
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
     $receipt['verification']=Invoke-StandardRequest 'installed.verify' $verify
     if($receipt.verification.result.payload.status -cne 'pass' -or $receipt.verification.result.payload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
     if(($after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verified.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard verification changed target snapshot'}
+    Assert-LeaseTransition $after $verified $true
     $receipt['source_free_service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v3';request_id='observe-source-free.'+$id}
     if(($receipt.service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress) -cne
         ($receipt.source_free_service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress)) {

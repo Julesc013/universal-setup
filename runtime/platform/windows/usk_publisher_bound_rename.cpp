@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_bound_rename.h"
+#include "usk_publisher_metadata.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_rename_information.h"
 #include "usk_publisher_volume_stream_observation.h"
@@ -158,6 +159,7 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
     if (!nt_set) throw std::runtime_error("publisher native rename is unavailable");
     IO_STATUS_BLOCK io{};
     LARGE_INTEGER frequency{}, started{}, ended{};
+    require_current_publisher_effect_fence();
     if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0 ||
         !QueryPerformanceCounter(&started)) {
         throw std::runtime_error("publisher native rename clock is unavailable");

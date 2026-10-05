@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_staged_stream.h"
+#include "usk_publisher_metadata.h"
 
 #if defined(_WIN32)
 #include "usk_publisher_anchor_create.h"
@@ -103,6 +104,7 @@ PublisherStagedStream stream_verified_source_to_staged_file(
             DWORD offset = 0;
             while (offset != read) {
                 DWORD written = 0;
+                require_current_publisher_effect_fence();
                 if (!WriteFile(target, buffer.data() + offset, read - offset,
                         &written, nullptr) || written == 0) {
                     throw std::runtime_error("protected staged write failed");
@@ -168,6 +170,7 @@ PublisherStagedStream stream_verified_reader_to_staged_file(
             std::size_t written_total = 0;
             while (written_total != count) {
                 DWORD written = 0;
+                require_current_publisher_effect_fence();
                 if (!WriteFile(target, buffer.data() + written_total,
                         static_cast<DWORD>(count - written_total), &written,
                         nullptr) || written == 0) {

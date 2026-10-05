@@ -28,13 +28,21 @@ public:
     PublisherInstallBusy() : std::runtime_error("publisher installation operation is active") {}
 };
 
+class PublisherOperationCancelled final : public std::runtime_error {
+public:
+    PublisherOperationCancelled() : std::runtime_error("publisher operation acquisition cancelled") {}
+};
+
+inline constexpr DWORD publisher_guard_max_wait_milliseconds = 30000;
+
 std::wstring publisher_volume_operation_guard_name(const std::wstring& volume_guid_root);
 std::wstring publisher_install_operation_guard_name(const std::wstring& volume_guid_root,
     const std::string& install_id);
 
 class PublisherVolumeOperationGuard final {
 public:
-    explicit PublisherVolumeOperationGuard(const std::wstring& volume_guid_root);
+    explicit PublisherVolumeOperationGuard(const std::wstring& volume_guid_root,
+        HANDLE cancel_event = nullptr, DWORD wait_milliseconds = 0);
     ~PublisherVolumeOperationGuard();
 
     PublisherVolumeOperationGuard(const PublisherVolumeOperationGuard&) = delete;
@@ -53,16 +61,20 @@ private:
 class PublisherInstallOperationGuard final {
 public:
     PublisherInstallOperationGuard(const std::wstring& volume_guid_root,
-        const std::string& install_id);
+        const std::string& install_id, HANDLE cancel_event = nullptr,
+        DWORD wait_milliseconds = 0);
     ~PublisherInstallOperationGuard();
 
     PublisherInstallOperationGuard(const PublisherInstallOperationGuard&) = delete;
     PublisherInstallOperationGuard& operator=(const PublisherInstallOperationGuard&) = delete;
     bool previous_owner_abandoned() const noexcept { return previous_owner_abandoned_; }
+    void require_owned(const std::wstring& volume_guid_root, const std::string& install_id) const;
 
 private:
     HANDLE mutex_ = nullptr;
     bool previous_owner_abandoned_ = false;
+    DWORD owner_thread_ = 0;
+    std::wstring name_;
 };
 
 } // namespace usk::platform::windows

@@ -90,7 +90,8 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_data_partition.cpp
     runtime/platform/windows/usk_publisher_volume_stream_observation.cpp
     runtime/platform/windows/usk_publisher_device_acl.cpp
-    runtime/platform/windows/usk_publisher_volume_operation_guard.cpp)
+    runtime/platform/windows/usk_publisher_volume_operation_guard.cpp
+    runtime/platform/windows/usk_publisher_installation_lease.cpp)
   target_compile_features(usk_publisher_windows_static PUBLIC cxx_std_17)
   # Bind the SDK selected by this generated VS build, rather than the installed
   # SDK inventory or a test-runner assertion. Unknown generators remain unable
@@ -99,7 +100,7 @@ if(WIN32)
     USK_PUBLISHER_BUILD_SDK_VERSION="${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
   target_include_directories(usk_publisher_windows_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
-  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static advapi32 bcrypt shell32 ole32)
+  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static usk_transaction_static advapi32 bcrypt shell32 ole32)
   set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
   usk_enable_strict_warnings(usk_publisher_windows_static)
 endif()
@@ -139,6 +140,7 @@ set_target_properties(usk_policy_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_transaction_static STATIC
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_install_lease.cpp
   runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
@@ -235,6 +237,7 @@ set(USK_CORE_SOURCES
   runtime/setup/state/usk_state_repository.cpp
   runtime/setup/streaming/usk_streaming_source_target.cpp
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_install_lease.cpp
   runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp
   runtime/setup/transaction/usk_stream_entry_journal.cpp
@@ -572,6 +575,13 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_transaction_session_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_transaction_session_smoke PRIVATE usk_transaction_static)
   add_test(NAME usk_transaction_session_smoke COMMAND usk_transaction_session_smoke)
+
+  add_executable(usk_install_lease_smoke tests/native/usk_install_lease_smoke.cpp)
+  target_compile_features(usk_install_lease_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_install_lease_smoke PRIVATE usk_transaction_static)
+  usk_enable_strict_warnings(usk_install_lease_smoke)
+  add_test(NAME usk_install_lease_smoke COMMAND usk_install_lease_smoke)
+  set_tests_properties(usk_install_lease_smoke PROPERTIES TIMEOUT 30)
 
   add_executable(usk_replacement_session_smoke tests/native/usk_replacement_session_smoke.cpp)
   target_compile_features(usk_replacement_session_smoke PRIVATE cxx_std_17)

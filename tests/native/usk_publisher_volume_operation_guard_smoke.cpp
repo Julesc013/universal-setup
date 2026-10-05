@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_volume_operation_guard.h"
+#include "usk_publisher_installation_lease.h"
 
 #if defined(_WIN32)
 #include <objbase.h>
 
 #include <atomic>
+#include <filesystem>
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -33,6 +37,91 @@ bool rejects(const std::wstring& root)
     return false;
 }
 
+struct TestEvent {
+    TestEvent() : handle(CreateEventW(nullptr, TRUE, FALSE, nullptr)) {
+        if (!handle) throw std::runtime_error("cannot create owned guard-test event");
+    }
+    ~TestEvent() { CloseHandle(handle); }
+    HANDLE handle;
+};
+
+template<class Busy, class Acquire>
+bool bounded_acquisition_cases(Acquire acquire)
+{
+    using usk::platform::windows::PublisherOperationCancelled;
+    using usk::platform::windows::publisher_guard_max_wait_milliseconds;
+    TestEvent cancelled;
+    if (!SetEvent(cancelled.handle)) return false;
+    bool cancelled_before_acquisition = false;
+    try { auto guard = acquire(cancelled.handle, 0); }
+    catch (const PublisherOperationCancelled&) { cancelled_before_acquisition = true; }
+    if (!cancelled_before_acquisition || !ResetEvent(cancelled.handle)) return false;
+    bool refused_unbounded = false;
+    try { auto guard = acquire(nullptr, publisher_guard_max_wait_milliseconds + 1); }
+    catch (const std::invalid_argument&) { refused_unbounded = true; }
+    if (!refused_unbounded) return false;
+
+    {
+        auto holder = acquire(nullptr, 0);
+        std::atomic<int> deadline_result{0};
+        std::thread deadline_contender([&] {
+            const ULONGLONG started = GetTickCount64();
+            try { auto guard = acquire(nullptr, 50); deadline_result = 2; }
+            catch (const Busy&) {
+                const ULONGLONG elapsed = GetTickCount64() - started;
+                deadline_result = elapsed >= 30 && elapsed < 5000 ? 1 : 3;
+            } catch (...) { deadline_result = 4; }
+        });
+        deadline_contender.join();
+        if (deadline_result != 1) return false;
+
+        TestEvent contender_started;
+        std::atomic<int> cancellation_result{0};
+        std::thread cancelled_contender([&] {
+            if (!SetEvent(contender_started.handle)) { cancellation_result = 4; return; }
+            try { auto guard = acquire(cancelled.handle, 5000); cancellation_result = 2; }
+            catch (const PublisherOperationCancelled&) { cancellation_result = 1; }
+            catch (...) { cancellation_result = 3; }
+        });
+        const DWORD started_wait = WaitForSingleObject(contender_started.handle, 5000);
+        const BOOL cancellation_set = SetEvent(cancelled.handle);
+        cancelled_contender.join();
+        if (started_wait != WAIT_OBJECT_0 || !cancellation_set || cancellation_result != 1)
+            return false;
+    }
+    if (!ResetEvent(cancelled.handle)) return false;
+    // A separate thread must acquire after both refused attempts. This also
+    // checks that cancellation did not leave a recursive mutex acquisition.
+    std::atomic<int> successor_result{0};
+    std::thread successor([&] {
+        try { auto guard = acquire(nullptr, 0); successor_result = 1; }
+        catch (...) { successor_result = 2; }
+    });
+    successor.join();
+    if (successor_result != 1) return false;
+
+    TestEvent held;
+    TestEvent release;
+    std::atomic<int> holder_result{0};
+    std::thread releasing_holder([&] {
+        try {
+            auto guard = acquire(nullptr, 0);
+            if (!SetEvent(held.handle)) { holder_result = 3; return; }
+            holder_result = WaitForSingleObject(release.handle, 5000) == WAIT_OBJECT_0 ? 1 : 4;
+        } catch (...) { holder_result = 2; SetEvent(held.handle); }
+    });
+    const DWORD held_wait = WaitForSingleObject(held.handle, 5000);
+    std::thread release_signal([&] { Sleep(50); SetEvent(release.handle); });
+    bool acquired_after_release = false;
+    try {
+        auto guard = acquire(nullptr, 2000);
+        acquired_after_release = !guard.previous_owner_abandoned();
+    } catch (...) { }
+    release_signal.join();
+    releasing_holder.join();
+    return held_wait == WAIT_OBJECT_0 && holder_result == 1 && acquired_after_release;
+}
+
 int child_guard_result(const std::wstring& mode, const std::wstring& root,
     const std::wstring& install_id = L"")
 {
@@ -55,6 +144,17 @@ int child_guard_result(const std::wstring& mode, const std::wstring& root,
         WaitForSingleObject(child.hProcess, 10000);
         code = 99;
     }
+    FILETIME birth{}, exit{}, kernel{}, user{};
+    if (waited == WAIT_OBJECT_0 && GetProcessTimes(child.hProcess, &birth, &exit, &kernel, &user)) {
+        std::ostringstream creation;
+        creation << std::hex << std::setfill('0') << std::setw(16) <<
+            ((static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime);
+        const usk::json::Value holder(usk::json::Value::Object{
+            {"process_id", usk::json::Value(static_cast<std::uint64_t>(child.dwProcessId))},
+            {"process_creation_time", usk::json::Value(creation.str())}});
+        if (usk::platform::windows::observe_publisher_previous_lease_holder(holder) !=
+            usk::transaction::InstallLeasePreviousHolder::ended) code = 98;
+    } else code = 97;
     CloseHandle(child.hThread);
     CloseHandle(child.hProcess);
     return static_cast<int>(code);
@@ -96,6 +196,30 @@ int wmain(int argc, wchar_t** argv)
     }
     if (argc != 1) return 16;
 
+    const auto live_holder = usk::platform::windows::observe_publisher_lease_holder();
+    if (live_holder.at("process_id").as_unsigned() != GetCurrentProcessId() ||
+        usk::platform::windows::observe_publisher_previous_lease_holder(live_holder) !=
+            usk::transaction::InstallLeasePreviousHolder::live) return 31;
+    auto old_birth = live_holder;
+    old_birth.as_object().at("process_creation_time") = usk::json::Value("0000000000000001");
+    // A recorded old birth time cannot identify this real live process. This
+    // tests the OS observation/classification, not an actual forced PID reuse.
+    if (usk::platform::windows::observe_publisher_previous_lease_holder(old_birth) !=
+        usk::transaction::InstallLeasePreviousHolder::identity_reused) return 32;
+    HANDLE actual_root = CreateFileW(std::filesystem::current_path().c_str(),
+        FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (actual_root == INVALID_HANDLE_VALUE) return 34;
+    const auto actual_identity = usk::platform::windows::observe_publisher_lease_root_identity(actual_root);
+    CloseHandle(actual_root);
+    // Real native observations can enter the data protocol. This ordinary
+    // test directory supplies no protected-service or mutation authority.
+    const std::string revision(64, 'a');
+    const auto observed_protocol = usk::transaction::derive_install_lease_ownership({},
+        {"org.example.setup", "install_local", "test.operation", "test.attempt", revision, false, std::string(64, 'd')},
+        actual_identity, live_holder, revision);
+    usk::transaction::require_install_lease_record(observed_protocol);
+
     const std::wstring root = fresh_root();
     if (!rejects(L"E:\\") || !rejects(root + L"child") ||
         !rejects(L"\\\\?\\Volume{12345678-1234-1234-1234-12345678901z}\\")) {
@@ -121,8 +245,16 @@ int wmain(int argc, wchar_t** argv)
     {
         PublisherInstallOperationGuard owner(root, "org.example.setup");
         if (owner.previous_owner_abandoned()) return 12;
+        owner.require_owned(root, "org.example.setup");
+        bool wrong_install_refused = false;
+        try { owner.require_owned(root, "org.example.other"); }
+        catch (const PublisherInstallBusy&) { wrong_install_refused = true; }
+        if (!wrong_install_refused) return 33;
         std::atomic<int> contender_result{0};
         std::thread contender([&] {
+            try { owner.require_owned(root, "org.example.setup"); }
+            catch (const PublisherInstallBusy&) { contender_result = 4; }
+            if (contender_result != 4) { contender_result = 5; return; }
             try {
                 PublisherInstallOperationGuard second(lower, "org.example.setup");
                 contender_result = 2;
@@ -223,6 +355,14 @@ int wmain(int argc, wchar_t** argv)
     }
     CloseHandle(wrong_type);
     if (!refused_wrong_type) return 9;
+
+    const std::wstring wait_root = fresh_root();
+    if (!bounded_acquisition_cases<PublisherVolumeBusy>([&](HANDLE cancel, DWORD budget) {
+            return PublisherVolumeOperationGuard(wait_root, cancel, budget);
+        })) return 24;
+    if (!bounded_acquisition_cases<PublisherInstallBusy>([&](HANDLE cancel, DWORD budget) {
+            return PublisherInstallOperationGuard(wait_root, "org.example.setup", cancel, budget);
+        })) return 25;
     return 0;
 }
 #endif

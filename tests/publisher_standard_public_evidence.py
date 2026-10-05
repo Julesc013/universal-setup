@@ -126,6 +126,39 @@ def native_boundary(boundary):
         deny_mutation(boundary["device"]["checks"][actor])
 
 
+def standard_capture(capture, client, machine_sha256):
+    require(capture.get('captured_before_primary_thread_resume') is True and integer(capture['process_id'], 1) and
+        re.fullmatch(r'[1-9][0-9]{16,18}', capture['creation_file_time']) and
+        capture['image_sha256'] == machine_sha256, 'standard pre-resume process/image binding differs')
+    client_token(capture['primary_token'], client)
+    launcher = capture['launcher_token']
+    require(launcher['user_sid'] == 'S-1-5-18' and integer(launcher['token_type'], 1, 1) and
+        {'SeAssignPrimaryTokenPrivilege', 'SeIncreaseQuotaPrivilege'} <=
+            {x['name'] for x in launcher['privileges'] if not x['attributes'] & 4},
+        'standard launcher lacks documented creation authority')
+
+
+def reader_rows(readback, capture, client):
+    require(readback['observer_task_removed'] is True and readback['independent']['identity'] == 'S-1-5-18' and
+        readback['independent']['observer_token_handles_closed'] is True, 'standard native reader closure differs')
+    tokens = readback['independent']['effective_right_tokens']
+    context = tokens['capture_context']
+    require(tokens['captured_client']['process_id'] == capture['process_id'] and
+        tokens['captured_client']['creation_file_time'] == capture['creation_file_time'] and
+        tokens['captured_client']['exited_at_observation'] is True and
+        context['capture_sha256'] == capture['capture_sha256'] and context['command'] == capture['command'] and
+        context['request_id'] == capture['request_id'] and context['image_sha256'] == capture['image_sha256'] and
+        tokens['initiating']['user_sid'] == client and tokens['filtered']['user_sid'] == client and
+        tokens['initiating']['token_id'] == capture['initiating_token_id'] and
+        tokens['filtered']['token_id'] == capture['filtered_token_id'], 'standard held-native client binding differs')
+    require(all(tokens['initiating'][key] == capture['primary_token'][key]
+        for key in ('authentication_id', 'groups', 'privileges')), 'standard primary/independent initiating facts differ')
+    require(tokens['initiating']['token_type'] == tokens['filtered']['token_type'] == 2 and
+        tokens['initiating']['impersonation_level'] == tokens['filtered']['impersonation_level'] == 2,
+        'standard independent AccessCheck token type differs')
+    return readback['independent']['rows']
+
+
 def registered_admission(native, service, service_sid, client, image_sha256, volume_root, boundary_id):
     """Decode observed admission bindings; this does not certify source or mapped image bytes."""
     value = native.get('registered_admission')
@@ -262,7 +295,8 @@ def installed_material(observation, rows, drive):
             "native payload/ownership bytes differ from reviewed plan")
 
 
-def reconcile(receipt, expected_head):
+def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False, allow_legacy_missing_bootstrap=False,
+              require_bootstrap_loss=False):
     require(receipt.get("status") == "volume_and_protected_publish_observed" and
         receipt.get("build_profile", {}).get("pull_request_head") == expected_head,
         "standard hosted source/result differs")
@@ -297,15 +331,7 @@ def reconcile(receipt, expected_head):
     native_captures = observation.get('native_observations')
     require_native_capture_set(native_captures, captures, commands, allow_legacy_missing=not mediated)
     for capture in captures:
-        require(capture.get("captured_before_primary_thread_resume") is True and integer(capture["process_id"], 1) and
-            re.fullmatch(r"[1-9][0-9]{16,18}", capture["creation_file_time"]) and
-            capture["image_sha256"] == observation["machine_sha256"], "standard pre-resume process/image binding differs")
-        client_token(capture["primary_token"], client)
-        launcher = capture["launcher_token"]
-        require(launcher["user_sid"] == "S-1-5-18" and integer(launcher["token_type"], 1, 1) and
-            {"SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege"} <=
-                {x["name"] for x in launcher["privileges"] if not x["attributes"] & 4},
-            "standard launcher lacks documented creation authority")
+        standard_capture(capture, client, observation['machine_sha256'])
     discovery = observation["discovery"]
     require(discovery["status"] == "refused" and discovery["result"] is None and
         discovery["error"]["code"] == "publisher_capability_unavailable", "standard discovery fabricated availability")
@@ -318,25 +344,21 @@ def reconcile(receipt, expected_head):
     reports = []
     baseline = None
     for readback, capture in zip(readbacks, captures[2:6] if mediated else captures[1:]):
-        require(readback["observer_task_removed"] is True and readback["independent"]["identity"] == "S-1-5-18" and
-            readback["independent"]["observer_token_handles_closed"] is True, "standard native reader closure differs")
-        tokens = readback["independent"]["effective_right_tokens"]
-        context = tokens["capture_context"]
-        require(tokens["captured_client"]["process_id"] == capture["process_id"] and
-            tokens["captured_client"]["creation_file_time"] == capture["creation_file_time"] and
-            tokens["captured_client"]["exited_at_observation"] is True and
-            context["capture_sha256"] == capture["capture_sha256"] and context["command"] == capture["command"] and
-            context["request_id"] == capture["request_id"] and context["image_sha256"] == capture["image_sha256"] and
-            tokens["initiating"]["user_sid"] == client and tokens["filtered"]["user_sid"] == client and
-            tokens["initiating"]["token_id"] == capture["initiating_token_id"] and
-            tokens["filtered"]["token_id"] == capture["filtered_token_id"], "standard held-native client binding differs")
-        require(all(tokens["initiating"][key] == capture["primary_token"][key]
-            for key in ("authentication_id", "groups", "privileges")), "standard primary/independent initiating facts differ")
-        require(tokens["initiating"]["token_type"] == tokens["filtered"]["token_type"] == 2 and
-            tokens["initiating"]["impersonation_level"] == tokens["filtered"]["impersonation_level"] == 2,
-            "standard independent AccessCheck token type differs")
-        rows = readback["independent"]["rows"]
-        require(rows and len(rows) <= 10000 and (baseline is None or rows == baseline), "standard request changed native target rows")
+        rows = reader_rows(readback, capture, client)
+        from publisher_installation_lease_evidence import snapshot as lease_snapshot, transition as lease_transition, LeaseEvidenceError
+        require(rows and len(rows) <= 10000, "standard native row budget exceeded")
+        try:
+            if baseline is None:
+                lease_snapshot(rows, receipt["volume_root"], installed, readback["independent"]["volume_boundary"]["root"]["file_id"],
+                    allow_legacy_missing=allow_legacy_missing_coordination,
+                    allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap)
+            else:
+                lease_transition(baseline, rows, receipt["volume_root"], installed,
+                    readback["independent"]["volume_boundary"]["root"]["file_id"], readonly=capture["command"] == "installed.verify",
+                    allow_legacy_missing=allow_legacy_missing_coordination,
+                    allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap)
+        except (LeaseEvidenceError, ValueError, KeyError, TypeError) as error:
+            raise StandardEvidenceError("standard lease/native row transition differs: " + str(error)) from error
         baseline = rows
         drive = receipt["volume_root"]
         target = installed["target_root"].replace("/", "\\")
@@ -421,14 +443,62 @@ def reconcile(receipt, expected_head):
                     'standard native apply completion is ambiguous')
                 returned = next(value for value in responses if value is not None)
             require(returned == public_result, 'standard native/public completion bytes differ')
-    return {"schema": "usk.publisher_standard_public_reconciliation.v1", "status": "bindings_consistent",
+    bootstrap = reconcile_bootstrap_loss(observation, captures, installed, readbacks[0], receipt['volume_root'], require_bootstrap_loss)
+    result = {"schema": "usk.publisher_standard_public_reconciliation.v1", "status": "bindings_consistent",
         "head": expected_head, "standard_client_sid": client, "captured_clients": len(commands), "native_readbacks": 4,
         "service_observations_checked": 2 if mediated else 0,
         "phase_bindings_checked": sum(x["worker_security_phase_count"] for x in reports),
         "native_rows": len(baseline), "profile_qualified": False}
+    if bootstrap is not None:
+        result['bootstrap_takeover'] = bootstrap
+    return result
 
 
-def reconcile_native_model(receipt, expected_head, reviewed_source_tree):
+def reconcile_bootstrap_loss(observation, captures, installed, completed_readback, drive, required=False):
+    from publisher_installation_lease_evidence import bootstrap_takeover
+    loss = observation.get('bootstrap_loss')
+    if loss is None:
+        require(not required, 'registered bootstrap process-loss receipt is missing')
+        return None
+    require(isinstance(loss, dict) and loss.keys() == {'schema', 'client_capture', 'response', 'boundary', 'readback', 'reconciliation'} and
+        loss['schema'] == 'usk.publisher_registered_bootstrap_loss.v1', 'registered bootstrap loss is not closed')
+    capture = loss['client_capture']
+    standard_capture(capture, observation['account_sid'], observation['machine_sha256'])
+    require(capture['command'] == 'install_local.apply' and capture['request_id'] not in {x['request_id'] for x in captures} and
+        (capture['process_id'], capture['creation_file_time']) not in
+            {(x['process_id'], x['creation_file_time']) for x in captures}, 'interrupted standard client aliases a successful request')
+    response = loss['response']
+    require(isinstance(response, dict) and response.keys() == {'schema', 'request_id', 'status', 'result', 'error'} and
+        response['schema'] == 'usk.oneshot_response.v1' and response['request_id'] == capture['request_id'] and
+        response['status'] == 'unknown' and response['result'] is None and
+        response['error'] == {'code': 'publisher_outcome_unknown'}, 'bootstrap transport loss fabricated a successful native reply')
+    boundary = loss['boundary']
+    require(boundary['schema'] == 'usk.publisher.production_rename_observer.v1' and
+        boundary['identity'] == 'S-1-5-18' and boundary['phase'] == 'bootstrap' and
+        boundary['status'] == 'terminated_publication_bootstrap' and boundary['service_name'] == observation['service'] and
+        boundary['service_binary_sha256'] == observation['service_sha256'] and boundary['volume_guid_root'] == observation['volume_root'] and
+        integer(boundary['service_pid'], 1) and re.fullmatch('[0-9a-f]{16}', boundary['process_creation_file_time']) and
+        boundary['publication_before_kill'] is True and boundary['publication_after_kill'] is True and
+        all(boundary[key] is False for key in ('candidate_before_kill', 'candidate_after_kill', 'journal_before_kill',
+            'journal_after_kill', 'visible_after_kill')) and boundary['failure'] is None and
+        boundary['termination']['confirmed'] is True and boundary['termination']['kill_invoked'] is True and
+        integer(boundary['termination']['terminated'], 1, 1024), 'registered bootstrap native process/window proof differs')
+    readback = loss['readback']
+    rows = reader_rows(readback, capture, observation['account_sid'])
+    native_rows(rows, drive, installed['target_root'].replace('/', '\\'), observation['service_sid'], observation['account_sid'])
+    native_boundary(readback['independent']['volume_boundary'])
+    volume_root_id = completed_readback['independent']['volume_boundary']['root']['file_id']
+    require(readback['independent']['volume_boundary']['root']['file_id'] == volume_root_id,
+            'bootstrap native volume root changed across takeover')
+    result = bootstrap_takeover(rows, completed_readback['independent']['rows'], drive, installed, volume_root_id,
+        {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']})
+    require(loss['reconciliation'] == {'status': 'bindings_consistent', 'coordination': result, 'profile_qualified': False,
+        'publication_authority_granted': False}, 'embedded bootstrap reconciliation differs from independent raw records')
+    return result
+
+
+def reconcile_native_model(receipt, expected_head, reviewed_source_tree, *, allow_legacy_missing_coordination=False,
+                           allow_legacy_missing_bootstrap=False, require_bootstrap_loss=False):
     """Current producer qualification input, with separately pinned review tree.
 
     Legacy reconciliation remains available above. It cannot stand in for
@@ -436,7 +506,8 @@ def reconcile_native_model(receipt, expected_head, reviewed_source_tree):
     """
     from publication_authority_reference import PublicationModelContext
     from publisher_native_profile_evidence import project, ROUTE
-    standard = reconcile(receipt, expected_head)
+    standard = reconcile(receipt, expected_head, allow_legacy_missing_coordination=allow_legacy_missing_coordination,
+                         allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap, require_bootstrap_loss=require_bootstrap_loss)
     observation = receipt['service_observation']
     require(isinstance(reviewed_source_tree, str) and re.fullmatch('[0-9a-f]{40}', reviewed_source_tree) and
         receipt['build_profile']['source_tree'] == reviewed_source_tree,

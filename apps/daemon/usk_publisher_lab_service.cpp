@@ -4,6 +4,7 @@
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_staged_stream.h"
 #include "usk_publisher_volume_operation_guard.h"
+#include "usk_publisher_installation_lease.h"
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_archive_payload.h"
@@ -379,13 +380,22 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         }
     } catch (const std::exception& error) {
         service_exit_code = ERROR_SERVICE_SPECIFIC_ERROR;
+        using namespace usk::platform::windows;
+        using namespace usk::transaction;
+        const std::string operation_error =
+            dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
+                dynamic_cast<const InstallLeaseConflict*>(&error) ? "operation_conflict" :
+            dynamic_cast<const PublisherOperationCancelled*>(&error) ? "operation_cancelled" :
+            dynamic_cast<const InstallLeaseStale*>(&error) ? "lease_stale" :
+            dynamic_cast<const InstallStateRevisionStale*>(&error) ? "state_revision_stale" : "";
         const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
                 json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
                     "failed" : !verify_installed && (recover_visible_bound || reviewed_install_reentry ||
                     publication_effects_may_exist) ?
                     "recovery_required" : "failed") +
-                ",\"error\":" + json_quote(error.what()) + "}\n";
+                ",\"error\":" + json_quote(error.what()) +
+                (operation_error.empty() ? "" : ",\"error_code\":" + json_quote(operation_error)) + "}\n";
         if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
         // An authenticated peer receives the actual refusal/retained-effects
         // result when delivery is possible; loss of transport stays unknown.

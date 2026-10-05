@@ -96,5 +96,34 @@ bool require_publisher_device_acl_shape(PSID owner, PACL dacl, PSID service_sid)
     return service_aces == 1;
 }
 
+std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, PSID service_sid) {
+    if (!dacl || !IsValidAcl(dacl) || dacl->AclSize < sizeof(ACL))
+        throw std::runtime_error("publisher default device DACL is unavailable");
+    const auto authenticated_users = well_known_sid(WinAuthenticatedUserSid);
+    const auto* first = reinterpret_cast<const BYTE*>(dacl);
+    std::vector<BYTE> bytes(first, first + dacl->AclSize);
+    auto* restricted = reinterpret_cast<PACL>(bytes.data());
+    unsigned defaults = 0;
+    for (DWORD index = 0; index < restricted->AceCount; ++index) {
+        void* entry = nullptr;
+        if (!GetAce(restricted, index, &entry) || !entry)
+            throw std::runtime_error("publisher default device ACE is unreadable");
+        auto* header = static_cast<ACE_HEADER*>(entry);
+        if (header->AceType != ACCESS_ALLOWED_ACE_TYPE || header->AceSize < sizeof(ACCESS_ALLOWED_ACE))
+            throw std::runtime_error("publisher default device ACE is unmodelled");
+        auto* ace = static_cast<ACCESS_ALLOWED_ACE*>(entry);
+        if (!EqualSid(checked_ace_sid(ace), const_cast<BYTE*>(authenticated_users.data()))) continue;
+        constexpr ACCESS_MASK windows_modify = FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE;
+        if (ace->Mask != windows_modify ||
+            (header->AceFlags != 0 && header->AceFlags != (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)) || ++defaults != 1)
+            throw std::runtime_error("publisher default Authenticated Users grant differs or repeats");
+        ace->Mask = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
+    }
+    if (defaults != 1)
+        throw std::runtime_error("publisher device lacks the known default modify grant");
+    (void)require_publisher_device_acl_shape(owner, restricted, service_sid);
+    return bytes;
+}
+
 } // namespace usk::platform::windows
 #endif
