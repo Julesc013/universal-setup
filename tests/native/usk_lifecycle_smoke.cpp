@@ -6,6 +6,7 @@
 #include "usk_lifecycle.h"
 #include "usk_maintenance_context_internal.h"
 #include "usk_maintenance_effect_journal.h"
+#include "usk_maintenance_recovery_internal.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
@@ -718,6 +719,14 @@ int maintenance_effect_interruption_proof()
         {"repair", "replace_file", "before_effect"}, {"repair", "replace_file", "after_effect"},
         {"move", "publish_target", "before_effect"}, {"move", "publish_target", "after_effect"},
         {"uninstall", "remove_file", "before_effect"}, {"uninstall", "remove_file", "after_effect"},
+        {"repair", "remove_file", "before_effect"}, {"repair", "remove_file", "after_effect"},
+        {"repair", "remove_directory", "before_effect"}, {"repair", "remove_directory", "after_effect"},
+        {"uninstall", "remove_directory", "before_effect"}, {"uninstall", "remove_directory", "after_effect"},
+        {"repair", "write_ownership", "before_effect"}, {"repair", "write_ownership", "after_effect"},
+        {"move", "write_ownership", "before_effect"}, {"move", "write_ownership", "after_effect"},
+        {"repair", "write_installed", "before_effect"}, {"move", "write_installed", "before_effect"},
+        {"uninstall", "write_installed", "before_effect"}, {"repair", "append_audit", "before_effect"},
+        {"move", "append_audit", "before_effect"}, {"uninstall", "append_audit", "before_effect"},
         {"repair", "write_installed", "after_effect"}, {"move", "write_installed", "after_effect"},
         {"uninstall", "write_installed", "after_effect"}, {"repair", "append_audit", "after_effect"},
         {"move", "append_audit", "after_effect"}, {"uninstall", "append_audit", "after_effect"}};
@@ -777,6 +786,11 @@ int maintenance_effect_interruption_proof()
             staging_parent, operation_target, fixture.roots.state_root, fixture.roots.audit_root};
         const auto transaction = usk::transaction::TransactionSession::inspect_recovery(spec);
         const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+        const auto reconciliation = usk::lifecycle::detail::reconcile_maintenance_effect(spec);
+        if (reconciliation.pending_kind != kind || reconciliation.history_digest != history.journal_digest ||
+            reconciliation.source_digest != history.source_digest || reconciliation.state !=
+                (effect_happened ? "compatible_after_effect" : "compatible_before_effect"))
+            throw std::runtime_error(operation + "." + kind + "." + side + " lost its source-free effect reconciliation");
         const auto context = usk::json::parse(history.source_context);
         const auto original_snapshot = usk::state::StateRepository(fixture.roots.state_root).read_installed_snapshot(
             install_id, context.at("original_installed_transaction_id").as_string());
@@ -805,20 +819,38 @@ int maintenance_effect_interruption_proof()
                     history.pending_details.at("native_identity").as_string()))
                 throw std::runtime_error("move publication intent changed the original root");
         } else if (kind == "remove_file") {
-            const fs::path file = target / history.pending_details.at("relative_path").as_string();
+            const fs::path root = history.pending_details.at("root_role").as_string() == "installed" ? target : operation_target;
+            const fs::path file = root / history.pending_details.at("relative_path").as_string();
             if (fs::exists(file) == effect_happened ||
                 (!effect_happened && usk::base::StableFile(file).sha256_hex() !=
                     history.pending_details.at("sha256").as_string()))
                 throw std::runtime_error("uninstall removal intent disagrees with its interruption boundary");
+        } else if (kind == "remove_directory") {
+            const fs::path root = history.pending_details.at("root_role").as_string() == "installed" ? target : operation_target;
+            const fs::path path = root / history.pending_details.at("relative_path").as_string();
+            if (fs::exists(path) == effect_happened || (!effect_happened &&
+                    usk::transaction::observe_directory_identity(path) != history.pending_details.at("native_identity").as_string()))
+                throw std::runtime_error("maintenance directory removal disagrees with its interruption boundary");
+        } else if (kind == "write_ownership") {
+            const auto id = history.pending_details.at("manifest_id").as_string();
+            if (fs::exists(fixture.roots.state_root / "ownership" / (id + ".json")) != effect_happened ||
+                (effect_happened && usk::state::StateRepository(fixture.roots.state_root).read_ownership(id).
+                    created_by_transaction_id != transaction_id))
+                throw std::runtime_error("maintenance ownership effect was not retained");
         } else if (kind == "write_installed") {
-            const auto snapshot = usk::state::StateRepository(fixture.roots.state_root).read_installed_snapshot(
-                install_id, transaction_id);
-            if (snapshot.transaction_id != transaction_id || snapshot.created_at != context.at("applied_at").as_string())
-                throw std::runtime_error("maintenance installed-state effect was not retained");
+            if (fs::exists(fixture.roots.state_root / "installed" / (install_id + "." + transaction_id + ".json")) != effect_happened)
+                throw std::runtime_error("maintenance installed-state presence disagrees with its interruption boundary");
+            if (effect_happened) {
+                const auto snapshot = usk::state::StateRepository(fixture.roots.state_root).read_installed_snapshot(
+                    install_id, transaction_id);
+                if (snapshot.transaction_id != transaction_id || snapshot.created_at != context.at("applied_at").as_string())
+                    throw std::runtime_error("maintenance installed-state effect was not retained");
+            }
         } else if (kind == "append_audit") {
             const auto chain = usk::audit::AuditRepository(fixture.roots.audit_root).read_and_validate_chain(
                 original.installed_state.audit_chain_id);
-            if (chain.back().transaction_id != transaction_id || chain.back().operation != operation)
+            if ((chain.back().transaction_id == transaction_id) != effect_happened ||
+                (effect_happened && chain.back().operation != operation))
                 throw std::runtime_error("maintenance audit effect was not retained");
         }
         auto mismatched = spec;
@@ -830,6 +862,26 @@ int maintenance_effect_interruption_proof()
         if (repeated.journal_digest != history.journal_digest || repeated.completed_effects != history.completed_effects ||
             repeated.pending_kind != history.pending_kind || repeated.sealed)
             throw std::runtime_error("source-free maintenance inspection changed its retained history");
+        if (effect_happened) {
+            // This fixture independently observed the after-effect boundary.
+            // A production resumer needs its native authority and current
+            // revision in addition to the read-only compatibility result.
+            auto resumed = usk::transaction::MaintenanceEffectJournal::resume(spec,
+                history.source_digest, history.journal_digest);
+            resumed->complete_effect("applied", reconciliation.result_digest);
+            const auto resolved = usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest);
+            const auto unchanged_transaction = usk::transaction::TransactionSession::inspect_recovery(spec);
+            if (!resolved.pending_kind.empty() || resolved.sealed ||
+                resolved.completed_effects != history.completed_effects + 1u ||
+                resolved.source_context != history.source_context ||
+                unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                unchanged_transaction.current_state != transaction.current_state ||
+                usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha)
+                throw std::runtime_error("maintenance record continuation altered context or claimed transaction completion");
+            if (!refuses([&] { (void)usk::transaction::MaintenanceEffectJournal::resume(spec,
+                    history.source_digest, history.journal_digest); }))
+                throw std::runtime_error("maintenance continuation accepted a stale history snapshot");
+        }
     }
     return 0;
 }
@@ -841,6 +893,12 @@ void require_sealed_maintenance(const usk::transaction::TransactionSpec& spec)
     if (transaction.current_state != "completed" || !history.sealed || !history.pending_kind.empty() ||
         history.completed_effects < 4u || history.source_context != transaction.stream_source_context)
         throw std::runtime_error("completed maintenance did not seal its original effect history");
+    const auto reconciliation = usk::lifecycle::detail::reconcile_maintenance_effect(spec);
+    if (reconciliation.state != "no_pending_effect" || reconciliation.history_digest != history.journal_digest)
+        throw std::runtime_error("sealed maintenance still exposes a pending effect");
+    if (!refuses([&] { (void)usk::transaction::MaintenanceEffectJournal::resume(spec,
+            history.source_digest, history.journal_digest); }))
+        throw std::runtime_error("sealed maintenance admitted further record continuation");
 }
 
 int run()

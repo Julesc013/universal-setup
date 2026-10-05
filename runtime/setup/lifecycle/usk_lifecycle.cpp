@@ -4,6 +4,7 @@
 #include "usk_lifecycle.h"
 #include "usk_install_restart.h"
 #include "usk_maintenance_context_internal.h"
+#include "usk_maintenance_recovery_internal.h"
 
 #include "usk_audit_repository.h"
 #include "usk_json.h"
@@ -752,17 +753,22 @@ Value maintenance_audit_binding(const usk::audit::AuditInput& input)
         {"message", Value(input.message)}});
 }
 
-void maintenance_installed_write(usk::transaction::MaintenanceEffectJournal& journal,
-    const usk::state::StateRepository& repository, const usk::state::InstalledState& installed,
-    const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation)
+std::string maintenance_installed_digest(const usk::state::InstalledState& installed)
 {
-    const std::string hash = usk::json::sha256_canonical(Value(Value::Object{
+    return usk::json::sha256_canonical(Value(Value::Object{
         {"installed_state_digest", Value(installed_digest(installed))},
         {"last_verification", Value(Value::Object{
             {"report_id", Value(installed.last_verification.report_id)},
             {"report_digest", Value(installed.last_verification.report_digest)},
             {"status", Value(installed.last_verification.status)},
             {"verified_at", Value(installed.last_verification.verified_at)}})}}));
+}
+
+void maintenance_installed_write(usk::transaction::MaintenanceEffectJournal& journal,
+    const usk::state::StateRepository& repository, const usk::state::InstalledState& installed,
+    const usk::lifecycle::LifecycleFaultInjector& injector, const std::string& operation)
+{
+    const std::string hash = maintenance_installed_digest(installed);
     journal.begin_effect("write_installed", Value(Value::Object{
         {"install_id", Value(installed.install_id)}, {"state_digest", Value(hash)}}));
     if (injector) injector(operation, "effect.write_installed.before_effect");
@@ -2631,5 +2637,202 @@ UninstallResult apply_uninstall(
         throw;
     }
 }
+
+namespace detail {
+MaintenanceEffectReconciliation reconcile_maintenance_effect(const transaction::TransactionSpec& spec)
+{
+    const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
+    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+    const auto context = json::parse(history.source_context);
+    MaintenanceEffectReconciliation result;
+    result.pending_kind = history.pending_kind;
+    result.source_digest = history.source_digest;
+    result.history_digest = history.journal_digest;
+    state::StateRepository repository(spec.state_root);
+    const auto original = repository.read_installed_snapshot(context.at("install_id").as_string(),
+        context.at("original_installed_transaction_id").as_string());
+    if (installed_digest(original) != context.at("original_installed_state_digest").as_string() ||
+        original.ownership_manifest_ref != context.at("ownership_manifest_ref").as_string() ||
+        original.ownership_manifest_digest != context.at("ownership_manifest_digest").as_string() ||
+        original.source_archive_digest != context.at("original_source_archive_digest").as_string() ||
+        fs::absolute(original.target_root).lexically_normal().generic_u8string() !=
+            context.at("installed_root").at("root").as_string())
+        throw std::runtime_error("maintenance recovery original installed context changed");
+
+    // Observations only. A later effect executor must additionally hold the
+    // admitted native objects, current revision and operation/worker fences.
+    enum class ObjectState { absent, matching, different, indeterminate };
+    const auto presence = [](const fs::path& path) {
+        // A missing leaf reached through an indeterminate or linked ancestor
+        // is not absence. Walk missing parent prefixes back to an existing
+        // safe directory, without following a linked parent as proof.
+        const fs::path absolute = fs::absolute(path).lexically_normal();
+        fs::path parent = absolute.parent_path();
+        bool missing_parent = false;
+        while (!parent.empty()) {
+            std::error_code parent_error;
+            const auto parent_status = fs::symlink_status(parent, parent_error);
+            if (parent_status.type() == fs::file_type::not_found &&
+                (!parent_error || parent_error == std::errc::no_such_file_or_directory)) {
+                missing_parent = true;
+                const auto next = parent.parent_path();
+                if (next == parent) return ObjectState::indeterminate;
+                parent = next;
+                continue;
+            }
+            if (parent_error || parent_status.type() != fs::file_type::directory) return ObjectState::indeterminate;
+            try { record_io::require_safe_directory(parent); }
+            catch (const std::exception&) { return ObjectState::indeterminate; }
+            break;
+        }
+        std::error_code error;
+        const auto status = fs::symlink_status(absolute, error);
+        if (status.type() == fs::file_type::not_found &&
+            (!error || error == std::errc::no_such_file_or_directory)) return ObjectState::absent;
+        if (missing_parent || error || (status.type() != fs::file_type::regular && status.type() != fs::file_type::directory))
+            return ObjectState::indeterminate;
+        return ObjectState::matching;
+    };
+    const auto directory = [&](const fs::path& path, const std::string& identity) {
+        const auto status = presence(path);
+        if (status != ObjectState::matching) return status;
+        try {
+            return transaction::observe_directory_identity(path) == identity ?
+                ObjectState::matching : ObjectState::different;
+        } catch (const std::exception&) { return ObjectState::indeterminate; }
+    };
+    const auto file = [&](const fs::path& path, const Value& expected) {
+        const auto status = presence(path);
+        if (status != ObjectState::matching) return status;
+        try {
+            base::StableFile actual(path);
+            const auto identity = actual.identity();
+            if (identity.volume_id + ":" + identity.file_id != expected.at("native_identity").as_string() ||
+                identity.size_bytes != expected.at("size_bytes").as_unsigned() ||
+                actual.sha256_hex() != expected.at("sha256").as_string()) return ObjectState::different;
+            actual.verify_unchanged();
+            return ObjectState::matching;
+        } catch (const std::exception&) { return ObjectState::indeterminate; }
+    };
+    const auto fixed_root = [&](const Value& observation) {
+        return directory(fs::u8path(observation.at("root").as_string()),
+            observation.at("native_identity").as_string()) == ObjectState::matching;
+    };
+    for (const char* role : {"operation_target_parent", "staging_parent", "state_root", "audit_root"}) {
+        if (!fixed_root(context.at(role))) return result;
+    }
+    if (!fixed_root(context.at("installed_root").at("parent"))) return result;
+    if (history.pending_kind.empty()) {
+        result.state = "no_pending_effect";
+        return result;
+    }
+    const auto& effect = history.pending_details;
+    const fs::path installed_root = fs::u8path(context.at("installed_root").at("root").as_string());
+    const auto& installed_identity = context.at("installed_root").at("native_identity");
+    const bool installed_bound = installed_identity.type() != Value::Type::null_value &&
+        directory(installed_root, installed_identity.as_string()) == ObjectState::matching;
+    const bool operation_target_bound = !transaction.publication_root_identity.empty() &&
+        directory(spec.target_root, transaction.publication_root_identity) == ObjectState::matching;
+    const auto compatible = [&](bool before, bool after) {
+        if (before != after) result.state = before ? "compatible_before_effect" : "compatible_after_effect";
+    };
+    if (history.pending_kind == "publish_target") {
+        const auto identity = effect.at("native_identity").as_string();
+        const auto staging = directory(fs::absolute(spec.staging_parent) / (".usk-stage-" + spec.transaction_id), identity);
+        const auto target = directory(spec.target_root, identity);
+        compatible(staging == ObjectState::matching && target == ObjectState::absent,
+            staging == ObjectState::absent && target == ObjectState::matching &&
+                transaction.publication_root_identity == identity);
+    } else if (history.pending_kind == "backup_file" || history.pending_kind == "replace_file") {
+        if (!installed_bound || !operation_target_bound) return result;
+        const fs::path relative = fs::u8path(effect.at("relative_path").as_string());
+        const bool backup = history.pending_kind == "backup_file";
+        const fs::path source = backup ? installed_root / relative : spec.target_root / "payload" / relative;
+        const fs::path destination = backup ? spec.target_root / "backup" / relative : installed_root / relative;
+        const auto source_state = file(source, effect), destination_state = file(destination, effect);
+        compatible(source_state == ObjectState::matching && destination_state == ObjectState::absent,
+            source_state == ObjectState::absent && destination_state == ObjectState::matching);
+    } else if (history.pending_kind == "remove_file" || history.pending_kind == "remove_directory") {
+        const bool installed = effect.at("root_role").as_string() == "installed";
+        const auto relative_text = effect.at("relative_path").as_string();
+        const fs::path root = installed ? installed_root : spec.target_root;
+        if (relative_text.empty()) {
+            const auto& identity = effect.at("native_identity").as_string();
+            if (installed ? (installed_identity.type() == Value::Type::null_value ||
+                    identity != installed_identity.as_string()) :
+                    identity != transaction.publication_root_identity) return result;
+        }
+        if (!relative_text.empty() && !(installed ? installed_bound : operation_target_bound)) return result;
+        const fs::path path = relative_text.empty() ? root : root / fs::u8path(relative_text);
+        const auto object = history.pending_kind == "remove_file" ? file(path, effect) :
+            directory(path, effect.at("native_identity").as_string());
+        compatible(object == ObjectState::matching, object == ObjectState::absent);
+    } else {
+        if (!operation_target_bound) return result;
+        try {
+            if (history.pending_kind == "write_ownership") {
+                const std::string id = "ownership." + original.install_id + "." + spec.transaction_id;
+                if (effect.at("manifest_id").as_string() != id ||
+                    effect.at("prior_manifest_digest").as_string() != original.ownership_manifest_digest) return result;
+                const auto observed = presence(spec.state_root / "ownership" / (id + ".json"));
+                if (observed == ObjectState::absent) { result.state = "compatible_before_effect"; return result; }
+                if (observed != ObjectState::matching) return result;
+                const auto actual = repository.read_ownership(id);
+                const auto original_id = original.ownership_manifest_ref.substr(10, original.ownership_manifest_ref.size() - 15);
+                const auto prior = repository.read_ownership(original_id);
+                const fs::path expected_root = spec.operation == "move" ? spec.target_root : installed_root;
+                bool matches = actual.install_id == original.install_id && actual.created_by_transaction_id == spec.transaction_id &&
+                    fs::absolute(actual.target_root).lexically_normal() == fs::absolute(expected_root).lexically_normal() &&
+                    actual.directories == prior.directories && actual.files.size() == prior.files.size();
+                for (std::size_t index = 0; matches && index < prior.files.size(); ++index) {
+                    matches = actual.files[index].relative_path == prior.files[index].relative_path &&
+                        actual.files[index].sha256 == prior.files[index].sha256 &&
+                        actual.files[index].size_bytes == prior.files[index].size_bytes;
+                }
+                if (matches) {
+                    result.state = "compatible_after_effect";
+                    result.result_digest = actual.manifest_digest;
+                }
+            } else if (history.pending_kind == "write_installed") {
+                if (effect.at("install_id").as_string() != original.install_id) return result;
+                const auto observed = presence(spec.state_root / "installed" /
+                    (original.install_id + "." + spec.transaction_id + ".json"));
+                if (observed == ObjectState::absent) { result.state = "compatible_before_effect"; return result; }
+                if (observed != ObjectState::matching) return result;
+                const auto actual = repository.read_installed_snapshot(original.install_id, spec.transaction_id);
+                if (actual.created_at == context.at("applied_at").as_string() &&
+                    maintenance_installed_digest(actual) == effect.at("state_digest").as_string())
+                {
+                    result.state = "compatible_after_effect";
+                    result.result_digest = maintenance_installed_digest(actual);
+                }
+            } else if (history.pending_kind == "append_audit") {
+                if (effect.at("chain_id").as_string() != original.audit_chain_id) return result;
+                // This bounded internal observer does not admit a larger audit
+                // history. Refusal is indeterminate, never proof of absence.
+                const auto chain = audit::AuditRepository(spec.audit_root).read_and_validate_chain_bounded(
+                    original.audit_chain_id, 256u);
+                if (chain.empty()) return result;
+                std::size_t matches = 0;
+                bool conflicting = false;
+                for (const auto& event : chain) {
+                    if (event.transaction_id != spec.transaction_id) continue;
+                    const bool match = event.operation == spec.operation && event.plan_id == spec.plan_id &&
+                        json::sha256_canonical(maintenance_audit_binding(event)) == effect.at("input_digest").as_string();
+                    matches += match ? 1u : 0u;
+                    if (match) result.result_digest = event.event_digest;
+                    conflicting = conflicting || !match;
+                }
+                if (!conflicting) compatible(matches == 0u, matches == 1u);
+                if (result.state != "compatible_after_effect") result.result_digest.clear();
+            }
+        } catch (const std::exception&) {
+            // Missing, corrupt, oversized or inaccessible metadata cannot be
+            // promoted to an absent-effect observation.
+        }
+    }
+    return result;
+}
+} // namespace detail
 
 } // namespace usk::lifecycle

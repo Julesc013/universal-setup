@@ -355,6 +355,31 @@ MaintenanceEffectInspection MaintenanceEffectJournal::inspect(const TransactionS
     }
     if (observe_directory_identity(directory) != directory_identity)
         throw std::runtime_error("maintenance journal directory changed during inspection");
+    result.next_sequence = records.size();
+    result.pending_sequence = pending_sequence;
+    result.serialized_bytes = bytes;
+    result.directory_identity = directory_identity;
     return result;
+}
+
+MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
+    MaintenanceEffectInspection inspected, FaultInjector injector)
+    : spec_(std::move(spec)), injector_(std::move(injector)),
+      directory_(fs::absolute(spec_.state_root).lexically_normal() / "transactions" /
+          (spec_.transaction_id + ".maintenance")), directory_identity_(std::move(inspected.directory_identity)),
+      source_digest_(std::move(inspected.source_digest)), last_digest_(std::move(inspected.journal_digest)),
+      pending_kind_(std::move(inspected.pending_kind)), pending_sequence_(inspected.pending_sequence),
+      sequence_(inspected.next_sequence), bytes_(inspected.serialized_bytes)
+{
+}
+
+std::unique_ptr<MaintenanceEffectJournal> MaintenanceEffectJournal::resume(const TransactionSpec& spec,
+    const std::string& expected_source_digest, const std::string& expected_history_digest, FaultInjector injector)
+{
+    auto inspected = inspect(spec, expected_source_digest);
+    if (!digest(expected_history_digest) || inspected.journal_digest != expected_history_digest || inspected.sealed)
+        throw std::runtime_error("maintenance continuation snapshot changed or is sealed");
+    return std::unique_ptr<MaintenanceEffectJournal>(new MaintenanceEffectJournal(
+        spec, std::move(inspected), std::move(injector)));
 }
 } // namespace usk::transaction

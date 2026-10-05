@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T22:10:18Z",
+  "generated_at": "2026-10-05T22:41:05Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2068,7 +2068,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         }
       ],
       "acceptance_ids": [
@@ -2099,7 +2099,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         }
       ],
       "acceptance_ids": [
@@ -2130,7 +2130,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         }
       ],
       "acceptance_ids": [
@@ -3969,7 +3969,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4004,7 +4004,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4039,7 +4039,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4074,7 +4074,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4967,7 +4967,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -5439,7 +5439,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -5763,7 +5763,7 @@
       "spec_id": "USK-S-REC",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. Source-free effect completion and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. Actual pending-effect execution, whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/journal-recovery.md",
         "sha256": "f737c4f0b8485816262cc3a82fd0549ffa280ad8685b86d95644f0c765a8b179"
@@ -5783,11 +5783,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "7e960068b5b918fd8ff7fbc525330034c0fe2bf130e4810157abab8d942e7f76"
+          "sha256": "4b1f2cd6d89080c1db3582dad4556b6748483b2148dab6fafc5c0fa94127d412"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -5795,11 +5795,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "0e76297f6d723b39d8801a201f74791dd54506aa55432755bfd98719a48ff1bc"
+          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "099445325cde1ce4aaaee4d361f8b1d411577380adacb1578aa4b4a1ea79eaf7"
+          "sha256": "4438f944e450e96d350c96cd7d25d12c12219c080e732462886d0ddd565e62d9"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
+          "sha256": "6cff54fbdfd0075d2066abce5fd90ac26f7d708abca820591b4cd2d4dca6d0fd"
         }
       ],
       "acceptance_ids": [
@@ -5818,7 +5822,7 @@
       "spec_id": "USK-S-REC",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. Source-free effect completion and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. Actual pending-effect execution, whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/journal-recovery.md",
         "sha256": "f737c4f0b8485816262cc3a82fd0549ffa280ad8685b86d95644f0c765a8b179"
@@ -5838,11 +5842,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "7e960068b5b918fd8ff7fbc525330034c0fe2bf130e4810157abab8d942e7f76"
+          "sha256": "4b1f2cd6d89080c1db3582dad4556b6748483b2148dab6fafc5c0fa94127d412"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -5850,11 +5854,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "0e76297f6d723b39d8801a201f74791dd54506aa55432755bfd98719a48ff1bc"
+          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "099445325cde1ce4aaaee4d361f8b1d411577380adacb1578aa4b4a1ea79eaf7"
+          "sha256": "4438f944e450e96d350c96cd7d25d12c12219c080e732462886d0ddd565e62d9"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
+          "sha256": "6cff54fbdfd0075d2066abce5fd90ac26f7d708abca820591b4cd2d4dca6d0fd"
         }
       ],
       "acceptance_ids": [
@@ -6215,11 +6223,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "7e960068b5b918fd8ff7fbc525330034c0fe2bf130e4810157abab8d942e7f76"
+          "sha256": "4b1f2cd6d89080c1db3582dad4556b6748483b2148dab6fafc5c0fa94127d412"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
@@ -6782,7 +6790,7 @@
       "spec_id": "USK-S-TXN",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. Source-free effect completion and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. Actual pending-effect execution, whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/state-machine.md",
         "sha256": "c3a967c94067bf4fcad5c34e85a8a11768e9a9fb6e77d7a6cdd4cf2ff5f87ef5"
@@ -6802,11 +6810,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "7e960068b5b918fd8ff7fbc525330034c0fe2bf130e4810157abab8d942e7f76"
+          "sha256": "4b1f2cd6d89080c1db3582dad4556b6748483b2148dab6fafc5c0fa94127d412"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -6814,11 +6822,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "0e76297f6d723b39d8801a201f74791dd54506aa55432755bfd98719a48ff1bc"
+          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "099445325cde1ce4aaaee4d361f8b1d411577380adacb1578aa4b4a1ea79eaf7"
+          "sha256": "4438f944e450e96d350c96cd7d25d12c12219c080e732462886d0ddd565e62d9"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
+          "sha256": "6cff54fbdfd0075d2066abce5fd90ac26f7d708abca820591b4cd2d4dca6d0fd"
         }
       ],
       "acceptance_ids": [
@@ -6839,7 +6851,7 @@
       "spec_id": "USK-S-TXN",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. Source-free effect completion and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. Actual pending-effect execution, whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/state-machine.md",
         "sha256": "c3a967c94067bf4fcad5c34e85a8a11768e9a9fb6e77d7a6cdd4cf2ff5f87ef5"
@@ -6859,11 +6871,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "a18b41bd976a6f688fb7a41e5379b1c1fe182ef469efc41c5b6a276d29538b02"
+          "sha256": "97d5d5341fa73c84652ce346bfed6d9b5d44ca15eec1a627d5ab58da74464bdf"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "7e960068b5b918fd8ff7fbc525330034c0fe2bf130e4810157abab8d942e7f76"
+          "sha256": "4b1f2cd6d89080c1db3582dad4556b6748483b2148dab6fafc5c0fa94127d412"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -6871,11 +6883,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "0e76297f6d723b39d8801a201f74791dd54506aa55432755bfd98719a48ff1bc"
+          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "099445325cde1ce4aaaee4d361f8b1d411577380adacb1578aa4b4a1ea79eaf7"
+          "sha256": "4438f944e450e96d350c96cd7d25d12c12219c080e732462886d0ddd565e62d9"
+        },
+        {
+          "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
+          "sha256": "6cff54fbdfd0075d2066abce5fd90ac26f7d708abca820591b4cd2d4dca6d0fd"
         }
       ],
       "acceptance_ids": [
@@ -6945,7 +6961,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/README.md",
-          "sha256": "5a71300731de77cf8af700d42611ae1bd3909796b00e0b30b6e7eed6a993d4ba"
+          "sha256": "6d00425e57e4b4afe0cc738d946ebe8c729c5c361725428a798b7f48b34a13d7"
         }
       ],
       "acceptance_ids": [
@@ -6976,7 +6992,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/README.md",
-          "sha256": "5a71300731de77cf8af700d42611ae1bd3909796b00e0b30b6e7eed6a993d4ba"
+          "sha256": "6d00425e57e4b4afe0cc738d946ebe8c729c5c361725428a798b7f48b34a13d7"
         }
       ],
       "acceptance_ids": [

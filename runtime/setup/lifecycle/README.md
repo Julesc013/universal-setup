@@ -72,6 +72,19 @@ not authenticate a writable journal, establish held native payload authority,
 or enable public maintenance replay. The registered maintenance route and
 operation-specific recovery remain unfinished.
 
+The internal source-free reconciler reopens the original immutable installed
+snapshot and compares a pending effect with current native identity, hash and
+size observations, or the exact ownership, installed-state or audit input.
+It distinguishes compatible before/after states from indeterminate observations;
+a missing leaf reached through an unsafe or indeterminate parent is not absence.
+Audit inspection is bounded to 256 events and larger histories stay indeterminate.
+Record resumption requires the exact inspected history digest, refuses sealed
+histories, and appends to the original context and sequence. It changes neither
+the transaction state nor payload objects. These comparisons do not prove the
+actor or grant effect completion: the registered resumer still needs current
+native custody, revision, operation and worker fences before completing or
+executing an effect. Whole maintenance recovery and public routing remain WIP.
+
 `recovery.inspect`, `recovery.plan`, and `recovery.apply` can complete the
 post-commit install-local window only after a caller has reviewed the exact
 recovery plan. `recovery.apply` accepts `selected_action: "finalize"` only for

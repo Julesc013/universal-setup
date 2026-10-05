@@ -17,6 +17,10 @@ struct MaintenanceEffectInspection {
     std::string source_digest;
     std::string journal_digest;
     std::uint64_t completed_effects = 0;
+    std::uint64_t next_sequence = 0;
+    std::uint64_t pending_sequence = 0;
+    std::uint64_t serialized_bytes = 0;
+    std::string directory_identity;
     bool sealed = false;
     // An intent without completion means the effect may have happened.
     // Inspection never replays it or confers filesystem mutation authority.
@@ -44,8 +48,15 @@ public:
     // journal and separately validates the immutable installed-state context.
     static MaintenanceEffectInspection inspect(const TransactionSpec& spec,
         const std::string& expected_source_digest);
+    // Metadata continuation only, against an exact inspected snapshot. The
+    // caller must separately prove any effect and hold its required authority.
+    static std::unique_ptr<MaintenanceEffectJournal> resume(const TransactionSpec& spec,
+        const std::string& expected_source_digest, const std::string& expected_history_digest,
+        FaultInjector injector = {});
 
 private:
+    MaintenanceEffectJournal(TransactionSpec spec, MaintenanceEffectInspection inspected,
+        FaultInjector injector);
     void persist(const std::string& phase, const json::Value& details);
     TransactionSpec spec_;
     FaultInjector injector_;
