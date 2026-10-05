@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T23:16:34Z",
+  "generated_at": "2026-10-05T23:29:24Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1369,7 +1369,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "db11535f91aae4de40966671606758986af0ead911d2d078a83fb78594cc0e2c"
+          "sha256": "d473857f798ae47a3b07ea98f0d1214a8f467807162787e7dc4f589d674b3883"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
@@ -2499,7 +2499,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The restricted-service backend persists original intent before bootstrap, binds native volume/setup/state identities and holder PID/birth, and appends bounded ownership generations. Native effects require the current fences; live or unknown holders refuse automatic transfer. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Ended-worker recovery, generation2/3 completion, nine constructed ordered-prefix cases and six constructed durable states preserve original custody through source-free recovery/replay/verify. Constructed states follow separately observed real worker loss; they do not establish crashes at those offsets, arbitrary issued-call errors, power loss, literal PID reuse or live takeover. Earlier203 sharing/cleanup failure and732 fullCI53/55 security-snapshot refusal remain retained; later success does not identify the earlier changed security field or establish a universal remedy. Wider maintenance and WorkUnit predicates remain unfinished.",
+      "note": "The restricted-service backend persists original intent before bootstrap, binds native volume/setup/state identities and holder PID/birth, and appends bounded ownership generations. Native effects require the current fences; live or unknown holders refuse automatic transfer. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. An unfinished conservative hardening explicitly protects admitted device DACLs against inheritance and checks readback; bounded remount diagnostics distinguish the original locking handle and fresh device. Exact-head hosted qualification is still required; no successful remount or established cause is inferred from this source change. Ended-worker recovery, generation2/3 completion, nine constructed ordered-prefix cases and six constructed durable states preserve original custody through source-free recovery/replay/verify. Constructed states follow separately observed real worker loss; they do not establish crashes at those offsets, arbitrary issued-call errors, power loss, literal PID reuse or live takeover. Earlier203 sharing/cleanup failure and732 fullCI53/55 security-snapshot refusal remain retained; later success does not identify the earlier changed security field or establish a universal remedy. Wider maintenance and WorkUnit predicates remain unfinished.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2563,7 +2563,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "db11535f91aae4de40966671606758986af0ead911d2d078a83fb78594cc0e2c"
+          "sha256": "d473857f798ae47a3b07ea98f0d1214a8f467807162787e7dc4f589d674b3883"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -2826,7 +2826,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Native guards have bounded wait/cancellation, owning-thread checks and opaque operation references. Registered endpoint contention separately covers public pre-request-byte conflicts/cancellations; paused-worker tests retain original ownership. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. An actual separate native installation-mutex holder now produces operation_conflict and the matching authenticated source-free installed.verify refusal/exit4, with the same inspection reference,43 unchanged native rows and unchanged boundary, followed by normal holder release and successful verification. That verification case does not claim public installation-mutex install wait/cancellation or live-holder transfer. Earlier failed receipts are retained.",
+      "note": "Native guards have bounded wait/cancellation, owning-thread checks and opaque operation references. Registered endpoint contention separately covers public pre-request-byte conflicts/cancellations; paused-worker tests retain original ownership. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. An unfinished conservative hardening explicitly protects admitted device DACLs against inheritance and checks readback; bounded remount diagnostics distinguish the original locking handle and fresh device. Exact-head hosted qualification is still required; no successful remount or established cause is inferred from this source change. An actual separate native installation-mutex holder now produces operation_conflict and the matching authenticated source-free installed.verify refusal/exit4, with the same inspection reference,43 unchanged native rows and unchanged boundary, followed by normal holder release and successful verification. That verification case does not claim public installation-mutex install wait/cancellation or live-holder transfer. Earlier failed receipts are retained.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2890,7 +2890,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "db11535f91aae4de40966671606758986af0ead911d2d078a83fb78594cc0e2c"
+          "sha256": "d473857f798ae47a3b07ea98f0d1214a8f467807162787e7dc4f589d674b3883"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -3153,7 +3153,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The backend acquires native guards and checks the actual installed revision before operation intent/bootstrap, plan rebuilding and retained replay. Stopped administrative enrollment binds each exact reviewed envelope to actual registration, target and caller; protected files stay held through dispatch. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Actual approved PlanA/commitB/applyA refusals preserve complete native rows and absent A intent. Typed native state_revision_stale stays distinct from stale_plan and unknown effects. The exact pending-fragment parsing exception preserves full native/security closure. Wider maintenance revisions remain unfinished.",
+      "note": "The backend acquires native guards and checks the actual installed revision before operation intent/bootstrap, plan rebuilding and retained replay. Stopped administrative enrollment binds each exact reviewed envelope to actual registration, target and caller; protected files stay held through dispatch. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. An unfinished conservative hardening explicitly protects admitted device DACLs against inheritance and checks readback; bounded remount diagnostics distinguish the original locking handle and fresh device. Exact-head hosted qualification is still required; no successful remount or established cause is inferred from this source change. Actual approved PlanA/commitB/applyA refusals preserve complete native rows and absent A intent. Typed native state_revision_stale stays distinct from stale_plan and unknown effects. The exact pending-fragment parsing exception preserves full native/security closure. Wider maintenance revisions remain unfinished.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -3217,7 +3217,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "db11535f91aae4de40966671606758986af0ead911d2d078a83fb78594cc0e2c"
+          "sha256": "d473857f798ae47a3b07ea98f0d1214a8f467807162787e7dc4f589d674b3883"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -5091,7 +5091,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "db11535f91aae4de40966671606758986af0ead911d2d078a83fb78594cc0e2c"
+          "sha256": "d473857f798ae47a3b07ea98f0d1214a8f467807162787e7dc4f589d674b3883"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -5575,7 +5575,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "db11535f91aae4de40966671606758986af0ead911d2d078a83fb78594cc0e2c"
+          "sha256": "d473857f798ae47a3b07ea98f0d1214a8f467807162787e7dc4f589d674b3883"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",

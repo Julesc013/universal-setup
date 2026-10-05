@@ -643,6 +643,29 @@ void require_volume(const std::wstring& value) {
     (void)usk::platform::windows::publisher_volume_operation_guard_name(value);
 }
 
+std::string owner_dacl_sddl(const std::vector<BYTE>& bytes);
+
+// Bounded read-only diagnostics, never an admission verdict. When collected
+// after refusal they describe a fresh observation, not the earlier failing
+// descriptor. Keep the original strict failure as the primary reason.
+usk::json::Value device_acl_diagnostic(HANDLE handle) {
+    using usk::json::Value;
+    try {
+        const auto bytes = usk::platform::windows::read_publisher_owner_dacl_from_handle(handle);
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorControl(const_cast<BYTE*>(bytes.data()), &control, &revision))
+            throw std::runtime_error("device security control unavailable; Win32 " + std::to_string(GetLastError()));
+        const auto sddl = owner_dacl_sddl(bytes);
+        return Value(Value::Object{{"status", Value(sddl.size() <= 16384u ? "observed" : "oversized")},
+            {"security_control", Value(static_cast<std::uint64_t>(control))},
+            {"dacl_protected", Value((control & SE_DACL_PROTECTED) != 0)},
+            {"owner_dacl", sddl.size() <= 16384u ? Value(sddl) : Value()},
+            {"owner_dacl_bytes", Value(static_cast<std::uint64_t>(sddl.size()))}});
+    } catch (const std::exception&) {
+        return Value(Value::Object{{"status", Value("unavailable")}});
+    }
+}
+
 // Locking NTFS dismounts it. The remounted volume device can lose the
 // per-service ACE installed by the dedicated-volume provisioner. The known
 // Windows Authenticated Users modify grant must first be reduced to read and
@@ -667,8 +690,13 @@ void require_volume_device_service_access(HANDLE volume,
         throw std::runtime_error("publisher volume device DACL is unavailable; Win32 " +
             std::to_string(read_error));
     bool already_granted = false;
+    bool already_protected = false;
     std::vector<BYTE> restricted_default;
     try {
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorControl(before_descriptor, &control, &revision))
+            throw std::runtime_error("publisher volume device security control is unavailable");
+        already_protected = (control & SE_DACL_PROTECTED) != 0;
         try { already_granted = inspect(before_owner, before); }
         catch (const std::exception&) {
             if (!allow_locked_default) throw;
@@ -679,7 +707,7 @@ void require_volume_device_service_access(HANDLE volume,
         }
     }
     catch (...) { LocalFree(before_descriptor); throw; }
-    if (!already_granted || !restricted_default.empty()) {
+    if (!already_granted || !restricted_default.empty() || !already_protected) {
         EXPLICIT_ACCESS_W grant{};
         grant.grfAccessPermissions = FILE_ALL_ACCESS;
         grant.grfAccessMode = GRANT_ACCESS;
@@ -698,7 +726,8 @@ void require_volume_device_service_access(HANDLE volume,
             }
         }
         const DWORD set_error = SetSecurityInfo(volume, SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION, nullptr, nullptr, updated, nullptr);
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, updated, nullptr);
         if (!already_granted) LocalFree(updated);
         if (set_error != ERROR_SUCCESS) {
             LocalFree(before_descriptor);
@@ -719,6 +748,10 @@ void require_volume_device_service_access(HANDLE volume,
     try {
         if (!inspect(after_owner, after))
             throw std::runtime_error("publisher volume device service ACE was not retained");
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorControl(after_descriptor, &control, &revision) ||
+            (control & SE_DACL_PROTECTED) == 0)
+            throw std::runtime_error("publisher volume device DACL protection was not retained");
     } catch (...) { LocalFree(after_descriptor); throw; }
     LocalFree(after_descriptor);
 }
@@ -796,6 +829,7 @@ void require_exclusive_volume_admission(const std::wstring& name,
         throw std::runtime_error(
             std::string("locked publisher volume device ACL admission: ") + error.what());
     }
+    const auto locked_admitted_device = device_acl_diagnostic(volume.get());
     if (!DeviceIoControl(volume.get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
             nullptr, 0, &returned, nullptr)) {
         throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
@@ -815,8 +849,15 @@ void require_exclusive_volume_admission(const std::wstring& name,
     try {
         require_volume_device_service_access(remounted.get(), sid);
     } catch (const std::exception& error) {
+        const auto diagnostic = usk::json::Value(usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.publisher_device_remount_diagnostic.v1")},
+            {"locked_admitted_device", locked_admitted_device},
+            {"fresh_observations_after_refusal", usk::json::Value(usk::json::Value::Object{
+                {"original_locking_handle", device_acl_diagnostic(volume.get())},
+                {"remounted_device_handle", device_acl_diagnostic(remounted.get())}})}});
         throw std::runtime_error(
-            std::string("remounted publisher volume device ACL admission: ") + error.what());
+            std::string("remounted publisher volume device ACL admission: ") + error.what() +
+            "; diagnostic " + usk::json::canonical(diagnostic));
     }
 }
 
