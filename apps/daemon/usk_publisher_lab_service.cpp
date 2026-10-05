@@ -412,7 +412,11 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 (inspection_reference.empty() ? "" :
                     ",\"operation_inspection_ref\":" + json_quote(inspection_reference)) +
                 (registered_admission ? ",\"process_id\":" + std::to_string(GetCurrentProcessId()) +
-                    ",\"registered_admission\":" + usk::json::canonical(registered_admission->evidence()) : "") + "}\n";
+                    ",\"registered_admission\":" + usk::json::canonical(registered_admission->evidence()) : "") +
+                (registered_admission && registered_admission->has_selected_reviewed_operation() &&
+                    dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ?
+                    ",\"reviewed_operation_admission\":" + usk::json::canonical(
+                        registered_admission->selected_reviewed_operation_observation()) : "") + "}\n";
         if (!receipt_path.empty()) { try { write_receipt(failure); } catch (...) {} }
         // An authenticated peer receives the actual refusal/retained-effects
         // result when delivery is possible; loss of transport stays unknown.

@@ -38,6 +38,7 @@ public:
         std::string& envelope_sha256);
     bool has_selected_reviewed_operation() const noexcept;
     usk::json::Value selected_reviewed_envelope() const;
+    usk::json::Value selected_reviewed_operation_observation() const;
 private:
     struct State;
     std::unique_ptr<State> state_;

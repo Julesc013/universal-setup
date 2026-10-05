@@ -226,7 +226,8 @@ void create_protected_directory(const std::wstring& path, SECURITY_ATTRIBUTES& a
 
 class ServiceControlGuard {
 public:
-    explicit ServiceControlGuard(const std::wstring& service, bool read_existing = false) {
+    explicit ServiceControlGuard(const std::wstring& service, bool read_existing = false,
+        bool write_existing = false) {
         LocalDescriptor directory_descriptor(
             L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
         SECURITY_ATTRIBUTES directory_attributes{sizeof(SECURITY_ATTRIBUTES),
@@ -248,7 +249,7 @@ public:
         }
         const auto root = program_files / L"Universal Setup";
         const auto locks = root / L"PublisherControl";
-        if (read_existing) {
+        if (read_existing || write_existing) {
             read_protected_control_directory(root.wstring());
             read_protected_control_directory(locks.wstring());
         } else {
@@ -268,7 +269,8 @@ public:
         const DWORD access = read_existing ? READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE :
             GENERIC_READ | GENERIC_WRITE | READ_CONTROL;
         FileHandle file(CreateFileW(path.c_str(), access,
-            0, read_existing ? nullptr : &file_attributes, read_existing ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
+            0, (read_existing || write_existing) ? nullptr : &file_attributes,
+            (read_existing || write_existing) ? OPEN_EXISTING : OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL |
             FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (file.get() == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("publisher service control is active or its lock is unavailable");
@@ -1732,11 +1734,11 @@ usk::json::Value parse_reviewed_operation_envelope(const std::string& bytes,
     return envelope;
 }
 
-void enroll_reviewed_operation(const std::wstring& name, const std::wstring& envelope_path,
+usk::json::Value enroll_reviewed_operation(const std::wstring& name, const std::wstring& envelope_path,
     const std::wstring& envelope_digest, const std::wstring& apply_path) {
     // The administrative write access to the existing native controller lock
     // is required before any store effect. An ordinary client cannot enroll.
-    ServiceControlGuard control(name);
+    ServiceControlGuard control(name, false, true);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     ServiceHandle service(manager.get() ? OpenServiceW(manager.get(), name.c_str(),
         SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL) : nullptr);
@@ -1783,7 +1785,12 @@ void enroll_reviewed_operation(const std::wstring& name, const std::wstring& env
         {"envelope_size_bytes", Value(source.identity().size_bytes)}});
     // Existing final objects are never overwritten. An exact stopped retry
     // may complete a protected blob whose approval publication was interrupted.
-    if (!protected_document_exists(blob_path)) write_protected_bytes(blob_path, bytes, 1024u * 1024u);
+    bool store_effects_may_exist = false;
+    try {
+    if (!protected_document_exists(blob_path)) {
+        store_effects_may_exist = true;
+        write_protected_bytes(blob_path, bytes, 1024u * 1024u);
+    }
     const auto held_blob = hold_protected_reviewed_file(blob_path, 1024u * 1024u);
     usk::base::StableFile blob(blob_path);
     if (blob.identity().size_bytes != source.identity().size_bytes ||
@@ -1801,7 +1808,19 @@ void enroll_reviewed_operation(const std::wstring& name, const std::wstring& env
     if (protected_document_exists(approval_path)) {
         if (usk::json::canonical(read_protected_document(approval_path)) != usk::json::canonical(approval))
             throw std::runtime_error("retained reviewed operation approval differs");
-    } else write_protected_document(approval_path, approval);
+    } else {
+        store_effects_may_exist = true;
+        write_protected_document(approval_path, approval);
+    }
+    const auto actual = read_protected_document(approval_path);
+    if (usk::json::canonical(actual) != usk::json::canonical(approval))
+        throw std::runtime_error("reviewed operation durable approval readback differs");
+    return actual;
+    } catch (const std::exception& error) {
+        if (store_effects_may_exist)
+            throw PublisherRequestOutcomeUnknown(std::string("reviewed operation store effects may exist: ") + error.what());
+        throw;
+    }
 }
 
 int report_registered_response(const std::wstring& name, const std::string& request) {
@@ -2296,6 +2315,21 @@ usk::json::Value RegisteredPublisherAdmission::selected_reviewed_envelope() cons
     return state_->selected_envelope;
 }
 
+usk::json::Value RegisteredPublisherAdmission::selected_reviewed_operation_observation() const {
+    if (!has_selected_reviewed_operation())
+        throw std::runtime_error("no native reviewed operation is held");
+    (void)evidence();
+    using usk::json::Value;
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_selected_reviewed_operation_observation.v1")},
+        {"scope", Value("authenticated_exact_request_and_held_protected_enrollment_files")},
+        {"approval", state_->selected_approval},
+        {"approval_sha256", Value(usk::json::sha256_canonical(state_->selected_approval))},
+        {"approval_file", publisher_handle_observation_json(observe_publisher_file_handle(state_->selected_approval_file->get()))},
+        {"envelope_sha256", Value(state_->selected_envelope_source->sha256_hex())},
+        {"envelope_file", publisher_handle_observation_json(observe_publisher_file_handle(state_->selected_envelope_file->get()))}});
+}
+
 usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id, bool scoped_profile) const {
     using usk::json::Value;
     const auto admitted = evidence();
@@ -2639,10 +2673,18 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
     if (argc >= 2 && std::wstring(argv[1]) == L"--enroll-reviewed-operation") {
         if (argc != 6 || !generated_name(argv[2])) return 2;
         try {
-            enroll_reviewed_operation(argv[2], argv[3], argv[4], argv[5]);
-            std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\","
-                L"\"status\":\"reviewed_operation_enrolled\",\"service\":\"" << argv[2] << L"\"}\n";
+            const auto approval = enroll_reviewed_operation(argv[2], argv[3], argv[4], argv[5]);
+            using usk::json::Value;
+            std::cout << usk::json::canonical(Value(Value::Object{
+                {"schema", Value("usk.publisher_service_control.v1")},
+                {"status", Value("reviewed_operation_enrolled")},
+                {"service", Value(utf8(argv[2]))}, {"approval", approval}})) << '\n';
+            std::cout.flush();
+            if (!std::cout) throw PublisherRequestOutcomeUnknown("reviewed operation approval output unavailable");
             return 0;
+        } catch (const PublisherRequestOutcomeUnknown& error) {
+            std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
+            return 5;
         } catch (const std::exception& error) {
             std::cerr << "usk_publisher_service_control: " << error.what() << '\n';
             return 3;

@@ -610,6 +610,9 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
     if 'stale_plan_refusals' in observation:
         from publisher_stale_plan_evidence import reconcile as reconcile_stale_plan
         result['stale_plan_refusals'] = reconcile_stale_plan(observation, receipt['volume_root'])
+    if 'changed_state_revision' in observation:
+        from publisher_changed_state_revision_evidence import reconcile as reconcile_changed_state_revision
+        result['changed_state_revision'] = reconcile_changed_state_revision(observation, receipt['volume_root'])
     return result
 
 

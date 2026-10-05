@@ -355,10 +355,12 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     }
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
-    [switch]$StalePlanRefusal) {
+    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
     $processLoss=$BootstrapLoss -or $PreservationLoss
-    if($StalePlanRefusal -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss)) {
+    $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal
+    if(($StalePlanRefusal -and $StateRevisionRefusal) -or
+        ($structuredRefusal -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss))) {
         throw 'Stale-plan case requires a completed authenticated refusal'
     }
     $lossKey=if($PreservationLoss){'bootstrap_preservation_loss'}else{'bootstrap_loss'}
@@ -415,6 +417,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $registeredCommand `
                 -ServiceBinarySha256 $receipt.service_sha256 -BootstrapOperationPrefix $operationPrefix
         } elseif($StalePlanRefusal) {$script:stalePlanCase.client_capture=$clientCapture}
+        elseif($StateRevisionRefusal) {$script:stateRevisionCase.client_capture=$clientCapture}
         else {$receipt.client_captures.Add($clientCapture)}
         $launch.Resume()
         if($ActiveInstallContention -and $Command -ceq 'install_local.apply' -and -not $processLoss -and
@@ -425,9 +428,9 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         $process.WaitForExit();$exit=$process.ExitCode
         $diagnostic=[IO.File]::ReadAllText($stderr)
         if((Get-Item -LiteralPath $stdout).Length -gt 4MB -or (Get-Item -LiteralPath $stderr).Length -gt 64KB -or
-            (($ExpectedExit -eq 0 -or $StalePlanRefusal) -and $diagnostic.Length) -or
+            (($ExpectedExit -eq 0 -or $structuredRefusal) -and $diagnostic.Length) -or
             ($processLoss -and $diagnostic.Length) -or
-            ($ExpectedExit -ne 0 -and -not $processLoss -and -not $StalePlanRefusal -and
+            ($ExpectedExit -ne 0 -and -not $processLoss -and -not $structuredRefusal -and
                 $diagnostic -cnotmatch '^usk_machine: request refused\r?\n?$')) {throw 'Standard client output differs'}
         $responseText=[IO.File]::ReadAllText($stdout)
         $receipt['last_response_diagnostic']=[ordered]@{command=$Command;request_id=$requestId;exit_code=$exit;
@@ -455,6 +458,11 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 $result.error.code -ceq 'stale_plan'
             $script:stalePlanCase.response=$result
         }
+        if($StateRevisionRefusal) {
+            $responseMatches=$responseMatches -and $result.status -ceq 'refused' -and $null -eq $result.result -and
+                $result.error.code -ceq 'state_revision_stale'
+            $script:stateRevisionCase.response=$result
+        }
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
@@ -474,14 +482,14 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             throw ('Standard public response binding differs: command='+$Command+' exit='+$exit+' status='+$result.status)
         }
         if((Read-ServicePolicy|ConvertTo-Json -Depth 16 -Compress) -cne ($receipt.service_policy|ConvertTo-Json -Depth 16 -Compress)) {throw 'Service access policy changed across standard dispatch'}
-        if($ExpectedExit -eq 0 -or $StalePlanRefusal) {
+        if($ExpectedExit -eq 0 -or $structuredRefusal) {
             if(-not (Test-Path -LiteralPath $nativeOutput) -or (Get-Item -LiteralPath $nativeOutput).Length -gt 4MB) {
                 throw 'Standard native response capture is missing or exceeds its bound'
             }
             $nativeText=[IO.File]::ReadAllText($nativeOutput)
             $native=$nativeText|ConvertFrom-Json
             $nativeSchema=if($Command -ceq 'publisher.observe'){'usk.publisher_service_capability_observation.v1'}else{'usk.publisher_lab_service_observation.v1'}
-            $nativeStatus=if($StalePlanRefusal){'failed'}elseif($Command -ceq 'publisher.observe'){'observed'}else{'pass'}
+            $nativeStatus=if($structuredRefusal){'failed'}elseif($Command -ceq 'publisher.observe'){'observed'}else{'pass'}
             if($native.schema -cne $nativeSchema -or $native.status -cne $nativeStatus -or
                 $null -eq $native.registered_admission){throw 'Standard native admission capture is incomplete'}
             $nativeCapture=[ordered]@{command=$Command;request_id=$requestId;
@@ -489,6 +497,11 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             if($StalePlanRefusal) {
                 if($native.error_code -cne 'stale_plan'){throw 'Native stale-plan reason was not preserved'}
                 $script:stalePlanCase.native_observation=$nativeCapture
+            } elseif($StateRevisionRefusal) {
+                if($native.error_code -cne 'state_revision_stale' -or $null -eq $native.reviewed_operation_admission){
+                    throw 'Native approved-operation revision refusal was not preserved'
+                }
+                $script:stateRevisionCase.native_observation=$nativeCapture
             } else {$receipt.native_observations.Add($nativeCapture)}
         }
         return $result
@@ -537,6 +550,27 @@ function Invoke-StalePlanCases([int]$BaselineIndex,[bool]$SourceFree) {
         $script:stalePlanCase=$null
     }
 }
+function Invoke-ChangedStateCase([int]$BaselineIndex,[bool]$SourceFree) {
+    $baseline=$receipt.readbacks[$BaselineIndex]
+    $script:stateRevisionCase=[ordered]@{source_free=$SourceFree;client_capture=$null;
+        response=$null;native_observation=$null;readback=$null}
+    $receipt.changed_state_revision.cases.Add($script:stateRevisionCase)
+    $null=Invoke-StandardRequest 'install_local.apply' $applyA 4 -StateRevisionRefusal
+    $readback=Read-InstalledSnapshot
+    if(($readback.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
+        ($baseline.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
+        ($readback.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress) -cne
+        ($baseline.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Approved Plan A refusal changed committed Plan B native material'
+    }
+    $digest=$readback.independent.rows|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_stale_plan_evidence.py') --rows-digest
+    if($LASTEXITCODE -ne 0 -or [string]$digest -cnotmatch '^[0-9a-f]{64}$'){throw 'Changed-state native row digest failed'}
+    $readback.independent.rows=[ordered]@{schema='usk.publisher_native_rows_reference.v1';
+        baseline_readback_index=$BaselineIndex;sha256=[string]$digest}
+    $script:stateRevisionCase.readback=$readback
+    $script:stateRevisionCase=$null
+}
 try {
     Initialize-PublisherMetadataNativeTypes
     if(Get-LocalUser -Name $accountName -ErrorAction SilentlyContinue){throw 'Owned standard account name exists'}
@@ -575,6 +609,32 @@ try {
     $binding=($bound -join "`n")|ConvertFrom-Json;$apply=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
     $receipt['plan_request']=Get-Content -LiteralPath $inputs.request_file -Raw|ConvertFrom-Json
     $receipt['plan']=$planned.result.payload;$receipt['apply_request']=$apply
+    if($StalePlanQualification) {
+        # Plan A is independently produced by the real machine planner while
+        # the target is still empty. Only its authored request identity differs
+        # from B; no apply digest or installed record is manufactured.
+        $requestA=$receipt.plan_request|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+        $requestA.request_id='planA.'+$id;$requestA.payload.request_id=$requestA.request_id
+        $requestAPath=Join-Path $fixture 'plan-a-request.json';Write-Json $requestAPath $requestA
+        $planAOutput=& $MachineBinary --machine --request-file $requestAPath --context-file $context
+        if($LASTEXITCODE -ne 0){throw 'Independent initial Plan A failed'}
+        $planAResponsePath=Join-Path $fixture 'plan-a-response.json'
+        [IO.File]::WriteAllText($planAResponsePath,($planAOutput -join "`n")+"`n",$utf8)
+        $boundA=& $PythonBinary -B (Join-Path $PSScriptRoot '..\tools\usk_bundle_apply_binding.py') --request-file $requestAPath `
+            --response-file $planAResponsePath --acceptance-root $drive --state-root ($drive+'setup-state') `
+            --transaction-id ('installA.'+$id) --applied-at ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')) `
+            --output-dir (Join-Path $fixture 'binding-a')
+        if($LASTEXITCODE -ne 0){throw 'Real Plan A reviewed binding failed'}
+        $bindingA=($boundA -join "`n")|ConvertFrom-Json
+        $applyA=Get-Content -LiteralPath $bindingA.apply_file -Raw|ConvertFrom-Json
+        $receipt['changed_state_revision']=[ordered]@{schema='usk.publisher_changed_state_revision_probe.v1';
+            scope='approved_initial_plan_a_commit_b_apply_a_before_effects';profile_qualified=$false;
+            publication_authority_granted=$false;plan_a_request=$requestA;
+            plan_a_response=($planAOutput -join "`n")|ConvertFrom-Json;apply_a=$applyA;
+            planned_at_file_time=[DateTime]::UtcNow.ToFileTimeUtc().ToString();enrolled_at_file_time=$null;
+            envelope_a_json=[IO.File]::ReadAllText($bindingA.envelope_file);
+            enrollments=[Collections.Generic.List[object]]::new();cases=[Collections.Generic.List[object]]::new()}
+    }
     $registration=& $ServiceControlBinary --register $service $ServiceBinary $VolumeRoot $binding.envelope_file `
         $binding.envelope_sha256 $accountSid $receipt.service_sha256 --service-admitted-client
     if($LASTEXITCODE -ne 0 -or ($registration|ConvertFrom-Json).status -cne 'registered'){throw 'Standard registration failed'}
@@ -588,6 +648,19 @@ try {
     Set-Acl -LiteralPath $fixture -AclObject $inputAcl
     & $ServiceControlBinary --provision-target $service --confirm-empty-volume|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Standard target admission failed'}
+    if($StalePlanQualification) {
+        foreach($approved in @($bindingA,$binding)) {
+            $enrollment=& $ServiceControlBinary --enroll-reviewed-operation $service $approved.envelope_file `
+                $approved.envelope_sha256 $approved.apply_file
+            if($LASTEXITCODE -ne 0){throw 'Administrative reviewed-operation enrollment failed'}
+            $observedEnrollment=($enrollment -join "`n")|ConvertFrom-Json
+            if($observedEnrollment.status -cne 'reviewed_operation_enrolled' -or $observedEnrollment.service -cne $service){
+                throw 'Reviewed operation enrollment response differs'
+            }
+            $receipt.changed_state_revision.enrollments.Add($observedEnrollment)
+        }
+        $receipt.changed_state_revision.enrolled_at_file_time=[DateTime]::UtcNow.ToFileTimeUtc().ToString()
+    }
     $receipt['service_policy']=Read-ServicePolicy
     $receipt['discovery']=Invoke-StandardRequest 'publisher.inspect' @{schema='usk.publisher_capability_request.v1';request_id='inspect.'+$id} 2
     if($receipt.discovery.status -cne 'refused' -or $receipt.discovery.error.code -cne 'publisher_capability_unavailable'){throw 'Unqualified standard discovery did not refuse explicitly'}
@@ -643,6 +716,7 @@ try {
             scope='authenticated_immutable_apply_context_before_effects';profile_qualified=$false;
             publication_authority_granted=$false;cases=[Collections.Generic.List[object]]::new()}
         Invoke-StalePlanCases 0 $false
+        Invoke-ChangedStateCase 0 $false
     }
     $exactFixture=[IO.Path]::GetFullPath($fixture)
     if($exactFixture -cne [IO.Path]::GetFullPath((Join-Path $lab 'standard-authored-inputs')) -or
@@ -655,6 +729,7 @@ try {
     $recovered=Read-InstalledSnapshot;$receipt.readbacks.Add($recovered)
     Assert-LeaseTransition $before $recovered
     if($StalePlanQualification){Invoke-StalePlanCases 1 $true}
+    if($StalePlanQualification){Invoke-ChangedStateCase 1 $true}
     $receipt['replayed_apply']=Invoke-StandardRequest 'install_local.apply' $apply
     foreach($terminal in @($receipt.recovery,$receipt.replayed_apply)) {
         if(($terminal.result.payload|ConvertTo-Json -Depth 64 -Compress) -cne ($installed|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard source-free state changed'}
