@@ -313,6 +313,10 @@ def bootstrap_takeover(before, after, drive, installed, volume_root_id, terminat
             history[0]['holder'] == terminated_holder and history[0]['expected_state_revision'] == digest([]) and
             history[1]['expected_state_revision'] == digest([]) and history[1]['holder'] != terminated_holder,
             'bootstrap takeover is not one interrupted native generation followed by completion')
+    return _bootstrap_original_prefix(before, after, drive, installed, history, terminated_holder)
+
+
+def _bootstrap_original_prefix(before, after, drive, installed, history, terminated_holder):
     require(isinstance(before, list) and 0 < len(before) <= 10000 and
             all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in before),
             'bootstrap interruption row budget/path differs')
@@ -359,9 +363,42 @@ def bootstrap_takeover(before, after, drive, installed, volume_root_id, terminat
         else:
             require(row == new[target], 'bootstrap takeover changed original coordination or state root')
     return {'schema': 'usk.publisher_bootstrap_takeover_reconciliation.v1', 'status': 'bindings_consistent',
-            'terminated_holder': terminated_holder, 'replacement_generation': history[1]['generation'],
+            'terminated_holder': terminated_holder, 'replacement_generation': history[-1]['generation'],
             'retained_root_identity': old[publication]['file_id'], 'retained_objects': len(old_tree),
             'profile_qualified': False, 'publication_authority_granted': False}
+
+
+def bootstrap_preservation_takeover(before, preserved, after, drive, installed, volume_root_id, terminated_holders):
+    """Reconcile actual loss after a durable preservation move, before replacement creation."""
+    completed = snapshot(after, drive, installed, volume_root_id)
+    history = completed['history']
+    require(isinstance(terminated_holders, list) and len(terminated_holders) == 2 and
+            len(history) == 4 and [value['status'] for value in history] == ['active', 'active', 'active', 'completed'] and
+            [value['holder'] for value in history[:2]] == terminated_holders and
+            all(value['expected_state_revision'] == digest([]) for value in history[:3]) and
+            len({(value['holder']['process_id'], value['holder']['process_creation_time']) for value in history[:3]}) == 3,
+            'preservation takeover is not two interrupted holders followed by completion')
+    original = _bootstrap_original_prefix(before, after, drive, installed, history, terminated_holders[0])
+    require(isinstance(preserved, list) and 0 < len(preserved) <= 10000 and
+            all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in preserved),
+            'preservation interruption row budget/path differs')
+    moved = {row['path']: row for row in preserved}
+    final = {row['path']: row for row in after}
+    require(len(moved) == len(preserved), 'preservation interruption paths alias')
+    prefix = drive + 'installation-operations\\install-' + digest(installed['install_id']) + '\\operation-' + digest(installed['transaction_id'])
+    retained = prefix + '-retained-g00000000000000000001'
+    move_path = prefix + '-preserve-g00000000000000000001.json'
+    active_path = drive + 'setup-state\\state\\leases\\install-' + digest(installed['install_id']) + '\\g00000000000000000002-active.json'
+    publication = drive + 'publication'
+    expected_paths = {retained + row['path'][len(publication):] if row['path'] == publication or
+                      row['path'].startswith(publication + '\\') else row['path'] for row in before} | {move_path, active_path}
+    require(set(moved) == expected_paths and all(path in final and row == final[path] for path, row in moved.items()) and
+            document(moved[active_path]) == history[1] and
+            document(moved[move_path])['source_root_identity'] == original['retained_root_identity'],
+            'preservation interruption changed retained objects or admitted replacement effects')
+    return dict(original, schema='usk.publisher_bootstrap_preservation_takeover_reconciliation.v1',
+                terminated_holders=terminated_holders, preserved_generation=2, replacement_generation=3,
+                preservation_reentry_checked=True)
 
 
 def main():
@@ -380,6 +417,9 @@ def main():
     elif value['mode'] == 'bootstrap_takeover':
         result = bootstrap_takeover(value['before'], value['after'], value['drive'], value['installed'],
                                     value['volume_root_id'], value['terminated_holder'])
+    elif value['mode'] == 'bootstrap_preservation_takeover':
+        result = bootstrap_preservation_takeover(value['before'], value['preserved'], value['after'],
+            value['drive'], value['installed'], value['volume_root_id'], value['terminated_holders'])
     else:
         require(value['mode'] in ('append', 'readonly'), 'unknown lease reconciliation mode')
         transition(value['before'], value['after'], value['drive'], value['installed'], value['volume_root_id'],

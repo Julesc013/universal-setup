@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T00:05:01Z",
+  "generated_at": "2026-10-05T01:25:22Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1389,15 +1389,15 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5816820f2953be3b5b6e4cc86a445c609fe338696738563e62ea5ca5f74e9e39"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "47ecdc16a1c863e4ea4aefa8a3d3b95ead87c55b161250b0d3b0f2f9495f90f3"
+          "sha256": "48840df5c9ac1a4417cbc63c2cc72e9609c3c7dbb32dbb1d0fc42c59280fc5a7"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "434b4832f6f733987d8da79d77bf13228c0add067733c167922f3bbff27bc165"
+          "sha256": "f47f1ac7290b027d120b99e15a85bf460e2abdb1fd797d68e7038b411e8947fb"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -2499,7 +2499,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Closed ownership generations and a native restricted-service append-only journal bind actual state-root identity and process birth time. Registered install/recovery paths install before-effect fences at native creation, content write, rename, metadata publication and consumer grant. Live/unknown holders refuse transfer. Immutable original intent precedes setup bootstrap, and native setup/state identities precede active ownership. Actual ordinary registered install, source-free recovery and replay emitted three completed generations in CI37240768292 at source943ad1c; that result does not qualify forced registered takeover. New bootstrap reservations bind each actual native ownership attempt and original root/context hashes before publication creation. Exact original sourceful retry preflights source and preserves only a protected creation-order anchor prefix and original snapshot-prefix bytes using durable move intent, no-replace native rename, and retained identity/security/byte reconciliation before ordinary live plan validation. The retired tree is preserved and replacement anchors remain actual fresh native creates. These bootstrap source changes and synthetic record controls are not process-kill qualification. Interrupted bootstrap, native takeover/contention and stale-context qualification remain unfinished; no timed takeover or qualified lease capability is claimed.",
+      "note": "Closed ownership generations and a native restricted-service append-only journal bind actual state-root identity and process birth time. Registered install/recovery paths install before-effect fences at native creation, content write, rename, metadata publication and consumer grant. Live/unknown holders refuse transfer. Immutable original intent precedes setup bootstrap, and native setup/state identities precede active ownership. Actual ordinary registered install, source-free recovery and replay emitted three completed generations in CI37240768292 at source943ad1c; that result does not qualify forced registered takeover. New bootstrap reservations bind each actual native ownership attempt and original root/context hashes before publication creation. Exact original sourceful retry preflights source and preserves only a protected creation-order anchor prefix and original snapshot-prefix bytes using durable move intent, no-replace native rename, and retained identity/security/byte reconciliation before ordinary live plan validation. The retired tree is preserved and replacement anchors remain actual fresh native creates. PR231 source3383c3d and CI37246243862 qualified actual registered worker termination, preservation of one empty publication root and generation2 completion, followed by source-free recovery/replay/verify. The partial integration receipt preserves that bounded native result without accepting the whole WorkUnit. The next owned probe and strict two-loss oracle cover interruption after durable preservation and before replacement creation; this new native case has not run. All anchor/snapshot prefixes, uncertain-move reentry, public contention and stale-context qualification remain unfinished; no timed takeover or qualified lease capability is claimed.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2571,35 +2571,39 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "8f429f71068afcb35c776033d3d24078808a73ffb418cd704e6f743cfa7a2d90"
+          "sha256": "80c121bbe6ff3f8ed4f0749e4e5c8ac93740fe4a7726054d53031fbc02595c6b"
         },
         {
           "path": "tests/test_publisher_installation_lease_evidence.py",
-          "sha256": "4a8665999f95ef4358f8ced63575b1bafea20a82264938f40f342535c979be14"
+          "sha256": "27d49056444c76920848efd966af5e638dd9158ed9195aec25d695e1444b5e26"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5816820f2953be3b5b6e4cc86a445c609fe338696738563e62ea5ca5f74e9e39"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "434b4832f6f733987d8da79d77bf13228c0add067733c167922f3bbff27bc165"
+          "sha256": "f47f1ac7290b027d120b99e15a85bf460e2abdb1fd797d68e7038b411e8947fb"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "06e9894148517e3af3bd376d800b33a3c5931fbd18af02f593a00f67d702281f"
+          "sha256": "98c241dbd758aed6b41e40289a9a93fef5db0cdaa1441e02d70548fc04ac92f0"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "3572802d01bbe06b30fea401421e6a15831f6479f56b0aaaa84a0ba207b58121"
+          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "39e49a815ce843c61d2ca107967698cac25b404376241471cae7eadbb613e0ef"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "1016c5b516a3ac69131911d5a35d1307c7ea9d6c296fd54bb53a19bd86574151"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
+        },
+        {
+          "path": "tests/test_publisher_standard_public_evidence.py",
+          "sha256": "48840df5c9ac1a4417cbc63c2cc72e9609c3c7dbb32dbb1d0fc42c59280fc5a7"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_device_acl.h",
@@ -2706,35 +2710,39 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "8f429f71068afcb35c776033d3d24078808a73ffb418cd704e6f743cfa7a2d90"
+          "sha256": "80c121bbe6ff3f8ed4f0749e4e5c8ac93740fe4a7726054d53031fbc02595c6b"
         },
         {
           "path": "tests/test_publisher_installation_lease_evidence.py",
-          "sha256": "4a8665999f95ef4358f8ced63575b1bafea20a82264938f40f342535c979be14"
+          "sha256": "27d49056444c76920848efd966af5e638dd9158ed9195aec25d695e1444b5e26"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5816820f2953be3b5b6e4cc86a445c609fe338696738563e62ea5ca5f74e9e39"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "434b4832f6f733987d8da79d77bf13228c0add067733c167922f3bbff27bc165"
+          "sha256": "f47f1ac7290b027d120b99e15a85bf460e2abdb1fd797d68e7038b411e8947fb"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "06e9894148517e3af3bd376d800b33a3c5931fbd18af02f593a00f67d702281f"
+          "sha256": "98c241dbd758aed6b41e40289a9a93fef5db0cdaa1441e02d70548fc04ac92f0"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "3572802d01bbe06b30fea401421e6a15831f6479f56b0aaaa84a0ba207b58121"
+          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "39e49a815ce843c61d2ca107967698cac25b404376241471cae7eadbb613e0ef"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "1016c5b516a3ac69131911d5a35d1307c7ea9d6c296fd54bb53a19bd86574151"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
+        },
+        {
+          "path": "tests/test_publisher_standard_public_evidence.py",
+          "sha256": "48840df5c9ac1a4417cbc63c2cc72e9609c3c7dbb32dbb1d0fc42c59280fc5a7"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_device_acl.h",
@@ -2841,35 +2849,39 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "8f429f71068afcb35c776033d3d24078808a73ffb418cd704e6f743cfa7a2d90"
+          "sha256": "80c121bbe6ff3f8ed4f0749e4e5c8ac93740fe4a7726054d53031fbc02595c6b"
         },
         {
           "path": "tests/test_publisher_installation_lease_evidence.py",
-          "sha256": "4a8665999f95ef4358f8ced63575b1bafea20a82264938f40f342535c979be14"
+          "sha256": "27d49056444c76920848efd966af5e638dd9158ed9195aec25d695e1444b5e26"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5816820f2953be3b5b6e4cc86a445c609fe338696738563e62ea5ca5f74e9e39"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "434b4832f6f733987d8da79d77bf13228c0add067733c167922f3bbff27bc165"
+          "sha256": "f47f1ac7290b027d120b99e15a85bf460e2abdb1fd797d68e7038b411e8947fb"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "06e9894148517e3af3bd376d800b33a3c5931fbd18af02f593a00f67d702281f"
+          "sha256": "98c241dbd758aed6b41e40289a9a93fef5db0cdaa1441e02d70548fc04ac92f0"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "3572802d01bbe06b30fea401421e6a15831f6479f56b0aaaa84a0ba207b58121"
+          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "39e49a815ce843c61d2ca107967698cac25b404376241471cae7eadbb613e0ef"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "1016c5b516a3ac69131911d5a35d1307c7ea9d6c296fd54bb53a19bd86574151"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
+        },
+        {
+          "path": "tests/test_publisher_standard_public_evidence.py",
+          "sha256": "48840df5c9ac1a4417cbc63c2cc72e9609c3c7dbb32dbb1d0fc42c59280fc5a7"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_device_acl.h",
@@ -3880,7 +3892,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "28897c432420c2f6531cdb8e39ba05638441aab7fad3d836ed78093d6debc4ed"
+          "sha256": "81af17cb78f085ed539127d0a04664dc5679d0c5b7b9e1f2341de8494c4495eb"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3916,7 +3928,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "28897c432420c2f6531cdb8e39ba05638441aab7fad3d836ed78093d6debc4ed"
+          "sha256": "81af17cb78f085ed539127d0a04664dc5679d0c5b7b9e1f2341de8494c4495eb"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -3952,7 +3964,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "28897c432420c2f6531cdb8e39ba05638441aab7fad3d836ed78093d6debc4ed"
+          "sha256": "81af17cb78f085ed539127d0a04664dc5679d0c5b7b9e1f2341de8494c4495eb"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4335,7 +4347,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "3572802d01bbe06b30fea401421e6a15831f6479f56b0aaaa84a0ba207b58121"
+          "sha256": "e4498b09194d927f7d164af20ef9f233d9c607eefd7cb36ded2a8d23b2c0c537"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4455,7 +4467,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "06e9894148517e3af3bd376d800b33a3c5931fbd18af02f593a00f67d702281f"
+          "sha256": "98c241dbd758aed6b41e40289a9a93fef5db0cdaa1441e02d70548fc04ac92f0"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4511,7 +4523,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "1016c5b516a3ac69131911d5a35d1307c7ea9d6c296fd54bb53a19bd86574151"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -4539,7 +4551,7 @@
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "39e49a815ce843c61d2ca107967698cac25b404376241471cae7eadbb613e0ef"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_owned_metadata_collision.ps1",
@@ -4639,15 +4651,15 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "434b4832f6f733987d8da79d77bf13228c0add067733c167922f3bbff27bc165"
+          "sha256": "f47f1ac7290b027d120b99e15a85bf460e2abdb1fd797d68e7038b411e8947fb"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5816820f2953be3b5b6e4cc86a445c609fe338696738563e62ea5ca5f74e9e39"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "47ecdc16a1c863e4ea4aefa8a3d3b95ead87c55b161250b0d3b0f2f9495f90f3"
+          "sha256": "48840df5c9ac1a4417cbc63c2cc72e9609c3c7dbb32dbb1d0fc42c59280fc5a7"
         },
         {
           "path": "tests/test_publisher_rename_evidence.py",
@@ -4927,7 +4939,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "06e9894148517e3af3bd376d800b33a3c5931fbd18af02f593a00f67d702281f"
+          "sha256": "98c241dbd758aed6b41e40289a9a93fef5db0cdaa1441e02d70548fc04ac92f0"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -4995,7 +5007,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "1016c5b516a3ac69131911d5a35d1307c7ea9d6c296fd54bb53a19bd86574151"
+          "sha256": "6d403b32cd7830db83c2e33b6bf90727868a542f89fa6394585e2d51e7a26e1b"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -5023,7 +5035,7 @@
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
-          "sha256": "39e49a815ce843c61d2ca107967698cac25b404376241471cae7eadbb613e0ef"
+          "sha256": "2f121830cd411c3a8372460568ee7ee58283834426d44cbcd344f34af39117ff"
         },
         {
           "path": "tests/windows_publisher_owned_metadata_collision.ps1",
@@ -5131,15 +5143,15 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "434b4832f6f733987d8da79d77bf13228c0add067733c167922f3bbff27bc165"
+          "sha256": "f47f1ac7290b027d120b99e15a85bf460e2abdb1fd797d68e7038b411e8947fb"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5816820f2953be3b5b6e4cc86a445c609fe338696738563e62ea5ca5f74e9e39"
+          "sha256": "2f974ceca7bbd8627ce258568bf075e48b96c5bd81ee808235a3611f466c5283"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
-          "sha256": "47ecdc16a1c863e4ea4aefa8a3d3b95ead87c55b161250b0d3b0f2f9495f90f3"
+          "sha256": "48840df5c9ac1a4417cbc63c2cc72e9609c3c7dbb32dbb1d0fc42c59280fc5a7"
         },
         {
           "path": "tests/test_publisher_rename_evidence.py",

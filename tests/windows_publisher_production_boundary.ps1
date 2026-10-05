@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: MIT
 
 function Start-OwnedProductionBoundaryObserver {
-    param([ValidateSet('bootstrap','prepublish','postrename')][string]$Phase,
+    param([ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename')][string]$Phase,
         [string]$Service,[string]$ObserverRoot,[string]$VhdPath,[string]$VolumeRoot,
-        [string]$DriveRoot,[string]$VisibleRoot,[string]$ServiceCommand,[string]$ServiceBinarySha256)
+        [string]$DriveRoot,[string]$VisibleRoot,[string]$ServiceCommand,[string]$ServiceBinarySha256,
+        [string]$BootstrapOperationPrefix='')
     $utf8=[Text.UTF8Encoding]::new($false)
     if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
         $Service -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or $DriveRoot -cnotmatch '^[A-Z]:\\$' -or
@@ -34,7 +35,13 @@ function Start-OwnedProductionBoundaryObserver {
         ([string]$volume.DriveLetter+':\') -cne $DriveRoot) {
         throw 'Production boundary observer volume identity differs'
     }
-    if($Phase -cnotin @('bootstrap','prepublish','postrename')){throw 'Unknown production boundary phase'}
+    if($Phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename')){throw 'Unknown production boundary phase'}
+    if($Phase -ceq 'bootstrap_preserved' -and
+        $BootstrapOperationPrefix -cnotmatch ('^'+[regex]::Escape($DriveRoot)+
+            'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')) {
+        throw 'Preservation observer operation prefix differs from the owned native layout'
+    }
+    if($Phase -cne 'bootstrap_preserved' -and $BootstrapOperationPrefix) {throw 'Unexpected preservation operation prefix'}
     $taskName='USK_RENAME_OBSERVER_'+$Service.Substring(8)
     $scriptPath=Join-Path $observerRoot 'production-rename-observer.ps1'
     $ownedProcessPath=Join-Path $observerRoot 'owned-process.ps1'
@@ -68,8 +75,9 @@ function Start-OwnedProductionBoundaryObserver {
         service_binary_sha256=$ServiceBinarySha256;
         drive_letter=$DriveRoot.Substring(0,1);volume_guid_root=$VolumeRoot;
         visible_path=$visibleRoot;journal_path=($DriveRoot+'publication\journal\lab-'+
-            $(if($Phase -cin @('bootstrap','prepublish')){'prepared'}else{'visible'})+'-evidence.json');
+            $(if($Phase -cin @('bootstrap','bootstrap_preserved','prepublish')){'prepared'}else{'visible'})+'-evidence.json');
         ready_path=$readyPath;output_path=$outputPath}
+    if($Phase -ceq 'bootstrap_preserved') {$config['bootstrap_operation_prefix']=$BootstrapOperationPrefix}
     [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
     # The shared owned-process helper needs PowerShell 7's .NET Kill(true)
     # overload to terminate the exact held process tree.
@@ -102,7 +110,7 @@ function Start-OwnedProductionBoundaryObserver {
         throw
     }
 }
-function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootstrap','prepublish','postrename')][string]$Phase) {
+function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename')][string]$Phase) {
     $deadline=[DateTime]::UtcNow.AddSeconds(150)
     while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 25
@@ -115,6 +123,8 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
     Remove-OwnedProductionBoundaryObserver $Observer
     $expectedStatus=if($Phase -ceq 'bootstrap'){
         'terminated_publication_bootstrap'
+    }elseif($Phase -ceq 'bootstrap_preserved'){
+        'terminated_publication_preserved'
     }elseif($Phase -ceq 'prepublish'){
         'terminated_prepared_prerename'
     }else{'terminated_postrename_prejournal'}
@@ -124,6 +134,19 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
         -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
         ($Phase -ceq 'bootstrap' -and
             (-not $result.publication_before_kill -or -not $result.publication_after_kill -or
+                $result.candidate_before_kill -or $result.candidate_after_kill -or
+                $result.journal_before_kill -or $result.journal_after_kill -or $result.visible_after_kill -or
+                $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$')) -or
+        ($Phase -ceq 'bootstrap_preserved' -and
+            ($result.publication_before_kill -or $result.publication_after_kill -or
+                $result.single_worker_closure_confirmed -ne $true -or
+                $result.termination.method -cne 'TerminateProcess_owned_held_root' -or
+                $result.termination.process_id -ne $result.service_pid -or
+                $result.termination.process_creation_file_time -cne $result.process_creation_file_time -or
+                $result.termination.native_wait_result -ne 0 -or
+                -not $result.retained_before_kill -or -not $result.retained_after_kill -or
+                -not $result.preservation_before_kill -or -not $result.preservation_after_kill -or
+                $result.replacement_reservation_before_kill -or $result.replacement_reservation_after_kill -or
                 $result.candidate_before_kill -or $result.candidate_after_kill -or
                 $result.journal_before_kill -or $result.journal_after_kill -or $result.visible_after_kill -or
                 $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$')) -or

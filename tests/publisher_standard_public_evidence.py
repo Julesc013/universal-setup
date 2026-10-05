@@ -296,7 +296,7 @@ def installed_material(observation, rows, drive):
 
 
 def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False, allow_legacy_missing_bootstrap=False,
-              require_bootstrap_loss=False):
+              require_bootstrap_loss=False, require_bootstrap_preservation_loss=False):
     require(receipt.get("status") == "volume_and_protected_publish_observed" and
         receipt.get("build_profile", {}).get("pull_request_head") == expected_head,
         "standard hosted source/result differs")
@@ -443,7 +443,8 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
                     'standard native apply completion is ambiguous')
                 returned = next(value for value in responses if value is not None)
             require(returned == public_result, 'standard native/public completion bytes differ')
-    bootstrap = reconcile_bootstrap_loss(observation, captures, installed, readbacks[0], receipt['volume_root'], require_bootstrap_loss)
+    bootstrap = reconcile_bootstrap_loss(observation, captures, installed, readbacks[0], receipt['volume_root'],
+        require_bootstrap_loss, require_preservation_loss=require_bootstrap_preservation_loss)
     result = {"schema": "usk.publisher_standard_public_reconciliation.v1", "status": "bindings_consistent",
         "head": expected_head, "standard_client_sid": client, "captured_clients": len(commands), "native_readbacks": 4,
         "service_observations_checked": 2 if mediated else 0,
@@ -454,14 +455,21 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
     return result
 
 
-def reconcile_bootstrap_loss(observation, captures, installed, completed_readback, drive, required=False):
-    from publisher_installation_lease_evidence import bootstrap_takeover
-    loss = observation.get('bootstrap_loss')
-    if loss is None:
-        require(not required, 'registered bootstrap process-loss receipt is missing')
-        return None
+def preservation_absence(independent, drive, prefix, volume_root_id):
+    observed = independent.get('publication_absence')
+    require(observed == {
+        'schema': 'usk.publisher_preserved_publication_absence.v1', 'path': drive + 'publication',
+        'parent_root_identity': volume_root_id, 'win32_error_before': 2, 'win32_error_after': 2,
+        'preservation_record_path': prefix + '-preserve-g00000000000000000001.json',
+        'retained_root_path': prefix + '-retained-g00000000000000000001'} and
+        all(type(observed[key]) is int for key in ('win32_error_before', 'win32_error_after')),
+        'native publication absence is not a bound before/after leaf observation')
+
+
+def _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, phase):
     require(isinstance(loss, dict) and loss.keys() == {'schema', 'client_capture', 'response', 'boundary', 'readback', 'reconciliation'} and
-        loss['schema'] == 'usk.publisher_registered_bootstrap_loss.v1', 'registered bootstrap loss is not closed')
+        loss['schema'] == ('usk.publisher_registered_bootstrap_loss.v1' if phase == 'bootstrap' else
+            'usk.publisher_registered_bootstrap_preservation_loss.v1'), 'registered bootstrap loss is not closed')
     capture = loss['client_capture']
     standard_capture(capture, observation['account_sid'], observation['machine_sha256'])
     require(capture['command'] == 'install_local.apply' and capture['request_id'] not in {x['request_id'] for x in captures} and
@@ -474,15 +482,30 @@ def reconcile_bootstrap_loss(observation, captures, installed, completed_readbac
         response['error'] == {'code': 'publisher_outcome_unknown'}, 'bootstrap transport loss fabricated a successful native reply')
     boundary = loss['boundary']
     require(boundary['schema'] == 'usk.publisher.production_rename_observer.v1' and
-        boundary['identity'] == 'S-1-5-18' and boundary['phase'] == 'bootstrap' and
-        boundary['status'] == 'terminated_publication_bootstrap' and boundary['service_name'] == observation['service'] and
+        boundary['identity'] == 'S-1-5-18' and boundary['phase'] == phase and
+        boundary['status'] == ('terminated_publication_bootstrap' if phase == 'bootstrap' else
+            'terminated_publication_preserved') and boundary['service_name'] == observation['service'] and
         boundary['service_binary_sha256'] == observation['service_sha256'] and boundary['volume_guid_root'] == observation['volume_root'] and
         integer(boundary['service_pid'], 1) and re.fullmatch('[0-9a-f]{16}', boundary['process_creation_file_time']) and
-        boundary['publication_before_kill'] is True and boundary['publication_after_kill'] is True and
+        boundary['publication_before_kill'] is (phase == 'bootstrap') and boundary['publication_after_kill'] is (phase == 'bootstrap') and
         all(boundary[key] is False for key in ('candidate_before_kill', 'candidate_after_kill', 'journal_before_kill',
             'journal_after_kill', 'visible_after_kill')) and boundary['failure'] is None and
         boundary['termination']['confirmed'] is True and boundary['termination']['kill_invoked'] is True and
         integer(boundary['termination']['terminated'], 1, 1024), 'registered bootstrap native process/window proof differs')
+    if phase == 'bootstrap_preserved':
+        from publisher_installation_lease_evidence import digest
+        expected_prefix = drive + 'installation-operations\\install-' + digest(installed['install_id']) + '\\operation-' + digest(installed['transaction_id'])
+        require(boundary['bootstrap_operation_prefix'] == expected_prefix and
+            boundary['single_worker_closure_confirmed'] is True and
+            boundary['termination']['method'] == 'TerminateProcess_owned_held_root' and
+            integer(boundary['termination']['process_id'], 1) and
+            boundary['termination']['process_id'] == boundary['service_pid'] and
+            boundary['termination']['process_creation_file_time'] == boundary['process_creation_file_time'] and
+            integer(boundary['termination']['native_wait_result'], 0, 0) and
+            all(boundary[key] is True for key in ('retained_before_kill', 'retained_after_kill',
+                'preservation_before_kill', 'preservation_after_kill')) and
+            all(boundary[key] is False for key in ('replacement_reservation_before_kill', 'replacement_reservation_after_kill')),
+            'preservation loss did not precede fresh replacement creation')
     readback = loss['readback']
     rows = reader_rows(readback, capture, observation['account_sid'])
     native_rows(rows, drive, installed['target_root'].replace('/', '\\'), observation['service_sid'], observation['account_sid'])
@@ -490,15 +513,41 @@ def reconcile_bootstrap_loss(observation, captures, installed, completed_readbac
     volume_root_id = completed_readback['independent']['volume_boundary']['root']['file_id']
     require(readback['independent']['volume_boundary']['root']['file_id'] == volume_root_id,
             'bootstrap native volume root changed across takeover')
-    result = bootstrap_takeover(rows, completed_readback['independent']['rows'], drive, installed, volume_root_id,
-        {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']})
+    if phase == 'bootstrap_preserved':
+        preservation_absence(readback['independent'], drive, expected_prefix, volume_root_id)
+    else:
+        require('publication_absence' not in readback['independent'], 'ordinary bootstrap readback admitted absence mode')
+    return rows, {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']}
+
+
+def reconcile_bootstrap_loss(observation, captures, installed, completed_readback, drive, required=False, *,
+                             require_preservation_loss=False):
+    from publisher_installation_lease_evidence import bootstrap_takeover, bootstrap_preservation_takeover
+    loss = observation.get('bootstrap_loss')
+    preserved = observation.get('bootstrap_preservation_loss')
+    require(preserved is not None or not require_preservation_loss, 'registered preservation process-loss receipt is missing')
+    if loss is None:
+        require(not required and preserved is None, 'registered bootstrap process-loss receipt is missing')
+        return None
+    rows, holder = _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, 'bootstrap')
+    volume_root_id = completed_readback['independent']['volume_boundary']['root']['file_id']
+    if preserved is None:
+        result = bootstrap_takeover(rows, completed_readback['independent']['rows'], drive, installed, volume_root_id, holder)
+    else:
+        moved_rows, second_holder = _bootstrap_loss_readback(preserved, observation, captures + [loss['client_capture']],
+            installed, completed_readback, drive, 'bootstrap_preserved')
+        result = bootstrap_preservation_takeover(rows, moved_rows, completed_readback['independent']['rows'],
+            drive, installed, volume_root_id, [holder, second_holder])
+        require(preserved['reconciliation'] == loss['reconciliation'],
+                'two interrupted readbacks have different embedded preservation reconciliation')
     require(loss['reconciliation'] == {'status': 'bindings_consistent', 'coordination': result, 'profile_qualified': False,
         'publication_authority_granted': False}, 'embedded bootstrap reconciliation differs from independent raw records')
     return result
 
 
 def reconcile_native_model(receipt, expected_head, reviewed_source_tree, *, allow_legacy_missing_coordination=False,
-                           allow_legacy_missing_bootstrap=False, require_bootstrap_loss=False):
+                           allow_legacy_missing_bootstrap=False, require_bootstrap_loss=False,
+                           require_bootstrap_preservation_loss=False):
     """Current producer qualification input, with separately pinned review tree.
 
     Legacy reconciliation remains available above. It cannot stand in for
@@ -507,7 +556,8 @@ def reconcile_native_model(receipt, expected_head, reviewed_source_tree, *, allo
     from publication_authority_reference import PublicationModelContext
     from publisher_native_profile_evidence import project, ROUTE
     standard = reconcile(receipt, expected_head, allow_legacy_missing_coordination=allow_legacy_missing_coordination,
-                         allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap, require_bootstrap_loss=require_bootstrap_loss)
+                         allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap, require_bootstrap_loss=require_bootstrap_loss,
+                         require_bootstrap_preservation_loss=require_bootstrap_preservation_loss)
     observation = receipt['service_observation']
     require(isinstance(reviewed_source_tree, str) and re.fullmatch('[0-9a-f]{40}', reviewed_source_tree) and
         receipt['build_profile']['source_tree'] == reviewed_source_tree,
