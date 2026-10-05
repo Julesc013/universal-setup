@@ -306,6 +306,16 @@ bool publisher_projection_checks()
         [](const std::string&) -> std::string { throw std::runtime_error("lost reply"); });
     if (lost.exit_code != 5 || usk::json::parse(lost.document).at("status").as_string() != "unknown") return false;
     const std::string reference = "usk.operation-inspection.v1:" + std::string(64, 'a');
+    using NotDispatched = usk::base::EffectRequestNotDispatched;
+    for (const auto reason : {NotDispatched::Reason::operation_conflict, NotDispatched::Reason::operation_cancelled}) {
+        const auto refused = usk::command::run_publisher_one_shot(request,
+            [&](const std::string&) -> std::string { throw NotDispatched(reason, reference); });
+        const auto observed = usk::json::parse(refused.document);
+        if (refused.exit_code != 4 || observed.at("status").as_string() != "refused" ||
+            observed.at("error").at("code").as_string() !=
+                (reason == NotDispatched::Reason::operation_conflict ? "operation_conflict" : "operation_cancelled") ||
+            observed.at("result").at("inspection_reference").as_string() != reference) return false;
+    }
     for (const auto status : {"failed", "recovery_required"}) {
         for (const auto code : {"operation_conflict", "operation_cancelled", "lease_stale", "state_revision_stale"}) {
             const Value observation(Value::Object{

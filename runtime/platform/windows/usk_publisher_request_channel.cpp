@@ -7,6 +7,7 @@
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_handle_observation.h"
+#include "usk_effect_dispatch.h"
 #include "usk_json.h"
 #include <algorithm>
 #include <cstring>
@@ -42,6 +43,15 @@ ULONGLONG deadline(DWORD milliseconds) {
 DWORD remaining(ULONGLONG until) {
     const auto now = GetTickCount64();
     return now >= until ? 0 : static_cast<DWORD>(until - now);
+}
+void require_request_not_cancelled(const PublisherRequestOptions& options,
+    const std::string& inspection_reference) {
+    if (!options.cancel_event) return;
+    const DWORD result = WaitForSingleObject(options.cancel_event, 0);
+    if (result == WAIT_OBJECT_0)
+        throw usk::base::EffectRequestNotDispatched(
+            usk::base::EffectRequestNotDispatched::Reason::operation_cancelled, inspection_reference);
+    if (result != WAIT_TIMEOUT) throw std::runtime_error("publisher cancellation event unavailable");
 }
 std::wstring canonical_sid(const std::wstring& value) {
     LocalBuffer sid, text;
@@ -226,7 +236,8 @@ DWORD service_process(SC_HANDLE service) {
     }
     return status.dwProcessId;
 }
-DWORD await_service_process(SC_HANDLE service, ULONGLONG until) {
+DWORD await_service_process(SC_HANDLE service, ULONGLONG until,
+    const PublisherRequestOptions& options, const std::string& inspection_reference) {
     SERVICE_SID_INFO sid{};
     DWORD size = 0;
     if (!QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
@@ -235,6 +246,7 @@ DWORD await_service_process(SC_HANDLE service, ULONGLONG until) {
         throw std::runtime_error("publisher server is not a restricted service");
     }
     while (true) {
+        require_request_not_cancelled(options, inspection_reference);
         SERVICE_STATUS_PROCESS status{};
         if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
                 reinterpret_cast<BYTE*>(&status), sizeof(status), &size) ||
@@ -263,6 +275,62 @@ std::wstring publisher_request_pipe_name(const std::wstring& service_name) {
         }
     }
     return L"\\\\.\\pipe\\USK-Publisher-" + service_name;
+}
+std::string publisher_request_inspection_reference(const std::wstring& service_name) {
+    const auto name = publisher_request_pipe_name(service_name);
+    std::string canonical;
+    canonical.reserve(name.size());
+    for (const auto ch : name)
+        canonical.push_back(static_cast<char>(ch >= L'a' && ch <= L'z' ? ch - L'a' + L'A' : ch));
+    return "usk.operation-inspection.v1:" + usk::json::sha256_canonical(usk::json::Value(canonical));
+}
+HANDLE connect_publisher_request_endpoint(const std::wstring& service_name,
+    DWORD timeout_ms, const PublisherRequestOptions& options) {
+    const auto until = deadline(timeout_ms);
+    if (options.conflict_wait_milliseconds > publisher_request_max_conflict_wait_milliseconds)
+        throw std::invalid_argument("publisher contention wait exceeds bound");
+    const auto name = publisher_request_pipe_name(service_name);
+    const auto inspection_reference = publisher_request_inspection_reference(service_name);
+    ULONGLONG conflict_until = 0;
+    const auto conflict = [&] {
+        throw usk::base::EffectRequestNotDispatched(
+            usk::base::EffectRequestNotDispatched::Reason::operation_conflict, inspection_reference);
+    };
+    while (true) {
+        require_request_not_cancelled(options, inspection_reference);
+        if (conflict_until && !remaining(conflict_until)) conflict();
+        if (!remaining(until)) {
+            if (conflict_until) conflict();
+            throw usk::base::EffectRequestNotDispatched();
+        }
+        const HANDLE raw = CreateFileW(name.c_str(), client_access, 0, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+        if (raw != INVALID_HANDLE_VALUE) {
+            try { require_request_not_cancelled(options, inspection_reference); }
+            catch (...) { CloseHandle(raw); throw; }
+            return raw;
+        }
+        const DWORD error = GetLastError();
+        if (error != ERROR_PIPE_BUSY && error != ERROR_FILE_NOT_FOUND)
+            throw usk::base::EffectRequestNotDispatched();
+        if (error == ERROR_PIPE_BUSY) {
+            if (!options.conflict_wait_milliseconds) conflict();
+            if (!conflict_until)
+                conflict_until = std::min<ULONGLONG>(until,
+                    GetTickCount64() + options.conflict_wait_milliseconds);
+        }
+        const DWORD wait = std::min<DWORD>(10,
+            remaining(conflict_until ? conflict_until : until));
+        if (!wait) continue;
+        // WaitNamedPipe returns immediately for an absent pipe. A separate
+        // bounded pause prevents spinning while ServiceMain creates its endpoint.
+        if (error == ERROR_FILE_NOT_FOUND) {
+            if (options.cancel_event) WaitForSingleObject(options.cancel_event, wait);
+            else Sleep(wait);
+        } else {
+            WaitNamedPipeW(name.c_str(), wait);
+        }
+    }
 }
 struct PublisherRequestChannel::State {
     Handle pipe;
@@ -584,9 +652,14 @@ void require_publisher_response_binding(const std::wstring& service_name,
 
 std::string submit_publisher_request(const std::wstring& service_name,
     const std::string& request, DWORD timeout_ms,
-    const std::wstring& expected_process_image) {
+    const std::wstring& expected_process_image, const PublisherRequestOptions& options) {
+    bool write_attempted = false;
+    try {
     const auto until = deadline(timeout_ms);
-    const auto name = publisher_request_pipe_name(service_name);
+    if (options.conflict_wait_milliseconds > publisher_request_max_conflict_wait_milliseconds)
+        throw std::invalid_argument("publisher contention wait exceeds bound");
+    const auto inspection_reference = publisher_request_inspection_reference(service_name);
+    require_request_not_cancelled(options, inspection_reference);
     if (request.empty() || request.size() > request_limit) throw std::runtime_error("publisher request exceeds bound or is empty");
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.value) throw std::runtime_error("publisher SCM unavailable");
@@ -594,9 +667,10 @@ std::string submit_publisher_request(const std::wstring& service_name,
     if (!service.value) throw std::runtime_error("publisher service unavailable");
     // StartServiceW returns while ServiceMain may still be START_PENDING.
     // Wait only for that transition, before opening or writing the pipe.
-    const auto expected = await_service_process(service.value, until);
+    const auto expected = await_service_process(service.value, until, options, inspection_reference);
     Handle process(nullptr);
     while (!process.value) {
+        require_request_not_cancelled(options, inspection_reference);
         process.value = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, expected);
         if (process.value) break;
         const DWORD error = GetLastError();
@@ -609,19 +683,9 @@ std::string submit_publisher_request(const std::wstring& service_name,
     }
     if (WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT ||
         service_process(service.value) != expected) throw std::runtime_error("publisher process unavailable");
-    HANDLE raw = INVALID_HANDLE_VALUE;
-    do {
-        raw = CreateFileW(name.c_str(), client_access, 0, nullptr, OPEN_EXISTING,
-            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
-        if (raw != INVALID_HANDLE_VALUE) break;
-        const DWORD error = GetLastError();
-        if (error != ERROR_PIPE_BUSY && error != ERROR_FILE_NOT_FOUND) throw std::runtime_error("publisher endpoint refused connection");
-        if (!remaining(until)) throw std::runtime_error("publisher endpoint connection timed out");
-        WaitNamedPipeW(name.c_str(), std::min<DWORD>(remaining(until), 100));
-        if (error == ERROR_FILE_NOT_FOUND) Sleep(std::min<DWORD>(remaining(until), 10));
-    } while (remaining(until));
-    if (raw == INVALID_HANDLE_VALUE) throw std::runtime_error("publisher endpoint connection timed out");
-    Handle pipe(raw);
+    require_request_not_cancelled(options, inspection_reference);
+    if (!remaining(until)) throw std::runtime_error("publisher endpoint request deadline expired");
+    Handle pipe(connect_publisher_request_endpoint(service_name, remaining(until), options));
     ULONG observed = 0;
     if (!GetNamedPipeServerProcessId(pipe.value, &observed) || observed != expected ||
         WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT || service_process(service.value) != expected) {
@@ -639,13 +703,21 @@ std::string submit_publisher_request(const std::wstring& service_name,
     DWORD mode = PIPE_READMODE_MESSAGE;
     if (!SetNamedPipeHandleState(pipe.value, &mode, nullptr, nullptr)) throw std::runtime_error("publisher endpoint message mode unavailable");
     if (!remaining(until)) throw std::runtime_error("publisher endpoint ready after request deadline");
-    try {
-        write_message(pipe.value, request, request_limit, nullptr, until);
-        const std::string response = read_message(pipe.value, response_limit, nullptr, until);
+    require_request_not_cancelled(options, inspection_reference);
+        // Even a cancelled/partial first write may have reached the worker.
+        write_attempted = true;
+        write_message(pipe.value, request, request_limit, options.cancel_event, until);
+        const std::string response = read_message(pipe.value, response_limit, options.cancel_event, until);
         require_publisher_response_binding(service_name, request, response, expected);
         return response;
+    } catch (const usk::base::EffectRequestNotDispatched&) {
+        if (write_attempted) throw PublisherRequestOutcomeUnknown("request dispatch was attempted");
+        throw;
     } catch(const std::exception& error) {
-        throw PublisherRequestOutcomeUnknown(error.what());
+        if (write_attempted) throw PublisherRequestOutcomeUnknown(error.what());
+        // Preserve the legacy raw candidate's generic failure ceiling. The
+        // registered wrapper may classify this concrete pre-write exception.
+        throw;
     }
 }
 void admit_current_publisher_client_observer(const std::wstring& service_name,

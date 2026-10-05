@@ -12,6 +12,15 @@
 #include <string>
 #include <stdexcept>
 namespace usk::platform::windows {
+struct PublisherRequestOptions {
+    // Borrowed manual-reset event. Cancellation before the first write is a
+    // known non-dispatch; after a write is attempted the outcome stays unknown.
+    HANDLE cancel_event = nullptr;
+    // Zero is fail-fast on an occupied endpoint. Optional waiting is bounded
+    // to 30 seconds and never transfers publication or installation ownership.
+    DWORD conflict_wait_milliseconds = 0;
+};
+inline constexpr DWORD publisher_request_max_conflict_wait_milliseconds = 30000;
 class PublisherRequestOutcomeUnknown final : public std::runtime_error {
 public:
     explicit PublisherRequestOutcomeUnknown(const std::string& reason) :
@@ -44,7 +53,14 @@ private:
 // service before sending bytes. The caller never impersonates as the service.
 std::string submit_publisher_request(const std::wstring& service_name,
     const std::string& request, DWORD timeout_ms = 30000,
-    const std::wstring& expected_process_image = {});
+    const std::wstring& expected_process_image = {},
+    const PublisherRequestOptions& options = {});
+// Internal connection stage only; sends no bytes and grants no authority.
+// Caller owns the returned handle and must independently authenticate SCM,
+// held process/image and pipe server before writing any effect request.
+HANDLE connect_publisher_request_endpoint(const std::wstring& service_name,
+    DWORD timeout_ms, const PublisherRequestOptions& options = {});
+std::string publisher_request_inspection_reference(const std::wstring& service_name);
 // A terminal success must identify the submitted install or verification.
 // Service observations bind their separate envelope to the request nonce and,
 // when supplied, the independently held pipe-server/SCM process identity.

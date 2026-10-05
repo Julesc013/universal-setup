@@ -616,8 +616,21 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             return candidate_outcome(request_id, "recovery_required", retain_observation ? observed : diagnostic,
                 code ? code : "recovery_required", 5);
         }
-    } catch (const usk::base::EffectRequestNotDispatched&) {
-        return failure(request_id, "publisher_admission_refused");
+    } catch (const usk::base::EffectRequestNotDispatched& error) {
+        using Reason = usk::base::EffectRequestNotDispatched::Reason;
+        if (error.reason() == Reason::admission_refused)
+            return failure(request_id, "publisher_admission_refused");
+        const auto code = error.reason() == Reason::operation_cancelled ?
+            "operation_cancelled" : "operation_conflict";
+        try {
+            Value observed(Value::Object{});
+            if (!error.inspection_reference().empty())
+                observed.as_object().emplace("operation_inspection_ref", Value(error.inspection_reference()));
+            return candidate_outcome(request_id, "refused",
+                publisher_operation_diagnostic(observed, code), code, 4);
+        } catch (const std::exception&) {
+            return candidate_outcome(request_id, "unknown", Value(), "publisher_outcome_unknown", 5);
+        }
     } catch (const std::exception&) {
         return candidate_outcome(request_id, "unknown", Value(),
             "publisher_outcome_unknown", 5);

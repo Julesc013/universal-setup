@@ -65,6 +65,18 @@ def main() -> int:
         conflicting = run(executable, "--machine", effect_bytes, "--publisher", missing_service,
                           "--candidate-service", missing_service)
         assert conflicting.returncode == 2 and conflicting.stdout == b""
+        for invalid_wait in ("-1", "30001", "4294967296", "1x"):
+            invalid = run(executable, "--machine", effect_bytes, "--publisher", missing_service,
+                          "--publisher-wait-ms", invalid_wait)
+            assert invalid.returncode == 2 and invalid.stdout == b""
+        without_publisher = run(executable, "--machine", effect_bytes, "--publisher-wait-ms", "10")
+        assert without_publisher.returncode == 2 and without_publisher.stdout == b""
+        duplicate_wait = run(executable, "--machine", effect_bytes, "--publisher", missing_service,
+                             "--publisher-wait-ms", "10", "--publisher-wait-ms", "10")
+        assert duplicate_wait.returncode == 2 and duplicate_wait.stdout == b""
+        bounded_unavailable = run(executable, "--machine", effect_bytes, "--publisher", missing_service,
+                                  "--publisher-wait-ms", "30000")
+        assert bounded_unavailable.returncode == 2 and json.loads(bounded_unavailable.stdout)["error"]["code"] == "publisher_admission_refused"
 
     framed = run(executable, "--framed", struct.pack(">I", len(encoded)) + encoded)
     assert framed.returncode == 0, framed.stderr
