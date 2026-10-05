@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T03:46:38Z",
+  "generated_at": "2026-10-05T03:51:08Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1397,7 +1397,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "29dcddd371ed846a24ad41996e454babaf3ca6fa7415cb2387fc218c571394ad"
+          "sha256": "aa7fba2b68e35527aea3dae27a784b8e2a9eb051691d9a9e3e51028eaf3c9423"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -2527,7 +2527,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_client_cleanup_smoke.ps1",
-          "sha256": "ba5b514627eec366075cc755d16a3da37a11bd6cb922f4021fea0b6e7272c2a8"
+          "sha256": "3c61b3fb9023ce137804f30f064690fd7fe99d3f7a47208c10587fefedbfbec0"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -2643,7 +2643,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "29dcddd371ed846a24ad41996e454babaf3ca6fa7415cb2387fc218c571394ad"
+          "sha256": "aa7fba2b68e35527aea3dae27a784b8e2a9eb051691d9a9e3e51028eaf3c9423"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2726,7 +2726,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_client_cleanup_smoke.ps1",
-          "sha256": "ba5b514627eec366075cc755d16a3da37a11bd6cb922f4021fea0b6e7272c2a8"
+          "sha256": "3c61b3fb9023ce137804f30f064690fd7fe99d3f7a47208c10587fefedbfbec0"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -2842,7 +2842,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "29dcddd371ed846a24ad41996e454babaf3ca6fa7415cb2387fc218c571394ad"
+          "sha256": "aa7fba2b68e35527aea3dae27a784b8e2a9eb051691d9a9e3e51028eaf3c9423"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2925,7 +2925,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_client_cleanup_smoke.ps1",
-          "sha256": "ba5b514627eec366075cc755d16a3da37a11bd6cb922f4021fea0b6e7272c2a8"
+          "sha256": "3c61b3fb9023ce137804f30f064690fd7fe99d3f7a47208c10587fefedbfbec0"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -3041,7 +3041,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "29dcddd371ed846a24ad41996e454babaf3ca6fa7415cb2387fc218c571394ad"
+          "sha256": "aa7fba2b68e35527aea3dae27a784b8e2a9eb051691d9a9e3e51028eaf3c9423"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -4831,7 +4831,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "29dcddd371ed846a24ad41996e454babaf3ca6fa7415cb2387fc218c571394ad"
+          "sha256": "aa7fba2b68e35527aea3dae27a784b8e2a9eb051691d9a9e3e51028eaf3c9423"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
@@ -5323,7 +5323,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "29dcddd371ed846a24ad41996e454babaf3ca6fa7415cb2387fc218c571394ad"
+          "sha256": "aa7fba2b68e35527aea3dae27a784b8e2a9eb051691d9a9e3e51028eaf3c9423"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",

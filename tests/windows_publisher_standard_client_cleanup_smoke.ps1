@@ -39,7 +39,7 @@ Close-StandardPublisherClient $process $launch
 if(-not $clientsClosed -or $process.ClosureChecks -ne 1 -or -not $process.Disposed -or -not $launch.Disposed){
     throw 'Confirmed process and launch closure did not succeed'
 }
-foreach($failure in @('indeterminate_descendants','unconfirmed_tree','process_disposal','launch_disposal','missing_held_process')) {
+foreach($failure in @('indeterminate_descendants','unconfirmed_tree','process_disposal','launch_disposal','missing_held_process','attempted_without_custody')) {
     $process=New-InertProcess;$launch=New-InertLaunch;$script:clientsClosed=$true
     switch($failure) {
         'indeterminate_descendants' {$process.ClosureFails=$true}
@@ -47,6 +47,7 @@ foreach($failure in @('indeterminate_descendants','unconfirmed_tree','process_di
         'process_disposal' {$process.DisposeFails=$true}
         'launch_disposal' {$launch.DisposeFails=$true}
         'missing_held_process' {$process=$null}
+        'attempted_without_custody' {$process=$null;$launch=$null}
     }
     $threw=$false
     try {Close-StandardPublisherClient $process $launch} catch {$threw=$true}
@@ -55,6 +56,6 @@ foreach($failure in @('indeterminate_descendants','unconfirmed_tree','process_di
 $launch=New-InertLaunch;$launch.IsResumed=$false
 Close-StandardPublisherClient $null $launch
 if(-not $clientsClosed -or -not $launch.Disposed){throw 'Confirmed never-resumed launch cleanup did not succeed'}
-Close-StandardPublisherClient $null $null
+Close-StandardPublisherClient $null $null $false
 if(-not $clientsClosed){throw 'Empty launch cleanup did not succeed'}
-'Standard client cleanup: confirmed closure accepted; five ambiguous or failed closures refused'
+'Standard client cleanup: confirmed closure accepted; six ambiguous or failed closures refused'

@@ -115,9 +115,10 @@ function Read-InstalledSnapshot {
     $readback|Add-Member -NotePropertyName execution_reconciliation -NotePropertyValue $report
     return $readback
 }
-function Close-StandardPublisherClient($Process,$Launch) {
+function Close-StandardPublisherClient($Process,$Launch,[bool]$LaunchAttempted=$true) {
     $script:clientsClosed=$false;$closureConfirmed=$false;$processDisposed=$false
     try {
+        if($LaunchAttempted -and -not $Launch){throw 'Standard launch attempted without returned custody; retain account'}
         if($Launch -and -not $Launch.IsResumed){$Launch.Dispose()}
         if($Process) {
             # A retained descendant set still needs checking after root exit.
@@ -149,7 +150,7 @@ function Invoke-RegisteredEndpointContention {
         profile_qualified=$false;producer_sha256=$probeHash;request_sha256=(Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant();
         client_capture=$null;native_observation=$null;before=$null;after=$null;worker_stopped=$false}
     $receipt['registered_contention']=$record
-    $launch=$null;$process=$null;$script:clientsClosed=$false
+    $launch=$null;$process=$null;$launchAttempted=$false;$script:clientsClosed=$false
     try {
         $probeAcl=Get-Acl -LiteralPath $probeBinary
         $probeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
@@ -162,6 +163,7 @@ function Invoke-RegisteredEndpointContention {
             $clientTokenLease.Dispose();$script:clientTokenLease=$null
             [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
         }
+        $launchAttempted=$true
         $launch=[UskPublisherPausedClient]::CreateOwnedStandard($probeBinary,
             ($service+' "'+$request+'" '+$receipt.service_sha256),$stdout,$stderr,$accountName,$secret,$accountSid)
         $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
@@ -203,7 +205,7 @@ function Invoke-RegisteredEndpointContention {
             ($record.after.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress)){
             throw 'Registered pre-dispatch contention changed the independently observed target'
         }
-    } finally {Close-StandardPublisherClient $process $launch}
+    } finally {Close-StandardPublisherClient $process $launch $launchAttempted}
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
@@ -228,8 +230,9 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         $clientTokenLease.Dispose();$script:clientTokenLease=$null
         [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
     }
-    $launch=$null;$process=$null;$bootstrapObserver=$null;$script:clientsClosed=$false
+    $launch=$null;$process=$null;$bootstrapObserver=$null;$launchAttempted=$false;$script:clientsClosed=$false
     try {
+        $launchAttempted=$true
         $launch=[UskPublisherPausedClient]::CreateOwnedStandard($MachineBinary,('--machine --publisher '+$service+
             ' --request-file "'+$request+'" --publisher-observation-file "'+$nativeOutput+'"'),$stdout,$stderr,$accountName,$secret,$accountSid)
         $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
@@ -330,7 +333,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 $script:observersClosed=$true
             }
         } finally {
-            Close-StandardPublisherClient $process $launch
+            Close-StandardPublisherClient $process $launch $launchAttempted
         }
     }
 }
