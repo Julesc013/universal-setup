@@ -145,11 +145,22 @@ void test_endpoint_acquisition(const std::wstring& name, const std::wstring& sid
     auto channel = std::make_unique<PublisherRequestChannel>(name, service_sid, sid, nullptr, 2000);
     OwnedHandle first(connect_publisher_request_endpoint(name, 2000));
     require(first.value != INVALID_HANDLE_VALUE, "first owned endpoint connection absent");
-    const auto expect_refusal = [&](const PublisherRequestOptions& options, Refusal::Reason expected) {
+    const auto expect_refusal = [&](const char* label, const PublisherRequestOptions& options, Refusal::Reason expected) {
         bool refused = false;
+        const auto call_began = GetTickCount64();
         try { OwnedHandle unexpected(connect_publisher_request_endpoint(name, 1000, options)); }
         catch (const Refusal& error) {
             refused = error.reason() == expected && error.inspection_reference() == reference;
+            if (!refused) {
+                std::cerr << "endpoint " << label << ": expected reason " << static_cast<int>(expected)
+                    << ", actual reason " << static_cast<int>(error.reason())
+                    << ", scope matches " << (error.inspection_reference() == reference)
+                    << ", elapsed milliseconds " << GetTickCount64() - call_began << '\n';
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "endpoint " << label << ": unexpected generic refusal after "
+                << GetTickCount64() - call_began << " milliseconds: " << error.what() << '\n';
+            throw;
         }
         require(refused, "endpoint refusal lost its actual reason or scope reference");
         DWORD available = 99;
@@ -157,12 +168,12 @@ void test_endpoint_acquisition(const std::wstring& name, const std::wstring& sid
             "refusal disturbed the existing empty connection");
     };
     const auto began = GetTickCount64();
-    expect_refusal({}, Refusal::Reason::operation_conflict);
+    expect_refusal("fail_fast", {}, Refusal::Reason::operation_conflict);
     require(GetTickCount64() - began < 500, "default endpoint conflict was not fail-fast");
     PublisherRequestOptions timed;
     timed.conflict_wait_milliseconds = 60;
     const auto timed_begin = GetTickCount64();
-    expect_refusal(timed, Refusal::Reason::operation_conflict);
+    expect_refusal("deadline", timed, Refusal::Reason::operation_conflict);
     require(GetTickCount64() - timed_begin >= 60 && GetTickCount64() - timed_begin < 1000,
         "endpoint conflict ignored its bounded deadline");
     OwnedHandle cancel(CreateEventW(nullptr, TRUE, TRUE, nullptr));
@@ -170,12 +181,12 @@ void test_endpoint_acquisition(const std::wstring& name, const std::wstring& sid
     PublisherRequestOptions cancelled;
     cancelled.cancel_event = cancel.value;
     cancelled.conflict_wait_milliseconds = 1000;
-    expect_refusal(cancelled, Refusal::Reason::operation_cancelled);
+    expect_refusal("ready_cancel", cancelled, Refusal::Reason::operation_cancelled);
     require(ResetEvent(cancel.value) != FALSE, "endpoint cancellation reset failed");
     std::exception_ptr cancellation_failure;
     std::atomic<bool> started{false};
     std::thread waiting([&] {
-        try { started.store(true); expect_refusal(cancelled, Refusal::Reason::operation_cancelled); }
+        try { started.store(true); expect_refusal("async_cancel", cancelled, Refusal::Reason::operation_cancelled); }
         catch (...) { cancellation_failure = std::current_exception(); }
     });
     while (!started.load()) Sleep(1);

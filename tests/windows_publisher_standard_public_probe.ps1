@@ -182,8 +182,16 @@ function Invoke-RegisteredEndpointContention {
         $launch.Resume()
         if(-not $process.WaitForExit(60000)){throw 'Registered contention producer exceeded its deadline'}
         $process.WaitForExit()
-        if($process.ExitCode -ne 0 -or (Get-Item -LiteralPath $stdout).Length -gt 1MB -or
-            (Get-Item -LiteralPath $stderr).Length -ne 0){throw 'Registered contention producer failed'}
+        $stdoutLength=(Get-Item -LiteralPath $stdout).Length;$stderrLength=(Get-Item -LiteralPath $stderr).Length
+        if($process.ExitCode -ne 0 -or $stdoutLength -gt 1MB -or $stderrLength -ne 0){
+            $errorBytes=[byte[]]::new(4096);$errorStream=[IO.File]::OpenRead($stderr)
+            try {$errorCount=$errorStream.Read($errorBytes,0,$errorBytes.Length)} finally {$errorStream.Dispose()}
+            # Failed fixture diagnostics are retained privately; a successful
+            # closed evidence record never contains this additional field.
+            $record['producer_failure']=[ordered]@{exit_code=$process.ExitCode;stdout_bytes=$stdoutLength;
+                stderr_bytes=$stderrLength;stderr_excerpt=[Text.Encoding]::UTF8.GetString($errorBytes,0,$errorCount)}
+            throw 'Registered contention producer failed'
+        }
         $record.native_observation=[IO.File]::ReadAllText($stdout)|ConvertFrom-Json
         $native=$record.native_observation
         if($native.schema -cne 'usk.publisher_registered_contention_observation.v1' -or $native.status -cne 'pass' -or
