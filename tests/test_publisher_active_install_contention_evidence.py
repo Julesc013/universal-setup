@@ -28,7 +28,12 @@ def fixture():
               '\\installed\\' not in row['path']]
     boundary = observation['readbacks'][0]['independent']['volume_boundary']
     boundary['root']['file_id'] = ROOT
-    observation['plan_request'] = {'target': {'root': DRIVE+'publication\\destination\\visible'}}
+    planning = {'schema': 'usk.install_local_plan_request.v1', 'request_id': 'active.plan',
+                'target': {'root': DRIVE+'publication\\destination\\visible'}}
+    observation['plan_request'] = {'schema': 'usk.oneshot_request.v1', 'request_id': planning['request_id'],
+        'command': 'install_local.plan', 'payload': copy.deepcopy(planning), 'dry_run': True}
+    observation['apply_request'] = {'plan_request': copy.deepcopy(planning)}
+    observation['plan'] = {'target': {'root': planning['target']['root'].replace('\\', '/')}}
     observation['apply'] = {'result': {'payload': INSTALLED}}
     observation['readbacks'][0]['independent']['rows'] = completed
     for name in ('before', 'after'):
@@ -41,6 +46,23 @@ def fixture():
 
 
 class ActiveInstallContentionEvidenceTests(unittest.TestCase):
+    def test_requires_real_planning_envelope_and_matching_reviewed_targets(self):
+        observation, client = fixture()
+        for mutate in (
+            lambda o: o.update(plan_request={'target': o['plan_request']['payload']['target']}),
+            lambda o: o['plan_request'].update(target=o['plan_request']['payload']['target']),
+            lambda o: o['plan_request'].update(dry_run=False),
+            lambda o: o['plan_request'].update(payload='missing typed plan'),
+            lambda o: o['plan_request']['payload'].update(request_id='different.plan'),
+            lambda o: o['plan_request']['payload'].update(target=None),
+            lambda o: o['apply_request']['plan_request']['target'].update(root=DRIVE+'another-target'),
+            lambda o: o['plan']['target'].update(root=DRIVE+'another-target'),
+        ):
+            changed = copy.deepcopy(observation)
+            mutate(changed)
+            with self.subTest(mutation=mutate), self.assertRaises(StandardEvidenceError):
+                reconcile_active_install_contention(changed, client)
+
     def test_requires_native_active_holder_and_completed_same_installation(self):
         observation, client = fixture()
         result = reconcile_active_install_contention(observation, client)

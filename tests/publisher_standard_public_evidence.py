@@ -249,7 +249,26 @@ def _reconcile_contention(observation, client, *, active_holder):
         from publisher_installation_lease_evidence import snapshot as lease_snapshot
         installed = observation['apply']['result']['payload']
         volume_root_id = record['before']['independent']['volume_boundary']['root']['file_id']
-        drive = observation['plan_request']['target']['root'][:3]
+        envelope = observation.get('plan_request')
+        require(isinstance(envelope, dict) and envelope.keys() == {
+            'schema', 'request_id', 'command', 'payload', 'dry_run'} and
+            envelope['schema'] == 'usk.oneshot_request.v1' and
+            envelope['command'] == 'install_local.plan' and envelope['dry_run'] is True,
+            'active contention planning request is not its real one-shot envelope')
+        payload = envelope['payload']
+        require(isinstance(payload, dict) and payload.get('schema') == 'usk.install_local_plan_request.v1' and
+            isinstance(payload.get('request_id'), str) and payload['request_id'] == envelope['request_id'],
+            'active contention planning payload binding differs')
+        apply_request, plan = observation.get('apply_request'), observation.get('plan')
+        applied = apply_request.get('plan_request') if isinstance(apply_request, dict) else None
+        targets = (payload.get('target'), applied.get('target') if isinstance(applied, dict) else None,
+                   plan.get('target') if isinstance(plan, dict) else None)
+        require(all(isinstance(target, dict) and isinstance(target.get('root'), str) for target in targets),
+            'active contention planning target is missing')
+        roots = [target['root'].replace('/', '\\') for target in targets]
+        require(roots[0] == roots[1] == roots[2] and re.fullmatch(r'[A-Z]:\\', roots[0][:3]),
+            'active contention reviewed targets or drive prefix differ')
+        drive = roots[0][:3]
         coordination = lease_snapshot(before, drive, installed, volume_root_id,
                                       allow_active=True, allow_initial_empty_state=True)
         history = coordination['history']
