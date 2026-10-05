@@ -161,14 +161,28 @@ def reader_rows(readback, capture, client, *, expected_exited=True):
 
 def reconcile_registered_contention(observation, client):
     """Registered endpoint evidence only; no active-install lease or takeover claim."""
-    record = observation.get('registered_contention')
+    return _reconcile_contention(observation, client, active_holder=False)
+
+
+def reconcile_active_install_contention(observation, client):
+    """Require native active ownership in addition to the occupied endpoint."""
+    return _reconcile_contention(observation, client, active_holder=True)
+
+
+def _reconcile_contention(observation, client, *, active_holder):
+    record = observation.get('active_install_contention' if active_holder else 'registered_contention')
     if record is None:
         return None
-    scope = 'registered_endpoint_before_effect_request_bytes'
-    require(isinstance(record, dict) and record.keys() == {'schema', 'scope', 'profile_qualified',
+    scope = ('active_install_holder_endpoint_before_effect_request_bytes' if active_holder else
+             'registered_endpoint_before_effect_request_bytes')
+    fields = {'schema', 'scope', 'profile_qualified',
         'producer_sha256', 'request_sha256', 'client_capture', 'native_observation', 'before', 'after',
-        'worker_stopped'} and record['schema'] == 'usk.publisher_registered_contention_probe.v1' and
-        record['scope'] == scope and record['profile_qualified'] is False and record['worker_stopped'] is True,
+        'worker_stopped'}
+    if active_holder:
+        fields |= {'paused_worker', 'lease_before', 'installer_live_before_resume', 'worker_pause_restored'}
+    require(isinstance(record, dict) and record.keys() == fields and
+        record['schema'] == 'usk.publisher_registered_contention_probe.v1' and record['scope'] == scope and
+        record['profile_qualified'] is False and record['worker_stopped'] is (not active_holder),
         'registered contention scope or fixture closure differs')
     for name in ('producer_sha256', 'request_sha256'):
         require(isinstance(record[name], str) and re.fullmatch(r'[0-9a-f]{64}', record[name]),
@@ -231,7 +245,58 @@ def reconcile_registered_contention(observation, client):
     after = reader_rows(record['after'], capture, client)
     require(before == after, 'registered pre-dispatch contention changed native target rows')
     baseline = observation['readbacks'][0]['independent']
-    require(before == baseline['rows'], 'registered contention target differs from the completed installation')
+    if active_holder:
+        from publisher_installation_lease_evidence import snapshot as lease_snapshot
+        installed = observation['apply']['result']['payload']
+        volume_root_id = record['before']['independent']['volume_boundary']['root']['file_id']
+        envelope = observation.get('plan_request')
+        require(isinstance(envelope, dict) and envelope.keys() == {
+            'schema', 'request_id', 'command', 'payload', 'dry_run'} and
+            envelope['schema'] == 'usk.oneshot_request.v1' and
+            envelope['command'] == 'install_local.plan' and envelope['dry_run'] is True,
+            'active contention planning request is not its real one-shot envelope')
+        payload = envelope['payload']
+        require(isinstance(payload, dict) and payload.get('schema') == 'usk.install_local_plan_request.v1' and
+            isinstance(payload.get('request_id'), str) and payload['request_id'] == envelope['request_id'],
+            'active contention planning payload binding differs')
+        apply_request, plan = observation.get('apply_request'), observation.get('plan')
+        applied = apply_request.get('plan_request') if isinstance(apply_request, dict) else None
+        targets = (payload.get('target'), applied.get('target') if isinstance(applied, dict) else None,
+                   plan.get('target') if isinstance(plan, dict) else None)
+        require(all(isinstance(target, dict) and isinstance(target.get('root'), str) for target in targets),
+            'active contention planning target is missing')
+        roots = [target['root'].replace('/', '\\') for target in targets]
+        require(roots[0] == roots[1] == roots[2] and re.fullmatch(r'[A-Z]:\\', roots[0][:3]),
+            'active contention reviewed targets or drive prefix differ')
+        drive = roots[0][:3]
+        coordination = lease_snapshot(before, drive, installed, volume_root_id,
+                                      allow_active=True, allow_initial_empty_state=True)
+        history = coordination['history']
+        require(len(history) == 1 and history[0]['status'] == 'active' and history[0]['generation'] == 1,
+                'active contention lacks the original active native generation')
+        pause = record['paused_worker']
+        require(isinstance(pause, dict) and pause.keys() == {'process_id', 'process_creation_file_time',
+            'paused_threads', 'identity_live_while_paused'} and pause['identity_live_while_paused'] is True and
+            integer(pause['process_id'], 1) and integer(pause['paused_threads'], 1, 128) and
+            isinstance(pause['process_creation_file_time'], str) and
+            pause['process_creation_file_time'] == str(native['worker_process_creation_time']) and
+            pause['process_id'] == native['worker_process_id'] and
+            history[0]['holder'] == {'process_id': pause['process_id'],
+                'process_creation_time': f"{native['worker_process_creation_time']:016x}"} and
+            record['installer_live_before_resume'] is True and record['worker_pause_restored'] is True,
+            'active contention pause/native holder identity or restoration differs')
+        require(record['lease_before'] == {'status': 'bindings_consistent', 'coordination': coordination,
+            'profile_qualified': False, 'publication_authority_granted': False},
+            'active contention recorded reconciliation differs from independent native rows')
+        completed = lease_snapshot(baseline['rows'], drive, installed, volume_root_id)
+        require(completed['history'][0] == history[0],
+                'completed installation differs from the observed active holder')
+        final_rows = {row['path']: row for row in baseline['rows']}
+        require(all(row['path'] in final_rows and row == final_rows[row['path']] for row in before
+                    if row['path'] in coordination['files']),
+                'active contention lost or changed immutable coordination rows at completion')
+    else:
+        require(before == baseline['rows'], 'registered contention target differs from the completed installation')
     for readback in (record['before'], record['after']):
         native_boundary(readback['independent']['volume_boundary'])
     require(record['before']['independent']['volume_boundary'] == record['after']['independent']['volume_boundary'],
@@ -539,6 +604,9 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
     contention = reconcile_registered_contention(observation, client)
     if contention is not None:
         result['registered_contention'] = contention
+    active_contention = reconcile_active_install_contention(observation, client)
+    if active_contention is not None:
+        result['active_install_contention'] = active_contention
     return result
 
 

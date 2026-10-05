@@ -10,6 +10,7 @@
 #include <atomic>
 #include <filesystem>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -46,7 +47,7 @@ struct TestEvent {
 };
 
 template<class Busy, class Acquire>
-bool bounded_acquisition_cases(Acquire acquire)
+bool bounded_acquisition_cases(const char* scope, Acquire acquire)
 {
     using usk::platform::windows::PublisherOperationCancelled;
     using usk::platform::windows::publisher_guard_max_wait_milliseconds;
@@ -55,25 +56,37 @@ bool bounded_acquisition_cases(Acquire acquire)
     bool cancelled_before_acquisition = false;
     try { auto guard = acquire(cancelled.handle, 0); }
     catch (const PublisherOperationCancelled&) { cancelled_before_acquisition = true; }
-    if (!cancelled_before_acquisition || !ResetEvent(cancelled.handle)) return false;
+    if (!cancelled_before_acquisition || !ResetEvent(cancelled.handle)) {
+        std::cerr << scope << ": ready cancellation or event reset failed\n";
+        return false;
+    }
     bool refused_unbounded = false;
     try { auto guard = acquire(nullptr, publisher_guard_max_wait_milliseconds + 1); }
     catch (const std::invalid_argument&) { refused_unbounded = true; }
-    if (!refused_unbounded) return false;
+    if (!refused_unbounded) {
+        std::cerr << scope << ": unbounded wait was accepted\n";
+        return false;
+    }
 
     {
         auto holder = acquire(nullptr, 0);
         std::atomic<int> deadline_result{0};
+        ULONGLONG deadline_elapsed = 0;
         std::thread deadline_contender([&] {
             const ULONGLONG started = GetTickCount64();
             try { auto guard = acquire(nullptr, 50); deadline_result = 2; }
             catch (const Busy&) {
                 const ULONGLONG elapsed = GetTickCount64() - started;
+                deadline_elapsed = elapsed;
                 deadline_result = elapsed >= 30 && elapsed < 5000 ? 1 : 3;
             } catch (...) { deadline_result = 4; }
         });
         deadline_contender.join();
-        if (deadline_result != 1) return false;
+        if (deadline_result != 1) {
+            std::cerr << scope << ": busy deadline result=" << deadline_result.load()
+                      << " elapsed_ms=" << deadline_elapsed << '\n';
+            return false;
+        }
 
         TestEvent contender_started;
         std::atomic<int> cancellation_result{0};
@@ -86,8 +99,11 @@ bool bounded_acquisition_cases(Acquire acquire)
         const DWORD started_wait = WaitForSingleObject(contender_started.handle, 5000);
         const BOOL cancellation_set = SetEvent(cancelled.handle);
         cancelled_contender.join();
-        if (started_wait != WAIT_OBJECT_0 || !cancellation_set || cancellation_result != 1)
+        if (started_wait != WAIT_OBJECT_0 || !cancellation_set || cancellation_result != 1) {
+            std::cerr << scope << ": asynchronous cancellation wait=" << started_wait
+                      << " signal=" << cancellation_set << " result=" << cancellation_result.load() << '\n';
             return false;
+        }
     }
     if (!ResetEvent(cancelled.handle)) return false;
     // A separate thread must acquire after both refused attempts. This also
@@ -98,7 +114,10 @@ bool bounded_acquisition_cases(Acquire acquire)
         catch (...) { successor_result = 2; }
     });
     successor.join();
-    if (successor_result != 1) return false;
+    if (successor_result != 1) {
+        std::cerr << scope << ": successor acquisition result=" << successor_result.load() << '\n';
+        return false;
+    }
 
     TestEvent held;
     TestEvent release;
@@ -119,7 +138,13 @@ bool bounded_acquisition_cases(Acquire acquire)
     } catch (...) { }
     release_signal.join();
     releasing_holder.join();
-    return held_wait == WAIT_OBJECT_0 && holder_result == 1 && acquired_after_release;
+    const bool passed = held_wait == WAIT_OBJECT_0 && holder_result == 1 && acquired_after_release;
+    if (!passed) {
+        std::cerr << scope << ": release-before-deadline wait=" << held_wait
+                  << " holder_result=" << holder_result.load()
+                  << " acquired=" << acquired_after_release << '\n';
+    }
+    return passed;
 }
 
 int child_guard_result(const std::wstring& mode, const std::wstring& root,
@@ -162,7 +187,7 @@ int child_guard_result(const std::wstring& mode, const std::wstring& root,
 
 } // namespace
 
-int wmain(int argc, wchar_t** argv)
+int run_guard_smoke(int argc, wchar_t** argv)
 {
     using usk::platform::windows::PublisherVolumeBusy;
     using usk::platform::windows::PublisherVolumeOperationGuard;
@@ -366,12 +391,20 @@ int wmain(int argc, wchar_t** argv)
     if (!refused_wrong_type) return 9;
 
     const std::wstring wait_root = fresh_root();
-    if (!bounded_acquisition_cases<PublisherVolumeBusy>([&](HANDLE cancel, DWORD budget) {
+    if (!bounded_acquisition_cases<PublisherVolumeBusy>("volume", [&](HANDLE cancel, DWORD budget) {
             return PublisherVolumeOperationGuard(wait_root, cancel, budget);
         })) return 24;
-    if (!bounded_acquisition_cases<PublisherInstallBusy>([&](HANDLE cancel, DWORD budget) {
+    if (!bounded_acquisition_cases<PublisherInstallBusy>("installation", [&](HANDLE cancel, DWORD budget) {
             return PublisherInstallOperationGuard(wait_root, "org.example.setup", cancel, budget);
         })) return 25;
     return 0;
+}
+
+int wmain(int argc, wchar_t** argv)
+{
+    const int result = run_guard_smoke(argc, argv);
+    if (argc == 1 && result != 0)
+        std::cerr << "usk_publisher_volume_operation_guard_smoke: exit_code=" << result << '\n';
+    return result;
 }
 #endif

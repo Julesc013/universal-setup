@@ -162,7 +162,7 @@ def bootstrap_history(by_path, drive, context_directory, context_path, context, 
 
 
 def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allow_legacy_missing=False,
-             allow_legacy_missing_bootstrap=False):
+             allow_legacy_missing_bootstrap=False, allow_initial_empty_state=False):
     require(isinstance(rows, list) and 0 < len(rows) <= 10000, 'coordination row budget exceeded')
     require(all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in rows), 'coordination row missing path')
     by_path = {row['path']: row for row in rows}
@@ -213,8 +213,16 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allo
             'original setup/state root binding differs')
     filename = install + '.' + operation + '.json'
     installed_path = state + '\\installed\\' + filename
-    require(document(by_path[installed_path]) == installed, 'lease installed-state readback differs')
-    state_revision = digest([{'record': filename, 'sha256': digest(installed)}])
+    if allow_initial_empty_state:
+        initial_directory = state + '\\installed'
+        require(allow_active and initial_directory in by_path and by_path[initial_directory]['directory'] is True and
+                not any(path.startswith(initial_directory + '\\') for path in by_path),
+                'initial active ownership lacks an independently empty installed-state directory')
+        state_revision = digest([])
+    else:
+        require(installed_path in by_path and document(by_path[installed_path]) == installed,
+                'lease installed-state readback differs')
+        state_revision = digest([{'record': filename, 'sha256': digest(installed)}])
     lease_files = sorted((row for row in lease_rows if not row['directory']), key=lambda row: row['path'])
     require(0 < len(lease_files) <= 4096, 'lease record closure differs')
     history = []
@@ -266,6 +274,10 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allo
         history.append(value)
         previous = value
     require(allow_active or history[-1]['status'] == 'completed', 'current snapshot lacks completed ownership')
+    if allow_initial_empty_state:
+        require(len(history) == 1 and history[0]['status'] == 'active' and history[0]['generation'] == 1 and
+                history[0]['expected_state_revision'] == digest([]),
+                'initial empty state cannot represent completed ownership or a replacement attempt')
     reserved = any(row['path'].startswith(context_path[:-5] + '-bootstrap-') for row in context_files)
     if not reserved and allow_legacy_missing_bootstrap:
         bootstrap_files, bootstrap_directories = set(), set()
@@ -275,9 +287,12 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allo
     require({row['path'] for row in lease_rows + context_rows if row['directory']} == directories | bootstrap_directories and
             {row['path'] for row in context_files} == {context_path, roots_path} | bootstrap_files,
             'coordination bootstrap file/directory closure differs')
-    return {'history': history, 'context_sha256': context['context_sha256'],
+    result = {'history': history, 'context_sha256': context['context_sha256'],
             'bootstrap_protocol': 'reserved_creation' if reserved else 'historical_unreserved',
             'files': [context_path, roots_path] + sorted(bootstrap_files) + [row['path'] for row in lease_files]}
+    if allow_initial_empty_state:
+        result['initial_empty_state_observed'] = True
+    return result
 
 
 def transition(before, after, drive, installed, volume_root_id, *, readonly=False, allow_legacy_missing=False,
@@ -413,7 +428,8 @@ def main():
             value = json.load(stream)
     if value['mode'] == 'snapshot':
         result = snapshot(value['rows'], value['drive'], value['installed'], value['volume_root_id'],
-                          allow_active=value.get('allow_active') is True, allow_legacy_missing=value.get('allow_legacy_missing') is True)
+                          allow_active=value.get('allow_active') is True, allow_legacy_missing=value.get('allow_legacy_missing') is True,
+                          allow_initial_empty_state=value.get('allow_initial_empty_state') is True)
     elif value['mode'] == 'bootstrap_takeover':
         result = bootstrap_takeover(value['before'], value['after'], value['drive'], value['installed'],
                                     value['volume_root_id'], value['terminated_holder'])
