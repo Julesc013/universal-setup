@@ -133,7 +133,10 @@ function Assert-StandardRegisteredTaskAbsent {
         catch {
             $exception=$_.Exception
             for($depth=0;$exception -and $depth -lt 8;$depth++) {
-                if($exception -is [Runtime.InteropServices.COMException] -and $exception.HResult -eq -2147024894) {
+                # PowerShell's COM binder can map this exact HRESULT to a
+                # managed FileNotFoundException instead of COMException.
+                if(($exception -is [Runtime.InteropServices.COMException] -or $exception -is [IO.FileNotFoundException]) -and
+                    $exception.HResult -eq -2147024894) {
                     $absent=$true;break
                 }
                 $exception=$exception.InnerException

@@ -324,12 +324,20 @@ function Invoke-StandardPublicSystemTask {
     } finally {
         if($created -and $finished) {
             try {
+                $launcherPhase='revalidate_task_before_removal'
                 $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
+                $launcherPhase='unregister_owned_task'
                 Unregister-ScheduledTask -TaskName $taskName -TaskPath '\' -Confirm:$false -ErrorAction Stop
+                $launcherPhase='confirm_owned_task_absence'
                 Assert-StandardRegisteredTaskAbsent -TaskName $taskName
             } catch {
+                $originalRemovalError=$_
                 & $recordUnconfirmed 'owned SYSTEM standard task removal is unconfirmed'
-                throw
+                $failedResult=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
+                $diagnostic=Get-StandardLauncherErrorDiagnostic $originalRemovalError $launcherPhase
+                $failedResult|Add-Member -NotePropertyName launcher_removal_error -NotePropertyValue $diagnostic -Force
+                [IO.File]::WriteAllText($OutputPath,($failedResult|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
+                throw $originalRemovalError
             }
         }
         if(-not $finished){& $recordUnconfirmed 'owned SYSTEM launcher termination is unconfirmed'}

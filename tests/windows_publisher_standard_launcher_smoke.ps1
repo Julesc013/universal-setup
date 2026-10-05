@@ -141,6 +141,8 @@ function New-FixtureScheduler([string]$Mode) {
         $this.FixtureState.Calls.Add('task:'+$Name)
         if($this.FixtureState.Mode -in @('task','task_and_cleanup')){throw 'original task observation failure'}
         if($this.FixtureState.Mode -ceq 'missing'){throw [Runtime.InteropServices.COMException]::new('exact task absent',-2147024894)}
+        if($this.FixtureState.Mode -ceq 'managed_missing'){throw [IO.FileNotFoundException]::new('exact task absent')}
+        if($this.FixtureState.Mode -ceq 'managed_directory_missing'){throw [IO.DirectoryNotFoundException]::new('another absence result')}
         if($this.FixtureState.Mode -ceq 'access'){throw [Runtime.InteropServices.COMException]::new('task access denied',-2147024891)}
         return $this.RegisteredTask
     }
@@ -154,6 +156,7 @@ function New-FixtureScheduler([string]$Mode) {
         $this.FixtureState.Calls.Add('folder:'+$Path)
         if($this.FixtureState.Mode -ceq 'folder'){throw 'original folder observation failure'}
         if($this.FixtureState.Mode -ceq 'folder_missing'){throw [Runtime.InteropServices.COMException]::new('folder absent',-2147024894)}
+        if($this.FixtureState.Mode -ceq 'folder_managed_missing'){throw [IO.FileNotFoundException]::new('folder absent')}
         return $this.Folder
     }
     return [pscustomobject]@{State=$state;Scheduler=$scheduler}
@@ -260,7 +263,7 @@ foreach($value in 0..4) {
         -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {}
     if($info.State -cne @('Unknown','Disabled','Queued','Ready','Running')[$value]){throw 'Actual task state mapping differs'}
 }
-foreach($case in @('missing','positive','task','access','folder_missing','connect','cleanup')) {
+foreach($case in @('missing','managed_missing','managed_directory_missing','positive','task','access','folder_missing','folder_managed_missing','connect','cleanup')) {
     $mode=if($case -ceq 'cleanup'){'missing'}else{$case}
     $fixture=New-FixtureScheduler $mode;$state=$fixture.State;$failure=$null
     try {Assert-StandardRegisteredTaskAbsent -TaskName $registeredName `
@@ -270,8 +273,8 @@ foreach($case in @('missing','positive','task','access','folder_missing','connec
             if($case -ceq 'cleanup' -and $Reference.ReferenceKind -ceq 'folder'){throw 'absence cleanup failed'}
         }.GetNewClosure()}
     catch {$failure=$_}
-    if(($case -ceq 'missing') -ne ($null -eq $failure)){throw ('Unconfirmed task absence became successful: '+$case)}
-    $released=if($case -ceq 'positive'){'task|folder|scheduler'}elseif($case -in @('connect','folder_missing')){'scheduler'}else{'folder|scheduler'}
+    if(($case -in @('missing','managed_missing')) -ne ($null -eq $failure)){throw ('Unconfirmed task absence became successful: '+$case)}
+    $released=if($case -ceq 'positive'){'task|folder|scheduler'}elseif($case -in @('connect','folder_missing','folder_managed_missing')){'scheduler'}else{'folder|scheduler'}
     if(($state.Released -join '|') -cne $released){throw ('Absence reference cleanup order differs: '+$case)}
 }
 $opened=[int[]]@(0);$refused=$false
