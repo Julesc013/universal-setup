@@ -138,14 +138,14 @@ def standard_capture(capture, client, machine_sha256):
         'standard launcher lacks documented creation authority')
 
 
-def reader_rows(readback, capture, client):
+def reader_rows(readback, capture, client, *, expected_exited=True):
     require(readback['observer_task_removed'] is True and readback['independent']['identity'] == 'S-1-5-18' and
         readback['independent']['observer_token_handles_closed'] is True, 'standard native reader closure differs')
     tokens = readback['independent']['effective_right_tokens']
     context = tokens['capture_context']
     require(tokens['captured_client']['process_id'] == capture['process_id'] and
         tokens['captured_client']['creation_file_time'] == capture['creation_file_time'] and
-        tokens['captured_client']['exited_at_observation'] is True and
+        tokens['captured_client']['exited_at_observation'] is expected_exited and
         context['capture_sha256'] == capture['capture_sha256'] and context['command'] == capture['command'] and
         context['request_id'] == capture['request_id'] and context['image_sha256'] == capture['image_sha256'] and
         tokens['initiating']['user_sid'] == client and tokens['filtered']['user_sid'] == client and
@@ -157,6 +157,78 @@ def reader_rows(readback, capture, client):
         tokens['initiating']['impersonation_level'] == tokens['filtered']['impersonation_level'] == 2,
         'standard independent AccessCheck token type differs')
     return readback['independent']['rows']
+
+
+def reconcile_registered_contention(observation, client):
+    """Registered endpoint evidence only; no active-install lease or takeover claim."""
+    record = observation.get('registered_contention')
+    if record is None:
+        return None
+    scope = 'registered_endpoint_before_effect_request_bytes'
+    require(isinstance(record, dict) and record.keys() == {'schema', 'scope', 'profile_qualified',
+        'producer_sha256', 'request_sha256', 'client_capture', 'native_observation', 'before', 'after',
+        'worker_stopped'} and record['schema'] == 'usk.publisher_registered_contention_probe.v1' and
+        record['scope'] == scope and record['profile_qualified'] is False and record['worker_stopped'] is True,
+        'registered contention scope or fixture closure differs')
+    for name in ('producer_sha256', 'request_sha256'):
+        require(isinstance(record[name], str) and re.fullmatch(r'[0-9a-f]{64}', record[name]),
+            'registered contention producer/request digest differs')
+    capture = record['client_capture']
+    standard_capture(capture, client, record['producer_sha256'])
+    require(capture['command'] == 'registered_contention', 'registered contention client command differs')
+    native = record['native_observation']
+    require(isinstance(native, dict) and native.keys() == {'schema', 'status', 'scope', 'profile_qualified',
+        'service_name', 'inspection_reference', 'worker_process_id', 'worker_process_creation_time',
+        'worker_alive_after_cases', 'worker_process_image_path', 'worker_expected_image_sha256', 'request_sha256',
+        'caller_process_id', 'caller_process_creation_time', 'cases'} and
+        native['schema'] == 'usk.publisher_registered_contention_observation.v1' and native['status'] == 'pass' and
+        native['scope'] == scope and native['profile_qualified'] is False and
+        native['service_name'] == observation['service'] and native['worker_alive_after_cases'] is True and
+        integer(native['worker_process_id'], 1) and integer(native['worker_process_creation_time'], 1, 0xffffffffffffffff) and
+        native['worker_expected_image_sha256'] == observation['service_sha256'] and
+        native['request_sha256'] == record['request_sha256'] and native['caller_process_id'] == capture['process_id'] and
+        str(native['caller_process_creation_time']) == capture['creation_file_time'],
+        'registered contention native worker/client/request binding differs')
+    expected_image = observation.get('installed_binary')
+    require(isinstance(expected_image, str) and isinstance(native['worker_process_image_path'], str) and
+        native['worker_process_image_path'].casefold() == expected_image.casefold(),
+        'registered contention held worker image path differs')
+    pipe = r'\\.\pipe\USK-Publisher-' + observation['service']
+    reference = 'usk.operation-inspection.v1:' + hashlib.sha256(canonical(pipe.upper()).encode()).hexdigest()
+    require(native['inspection_reference'] == reference, 'registered contention endpoint reference differs')
+    cases = native['cases']
+    labels = ['fail_fast', 'deadline', 'ready_cancel', 'async_cancel']
+    require(isinstance(cases, list) and all(isinstance(case, dict) for case in cases) and
+        [case.get('case') for case in cases] == labels,
+        'registered contention finite case set differs')
+    for case in cases:
+        code = 'operation_cancelled' if case['case'].endswith('cancel') else 'operation_conflict'
+        require(case.keys() == {'case', 'elapsed_milliseconds', 'exit_code', 'response'} and
+            integer(case['elapsed_milliseconds'], 0, 4999) and integer(case['exit_code'], 4, 4) and
+            (case['case'] != 'deadline' or case['elapsed_milliseconds'] >= 75),
+            'registered contention timing or process outcome differs')
+        response = case['response']
+        require(isinstance(response, dict) and isinstance(response.get('error'), dict) and
+            response.keys() == {'schema', 'status', 'request_id', 'error', 'result'} and
+            response.get('schema') == 'usk.oneshot_response.v1' and response.get('status') == 'refused' and
+            response.get('request_id') == 'registered-contention.' + case['case'] and
+            response['error'] == {'code': code} and response.get('result') == {
+                'schema': 'usk.publisher_operation_diagnostic.v1', 'error_code': code, 'inspection_reference': reference},
+            'registered contention public refusal or closed diagnostic differs')
+    before = reader_rows(record['before'], capture, client, expected_exited=False)
+    after = reader_rows(record['after'], capture, client)
+    require(before == after, 'registered pre-dispatch contention changed native target rows')
+    baseline = observation['readbacks'][0]['independent']
+    require(before == baseline['rows'], 'registered contention target differs from the completed installation')
+    for readback in (record['before'], record['after']):
+        native_boundary(readback['independent']['volume_boundary'])
+    require(record['before']['independent']['volume_boundary'] == record['after']['independent']['volume_boundary'],
+        'registered pre-dispatch contention changed its native volume boundary')
+    require(record['before']['independent']['volume_boundary'] == baseline['volume_boundary'],
+        'registered contention volume differs from the completed installation')
+    return {'schema': 'usk.publisher_registered_contention_reconciliation.v1',
+        'status': 'bindings_consistent', 'scope': scope, 'cases_checked': 4, 'native_rows_unchanged': len(before),
+        'profile_qualified': False}
 
 
 def registered_admission(native, service, service_sid, client, image_sha256, volume_root, boundary_id):
@@ -452,6 +524,9 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
         "native_rows": len(baseline), "profile_qualified": False}
     if bootstrap is not None:
         result['bootstrap_takeover'] = bootstrap
+    contention = reconcile_registered_contention(observation, client)
+    if contention is not None:
+        result['registered_contention'] = contention
     return result
 
 

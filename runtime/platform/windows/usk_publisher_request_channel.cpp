@@ -301,7 +301,7 @@ HANDLE connect_publisher_request_endpoint(const std::wstring& service_name,
         if (conflict_until && !remaining(conflict_until)) conflict();
         if (!remaining(until)) {
             if (conflict_until) conflict();
-            throw usk::base::EffectRequestNotDispatched();
+            throw std::runtime_error("publisher endpoint connection timed out before dispatch");
         }
         const HANDLE raw = CreateFileW(name.c_str(), client_access, 0, nullptr, OPEN_EXISTING,
             FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
@@ -312,7 +312,7 @@ HANDLE connect_publisher_request_endpoint(const std::wstring& service_name,
         }
         const DWORD error = GetLastError();
         if (error != ERROR_PIPE_BUSY && error != ERROR_FILE_NOT_FOUND)
-            throw usk::base::EffectRequestNotDispatched();
+            throw std::runtime_error("publisher endpoint refused connection before dispatch");
         if (error == ERROR_PIPE_BUSY) {
             if (!options.conflict_wait_milliseconds) conflict();
             if (!conflict_until)

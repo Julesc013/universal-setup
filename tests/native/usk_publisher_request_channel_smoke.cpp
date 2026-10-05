@@ -218,6 +218,11 @@ void test_endpoint_acquisition(const std::wstring& name, const std::wstring& sid
     auto excessive = bounded_wait;
     excessive.conflict_wait_milliseconds = publisher_request_max_conflict_wait_milliseconds + 1;
     refuses([&] { OwnedHandle unexpected(connect_publisher_request_endpoint(name, 1000, excessive)); });
+    bool generic_missing = false;
+    try { OwnedHandle unexpected(connect_publisher_request_endpoint(name + L"_missing", 25)); }
+    catch (const Refusal&) { throw std::runtime_error("generic missing endpoint became typed admission"); }
+    catch (const std::runtime_error&) { generic_missing = true; }
+    require(generic_missing, "generic missing endpoint control did not fail");
 }
 std::wstring current_sid() {
     HANDLE token=nullptr;
@@ -430,6 +435,13 @@ int main() {
           // Closing the server releases a possibly blocked client writer.
           oversized.reset(); large_client.join(); }
         { PublisherRequestChannel denied(name,service_sid,L"S-1-5-21-1-2-3-500",nullptr,25);
+          bool generic_denied = false;
+          try { OwnedHandle unexpected(usk::platform::windows::connect_publisher_request_endpoint(name, 25)); }
+          catch (const usk::base::EffectRequestNotDispatched&) {
+              throw std::runtime_error("generic denied endpoint became typed admission");
+          }
+          catch (const std::runtime_error&) { generic_denied = true; }
+          require(generic_denied, "generic denied endpoint control did not fail");
           HANDLE raw=CreateFileW(usk::platform::windows::publisher_request_pipe_name(name).c_str(),
               FILE_READ_DATA|FILE_WRITE_DATA,0,nullptr,OPEN_EXISTING,0,nullptr);
           if(raw!=INVALID_HANDLE_VALUE) CloseHandle(raw);
