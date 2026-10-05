@@ -683,16 +683,25 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
 
 def reconcile_bootstrap_loss(observation, captures, installed, completed_readback, drive, required=False, *,
                              require_preservation_loss=False):
-    from publisher_installation_lease_evidence import bootstrap_takeover, bootstrap_preservation_takeover
+    from publisher_installation_lease_evidence import bootstrap_takeover, bootstrap_preservation_takeover, constructed_prefix_takeover
     loss = observation.get('bootstrap_loss')
     preserved = observation.get('bootstrap_preservation_loss')
+    constructed = observation.get('constructed_bootstrap_prefix')
+    require(constructed is None or (loss is not None and preserved is None),
+            'constructed prefix lacks original empty-root process loss or mixes loss phases')
     require(preserved is not None or not require_preservation_loss, 'registered preservation process-loss receipt is missing')
     if loss is None:
         require(not required and preserved is None, 'registered bootstrap process-loss receipt is missing')
         return None
     rows, holder = _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, 'bootstrap')
     volume_root_id = completed_readback['independent']['volume_boundary']['root']['file_id']
-    if preserved is None:
+    if constructed is not None:
+        from publisher_bootstrap_prefix_evidence import constructed_rows
+        rows = constructed_rows(constructed, rows, drive, installed, observation, loss['client_capture'],
+                                loss['readback']['independent']['volume_boundary'])
+        result = constructed_prefix_takeover(rows, completed_readback['independent']['rows'], drive, installed,
+            volume_root_id, holder, constructed['case'], constructed['snapshot_size_bytes'])
+    elif preserved is None:
         result = bootstrap_takeover(rows, completed_readback['independent']['rows'], drive, installed, volume_root_id, holder)
     else:
         moved_rows, second_holder = _bootstrap_loss_readback(preserved, observation, captures + [loss['client_capture']],

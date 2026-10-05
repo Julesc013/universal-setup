@@ -331,6 +331,20 @@ def bootstrap_takeover(before, after, drive, installed, volume_root_id, terminat
     return _bootstrap_original_prefix(before, after, drive, installed, history, terminated_holder)
 
 
+def constructed_prefix_takeover(before, after, drive, installed, volume_root_id, terminated_holder, case, snapshot_size):
+    """Native replacement of separately validated SYSTEM-constructed rows.
+
+    The original empty-root process-loss and the construction must be retained
+    and checked separately. This result never labels construction as a crash.
+    """
+    from publisher_bootstrap_prefix_evidence import CASES, SCOPE
+    require(case in CASES, 'constructed prefix takeover case differs')
+    result = bootstrap_takeover(before, after, drive, installed, volume_root_id, terminated_holder)
+    return dict(result, schema='usk.publisher_constructed_prefix_takeover_reconciliation.v1',
+                scope=SCOPE, case=case, snapshot_size_bytes=snapshot_size,
+                native_crash_at_constructed_prefix_observed=False)
+
+
 def _bootstrap_original_prefix(before, after, drive, installed, history, terminated_holder):
     require(isinstance(before, list) and 0 < len(before) <= 10000 and
             all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in before),
@@ -433,6 +447,9 @@ def main():
     elif value['mode'] == 'bootstrap_takeover':
         result = bootstrap_takeover(value['before'], value['after'], value['drive'], value['installed'],
                                     value['volume_root_id'], value['terminated_holder'])
+    elif value['mode'] == 'constructed_prefix_takeover':
+        result = constructed_prefix_takeover(value['before'], value['after'], value['drive'], value['installed'],
+            value['volume_root_id'], value['terminated_holder'], value['case'], value['snapshot_size_bytes'])
     elif value['mode'] == 'bootstrap_preservation_takeover':
         result = bootstrap_preservation_takeover(value['before'], value['preserved'], value['after'],
             value['drive'], value['installed'], value['volume_root_id'], value['terminated_holders'])

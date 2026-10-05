@@ -11,16 +11,23 @@ param(
     [switch]$BootstrapProcessLoss,
     [switch]$BootstrapPreservationProcessLoss,
     [switch]$ActiveInstallContention,
-    [switch]$StalePlanQualification
+    [switch]$StalePlanQualification,
+    [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
+    [string]$ConstructedBootstrapPrefix='none'
 )
 $ErrorActionPreference='Stop'
 if($ActiveInstallContention -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss)) {
     throw 'Active holder contention requires the original uninterrupted installer'
 }
+if($ConstructedBootstrapPrefix -cne 'none' -and
+    (-not $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or $ActiveInstallContention -or $StalePlanQualification)) {
+    throw 'Constructed prefix requires its separate owned empty-root loss fixture'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_active_worker.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_bootstrap_prefix.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -674,6 +681,9 @@ try {
     if($BootstrapProcessLoss) {
         $null=Invoke-StandardRequest 'install_local.apply' $apply 5 -BootstrapLoss
         $receipt.bootstrap_loss.readback=Read-NativeSnapshot
+        if($ConstructedBootstrapPrefix -cne 'none') {
+            $receipt['constructed_bootstrap_prefix']=New-OwnedBootstrapPrefix $ConstructedBootstrapPrefix $receipt.bootstrap_loss.readback
+        }
     }
     if($BootstrapPreservationProcessLoss) {
         if(-not $BootstrapProcessLoss){throw 'Preservation loss requires the original reserved bootstrap loss'}
@@ -695,6 +705,12 @@ try {
         $bootstrapRequest=@{mode='bootstrap_takeover';before=$loss.readback.independent.rows;after=$before.independent.rows;
             drive=$drive;installed=$installed;volume_root_id=$before.independent.volume_boundary.root.file_id;
             terminated_holder=@{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time}}
+        if($ConstructedBootstrapPrefix -cne 'none') {
+            $bootstrapRequest.mode='constructed_prefix_takeover'
+            $bootstrapRequest.before=$receipt.constructed_bootstrap_prefix.readback.independent.rows
+            $bootstrapRequest.case=$ConstructedBootstrapPrefix
+            $bootstrapRequest.snapshot_size_bytes=$receipt.constructed_bootstrap_prefix.snapshot_size_bytes
+        }
         if($BootstrapPreservationProcessLoss) {
             $preserved=$receipt.bootstrap_preservation_loss
             $bootstrapRequest.mode='bootstrap_preservation_takeover'

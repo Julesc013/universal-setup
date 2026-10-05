@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T12:39:17Z",
+  "generated_at": "2026-10-05T13:26:23Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -1389,7 +1389,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5a5d9436b199914af416fa515e175ac550d73e85cf279bfc7a40d629f7963312"
+          "sha256": "8cbc5d1a37613b24ca043515a3452a150db72eeac39b45cd5cd7a6b5aceb206d"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -1397,7 +1397,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "b1e57d3109dd9ef36e563f652d555df0172183092d7a41035e79aa3f9b2fd732"
+          "sha256": "26fc6c6ed8ad7e8550e57a3823afa49a46c5980e16bf6d91814a7153218c0948"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -2499,7 +2499,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The restricted-service native backend persists immutable original operation intent before setup bootstrap, binds actual protected volume/setup/state identities and PID plus birth time, and appends ownership generations with finite journal budgets and reserved terminal capacity. Before-effect fences cover creation, content write, rename, metadata publication and consumer grant. Live or unknown prior holders refuse transfer; no timeout grants takeover. PR231 source3383c3d/CI37246243862 qualified one bound worker loss, preservation of an empty publication root and generation2 completion. PR232 source89c0034/CI37251475610 attempt2 qualified a second loss after the completed preservation move, native publication/reservation absence and generation3 completion, then source-free recovery/replay/verify. Their partial receipts do not accept this whole WorkUnit. All creation-order anchor/snapshot prefixes, arbitrary uncertain outcomes and complete stale/recovery acceptance remain unfinished. PR235 source6fea0f3/CI37293863598 qualified four authenticated sourceful/source-free immutable-context refusals with independently bound unchanged native target/volume readbacks; normal mergea1fb2d4 and a partial receipt retain that bounded scope. No live takeover or whole lease capability is claimed.",
+      "note": "The restricted-service native backend persists immutable original operation intent before setup bootstrap, binds actual protected volume/setup/state identities and PID plus birth time, and appends ownership generations with finite journal budgets and reserved terminal capacity. Before-effect fences cover creation, content write, rename, metadata publication and consumer grant. Live or unknown prior holders refuse transfer; no timeout grants takeover. PR231 source3383c3d/CI37246243862 qualified one bound worker loss, preservation of an empty publication root and generation2 completion. PR232 source89c0034/CI37251475610 attempt2 qualified a second loss after the completed preservation move, native publication/reservation absence and generation3 completion, then source-free recovery/replay/verify. Their partial receipts do not accept this whole WorkUnit. All creation-order anchor/snapshot prefixes, arbitrary uncertain outcomes and complete stale/recovery acceptance remain unfinished. PR235 source6fea0f3/CI37293863598 qualified four authenticated sourceful/source-free immutable-context refusals with independently bound unchanged native target/volume readbacks; normal mergea1fb2d4 and a partial receipt retain that bounded scope. No live takeover or whole lease capability is claimed. The current continuation adds a separately labelled hosted SYSTEM-constructed ordered-anchor/snapshot-prefix fixture after the actual empty-root process loss. Original ended-holder/reservation and empty-root readback stay separate; actual native replacement must preserve constructed objects and every prior custody row. Source checks do not qualify execution. All ordered anchor shapes and tested snapshot-length classes remain pending current runtime evidence, alongside uncertain native outcomes and wider WorkUnit obligations.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2647,7 +2647,7 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "0a3a6feaaab5bd88873fa1b16e008e47a3bc79c8d68f197255e704b539deef98"
+          "sha256": "cb6dea00e72d3c4110b9f33175387e41e602f490741bc7503783f0c9b07b1a4b"
         },
         {
           "path": "tests/publisher_stale_plan_evidence.py",
@@ -2655,7 +2655,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5a5d9436b199914af416fa515e175ac550d73e85cf279bfc7a40d629f7963312"
+          "sha256": "8cbc5d1a37613b24ca043515a3452a150db72eeac39b45cd5cd7a6b5aceb206d"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -2687,7 +2687,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "aabb32dd4e5445e84b86331dec4d629295ab455ad6cfc5b3bb4437612ec9af45"
+          "sha256": "e42496fbe1ecc6543600017cbff30240d4795a016265dce7b7e8d5389e8bc2db"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2715,7 +2715,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "b1e57d3109dd9ef36e563f652d555df0172183092d7a41035e79aa3f9b2fd732"
+          "sha256": "26fc6c6ed8ad7e8550e57a3823afa49a46c5980e16bf6d91814a7153218c0948"
         },
         {
           "path": "tests/publisher_changed_state_revision_evidence.py",
@@ -2724,6 +2724,22 @@
         {
           "path": "tests/test_publisher_changed_state_revision_evidence.py",
           "sha256": "bd6e96ea6f83c49296ed7527a9ba7f3be1b538ed0b6b0a87dba4082fd3fc94a1"
+        },
+        {
+          "path": "tests/publisher_bootstrap_prefix_evidence.py",
+          "sha256": "564aceb6a0f3d78b6fc7529885c951881f95db2dfbf546f698ed0ae2338374cd"
+        },
+        {
+          "path": "tests/test_publisher_bootstrap_prefix_evidence.py",
+          "sha256": "76770a18689579339577d03ace8636d39c686dc811e06f07ca4eb303ed21ed4c"
+        },
+        {
+          "path": "tests/windows_publisher_bootstrap_prefix.ps1",
+          "sha256": "da5147e327792de5746b34a7e99623e15b0494be1360abd76257d4650b1eaafc"
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
         }
       ],
       "acceptance_ids": [
@@ -2742,7 +2758,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. PR235 source6fea0f3/CI37293863598 all7/native55of55, eight runtime receipts and both late receipts passed independent final review and live merge-check; normal mergea1fb2d4 records only the four immutable-context refusals, alongside prior passive/active predicates. PR236 initial source39c560e/CI37299371896 failed at strict remounted volume-device admission before public install, retaining the observed Authenticated Users modify grant and failed receipt. The new source keeps the hardened locking file object alive through the fresh strict remount/device check; current sourcea788940/CI37301765059 passed all7 jobs/native55of55 and all8 runtime plus both late receipts in independent review. This establishes the tested route, not the reset cause or a universal remedy. No whole WorkUnit or release acceptance follows.",
+      "note": "Volume and per-install guards provide fail-fast acquisition, optional waits bounded to30000ms, borrowed cancellation and owning-thread checks. Conflict/cancellation diagnostics carry an opaque canonical scope hash without holder identity or authority. Registered public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. CLI wait and console cancellation use that transport. PR233 sourcea47ab40/CI37263265499 qualified four actual endpoint outcomes with independent target/volume readbacks after a completed install. PR234 source0ed0bdb/CI37286434468 attempt1 qualified four endpoint outcomes before request bytes while the original generation1 installer retained its active lease, checked worker/capture restoration and original same-owner completion. Actual normal merges7ba2ac1 and8cf39d5 and bounded partial receipts preserve both scopes, not installation-mutex contention or live takeover. Native55of55 tests and all8 receipts/12passive/4active/3startup acknowledgments qualified PR234; failed decoder/native-test/launcher attempts remain retained without established original native/launcher causes. The current source preserves actual stale-plan diagnostics through the private engine and public projection, plus authenticated sourceful/source-free immutable-context refusal cases with independently checked native rows. PR235 source6fea0f3/CI37293863598 all7/native55of55, eight runtime receipts and both late receipts passed independent final review and live merge-check; normal mergea1fb2d4 records only the four immutable-context refusals, alongside prior passive/active predicates. PR236 initial source39c560e/CI37299371896 failed at strict remounted volume-device admission before public install, retaining the observed Authenticated Users modify grant and failed receipt. The new source keeps the hardened locking file object alive through the fresh strict remount/device check; current sourcea788940/CI37301765059 passed all7 jobs/native55of55 and all8 runtime plus both late receipts in independent review. This establishes the tested route, not the reset cause or a universal remedy. No whole WorkUnit or release acceptance follows. The current continuation adds a separately labelled hosted SYSTEM-constructed ordered-anchor/snapshot-prefix fixture after the actual empty-root process loss. Original ended-holder/reservation and empty-root readback stay separate; actual native replacement must preserve constructed objects and every prior custody row. Source checks do not qualify execution. All ordered anchor shapes and tested snapshot-length classes remain pending current runtime evidence, alongside uncertain native outcomes and wider WorkUnit obligations.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2890,7 +2906,7 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "0a3a6feaaab5bd88873fa1b16e008e47a3bc79c8d68f197255e704b539deef98"
+          "sha256": "cb6dea00e72d3c4110b9f33175387e41e602f490741bc7503783f0c9b07b1a4b"
         },
         {
           "path": "tests/publisher_stale_plan_evidence.py",
@@ -2898,7 +2914,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5a5d9436b199914af416fa515e175ac550d73e85cf279bfc7a40d629f7963312"
+          "sha256": "8cbc5d1a37613b24ca043515a3452a150db72eeac39b45cd5cd7a6b5aceb206d"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -2930,7 +2946,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "aabb32dd4e5445e84b86331dec4d629295ab455ad6cfc5b3bb4437612ec9af45"
+          "sha256": "e42496fbe1ecc6543600017cbff30240d4795a016265dce7b7e8d5389e8bc2db"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2958,7 +2974,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "b1e57d3109dd9ef36e563f652d555df0172183092d7a41035e79aa3f9b2fd732"
+          "sha256": "26fc6c6ed8ad7e8550e57a3823afa49a46c5980e16bf6d91814a7153218c0948"
         },
         {
           "path": "tests/publisher_changed_state_revision_evidence.py",
@@ -2967,6 +2983,22 @@
         {
           "path": "tests/test_publisher_changed_state_revision_evidence.py",
           "sha256": "bd6e96ea6f83c49296ed7527a9ba7f3be1b538ed0b6b0a87dba4082fd3fc94a1"
+        },
+        {
+          "path": "tests/publisher_bootstrap_prefix_evidence.py",
+          "sha256": "564aceb6a0f3d78b6fc7529885c951881f95db2dfbf546f698ed0ae2338374cd"
+        },
+        {
+          "path": "tests/test_publisher_bootstrap_prefix_evidence.py",
+          "sha256": "76770a18689579339577d03ace8636d39c686dc811e06f07ca4eb303ed21ed4c"
+        },
+        {
+          "path": "tests/windows_publisher_bootstrap_prefix.ps1",
+          "sha256": "da5147e327792de5746b34a7e99623e15b0494be1360abd76257d4650b1eaafc"
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
         }
       ],
       "acceptance_ids": [
@@ -2985,7 +3017,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The native backend observes protected installed records after acquiring actual volume/install OS guards, binds their canonical revision in durable ownership and rechecks before product effects. Fresh install expects an empty requested installed-record set; source-free recovery binds immutable original intent and the observed current revision. The current private C-ABI retains actual typed operation failures and a real public stale-plan exception only before apply entry; response JSON cannot manufacture a native exception. Structured stale_plan remains distinct from state_revision_stale, and unknown/recovery-required outcomes retain their effects status. Four new authenticated immutable-context cases compare native target/volume rows around sourceful and source-free refusals; PR235 source6fea0f3/CI37293863598 and normal mergea1fb2d4 qualified those four immutable-context refusals, not planA/commitB/applyA revision refusal. A new read-only native preflight now checks the guarded protected installed-record set before intent/bootstrap writes, rechecks current root bindings, and retains a separate actual typed refusal only if this invocation has not started operation writes. The later lease/revision checks remain. This delta is unqualified source; maintenance-plan revisions, changed-state native qualification and remaining finite recovery/fencing obligations are unfinished. PR236 sourcea788940/CI37301765059 independently qualifies regression of existing install/recovery and four immutable-context refusals, not changed-state revision refusal. The continuation source adds stopped administrative enrollment of immutable exact-request reviewed envelopes bound to actual registration, admitted target and configured caller; authenticated native selection holds the protected approval and envelope files through dispatch. A selected fresh initial install compares the actual installed-record revision under both OS guards before plan rebuild or retained replay. This enrollment and changed-state path are unfinished and not runtime-qualified; whole acceptance remains NOT_RUN.",
+      "note": "The native backend observes protected installed records after acquiring actual volume/install OS guards, binds their canonical revision in durable ownership and rechecks before product effects. Fresh install expects an empty requested installed-record set; source-free recovery binds immutable original intent and the observed current revision. The current private C-ABI retains actual typed operation failures and a real public stale-plan exception only before apply entry; response JSON cannot manufacture a native exception. Structured stale_plan remains distinct from state_revision_stale, and unknown/recovery-required outcomes retain their effects status. Four new authenticated immutable-context cases compare native target/volume rows around sourceful and source-free refusals; PR235 source6fea0f3/CI37293863598 and normal mergea1fb2d4 qualified those four immutable-context refusals, not planA/commitB/applyA revision refusal. A new read-only native preflight now checks the guarded protected installed-record set before intent/bootstrap writes, rechecks current root bindings, and retains a separate actual typed refusal only if this invocation has not started operation writes. The later lease/revision checks remain. This delta is unqualified source; maintenance-plan revisions, changed-state native qualification and remaining finite recovery/fencing obligations are unfinished. PR236 sourcea788940/CI37301765059 independently qualifies regression of existing install/recovery and four immutable-context refusals, not changed-state revision refusal. The continuation source adds stopped administrative enrollment of immutable exact-request reviewed envelopes bound to actual registration, admitted target and configured caller; authenticated native selection holds the protected approval and envelope files through dispatch. A selected fresh initial install compares the actual installed-record revision under both OS guards before plan rebuild or retained replay. Actual b24691e/tree9fe13f3/CI37311546205 and independent all-ten review qualify two genuine approved initial A-after-B before-effect state_revision_stale refusals, exact unchanged39/41 native-row baselines and absent A intent. The actual compiled synthetic a5eb85a4 shares that tree; wider revisions and whole acceptance remain NOT_RUN. The current continuation adds a separately labelled hosted SYSTEM-constructed ordered-anchor/snapshot-prefix fixture after the actual empty-root process loss. Original ended-holder/reservation and empty-root readback stay separate; actual native replacement must preserve constructed objects and every prior custody row. Source checks do not qualify execution. All ordered anchor shapes and tested snapshot-length classes remain pending current runtime evidence, alongside uncertain native outcomes and wider WorkUnit obligations.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -3133,7 +3165,7 @@
         },
         {
           "path": "tests/publisher_installation_lease_evidence.py",
-          "sha256": "0a3a6feaaab5bd88873fa1b16e008e47a3bc79c8d68f197255e704b539deef98"
+          "sha256": "cb6dea00e72d3c4110b9f33175387e41e602f490741bc7503783f0c9b07b1a4b"
         },
         {
           "path": "tests/publisher_stale_plan_evidence.py",
@@ -3141,7 +3173,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5a5d9436b199914af416fa515e175ac550d73e85cf279bfc7a40d629f7963312"
+          "sha256": "8cbc5d1a37613b24ca043515a3452a150db72eeac39b45cd5cd7a6b5aceb206d"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -3173,7 +3205,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "aabb32dd4e5445e84b86331dec4d629295ab455ad6cfc5b3bb4437612ec9af45"
+          "sha256": "e42496fbe1ecc6543600017cbff30240d4795a016265dce7b7e8d5389e8bc2db"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -3201,7 +3233,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "b1e57d3109dd9ef36e563f652d555df0172183092d7a41035e79aa3f9b2fd732"
+          "sha256": "26fc6c6ed8ad7e8550e57a3823afa49a46c5980e16bf6d91814a7153218c0948"
         },
         {
           "path": "tests/publisher_changed_state_revision_evidence.py",
@@ -3210,6 +3242,22 @@
         {
           "path": "tests/test_publisher_changed_state_revision_evidence.py",
           "sha256": "bd6e96ea6f83c49296ed7527a9ba7f3be1b538ed0b6b0a87dba4082fd3fc94a1"
+        },
+        {
+          "path": "tests/publisher_bootstrap_prefix_evidence.py",
+          "sha256": "564aceb6a0f3d78b6fc7529885c951881f95db2dfbf546f698ed0ae2338374cd"
+        },
+        {
+          "path": "tests/test_publisher_bootstrap_prefix_evidence.py",
+          "sha256": "76770a18689579339577d03ace8636d39c686dc811e06f07ca4eb303ed21ed4c"
+        },
+        {
+          "path": "tests/windows_publisher_bootstrap_prefix.ps1",
+          "sha256": "da5147e327792de5746b34a7e99623e15b0494be1360abd76257d4650b1eaafc"
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
         }
       ],
       "acceptance_ids": [
@@ -4204,7 +4252,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5942b8f7c3cac15ab9ca35ae0ebdb8ec9898d39dad036c5ea7cc0a3865456cd5"
+          "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4240,7 +4288,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5942b8f7c3cac15ab9ca35ae0ebdb8ec9898d39dad036c5ea7cc0a3865456cd5"
+          "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4276,7 +4324,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5942b8f7c3cac15ab9ca35ae0ebdb8ec9898d39dad036c5ea7cc0a3865456cd5"
+          "sha256": "9470773aa851a8a381b142ddaaa765d9309177d5ca1a5e2cd3298ae88bbd23f9"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4659,7 +4707,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "aabb32dd4e5445e84b86331dec4d629295ab455ad6cfc5b3bb4437612ec9af45"
+          "sha256": "e42496fbe1ecc6543600017cbff30240d4795a016265dce7b7e8d5389e8bc2db"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4963,11 +5011,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "b1e57d3109dd9ef36e563f652d555df0172183092d7a41035e79aa3f9b2fd732"
+          "sha256": "26fc6c6ed8ad7e8550e57a3823afa49a46c5980e16bf6d91814a7153218c0948"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5a5d9436b199914af416fa515e175ac550d73e85cf279bfc7a40d629f7963312"
+          "sha256": "8cbc5d1a37613b24ca043515a3452a150db72eeac39b45cd5cd7a6b5aceb206d"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -5455,11 +5503,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "b1e57d3109dd9ef36e563f652d555df0172183092d7a41035e79aa3f9b2fd732"
+          "sha256": "26fc6c6ed8ad7e8550e57a3823afa49a46c5980e16bf6d91814a7153218c0948"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "5a5d9436b199914af416fa515e175ac550d73e85cf279bfc7a40d629f7963312"
+          "sha256": "8cbc5d1a37613b24ca043515a3452a150db72eeac39b45cd5cd7a6b5aceb206d"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
