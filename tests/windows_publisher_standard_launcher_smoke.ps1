@@ -316,3 +316,5 @@ try {Assert-StandardRegisteredTaskAbsent -TaskName 'not-owned' -CreateScheduler 
 catch {$refused=$true}
 if(-not $refused -or $opened[0] -ne 0){throw 'Unowned task absence reached scheduler access'}
 'Launcher startup: acknowledgment, metadata identity/types, original errors and reference cleanup checked; no tasks executed'
+
+& (Join-Path $PSScriptRoot 'windows_publisher_install_guard_cleanup_smoke.ps1')

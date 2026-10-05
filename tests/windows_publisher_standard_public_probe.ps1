@@ -12,12 +12,16 @@ param(
     [switch]$BootstrapPreservationProcessLoss,
     [switch]$ActiveInstallContention,
     [switch]$StalePlanQualification,
+    [switch]$InstallationGuardConflict,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$ConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
     [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
+if($InstallationGuardConflict -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
+    $ActiveInstallContention -or $StalePlanQualification -or $ConstructedBootstrapPrefix -cne 'none' -or
+    $ConstructedBootstrapDurableState -cne 'none')) {throw 'Installation guard case requires its separate ordinary source-free lab'}
 if($ActiveInstallContention -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss)) {
     throw 'Active holder contention requires the original uninterrupted installer'
 }
@@ -38,6 +42,7 @@ if($ConstructedBootstrapDurableState -cne 'none' -and
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_active_worker.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_bootstrap_prefix.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_install_guard_fixture.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -58,6 +63,7 @@ $drive=[string]$volume.DriveLetter+':\'
 $id=[guid]::NewGuid().ToString('N');$service='USK_PUB_'+$id;$accountName='USKCLI_'+$id.Substring(0,13)
 $accountSid='';$accountCreated=$false;$clientsClosed=$true;$registered=$false;$secret=$null
 $observersClosed=$true;$clientTokenLease=$null;$clientCaptureFile=Join-Path $lab 'public-client-token.json';$clientCaptureSha256=''
+$installGuardHolderClosed=$true
 $activeContenderClosed=$true;$activeWorkerRestored=$true;$activeRetainedTokenLease=$null;$activeRetainedOriginalTokenLease=$null
 $ownerCreation=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
 $publisherBuild=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($ServiceBinary)))
@@ -382,14 +388,17 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     }
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
-    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal) {
+    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
     $processLoss=$BootstrapLoss -or $PreservationLoss
-    $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal
+    $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal -or $InstallGuardRefusal
     if(($StalePlanRefusal -and $StateRevisionRefusal) -or
-        ($structuredRefusal -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss))) {
+        (($StalePlanRefusal -or $StateRevisionRefusal) -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss))) {
         throw 'Stale-plan case requires a completed authenticated refusal'
     }
+    if($InstallGuardRefusal -and ($StalePlanRefusal -or $StateRevisionRefusal -or $processLoss -or
+        -not $InstallationGuardConflict -or $Command -cne 'installed.verify' -or $ExpectedExit -ne 4 -or
+        -not $receipt.Contains('installation_guard_conflict'))) {throw 'Installation guard refusal scope differs'}
     $lossKey=if($PreservationLoss){'bootstrap_preservation_loss'}else{'bootstrap_loss'}
     $lossPhase=if($PreservationLoss){'bootstrap_preserved'}else{'bootstrap'}
     if(($BootstrapLoss -and $PreservationLoss) -or ($processLoss -and
@@ -445,6 +454,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 -ServiceBinarySha256 $receipt.service_sha256 -BootstrapOperationPrefix $operationPrefix
         } elseif($StalePlanRefusal) {$script:stalePlanCase.client_capture=$clientCapture}
         elseif($StateRevisionRefusal) {$script:stateRevisionCase.client_capture=$clientCapture}
+        elseif($InstallGuardRefusal) {$receipt.installation_guard_conflict.client_capture=$clientCapture}
         else {$receipt.client_captures.Add($clientCapture)}
         $launch.Resume()
         if($ActiveInstallContention -and $Command -ceq 'install_local.apply' -and -not $processLoss -and
@@ -490,6 +500,16 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 $result.error.code -ceq 'state_revision_stale'
             $script:stateRevisionCase.response=$result
         }
+        if($InstallGuardRefusal) {
+            $reference=$receipt.installation_guard_conflict.holder.native_ready.operation_inspection_ref
+            $responseMatches=$responseMatches -and $result.status -ceq 'refused' -and
+                $result.error.code -ceq 'operation_conflict' -and
+                $result.result.schema -ceq 'usk.publisher_operation_diagnostic.v1' -and
+                $result.result.error_code -ceq 'operation_conflict' -and
+                $result.result.inspection_reference -ceq $reference
+            $receipt.installation_guard_conflict.response=$result
+            $receipt.installation_guard_conflict.exit_code=$exit
+        }
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
@@ -529,6 +549,12 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                     throw 'Native approved-operation revision refusal was not preserved'
                 }
                 $script:stateRevisionCase.native_observation=$nativeCapture
+            } elseif($InstallGuardRefusal) {
+                if($native.error_code -cne 'operation_conflict' -or
+                    $native.operation_inspection_ref -cne $receipt.installation_guard_conflict.holder.native_ready.operation_inspection_ref) {
+                    throw 'Authenticated native installation guard reason/reference differs'
+                }
+                $receipt.installation_guard_conflict.native_observation=$nativeCapture
             } else {$receipt.native_observations.Add($nativeCapture)}
         }
         return $result
@@ -795,6 +821,7 @@ try {
     Assert-LeaseTransition $recovered $after
     $verify=@{schema='usk.publisher_installed_verify_request.v1';request_id='verify.'+$id;install_id=$installed.install_id;
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+    if($InstallationGuardConflict){Invoke-InstallGuardVerificationConflict $verify}
     $receipt['verification']=Invoke-StandardRequest 'installed.verify' $verify
     if($receipt.verification.result.payload.status -cne 'pass' -or $receipt.verification.result.payload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
@@ -813,7 +840,7 @@ finally {
         try {$clientTokenLease.Dispose();$clientTokenLease=$null}
         catch {$clientsClosed=$false;$receipt.status='failed';$receipt['cleanup_failure']=$_.Exception.Message}
     }
-    $receipt.client_cleanup_confirmed=$clientsClosed -and $observersClosed -and $null -eq $clientTokenLease -and
+    $receipt.client_cleanup_confirmed=$clientsClosed -and $observersClosed -and $installGuardHolderClosed -and $null -eq $clientTokenLease -and
         $activeContenderClosed -and $activeWorkerRestored -and $null -eq $activeRetainedTokenLease -and
         $null -eq $activeRetainedOriginalTokenLease
     if($accountCreated -and $receipt.client_cleanup_confirmed) {

@@ -445,7 +445,8 @@ def installed_material(observation, rows, drive):
 
 
 def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False, allow_legacy_missing_bootstrap=False,
-              require_bootstrap_loss=False, require_bootstrap_preservation_loss=False):
+              require_bootstrap_loss=False, require_bootstrap_preservation_loss=False,
+              require_installation_guard_conflict=False):
     require(receipt.get("status") == "volume_and_protected_publish_observed" and
         receipt.get("build_profile", {}).get("pull_request_head") == expected_head,
         "standard hosted source/result differs")
@@ -620,6 +621,11 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
     if 'changed_state_revision' in observation:
         from publisher_changed_state_revision_evidence import reconcile as reconcile_changed_state_revision
         result['changed_state_revision'] = reconcile_changed_state_revision(observation, receipt['volume_root'])
+    require(not require_installation_guard_conflict or 'installation_guard_conflict' in observation,
+        'required native installation guard/public conflict case is missing')
+    if 'installation_guard_conflict' in observation:
+        from publisher_install_guard_evidence import reconcile as reconcile_installation_guard
+        result['installation_guard_conflict'] = reconcile_installation_guard(observation, receipt['volume_root'])
     return result
 
 
@@ -759,7 +765,7 @@ def reconcile_bootstrap_loss(observation, captures, installed, completed_readbac
 
 def reconcile_native_model(receipt, expected_head, reviewed_source_tree, *, allow_legacy_missing_coordination=False,
                            allow_legacy_missing_bootstrap=False, require_bootstrap_loss=False,
-                           require_bootstrap_preservation_loss=False):
+                           require_bootstrap_preservation_loss=False, require_installation_guard_conflict=False):
     """Current producer qualification input, with separately pinned review tree.
 
     Legacy reconciliation remains available above. It cannot stand in for
@@ -769,7 +775,8 @@ def reconcile_native_model(receipt, expected_head, reviewed_source_tree, *, allo
     from publisher_native_profile_evidence import project, ROUTE
     standard = reconcile(receipt, expected_head, allow_legacy_missing_coordination=allow_legacy_missing_coordination,
                          allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap, require_bootstrap_loss=require_bootstrap_loss,
-                         require_bootstrap_preservation_loss=require_bootstrap_preservation_loss)
+                         require_bootstrap_preservation_loss=require_bootstrap_preservation_loss,
+                         require_installation_guard_conflict=require_installation_guard_conflict)
     observation = receipt['service_observation']
     require(isinstance(reviewed_source_tree, str) and re.fullmatch('[0-9a-f]{40}', reviewed_source_tree) and
         receipt['build_profile']['source_tree'] == reviewed_source_tree,

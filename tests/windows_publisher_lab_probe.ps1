@@ -26,6 +26,7 @@ param(
     [switch]$PublicStandardBootstrapPreservationLoss,
     [switch]$PublicStandardActiveInstallContention,
     [switch]$PublicStandardStalePlanQualification,
+    [switch]$PublicStandardInstallationGuardConflict,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$PublicStandardConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
@@ -44,6 +45,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicStandardInstallationGuardConflict -and (-not $PublicInstallation -or -not $PublicStandardClient -or
+    $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
+    $PublicStandardStalePlanQualification -or $PublicStandardConstructedBootstrapPrefix -cne 'none' -or
+    $PublicStandardConstructedBootstrapDurableState -cne 'none')) {throw 'Installation guard requires its separate ordinary Standard lab'}
 if($PublicStandardConstructedBootstrapDurableState -cne 'none' -and
     (-not $PublicInstallation -or -not $PublicStandardClient -or -not $PublicStandardBootstrapLoss -or
         $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardActiveInstallContention -or $PublicStandardStalePlanQualification -or
@@ -194,7 +199,7 @@ function Read-PublicBuildProfile([string]$Binary) {
 function Invoke-StandardPublicSystemTask {
     param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
         [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss,
-        [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,
+        [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
         [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none')
     # No local invocation can reach this: the outer lab has already required a
     # fresh hosted VM and provisioned the exact disposable data disk.
@@ -232,6 +237,7 @@ function Invoke-StandardPublicSystemTask {
             $(if($BootstrapPreservationProcessLoss){' -BootstrapPreservationProcessLoss'}else{''})+
             $(if($ActiveInstallContention){' -ActiveInstallContention'}else{''})+
             $(if($StalePlanQualification){' -StalePlanQualification'}else{''})+
+            $(if($InstallationGuardConflict){' -InstallationGuardConflict'}else{''})+
             ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
             ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))) -join "`n"
     $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
@@ -456,6 +462,7 @@ try {
                 -BootstrapPreservationProcessLoss:$PublicStandardBootstrapPreservationLoss `
                 -ActiveInstallContention:$PublicStandardActiveInstallContention `
                 -StalePlanQualification:$PublicStandardStalePlanQualification `
+                -InstallationGuardConflict:$PublicStandardInstallationGuardConflict `
                 -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
                 -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {

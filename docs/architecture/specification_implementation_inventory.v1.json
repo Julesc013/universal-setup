@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-05T17:30:50Z",
+  "generated_at": "2026-10-05T18:47:06Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -870,7 +870,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -994,7 +994,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -1389,7 +1389,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "6c0ca2f89afb4a9b70d3a744df8201816c6eb301578a01820f2865145b80ce92"
+          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -1397,7 +1397,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f8f33a029766e92608bf96b463a2269df20800fdc0ca0e0e514250518d7634be"
+          "sha256": "1176854924d9acf9bbd6b91ff4567c90b79cc6595b219342e266d76af670a679"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_request_channel.cpp",
@@ -2499,7 +2499,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The restricted-service backend persists immutable original intent before bootstrap, binds protected native volume/setup/state identities and holder PID plus birth time, and appends bounded ownership generations with reserved terminal capacity. Every product effect requires the current native fence; live or unknown prior holders refuse transfer without timeout takeover. Integrated PR231/232 separately qualify actual worker losses, empty-root preservation, reservation absence, generation2/3 completion and source-free recovery/replay/verify. Current PR236 source018c231/treee8eda3b/CI37339692350 passed all7 jobs/native55 and guarded17-receipt reconciliation, including nine hosted SYSTEM-constructed ordered-anchor/snapshot classes after a separately observed worker loss. Constructed states do not establish crashes at those offsets. The current source adds six constructed durable states: move intent, pending empty/middle/full, publication absence and next-reservation absence. Their native execution is pending. Paused-worker/PID-reuse qualification, actual uncertain native outcomes and wider generation/recovery obligations remain unfinished; no accepted007 or release predicate follows.",
+      "note": "The restricted-service backend persists immutable original intent before bootstrap, binds native volume/setup/state identities and holder PID plus birth time, and appends bounded generations with reserved terminal capacity. Effects require current native fences; live or unknown holders refuse transfer without timeout takeover. Integrated predecessors qualify actual ended-worker loss, generation2/3 completion and source-free recovery/replay/verify. PR236 f5cf5d3/treebf3e9f9/CI37349471796 passed all7/native55 and guarded23 receipts plus independently reviewed two late client receipts (bounded final25 reviewc0bfd52f). This includes nine constructed ordered prefixes and six constructed durable states after separately observed worker loss; it does not establish crashes at those constructed offsets, arbitrary issued-call errors or power loss. Literal PID reuse remains unobserved; the current profile transfers only from observed ended instances or birth mismatch and refuses live or unknown holders. The current native installation-mutex public-response fixture is source-only until executed on its own exact head. Whole WorkUnit and release acceptance remain NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2511,7 +2511,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -2655,7 +2655,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "6c0ca2f89afb4a9b70d3a744df8201816c6eb301578a01820f2865145b80ce92"
+          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -2687,7 +2687,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "ee571cb7e1cdda29b0dc1154adae2f94a4fd73725a9365414e51cde78e77fc46"
+          "sha256": "a8374269a28c471f78181fca1cbca6cb4cc533c1ec5359bd553fc73bebf25f00"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2711,11 +2711,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
-          "sha256": "7333464e8c493e2a7dc0e49d8c10cb0e4adb0c7894d0586e2a93fe1658915a5b"
+          "sha256": "c91251a9ad867149dc3f1ef1e87fedd55b89ffcbb0a7b8ed8fc8353ab651aa59"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f8f33a029766e92608bf96b463a2269df20800fdc0ca0e0e514250518d7634be"
+          "sha256": "1176854924d9acf9bbd6b91ff4567c90b79cc6595b219342e266d76af670a679"
         },
         {
           "path": "tests/publisher_prefix_archive.py",
@@ -2747,7 +2747,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5ec94cf58ac1b9c8684d61537828ccb5b46fa027c98a333d09a9e1bbe4f79496"
+          "sha256": "c3c7277d8b99241c7ad96852c242bd4f0359933e015f57b316034ef8521f076b"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -2792,6 +2792,22 @@
         {
           "path": "tests/test_publisher_durable_archive.py",
           "sha256": "1a0a8d67c4713011060efd984dfe33959cfeca28b32b8a844d2bc977dc22ea51"
+        },
+        {
+          "path": "tests/windows_publisher_install_guard_fixture.ps1",
+          "sha256": "5d8f1422cf6a75cd8e4f2aa138a77cfe870f0f963a7b09a741a758f88cb14d45"
+        },
+        {
+          "path": "tests/publisher_install_guard_evidence.py",
+          "sha256": "bb795ff349069733db264fc644ba1d84f0334ad5d5e5905473ba2de379641a30"
+        },
+        {
+          "path": "tests/test_publisher_install_guard_evidence.py",
+          "sha256": "85d0c16141a3714e3336a90727cf211c5f8a55f9d9646993920f0522edfa6339"
+        },
+        {
+          "path": "tests/native/usk_publisher_install_guard_holder.cpp",
+          "sha256": "5df747701f3d9d9abb81ef53c535b7c1a0b495f82f74edafef9c36f132007d47"
         }
       ],
       "acceptance_ids": [
@@ -2810,7 +2826,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Volume and per-install native guards provide fail-fast acquisition, waits bounded to30000ms, cancellation and owning-thread checks. Public transport distinguishes non-dispatch only before its first attempted write; later partial/lost/cancelled I/O remains unknown. Integrated PR233/234 qualify twelve passive endpoint cases and four cases while the original installer retained its active lease, with independent native target/volume readbacks, checked restoration and original same-owner completion. PR235 qualifies four authenticated immutable-context refusals. Current018c231/CI37339692350 independently regresses those existing publication/recovery/refusal predicates through guarded17-receipt reconciliation and all7/native55. Endpoint contention does not establish installation-mutex contention, stale-worker pause or live takeover. Whole WorkUnit and release acceptance remain NOT_RUN.",
+      "note": "Native volume/install mutexes guard owning-thread effects and expose opaque operation references. Real native tests cover both guards, bounded wait/cancellation, release and process birth mismatch. Registered endpoint contention separately qualifies four public pre-request-byte conflicts/cancellations; actual paused-worker contention retains original ownership and completes the same installer. PR235 immutable-context refusals and PR236 f5cf5d3 current25 regressions remain qualified in their bounded scopes. Endpoint contention alone does not prove installation-mutex contention. The current separate hosted fixture holds only the native installation mutex, dispatches authenticated source-free installed.verify, requires failed/operation_conflict to public refused/exit4 with the same scope reference, preserves complete protected rows/boundary, releases the actual child normally and verifies again. Its native execution is pending. Public installation-mutex wait/cancellation and live-holder transfer are not claimed. Whole WorkUnit and release acceptance remain NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2822,7 +2838,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -2966,7 +2982,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "6c0ca2f89afb4a9b70d3a744df8201816c6eb301578a01820f2865145b80ce92"
+          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -2998,7 +3014,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "ee571cb7e1cdda29b0dc1154adae2f94a4fd73725a9365414e51cde78e77fc46"
+          "sha256": "a8374269a28c471f78181fca1cbca6cb4cc533c1ec5359bd553fc73bebf25f00"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -3022,11 +3038,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
-          "sha256": "7333464e8c493e2a7dc0e49d8c10cb0e4adb0c7894d0586e2a93fe1658915a5b"
+          "sha256": "c91251a9ad867149dc3f1ef1e87fedd55b89ffcbb0a7b8ed8fc8353ab651aa59"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f8f33a029766e92608bf96b463a2269df20800fdc0ca0e0e514250518d7634be"
+          "sha256": "1176854924d9acf9bbd6b91ff4567c90b79cc6595b219342e266d76af670a679"
         },
         {
           "path": "tests/publisher_prefix_archive.py",
@@ -3058,7 +3074,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5ec94cf58ac1b9c8684d61537828ccb5b46fa027c98a333d09a9e1bbe4f79496"
+          "sha256": "c3c7277d8b99241c7ad96852c242bd4f0359933e015f57b316034ef8521f076b"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3103,6 +3119,22 @@
         {
           "path": "tests/test_publisher_durable_archive.py",
           "sha256": "1a0a8d67c4713011060efd984dfe33959cfeca28b32b8a844d2bc977dc22ea51"
+        },
+        {
+          "path": "tests/windows_publisher_install_guard_fixture.ps1",
+          "sha256": "5d8f1422cf6a75cd8e4f2aa138a77cfe870f0f963a7b09a741a758f88cb14d45"
+        },
+        {
+          "path": "tests/publisher_install_guard_evidence.py",
+          "sha256": "bb795ff349069733db264fc644ba1d84f0334ad5d5e5905473ba2de379641a30"
+        },
+        {
+          "path": "tests/test_publisher_install_guard_evidence.py",
+          "sha256": "85d0c16141a3714e3336a90727cf211c5f8a55f9d9646993920f0522edfa6339"
+        },
+        {
+          "path": "tests/native/usk_publisher_install_guard_holder.cpp",
+          "sha256": "5df747701f3d9d9abb81ef53c535b7c1a0b495f82f74edafef9c36f132007d47"
         }
       ],
       "acceptance_ids": [
@@ -3121,7 +3153,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The backend acquires native volume/install guards, binds the canonical protected installed-record revision in ownership, and revalidates current roots and revisions before effects. Stopped administrative enrollment binds exact reviewed envelopes to the actual registration, admitted target and configured caller; protected approval/envelope files remain held through authenticated dispatch. Fresh initial install checks actual installed-record state before intent/bootstrap writes and before rebuilding a plan or replaying retained publication. Actual native typed state_revision_stale is separate from stale_plan and unknown effects; JSON cannot create authority or a native exception. PR236 b24691e/CI37311546205 qualified two genuine approved PlanA/commitB/applyA refusals with unchanged39/41 native rows and absent A intent; current018c231/treee8eda3b/CI37339692350 regresses that entire chain in guarded17 reconciliation. Source-free recovery retains original intent while binding current revision. The current durable-state fixture uses actual native reservations/journals, exact held parent/root identities and strict default closure; only one already-bound pending fragment may be excluded from lease parsing while every full native row remains checked unchanged. Six-case native execution, maintenance revisions and remaining finite fencing/recovery predicates are unfinished. All acceptance statuses remain NOT_RUN.",
+      "note": "The backend acquires native volume/install guards, binds the protected installed-record revision in ownership, and revalidates roots and revisions before effects. Stopped administrative enrollment binds exact reviewed envelopes to actual registration, admitted target and configured caller; protected files stay held through authenticated dispatch. Fresh initial install checks actual installed state before intent/bootstrap writes and before plan rebuilding or retained replay. Typed native state_revision_stale remains separate from stale_plan and unknown effects; JSON creates neither authority nor native exceptions. PR236 actual approved PlanA/commitB/applyA refusals preserve complete native rows with absent A intent; f5cf5d3/CI37349471796 independently regresses that chain and the six constructed durable states. Strict default closure remains; only one fully bound retained pending fragment is excluded from lease parsing while full native rows stay unchanged. Wider maintenance revisions and remaining WorkUnit predicates are unfinished. All acceptance statuses remain NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -3133,7 +3165,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -3277,7 +3309,7 @@
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "6c0ca2f89afb4a9b70d3a744df8201816c6eb301578a01820f2865145b80ce92"
+          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
         },
         {
           "path": "tests/test_publisher_active_install_contention_evidence.py",
@@ -3309,7 +3341,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "ee571cb7e1cdda29b0dc1154adae2f94a4fd73725a9365414e51cde78e77fc46"
+          "sha256": "a8374269a28c471f78181fca1cbca6cb4cc533c1ec5359bd553fc73bebf25f00"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -3333,11 +3365,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
-          "sha256": "7333464e8c493e2a7dc0e49d8c10cb0e4adb0c7894d0586e2a93fe1658915a5b"
+          "sha256": "c91251a9ad867149dc3f1ef1e87fedd55b89ffcbb0a7b8ed8fc8353ab651aa59"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f8f33a029766e92608bf96b463a2269df20800fdc0ca0e0e514250518d7634be"
+          "sha256": "1176854924d9acf9bbd6b91ff4567c90b79cc6595b219342e266d76af670a679"
         },
         {
           "path": "tests/publisher_prefix_archive.py",
@@ -3369,7 +3401,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5ec94cf58ac1b9c8684d61537828ccb5b46fa027c98a333d09a9e1bbe4f79496"
+          "sha256": "c3c7277d8b99241c7ad96852c242bd4f0359933e015f57b316034ef8521f076b"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3414,6 +3446,22 @@
         {
           "path": "tests/test_publisher_durable_archive.py",
           "sha256": "1a0a8d67c4713011060efd984dfe33959cfeca28b32b8a844d2bc977dc22ea51"
+        },
+        {
+          "path": "tests/windows_publisher_install_guard_fixture.ps1",
+          "sha256": "5d8f1422cf6a75cd8e4f2aa138a77cfe870f0f963a7b09a741a758f88cb14d45"
+        },
+        {
+          "path": "tests/publisher_install_guard_evidence.py",
+          "sha256": "bb795ff349069733db264fc644ba1d84f0334ad5d5e5905473ba2de379641a30"
+        },
+        {
+          "path": "tests/test_publisher_install_guard_evidence.py",
+          "sha256": "85d0c16141a3714e3336a90727cf211c5f8a55f9d9646993920f0522edfa6339"
+        },
+        {
+          "path": "tests/native/usk_publisher_install_guard_holder.cpp",
+          "sha256": "5df747701f3d9d9abb81ef53c535b7c1a0b495f82f74edafef9c36f132007d47"
         }
       ],
       "acceptance_ids": [
@@ -3605,7 +3653,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -3640,7 +3688,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -3675,7 +3723,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -4408,7 +4456,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5ec94cf58ac1b9c8684d61537828ccb5b46fa027c98a333d09a9e1bbe4f79496"
+          "sha256": "c3c7277d8b99241c7ad96852c242bd4f0359933e015f57b316034ef8521f076b"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4416,7 +4464,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         }
       ],
       "acceptance_ids": [
@@ -4444,7 +4492,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5ec94cf58ac1b9c8684d61537828ccb5b46fa027c98a333d09a9e1bbe4f79496"
+          "sha256": "c3c7277d8b99241c7ad96852c242bd4f0359933e015f57b316034ef8521f076b"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4452,7 +4500,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         }
       ],
       "acceptance_ids": [
@@ -4480,7 +4528,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5ec94cf58ac1b9c8684d61537828ccb5b46fa027c98a333d09a9e1bbe4f79496"
+          "sha256": "c3c7277d8b99241c7ad96852c242bd4f0359933e015f57b316034ef8521f076b"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4488,7 +4536,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         }
       ],
       "acceptance_ids": [
@@ -4564,7 +4612,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -4863,7 +4911,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "ee571cb7e1cdda29b0dc1154adae2f94a4fd73725a9365414e51cde78e77fc46"
+          "sha256": "a8374269a28c471f78181fca1cbca6cb4cc533c1ec5359bd553fc73bebf25f00"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -4871,7 +4919,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -5167,11 +5215,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f8f33a029766e92608bf96b463a2269df20800fdc0ca0e0e514250518d7634be"
+          "sha256": "1176854924d9acf9bbd6b91ff4567c90b79cc6595b219342e266d76af670a679"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "6c0ca2f89afb4a9b70d3a744df8201816c6eb301578a01820f2865145b80ce92"
+          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
@@ -5351,7 +5399,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "9086a0f3a06514aab7dcf2bd7b63fbc7bf706994948a67239ea047d9563c14f6"
+          "sha256": "2b8d643df473bdb6aec4b818c83dc48639c8cba635b87147878c338deb9e01ed"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -5659,11 +5707,11 @@
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
-          "sha256": "f8f33a029766e92608bf96b463a2269df20800fdc0ca0e0e514250518d7634be"
+          "sha256": "1176854924d9acf9bbd6b91ff4567c90b79cc6595b219342e266d76af670a679"
         },
         {
           "path": "tests/publisher_standard_public_evidence.py",
-          "sha256": "6c0ca2f89afb4a9b70d3a744df8201816c6eb301578a01820f2865145b80ce92"
+          "sha256": "ec8997e06c5997f232b24c2e7b59fecc572cd4c339d9c2fd3846b57f4775d7a5"
         },
         {
           "path": "tests/test_publisher_standard_public_evidence.py",
