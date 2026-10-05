@@ -647,6 +647,61 @@ Value repair_plan_payload(const usk::lifecycle::RepairPlan& plan)
         {"state_root", Value(fs::absolute(plan.roots.state_root).lexically_normal().generic_string())}});
 }
 
+// Persist the original maintenance identity in the first transaction journal.
+// Native directory identities here are observations, never a replacement for
+// held mutation authority or permission to delete an object by pathname.
+Value maintenance_source_context(
+    const usk::transaction::TransactionSpec& spec,
+    const usk::state::InstalledState& installed,
+    const std::string& policy_digest,
+    const std::string& applied_at)
+{
+    const auto root_observation = [](const fs::path& path) {
+        const fs::path root = fs::absolute(path).lexically_normal();
+        return Value(Value::Object{
+            {"native_identity", Value(usk::transaction::observe_directory_identity(root))},
+            {"root", Value(root.generic_u8string())}});
+    };
+    const fs::path installed_root = fs::absolute(installed.target_root).lexically_normal();
+    const bool installed_root_exists = fs::exists(installed_root);
+    const Value installed_root_identity = installed_root_exists ?
+        Value(usk::transaction::observe_directory_identity(installed_root)) : Value();
+    return Value(Value::Object{
+        {"schema", Value("usk.maintenance_source_context.v1")},
+        {"operation", Value(spec.operation)},
+        {"install_id", Value(installed.install_id)},
+        {"transaction_id", Value(spec.transaction_id)},
+        {"plan_id", Value(spec.plan_id)}, {"plan_digest", Value(spec.plan_digest)},
+        {"policy_digest", Value(policy_digest)}, {"applied_at", Value(applied_at)},
+        {"original_installed_transaction_id", Value(installed.transaction_id)},
+        {"original_installed_state_digest", Value(installed_digest(installed))},
+        {"ownership_manifest_ref", Value(installed.ownership_manifest_ref)},
+        {"ownership_manifest_digest", Value(installed.ownership_manifest_digest)},
+        {"original_source_archive_digest", Value(installed.source_archive_digest)},
+        {"installed_root", Value(Value::Object{
+            {"root", Value(installed_root.generic_u8string())},
+            {"native_identity", installed_root_identity},
+            {"parent", root_observation(installed_root.parent_path())}})},
+        {"operation_target_root", Value(fs::absolute(spec.target_root).lexically_normal().generic_u8string())},
+        {"operation_target_parent", root_observation(spec.target_root.parent_path())},
+        {"staging_parent", root_observation(spec.staging_parent)},
+        {"state_root", root_observation(spec.state_root)},
+        {"audit_root", root_observation(spec.audit_root)}});
+}
+
+std::unique_ptr<usk::transaction::TransactionSession> begin_maintenance(
+    usk::transaction::TransactionSpec spec,
+    const usk::state::InstalledState& installed,
+    const std::string& policy_digest,
+    const std::string& applied_at,
+    usk::transaction::FaultInjector injector)
+{
+    const Value context = maintenance_source_context(spec, installed, policy_digest, applied_at);
+    return usk::transaction::TransactionSession::begin_streaming(
+        std::move(spec), usk::json::sha256_canonical(context),
+        usk::json::canonical(context), std::move(injector));
+}
+
 Value move_plan_payload(const usk::lifecycle::MovePlan& plan)
 {
     return Value(Value::Object{{"audit_root", Value(fs::absolute(plan.roots.audit_root).lexically_normal().generic_string())},
@@ -1972,12 +2027,14 @@ RepairResult apply_repair(
     require_payload_path_capacity(bundle / "backup", plan.replacement_files);
     require_payload_path_capacity(plan.roots.staging_parent / (".usk-stage-" + transaction_id) / "payload",
         plan.replacement_files);
-    transaction::TransactionSession transaction(transaction::TransactionSpec{
+    auto transaction_holder = begin_maintenance(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "repair", plan.roots.staging_parent,
         bundle, plan.roots.state_root, plan.roots.audit_root},
+        current.first, plan.policy_digest, applied_at,
         [&](const std::string& state, const std::string& point) {
             if (fault_injector) fault_injector("repair", "transaction." + state + "." + point);
         });
+    auto& transaction = *transaction_holder;
     std::vector<fs::path> backups;
     try {
         for (const PayloadFile& file : plan.replacement_files) {
@@ -2125,12 +2182,14 @@ MoveResult apply_move(
     require_result_record_capacity(plan.roots, plan.install_id, transaction_id, current.first.audit_chain_id);
     require_preimage_path_capacity(plan.new_root, plan.complete_files);
     require_preimage_path_capacity(plan.staging_parent / (".usk-stage-" + transaction_id), plan.complete_files);
-    transaction::TransactionSession transaction(transaction::TransactionSpec{
+    auto transaction_holder = begin_maintenance(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "move", plan.staging_parent,
         plan.new_root, plan.roots.state_root, plan.roots.audit_root},
+        current.first, plan.policy_digest, applied_at,
         [&](const std::string& state, const std::string& point) {
             if (fault_injector) fault_injector("move", "transaction." + state + "." + point);
         });
+    auto& transaction = *transaction_holder;
     try {
         for (const PreimageFile& file : plan.complete_files) {
             stage_preimage_file(transaction, plan.old_root, plan.old_root_identity, file);
@@ -2338,12 +2397,14 @@ UninstallResult apply_uninstall(
             plan.roots.staging_parent / (".usk-stage-" + transaction_id) / "operation.marker"}) {
         base::require_native_path_capacity(path, base::NativePathKind::file, "uninstall operation marker");
     }
-    transaction::TransactionSession transaction(transaction::TransactionSpec{
+    auto transaction_holder = begin_maintenance(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "uninstall", plan.roots.staging_parent,
         marker, plan.roots.state_root, plan.roots.audit_root},
+        current.first, plan.policy_digest, applied_at,
         [&](const std::string& state, const std::string& point) {
             if (fault_injector) fault_injector("uninstall", "transaction." + state + "." + point);
         });
+    auto& transaction = *transaction_holder;
     UninstallResult result;
     result.retained_unknown_paths = plan.verification.unknown_paths;
     try {

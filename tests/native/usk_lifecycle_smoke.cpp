@@ -550,6 +550,91 @@ void damage_isolated_owned_file(const fs::path& root, std::uint64_t expected_siz
 #endif
 }
 
+int maintenance_context_at_staging_boundary()
+{
+    for (const std::string scenario : {"repair.before", "repair.after", "move.before",
+            "move.after", "uninstall.before", "uninstall.after"}) {
+        const std::string operation = scenario.substr(0, scenario.find('.'));
+        const bool stage_created = scenario.substr(scenario.find('.') + 1) == "after";
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/portable";
+        fs::create_directories(target.parent_path());
+        const std::string install_id = "install.maintenance." + operation;
+        const auto install = usk::lifecycle::plan_install(
+            "plan.maintenance.install", install_id, "2026-10-01T00:00:00Z",
+            target, fixture.roots, recipe(), payload());
+        const auto original = usk::lifecycle::apply_install(
+            install, install.plan_digest, "tx.maintenance.install", "2026-10-01T00:00:01Z");
+        if (operation == "repair") write_text(target / "app/readme.txt", "damaged");
+        const auto before = usk::lifecycle::verify_installed(
+            fixture.roots, install_id, "verify.maintenance.before", "2026-10-01T00:00:02Z");
+        const std::string program_sha = usk::base::StableFile(target / "app/bin/program.exe").sha256_hex();
+        const std::string readme_sha = usk::base::StableFile(target / "app/readme.txt").sha256_hex();
+        const std::string transaction_id = "tx.maintenance." + operation;
+        const std::string applied_at = "2026-10-01T00:00:04Z";
+        const fs::path destination = fixture.root / "targets/moved";
+        const fs::path operation_target = operation == "move" ? destination :
+            target.parent_path() / (".usk-" + operation + "-" + transaction_id);
+        const fs::path staging_parent = operation == "move" ? destination.parent_path() : fixture.roots.staging_parent;
+        std::string plan_id, plan_digest;
+        bool reached_boundary = false;
+        const auto interruption = [&](const std::string& actual_operation, const std::string& point) {
+            if (actual_operation == operation && point == (stage_created ?
+                    "transaction.staging.after_staging_create" : "transaction.staging.after_journal")) {
+                reached_boundary = true;
+                throw std::runtime_error("maintenance staging boundary interruption");
+            }
+        };
+        const bool interrupted = refuses([&] {
+            if (operation == "repair") {
+                const auto plan = usk::lifecycle::plan_repair(fixture.roots, install_id,
+                    "plan.maintenance.repair", "2026-10-01T00:00:03Z", payload());
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_repair(plan, plan_digest, transaction_id, applied_at, interruption);
+            } else if (operation == "move") {
+                const auto plan = usk::lifecycle::plan_move(fixture.roots, install_id,
+                    "plan.maintenance.move", "2026-10-01T00:00:03Z", destination);
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_move(plan, plan_digest, transaction_id, applied_at, interruption);
+            } else {
+                const auto plan = usk::lifecycle::plan_uninstall(fixture.roots, install_id,
+                    "plan.maintenance.uninstall", "2026-10-01T00:00:03Z");
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_uninstall(plan, plan_digest, transaction_id, applied_at, interruption);
+            }
+        });
+        const fs::path stage = staging_parent / (".usk-stage-" + transaction_id);
+        if (!interrupted || !reached_boundary || fs::exists(operation_target) ||
+            fs::exists(stage) != stage_created || (stage_created && !fs::is_empty(stage)) ||
+            usk::base::StableFile(target / "app/bin/program.exe").sha256_hex() != program_sha ||
+            usk::base::StableFile(target / "app/readme.txt").sha256_hex() != readme_sha) {
+            throw std::runtime_error(scenario + " changed payload at its durable-context boundary");
+        }
+        const auto inspected = usk::transaction::TransactionSession::inspect_recovery({
+            transaction_id, plan_id, plan_digest, operation, staging_parent,
+            operation_target, fixture.roots.state_root, fixture.roots.audit_root});
+        const auto context = usk::json::parse(inspected.stream_source_context);
+        const auto snapshot = usk::state::StateRepository(fixture.roots.state_root).read_installed_snapshot(
+            context.at("install_id").as_string(), context.at("original_installed_transaction_id").as_string());
+        if (context.at("schema").as_string() != "usk.maintenance_source_context.v1" ||
+            context.at("operation").as_string() != operation ||
+            context.at("transaction_id").as_string() != transaction_id ||
+            context.at("plan_digest").as_string() != plan_digest ||
+            context.at("applied_at").as_string() != applied_at ||
+            context.at("original_installed_state_digest").as_string() != before.installed_state_digest ||
+            context.at("ownership_manifest_digest").as_string() != original.ownership.manifest_digest ||
+            context.at("installed_root").at("native_identity").as_string() !=
+                usk::transaction::observe_directory_identity(target) ||
+            inspected.stream_source_digest != usk::json::sha256_canonical(context) ||
+            snapshot.transaction_id != original.installed_state.transaction_id ||
+            snapshot.target_root != original.installed_state.target_root ||
+            inspected.available_actions != std::vector<std::string>{stage_created ? "retain_for_operator" : "abandon"}) {
+            throw std::runtime_error(scenario + " did not retain its original context at staging");
+        }
+    }
+    return 0;
+}
+
 int run()
 {
     Fixture fixture;
@@ -1418,6 +1503,9 @@ int main(int argc, char** argv)
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
         if (const int protected_visible = protected_visible_finalization_proof()) {
             return protected_visible;
+        }
+        if (const int maintenance = maintenance_context_at_staging_boundary()) {
+            return maintenance;
         }
         if (const int streaming = streaming_install_and_fault_proof()) {
             return streaming;

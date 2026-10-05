@@ -45,6 +45,16 @@ existing no-replace target commit and retain the loser.
 
 ## Reviewed post-commit finalization
 
+Repair, move and uninstall now bind an `usk.maintenance_source_context.v1`
+document in the first durable transaction journal, before staging creation.
+It records the original immutable installed-state transaction and digest,
+ownership manifest, reviewed plan and policy, applied time, operation target,
+and native observations of the installed and setup roots. Reopening the original
+installed snapshot does not require the source archive. These observations
+remain recovery inputs rather than mutation or pathname cleanup authority;
+the stream journal retains incomplete effects for inspection. Operation-specific
+effect replay and public maintenance finalization are still incomplete.
+
 `recovery.inspect`, `recovery.plan`, and `recovery.apply` can complete the
 post-commit install-local window only after a caller has reviewed the exact
 recovery plan. `recovery.apply` accepts `selected_action: "finalize"` only for
