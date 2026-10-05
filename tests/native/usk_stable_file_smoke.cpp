@@ -13,7 +13,54 @@
 #include <stdexcept>
 #include <string>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
+
+int record_backend_failure_proof(const fs::path& root)
+{
+    // A backend refusal must never fall through to the ordinary path writer.
+    // Unwinding a nested operation must restore the prior backend, then leave
+    // unrelated repository writes unaffected after the outer operation ends.
+    std::size_t directories = 0, outer_writes = 0, inner_writes = 0;
+    usk::record_io::RecordWriteOperations outer{
+        [&](const fs::path&, const std::string&) { ++directories; },
+        [&](const fs::path&, const std::string&) { ++outer_writes; }};
+    usk::record_io::RecordWriteOperations inner{
+        [&](const fs::path&, const std::string&) { throw std::runtime_error("refused create"); },
+        [&](const fs::path&, const std::string&) {
+            ++inner_writes;
+            throw std::runtime_error("refused publication");
+        }};
+    const fs::path record = root / "backend-record.json";
+    {
+        usk::record_io::ScopedRecordWriteOperations active(outer);
+        usk::record_io::create_directory_exclusive(root, "backend-directory");
+        try {
+            usk::record_io::ScopedRecordWriteOperations nested(inner);
+            usk::record_io::write_new_durable_text(record, "must not be published");
+            return 40;
+        } catch (const std::runtime_error&) {}
+        if (fs::exists(record) || fs::exists(root / "backend-directory")) return 41;
+        usk::record_io::write_new_durable_text(record, "outer operation");
+        // An incomplete backend cannot replace the active operation.
+        const usk::record_io::RecordWriteOperations incomplete{};
+        try {
+            usk::record_io::ScopedRecordWriteOperations invalid(incomplete);
+            return 42;
+        } catch (const std::runtime_error&) {}
+        usk::record_io::write_new_durable_text(record, "outer restored");
+    }
+    if (directories != 1 || outer_writes != 2 || inner_writes != 1 || fs::exists(record)) return 43;
+    usk::record_io::write_new_durable_text(record, "ordinary repository");
+    if (usk::record_io::read_stable_text(record, 64) != "ordinary repository") return 44;
+    return 0;
+}
 
 
 #if defined(_WIN32)
@@ -77,6 +124,21 @@ int native_path_capacity_proof(const fs::path& root)
     if (!refused_path_capacity([&] {
             require_native_path_capacity(unnormalized, NativePathKind::file, "unshortened native spelling");
         })) return 27;
+    return 0;
+}
+
+int volume_guid_record_io_proof(const fs::path& root)
+{
+    wchar_t volume_root[64]{};
+    if (!GetVolumeNameForVolumeMountPointW(root.root_path().c_str(),
+            volume_root, static_cast<DWORD>(std::size(volume_root)))) return 30;
+    const fs::path alias(std::wstring(volume_root) + root.relative_path().wstring());
+    usk::record_io::require_safe_directory(alias);
+    usk::record_io::write_new_durable_text(alias / "volume-bound.txt", "bound");
+    if (usk::record_io::read_stable_text(root / "volume-bound.txt", 16) != "bound" ||
+        usk::record_io::read_stable_text(alias / "volume-bound.txt", 16) != "bound") {
+        return 31;
+    }
     return 0;
 }
 #endif
@@ -171,7 +233,9 @@ int main()
 
 #if defined(_WIN32)
     if (const int capacity = native_path_capacity_proof(root)) return capacity;
+    if (const int volume_bound = volume_guid_record_io_proof(root)) return volume_bound;
 #endif
+    if (const int backend = record_backend_failure_proof(root)) return backend;
     fs::remove_all(root, error);
     return error ? 8 : 0;
 }

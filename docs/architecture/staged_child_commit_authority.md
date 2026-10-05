@@ -31,3 +31,49 @@ Whole-root `update.apply` makes this requirement mandatory. Its reviewed plan bi
 `usk_commit_authority_smoke` covers the preserved original oracle, valid streamed and buffered legacy commits, identical-byte and changed-byte file substitutions, directory substitution, extra files/directories, structural bounds, typed strict refusal before the observation hook, and live/reopened retention including malformed and erased metadata. `usk_zip_restart_smoke commit-authority` covers stored/Deflate public and native strict planning, digest/source binding, exact no-effect snapshots, downgrade refusal and omitted-requirement success. The original RED remains historical evidence; it is not relabeled as a passing host qualification.
 
 Independent source review, clean-source static/shared/combined SDK gates and fresh hosted platform checks bind separate exact candidate receipts. This source document does not assert those gates passed, qualify stronger publication success, close generation/cleanup work or adopt a consumer pin.
+
+## Restricted-service metadata candidate
+
+The internal Windows publisher now takes the selected readers from the exact reviewed native plan, including its archive prefix and source validator. It does not reinspect the ZIP with a second selection policy. The private finalizer binds the transaction, timestamp, source digests and actual visible root identity before writing shared ownership, installed-state and audit records.
+
+`PublisherMetadataSession` provides a scoped record backend for that internal service composition. It checks the accepted SYSTEM-owned, protected SYSTEM/service-SID descriptor on the held volume boundary and existing metadata tree. New directories and files receive the descriptor at creation. Initialization builds the marker and repository layout under a private root before parent-bound no-replace root publication. Records are written and flushed under `pending/`, then renamed without replacement through their retained destination parent. Unfinished pending records are retained outside installed-state and audit enumeration. Backend failures do not fall back to ordinary path writes.
+
+This remains an implementation candidate. Focused native builds, record-backend refusal tests and the synthetic readback-oracle regressions ran locally. Exact-head hosted run `36230204335` passed at commit `b3da3b934dec6ea17e3931f8dd16139bc9f261ea`, tree `b844221446ebba6b9bba596f59f03c34123179df`, on Windows `10.0.20348.0`. Its selected-metadata receipt reports successful restricted-service publication, independent SYSTEM readback of payload and ownership/installed/audit records, protected SYSTEM/service-SID descriptors, and confirmed service/observer/VHD cleanup. The retained receipt SHA-256 is `b15545de8e7a6be25a3ebfd650a4caddd2178f2aa06a9a58979695488df7fe5f`. Earlier unsuccessful local VM transport attempts and older successful VM receipts remain bound to their original source and environment. This observation does not establish current-binary crash-window or hostile-rights qualification, an ordinary production adapter, leases or OD-001 closure.
+
+The existing hosted Windows disposable-VHD harness also has a selected-metadata execution case. It observes the actual VM registry identity, creates an own-process restricted service, uses public authoring and selection tools to make a two-file stored source with a nonempty prefix and multi-buffer payloads, reviews the native plan, and independently reads protected payload and metadata as SYSTEM. The pure readback oracle accepts the observed drive alias and refuses a substituted alias. The successful hosted receipt above establishes this execution case; it does not qualify the general production profile. The existing prepublication and hostile-rights probe remains required and unchanged.
+
+## Shared candidate apply execution
+
+The restricted-service implementation is extracted into the private lifecycle
+engine. Its admitted service context invokes the normal `install_local.apply`
+parser and immediate native plan validation, then the concrete protected engine
+consumes those source-bound readers. Caller transaction ID and timestamp are
+persisted in the existing reviewed snapshot and installed state; they are not
+replaced by laboratory-generated operation identities. The context has no public
+constructor, callback registration, JSON activation or SDK capability token.
+The lab host provisions its disposable volume descriptor before execution;
+ordinary apply does not replace a volume ACL. Existing durable prepared/visible
+records, handle-relative no-replace publication, exact closure checks and protected
+metadata finalization remain shared with recovery.
+
+The hosted scenario sends the identical C ABI request to an ordinary native process
+and to the admitted restricted service. It requires refusal before ordinary
+mutation, a verified installed result inside the service, and independent SYSTEM
+readback of caller identities and protected records. These are candidate tests;
+this source change does not assert they have executed. General SDK/client
+transport, consumer read policy, per-install leases, complete hostile/crash
+qualification and production enablement remain incomplete.
+
+### Caller-bound interruption and source-free completion candidate
+
+The private recovery engine returns the actual shared `installed.inspect` C ABI response only after protected finalization, independent public verification and the held-root identity checks succeed. It preserves the durable v3 caller transaction and timestamp. This response is labelled `recovery_installed_response`; an interrupted apply is not reclassified as a successful apply. Post-entry failures carry the existing `recovery_required` refusal code through the normal C ABI, distinguishing retained or uncertain effects from no-effect authority refusal.
+
+The hosted selected-metadata case can cancel the admitted ordinary apply after its visible journal record is flushed, independently observe the published payload and absent public installed metadata, delete the exact original archive/request inputs within its new disposable VM input root, and resume the same restricted service without a source. It then validates completed installed/ownership/audit records, checks that existing payload and durable-intent bytes are unchanged, repeats recovery, and compares all record and payload hashes, sizes and closure. The independent interruption witness requires the protected bootstrap marker but no installed, ownership, audit or private completion records; completed-state validation rejects this partial state. These are candidate test instructions until the current exact-head run is observed. Controlled service cancellation is not VM or physical power-loss evidence. General production profile, external clients and per-install fencing remain open.
+
+### Earlier rename-window recovery candidate
+
+The hosted ordinary-apply recovery harness also has an interruption after protected rename but before the visible journal record is written. Independent SYSTEM readback must observe the caller-bound durable snapshot and exact visible payload, no visible journal record and no installed/completion metadata. With all six source/request inputs removed, the same private recovery engine must bind the observed publication forward, complete verified public installed state, and preserve every existing byte on idempotent retry. The two hosted recovery cases run sequentially, reuse the compiled binaries, and remove their own successful inputs, service and VHD before the next case. Failed inputs remain within the disposable runner. These are candidate test instructions, not an assertion that the current head executed. Production/client/lease and power-loss qualifications remain open.
+
+### Connected ordinary apply and prepared-window recovery candidate
+
+The same sequential hosted batch additionally executes successful ordinary caller-bound apply and interrupts ordinary apply after its complete staged closure and prepared journal, before publication. Independent SYSTEM readback must observe the exact staged payload and no visible root, visible journal or installed/completion state. After original sources are removed, shared recovery must perform the protected no-replace rename, bind visibility, complete verified caller-bound installed state and preserve all payload/intent bytes; only the exact staged payload subtree changes location. Repeated recovery must preserve the entire completed closure. Each case uses the same compiled engine and retires its disposable inputs/service/VHD before the next. Current-head execution remains pending; general production, external clients, per-install fencing and power-loss qualification remain open.

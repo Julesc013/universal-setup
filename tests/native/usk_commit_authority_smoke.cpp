@@ -9,12 +9,22 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <vector>
+
+#if defined(_WIN32)
+#if !defined(NOMINMAX)
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 namespace tx = usk::transaction;
@@ -273,12 +283,160 @@ void structural_bounds() {
     catch (const std::runtime_error& error) { refused = std::string(error.what()).find("depth") != std::string::npos; }
     check(refused, "closure depth was not bounded before filesystem observation");
 }
+#if defined(_WIN32)
+void windows_bound_rename_probe() {
+    const fs::path root = fs::temp_directory_path() /
+        ("usk-bound-rename-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    check(fs::create_directory(root), "bound rename probe requires fresh disposable root");
+    const fs::path stage = root / "stage";
+    const fs::path parent = root / "parent";
+    fs::create_directory(stage);
+    fs::create_directory(parent);
+
+    // Keep the Win32 RootDirectory observation executable. This is a
+    // disposable comparison, never a fallback for the bound native call.
+    const fs::path win32_source = stage / "win32-source";
+    fs::create_directory(win32_source);
+    usk::record_io::write_new_durable_text(win32_source / "payload.bin", "win32 probe\n");
+    const auto win32_file = identity(win32_source / "payload.bin");
+    HANDLE win32_source_handle = CreateFileW(win32_source.c_str(), DELETE | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    HANDLE win32_parent_handle = CreateFileW(parent.c_str(), FILE_READ_ATTRIBUTES | FILE_TRAVERSE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    check(win32_source_handle != INVALID_HANDLE_VALUE &&
+        win32_parent_handle != INVALID_HANDLE_VALUE,
+        "cannot open disposable Win32 RootDirectory comparison handles");
+    const std::wstring win32_name = L"win32-visible";
+    const std::size_t win32_bytes = offsetof(FILE_RENAME_INFO, FileName) +
+        (win32_name.size() + 1) * sizeof(WCHAR);
+    std::vector<std::max_align_t> win32_buffer(
+        (win32_bytes + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
+    auto* win32_info = reinterpret_cast<FILE_RENAME_INFO*>(win32_buffer.data());
+    win32_info->ReplaceIfExists = FALSE;
+    win32_info->RootDirectory = win32_parent_handle;
+    win32_info->FileNameLength = static_cast<DWORD>(win32_name.size() * sizeof(WCHAR));
+    std::memcpy(win32_info->FileName, win32_name.c_str(),
+        (win32_name.size() + 1) * sizeof(WCHAR));
+    const BOOL win32_applied = SetFileInformationByHandle(win32_source_handle, FileRenameInfo,
+        win32_info, static_cast<DWORD>(win32_bytes));
+    const DWORD win32_error = win32_applied ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(win32_source_handle);
+    CloseHandle(win32_parent_handle);
+    if (win32_applied) {
+        check(identity(parent / "win32-visible/payload.bin") == win32_file,
+            "Win32 RootDirectory comparison moved the wrong object");
+        std::cout << "Windows Win32 RootDirectory comparison: applied\n";
+    } else {
+        check(win32_error == ERROR_INVALID_PARAMETER &&
+            identity(win32_source / "payload.bin") == win32_file &&
+            !fs::exists(parent / "win32-visible"),
+            "Win32 RootDirectory comparison failed outside expected no-effect error 87");
+        std::cout << "Windows Win32 RootDirectory comparison: error 87, no effect\n";
+    }
+
+    const fs::path ordinary = stage / "ordinary";
+    fs::create_directory(ordinary);
+    usk::record_io::write_new_durable_text(ordinary / "payload.bin", "original\n");
+    const auto original_file = identity(ordinary / "payload.bin");
+    for (const auto* invalid_name : {L"CON.txt", L"..", L"bad:name", L"trailing."}) {
+        bool refused_name = false;
+        try {
+            (void)usk::record_io::probe_windows_handle_relative_no_replace(
+                ordinary, parent, invalid_name);
+        } catch (const std::exception&) { refused_name = true; }
+        check(refused_name && identity(ordinary / "payload.bin") == original_file,
+            "invalid Windows destination component was not refused before mutation");
+    }
+    const auto ordinary_result = usk::record_io::probe_windows_handle_relative_no_replace(
+        ordinary, parent, L"visible");
+    check(!fs::exists(ordinary) && identity(parent / "visible/payload.bin") == original_file &&
+        ordinary_result.source_file_id == ordinary_result.visible_file_id &&
+        !ordinary_result.destination_parent_file_id.empty(),
+        "handle-relative ordinary rename lost original native object");
+
+    const fs::path collision = stage / "collision";
+    const fs::path occupied = parent / "occupied";
+    fs::create_directory(collision);
+    fs::create_directory(occupied);
+    usk::record_io::write_new_durable_text(collision / "payload.bin", "source\n");
+    usk::record_io::write_new_durable_text(occupied / "payload.bin", "destination\n");
+    const auto collision_file = identity(collision / "payload.bin");
+    const auto occupied_file = identity(occupied / "payload.bin");
+    bool refused = false;
+    try { (void)usk::record_io::probe_windows_handle_relative_no_replace(collision, parent, L"occupied"); }
+    catch (const std::exception&) { refused = true; }
+    check(refused && identity(collision / "payload.bin") == collision_file &&
+        identity(occupied / "payload.bin") == occupied_file &&
+        read(occupied / "payload.bin") == "destination\n",
+        "no-replace probe clobbered a preexisting destination");
+
+    const fs::path raced = stage / "raced";
+    fs::create_directory(raced);
+    usk::record_io::write_new_durable_text(raced / "payload.bin", "raced source\n");
+    const auto raced_file = identity(raced / "payload.bin");
+    std::string raced_target_file;
+    refused = false;
+    try {
+        (void)usk::record_io::probe_windows_handle_relative_no_replace(
+            raced, parent, L"raced-target", {}, [&] {
+                fs::create_directory(parent / "raced-target");
+                usk::record_io::write_new_durable_text(
+                    parent / "raced-target/payload.bin", "foreign destination\n");
+                raced_target_file = identity(parent / "raced-target/payload.bin");
+            });
+    } catch (const std::exception&) { refused = true; }
+    check(refused && identity(raced / "payload.bin") == raced_file &&
+        identity(parent / "raced-target/payload.bin") == raced_target_file &&
+        read(parent / "raced-target/payload.bin") == "foreign destination\n",
+        "post-absence destination creation was not refused without replacement");
+
+    const fs::path substituted = stage / "substituted";
+    const fs::path outside = root / "original-outside";
+    fs::create_directory(substituted);
+    usk::record_io::write_new_durable_text(substituted / "payload.bin", "same bytes\n");
+    const auto bound_file = identity(substituted / "payload.bin");
+    const auto substituted_result = usk::record_io::probe_windows_handle_relative_no_replace(
+        substituted, parent, L"bound", [&] {
+            fs::rename(substituted, outside);
+            fs::create_directory(substituted);
+            usk::record_io::write_new_durable_text(substituted / "payload.bin", "same bytes\n");
+        });
+    check(!fs::exists(outside) && identity(parent / "bound/payload.bin") == bound_file &&
+        identity(substituted / "payload.bin") != bound_file &&
+        substituted_result.source_file_id == substituted_result.visible_file_id,
+        "source-path substitution redirected the handle-bound rename");
+
+    const fs::path parent_moved = root / "parent-moved";
+    const fs::path parent_race = stage / "parent-race";
+    fs::create_directory(parent_race);
+    usk::record_io::write_new_durable_text(parent_race / "payload.bin", "parent race\n");
+    const auto parent_race_file = identity(parent_race / "payload.bin");
+    refused = false;
+    try {
+        (void)usk::record_io::probe_windows_handle_relative_no_replace(
+            parent_race, parent, L"in-bound-parent", [&] {
+                fs::rename(parent, parent_moved);
+                fs::create_directory(parent);
+            });
+    } catch (const std::exception&) { refused = true; }
+    check(refused && !fs::exists(parent / "in-bound-parent") &&
+        identity(parent_race / "payload.bin") == parent_race_file &&
+        !fs::exists(parent_moved / "in-bound-parent"),
+        "parent-path substitution was not refused before mutation");
+    std::cout << "Windows native bound rename: ordinary, collision, destination race, source substitution, parent substitution PASS\n";
+}
+#endif
 } // namespace
 int main() {
     try {
         if (const int result = original_publication_regression()) return result;
         legacy_success(); changed_closure(); strict_refusal(); interrupted_preparation_retains();
         strict_visible_target_cannot_finalize(); structural_bounds();
+#if defined(_WIN32)
+        windows_bound_rename_probe();
+#endif
         std::cout << "commit preparation: legacy success, child/directory/closure changes, typed strict refusal, retained reopen/rollback and bounds PASS\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 251; }

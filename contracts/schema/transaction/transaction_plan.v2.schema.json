@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/transaction/transaction_plan.v2.schema.json",
+  "title": "Setup Transaction Plan, Version 2",
+  "type": "object",
+  "required": ["schema", "transaction_id", "plan_id", "operation", "dry_run", "steps", "rollback_required"],
+  "properties": {
+    "schema": { "const": "usk.transaction_plan.v2" },
+    "transaction_id": { "type": "string", "minLength": 1 },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "operation": {
+      "type": "string",
+      "enum": ["install_local", "verify", "repair", "uninstall", "adopt", "audit", "update", "move", "recovery"]
+    },
+    "dry_run": { "type": "boolean" },
+    "steps": { "type": "array", "items": { "type": "object" } },
+    "rollback_required": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

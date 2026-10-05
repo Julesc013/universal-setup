@@ -1,0 +1,113 @@
+{
+  "schema": "universal.workunit_partial_integration.v1",
+  "status": "partial",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-007",
+  "source_commit": "89c0034b5a3353fe853374470df5583b80beef5d",
+  "source_tree": "b9a111387058480f2f327fe6ade50cad2b06c7e4",
+  "pull_request": 232,
+  "merge_commit": "2c203fdc30b7b834de3735d23c421ede3cb20223",
+  "successful_ci_run": 37251475610,
+  "successful_ci_attempt": 2,
+  "agent_review_comment_id": 5986958387,
+  "reviewer_context": "/root/review_pr216",
+  "compiled_source_commit": "d0e44163e0963cace945ca8889975f3be1c1ccc5",
+  "compiled_source_tree": "b9a111387058480f2f327fe6ade50cad2b06c7e4",
+  "qualified_scope": "Registered installation after two bound worker losses, preserving one empty publication root, observed moved-root reentry, generation 3 completion, and source-free recovery/replay/verify.",
+  "native_preservation": {
+    "schema": "usk.publisher_bootstrap_preservation_takeover_reconciliation.v1",
+    "status": "bindings_consistent",
+    "terminated_holder": {
+      "process_id": 7040,
+      "process_creation_time": "01dd546ccb3ed755"
+    },
+    "replacement_generation": 3,
+    "retained_root_identity": "ea0ec7750ec73979:39000000000001000000000000000000",
+    "retained_objects": 1,
+    "profile_qualified": false,
+    "publication_authority_granted": false,
+    "terminated_holders": [
+      {
+        "process_id": 7040,
+        "process_creation_time": "01dd546ccb3ed755"
+      },
+      {
+        "process_id": 196,
+        "process_creation_time": "01dd546ccf648087"
+      }
+    ],
+    "preserved_generation": 2,
+    "preservation_reentry_checked": true
+  },
+  "runtime_evidence": [
+    {
+      "case": "ordinary",
+      "artifact_id": 11321162337,
+      "sha256": "ef85f8ea9f2c43631226e487768a34746efa8b492c0c8a1ed07f97ae09a56091",
+      "bytes": 1655114
+    },
+    {
+      "case": "prepublish",
+      "artifact_id": 11322280779,
+      "sha256": "7fcc09ab89c8465f0aee75fc161923dd602739e379b8ac04970eb762b83497c2",
+      "bytes": 1955832
+    },
+    {
+      "case": "postrename",
+      "artifact_id": 11322280779,
+      "sha256": "30926e0d8088543f86e4834513eb39f074df1fd6bd4b4768eb2207713a7f4d31",
+      "bytes": 1846079
+    },
+    {
+      "case": "payload_changed",
+      "artifact_id": 11321767463,
+      "sha256": "3b8997040b0ab7e7e2ff7c84b9472224db700d3ff68119eecd92b7e05d34adc6",
+      "bytes": 1582184
+    },
+    {
+      "case": "metadata_collision",
+      "artifact_id": 11321767463,
+      "sha256": "db630dd49951823c78ec10383556eb5661973c63123cbf696a960af48352b7e4",
+      "bytes": 1760495
+    },
+    {
+      "case": "standard",
+      "artifact_id": 11321777500,
+      "sha256": "e65cd1e207a46f13b91e9b9ab4ee5b51b5b0d1adb6f2ad3a22937e42105a1a7c",
+      "bytes": 2104630
+    },
+    {
+      "case": "bootstrap",
+      "artifact_id": 11321488219,
+      "sha256": "3f892286ea7cc107bc3bd6d15d0e7d717f701c78246be3acedb64bca014a29fc",
+      "bytes": 2352680
+    },
+    {
+      "case": "preservation",
+      "artifact_id": 11322146811,
+      "sha256": "84e4e390d50226d6ffea3ebcc6b7c1360d529e99cab26f610d78141fe0279791",
+      "bytes": 2540073
+    }
+  ],
+  "retained_failed_attempts": [
+    {
+      "source_commit": "662f19fecc740621de8b87a5e92c6f6a681fe350",
+      "ci_run": 37249892986,
+      "reason": "preservation observation window already passed"
+    },
+    {
+      "source_commit": "89c0034b5a3353fe853374470df5583b80beef5d",
+      "ci_run": 37251475610,
+      "ci_attempt": 1,
+      "reason": "later hosted bridge lacked required transition and extended-stage coverage; following controller retained-root refusal"
+    }
+  ],
+  "qualification_limit": "Native/process x64 Windows NT build 20348, SDK 10.0.26100.0, v143/MSVC 19.44. Observed move and one empty root only; no every-prefix, uncertain-native-outcome, whole-WorkUnit, specification, release, power-loss or wider-platform acceptance.",
+  "remaining": [
+    "all_anchor_and_snapshot_prefixes",
+    "uncertain_native_outcomes",
+    "public_contention_and_stale_fencing",
+    "remaining_product_workunits"
+  ],
+  "accepted_predecessor_receipt": false
+}

@@ -4,6 +4,7 @@
 """Specification toolkit tests only; no installer or product qualification."""
 import contextlib
 import copy
+import errno
 import hashlib
 import subprocess
 import importlib.util
@@ -12,6 +13,7 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
+import time
 import unittest
 from unittest import mock
 import zipfile
@@ -298,7 +300,18 @@ class MutationTests(unittest.TestCase):
                 next(item for item in value['decisions'] if item['id']=='OD-005')['resolution_evidence']=[reference]
             else:value['decisions']['OD-005']['evidence']=[reference]
             path.write_text(m.json_text(value))
-    def tearDown(self):self.tmp.cleanup()
+    def tearDown(self):
+        # Git may finish writing inside a disposable fixture repository just
+        # after its subprocess exits. Retry only that transient removal race;
+        # persistent cleanup failures still fail the test.
+        for attempt in range(5):
+            try:
+                self.tmp.cleanup()
+                return
+            except OSError as error:
+                if error.errno != errno.ENOTEMPTY or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
     def programme_receipt(self,claim,details):
         path=self.root.parent/'release/evidence/test-programme-evidence.json'
         path.parent.mkdir(parents=True,exist_ok=True)

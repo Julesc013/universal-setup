@@ -1,0 +1,108 @@
+{
+  "schema": "universal.workunit_partial_integration.v1",
+  "status": "partial",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-007",
+  "source_commit": "0ed0bdb7e348e417a873e5922dac417b4cc8a80f",
+  "source_tree": "bdacf7b504a9488f8c6fd7d2f2db166d32063cfe",
+  "pull_request": 234,
+  "merge_commit": "8cf39d52760947a83a5b856837c47095c7fbf07f",
+  "successful_ci_run": 37286434468,
+  "successful_ci_attempt": 1,
+  "agent_review_comment_id": 5991655359,
+  "reviewer_context": "/root/review_pr216",
+  "qualified_scope": "Registered endpoint fail-fast, deadline, ready and active-call cancellation before request bytes while the original installer retains its native generation-1 lease, followed by same-owner completion and source-free recovery/replay/verify.",
+  "endpoint_scope": "active_install_holder_endpoint_before_effect_request_bytes",
+  "passive_endpoint_outcomes_checked": 12,
+  "active_installer_outcomes_checked": 4,
+  "reconciliation_sha256": "1974f14f08f71cf8d24e6f282a9bcb026293ffa977e9372853500d0d3795ec68",
+  "runtime_evidence": [
+    {
+      "case": "ordinary",
+      "artifact_id": 11334881186,
+      "sha256": "eae547f5c6f8aac323fa2ce2d797771bd9c59d389bf388b27c84bf678d76aa50",
+      "bytes": 1654214
+    },
+    {
+      "case": "prepublish",
+      "artifact_id": 11334229317,
+      "sha256": "adee9515af95b3dfb28236cefe325b15852758ad2b0ff9b2b6119aaa1ab871c2",
+      "bytes": 1953865
+    },
+    {
+      "case": "postrename",
+      "artifact_id": 11334229317,
+      "sha256": "a65165977c1c639ce44c8a28499400e8b09c35d4a7247740290a0d3623f3dce8",
+      "bytes": 1848850
+    },
+    {
+      "case": "payload_changed",
+      "artifact_id": 11335250715,
+      "sha256": "d2b4102d2f534b69bc0631ceaae68a3648baf67f7aed7ab3fac84e7f16aa69d6",
+      "bytes": 1583670
+    },
+    {
+      "case": "metadata_collision",
+      "artifact_id": 11335250715,
+      "sha256": "3055cf78e72f6ca0b161d75ae60082620fc819b69ace24403292659455599c79",
+      "bytes": 1758792
+    },
+    {
+      "case": "standard",
+      "artifact_id": 11335440894,
+      "sha256": "96dd6a3f799dc20bbbf58f15fc9c40343d9092ca54ec329e6ac96667d255f6e9",
+      "bytes": 3372767
+    },
+    {
+      "case": "bootstrap",
+      "artifact_id": 11335330827,
+      "sha256": "e747538e784bf1b919926a3e632603e27012e5a82e94856816922f3060d4e275",
+      "bytes": 3291149
+    },
+    {
+      "case": "preservation",
+      "artifact_id": 11335510274,
+      "sha256": "65c0b0149423a669cd5444b38122f26973e69024cccad08a7613a239daa9f2c4",
+      "bytes": 3488470
+    },
+    {
+      "case": "late-machine",
+      "artifact_id": 11335770281,
+      "sha256": "8237b75690244bbeb8abbc692b6dd46560ced4f3d59cda28d9ba5c3ff33628d8",
+      "bytes": 1468095
+    },
+    {
+      "case": "late-controller",
+      "artifact_id": 11335053919,
+      "sha256": "9f57e102c7bd42f00e3558836eb2ece59964672b0a05c8535140cfcacfc9bf0b",
+      "bytes": 390737
+    }
+  ],
+  "retained_failed_attempts": [
+    {
+      "source_commit": "4b4a7d8d8a16e20da9c69c1f40595b88b8a15aa8",
+      "ci_run": 37268907778,
+      "reason": "Seven CI jobs passed, but strict raw reconciliation055348-453162 failed because the decoder mistook the retained planning one-shot envelope for its typed payload; unchanged observations and failure retained unqualified"
+    },
+    {
+      "source_commit": "099d599a27f75a342bca4ad28219a132bcf9868d",
+      "ci_run": 37270843959,
+      "reason": "Fresh public reconciliation passed, but native volume-operation guard and ZIP restart CTests failed; cause unestablished and original failure logs and raw observations retained unqualified"
+    },
+    {
+      "source_commit": "535942dba3897471a71c185df56f95e3d4ed3e73",
+      "ci_run": 37273814062,
+      "reason": "Bootstrap SYSTEM launcher failed before CTests with a generic missing-file error and correctly unconfirmed process/task closure; exact failing operation unestablished, logs and partial raw retained unqualified"
+    }
+  ],
+  "qualification_limit": "Native/process x64 Windows NT build 20348, SDK 10.0.26100.0, v143/MSVC 19.44. Endpoint before request bytes during active native installation ownership only; no installation-mutex contention, all-prefix, arbitrary uncertain native outcome, whole-WorkUnit, specification or release acceptance.",
+  "remaining": [
+    "stale_context_and_before_effect_fencing",
+    "all_anchor_and_snapshot_prefixes",
+    "uncertain_native_outcomes",
+    "remaining_product_workunits"
+  ],
+  "model_profile_qualified": false,
+  "publication_authority_granted": false,
+  "accepted_predecessor_receipt": false
+}
