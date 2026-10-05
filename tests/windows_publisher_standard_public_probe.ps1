@@ -76,12 +76,13 @@ function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
         & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Standard installation lease/native row transition differs'}
 }
-function Read-NativeSnapshot {
+function Read-NativeSnapshot([switch]$PublicationPreserved) {
     $script:observersClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
         -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
         -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
-        -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number
+        -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number `
+        -AbsentPublicationPreservationPrefix $(if($PublicationPreserved){$script:bootstrapOperationPrefix}else{''})
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18' -or
         $readback.independent.observer_token_handles_closed -ne $true){throw 'Standard independent reader cleanup differs'}
     $script:observersClosed=$true
@@ -319,7 +320,7 @@ try {
         if($reservations.Count -ne 1){throw 'Original native bootstrap reservation is ambiguous'}
         $script:bootstrapOperationPrefix=$reservations[0].path.Substring(0,$reservations[0].path.Length-$suffix.Length)
         $null=Invoke-StandardRequest 'install_local.apply' $apply 5 -PreservationLoss
-        $receipt.bootstrap_preservation_loss.readback=Read-NativeSnapshot
+        $receipt.bootstrap_preservation_loss.readback=Read-NativeSnapshot -PublicationPreserved
     }
     $receipt['apply']=Invoke-StandardRequest 'install_local.apply' $apply
     $installed=$receipt.apply.result.payload

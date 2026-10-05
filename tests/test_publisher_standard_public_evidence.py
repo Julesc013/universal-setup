@@ -6,7 +6,7 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
-from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set, service_capability, reconcile_bootstrap_loss
+from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set, service_capability, reconcile_bootstrap_loss, preservation_absence
 
 CLIENT = "S-1-5-21-1-2-3-1001"
 UNRELATED = "S-1-5-21-1-2-3-1002"
@@ -27,6 +27,21 @@ def policy():
 
 
 class StandardPublicPolicyTests(unittest.TestCase):
+    def test_preservation_absence_requires_bound_native_leaf_errors_on_both_sides(self):
+        drive, prefix, identity = 'U:\\', 'U:\\installation-operations\\install-x\\operation-y', '0000000000000001:' + 'a' * 32
+        value = {'schema': 'usk.publisher_preserved_publication_absence.v1', 'path': drive + 'publication',
+            'parent_root_identity': identity, 'win32_error_before': 2, 'win32_error_after': 2,
+            'preservation_record_path': prefix + '-preserve-g00000000000000000001.json',
+            'retained_root_path': prefix + '-retained-g00000000000000000001'}
+        preservation_absence({'publication_absence': value}, drive, prefix, identity)
+        for key, changed in (('win32_error_before', 3), ('win32_error_after', 5), ('win32_error_after', True),
+                             ('parent_root_identity', 'other'), ('path', 'V:\\publication'),
+                             ('retained_root_path', prefix + '-other'), ('extra', False)):
+            with self.subTest(key=key), self.assertRaises(StandardEvidenceError):
+                preservation_absence({'publication_absence': dict(value, **{key: changed})}, drive, prefix, identity)
+        with self.assertRaises(StandardEvidenceError):
+            preservation_absence({}, drive, prefix, identity)
+
     def test_bootstrap_qualification_requires_separate_process_loss_receipt(self):
         self.assertIsNone(reconcile_bootstrap_loss({}, [], {}, {}, 'U:\\'))
         with self.assertRaises(StandardEvidenceError):

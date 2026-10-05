@@ -455,6 +455,17 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
     return result
 
 
+def preservation_absence(independent, drive, prefix, volume_root_id):
+    observed = independent.get('publication_absence')
+    require(observed == {
+        'schema': 'usk.publisher_preserved_publication_absence.v1', 'path': drive + 'publication',
+        'parent_root_identity': volume_root_id, 'win32_error_before': 2, 'win32_error_after': 2,
+        'preservation_record_path': prefix + '-preserve-g00000000000000000001.json',
+        'retained_root_path': prefix + '-retained-g00000000000000000001'} and
+        all(type(observed[key]) is int for key in ('win32_error_before', 'win32_error_after')),
+        'native publication absence is not a bound before/after leaf observation')
+
+
 def _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, phase):
     require(isinstance(loss, dict) and loss.keys() == {'schema', 'client_capture', 'response', 'boundary', 'readback', 'reconciliation'} and
         loss['schema'] == ('usk.publisher_registered_bootstrap_loss.v1' if phase == 'bootstrap' else
@@ -496,6 +507,10 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
     volume_root_id = completed_readback['independent']['volume_boundary']['root']['file_id']
     require(readback['independent']['volume_boundary']['root']['file_id'] == volume_root_id,
             'bootstrap native volume root changed across takeover')
+    if phase == 'bootstrap_preserved':
+        preservation_absence(readback['independent'], drive, expected_prefix, volume_root_id)
+    else:
+        require('publication_absence' not in readback['independent'], 'ordinary bootstrap readback admitted absence mode')
     return rows, {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']}
 
 

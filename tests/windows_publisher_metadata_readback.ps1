@@ -252,7 +252,8 @@ function Invoke-IndependentMetadataReadback {
         [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',
         [string]$CallerSid='',[string]$ServiceSid='',
         [string]$ClientCaptureFile='',[string]$ClientCaptureSha256='',
-        [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue)
+        [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue,
+        [string]$AbsentPublicationPreservationPrefix='')
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
     }
@@ -275,6 +276,12 @@ function Invoke-IndependentMetadataReadback {
             $ExpectedVolumeRoot -cnotmatch '^\\\\\?\\Volume\{[0-9A-Fa-f-]{36}\}\\$'))) {
         throw 'Volume boundary observation requires the complete held-client and volume binding'
     }
+    if($AbsentPublicationPreservationPrefix -and ($MetadataOnly -or -not $ExpectedVolumeRoot -or
+        -not $ClientCaptureFile -or $CallerProcessId -eq 0 -or
+        $AbsentPublicationPreservationPrefix -cnotmatch ('^'+[regex]::Escape($DriveRoot)+
+            'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$'))) {
+        throw 'Publication-absent readback requires the bound preservation operation and volume'
+    }
     $name='USK_METADATA_OBSERVER_'+$RunId
     $script=Join-Path $OutputRoot ('metadata-observer-'+$RunId+'.ps1')
     $output=Join-Path $OutputRoot ('metadata-observed-'+$RunId+'.json')
@@ -284,7 +291,8 @@ function Invoke-IndependentMetadataReadback {
 param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
     [uint32]$CallerProcessId=0,[string]$CallerCreationFileTime='',[string]$CallerSid='',[string]$ServiceSid='',
     [string]$ClientCaptureFile='',[string]$ClientCaptureSha256='',
-    [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue)
+    [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue,
+    [string]$AbsentPublicationPreservationPrefix='')
 $ErrorActionPreference='Stop'
  Add-Type -TypeDefinition @"
 using System;
@@ -304,6 +312,14 @@ public static class UskMetadataFacts {
  static extern bool GetFileInformationByHandleEx(SafeFileHandle h,int k,byte[] b,uint n);
  [DllImport("advapi32.dll", SetLastError=true)]
  static extern bool GetKernelObjectSecurity(SafeFileHandle h,uint i,byte[] b,uint n,out uint needed);
+ public static uint RequireAbsentLeaf(string path) {
+  using(var h=CreateFile(path,0x80,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero)) {
+   int error=Marshal.GetLastWin32Error();
+   if(!h.IsInvalid || error!=2)
+    throw new InvalidOperationException("Independent leaf absence is not ERROR_FILE_NOT_FOUND: "+error);
+   return (uint)error;
+  }
+ }
  public static object[] Read(string path) {
   using(var h=CreateFile(path,0x20080,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero)) {
    return ReadHandle(h);
@@ -1046,10 +1062,21 @@ if($CallerProcessId -ne 0) {
 try {
 $rows=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
+$absenceBefore=$null;$absenceRoot=$null
+if($AbsentPublicationPreservationPrefix) {
+ if($MetadataOnly -or -not $effectiveRights -or -not $ExpectedVolumeRoot -or
+  $AbsentPublicationPreservationPrefix -cnotmatch ('^'+[regex]::Escape($DriveRoot)+
+   'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')) {
+  throw 'Independent publication absence mode binding differs'
+ }
+ $absenceRoot=[UskMetadataFacts]::ReadClosure($DriveRoot)
+ $absenceBefore=[UskMetadataFacts]::RequireAbsentLeaf($DriveRoot+'publication')
+}
 if(-not $MetadataOnly) {
 foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'),($DriveRoot+'installation-operations'))) {
  if(-not (Test-Path -LiteralPath $top -PathType Container)) {
   if($top -ceq ($DriveRoot+'setup-state') -or $top -ceq ($DriveRoot+'installation-operations')){continue}
+  if($AbsentPublicationPreservationPrefix -and $top -ceq ($DriveRoot+'publication')){continue}
   throw 'Protected publication root is absent during independent readback'
  }
  $pending.Push((Get-Item -LiteralPath $top -Force))
@@ -1128,6 +1155,21 @@ if($ExpectedVolumeRoot) {
  $root['owner_dacl_sha256']=$checked['owner_dacl_sha256']
  $result['volume_boundary']=[ordered]@{root=$root;device=$effectiveRights.ReadVolumeDevice($DriveRoot,$ExpectedVolumeRoot,$ExpectedDiskNumber)}
 }
+if($AbsentPublicationPreservationPrefix) {
+ $absenceAfter=[UskMetadataFacts]::RequireAbsentLeaf($DriveRoot+'publication')
+ $retained=$AbsentPublicationPreservationPrefix+'-retained-g00000000000000000001'
+ $preservation=$AbsentPublicationPreservationPrefix+'-preserve-g00000000000000000001.json'
+ if([string]$absenceRoot[0] -cne $result.volume_boundary.root.file_id -or
+  @($rows|Where-Object {$_.path -ceq $retained -and $_.directory}).Count -ne 1 -or
+  @($rows|Where-Object {$_.path -ceq $preservation -and -not $_.directory}).Count -ne 1 -or
+  @($rows|Where-Object {$_.path -ceq ($AbsentPublicationPreservationPrefix+'-bootstrap-g00000000000000000002.json')}).Count -ne 0) {
+  throw 'Independent publication absence lost its original preserved object or root binding'
+ }
+ $result['publication_absence']=[ordered]@{schema='usk.publisher_preserved_publication_absence.v1';
+  path=($DriveRoot+'publication');parent_root_identity=$result.volume_boundary.root.file_id;
+  win32_error_before=$absenceBefore;win32_error_after=$absenceAfter;
+  preservation_record_path=$preservation;retained_root_path=$retained}
+}
 if($effectiveRights -and $ExpectedVolumeRoot) {
  # Evaluate a reconstructed descriptor from the native phase's closed
  # owner/DACL facts and the separately reobserved group. This is explicitly
@@ -1201,6 +1243,9 @@ try {
     }
     if($ExpectedVolumeRoot) {
         $command+=" -ExpectedVolumeRoot '"+$ExpectedVolumeRoot+"' -ExpectedDiskNumber "+$ExpectedDiskNumber
+    }
+    if($AbsentPublicationPreservationPrefix) {
+        $command+=" -AbsentPublicationPreservationPrefix '"+$AbsentPublicationPreservationPrefix+"'"
     }
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
