@@ -15,6 +15,14 @@ usk::json::Value observe_publisher_lease_holder();
 usk::json::Value observe_publisher_lease_root_identity(HANDLE root);
 std::string observe_publisher_install_state_revision(HANDLE state_root,
     const std::string& install_id, const std::string& service_sid);
+// Read-only fresh-install preflight under the actual installation guard. An
+// absent setup root represents empty state; an existing incomplete or unsafe
+// layout is an observation failure, never evidence of empty installed state.
+// This creates no context, layout or ownership record and grants no effects.
+void require_publisher_initial_install_state_revision(HANDLE volume,
+    const std::wstring& volume_root, const std::wstring& setup_component,
+    const PublisherInstallOperationGuard& guard, const std::string& install_id,
+    const std::string& service_sid);
 usk::transaction::InstallLeasePreviousHolder observe_publisher_previous_lease_holder(
     const usk::json::Value& holder);
 

@@ -49,6 +49,14 @@ public:
         "reviewed install reentry differs from durable plan and source") {}
     explicit StaleReviewedInstallRequest(const std::string& reason) : std::runtime_error(reason) {}
 };
+// Constructed only when the engine's read-only native revision preflight
+// raises the actual typed mismatch before apply entry. Later mismatches keep
+// the ordinary lease error and its conservative effects/recovery status.
+class InstallStateRevisionChangedBeforeEffects final : public std::runtime_error {
+public:
+    InstallStateRevisionChangedBeforeEffects() : std::runtime_error(
+        "installed state changed before effects") {}
+};
 std::string execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration&, bool& effects_may_exist);
 void require_candidate_publisher_execution_records(

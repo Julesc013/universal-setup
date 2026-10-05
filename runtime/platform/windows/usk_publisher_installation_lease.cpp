@@ -188,6 +188,45 @@ std::string observe_publisher_install_state_revision(HANDLE state_root,
     return usk::json::sha256_canonical(Value(std::move(values)));
 }
 
+void require_publisher_initial_install_state_revision(HANDLE volume,
+    const std::wstring& volume_root, const std::wstring& setup_component,
+    const PublisherInstallOperationGuard& guard, const std::string& install_id,
+    const std::string& service_sid) {
+    guard.require_owned(volume_root, install_id);
+    const std::filesystem::path component(setup_component);
+    if (setup_component.empty() || component.has_root_path() ||
+        component.filename() != component || setup_component == L"." || setup_component == L".." ||
+        setup_component.find(L':') != std::wstring::npos || setup_component.find(L'\0') != std::wstring::npos)
+        throw std::runtime_error("lease setup component is invalid");
+    const auto volume_identity = root_identity(volume, service_sid);
+    const auto setup_entry = child(volume, setup_component);
+    const auto empty_revision = usk::json::sha256_canonical(Value(Value::Array{}));
+    std::string revision = empty_revision;
+    if (setup_entry) {
+        Handle setup(open_publisher_listed_child(volume, *setup_entry));
+        const auto setup_identity = root_identity(setup.get(), service_sid);
+        const auto state_entry = child(setup.get(), L"state");
+        if (!state_entry) throw std::runtime_error("lease existing state root unavailable");
+        Handle state(open_publisher_listed_child(setup.get(), *state_entry));
+        const auto state_identity = root_identity(state.get(), service_sid);
+        revision = observe_publisher_install_state_revision(state.get(), install_id, service_sid);
+        // Check current path bindings as well as the retained read handles.
+        const auto current_setup_entry = child(volume, setup_component);
+        if (!current_setup_entry) throw InstallLeaseStale();
+        Handle current_setup(open_publisher_listed_child(volume, *current_setup_entry));
+        const auto current_state_entry = child(current_setup.get(), L"state");
+        if (!current_state_entry) throw InstallLeaseStale();
+        Handle current_state(open_publisher_listed_child(current_setup.get(), *current_state_entry));
+        if (!equal(setup_identity, root_identity(current_setup.get(), service_sid)) ||
+            !equal(state_identity, root_identity(current_state.get(), service_sid))) throw InstallLeaseStale();
+    } else if (child(volume, setup_component)) {
+        throw InstallLeaseStale();
+    }
+    guard.require_owned(volume_root, install_id);
+    if (!equal(volume_identity, root_identity(volume, service_sid))) throw InstallLeaseStale();
+    if (revision != empty_revision) throw InstallStateRevisionStale();
+}
+
 Value observe_publisher_lease_holder() {
     return Value(Value::Object{{"process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
         {"process_creation_time", Value(creation_time(GetCurrentProcess()))}});

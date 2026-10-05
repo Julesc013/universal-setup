@@ -387,7 +387,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 dynamic_cast<const InstallLeaseConflict*>(&error) ? "operation_conflict" :
             dynamic_cast<const PublisherOperationCancelled*>(&error) ? "operation_cancelled" :
             dynamic_cast<const InstallLeaseStale*>(&error) ? "lease_stale" :
-            dynamic_cast<const InstallStateRevisionStale*>(&error) ? "state_revision_stale" :
+            dynamic_cast<const InstallStateRevisionStale*>(&error) ||
+                dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ? "state_revision_stale" :
             dynamic_cast<const StaleReviewedInstallRequest*>(&error) ? "stale_plan" : "";
         std::string inspection_reference;
         if (const auto* busy = dynamic_cast<const PublisherVolumeBusy*>(&error))
@@ -398,7 +399,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             inspection_reference = cancelled->inspection_reference();
         const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
-                json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ?
+                json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
+                    dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ?
                     "failed" : !verify_installed && (recover_visible_bound || reviewed_install_reentry ||
                     publication_effects_may_exist) ?
                     "recovery_required" : "failed") +
