@@ -4,8 +4,12 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
-from publisher_installation_lease_evidence import canonical, digest, snapshot, transition, LeaseEvidenceError
+from publisher_installation_lease_evidence import canonical, digest, snapshot, transition, bootstrap_takeover, LeaseEvidenceError
 
 DRIVE = 'U:\\'
 ROOT = '0000000000000001:' + 'a' * 32
@@ -125,7 +129,95 @@ def preserved_fixture(anchor_count=4, snapshot_bytes=None):
     return rows
 
 
+def takeover_fixture(anchor_count=4, snapshot_bytes=None):
+    after = preserved_fixture(anchor_count, snapshot_bytes)
+    after.append(record(DRIVE + 'setup-state\\.usk-owned-root.v1.json',
+        {'schema': 'usk.setup_owned_root.v1', 'acceptance_root': DRIVE.replace('\\', '/')}))
+    prefix = CONTEXTS + '\\operation-' + digest(INSTALLED['transaction_id'])
+    retained = prefix + '-retained-g00000000000000000001'
+    for row in after:
+        row['native_name'] = row['path'][2:]
+    live = copy.deepcopy(next(row for row in after if row['path'] == retained))
+    live.update(path=DRIVE + 'publication', native_name='\\publication', file_id='0000000000000001:' + 'c' * 32)
+    after.append(live)
+    coordination = {prefix + '.json', prefix + '-roots.json', prefix + '-bootstrap-g00000000000000000001.json',
+                    LEASES + '\\g00000000000000000001-active.json', DRIVE + 'setup-state\\.usk-owned-root.v1.json'}
+    before = []
+    for original in after:
+        row = copy.deepcopy(original)
+        if row['path'] == retained or row['path'].startswith(retained + '\\'):
+            row['path'] = DRIVE + 'publication' + row['path'][len(retained):]
+            row['native_name'] = row['path'][2:]
+            before.append(row)
+        elif row['path'] in coordination or (row['directory'] and not row['path'].startswith(DRIVE + 'publication')):
+            before.append(row)
+    return before, after, {'process_id': 101, 'process_creation_time': '0000000000000001'}
+
+
 class LeaseRecordReconciliationTests(unittest.TestCase):
+    def test_bootstrap_oracle_cli_loads_stdin_and_file_before_dispatch(self):
+        before, after, holder = takeover_fixture(4, 7)
+        request = canonical({'mode': 'bootstrap_takeover', 'before': before, 'after': after, 'drive': DRIVE,
+            'installed': INSTALLED, 'volume_root_id': ROOT, 'terminated_holder': holder})
+        script = Path(__file__).with_name('publisher_installation_lease_evidence.py')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'takeover.json'
+            path.write_text(request, encoding='utf-8')
+            for input_path, payload in (('-', request), (str(path), None)):
+                with self.subTest(input=input_path):
+                    result = subprocess.run([sys.executable, '-B', str(script), '--input', input_path],
+                        input=payload, text=True, encoding='utf-8', capture_output=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    report = json.loads(result.stdout)
+                    self.assertEqual(report['coordination']['replacement_generation'], 2)
+                    self.assertFalse(report['profile_qualified'])
+
+    def test_measured_bootstrap_takeover_retains_every_observed_object(self):
+        for anchors, byte_count in ((0, None), (2, None), (4, 0), (4, 7), (4, 100000)):
+            with self.subTest(anchors=anchors, bytes=byte_count):
+                before, after, holder = takeover_fixture(anchors, byte_count)
+                result = bootstrap_takeover(before, after, DRIVE, INSTALLED, ROOT, holder)
+                self.assertEqual(result['replacement_generation'], 2)
+                self.assertEqual(result['retained_objects'], 1 + anchors + (byte_count is not None))
+                self.assertFalse(result['publication_authority_granted'])
+
+    def test_bootstrap_takeover_requires_observed_pid_and_birth(self):
+        before, after, holder = takeover_fixture()
+        for changed in (dict(holder, process_id=102), dict(holder, process_creation_time='0000000000000002')):
+            with self.assertRaises(LeaseEvidenceError):
+                bootstrap_takeover(before, after, DRIVE, INSTALLED, ROOT, changed)
+
+    def test_bootstrap_takeover_cannot_lose_or_change_interrupted_objects(self):
+        before, after, holder = takeover_fixture(4, 7)
+        for key, value in (('file_id', ROOT), ('owner', 'S-1-5-32-544'), ('bytes', 8), ('native_name', '\\other')):
+            changed = copy.deepcopy(before)
+            row = next(row for row in changed if row['path'].endswith('lab-reviewed-plan.json'))
+            row[key] = value
+            with self.assertRaises(LeaseEvidenceError):
+                bootstrap_takeover(changed, after, DRIVE, INSTALLED, ROOT, holder)
+        with self.assertRaises(LeaseEvidenceError):
+            bootstrap_takeover(before[:-1], after, DRIVE, INSTALLED, ROOT, holder)
+
+    def test_bootstrap_takeover_cannot_omit_original_reservation_or_add_state(self):
+        before, after, holder = takeover_fixture()
+        for changed in ([row for row in before if '-bootstrap-' not in row['path']],
+                        before + [record(DRIVE + 'setup-state\\state\\installed\\extra.json', {})]):
+            with self.assertRaises(LeaseEvidenceError):
+                bootstrap_takeover(changed, after, DRIVE, INSTALLED, ROOT, holder)
+
+    def test_bootstrap_takeover_binds_setup_marker_and_preserves_its_whole_row(self):
+        before, after, holder = takeover_fixture()
+        marker = DRIVE + 'setup-state\\.usk-owned-root.v1.json'
+        for value in ({'schema': 'usk.setup_owned_root.v1', 'acceptance_root': 'V:/'},
+                      {'schema': 'usk.setup_owned_root.v1', 'acceptance_root': 'U:/', 'extra': True}):
+            changed = [record(marker, value) if row['path'] == marker else row for row in before]
+            with self.assertRaises(LeaseEvidenceError):
+                bootstrap_takeover(changed, after, DRIVE, INSTALLED, ROOT, holder)
+        changed = copy.deepcopy(after)
+        next(row for row in changed if row['path'] == marker)['native_name'] = '\\other'
+        with self.assertRaises(LeaseEvidenceError):
+            bootstrap_takeover(before, changed, DRIVE, INSTALLED, ROOT, holder)
+
     def test_current_bootstrap_reservation_cannot_be_omitted(self):
         rows = [row for row in fixture() if '-bootstrap-' not in row['path']]
         with self.assertRaises(LeaseEvidenceError):

@@ -301,6 +301,69 @@ def transition(before, after, drive, installed, volume_root_id, *, readonly=Fals
             'recovery/replay appended an unexpected native object')
 
 
+def bootstrap_takeover(before, after, drive, installed, volume_root_id, terminated_holder):
+    """Check a measured process-loss prefix against its independently retained tree.
+
+    The caller must separately establish the owned native process termination.
+    These rows and records remain evidence data; they confer no authority.
+    """
+    completed = snapshot(after, drive, installed, volume_root_id)
+    history = completed['history']
+    require(len(history) == 3 and [value['status'] for value in history] == ['active', 'active', 'completed'] and
+            history[0]['holder'] == terminated_holder and history[0]['expected_state_revision'] == digest([]) and
+            history[1]['expected_state_revision'] == digest([]) and history[1]['holder'] != terminated_holder,
+            'bootstrap takeover is not one interrupted native generation followed by completion')
+    require(isinstance(before, list) and 0 < len(before) <= 10000 and
+            all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in before),
+            'bootstrap interruption row budget/path differs')
+    old = {row['path']: row for row in before}
+    new = {row['path']: row for row in after}
+    require(len(old) == len(before), 'bootstrap interruption paths alias')
+    context_prefix = drive + 'installation-operations\\install-' + digest(installed['install_id']) + '\\operation-' + digest(installed['transaction_id'])
+    lease_directory = drive + 'setup-state\\state\\leases\\install-' + digest(installed['install_id'])
+    active_path = lease_directory + '\\g00000000000000000001-active.json'
+    context_files = {context_prefix + '.json', context_prefix + '-roots.json',
+                     context_prefix + '-bootstrap-g00000000000000000001.json'}
+    coordination = context_files | {active_path}
+    marker_path = drive + 'setup-state\\.usk-owned-root.v1.json'
+    require(marker_path in old and document(old[marker_path]) == {
+        'schema': 'usk.setup_owned_root.v1', 'acceptance_root': drive.replace('\\', '/')},
+        'bootstrap setup marker is not bound to the original admitted volume root')
+    coordination.add(marker_path)
+    publication = drive + 'publication'
+    retained = context_prefix + '-retained-g00000000000000000001'
+    move_path = context_prefix + '-preserve-g00000000000000000001.json'
+    require(active_path in old and document(old[active_path]) == history[0] and publication in old and
+            move_path not in old and retained not in old,
+            'interrupted worker lacks original active ownership or contains a later disposition')
+    require({path for path, row in old.items() if not row['directory'] and
+            not (path == publication or path.startswith(publication + '\\'))} == coordination,
+            'interrupted bootstrap has extra context, lease, or installed state files')
+    move = document(new[move_path])
+    require(move['source_root_identity'] == old[publication]['file_id'] and
+            new[publication]['file_id'] != old[publication]['file_id'],
+            'bootstrap takeover did not preserve the interrupted root and create a different root')
+    old_tree = {path for path in old if path == publication or path.startswith(publication + '\\')}
+    new_tree = {path for path in new if path == retained or path.startswith(retained + '\\')}
+    require({retained + path[len(publication):] for path in old_tree} == new_tree,
+            'bootstrap preservation lost or added native descendants')
+    for path, row in old.items():
+        renamed = path in old_tree
+        target = retained + path[len(publication):] if renamed else path
+        require(target in new, 'bootstrap takeover lost an original object')
+        if renamed:
+            require(row.get('native_name') == path[2:] and new[target].get('native_name') == target[2:] and
+                    {key: value for key, value in row.items() if key not in ('path', 'native_name')} ==
+                    {key: value for key, value in new[target].items() if key not in ('path', 'native_name')},
+                    'bootstrap retained object identity/security/streams/bytes changed')
+        else:
+            require(row == new[target], 'bootstrap takeover changed original coordination or state root')
+    return {'schema': 'usk.publisher_bootstrap_takeover_reconciliation.v1', 'status': 'bindings_consistent',
+            'terminated_holder': terminated_holder, 'replacement_generation': history[1]['generation'],
+            'retained_root_identity': old[publication]['file_id'], 'retained_objects': len(old_tree),
+            'profile_qualified': False, 'publication_authority_granted': False}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', required=True)
@@ -314,6 +377,9 @@ def main():
     if value['mode'] == 'snapshot':
         result = snapshot(value['rows'], value['drive'], value['installed'], value['volume_root_id'],
                           allow_active=value.get('allow_active') is True, allow_legacy_missing=value.get('allow_legacy_missing') is True)
+    elif value['mode'] == 'bootstrap_takeover':
+        result = bootstrap_takeover(value['before'], value['after'], value['drive'], value['installed'],
+                                    value['volume_root_id'], value['terminated_holder'])
     else:
         require(value['mode'] in ('append', 'readonly'), 'unknown lease reconciliation mode')
         transition(value['before'], value['after'], value['drive'], value['installed'], value['volume_root_id'],

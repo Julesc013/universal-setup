@@ -6,7 +6,7 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
-from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set, service_capability
+from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set, service_capability, reconcile_bootstrap_loss
 
 CLIENT = "S-1-5-21-1-2-3-1001"
 UNRELATED = "S-1-5-21-1-2-3-1002"
@@ -27,6 +27,11 @@ def policy():
 
 
 class StandardPublicPolicyTests(unittest.TestCase):
+    def test_bootstrap_qualification_requires_separate_process_loss_receipt(self):
+        self.assertIsNone(reconcile_bootstrap_loss({}, [], {}, {}, 'U:\\'))
+        with self.assertRaises(StandardEvidenceError):
+            reconcile_bootstrap_loss({}, [], {}, {}, 'U:\\', required=True)
+
     def test_service_capture_set_keeps_both_observations_and_all_install_requests(self):
         commands = ['publisher.inspect', 'publisher.observe', 'install_local.apply', 'install_local.recover',
             'install_local.apply', 'installed.verify', 'publisher.observe']

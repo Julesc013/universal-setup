@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 function Start-OwnedProductionBoundaryObserver {
-    param([ValidateSet('prepublish','postrename')][string]$Phase,
+    param([ValidateSet('bootstrap','prepublish','postrename')][string]$Phase,
         [string]$Service,[string]$ObserverRoot,[string]$VhdPath,[string]$VolumeRoot,
         [string]$DriveRoot,[string]$VisibleRoot,[string]$ServiceCommand,[string]$ServiceBinarySha256)
     $utf8=[Text.UTF8Encoding]::new($false)
@@ -34,7 +34,7 @@ function Start-OwnedProductionBoundaryObserver {
         ([string]$volume.DriveLetter+':\') -cne $DriveRoot) {
         throw 'Production boundary observer volume identity differs'
     }
-    if($Phase -cnotin @('prepublish','postrename')){throw 'Unknown production boundary phase'}
+    if($Phase -cnotin @('bootstrap','prepublish','postrename')){throw 'Unknown production boundary phase'}
     $taskName='USK_RENAME_OBSERVER_'+$Service.Substring(8)
     $scriptPath=Join-Path $observerRoot 'production-rename-observer.ps1'
     $ownedProcessPath=Join-Path $observerRoot 'owned-process.ps1'
@@ -68,7 +68,7 @@ function Start-OwnedProductionBoundaryObserver {
         service_binary_sha256=$ServiceBinarySha256;
         drive_letter=$DriveRoot.Substring(0,1);volume_guid_root=$VolumeRoot;
         visible_path=$visibleRoot;journal_path=($DriveRoot+'publication\journal\lab-'+
-            $(if($Phase -ceq 'prepublish'){'prepared'}else{'visible'})+'-evidence.json');
+            $(if($Phase -cin @('bootstrap','prepublish')){'prepared'}else{'visible'})+'-evidence.json');
         ready_path=$readyPath;output_path=$outputPath}
     [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
     # The shared owned-process helper needs PowerShell 7's .NET Kill(true)
@@ -102,7 +102,7 @@ function Start-OwnedProductionBoundaryObserver {
         throw
     }
 }
-function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('prepublish','postrename')][string]$Phase) {
+function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootstrap','prepublish','postrename')][string]$Phase) {
     $deadline=[DateTime]::UtcNow.AddSeconds(150)
     while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 25
@@ -113,13 +113,20 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('prepub
     }
     $result=Get-Content -LiteralPath $Observer.output -Raw|ConvertFrom-Json
     Remove-OwnedProductionBoundaryObserver $Observer
-    $expectedStatus=if($Phase -ceq 'prepublish'){
+    $expectedStatus=if($Phase -ceq 'bootstrap'){
+        'terminated_publication_bootstrap'
+    }elseif($Phase -ceq 'prepublish'){
         'terminated_prepared_prerename'
     }else{'terminated_postrename_prejournal'}
     if($result.schema -cne 'usk.publisher.production_rename_observer.v1' -or
         $result.identity -cne 'S-1-5-18' -or
         $result.phase -cne $Phase -or $result.status -cne $expectedStatus -or
         -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
+        ($Phase -ceq 'bootstrap' -and
+            (-not $result.publication_before_kill -or -not $result.publication_after_kill -or
+                $result.candidate_before_kill -or $result.candidate_after_kill -or
+                $result.journal_before_kill -or $result.journal_after_kill -or $result.visible_after_kill -or
+                $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$')) -or
         ($Phase -ceq 'prepublish' -and
             (-not $result.prepared_exclusive_observed -or
                 -not $result.journal_before_kill -or -not $result.journal_after_kill -or

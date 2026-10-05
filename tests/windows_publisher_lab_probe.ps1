@@ -22,6 +22,7 @@ param(
     [switch]$ControllerApply,
     [switch]$PublicInstallation,
     [switch]$PublicStandardClient,
+    [switch]$PublicStandardBootstrapLoss,
     [ValidateSet('none','prepublish','postrename')][string]$PublicPublicationLoss='none',
     [ValidateSet('none','payload_changed','metadata_collision')][string]$PublicPostRenameRefusal='none',
     [switch]$NonAdminClient,
@@ -37,6 +38,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $standardLauncherClosed=$false
+if($PublicStandardBootstrapLoss -and -not $PublicStandardClient) {throw 'Registered bootstrap loss requires the owned standard fixture'}
 if($PublicStandardClient -and (-not $PublicInstallation -or $PublicPublicationLoss -cne 'none' -or $PublicPostRenameRefusal -cne 'none')) {
     throw 'Standard public fixture requires its separate ordinary public installation lab'
 }
@@ -165,7 +167,7 @@ function Read-PublicBuildProfile([string]$Binary) {
 }
 function Invoke-StandardPublicSystemTask {
     param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
-        [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot)
+        [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss)
     # No local invocation can reach this: the outer lab has already required a
     # fresh hosted VM and provisioned the exact disposable data disk.
     $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
@@ -189,7 +191,8 @@ function Invoke-StandardPublicSystemTask {
         '[IO.File]::Move($pendingBinding,$startBinding)',
         ('& '+(& $quote $probe)+' -VhdPath '+(& $quote $VhdPath)+' -VolumeRoot '+(& $quote $VolumeRoot)+
             ' -ServiceBinary '+(& $quote $ServiceBinary)+' -ServiceControlBinary '+(& $quote $ServiceControlBinary)+
-            ' -MachineBinary '+(& $quote $MachineBinary)+' -OutputPath '+(& $quote $OutputPath)+' -PythonBinary '+(& $quote $python))) -join "`n"
+            ' -MachineBinary '+(& $quote $MachineBinary)+' -OutputPath '+(& $quote $OutputPath)+' -PythonBinary '+(& $quote $python)+
+            $(if($BootstrapProcessLoss){' -BootstrapProcessLoss'}else{''}))) -join "`n"
     $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
     $acl=[Security.AccessControl.FileSecurity]::new()
@@ -370,7 +373,7 @@ try {
         if ($PublicStandardClient) {
             Invoke-StandardPublicSystemTask -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
-                -MachineBinary $MachineBinary -OutputPath $serviceOutput -LabRoot $lab
+                -MachineBinary $MachineBinary -OutputPath $serviceOutput -LabRoot $lab -BootstrapProcessLoss:$PublicStandardBootstrapLoss
         } elseif ($PublicInstallation) {
             & (Join-Path $PSScriptRoot 'windows_publisher_public_path_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
