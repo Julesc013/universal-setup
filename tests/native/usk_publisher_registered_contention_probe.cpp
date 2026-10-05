@@ -61,12 +61,39 @@ std::string utf8(const std::wstring& text) {
         "fixture process image path conversion changed");
     return result;
 }
+std::uint64_t counter() {
+    LARGE_INTEGER value{};
+    require(QueryPerformanceCounter(&value) && value.QuadPart > 0,
+        "fixture call timing unavailable");
+    return static_cast<std::uint64_t>(value.QuadPart);
+}
+struct CallTiming {
+    std::atomic<std::uint64_t> started{0};
+    std::atomic<std::uint64_t> completed{0};
+};
+struct CallCompletion {
+    CallTiming* timing;
+    ~CallCompletion() {
+        LARGE_INTEGER value{};
+        if (timing && QueryPerformanceCounter(&value) && value.QuadPart > 0)
+            timing->completed.store(static_cast<std::uint64_t>(value.QuadPart));
+    }
+};
+struct JoinThread {
+    std::thread& thread;
+    ~JoinThread() { if (thread.joinable()) thread.join(); }
+};
 Value outcome_case(const std::string& label, Value request, const std::wstring& service,
-    const PublisherRequestOptions& options, const std::string& reference, const char* code) {
+    const PublisherRequestOptions& options, const std::string& reference, const char* code,
+    CallTiming* timing = nullptr) {
     request.as_object().at("request_id") = Value("registered-contention." + label);
     const auto began = GetTickCount64();
     const auto result = usk::command::run_publisher_one_shot(usk::json::canonical(request),
-        [&](const std::string& payload) { return submit_registered_publisher_request(service, payload, options); });
+        [&](const std::string& payload) {
+            if (timing) timing->started.store(counter());
+            CallCompletion completion{timing};
+            return submit_registered_publisher_request(service, payload, options);
+        });
     const auto elapsed = GetTickCount64() - began;
     const auto response = usk::json::parse(result.document);
     require(result.exit_code == 4 && response.at("status").as_string() == "refused" &&
@@ -131,21 +158,35 @@ int run(const std::wstring& service_name, const std::filesystem::path& request_p
     cancelled.conflict_wait_milliseconds = 1000;
     cases.push_back(outcome_case("ready_cancel", request, service_name, cancelled, reference, "operation_cancelled"));
     require(ResetEvent(cancel.value) != FALSE, "fixture cancellation reset failed");
-    std::atomic<bool> started{false};
+    CallTiming timing;
+    std::atomic<bool> finished{false};
     std::exception_ptr failure;
     Value asynchronous;
     std::thread contender([&] {
         try {
-            started.store(true);
-            asynchronous = outcome_case("async_cancel", request, service_name, cancelled, reference, "operation_cancelled");
+            asynchronous = outcome_case("async_cancel", request, service_name, cancelled, reference,
+                "operation_cancelled", &timing);
         } catch (...) { failure = std::current_exception(); }
+        finished.store(true);
     });
-    while (!started.load()) Sleep(1);
+    JoinThread join{contender};
+    const auto start_deadline = GetTickCount64() + 5000;
+    while (!timing.started.load() && !finished.load() && GetTickCount64() < start_deadline) Sleep(1);
     Sleep(25);
+    const auto signal_counter = counter();
+    const bool active_at_signal = timing.started.load() != 0 && timing.completed.load() == 0 && !finished.load();
     const bool signalled = SetEvent(cancel.value) != FALSE;
     contender.join();
     require(signalled, "fixture cancellation signal failed");
     if (failure) std::rethrow_exception(failure);
+    const auto call_started = timing.started.load();
+    const auto call_completed = timing.completed.load();
+    require(active_at_signal && call_started < signal_counter && signal_counter < call_completed &&
+        asynchronous.at("elapsed_milliseconds").as_unsigned() > 0,
+        "fixture cancellation did not interrupt an active registered call");
+    asynchronous.as_object().emplace("cancellation_order", Value(Value::Object{
+        {"call_started_qpc", Value(call_started)}, {"cancellation_signalled_qpc", Value(signal_counter)},
+        {"call_completed_qpc", Value(call_completed)}, {"call_active_at_signal", Value(active_at_signal)}}));
     cases.push_back(asynchronous);
     require(worker_pid(service.value) == expected_pid && birth(worker.value) == worker_birth &&
         WaitForSingleObject(worker.value, 0) == WAIT_TIMEOUT,

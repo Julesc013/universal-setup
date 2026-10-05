@@ -625,6 +625,10 @@ if(USK_BUILD_TESTS)
       COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_held_capture_context_smoke.ps1")
     set_tests_properties(usk_publisher_held_capture_context_smoke PROPERTIES TIMEOUT 15)
+    add_test(NAME usk_publisher_standard_client_cleanup_smoke
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_standard_client_cleanup_smoke.ps1")
+    set_tests_properties(usk_publisher_standard_client_cleanup_smoke PROPERTIES TIMEOUT 15)
     if(TARGET usk_machine)
       add_test(NAME usk_publisher_candidate_apply_process_smoke
         COMMAND "${Python3_EXECUTABLE}"

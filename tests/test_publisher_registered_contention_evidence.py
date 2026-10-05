@@ -54,6 +54,8 @@ def fixture():
         'worker_process_image_path': image, 'worker_expected_image_sha256': 'b' * 64, 'request_sha256': 'f' * 64,
         'caller_process_id': capture['process_id'], 'caller_process_creation_time': int(capture['creation_file_time']),
         'cases': cases}
+    cases[-1]['cancellation_order'] = {'call_started_qpc': 100, 'cancellation_signalled_qpc': 200,
+        'call_completed_qpc': 300, 'call_active_at_signal': True}
     record = {'schema': 'usk.publisher_registered_contention_probe.v1', 'scope': native['scope'],
         'profile_qualified': False, 'producer_sha256': capture['image_sha256'], 'request_sha256': native['request_sha256'],
         'client_capture': capture, 'native_observation': native, 'before': readback(False), 'after': readback(True),
@@ -64,6 +66,21 @@ def fixture():
 
 
 class RegisteredContentionEvidenceTests(unittest.TestCase):
+    def test_asynchronous_cancellation_requires_an_active_ordered_call(self):
+        observation, client = fixture()
+        for mutate in (
+            lambda c: c.update(elapsed_milliseconds=0),
+            lambda c: c.pop('cancellation_order'),
+            lambda c: c['cancellation_order'].update(call_active_at_signal=False),
+            lambda c: c['cancellation_order'].update(call_started_qpc=200),
+            lambda c: c['cancellation_order'].update(call_completed_qpc=199),
+            lambda c: c['cancellation_order'].update(cancellation_signalled_qpc=True),
+            lambda c: c['cancellation_order'].update(unobserved_wait=True)):
+            changed = copy.deepcopy(observation)
+            mutate(changed['registered_contention']['native_observation']['cases'][-1])
+            with self.subTest(mutation=mutate), self.assertRaises(StandardEvidenceError):
+                reconcile_registered_contention(changed, client)
+
     def test_bounded_endpoint_evidence_never_grants_profile_authority(self):
         observation, client = fixture()
         result = reconcile_registered_contention(observation, client)

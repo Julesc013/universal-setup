@@ -203,10 +203,22 @@ def reconcile_registered_contention(observation, client):
         'registered contention finite case set differs')
     for case in cases:
         code = 'operation_cancelled' if case['case'].endswith('cancel') else 'operation_conflict'
-        require(case.keys() == {'case', 'elapsed_milliseconds', 'exit_code', 'response'} and
+        fields = {'case', 'elapsed_milliseconds', 'exit_code', 'response'}
+        if case['case'] == 'async_cancel':
+            fields.add('cancellation_order')
+        require(case.keys() == fields and
             integer(case['elapsed_milliseconds'], 0, 4999) and integer(case['exit_code'], 4, 4) and
             (case['case'] != 'deadline' or case['elapsed_milliseconds'] >= 75),
             'registered contention timing or process outcome differs')
+        if case['case'] == 'async_cancel':
+            order = case['cancellation_order']
+            require(isinstance(order, dict) and order.keys() == {'call_started_qpc',
+                'cancellation_signalled_qpc', 'call_completed_qpc', 'call_active_at_signal'} and
+                order['call_active_at_signal'] is True and case['elapsed_milliseconds'] > 0 and
+                all(integer(order[name], 1, 0xffffffffffffffff) for name in
+                    ('call_started_qpc', 'cancellation_signalled_qpc', 'call_completed_qpc')) and
+                order['call_started_qpc'] < order['cancellation_signalled_qpc'] < order['call_completed_qpc'],
+                'registered asynchronous cancellation lacks active-call signal ordering')
         response = case['response']
         require(isinstance(response, dict) and isinstance(response.get('error'), dict) and
             response.keys() == {'schema', 'status', 'request_id', 'error', 'result'} and

@@ -115,6 +115,28 @@ function Read-InstalledSnapshot {
     $readback|Add-Member -NotePropertyName execution_reconciliation -NotePropertyValue $report
     return $readback
 }
+function Close-StandardPublisherClient($Process,$Launch) {
+    $script:clientsClosed=$false;$closureConfirmed=$false;$processDisposed=$false
+    try {
+        if($Launch -and -not $Launch.IsResumed){$Launch.Dispose()}
+        if($Process) {
+            # A retained descendant set still needs checking after root exit.
+            $closure=Stop-OwnedPublisherProcessTree $Process
+            if($closure.confirmed -ne $true){throw 'Standard client process closure is unconfirmed'}
+        } elseif($Launch -and $Launch.IsResumed) {
+            throw 'Resumed standard client has no held process for closure'
+        }
+        $closureConfirmed=$true
+    } finally {
+        try {
+            if($Process){$Process.Dispose()}
+            $processDisposed=$true
+        } finally {
+            if($Launch){$Launch.Dispose()}
+            $script:clientsClosed=$closureConfirmed -and $processDisposed
+        }
+    }
+}
 function Invoke-RegisteredEndpointContention {
     if((Get-Service $service).Status -ne 'Stopped'){throw 'Contention fixture did not begin at a stopped service'}
     $probeBinary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_registered_contention_probe.exe'
@@ -181,17 +203,7 @@ function Invoke-RegisteredEndpointContention {
             ($record.after.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress)){
             throw 'Registered pre-dispatch contention changed the independently observed target'
         }
-    } finally {
-        try {
-            if($process -and -not $process.HasExited) {
-                if($launch -and -not $launch.IsResumed){$launch.Dispose()}
-                else {Stop-OwnedPublisherProcessTree $process|Out-Null}
-            }
-        } finally {
-            if($process){$process.Dispose()}
-            if($launch){$launch.Dispose();$script:clientsClosed=$true}
-        }
-    }
+    } finally {Close-StandardPublisherClient $process $launch}
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
@@ -317,13 +329,8 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 Remove-OwnedProductionBoundaryObserver $bootstrapObserver
                 $script:observersClosed=$true
             }
-            if($process -and -not $process.HasExited) {
-                if($launch -and -not $launch.IsResumed){$launch.Dispose()}
-                else {Stop-OwnedPublisherProcessTree $process|Out-Null}
-            }
         } finally {
-            if($process){$process.Dispose()}
-            if($launch){$launch.Dispose();$script:clientsClosed=$true}
+            Close-StandardPublisherClient $process $launch
         }
     }
 }
