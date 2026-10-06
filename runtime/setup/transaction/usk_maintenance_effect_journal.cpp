@@ -330,11 +330,46 @@ void MaintenanceEffectJournal::begin_effect(const std::string& kind, const Value
     pending_sequence_ = sequence_;
     persist("intent", Value(Value::Object{{"kind", Value(kind)}, {"effect", details}}));
     pending_kind_ = kind;
+    payload_attempted_ = false;
+    payload_outcome_.clear();
+}
+
+std::optional<std::string> MaintenanceEffectJournal::apply_payload_effect()
+{
+    require_effect_authority();
+    if (failed_ || sealed_ || pending_kind_.empty() || payload_attempted_)
+        throw std::runtime_error("maintenance payload intent is absent, failed or already attempted");
+    if (pending_kind_ != "backup_file" && pending_kind_ != "replace_file" &&
+        pending_kind_ != "remove_file" && pending_kind_ != "remove_directory")
+        throw std::runtime_error("maintenance payload dispatch received a non-payload intent");
+#if defined(_WIN32)
+    if (native_origin_) {
+        const auto history = inspect(spec_, source_digest_, true);
+        if (history.journal_digest != last_digest_ || history.next_sequence != sequence_ ||
+            history.pending_sequence != pending_sequence_ || history.pending_kind != pending_kind_)
+            throw std::runtime_error("maintenance payload dispatch lost its exact original intent");
+        const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+        payload_attempted_ = true;
+        try {
+            payload_outcome_ = native->apply_payload(spec_, history);
+            require_effect_authority();
+            validate_completion(pending_kind_, payload_outcome_, {});
+            return payload_outcome_;
+        } catch (...) { failed_ = true; throw; }
+    }
+#endif
+    return std::nullopt;
 }
 
 void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const std::string& result_digest)
 {
     if (pending_kind_.empty()) throw std::logic_error("maintenance completion has no intent");
+#if defined(_WIN32)
+    if (native_origin_ && (pending_kind_ == "backup_file" || pending_kind_ == "replace_file" ||
+        pending_kind_ == "remove_file" || pending_kind_ == "remove_directory") &&
+        (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
+        throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");
+#endif
     validate_completion(pending_kind_, outcome, result_digest);
     persist("complete", Value(Value::Object{{"intent_sequence", Value(pending_sequence_)},
         {"kind", Value(pending_kind_)}, {"outcome", Value(outcome)},

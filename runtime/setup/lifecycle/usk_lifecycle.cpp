@@ -877,7 +877,12 @@ void maintenance_effect(usk::transaction::MaintenanceEffectJournal& journal,
     journal.begin_effect(kind, details);
     if (injector) injector(operation, "effect." + kind + ".before_effect");
     journal.require_effect_authority();
-    effect();
+    if (kind == "backup_file" || kind == "replace_file" || kind == "remove_file" || kind == "remove_directory") {
+        const auto native = journal.apply_payload_effect();
+        if (native) {
+            if (*native != "applied") throw std::runtime_error("maintenance payload cleanup was retained");
+        } else effect();
+    } else effect();
     if (injector) injector(operation, "effect." + kind + ".after_effect");
     journal.require_effect_authority();
     journal.complete_effect();
@@ -2757,7 +2762,8 @@ UninstallResult apply_uninstall(
             if (fault_injector) fault_injector("uninstall", "effect.remove_directory.before_effect");
             effects.require_effect_authority();
             std::error_code error;
-            const bool removed = fs::remove(path, error) && !error;
+            const auto native = effects.apply_payload_effect();
+            const bool removed = native ? *native == "applied" : fs::remove(path, error) && !error;
             if (!removed) {
                 if (transaction::observe_directory_identity(path) != identity)
                     throw std::runtime_error("retained uninstall directory observation changed");
@@ -2779,7 +2785,8 @@ UninstallResult apply_uninstall(
             if (fault_injector) fault_injector("uninstall", "effect.remove_directory.before_effect");
             effects.require_effect_authority();
             std::error_code root_error;
-            result.target_removed = fs::remove(install_root, root_error) && !root_error;
+            const auto native = effects.apply_payload_effect();
+            result.target_removed = native ? *native == "applied" : fs::remove(install_root, root_error) && !root_error;
             if (!result.target_removed && transaction::observe_directory_identity(install_root) != identity)
                 throw std::runtime_error("retained uninstall root observation changed");
             if (fault_injector) fault_injector("uninstall", "effect.remove_directory.after_effect");

@@ -7,7 +7,7 @@
 #include <functional>
 #include <memory>
 namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
-namespace usk::transaction { class MaintenanceEffectJournal; }
+namespace usk::transaction { class MaintenanceEffectJournal; struct MaintenanceEffectInspection; }
 namespace usk::transaction::detail {
 // Read-only lifetime policy. Supplied identities confer no native scope or
 // authority; the session separately uses the engine's private current binding.
@@ -29,6 +29,9 @@ struct NativeMaintenanceTransactionOperations {
         std::uint64_t, const std::string&)> finish_stream;
     std::function<void(const TransactionSpec&, const std::filesystem::path&,
         const std::string&, const CommitClosureObservation&)> commit;
+    // Exact durable original pending payload intent; the owner alone selects
+    // held native objects and returns an independently confirmed outcome.
+    std::function<std::string(const TransactionSpec&, const MaintenanceEffectInspection&)> apply_payload;
 };
 class ScopedNativeMaintenanceTransaction final {
 public:

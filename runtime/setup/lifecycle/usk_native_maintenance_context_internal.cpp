@@ -7,6 +7,7 @@
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_metadata.h"
+#include "usk_publisher_maintenance_mutation.h"
 #include "usk_publisher_process_boundary.h"
 #include "usk_publisher_registration.h"
 #include "usk_publisher_request_channel.h"
@@ -38,10 +39,22 @@ bool same(const PublisherHandleObservation& a, const PublisherHandleObservation&
 class Held final {
 public:
     Held() = default;
-    ~Held() { if (value != INVALID_HANDLE_VALUE && value) CloseHandle(value); }
+    ~Held() { if (!close_attempted && value != INVALID_HANDLE_VALUE && value) CloseHandle(value); }
     Held(const Held&) = delete;
     Held& operator=(const Held&) = delete;
     HANDLE value = INVALID_HANDLE_VALUE;
+    void close_observer_once() {
+        if (close_attempted || value == INVALID_HANDLE_VALUE || !value)
+            throw std::runtime_error("native maintenance observer is unavailable for release");
+        close_attempted = true;
+        if (!CloseHandle(value))
+            throw std::runtime_error("native maintenance observer close was not confirmed; retained recovery required");
+        value = INVALID_HANDLE_VALUE;
+    }
+private:
+    // A failed observer close is quarantined through worker disposal. Its
+    // numeric value is never used again and the destructor never retries it.
+    bool close_attempted = false;
 };
 std::optional<PublisherDirectoryEntry> child(HANDLE parent, const std::wstring& name) {
     std::optional<PublisherDirectoryEntry> result;
@@ -88,6 +101,12 @@ struct NativeMaintenanceContext::Impl {
     std::vector<unsigned char> descriptor;
     std::map<fs::path, std::unique_ptr<Entry>> directories;
     std::map<fs::path, std::unique_ptr<Entry>> files;
+    std::map<fs::path, std::unique_ptr<Entry>> original_files;
+    std::map<fs::path, Entry*> original_directories;
+    Entry* installed_root = nullptr;
+    std::string original_root_identity;
+    bool payload_failed = false;
+    std::set<std::string> attempted_payload_histories;
     Entry* staging_parent = nullptr;
     Entry* target_parent = nullptr;
     Entry* staging = nullptr;
@@ -182,8 +201,20 @@ struct NativeMaintenanceContext::Impl {
         operations.require_stream = [this](const auto& s, auto h) { require_stream(s, h); };
         operations.finish_stream = [this](const auto& s, auto h, const auto& id, auto size, const auto& sha) { finish_stream(s, h, id, size, sha); };
         operations.commit = [this](const auto& s, const auto& p, const auto& id, const auto& closure) { commit(s, p, id, closure); };
+        operations.apply_payload = [this](const auto& s, const auto& history) { return apply_payload(s, history); };
+        admit_original_payload();
+        require_authority(spec);
     }
     static fs::path normalized(const fs::path& path) { return fs::absolute(path).lexically_normal(); }
+    static fs::path owned_relative(const std::string& value) {
+        const auto relative = fs::u8path(value);
+        if (value.empty() || value.size() > 4096u || relative.has_root_path())
+            throw std::runtime_error("native maintenance owned path is not a bounded relative path");
+        for (const auto& component : relative)
+            if (!is_publisher_canonical_component(component.wstring()))
+                throw std::runtime_error("native maintenance owned path contains an unsafe component");
+        return relative;
+    }
     fs::path relative_volume_path(const fs::path& path) const {
         const auto absolute = normalized(path);
         const auto drive = absolute.root_name().wstring() + L"\\";
@@ -286,7 +317,8 @@ struct NativeMaintenanceContext::Impl {
         require_publisher_process_boundary(current_process, service.process_id, service.service_sid, service.token.process_groups);
         if (!equal(current_worker, worker) || !equal(current_process, process_boundary))
             throw std::runtime_error("native maintenance frozen worker security changed");
-        if (installed_uncertain) throw std::runtime_error("native maintenance installed publication is uncertain; no further effects");
+        if (installed_uncertain || payload_failed)
+            throw std::runtime_error("native maintenance effect is uncertain; no further effects");
         const auto current_bindings = observe_publisher_install_state_bindings(original_state.state_root(),
             original_context.record().at("install_id").as_string(), service.service_sid);
         const bool original_revision = equal(current_bindings, snapshot.at("installed_record_bindings"));
@@ -524,9 +556,208 @@ struct NativeMaintenanceContext::Impl {
             !FlushFileBuffers(entry.handle.value)) throw std::runtime_error("native maintenance stream completion differs from its reviewed creation");
         require_bytes(entry); entry.complete = true; require_authority(s);
     }
+    void admit_original_payload() {
+        const auto& snapshot = original_context.record().at("reviewed_snapshot");
+        const auto root = fs::u8path(snapshot.at("installed_state").at("target_root").as_string());
+        installed_root = &open_directory(root);
+        original_root_identity = journal_identity(installed_root->handle.value);
+        original_directories.emplace(fs::path{}, installed_root);
+        if (spec.operation == "move") return; // Original root retained; staging owns the new closure.
+        const auto& ownership = snapshot.at("ownership_manifest");
+        const auto& planned_files = spec.operation == "repair" ?
+            snapshot.at("reviewed_plan").at("replacement_files") : ownership.at("files");
+        if (planned_files.as_array().size() > 100000u || ownership.at("directories").as_array().size() > 100000u)
+            throw std::runtime_error("native maintenance original custody exceeds its finite closure bound");
+        std::uint64_t logical_bytes = 0;
+        for (const auto& file : planned_files.as_array()) {
+            const auto relative = owned_relative(file.at("relative_path").as_string());
+            auto& parent = open_directory(root / relative.parent_path());
+            const auto listed = child(parent.handle.value, relative.filename().wstring());
+            if (!listed) continue;
+            if (listed->attributes & FILE_ATTRIBUTE_DIRECTORY)
+                throw std::runtime_error("native maintenance original owned file changed type");
+            auto entry = std::make_unique<Entry>();
+            entry->parent = &parent; entry->name = relative.filename().wstring(); entry->directory = false;
+            auto inserted = original_files.emplace(relative, std::move(entry));
+            if (!inserted.second) throw std::runtime_error("native maintenance original owned file repeated");
+            auto& held = *inserted.first->second;
+            held.handle.value = open_publisher_listed_maintenance_file(parent.handle.value, *listed);
+            held.facts = facts(held.handle.value, false);
+            FILE_STANDARD_INFO standard{};
+            if (!GetFileInformationByHandleEx(held.handle.value, FileStandardInfo, &standard, sizeof(standard)) ||
+                standard.DeletePending || standard.Directory || standard.EndOfFile.QuadPart < 0 ||
+                static_cast<std::uint64_t>(standard.EndOfFile.QuadPart) > (1ull << 32) ||
+                static_cast<std::uint64_t>(standard.EndOfFile.QuadPart) > (1ull << 34) - logical_bytes)
+                throw std::runtime_error("native maintenance original owned bytes exceed observation bounds");
+            held.size = static_cast<std::uint64_t>(standard.EndOfFile.QuadPart); logical_bytes += held.size;
+            LARGE_INTEGER zero{};
+            if (!SetFilePointerEx(held.handle.value, zero, nullptr, FILE_BEGIN))
+                throw std::runtime_error("native maintenance original file position unavailable");
+            base::Sha256 hash; std::array<unsigned char, 64u * 1024u> bytes{}; std::uint64_t consumed = 0;
+            while (consumed < held.size) {
+                DWORD count = 0;
+                const DWORD wanted = static_cast<DWORD>(std::min<std::uint64_t>(bytes.size(), held.size - consumed));
+                if (!ReadFile(held.handle.value, bytes.data(), wanted, &count, nullptr) || count != wanted)
+                    throw std::runtime_error("native maintenance original owned file read changed");
+                hash.update(bytes.data(), count); consumed += count;
+            }
+            held.sha256 = hash.finish(); held.stream_identity = journal_identity(held.handle.value);
+            require_bytes(held);
+        }
+        // Own the original directories before the first journal, rather than
+        // adopt a later same-path object. Missing original directories remain
+        // absent observations; this fresh native profile does not create them.
+        for (const auto& value : ownership.at("directories").as_array()) {
+            const auto relative = owned_relative(value.at("relative_path").as_string());
+            const auto path = root / relative;
+            auto& parent = open_directory(path.parent_path());
+            const auto listed = child(parent.handle.value, path.filename().wstring());
+            if (!listed) continue;
+            original_directories.emplace(relative, &open_directory(path));
+        }
+    }
+    transaction::MaintenanceEffectInspection require_pending(const std::string& kind) const {
+        require_authority(spec);
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
+        const auto artifact = read_maintenance_reviewed_plan(spec);
+        const auto next = inspect_maintenance_continuation(spec);
+        const auto source = json::parse(history.source_context);
+        const auto& snapshot = original_context.record().at("reviewed_snapshot");
+        if (history.pending_kind != kind || !next.pending || next.next_kind != kind ||
+            next.history_digest != history.journal_digest || !equal(next.next_details, history.pending_details) ||
+            tx.stream_source_context != history.source_context ||
+            !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
+            source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
+            source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
+            source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string() ||
+            normalized(fs::u8path(source.at("installed_root").at("root").as_string())) !=
+                normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string())) ||
+            source.at("installed_root").at("native_identity").as_string() != original_root_identity)
+            throw std::runtime_error("native maintenance payload lost its original reviewed next intent");
+        require_authority(spec);
+        return history;
+    }
+    Entry& target_directory(const fs::path& relative, bool create_backup = false) {
+        if (!staging || !publication_confirmed) throw std::runtime_error("native maintenance published creation is unavailable");
+        Entry* parent = staging; fs::path partial;
+        for (const auto& component : relative) {
+            if (!is_publisher_canonical_component(component.wstring()))
+                throw std::runtime_error("native maintenance target directory is not canonical");
+            partial /= component;
+            const auto key = (relative_volume_path(spec.staging_parent / (".usk-stage-" + spec.transaction_id)) / partial).lexically_normal();
+            const auto found = directories.find(key);
+            if (found == directories.end()) {
+                if (!create_backup || *partial.begin() != fs::path("backup"))
+                    throw std::runtime_error("native maintenance target directory lacks original creation custody");
+                parent = &create_directory(*parent, partial, component.wstring());
+            } else parent = found->second.get();
+            if (!parent->created) throw std::runtime_error("native maintenance target directory was not created by this owner");
+            require_entry(*parent);
+        }
+        require_entry(*parent); return *parent;
+    }
+    static void require_file_details(const Entry& entry, const Value& details) {
+        if (entry.stream_identity != details.at("native_identity").as_string() ||
+            entry.size != details.at("size_bytes").as_unsigned() || entry.sha256 != details.at("sha256").as_string())
+            throw std::runtime_error("native maintenance file differs from its original pending intent");
+    }
+    void rename_file(Entry& file, Entry& destination, const std::wstring& component) {
+        require_bytes(file); require_entry(destination);
+        auto postimage = file.facts;
+        postimage.native_name = destination.facts.native_name + L"\\" + component;
+        auto next_component = component;
+        (void)rename_publisher_bound_file_no_replace(file.handle.value, file.parent->handle.value, file.name,
+            destination.handle.value, component, file.facts, file.parent->facts, destination.facts, file.size, file.sha256);
+        file.parent = &destination; file.name.swap(next_component); file.facts = std::move(postimage);
+        require_bytes(file);
+    }
+    std::string remove_entry(Entry& entry, const Value& details) {
+        require_entry(entry);
+        if (entry.directory) {
+            if (journal_identity(entry.handle.value) != details.at("native_identity").as_string())
+                throw std::runtime_error("native maintenance directory lost its original identity");
+            // Keep the observer when a bound directory is nonempty. The native
+            // primitive independently returns retained without an issued call.
+            if (!observe_publisher_directory_entries(entry.handle.value).empty()) {
+                const auto result = remove_publisher_bound_empty_directory(entry.parent->handle.value, entry.name,
+                    entry.facts, entry.parent->facts);
+                if (result.native_call_attempted || result.absence_confirmed)
+                    throw std::runtime_error("native maintenance nonempty directory unexpectedly changed");
+                return "retained";
+            }
+        } else { require_file_details(entry, details); require_bytes(entry); }
+        const auto expected = entry.facts;
+        auto& parent = *entry.parent; require_entry(parent);
+        // The primitive owns its affected mark/close handle. Release this
+        // owner's redundant observer first, retaining full original facts,
+        // creation provenance and independently held parent/generation custody.
+        entry.handle.close_observer_once();
+        const auto result = entry.directory ? remove_publisher_bound_empty_directory(parent.handle.value, entry.name, expected, parent.facts) :
+            remove_publisher_bound_file(parent.handle.value, entry.name, expected, parent.facts, entry.size, entry.sha256);
+        if (!result.native_call_attempted || !result.absence_confirmed)
+            throw std::runtime_error("native maintenance removal was not confirmed; retained recovery required");
+        return "applied";
+    }
+    std::string apply_payload(const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& inspected) {
+        require_authority(supplied);
+        const auto history = require_pending(inspected.pending_kind);
+        if (history.journal_digest != inspected.journal_digest || history.source_context != inspected.source_context ||
+            history.pending_sequence != inspected.pending_sequence || !equal(history.pending_details, inspected.pending_details) ||
+            !publication_confirmed || !attempted_payload_histories.insert(history.journal_digest).second)
+            throw std::runtime_error("native maintenance payload lacks its single original publication/intent");
+        try {
+            const auto& details = history.pending_details;
+            const auto relative = fs::u8path(details.at("relative_path").as_string());
+            std::string outcome = "applied";
+            if (history.pending_kind == "backup_file") {
+                auto& file = *original_files.at(relative);
+                require_file_details(file, details);
+                const auto backup = fs::path("backup") / relative;
+                auto& parent = target_directory(backup.parent_path(), true);
+                // Directory creation precedes rename but leaves the durable
+                // original backup intent unresolved on any failure.
+                (void)require_pending(history.pending_kind);
+                rename_file(file, parent, backup.filename().wstring());
+            } else if (history.pending_kind == "replace_file") {
+                auto& file = *files.at(fs::path("payload") / relative);
+                if (!file.created || !file.complete) throw std::runtime_error("native repair replacement lacks completed creation custody");
+                require_file_details(file, details);
+                auto& parent = open_directory(fs::u8path(original_state.installed_state().at("target_root").as_string()) / relative.parent_path());
+                rename_file(file, parent, relative.filename().wstring());
+            } else if (history.pending_kind == "remove_file") {
+                const auto role = details.at("root_role").as_string();
+                Entry* file = nullptr;
+                if (role == "installed") file = original_files.at(relative).get();
+                else if (role == "operation_target" && spec.operation == "repair" && *relative.begin() == fs::path("backup")) {
+                    auto original = relative.lexically_relative("backup"); file = original_files.at(original).get();
+                    if (file->parent != &target_directory(relative.parent_path()) || file->name != relative.filename().wstring())
+                        throw std::runtime_error("native maintenance backup cleanup lost its original rename postimage");
+                } else if (role == "operation_target" && spec.operation == "uninstall" && relative == fs::path("operation.marker"))
+                    file = files.at(relative).get();
+                else throw std::runtime_error("native maintenance removal is outside its original role");
+                outcome = remove_entry(*file, details);
+            } else if (history.pending_kind == "remove_directory") {
+                const auto role = details.at("root_role").as_string();
+                Entry* directory = role == "installed" ? original_directories.at(relative) :
+                    role == "operation_target" ? &target_directory(relative) : nullptr;
+                if (!directory) throw std::runtime_error("native maintenance directory removal has an unrelated role");
+                outcome = remove_entry(*directory, details);
+                if (outcome == "retained" && role != "installed")
+                    throw std::runtime_error("native maintenance created cleanup directory is not empty");
+            } else throw std::runtime_error("native maintenance payload kind is unsupported");
+            require_authority(supplied);
+            const auto after = transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest);
+            if (after.journal_digest != history.journal_digest)
+                throw std::runtime_error("native maintenance intent changed during its effect");
+            return outcome;
+        } catch (...) { payload_failed = true; throw; }
+    }
     void commit(const transaction::TransactionSpec& s, const fs::path& path, const std::string& id,
         const transaction::CommitClosureObservation& closure) {
         require_authority(s);
+        (void)require_pending("publish_target");
         if (!staging || publication_attempted || staging_relative(path) != fs::path(".") ||
             journal_identity(staging->handle.value) != id || closure.empty())
             throw std::runtime_error("native maintenance commit lacks its original created root/closure");

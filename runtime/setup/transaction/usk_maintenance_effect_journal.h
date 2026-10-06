@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -57,6 +58,10 @@ public:
     // after an external injector and before an effect. This read-only check
     // grants no native backend, replay or generic fallback authority.
     void require_effect_authority() const;
+    // nullopt only for an originally ordinary journal. A native journal must
+    // dispatch its exact pending payload intent through its original owner;
+    // missing, ended or failed custody throws, never permits a path fallback.
+    std::optional<std::string> apply_payload_effect();
     void seal();
     const std::filesystem::path& directory() const noexcept { return directory_; }
 
@@ -91,6 +96,8 @@ private:
     std::uint64_t bytes_ = 0;
     bool sealed_ = false;
     bool failed_ = false;
+    bool payload_attempted_ = false;
+    std::string payload_outcome_;
 };
 
 } // namespace usk::transaction

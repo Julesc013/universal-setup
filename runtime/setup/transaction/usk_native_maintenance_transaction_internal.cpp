@@ -22,7 +22,7 @@ ScopedNativeMaintenanceTransaction::ScopedNativeMaintenanceTransaction(
     const NativeMaintenanceTransactionOperations& operations) : operations_(operations) {
     if (active_operations || !operations.require_authority || !operations.create_staging_root ||
         !operations.ensure_stream_parent || !operations.open_stream || !operations.require_stream ||
-        !operations.finish_stream || !operations.commit)
+        !operations.finish_stream || !operations.commit || !operations.apply_payload)
         throw std::runtime_error("native maintenance transaction owner is absent, incomplete or nested");
     // A distinct control block identifies this lifetime even if an operations
     // object or native owner address is later reused. Sessions retain weak
