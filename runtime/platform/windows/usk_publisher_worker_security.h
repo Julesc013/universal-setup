@@ -7,6 +7,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <functional>
 #include <memory>
 #include "usk_json.h"
 #include "usk_publisher_token_observation.h"
@@ -31,7 +32,18 @@ usk::json::Value observe_settled_publisher_worker_security(
 // Only signaled retirement of an original non-execution thread is allowed;
 // every surviving fact and non-thread field stays frozen. The original JSON
 // is never refreshed, and creation/execution observation equality is unchanged.
-// Population checks remain bracketed; retirement during readback can refuse.
+// Continuity readback uses only already-pinned originals. At most four samples
+// account for positively proven non-execution retirement; unavailable reads,
+// added threads and changed security refuse without retry. This remains a
+// bracketed observation, not an atomic population or continuous census.
+class PublisherWorkerSecurityContinuity;
+namespace detail {
+// Private deterministic ordinary-thread control seam. The production owner
+// supplies no callback; this neither constructs authority nor changes facts.
+usk::json::Value observe_publisher_worker_continuity_for_test(
+    const PublisherWorkerSecurityContinuity& continuity,
+    const std::function<void(const char*)>& checkpoint);
+}
 class PublisherWorkerSecurityContinuity {
 public:
     explicit PublisherWorkerSecurityContinuity(const usk::json::Value& baseline);
@@ -40,6 +52,8 @@ public:
     PublisherWorkerSecurityContinuity& operator=(const PublisherWorkerSecurityContinuity&) = delete;
     usk::json::Value observe_current() const;
 private:
+    friend usk::json::Value detail::observe_publisher_worker_continuity_for_test(
+        const PublisherWorkerSecurityContinuity&, const std::function<void(const char*)>&);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

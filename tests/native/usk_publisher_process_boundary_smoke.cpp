@@ -7,6 +7,7 @@
 #include <functional>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
@@ -251,6 +252,71 @@ void worker_lifetime_controls() {
     }
     std::cout << "actual retained-thread retirement and addition/security/execution/forgery controls passed\n";
 }
+void worker_retirement_readback_controls() {
+    // Stop actual owned originals at the observation windows. The private
+    // callback controls timing only; production obtains all facts natively.
+    for (const auto* window : {"after_population_snapshot", "after_live_readback"}) {
+        TestThread original;
+        const auto baseline = observe_current_publisher_worker_security();
+        const auto frozen = usk::json::canonical(baseline);
+        PublisherWorkerSecurityContinuity continuity(baseline);
+        bool retired = false;
+        unsigned samples = 0;
+        const auto current = detail::observe_publisher_worker_continuity_for_test(continuity,
+            [&](const char* checkpoint) {
+                if (std::string(checkpoint) == "after_population_snapshot") ++samples;
+                if (!retired && std::string(checkpoint) == window) { original.retire(); retired = true; }
+            });
+        check(retired && samples && (std::string(window) != "after_live_readback" || samples >= 2),
+            "actual retirement did not exercise its bounded readback window");
+        for (const auto& thread : current.at("threads").as_array())
+            check(thread.at("thread_id").as_unsigned() != original.id(), "mid-readback ended original still reported live");
+        check(usk::json::canonical(current.at("primary_token")) == usk::json::canonical(baseline.at("primary_token")) &&
+            current.at("current_thread_id").as_unsigned() == baseline.at("current_thread_id").as_unsigned() &&
+            usk::json::canonical(baseline) == frozen, "mid-readback retirement refreshed original security");
+        (void)continuity.observe_current();
+    }
+    {
+        TestThread retiring, surviving;
+        const auto baseline = observe_current_publisher_worker_security();
+        const auto frozen = usk::json::canonical(baseline);
+        PublisherWorkerSecurityContinuity continuity(baseline);
+        std::unique_ptr<TestThreadDacl> changed;
+        std::string diagnostic;
+        try {
+            (void)detail::observe_publisher_worker_continuity_for_test(continuity, [&](const char* checkpoint) {
+                if (std::string(checkpoint) == "after_live_readback" && !changed) {
+                    retiring.retire();
+                    changed = std::make_unique<TestThreadDacl>(surviving.handle());
+                }
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(changed != nullptr, "late security control did not reach actual native mutation");
+        changed->restore_checked();
+        check(diagnostic.find("surviving original thread facts changed") != std::string::npos,
+            "proved retirement masked a surviving original security change");
+        check(usk::json::canonical(baseline) == frozen, "late security refusal refreshed original baseline");
+        (void)continuity.observe_current();
+    }
+    {
+        TestThread original;
+        const auto baseline = observe_current_publisher_worker_security();
+        PublisherWorkerSecurityContinuity continuity(baseline);
+        std::unique_ptr<TestThread> added;
+        std::string diagnostic;
+        try {
+            (void)detail::observe_publisher_worker_continuity_for_test(continuity, [&](const char* checkpoint) {
+                if (std::string(checkpoint) == "after_live_readback" && !added)
+                    added = std::make_unique<TestThread>();
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(added && diagnostic.find("added a thread after its frozen baseline") != std::string::npos,
+            "native population bracket admitted a newly added actual thread");
+        added->retire();
+        (void)continuity.observe_current();
+    }
+    std::cout << "actual census/readback retirement windows and coupled security/addition refusals passed\n";
+}
 } // namespace
 
 int main() {
@@ -263,6 +329,7 @@ int main() {
             "current process owner/DACL facts were not observed");
         worker_security_controls();
         worker_lifetime_controls();
+        worker_retirement_readback_controls();
 
         // Synthetic policy controls are separate from the native observation.
         require_publisher_process_boundary(boundary(), 500, service_sid, groups);

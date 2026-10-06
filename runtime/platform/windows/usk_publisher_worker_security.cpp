@@ -9,6 +9,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -188,23 +189,16 @@ void require_object(const Value& value, const std::set<std::string>& trusted, st
     (void)value.at("dacl_protected").as_boolean();
     require_acl(value.at("dacl_aces"), trusted, query_rights);
 }
-} // namespace
-
-Value observe_current_publisher_worker_security() {
-    HANDLE raw = nullptr;
-    require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL, &raw),
-        "publisher worker primary token security unavailable");
-    Handle token(raw);
-    const auto before = statistics(token.get());
-    auto primary = object_security(token.get());
-    const auto default_owner = token_info(token.get(), TokenOwner);
+Value::Object read_primary_security(HANDLE token, const TOKEN_STATISTICS& before) {
+    auto primary = object_security(token);
+    const auto default_owner = token_info(token, TokenOwner);
     require(default_owner.size() >= sizeof(TOKEN_OWNER), "publisher worker default owner truncated");
     const auto* owner = reinterpret_cast<const TOKEN_OWNER*>(default_owner.data());
     const auto owner_size = contained(default_owner, owner->Owner, 8);
     const auto* owner_bytes = static_cast<const unsigned char*>(owner->Owner);
     require(owner_bytes[0] == SID_REVISION && owner_bytes[1] > 0 && owner_bytes[1] <= SID_MAX_SUB_AUTHORITIES &&
         8u + 4u * owner_bytes[1] <= owner_size, "publisher worker default owner SID truncated");
-    const auto defaults = token_info(token.get(), TokenDefaultDacl);
+    const auto defaults = token_info(token, TokenDefaultDacl);
     require(defaults.size() >= sizeof(TOKEN_DEFAULT_DACL), "publisher worker default DACL truncated");
     const auto* dacl = reinterpret_cast<const TOKEN_DEFAULT_DACL*>(defaults.data());
     const auto available = contained(defaults, dacl->DefaultDacl, sizeof(ACL));
@@ -214,6 +208,27 @@ Value observe_current_publisher_worker_security() {
     primary.emplace("token_id", Value(hex64(luid(before.TokenId))));
     primary.emplace("authentication_id", Value(hex64(luid(before.AuthenticationId))));
     primary.emplace("modified_id", Value(hex64(luid(before.ModifiedId))));
+    return primary;
+}
+void require_primary_unchanged(HANDLE token, const TOKEN_STATISTICS& before, const Value::Object& primary) {
+    const auto after = statistics(token);
+    require(luid(before.TokenId) == luid(after.TokenId) && luid(before.AuthenticationId) == luid(after.AuthenticationId) &&
+        luid(before.ModifiedId) == luid(after.ModifiedId) &&
+        usk::json::canonical(Value(object_security(token))) ==
+            usk::json::canonical(Value(Value::Object{{"owner_sid", primary.at("owner_sid")},
+                {"dacl_present", primary.at("dacl_present")}, {"dacl_protected", primary.at("dacl_protected")},
+                {"dacl_aces", primary.at("dacl_aces")}})),
+        "publisher worker primary token or thread population changed during observation");
+}
+} // namespace
+
+Value observe_current_publisher_worker_security() {
+    HANDLE raw = nullptr;
+    require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL, &raw),
+        "publisher worker primary token security unavailable");
+    Handle token(raw);
+    const auto before = statistics(token.get());
+    auto primary = read_primary_security(token.get(), before);
     auto ids = thread_ids();
     std::map<DWORD, std::unique_ptr<Handle>> held_threads;
     std::map<DWORD, Value> recorded_threads;
@@ -271,14 +286,7 @@ Value observe_current_publisher_worker_security() {
     require(population_complete, "publisher worker thread population did not settle within its observation bound");
     Value::Array threads;
     for (auto& item : recorded_threads) threads.push_back(std::move(item.second));
-    const auto after = statistics(token.get());
-    require(luid(before.TokenId) == luid(after.TokenId) && luid(before.AuthenticationId) == luid(after.AuthenticationId) &&
-        luid(before.ModifiedId) == luid(after.ModifiedId) &&
-        usk::json::canonical(Value(object_security(token.get()))) ==
-            usk::json::canonical(Value(Value::Object{{"owner_sid", primary.at("owner_sid")},
-                {"dacl_present", primary.at("dacl_present")}, {"dacl_protected", primary.at("dacl_protected")},
-                {"dacl_aces", primary.at("dacl_aces")}})),
-        "publisher worker primary token or thread population changed during observation");
+    require_primary_unchanged(token.get(), before, primary);
     return Value(Value::Object{{"schema", Value("usk.publisher_worker_security.v1")},
         {"scope", Value("stored_primary_token_defaults_and_process_thread_owner_dacls")},
         {"process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
@@ -325,8 +333,11 @@ struct PublisherWorkerSecurityContinuity::Impl {
     static void require_live(HANDLE handle, const Value& original) {
         FILETIME exit{};
         require_identity(handle, original, exit);
-        require(WaitForSingleObject(handle, 0) == WAIT_TIMEOUT,
-            "publisher maintenance surviving original thread exited during readback");
+        const auto waited = WaitForSingleObject(handle, 0);
+        const auto error = waited == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
+        if (waited != WAIT_TIMEOUT)
+            throw std::runtime_error("publisher maintenance original thread was not live while pinning: wait=" +
+                std::to_string(waited) + " error=" + std::to_string(error));
         require_no_thread_token(handle);
         auto facts = object_security(handle);
         facts.emplace("thread_id", original.at("thread_id"));
@@ -346,61 +357,118 @@ struct PublisherWorkerSecurityContinuity::Impl {
             require(threads.emplace(id, std::move(held)).second,
                 "publisher maintenance original thread identity repeated");
         }
-        require(usk::json::canonical(observe_current_publisher_worker_security()) == usk::json::canonical(baseline),
-            "publisher maintenance baseline changed while pinning original threads");
-        for (const auto& item : baseline.at("threads").as_array())
-            require_live(threads.at(static_cast<DWORD>(item.at("thread_id").as_unsigned()))->get(), item);
+        // Once all originals are actually pinned, use their retained objects
+        // to distinguish retirement from a missing/reused numeric ID.
+        (void)observe_current({});
     }
-    Value observe_current() const {
-        const auto current = observe_current_publisher_worker_security();
-        require(current.at("schema").as_string() == baseline.at("schema").as_string() &&
-            current.at("scope").as_string() == baseline.at("scope").as_string() &&
-            current.at("process_id").as_unsigned() == baseline.at("process_id").as_unsigned(),
-            "publisher maintenance frozen worker context changed");
-        require(current.at("current_thread_id").as_unsigned() == baseline.at("current_thread_id").as_unsigned(),
-            "publisher maintenance original execution thread changed");
-        require(usk::json::canonical(current.at("primary_token")) == usk::json::canonical(baseline.at("primary_token")),
-            "publisher maintenance frozen primary token or defaults changed");
+    std::optional<Value> read_original(HANDLE handle, const Value& original) const {
+        FILETIME exit{};
+        require_identity(handle, original, exit);
+        const auto wait = [&] {
+            const auto result = WaitForSingleObject(handle, 0);
+            const auto error = result == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
+            if (result != WAIT_TIMEOUT && result != WAIT_OBJECT_0)
+                throw std::runtime_error("publisher maintenance original thread wait unavailable: wait=" +
+                    std::to_string(result) + " error=" + std::to_string(error));
+            return result;
+        };
+        const auto require_retired = [&] {
+            require(original.at("thread_id").as_unsigned() != baseline.at("current_thread_id").as_unsigned(),
+                "publisher maintenance original execution thread retired");
+            // Exit FILETIME is defined only after actual signaled termination.
+            require_identity(handle, original, exit);
+            require(exit.dwHighDateTime || exit.dwLowDateTime,
+                "publisher maintenance original retirement lacks an actual exit time");
+        };
+        auto state = wait();
+        if (state == WAIT_OBJECT_0) require_retired();
+        else require_no_thread_token(handle);
+        auto facts = object_security(handle);
+        facts.emplace("thread_id", original.at("thread_id"));
+        facts.emplace("creation_time", original.at("creation_time"));
+        facts.emplace("thread_impersonating", Value(false));
+        require(usk::json::canonical(Value(facts)) == usk::json::canonical(original),
+            "publisher maintenance surviving original thread facts changed");
+        state = wait();
+        if (state == WAIT_OBJECT_0) { require_retired(); return std::nullopt; }
+        require_no_thread_token(handle);
+        return Value(std::move(facts));
+    }
+    Value observe_current(const std::function<void(const char*)>& checkpoint) const {
+        const auto require_execution = [&] {
+            require(GetCurrentProcessId() == baseline.at("process_id").as_unsigned(),
+                "publisher maintenance frozen worker context changed");
+            require(GetCurrentThreadId() == baseline.at("current_thread_id").as_unsigned(),
+                "publisher maintenance original execution thread changed");
+        };
+        require_execution();
         std::map<DWORD, const Value*> originals;
         for (const auto& item : baseline.at("threads").as_array())
             originals.emplace(static_cast<DWORD>(item.at("thread_id").as_unsigned()), &item);
-        std::vector<DWORD> current_ids;
-        for (const auto& item : current.at("threads").as_array()) {
-            const auto id = static_cast<DWORD>(item.at("thread_id").as_unsigned());
-            const auto original = originals.find(id);
-            require(original != originals.end(), "publisher maintenance worker added a thread after its frozen baseline");
-            require(usk::json::canonical(item) == usk::json::canonical(*original->second),
-                "publisher maintenance surviving original thread facts changed");
-            current_ids.push_back(id);
-        }
-        // Retain even terminated handles until this proof is destroyed. Missing
-        // numeric IDs or saved JSON alone cannot prove original-object exit.
-        const auto require_originals = [&] {
+        const auto require_known_ids = [&](const std::vector<DWORD>& ids) {
+            for (const auto id : ids)
+                require(originals.count(id) != 0,
+                    "publisher maintenance worker added a thread after its frozen baseline");
+        };
+        // No policy exception is caught. Only positively proved retirement of
+        // a retained original can discard a sample and start another one.
+        for (unsigned round = 0; round != 4; ++round) {
+            HANDLE raw = nullptr;
+            require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL, &raw),
+                "publisher worker primary token security unavailable");
+            Handle token(raw);
+            const auto before = statistics(token.get());
+            auto primary = read_primary_security(token.get(), before);
+            require(usk::json::canonical(Value(primary)) == usk::json::canonical(baseline.at("primary_token")),
+                "publisher maintenance frozen primary token or defaults changed");
+            const auto first_ids = thread_ids();
+            require_known_ids(first_ids);
+            if (checkpoint) checkpoint("after_population_snapshot");
+            Value::Array observed;
+            std::vector<DWORD> live_ids;
             for (const auto& item : originals) {
-                const auto handle = threads.at(item.first)->get();
-                if (std::binary_search(current_ids.begin(), current_ids.end(), item.first)) {
-                    require_live(handle, *item.second);
-                } else {
-                    require(item.first != baseline.at("current_thread_id").as_unsigned() &&
-                        WaitForSingleObject(handle, 0) == WAIT_OBJECT_0,
-                        "publisher maintenance missing original thread lacks retained-handle retirement proof");
-                    FILETIME exit{};
-                    require_identity(handle, *item.second, exit);
-                    require(exit.dwHighDateTime || exit.dwLowDateTime,
-                        "publisher maintenance missing original thread lacks retained-handle retirement proof");
+                auto facts = read_original(threads.at(item.first)->get(), *item.second);
+                if (facts) {
+                    require(std::binary_search(first_ids.begin(), first_ids.end(), item.first),
+                        "publisher maintenance live original absent from native population");
+                    live_ids.push_back(item.first); observed.push_back(std::move(*facts));
                 }
             }
-        };
-        require_originals();
-        require(thread_ids() == current_ids, "publisher maintenance thread population changed across continuity readback");
-        require_originals();
-        return current;
+            if (checkpoint) checkpoint("after_live_readback");
+            const auto final_ids = thread_ids();
+            require_known_ids(final_ids);
+            require(std::includes(live_ids.begin(), live_ids.end(), final_ids.begin(), final_ids.end()),
+                "publisher maintenance native population contradicts retained original retirement");
+            bool retired_after_readback = false;
+            for (const auto& item : originals) {
+                const auto repeated = read_original(threads.at(item.first)->get(), *item.second);
+                const bool was_live = std::binary_search(live_ids.begin(), live_ids.end(), item.first);
+                if (repeated) {
+                    require(was_live && std::binary_search(final_ids.begin(), final_ids.end(), item.first),
+                        "publisher maintenance live original absent from native population");
+                } else if (was_live) retired_after_readback = true;
+            }
+            require_primary_unchanged(token.get(), before, primary);
+            require_execution();
+            if (retired_after_readback) continue;
+            require(final_ids == live_ids,
+                "publisher maintenance thread population changed without proved original retirement");
+            return Value(Value::Object{{"schema", baseline.at("schema")}, {"scope", baseline.at("scope")},
+                {"process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
+                {"current_thread_id", Value(static_cast<std::uint64_t>(GetCurrentThreadId()))},
+                {"primary_token", Value(std::move(primary))}, {"threads", Value(std::move(observed))}});
+        }
+        throw std::runtime_error("publisher maintenance original retirement exceeded bounded readback samples");
     }
 };
 PublisherWorkerSecurityContinuity::PublisherWorkerSecurityContinuity(const Value& baseline)
     : impl_(std::make_unique<Impl>(baseline)) {}
 PublisherWorkerSecurityContinuity::~PublisherWorkerSecurityContinuity() = default;
-Value PublisherWorkerSecurityContinuity::observe_current() const { return impl_->observe_current(); }
+Value PublisherWorkerSecurityContinuity::observe_current() const { return impl_->observe_current({}); }
+Value detail::observe_publisher_worker_continuity_for_test(const PublisherWorkerSecurityContinuity& continuity,
+    const std::function<void(const char*)>& checkpoint) {
+    return continuity.impl_->observe_current(checkpoint);
+}
 
 void require_publisher_worker_security(const Value& value, const PublisherServiceObservation& service) {
     require(value.as_object().size() == 6 && value.at("schema").as_string() == "usk.publisher_worker_security.v1" &&
