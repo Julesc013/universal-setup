@@ -29,6 +29,10 @@ std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, P
 // unpublished target/custody and exclusive admission before accepting a target.
 std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
 
+// Pure mounted completion for an already safe original. Refuses every outside
+// mutation grant before deriving service/protection; no default-right reduction.
+std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
 // Closed data-shape check only. V3 must carry a nonnull mounted transition;
 // false is reserved for legacy v2. Native identity, intended-policy derivation
 // and mutation authority remain mandatory checks in the owning controller.

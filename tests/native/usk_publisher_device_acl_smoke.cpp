@@ -13,7 +13,7 @@ namespace {
 
 constexpr wchar_t service_sid[] = L"S-1-5-80-100-200-300-400-500";
 
-bool inspect(const std::wstring& sddl, bool restrict_default = false, bool make_postimage = false) {
+bool inspect(const std::wstring& sddl, bool restrict_default = false, bool make_postimage = false, bool read_only_original = false) {
     PSECURITY_DESCRIPTOR descriptor = nullptr;
     PSID service = nullptr;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(),
@@ -44,7 +44,9 @@ bool inspect(const std::wstring& sddl, bool restrict_default = false, bool make_
             const auto length = GetSecurityDescriptorLength(descriptor);
             const auto* first = static_cast<const BYTE*>(descriptor);
             const std::vector<BYTE> original(first, first + length);
-            restricted = usk::platform::windows::publisher_device_admission_postimage(owner, dacl, service);
+            restricted = read_only_original ?
+                usk::platform::windows::publisher_read_only_device_admission_postimage(owner, dacl, service) :
+                usk::platform::windows::publisher_device_admission_postimage(owner, dacl, service);
             if (std::memcmp(original.data(), descriptor, original.size()) != 0)
                 throw std::runtime_error("device admission postimage changed original descriptor bytes");
             PSID intended_owner = nullptr;
@@ -77,8 +79,8 @@ bool inspect(const std::wstring& sddl, bool restrict_default = false, bool make_
     }
 }
 
-bool refuses(const std::wstring& sddl, bool restrict_default = false, bool make_postimage = false) {
-    try { (void)inspect(sddl, restrict_default, make_postimage); }
+bool refuses(const std::wstring& sddl, bool restrict_default = false, bool make_postimage = false, bool read_only_original = false) {
+    try { (void)inspect(sddl, restrict_default, make_postimage, read_only_original); }
     catch (const std::runtime_error&) { return true; }
     return false;
 }
@@ -117,6 +119,14 @@ int main() {
         !refuses(baseline + L"(A;;0x2;;;BU)", false, true) ||
         !refuses(baseline + service + service, false, true) ||
         !refuses(L"O:BUD:(A;;FA;;;SY)(A;;FA;;;BA)" + default_modify, false, true)) return 4;
+    // Mounted completion accepts only originals that are already safe; the
+    // locked/default path above retains its separate AU transformation.
+    if (!inspect(baseline, false, true, true) ||
+        !inspect(baseline + service, false, true, true) ||
+        !refuses(baseline + default_modify, false, true, true) ||
+        !refuses(baseline + L"(A;;0x2;;;BU)", false, true, true) ||
+        !refuses(baseline + service + service, false, true, true) ||
+        !refuses(L"O:BUD:(A;;FA;;;SY)(A;;FA;;;BA)", false, true, true)) return 7;
     using usk::json::Value;
     const Value policy(Value::Object{{"owner", Value("S-1-5-18")}, {"dacl_protected", Value(true)},
         {"aces", Value(Value::Array{Value(Value::Object{{"type", Value(std::uint64_t{0})},

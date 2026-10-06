@@ -175,6 +175,12 @@ std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PS
     }
 }
 
+std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid) {
+    // Validate the retained prestate before any default-right reduction.
+    (void)require_publisher_device_acl_shape(owner, dacl, service_sid);
+    return publisher_device_admission_postimage(owner, dacl, service_sid);
+}
+
 bool publisher_target_intent_has_device_transition(const json::Value& intent) {
     const auto keys = [](const json::Value& value, const std::set<std::string>& expected) {
         std::set<std::string> actual;
