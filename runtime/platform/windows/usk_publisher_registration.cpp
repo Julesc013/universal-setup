@@ -27,6 +27,7 @@
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_service_access.h"
 #include "usk_stable_file.h"
+#include "usk_record_io.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_effect_dispatch.h"
@@ -1807,7 +1808,7 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     const std::wstring& mode, const std::wstring* exact_command);
 
 std::string read_reviewed_apply(const std::wstring& envelope_path,
-    const std::wstring& envelope_sha256, const std::wstring& apply_path) {
+    const std::wstring& envelope_sha256, const std::wstring& apply_path, bool maintenance = false) {
     if (!lower_sha256(envelope_sha256)) {
         throw std::runtime_error("reviewed envelope digest is invalid");
     }
@@ -1839,10 +1840,15 @@ std::string read_reviewed_apply(const std::wstring& envelope_path,
         std::string(envelope_bytes.begin(), envelope_bytes.end()), limits);
     const auto request = usk::json::parse(
         std::string(apply_bytes.begin(), apply_bytes.end()), limits);
-    if (reviewed.at("schema").as_string() !=
-            "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+    const bool maintenance_envelope = maintenance && reviewed.at("schema").as_string() ==
+        "usk.publisher.maintenance_reviewed_plan_envelope.v1";
+    const auto request_schema = request.at("schema").as_string();
+    if ((!maintenance_envelope && reviewed.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_envelope.v2") ||
         reviewed.at("activation").as_string() != "operator_acceptance_candidate" ||
-        request.at("schema").as_string() != "usk.install_local_apply_request.v1" ||
+        (maintenance_envelope ? (request_schema != "usk.repair_apply_request.v1" &&
+            request_schema != "usk.move_apply_request.v1" && request_schema != "usk.uninstall_apply_request.v1") :
+            request_schema != "usk.install_local_apply_request.v1") ||
         request.at("confirmation").as_string() != "APPLY" ||
         usk::json::canonical(reviewed.at("apply_request")) !=
             usk::json::canonical(request)) {
@@ -1882,10 +1888,26 @@ usk::json::Value parse_reviewed_operation_envelope(const std::string& bytes,
     limits.max_bytes = 1024u * 1024u;
     limits.max_string_bytes = 512u * 1024u;
     const auto envelope = usk::json::parse(bytes, limits);
+    const auto schema = envelope.at("schema").as_string();
+    const auto& apply = envelope.at("apply_request");
+    const auto request_schema = apply.at("schema").as_string();
+    std::string operation;
+    if (schema == "usk.publisher.maintenance_reviewed_plan_envelope.v1") {
+        if (request_schema == "usk.repair_apply_request.v1") operation = "repair";
+        else if (request_schema == "usk.move_apply_request.v1") operation = "move";
+        else if (request_schema == "usk.uninstall_apply_request.v1") operation = "uninstall";
+        else throw std::runtime_error("reviewed maintenance operation schema is unavailable");
+        if (apply.as_object().size() != 7u ||
+            envelope.at("plan_request").at("schema").as_string() != "usk." + operation + "_plan_request.v1" ||
+            !usk::record_io::valid_identifier(apply.at("transaction_id").as_string()) ||
+            !usk::record_io::valid_identifier(envelope.at("plan_request").at("install_id").as_string()) ||
+            apply.at("applied_at").as_string().empty())
+            throw std::runtime_error("reviewed maintenance identity differs");
+    }
     if (envelope.as_object().size() != 7 ||
-        envelope.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+        (operation.empty() && schema != "usk.publisher.lab_reviewed_plan_envelope.v2") ||
         envelope.at("activation").as_string() != "operator_acceptance_candidate" ||
-        envelope.at("apply_request").at("schema").as_string() != "usk.install_local_apply_request.v1" ||
+        (operation.empty() && request_schema != "usk.install_local_apply_request.v1") ||
         envelope.at("apply_request").at("confirmation").as_string() != "APPLY" ||
         usk::json::canonical(envelope.at("apply_request")) != request ||
         usk::json::canonical(envelope.at("apply_request").at("plan_request")) !=
@@ -1893,8 +1915,12 @@ usk::json::Value parse_reviewed_operation_envelope(const std::string& bytes,
         envelope.at("apply_request").at("reviewed_plan_digest").as_string() !=
             envelope.at("reviewed_plan_digest").as_string() ||
         envelope.at("apply_request").at("reviewed_plan_id").as_string() !=
-            envelope.at("plan_request").at("request_id").as_string())
+            envelope.at("plan_request").at(operation.empty() ? "request_id" : "plan_id").as_string())
         throw std::runtime_error("protected reviewed envelope differs from exact approved request");
+    // All seven envelope fields are mandatory; an unknown replacement field
+    // cannot hide behind the cardinality check. Native mapping follows later.
+    (void)envelope.at("state_root").as_string();
+    (void)envelope.at("acceptance_root").as_string();
     return envelope;
 }
 
@@ -1928,7 +1954,7 @@ usk::json::Value enroll_reviewed_operation(const std::wstring& name, const std::
         usk::json::canonical(target.at("volume_identity")) != usk::json::canonical(binding.at("volume_identity")) ||
         usk::json::canonical(target.at("disk_identity")) != usk::json::canonical(dedicated_target_disk_identity(args[4])))
         throw std::runtime_error("reviewed operation target admission differs");
-    const auto request = read_reviewed_apply(envelope_path, envelope_digest, apply_path);
+    const auto request = read_reviewed_apply(envelope_path, envelope_digest, apply_path, true);
     usk::base::StableFile source{std::filesystem::path(envelope_path)};
     if (!source.identity().size_bytes || source.identity().size_bytes > 1024u * 1024u ||
         source.sha256_hex() != utf8(envelope_digest))
@@ -2320,6 +2346,11 @@ void retire_protected_binary(const std::wstring& name,
 
 } // namespace
 
+usk::json::Value parse_publisher_reviewed_operation_envelope(
+    const std::string& bytes, const std::string& canonical_request) {
+    return parse_reviewed_operation_envelope(bytes, canonical_request);
+}
+
 struct RegisteredPublisherAdmission::State {
     std::unique_ptr<ServiceControlGuard> control;
     std::unique_ptr<ServiceHandle> service;
@@ -2584,6 +2615,8 @@ std::string submit_registered_publisher_request(const std::wstring& name,
                 throw std::runtime_error("publisher inspection request differs");
             windows_build = observe_supported_discovery_windows_build();
         } else if (schema != "usk.install_local_apply_request.v1" &&
+            schema != "usk.repair_apply_request.v1" && schema != "usk.move_apply_request.v1" &&
+            schema != "usk.uninstall_apply_request.v1" &&
             schema != "usk.publisher_recovery_request.v1" &&
             schema != "usk.publisher_installed_verify_request.v1")
             throw std::runtime_error("publisher request schema is unavailable");

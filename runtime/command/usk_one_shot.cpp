@@ -465,6 +465,10 @@ static OneShotResult run_publisher_request(const std::string& request_json,
         } else if (command == "install_local.recover") {
             expected_schema = "usk.publisher_recovery_request.v1";
             response_field = "recovery_installed_response";
+        } else if (!retain_observation && (command == "repair.apply" || command == "move.apply" ||
+                command == "uninstall.apply")) {
+            expected_schema = "usk." + command.substr(0, command.find('.')) + "_apply_request.v1";
+            response_field = "apply_response";
         } else if (command == "publisher.inspect" && !retain_observation) {
             expected_schema = "usk.publisher_capability_request.v1";
         } else if (command == "publisher.observe") {
@@ -562,6 +566,27 @@ static OneShotResult run_publisher_request(const std::string& request_json,
                         payload.at("verified_at").as_string() != submitted.at("verified_at").as_string() ||
                         payload.at("report_digest").as_string() != observed.at("bound_report_digest").as_string())
                         throw std::runtime_error("publisher verification binding differs");
+                } else if (candidate_command == "repair.apply" || candidate_command == "move.apply" ||
+                    candidate_command == "uninstall.apply") {
+                    const auto operation = candidate_command.substr(0, candidate_command.find('.'));
+                    auto digest_body = payload;
+                    digest_body.as_object().erase("report_digest");
+                    const auto report_status = payload.at("status").as_string();
+                    const bool completed = operation == "move" ? report_status == "new_committed_old_retained" :
+                        (report_status == "completed" || (operation == "uninstall" && report_status == "retained_foreign_content"));
+                    if (observed.as_object().size() != 12 || !completed ||
+                        observed.at("request_sha256").as_string() != usk::json::sha256_canonical(submitted) ||
+                        observed.at("operation").as_string() != operation ||
+                        observed.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+                        observed.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
+                        payload.at("schema").as_string() != "usk." + operation + "_report.v1" ||
+                        payload.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+                        payload.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
+                        payload.at("plan_id").as_string() != submitted.at("plan_request").at("plan_id").as_string() ||
+                        payload.at("report_id").as_string() != operation + "." + submitted.at("transaction_id").as_string() ||
+                        payload.at("report_digest").as_string() != usk::json::sha256_canonical(digest_body) ||
+                        payload.at("completed_at").as_string() != submitted.at("applied_at").as_string())
+                        throw std::runtime_error("publisher maintenance binding differs");
                 } else {
                     const std::string install_id = candidate_command == "install_local.apply" ?
                         submitted.at("plan_request").at("install_id").as_string() :

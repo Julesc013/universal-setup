@@ -842,6 +842,9 @@ MaintenanceSession begin_maintenance(
     const Value context = maintenance_source_context(spec, installed, policy_digest, applied_at,
         maintenance_text_digest(artifact_text));
     const std::string text = usk::json::canonical(context);
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    usk::lifecycle::prepare_in_candidate_maintenance_context(spec, installed, reviewed_plan);
+#endif
     auto transaction = usk::transaction::TransactionSession::begin_streaming(
         spec, usk::json::sha256_canonical(context), text, injector);
     auto effects = std::make_unique<usk::transaction::MaintenanceEffectJournal>(spec, text,

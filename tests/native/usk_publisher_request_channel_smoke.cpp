@@ -4,6 +4,7 @@
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_effect_dispatch.h"
+#include "usk_json.h"
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
@@ -84,6 +85,49 @@ void test_terminal_response_binding() {
         R"({"schema":"usk.publisher_lab_service_observation.v1","status":"recovery_required","error":"retained"})");
     require_publisher_response_binding(service, verify_request,
         R"({"schema":"usk.publisher_lab_service_observation.v1","status":"failed","error":"verify refused"})");
+}
+void test_maintenance_response_binding() {
+    using usk::json::Value;
+    using usk::platform::windows::require_publisher_response_binding;
+    const std::string name = "USK_PUB_0123456789abcdef0123456789abcdef";
+    const std::wstring service(name.begin(), name.end());
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const Value request(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"transaction_id", Value("tx.one")}, {"applied_at", Value("2026-10-06T07:00:00Z")},
+            {"plan_request", Value(Value::Object{{"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}})}});
+        Value report(Value::Object{{"schema", Value("usk." + operation + "_report.v1")},
+            {"status", Value(operation == "move" ? "new_committed_old_retained" : "completed")},
+            {"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}, {"transaction_id", Value("tx.one")},
+            {"report_id", Value(operation + ".tx.one")}, {"completed_at", Value("2026-10-06T07:00:00Z")}});
+        report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
+        Value response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+            {"request_sha256", Value(usk::json::sha256_canonical(request))}, {"operation", Value(operation)},
+            {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}, {"service_name", Value(name)},
+            {"service_sid", Value("S-1-5-80-1-2-3-4-5")}, {"process_id", Value(std::uint64_t{123})},
+            {"operation_admission", Value(Value::Object{})},
+            {"registered_admission", Value(Value::Object{{"schema", Value("usk.publisher_registered_admission_observation.v1")},
+                {"service_name", Value(name)}, {"service_sid", Value("S-1-5-80-1-2-3-4-5")}, {"process_id", Value(std::uint64_t{123})}})},
+            {"apply_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", report}})}});
+        const auto encoded_request = usk::json::canonical(request);
+        require_publisher_response_binding(service, encoded_request, usk::json::canonical(response), 123);
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(response), 124); });
+        for (const auto field : {"request_sha256", "operation", "install_id", "transaction_id", "service_name", "service_sid"}) {
+            auto wrong = response;
+            wrong.as_object().at(field) = Value("substituted");
+            refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        }
+        for (const auto field : {"schema", "status", "install_id", "transaction_id", "plan_id", "completed_at", "report_id", "report_digest"}) {
+            auto wrong = response;
+            wrong.as_object().at("apply_response").as_object().at("payload").as_object().at(field) = Value("substituted");
+            refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        }
+        auto wrong = response;
+        wrong.as_object().at("registered_admission").as_object().at("process_id") = Value(std::uint64_t{124});
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        wrong = response;
+        wrong.as_object().emplace("recovery_installed_response", Value());
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+    }
 }
 void test_service_observation_transport_binding() {
     using usk::platform::windows::require_publisher_response_binding;
@@ -342,10 +386,12 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
     });
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
         test_terminal_response_binding();
         test_service_observation_transport_binding();
+        test_maintenance_response_binding();
+        if (argc == 2 && std::string(argv[1]) == "--response-binding-smoke") return 0;
         const auto name=L"USK_transport_test_"+std::to_wstring(GetCurrentProcessId());
         const auto sid=current_sid();
         const std::wstring service_sid=L"S-1-5-80-1-2-3-4-5";

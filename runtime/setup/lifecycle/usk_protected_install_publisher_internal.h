@@ -8,6 +8,7 @@
 #include <exception>
 #include <functional>
 #include <optional>
+namespace usk::transaction { struct TransactionSpec; }
 namespace usk::platform::windows {
 class PublisherRequestChannel;
 class RegisteredPublisherAdmission;
@@ -52,6 +53,10 @@ public:
 // Constructed only when the engine's read-only native revision preflight
 // raises the actual typed mismatch before apply entry. Later mismatches keep
 // the ordinary lease error and its conservative effects/recovery status.
+class StaleReviewedMaintenanceRequest final : public std::runtime_error {
+public:
+    explicit StaleReviewedMaintenanceRequest(const std::string& reason) : std::runtime_error(reason) {}
+};
 class InstallStateRevisionChangedBeforeEffects final : public std::runtime_error {
 public:
     InstallStateRevisionChangedBeforeEffects() : std::runtime_error(
@@ -91,6 +96,11 @@ void require_candidate_bootstrap_source(const usk::json::Value& snapshot);
 // operation-scoped context. Only the concrete live service engine creates it.
 std::optional<InstallResult> apply_in_candidate_publisher_context(
     const InstallPlan&, const std::string& transaction_id, const std::string& applied_at);
+// Called after the ordinary typed maintenance plan has passed its complete
+// preflight, immediately before the first journal. Only the concrete active
+// engine can install the private continuation; public JSON cannot create it.
+void prepare_in_candidate_maintenance_context(const usk::transaction::TransactionSpec&,
+    const usk::state::InstalledState&, const usk::json::Value& reviewed_plan);
 }
 #endif
 #endif

@@ -587,6 +587,43 @@ void require_publisher_response_binding(const std::wstring& service_name,
         throw std::runtime_error("publisher response service identity is absent");
     }
 
+    if (schema == "usk.repair_apply_request.v1" || schema == "usk.move_apply_request.v1" ||
+        schema == "usk.uninstall_apply_request.v1") {
+        const std::string operation = schema == "usk.repair_apply_request.v1" ? "repair" :
+            schema == "usk.move_apply_request.v1" ? "move" : "uninstall";
+        const auto& public_response = observed.at("apply_response");
+        const auto& report = public_response.at("payload");
+        auto digest_body = report;
+        digest_body.as_object().erase("report_digest");
+        const auto& admission = observed.at("registered_admission");
+        const auto report_status = report.at("status").as_string();
+        const bool completed = operation == "move" ? report_status == "new_committed_old_retained" :
+            (report_status == "completed" || (operation == "uninstall" && report_status == "retained_foreign_content"));
+        if (observed.as_object().size() != 12 || status != "pass" || !completed ||
+            observed.at("request_sha256").as_string() != usk::json::sha256_canonical(submitted) ||
+            observed.at("operation").as_string() != operation ||
+            observed.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+            observed.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
+            observed.at("process_id").as_unsigned() == 0 || observed.at("process_id").as_unsigned() > 0xffffffffu ||
+            (expected_process_id && observed.at("process_id").as_unsigned() != expected_process_id) ||
+            observed.at("service_sid").as_string().empty() ||
+            observed.at("operation_admission").type() != usk::json::Value::Type::object ||
+            admission.at("schema").as_string() != "usk.publisher_registered_admission_observation.v1" ||
+            admission.at("service_name").as_string() != expected_service ||
+            admission.at("service_sid").as_string() != observed.at("service_sid").as_string() ||
+            admission.at("process_id").as_unsigned() != observed.at("process_id").as_unsigned() ||
+            public_response.at("schema").as_string() != "usk.command_response.v1" ||
+            public_response.at("status").as_string() != "ok" ||
+            report.at("schema").as_string() != "usk." + operation + "_report.v1" ||
+            report.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+            report.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
+            report.at("plan_id").as_string() != submitted.at("plan_request").at("plan_id").as_string() ||
+            report.at("report_id").as_string() != operation + "." + submitted.at("transaction_id").as_string() ||
+            report.at("report_digest").as_string() != usk::json::sha256_canonical(digest_body) ||
+            report.at("completed_at").as_string() != submitted.at("applied_at").as_string())
+            throw std::runtime_error("publisher completed maintenance differs from request or live server");
+        return;
+    }
     if (schema == "usk.install_local_apply_request.v1" ||
         schema == "usk.publisher_recovery_request.v1") {
         if (status != "pass") {

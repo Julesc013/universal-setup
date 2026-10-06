@@ -271,6 +271,56 @@ bool service_capability_checks()
         "publisher_observation_unknown";
 }
 
+bool maintenance_projection_checks()
+{
+    using usk::json::Value;
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const Value submitted(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"transaction_id", Value("tx.one")}, {"applied_at", Value("2026-10-06T07:00:00Z")},
+            {"plan_request", Value(Value::Object{{"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}})}});
+        const auto input = usk::json::canonical(Value(Value::Object{{"schema", Value("usk.oneshot_request.v1")},
+            {"request_id", Value("maintenance.one")}, {"command", Value(operation + ".apply")},
+            {"payload", submitted}, {"dry_run", Value(false)}}));
+        Value report(Value::Object{{"schema", Value("usk." + operation + "_report.v1")},
+            {"status", Value(operation == "move" ? "new_committed_old_retained" : "completed")},
+            {"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}, {"transaction_id", Value("tx.one")},
+            {"report_id", Value(operation + ".tx.one")}, {"completed_at", Value("2026-10-06T07:00:00Z")}});
+        report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
+        Value response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+            {"request_sha256", Value(usk::json::sha256_canonical(submitted))}, {"operation", Value(operation)},
+            {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")},
+            {"service_name", Value("NATIVE_CANARY")}, {"service_sid", Value("NATIVE_CANARY")},
+            {"process_id", Value(std::uint64_t{123})}, {"operation_admission", Value(Value::Object{})},
+            {"registered_admission", Value(Value::Object{})},
+            {"apply_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", report}})}});
+        const auto run = [&](const Value& observation) {
+            return usk::command::run_publisher_one_shot(input,
+                [&](const std::string& dispatched) {
+                    if (dispatched != usk::json::canonical(submitted)) throw std::runtime_error("request changed");
+                    return usk::json::canonical(observation);
+                });
+        };
+        const auto completed = run(response);
+        if (completed.exit_code != 0 || completed.document.find("NATIVE_CANARY") != std::string::npos ||
+            usk::json::parse(completed.document).at("result").at("payload").at("plan_id").as_string() != "plan.one") return false;
+        for (const auto field : {"request_sha256", "operation", "install_id", "transaction_id"}) {
+            auto wrong = response;
+            wrong.as_object().at(field) = Value("substituted");
+            const auto result = run(wrong);
+            if (result.exit_code != 5 || usk::json::parse(result.document).at("status").as_string() != "unknown") return false;
+        }
+        for (const auto field : {"schema", "status", "install_id", "transaction_id", "plan_id", "completed_at", "report_id", "report_digest"}) {
+            auto wrong = response;
+            wrong.as_object().at("apply_response").as_object().at("payload").as_object().at(field) = Value("substituted");
+            const auto result = run(wrong);
+            if (result.exit_code != 5 || usk::json::parse(result.document).at("status").as_string() != "unknown") return false;
+        }
+        auto wrong = response;
+        wrong.as_object().emplace("extra", Value(true));
+        if (run(wrong).exit_code != 5) return false;
+    }
+    return true;
+}
 bool publisher_projection_checks()
 {
     using usk::json::Value;
@@ -380,6 +430,7 @@ bool publisher_projection_checks()
 int main()
 {
     if (!publisher_projection_checks()) return 23;
+    if (!maintenance_projection_checks()) return 24;
     if (!publisher_capability_checks()) return 24;
     if (!service_capability_checks()) return 25;
     const std::string request =

@@ -15,6 +15,8 @@
 #include "usk_record_io.h"
 #include "usk_public_lifecycle.h"
 #include "usk_protected_install_publisher_internal.h"
+#include "usk_native_maintenance_context_internal.h"
+#include "usk_maintenance_recovery_internal.h"
 #include "usk_publisher_worker_security.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_consumer_access.h"
@@ -3127,6 +3129,25 @@ public:
     ScopedOriginalOperationContext& operator=(const ScopedOriginalOperationContext&)=delete;
 };
 thread_local CandidateApplyContext* candidate_apply=nullptr;
+using MaintenancePreparation = std::function<void(const usk::transaction::TransactionSpec&,
+    const usk::state::InstalledState&, const usk::json::Value&)>;
+struct CandidateMaintenanceContext {
+    const MaintenancePreparation& prepare;
+    std::exception_ptr operation_failure;
+    std::exception_ptr preflight_stale_plan;
+    bool preflight = true;
+};
+thread_local CandidateMaintenanceContext* candidate_maintenance = nullptr;
+class ScopedCandidateMaintenance final {
+public:
+    explicit ScopedCandidateMaintenance(CandidateMaintenanceContext& context) {
+        if (candidate_maintenance || candidate_apply) throw std::runtime_error("nested candidate maintenance context");
+        candidate_maintenance = &context;
+    }
+    ~ScopedCandidateMaintenance() { candidate_maintenance = nullptr; }
+    ScopedCandidateMaintenance(const ScopedCandidateMaintenance&) = delete;
+    ScopedCandidateMaintenance& operator=(const ScopedCandidateMaintenance&) = delete;
+};
 class ScopedCandidateApply final {
 public:
     explicit ScopedCandidateApply(CandidateApplyContext& context) {
@@ -3210,7 +3231,7 @@ struct ScopedExecution {
 } // namespace
 
 void usk::lifecycle::retain_candidate_publisher_operation_failure(std::exception_ptr failure) {
-    if (!candidate_apply || !failure) return;
+    if ((!candidate_apply && !candidate_maintenance) || !failure) return;
     try { std::rethrow_exception(failure); }
     catch (const std::exception& error) {
         using namespace usk::platform::windows;
@@ -3218,14 +3239,18 @@ void usk::lifecycle::retain_candidate_publisher_operation_failure(std::exception
         if (dynamic_cast<const InstallLeaseConflict*>(&error) || dynamic_cast<const InstallStateRevisionStale*>(&error) ||
             dynamic_cast<const InstallLeaseStale*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
             dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherOperationCancelled*>(&error) ||
-            (!candidate_apply->entered && candidate_apply->refusal_before_effects &&
+            ((candidate_maintenance || (!candidate_apply->entered && candidate_apply->refusal_before_effects)) &&
                 (dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
-                dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error))))
-            candidate_apply->operation_failure = failure;
+                dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error)))) {
+            if (candidate_maintenance) candidate_maintenance->operation_failure = failure;
+            else candidate_apply->operation_failure = failure;
+        }
     } catch (...) {}
 }
 
 void usk::lifecycle::retain_candidate_publisher_preflight_stale_plan(std::exception_ptr failure) {
+    if (candidate_maintenance && candidate_maintenance->preflight && failure)
+        candidate_maintenance->preflight_stale_plan = failure;
     if (candidate_apply && !candidate_apply->entered && candidate_apply->refusal_before_effects && failure)
         candidate_apply->preflight_stale_plan = failure;
 }
@@ -3270,6 +3295,16 @@ void usk::lifecycle::require_candidate_snapshot_apply_binding(const usk::json::V
         apply.at("applied_at").as_string() != snapshot.at("applied_at").as_string()) {
         throw std::runtime_error("durable caller apply binding differs");
     }
+}
+
+void usk::lifecycle::prepare_in_candidate_maintenance_context(
+    const usk::transaction::TransactionSpec& spec, const usk::state::InstalledState& installed,
+    const usk::json::Value& reviewed_plan) {
+    if (!candidate_maintenance) return;
+    if (!execution_active || !registered_admission || !authenticated_request || candidate_apply)
+        throw std::runtime_error("maintenance preparation lacks its active registered engine");
+    candidate_maintenance->preflight = false;
+    candidate_maintenance->prepare(spec, installed, reviewed_plan);
 }
 
 std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_publisher_context(
@@ -3643,6 +3678,122 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             throw std::runtime_error("cannot open admitted publisher volume root; Win32 "+std::to_string(GetLastError()));
         }
         OwnedHandle held_volume(volume);
+        if (submitted_apply_request) {
+            using namespace usk::platform::windows;
+            using usk::json::Value;
+            const auto request = usk::json::parse(*submitted_apply_request);
+            const auto schema = request.at("schema").as_string();
+            const std::string operation = schema == "usk.repair_apply_request.v1" ? "repair" :
+                schema == "usk.move_apply_request.v1" ? "move" :
+                schema == "usk.uninstall_apply_request.v1" ? "uninstall" : std::string{};
+            if (!operation.empty()) {
+                if (!registered_admission || !authenticated_request || !install_guard ||
+                    !registered_admission->has_selected_reviewed_operation())
+                    throw std::runtime_error("maintenance lacks its independently enrolled registered request");
+                const auto envelope = parse_publisher_reviewed_operation_envelope(
+                    usk::json::canonical(registered_admission->selected_reviewed_envelope()),
+                    usk::json::canonical(request));
+                if (envelope.at("schema").as_string() != "usk.publisher.maintenance_reviewed_plan_envelope.v1")
+                    throw std::runtime_error("maintenance cannot inherit an install approval");
+                const std::filesystem::path setup = std::filesystem::u8path(envelope.at("state_root").as_string());
+                const std::filesystem::path acceptance = std::filesystem::u8path(envelope.at("acceptance_root").as_string());
+                if (!setup.is_absolute() || setup.lexically_normal() != setup ||
+                    setup.relative_path() != setup.filename() || !is_publisher_canonical_component(setup.filename().wstring()) ||
+                    !acceptance.is_absolute() || acceptance != acceptance.root_path())
+                    throw std::runtime_error("maintenance reviewed setup/acceptance roots differ from the admitted layout");
+                require_public_mount_mapping(volume, setup.u8string(), acceptance.u8string());
+                const auto install_id = request.at("plan_request").at("install_id").as_string();
+                const auto operation_id = request.at("transaction_id").as_string();
+                const auto kind = operation == "repair" ? PublisherOperationKind::repair :
+                    operation == "move" ? PublisherOperationKind::move : PublisherOperationKind::uninstall;
+                auto original_state = std::make_unique<PublisherMaintenanceStateSnapshot>(volume, volume_root,
+                    setup.filename().wstring(), service_name, *install_guard, install_id);
+                original_state->require_initial_revision();
+                require_public_mount_mapping(volume, setup.u8string(), original_state->installed_state().at("target_root").as_string());
+                usk::lifecycle::initialize_setup_root_for_publisher(setup.u8string(), acceptance.u8string(),
+                    "operator_acceptance_candidate", volume, volume_root, service_name, true);
+                auto original_context = std::make_unique<PublisherInstallOperationContext>(volume, volume_root,
+                    service_name, *install_guard, install_id, operation_id, kind);
+                if (original_context->exists()) {
+                    publication_effects_may_exist = true;
+                    throw std::runtime_error("maintenance original intent already exists; source-free recovery is required");
+                }
+                std::unique_ptr<PublisherInstallationLease> maintenance_lease;
+                std::unique_ptr<usk::lifecycle::detail::NativeMaintenanceContext> maintenance_owner;
+                MaintenancePreparation prepare = [&](const auto& spec, const auto& installed, const auto& plan) {
+                    if (maintenance_owner || maintenance_lease || spec.operation != operation ||
+                        spec.transaction_id != operation_id || spec.plan_id != request.at("reviewed_plan_id").as_string() ||
+                        spec.plan_digest != request.at("reviewed_plan_digest").as_string() ||
+                        usk::json::sha256_canonical(plan) != spec.plan_digest || installed.install_id != install_id ||
+                        spec.state_root.parent_path().lexically_normal() != setup ||
+                        usk::json::canonical(usk::json::parse(usk::state::serialize_installed_state(installed))) !=
+                            usk::json::canonical(original_state->installed_state()))
+                        throw std::runtime_error("maintenance typed preflight differs from its original enrolled request/state");
+                    original_state->require_initial_revision();
+                    registered_operation_admission = admit_current_registered_operation(volume, observed.service_sid,
+                        setup.u8string(), spec.target_root.u8string(), spec.plan_digest, usk::json::canonical(envelope), operation_id);
+                    publication_effects_may_exist = true; // Immutable intent is itself an effect.
+                    original_context->prepare_maintenance(*original_state, plan, request);
+                    original_context->bind_state_roots(original_state->setup_root(), original_state->state_root());
+                    const auto holder = observe_publisher_lease_holder();
+                    static std::atomic<std::uint64_t> maintenance_attempt{0};
+                    usk::transaction::InstallLeaseRequest lease_request{install_id, operation, operation_id,
+                        "attempt." + std::to_string(GetCurrentProcessId()) + "." +
+                            holder.at("process_creation_time").as_string() + "." + std::to_string(++maintenance_attempt),
+                        original_state->initial_state_revision(), false, original_context->lease_binding_sha256()};
+                    const std::function<std::string()> revision = [&] {
+                        return observe_publisher_install_state_revision(original_state->state_root(), install_id, observed.service_sid);
+                    };
+                    maintenance_lease = std::make_unique<PublisherInstallationLease>(original_state->state_root(),
+                        volume_root, service_name, *install_guard, lease_request, revision);
+                    maintenance_lease->require_start();
+                    maintenance_owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root,
+                        service_name, *install_guard, *original_state, *original_context, *maintenance_lease,
+                        *registered_admission, *authenticated_request, spec, stop_event, publication_effects_may_exist));
+                };
+                CandidateMaintenanceContext maintenance_call{prepare, {}, {}};
+                ScopedCandidateMaintenance selected(maintenance_call);
+                const auto command = operation + ".apply";
+                const auto canonical_request = usk::json::canonical(request);
+                int status = -1;
+                char* raw = usk_public_lifecycle_command_json(command.c_str(), canonical_request.data(), canonical_request.size(),
+                    setup.u8string().c_str(), acceptance.u8string().c_str(), "operator_acceptance_candidate", &status);
+                const std::string response = raw ? std::string(raw) : std::string();
+                if (raw) usk_public_lifecycle_command_free(raw);
+                // Preserve actual native exceptions across the private C call;
+                // response JSON never creates a native conflict or authority.
+                if (maintenance_call.operation_failure) std::rethrow_exception(maintenance_call.operation_failure);
+                if (maintenance_call.preflight_stale_plan) {
+                    try { std::rethrow_exception(maintenance_call.preflight_stale_plan); }
+                    catch (const std::exception& error) { throw StaleReviewedMaintenanceRequest(error.what()); }
+                }
+                if (!raw) throw std::runtime_error("native maintenance public response is absent");
+                const auto parsed = usk::json::parse(response);
+                if (status != 0 || parsed.at("status").as_string() != "ok" || !maintenance_owner || !maintenance_lease)
+                    throw std::runtime_error("native maintenance public apply refused: " + response);
+                const auto& bindings = original_context->record().at("reviewed_snapshot").at("reviewed_plan");
+                usk::transaction::TransactionSpec spec{operation_id, bindings.at("plan_id").as_string(),
+                    usk::json::sha256_canonical(bindings), operation,
+                    std::filesystem::u8path(bindings.at("staging_parent").as_string()),
+                    operation == "move" ? std::filesystem::u8path(bindings.at("new_root").as_string()) :
+                        std::filesystem::u8path(original_state->installed_state().at("target_root").as_string()).parent_path() /
+                            ((operation == "repair" ? ".usk-repair-" : ".usk-uninstall-") + operation_id),
+                    std::filesystem::u8path(bindings.at("state_root").as_string()),
+                    std::filesystem::u8path(bindings.at("audit_root").as_string())};
+                const auto completed = usk::transaction::TransactionSession::inspect_recovery(spec);
+                const auto effects = usk::transaction::MaintenanceEffectJournal::inspect(spec, completed.stream_source_digest);
+                if (completed.current_state != "completed" || !effects.sealed || !effects.pending_kind.empty())
+                    throw std::runtime_error("native maintenance response lacks the original finalized sealed effect prefix");
+                maintenance_lease->finish(false);
+                return usk::json::canonical(Value(Value::Object{
+                    {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+                    {"request_sha256", Value(usk::json::sha256_canonical(request))},
+                    {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
+                    {"service_name", Value(ascii(service_name))}, {"service_sid", Value(observed.service_sid)},
+                    {"process_id", Value(static_cast<std::uint64_t>(observed.process_id))},
+                    {"apply_response", parsed}, {"operation_admission", *registered_operation_admission}})) + "\n";
+            }
+        }
         // Ancestors, OS ownership, the lease, and its borrowed callback all
         // survive every product effect, including public state and consumer
         // finalization. Read-only verification never creates a lease.

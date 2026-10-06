@@ -11,6 +11,10 @@ namespace usk::platform::windows {
 // Internal controller entry point; the packaged CLI and machine client share
 // the same SCM, protected-binary and dedicated-volume admission implementation.
 int publisher_service_control_main(int argc, wchar_t** argv);
+// Closed grammar only. This supplies no registration, approval or effect
+// authority; enrollment and execution independently retain those native facts.
+usk::json::Value parse_publisher_reviewed_operation_envelope(
+    const std::string& bytes, const std::string& canonical_request);
 // Opt-in administrator-created registration: the actual restricted service
 // holds the controller guard and protected executable through its one request,
 // and validates private registration/target/storage facts before receiving it.

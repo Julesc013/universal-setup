@@ -326,6 +326,12 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                         (void)registered_admission->select_reviewed_operation(request, *request_channel,
                             config.reviewed_plan_envelope_path, config.reviewed_plan_envelope_sha256);
                     config.submitted_apply_request=request;
+                } else if (schema == "usk.repair_apply_request.v1" || schema == "usk.move_apply_request.v1" ||
+                    schema == "usk.uninstall_apply_request.v1") {
+                    if (!registered_admission || !registered_admission->select_reviewed_operation(request, *request_channel,
+                            config.reviewed_plan_envelope_path, config.reviewed_plan_envelope_sha256))
+                        throw std::runtime_error("registered maintenance requires its own exact administrator-enrolled request");
+                    config.submitted_apply_request=request;
                 } else {
                     throw std::runtime_error("registered publisher request schema is unavailable");
                 }
@@ -392,7 +398,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             dynamic_cast<const InstallLeaseStale*>(&error) ? "lease_stale" :
             dynamic_cast<const InstallStateRevisionStale*>(&error) ||
                 dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ? "state_revision_stale" :
-            dynamic_cast<const StaleReviewedInstallRequest*>(&error) ? "stale_plan" : "";
+            dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
+                dynamic_cast<const StaleReviewedMaintenanceRequest*>(&error) ? "stale_plan" : "";
         std::string inspection_reference;
         if (const auto* busy = dynamic_cast<const PublisherVolumeBusy*>(&error))
             inspection_reference = busy->inspection_reference();
@@ -403,6 +410,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
         const std::string failure = "{\"schema\":\"usk.publisher_lab_service_observation.v1\","
                 "\"status\":" +
                 json_quote(dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
+                    dynamic_cast<const StaleReviewedMaintenanceRequest*>(&error) ||
                     dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ?
                     "failed" : !verify_installed && (recover_visible_bound || reviewed_install_reentry ||
                     publication_effects_may_exist) ?
