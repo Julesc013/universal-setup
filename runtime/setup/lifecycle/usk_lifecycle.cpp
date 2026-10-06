@@ -2324,9 +2324,10 @@ RepairResult apply_repair(
     require_payload_path_capacity(bundle / "backup", plan.replacement_files);
     require_payload_path_capacity(plan.roots.staging_parent / (".usk-stage-" + transaction_id) / "payload",
         plan.replacement_files);
-    auto transaction_holder = begin_maintenance(transaction::TransactionSpec{
+    const transaction::TransactionSpec repair_spec{
         transaction_id, plan.plan_id, plan.plan_digest, "repair", plan.roots.staging_parent,
-        bundle, plan.roots.state_root, plan.roots.audit_root},
+        bundle, plan.roots.state_root, plan.roots.audit_root};
+    auto transaction_holder = begin_maintenance(repair_spec,
         current.first, plan.policy_digest, applied_at, repair_plan_payload(plan),
         [&](const std::string& state, const std::string& point) {
             if (fault_injector) fault_injector("repair", "transaction." + state + "." + point);
@@ -2334,6 +2335,44 @@ RepairResult apply_repair(
     auto& transaction = *transaction_holder.transaction;
     auto& effects = *transaction_holder.effects;
     std::vector<fs::path> backups;
+    const auto original_artifact = detail::read_maintenance_reviewed_plan(repair_spec);
+    const auto original_context = json::parse(transaction::TransactionSession::inspect_recovery(repair_spec).stream_source_context);
+    std::map<fs::path, const Value*> original_directories;
+    for (const auto& object : original_artifact.at("original_owned_objects").as_array())
+        if (object.at("type").as_string() == "directory" &&
+            !original_directories.emplace(fs::u8path(object.at("relative_path").as_string()), &object).second)
+            throw std::runtime_error("repair original owned directory repeats");
+    std::map<fs::path, std::string> created_parents;
+    const auto ensure_repair_parents = [&](const fs::path& relative_file) {
+        record_io::require_safe_directory(install_root);
+        if (transaction::observe_directory_identity(install_root) != original_context.at("installed_root").at("native_identity").as_string())
+            throw std::runtime_error("repair original installed root changed");
+        fs::path relative;
+        for (const auto& component : relative_file.parent_path()) {
+            relative /= component;
+            const auto original = original_directories.find(relative);
+            if (original == original_directories.end()) throw std::runtime_error("repair parent is outside original ownership");
+            const auto path = install_root / relative;
+            if (original->second->at("present").as_boolean()) {
+                record_io::require_safe_directory(path);
+                if (transaction::observe_directory_identity(path) != original->second->at("native_identity").as_string())
+                    throw std::runtime_error("repair original parent was replaced");
+            } else if (const auto created = created_parents.find(relative); created != created_parents.end()) {
+                record_io::require_safe_directory(path);
+                if (transaction::observe_directory_identity(path) != created->second)
+                    throw std::runtime_error("repair created parent was replaced");
+            } else {
+                if (maintenance_object_presence(path) != MaintenanceObjectState::absent)
+                    throw std::runtime_error("repair originally absent parent was replaced");
+                // This ordinary compatibility branch runs only when no native
+                // owner dispatched the durable replacement intent. Production
+                // uses retained native creators and protected custody instead.
+                record_io::create_directory_exclusive(path.parent_path(), path.filename().u8string());
+                created_parents.emplace(relative, transaction::observe_directory_identity(path));
+            }
+        }
+        record_io::require_safe_directory((install_root / relative_file).parent_path());
+    };
     try {
         for (const PayloadFile& file : plan.replacement_files) {
             stage_maintenance_payload_file(
@@ -2351,7 +2390,8 @@ RepairResult apply_repair(
         if (fault_injector) fault_injector("repair", "after_staging_commit");
         for (const PayloadFile& file : plan.replacement_files) {
             const fs::path destination = install_root / file.relative_path;
-            record_io::require_safe_directory(destination.parent_path());
+            if (maintenance_object_presence(destination) == MaintenanceObjectState::indeterminate)
+                throw std::runtime_error("repair destination or its ancestor is indeterminate");
             const fs::path replacement = bundle / "payload" / file.relative_path;
             if (fs::exists(destination)) {
                 const fs::path backup = bundle / "backup" / file.relative_path;
@@ -2373,6 +2413,7 @@ RepairResult apply_repair(
             // uncertain. An unrecorded compensating rename would erase the
             // recovery distinction between an intent and a completed effect.
             maintenance_effect(effects, fault_injector, "repair", "replace_file", replacement_observation, [&] {
+                ensure_repair_parents(fs::u8path(file.relative_path));
                 record_io::rename_no_replace(replacement, destination);
                 if (json::canonical(maintenance_file_observation(destination, file.relative_path)) !=
                     json::canonical(replacement_observation))

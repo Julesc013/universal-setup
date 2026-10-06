@@ -638,6 +638,64 @@ int maintenance_absent_root_context_proof()
     return 0;
 }
 
+void require_sealed_maintenance(const usk::transaction::TransactionSpec& spec);
+int missing_owned_parent_repair_proof()
+{
+    for (const std::string scenario : {"nested", "closure", "reappeared"}) {
+        Fixture fixture;
+        const auto target = fixture.root / "targets/portable";
+        fs::create_directories(target.parent_path());
+        const auto install = usk::lifecycle::plan_install("plan.parent.install", "install.parent",
+            "2026-10-01T00:00:00Z", target, fixture.roots, recipe(), payload());
+        (void)usk::lifecycle::apply_install(install, install.plan_digest,
+            "tx.parent.install", "2026-10-01T00:00:01Z");
+        // Only these fixture-owned files and now-empty directories are removed.
+        if (!fs::remove(target / "app/bin/program.exe") || !fs::remove(target / "app/bin"))
+            throw std::runtime_error("cannot prepare missing owned repair parent");
+        if (scenario == "closure" && (!fs::remove(target / "app/readme.txt") || !fs::remove(target / "app")))
+            throw std::runtime_error("cannot prepare nested missing owned repair closure");
+        write_text(target / "user-created.txt", "retain unknown bytes");
+        const auto plan = usk::lifecycle::plan_repair(fixture.roots, "install.parent",
+            "plan.parent.repair", "2026-10-01T00:00:02Z", payload());
+        const usk::transaction::TransactionSpec spec{"tx.parent.repair", plan.plan_id, plan.plan_digest, "repair",
+            fixture.roots.staging_parent, target.parent_path() / ".usk-repair-tx.parent.repair",
+            fixture.roots.state_root, fixture.roots.audit_root};
+        if (scenario == "reappeared") {
+            const std::string foreign = "foreign replacement retained";
+            bool injected = false;
+            if (!refuses([&] { (void)usk::lifecycle::apply_repair(plan, plan.plan_digest,
+                    spec.transaction_id, "2026-10-01T00:00:03Z",
+                    [&](const std::string&, const std::string& point) {
+                        if (!injected && point == "effect.replace_file.before_effect") {
+                            injected = true;
+                            fs::create_directory(target / "app/bin");
+                            write_text(target / "app/bin/foreign.txt", foreign);
+                        }
+                    }); }) || !injected || fs::exists(target / "app/bin/program.exe") ||
+                usk::base::StableFile(target / "app/bin/foreign.txt").read(0, foreign.size()) !=
+                    std::vector<unsigned char>(foreign.begin(), foreign.end()))
+                throw std::runtime_error("repair adopted or changed a replacement for its originally absent parent");
+            const auto tx = usk::transaction::TransactionSession::inspect_recovery(spec);
+            const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+            if (history.pending_kind != "replace_file" || !fs::is_regular_file(spec.target_root / "payload/app/bin/program.exe"))
+                throw std::runtime_error("refused repair lost its original replacement intent/bytes");
+        } else {
+            const auto result = usk::lifecycle::apply_repair(plan, plan.plan_digest,
+                spec.transaction_id, "2026-10-01T00:00:03Z");
+            if (result.after.status != "warn" || result.repaired_files.size() != (scenario == "closure" ? 2u : 1u) ||
+                result.retained_unknown_paths != std::vector<std::string>{"user-created.txt"} ||
+                usk::base::StableFile(target / "app/bin/program.exe").sha256_hex() != install.files.front().sha256)
+                throw std::runtime_error("repair did not restore the missing owned parent closure");
+            require_sealed_maintenance(spec);
+        }
+        const std::string user_bytes = "retain unknown bytes";
+        if (usk::base::StableFile(target / "user-created.txt").read(0, user_bytes.size()) !=
+            std::vector<unsigned char>(user_bytes.begin(), user_bytes.end()))
+            throw std::runtime_error("repair changed unrelated fixture user bytes");
+    }
+    return 0;
+}
+
 int maintenance_context_at_staging_boundary()
 {
     for (const std::string scenario : {"repair.before", "repair.after", "move.before",
@@ -2118,6 +2176,9 @@ int main(int argc, char** argv)
         if (argc == 2 && std::string(argv[1]) == "--report-budget-smoke") {
             return report_budget_scenario();
         }
+        if (argc == 2 && std::string(argv[1]) == "--missing-parent-repair-smoke") {
+            return missing_owned_parent_repair_proof();
+        }
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
         if (const int protected_visible = protected_visible_finalization_proof()) {
             return protected_visible;
@@ -2127,6 +2188,9 @@ int main(int argc, char** argv)
         }
         if (const int absent_root = maintenance_absent_root_context_proof()) {
             return absent_root;
+        }
+        if (const int missing_parent = missing_owned_parent_repair_proof()) {
+            return missing_parent;
         }
         if (const int maintenance = maintenance_context_at_staging_boundary()) {
             return maintenance;

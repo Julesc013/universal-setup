@@ -399,6 +399,17 @@ struct NativeMaintenanceContext::Impl {
                     const auto relative = owned_relative(details.at("relative_path").as_string());
                     if (*relative.begin() != fs::path("backup") || intent.at("details").at("kind").as_string() != "backup_file")
                         throw std::runtime_error("native maintenance later creation is outside its original backup role");
+                } else if (kind == "created_owned_parent") {
+                    members(details, {"relative_path", "object", "parent", "native_identity"});
+                    const auto relative = owned_relative(details.at("relative_path").as_string());
+                    const auto file = owned_relative(intent.at("details").at("effect").at("relative_path").as_string());
+                    const auto below = file.lexically_relative(relative);
+                    const auto& ownership = snapshot.at("ownership_manifest").at("directories").as_array();
+                    if (spec.operation != "repair" || intent.at("details").at("kind").as_string() != "replace_file" ||
+                        below.empty() || below == fs::path(".") || *below.begin() == fs::path("..") ||
+                        std::none_of(ownership.begin(), ownership.end(), [&](const auto& owned) {
+                            return owned_relative(owned.at("relative_path").as_string()) == relative;
+                        })) throw std::runtime_error("native repair parent is outside its original owned replacement path");
                 } else if (kind == "created_metadata") {
                     members(details, {"setup_relative_path", "object", "parent", "size_bytes", "sha256"});
                     (void)owned_relative(details.at("setup_relative_path").as_string());
@@ -452,6 +463,7 @@ struct NativeMaintenanceContext::Impl {
             !equal(publisher_handle_observation_json(target_parent->facts), saved.created.at("target_parent")))
             throw std::runtime_error("native maintenance publication changed its original native namespace postimage");
         std::map<fs::path, RestoredObject> original_files_after, original_directories_after, created_files_after, created_directories_after;
+        std::set<fs::path> repaired_parent_creations;
         for (const auto& item : saved.original.at("original_objects").as_array()) {
             const bool directory = item.at("type").as_string() == "directory";
             if (!directory && item.at("type").as_string() != "file")
@@ -510,6 +522,16 @@ struct NativeMaintenanceContext::Impl {
                     !created_directories_after.emplace(relative, RestoredObject{details.at("object"), details.at("parent"), spec.target_root / relative, true}).second)
                     throw std::runtime_error("native maintenance later directory changed its original creator/parent");
                 created_directories_after.at(relative).native_identity = details.at("native_identity").as_string();
+            } else if (kind == "created_owned_parent") {
+                const auto relative = owned_relative(details.at("relative_path").as_string());
+                const auto parent = original_directories_after.find(relative.parent_path());
+                if (!absent_original_directories.count(relative) || parent == original_directories_after.end() ||
+                    parent->second.removed || !equal(parent->second.object, details.at("parent")) ||
+                    !equal(details.at("object"), renamed_facts(details.at("object"), details.at("parent"), relative.filename())) ||
+                    !original_directories_after.emplace(relative, RestoredObject{details.at("object"), details.at("parent"), installed_path / relative, true}).second)
+                    throw std::runtime_error("native repair parent changed its original absence/creator lineage");
+                original_directories_after.at(relative).native_identity = details.at("native_identity").as_string();
+                repaired_parent_creations.insert(relative);
             } else if (kind == "created_metadata") {
                 if (!metadata_creations.emplace(record.at("pending_intent_sequence").as_unsigned(), &details).second)
                     throw std::runtime_error("native maintenance intent has repeated metadata creations");
@@ -588,7 +610,7 @@ struct NativeMaintenanceContext::Impl {
             return &observed;
         };
         for (const auto& item : original_directories_after) {
-            auto* entry = restore_directory(item.second, relative_volume_path(item.second.path), false);
+            auto* entry = restore_directory(item.second, relative_volume_path(item.second.path), repaired_parent_creations.count(item.first) != 0u);
             if (entry) original_directories.emplace(item.first, entry);
         }
         original_root_identity = saved.original.at("installed_root_journal_identity").as_string();
@@ -643,10 +665,17 @@ struct NativeMaintenanceContext::Impl {
             auto entry = restore_file(item.second, true); if (entry) files.emplace(item.first, std::move(entry));
         }
         const auto require_original_absence = [&](const fs::path& relative, bool directory) {
-            const auto parent = original_directories_after.find(relative.parent_path());
+            auto missing = relative;
+            auto parent = original_directories_after.find(missing.parent_path());
+            while (parent == original_directories_after.end() && !missing.parent_path().empty()) {
+                missing = missing.parent_path();
+                if (!absent_original_directories.count(missing))
+                    throw std::runtime_error("native maintenance original absence crossed an unowned ancestor");
+                parent = original_directories_after.find(missing.parent_path());
+            }
             if (parent == original_directories_after.end())
                 throw std::runtime_error("native maintenance original absence lacks retained parent custody");
-            RestoredObject absent{Value{}, parent->second.object, installed_path / relative, directory};
+            RestoredObject absent{Value{}, parent->second.object, installed_path / missing, missing != relative || directory};
             require_absent(absent);
         };
         for (const auto& relative : absent_original_files) {
@@ -655,7 +684,8 @@ struct NativeMaintenanceContext::Impl {
                 normalized(replacement->second.path) != normalized(installed_path / relative))
                 require_original_absence(relative, false);
         }
-        for (const auto& relative : absent_original_directories) require_original_absence(relative, true);
+        for (const auto& relative : absent_original_directories)
+            if (!repaired_parent_creations.count(relative)) require_original_absence(relative, true);
         for (const auto& record : saved.records) if (record.at("kind").as_string() == "confirmed_effect") {
             const auto& data = record.at("details"); const auto sequence = data.at("intent_sequence").as_unsigned();
             const auto& effect = data.at("effect_kind").as_string();
@@ -1299,10 +1329,36 @@ struct NativeMaintenanceContext::Impl {
             snapshot.at("reviewed_plan").at("replacement_files") : ownership.at("files");
         if (planned_files.as_array().size() > 100000u || ownership.at("directories").as_array().size() > 100000u)
             throw std::runtime_error("native maintenance original custody exceeds its finite closure bound");
+        std::set<fs::path> owned_directories;
+        for (const auto& value : ownership.at("directories").as_array())
+            if (!owned_directories.insert(owned_relative(value.at("relative_path").as_string())).second)
+                throw std::runtime_error("native maintenance original owned directory repeated");
+        // Parents sort before their descendants. Absence is observed through
+        // the nearest retained original parent; it never grants adoption.
+        for (const auto& relative : owned_directories) {
+            const auto parent = original_directories.find(relative.parent_path());
+            if (parent == original_directories.end()) {
+                if (!absent_original_directories.count(relative.parent_path()))
+                    throw std::runtime_error("native maintenance original directory lacks an owned ancestor");
+                absent_original_directories.insert(relative); continue;
+            }
+            require_entry(*parent->second);
+            const auto listed = child(parent->second->handle.value, relative.filename().wstring());
+            if (!listed) { absent_original_directories.insert(relative); continue; }
+            if (!(listed->attributes & FILE_ATTRIBUTE_DIRECTORY))
+                throw std::runtime_error("native maintenance original owned directory changed type");
+            original_directories.emplace(relative, &open_directory(root / relative));
+        }
         std::uint64_t logical_bytes = 0;
         for (const auto& file : planned_files.as_array()) {
             const auto relative = owned_relative(file.at("relative_path").as_string());
-            auto& parent = open_directory(root / relative.parent_path());
+            const auto original_parent = original_directories.find(relative.parent_path());
+            if (original_parent == original_directories.end()) {
+                if (!absent_original_directories.count(relative.parent_path()))
+                    throw std::runtime_error("native maintenance original file lacks an owned ancestor");
+                absent_original_files.insert(relative); continue;
+            }
+            auto& parent = *original_parent->second;
             const auto listed = child(parent.handle.value, relative.filename().wstring());
             if (!listed) { absent_original_files.insert(relative); continue; }
             if (listed->attributes & FILE_ATTRIBUTE_DIRECTORY)
@@ -1334,17 +1390,6 @@ struct NativeMaintenanceContext::Impl {
             }
             held.sha256 = hash.finish(); held.stream_identity = journal_identity(held.handle.value);
             require_bytes(held);
-        }
-        // Own the original directories before the first journal, rather than
-        // adopt a later same-path object. Missing original directories remain
-        // absent observations; this fresh native profile does not create them.
-        for (const auto& value : ownership.at("directories").as_array()) {
-            const auto relative = owned_relative(value.at("relative_path").as_string());
-            const auto path = root / relative;
-            auto& parent = open_directory(path.parent_path());
-            const auto listed = child(parent.handle.value, path.filename().wstring());
-            if (!listed) { absent_original_directories.insert(relative); continue; }
-            original_directories.emplace(relative, &open_directory(path));
         }
     }
     void retain_original_consumer_records() {
@@ -1522,6 +1567,38 @@ struct NativeMaintenanceContext::Impl {
         }
         require_entry(*parent); return *parent;
     }
+    Entry& repair_parent(const fs::path& relative_file) {
+        const auto intent = require_pending("replace_file");
+        if (spec.operation != "repair" || owned_relative(intent.pending_details.at("relative_path").as_string()) != relative_file || !installed_root)
+            throw std::runtime_error("native repair parent lacks its exact original replacement intent");
+        Entry* parent = installed_root; fs::path relative;
+        for (const auto& component : relative_file.parent_path()) {
+            relative /= component;
+            const auto existing = original_directories.find(relative);
+            if (existing != original_directories.end()) { parent = existing->second; require_entry(*parent); continue; }
+            if (!absent_original_directories.count(relative))
+                throw std::runtime_error("native repair parent was not originally absent and owned");
+            require_entry(*parent);
+            if (child(parent->handle.value, component.wstring()))
+                throw std::runtime_error("native repair absent parent was replaced");
+            const auto key = relative_volume_path(fs::u8path(original_state.installed_state().at("target_root").as_string()) / relative);
+            auto entry = std::make_unique<Entry>(); entry->parent = parent; entry->name = component.wstring(); entry->created = true;
+            const auto inserted = directories.emplace(key, std::move(entry));
+            if (!inserted.second) throw std::runtime_error("native repair parent creation conflicts with retained custody");
+            auto& held = *inserted.first->second;
+            (void)require_pending("replace_file");
+            held.handle.value = create_staged_directory_relative_with_descriptor(parent->handle.value, held.name, descriptor);
+            held.facts = facts(held.handle.value, true); require_entry(held);
+            persist_native_custody("created_owned_parent", Value(Value::Object{
+                {"relative_path", Value(relative.generic_u8string())}, {"object", publisher_handle_observation_json(held.facts)},
+                {"parent", publisher_handle_observation_json(parent->facts)},
+                {"native_identity", Value(journal_identity(held.handle.value))}}));
+            if (!original_directories.emplace(relative, &held).second)
+                throw std::runtime_error("native repair parent creator was repeated");
+            parent = &held;
+        }
+        require_entry(*parent); (void)require_pending("replace_file"); return *parent;
+    }
     static void require_file_details(const Entry& entry, const Value& details) {
         if (entry.stream_identity != details.at("native_identity").as_string() ||
             entry.size != details.at("size_bytes").as_unsigned() || entry.sha256 != details.at("sha256").as_string())
@@ -1633,7 +1710,7 @@ struct NativeMaintenanceContext::Impl {
                 if ((!file.created && !file.restored_creation) || !file.complete)
                     throw std::runtime_error("native repair replacement lacks completed creation custody");
                 require_file_details(file, details);
-                auto& parent = open_directory(fs::u8path(original_state.installed_state().at("target_root").as_string()) / relative.parent_path());
+                auto& parent = repair_parent(relative);
                 rename_file(file, parent, relative.filename().wstring());
             } else if (history.pending_kind == "remove_file") {
                 const auto role = details.at("root_role").as_string();
