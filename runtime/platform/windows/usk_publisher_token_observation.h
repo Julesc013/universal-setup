@@ -59,6 +59,9 @@ bool has_restricted_publisher_token_facts(
 // own-process restricted service. It refuses a CLI process or an absent
 // service. Configuration can change later; this does not establish handle
 // provenance, protected filesystem rights, or production eligibility.
+// Within the original admission's private scope, readbacks reuse its held
+// native service object and fresh native facts join its captured/derived
+// name/SID. That route does not claim another named-account lookup occurred.
 PublisherServiceObservation observe_current_restricted_publisher_service(
     const std::wstring& service_name);
 

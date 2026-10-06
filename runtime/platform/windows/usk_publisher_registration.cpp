@@ -13,6 +13,7 @@
 #include <winioctl.h>
 
 #include "usk_publisher_registration.h"
+#include "usk_publisher_service_readback_internal.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_data_partition.h"
 #include "usk_publisher_handle_observation.h"
@@ -1013,6 +1014,12 @@ struct ServiceConfiguration {
     DWORD start = 0;
     DWORD sid_type = 0;
 };
+
+bool same_configuration(const ServiceConfiguration& first, const ServiceConfiguration& second) {
+    return first.binary_path == second.binary_path && first.account == second.account &&
+        first.display_name == second.display_name && first.type == second.type &&
+        first.start == second.start && first.sid_type == second.sid_type;
+}
 
 ServiceConfiguration query_configuration(SC_HANDLE service) {
     DWORD needed = 0;
@@ -2633,7 +2640,9 @@ usk::json::Value parse_publisher_maintenance_recovery_request(const std::string&
 
 struct RegisteredPublisherAdmission::State {
     std::unique_ptr<ServiceControlGuard> control;
-    std::unique_ptr<ServiceHandle> service;
+    std::shared_ptr<ServiceHandle> service;
+    std::unique_ptr<PublisherServiceReadbackScope> service_readback;
+    ServiceConfiguration configuration;
     std::unique_ptr<usk::base::StableFile> binary;
     usk::json::Value service_access;
     usk::json::Value admission_evidence;
@@ -2646,6 +2655,7 @@ struct RegisteredPublisherAdmission::State {
 
 RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& name,
     const std::wstring& volume, const std::wstring& caller) : state_(std::make_unique<State>()) {
+    PublisherServiceReadbackScope::require_available();
     // Actual SCM/current-token corroboration precedes every filesystem effect,
     // including controller-guard creation. Caller text does not grant authority.
     const auto observed = observe_current_restricted_publisher_service(name);
@@ -2656,7 +2666,7 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
     state_->control = std::make_unique<ServiceControlGuard>(name, true);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("registered publisher SCM unavailable");
-    state_->service = std::make_unique<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
+    state_->service = std::make_shared<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
         SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL));
     if (!state_->service->get()) throw std::runtime_error("registered publisher service unavailable");
     const auto before = query_configuration(state_->service->get());
@@ -2689,7 +2699,7 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
     const auto after = query_configuration(state_->service->get());
     require_profile(after);
     const auto current = observe_current_restricted_publisher_service(name);
-    if (after.binary_path != before.binary_path || after.display_name != before.display_name ||
+    if (!same_configuration(after, before) ||
         usk::json::canonical(observe_publisher_service_access(state_->service->get(), utf8(caller))) !=
             usk::json::canonical(state_->service_access) ||
         current.process_id != observed.process_id || current.service_sid != observed.service_sid)
@@ -2710,10 +2720,21 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
         {"registration_sha256", Value(usk::json::sha256_canonical(binding))},
         {"target_admitted_sha256", Value(usk::json::sha256_canonical(admitted))},
         {"target_identity", target}});
+    state_->configuration = before;
+    // Establish the original native readback lifetime before any selected
+    // operation freezes worker security. All named readbacks on this exact
+    // execution thread now query this same held object and fresh token facts.
+    state_->service_readback.reset(new PublisherServiceReadbackScope(
+        state_->service->get(), state_->service, current));
 }
 RegisteredPublisherAdmission::~RegisteredPublisherAdmission() = default;
 
 usk::json::Value RegisteredPublisherAdmission::evidence() const {
+    state_->service_readback->require_current();
+    const auto before = query_configuration(state_->service->get());
+    require_profile(before);
+    if (!same_configuration(before, state_->configuration))
+        throw std::runtime_error("registered publisher original configuration changed");
     state_->binary->verify_unchanged();
     const auto current = observe_current_restricted_publisher_service(state_->name);
     if (current.process_id != state_->admission_evidence.at("process_id").as_unsigned() ||
@@ -2722,6 +2743,11 @@ usk::json::Value RegisteredPublisherAdmission::evidence() const {
             state_->admission_evidence.at("configured_caller_sid").as_string())) !=
                 usk::json::canonical(state_->service_access))
         throw std::runtime_error("registered publisher admission observation lost its held binding");
+    const auto after = query_configuration(state_->service->get());
+    require_profile(after);
+    if (!same_configuration(after, before) || !same_configuration(after, state_->configuration))
+        throw std::runtime_error("registered publisher original configuration changed during readback");
+    state_->service_readback->require_current();
     state_->binary->verify_unchanged();
     if (state_->selected_envelope_source) {
         require_control_lock_shape(state_->selected_approval_file->get(), false);

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_service_readback_internal.h"
 
 #if defined(_WIN32)
 #if !defined(NOMINMAX)
@@ -15,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -147,7 +149,122 @@ std::string service_sid_for_name(const std::wstring& name) {
     }
     return sid_text(sid.data());
 }
+
+PublisherServiceObservation observe_service_handle(SC_HANDLE service,
+    const std::wstring& name, const std::string* original_sid = nullptr) {
+    const auto before = query_service_status(service);
+    const auto sid_type = query_service_sid_type(service);
+    // An original scope supplies its immutable captured/derived name identity.
+    // The ordinary route still performs its named SID lookup on every call.
+    const auto service_sid = original_sid ? *original_sid : service_sid_for_name(name);
+    const auto token = observe_current_publisher_token();
+    const auto after = query_service_status(service);
+    const auto sid_type_after = query_service_sid_type(service);
+    if (before.dwServiceType != SERVICE_WIN32_OWN_PROCESS ||
+        before.dwCurrentState != SERVICE_RUNNING ||
+        before.dwProcessId != GetCurrentProcessId() ||
+        before.dwServiceFlags != 0 ||
+        sid_type != SERVICE_SID_TYPE_RESTRICTED ||
+        sid_type_after != sid_type ||
+        before.dwServiceType != after.dwServiceType ||
+        before.dwCurrentState != after.dwCurrentState ||
+        before.dwProcessId != after.dwProcessId ||
+        before.dwServiceFlags != after.dwServiceFlags ||
+        !has_restricted_publisher_token_facts(token, service_sid)) {
+        throw std::runtime_error("publisher process is not the stable restricted SCM service");
+    }
+    return {name, service_sid, sid_type, before.dwServiceType,
+        before.dwCurrentState, before.dwProcessId, token};
+}
 } // namespace
+
+struct PublisherServiceReadbackScope::State {
+    SC_HANDLE service = nullptr;
+    // This shares ownership of the original wrapper, not a duplicated handle.
+    // A locked readback State keeps that exact native object alive throughout
+    // both status/SID-type reads and the intervening actual token query.
+    std::shared_ptr<void> native_owner;
+    std::wstring name;
+    std::string sid;
+    DWORD process_id = 0;
+    DWORD thread_id = 0;
+    std::uint64_t routing_id = 0;
+};
+
+struct PublisherServiceReadbackScope::Routing {
+    bool active = false;
+    std::uint64_t last_id = 0;
+    std::uint64_t active_id = 0;
+    std::weak_ptr<const State> state;
+};
+
+PublisherServiceReadbackScope::Routing& PublisherServiceReadbackScope::current_routing() {
+    static thread_local Routing routing;
+    return routing;
+}
+
+void PublisherServiceReadbackScope::require_available() {
+    // An expired active scope is a refusal, not permission to reopen a name.
+    if (current_routing().active)
+        throw std::runtime_error("publisher original service readback scope is already active");
+}
+
+PublisherServiceReadbackScope::PublisherServiceReadbackScope(void* original_service,
+    std::shared_ptr<void> original_native_owner,
+    const PublisherServiceObservation& original) {
+    require_available();
+    if (!original_service || !original_native_owner ||
+        original.process_id != GetCurrentProcessId())
+        throw std::runtime_error("publisher original service readback lacks its native owner");
+    auto mapped_sid = derive_ascii_publisher_service_sid(original.service_name);
+    if (original.service_sid != sid_text(mapped_sid.data()))
+        throw std::runtime_error("publisher original service name and captured SID differ");
+    const auto current = observe_service_handle(static_cast<SC_HANDLE>(original_service),
+        original.service_name, &original.service_sid);
+    if (current.process_id != original.process_id || current.service_sid != original.service_sid)
+        throw std::runtime_error("publisher original service readback identity changed");
+    auto& routing = current_routing();
+    if (routing.last_id == std::numeric_limits<std::uint64_t>::max())
+        throw std::runtime_error("publisher original service readback identity exhausted");
+    auto state = std::make_shared<State>();
+    state->service = static_cast<SC_HANDLE>(original_service);
+    state->native_owner = std::move(original_native_owner);
+    state->name = original.service_name;
+    state->sid = original.service_sid;
+    state->process_id = original.process_id;
+    state->thread_id = GetCurrentThreadId();
+    state->routing_id = ++routing.last_id;
+    state_ = std::move(state);
+    routing.state = state_;
+    routing.active_id = state_->routing_id;
+    routing.active = true;
+}
+
+void PublisherServiceReadbackScope::require_current() const {
+    if (!state_ || state_->process_id != GetCurrentProcessId() ||
+        state_->thread_id != GetCurrentThreadId())
+        throw std::runtime_error("publisher original service readback changed execution owner");
+    const auto& routing = current_routing();
+    const auto current = routing.state.lock();
+    if (!routing.active || routing.active_id != state_->routing_id || current != state_)
+        throw std::runtime_error("publisher original service readback scope changed");
+}
+
+PublisherServiceReadbackScope::~PublisherServiceReadbackScope() {
+    // Wrong-thread destruction leaves an expired active weak reference on the
+    // creator thread. Future reads there refuse without touching a dead handle.
+    // Only this original scope can restore its inactive predecessor routing.
+    if (state_ && state_->process_id == GetCurrentProcessId() &&
+        state_->thread_id == GetCurrentThreadId()) {
+        auto& routing = current_routing();
+        if (routing.active && routing.active_id == state_->routing_id &&
+            routing.state.lock() == state_) {
+            routing.active = false;
+            routing.active_id = 0;
+            routing.state.reset();
+        }
+    }
+}
 
 std::vector<unsigned char> derive_ascii_publisher_service_sid(const std::wstring& name) {
     if (name.empty() || name.size() > 256)
@@ -265,30 +382,19 @@ PublisherServiceObservation observe_current_restricted_publisher_service(
         })) {
         throw std::runtime_error("publisher service name is invalid");
     }
+    const auto& routing = PublisherServiceReadbackScope::current_routing();
+    if (routing.active) {
+        const auto original = routing.state.lock();
+        if (!original || original->routing_id != routing.active_id ||
+            original->process_id != GetCurrentProcessId() ||
+            original->thread_id != GetCurrentThreadId() || original->name != service_name)
+            throw std::runtime_error("publisher original service readback scope is expired or mismatched");
+        return observe_service_handle(original->service, original->name, &original->sid);
+    }
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     ServiceHandle service(OpenServiceW(manager.get(), service_name.c_str(),
         SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
-    const auto before = query_service_status(service.get());
-    const auto sid_type = query_service_sid_type(service.get());
-    const auto service_sid = service_sid_for_name(service_name);
-    const auto token = observe_current_publisher_token();
-    const auto after = query_service_status(service.get());
-    const auto sid_type_after = query_service_sid_type(service.get());
-    if (before.dwServiceType != SERVICE_WIN32_OWN_PROCESS ||
-        before.dwCurrentState != SERVICE_RUNNING ||
-        before.dwProcessId != GetCurrentProcessId() ||
-        before.dwServiceFlags != 0 ||
-        sid_type != SERVICE_SID_TYPE_RESTRICTED ||
-        sid_type_after != sid_type ||
-        before.dwServiceType != after.dwServiceType ||
-        before.dwCurrentState != after.dwCurrentState ||
-        before.dwProcessId != after.dwProcessId ||
-        before.dwServiceFlags != after.dwServiceFlags ||
-        !has_restricted_publisher_token_facts(token, service_sid)) {
-        throw std::runtime_error("publisher process is not the stable restricted SCM service");
-    }
-    return {service_name, service_sid, sid_type, before.dwServiceType,
-        before.dwCurrentState, before.dwProcessId, token};
+    return observe_service_handle(service.get(), service_name);
 }
 
 } // namespace usk::platform::windows
