@@ -4,6 +4,7 @@
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_metadata.h"
+#include "usk_publisher_installation_lease.h"
 #include "usk_sha256.h"
 #if defined(_WIN32)
 #include <filesystem>
@@ -11,6 +12,7 @@
 #include <functional>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace usk::platform::windows;
@@ -76,7 +78,105 @@ void remove_file(HANDLE parent, const std::wstring& name, const std::string& byt
         result.object_file_id == file.file_id && result.native_status == 0 && result.io_status == 0,
         "owned file removal lacked native identity/absence confirmation");
 }
+void snapshot_bindings() {
+    using usk::json::Value;
+    // Synthetic closed data associations only. No service, native preimage,
+    // lease, revision admission, original intent or maintenance grant is made.
+    const std::string id = "fixture.install", operation_id = "fixture.maintenance";
+    const std::string revision(64, 'a');
+    Value ownership(Value::Object{{"schema", Value("usk.ownership_manifest.v1")},
+        {"manifest_id", Value("fixture.ownership")}, {"install_id", Value(id)},
+        {"target_root", Value("D:/fixture/installed")}, {"created_by_transaction_id", Value("fixture.original")},
+        {"files", Value(Value::Array{Value(Value::Object{{"relative_path", Value("payload.bin")},
+            {"sha256", Value(std::string(64, 'c'))}, {"size_bytes", Value(std::uint64_t{1})}})})},
+        {"directories", Value(Value::Array{})}});
+    ownership.as_object().emplace("manifest_digest", Value(usk::json::sha256_canonical(ownership)));
+    Value installed(Value::Object{{"schema", Value("usk.installed_state.v1")},
+        {"install_id", Value(id)}, {"product_id", Value("fixture.product")}, {"product_version", Value("1.0.0")},
+        {"recipe_digest", Value(std::string(64, 'b'))}, {"source_archive_digest", Value(std::string(64, 'd'))},
+        {"target_root", ownership.at("target_root")}, {"target_scope", Value("portable")},
+        {"component_selection", Value(Value::Array{Value("core")})},
+        {"ownership_manifest_ref", Value("ownership/fixture.ownership.json")},
+        {"ownership_manifest_digest", ownership.at("manifest_digest")},
+        {"entrypoints", Value(Value::Array{Value(Value::Object{{"entrypoint_id", Value("main")},
+            {"relative_path", Value("payload.bin")}, {"kind", Value("application")}})})},
+        {"setup_abi", Value(Value::Object{{"major", Value(std::uint64_t{1})}, {"minor", Value(std::uint64_t{0})},
+            {"provider_revision", Value("fixture.provider")}})},
+        {"transaction_id", Value("fixture.original")}, {"created_at", Value("2026-10-01T00:00:00Z")},
+        {"last_verification", Value(Value::Object{{"report_id", Value("fixture.verify")},
+            {"report_digest", Value(std::string(64, 'e'))}, {"status", Value("pass")},
+            {"verified_at", Value("2026-10-01T00:00:00Z")}})},
+        {"audit_chain_id", Value("fixture.audit")}, {"lifecycle_status", Value("verified")}});
+    auto projection = installed;
+    projection.as_object().erase("schema");
+    projection.as_object().erase("last_verification");
+    for (const auto kind : {PublisherOperationKind::repair, PublisherOperationKind::move, PublisherOperationKind::uninstall}) {
+        const std::string operation = kind == PublisherOperationKind::repair ? "repair" :
+            kind == PublisherOperationKind::move ? "move" : "uninstall";
+        Value plan(Value::Object{{"created_at", Value("2026-10-02T00:00:00Z")},
+            {"audit_root", Value("D:/fixture/setup/audit")}, {"install_id", Value(id)},
+            {"installed_state_digest", Value(usk::json::sha256_canonical(projection))},
+            {"operation", Value(operation)}, {"ownership_manifest_digest", ownership.at("manifest_digest")},
+            {"policy_digest", Value(std::string(64, 'f'))}, {"plan_id", Value("fixture.plan")},
+            {"staging_parent", Value("D:/fixture/setup/staging")}, {"state_root", Value("D:/fixture/setup/state")}});
+        if (kind == PublisherOperationKind::repair) {
+            plan.as_object().emplace("source_digest", Value(std::string(64, 'd')));
+            plan.as_object().emplace("replacement_files", Value(Value::Array{}));
+        } else if (kind == PublisherOperationKind::move) {
+            plan.as_object().emplace("complete_files", Value(Value::Array{}));
+            plan.as_object().emplace("old_root", installed.at("target_root"));
+            plan.as_object().emplace("old_root_identity", Value("data-only-original-root"));
+            plan.as_object().emplace("new_root", Value("D:/fixture/moved"));
+        } else plan.as_object().emplace("verification", Value(Value::Object{}));
+        const Value request(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"plan_request", Value(Value::Object{{"install_id", Value(id)}})},
+            {"reviewed_plan_id", plan.at("plan_id")}, {"reviewed_plan_digest", Value(usk::json::sha256_canonical(plan))},
+            {"transaction_id", Value(operation_id)}, {"applied_at", Value("2026-10-02T00:00:01Z")},
+            {"confirmation", Value("APPLY")}});
+        const auto root = [](char digit) { return Value(Value::Object{{"file_id", Value(std::string(32, digit))},
+            {"volume_serial", Value("18446744073709551615")}}); };
+        const Value snapshot(Value::Object{{"schema", Value("usk.publisher.maintenance_reviewed_snapshot.v1")},
+            {"operation", Value(operation)}, {"install_id", Value(id)}, {"operation_id", Value(operation_id)},
+            {"initial_state_revision", Value(revision)}, {"reviewed_plan", plan}, {"apply_request", request},
+            {"installed_state", installed}, {"ownership_manifest", ownership},
+            {"volume_root_identity", root('1')}, {"setup_root_identity", root('2')}, {"state_root_identity", root('3')},
+            {"setup_component", Value("setup")}, {"installed_record", Value(id + ".fixture.original.json")},
+            {"ownership_record", Value("fixture.ownership.json")}});
+        require_publisher_maintenance_snapshot_binding(snapshot, kind, id, operation_id, revision);
+        auto verification_only = snapshot;
+        verification_only.as_object().at("installed_state").as_object().at("last_verification") = Value(Value::Object{});
+        require_publisher_maintenance_snapshot_binding(verification_only, kind, id, operation_id, revision);
+        const std::vector<std::function<void(Value&)>> changes{
+            [](Value& x) { x.as_object().emplace("trusted", Value(true)); },
+            [](Value& x) { x.as_object().at("schema") = Value("usk.publisher.maintenance_reviewed_snapshot.v2"); },
+            [](Value& x) { x.as_object().at("operation") = Value("install_local"); },
+            [](Value& x) { x.as_object().at("operation_id") = Value("different.operation"); },
+            [](Value& x) { x.as_object().at("initial_state_revision") = Value(std::string(64, 'b')); },
+            [](Value& x) { x.as_object().at("setup_component") = Value("../setup"); },
+            [](Value& x) { x.as_object().at("installed_record") = Value("fixture.install.different.json"); },
+            [](Value& x) { x.as_object().at("ownership_record") = Value("different.json"); },
+            [](Value& x) { x.as_object().at("state_root_identity") = x.at("setup_root_identity"); },
+            [](Value& x) { x.as_object().at("state_root_identity").as_object().at("volume_serial") = Value("1"); },
+            [](Value& x) { x.as_object().at("volume_root_identity").as_object().at("volume_serial") = Value("018446744073709551615"); },
+            [](Value& x) { x.as_object().at("installed_state").as_object().at("transaction_id") = Value("different.original"); },
+            [](Value& x) { x.as_object().at("ownership_manifest").as_object().at("target_root") = Value("D:/different"); },
+            [](Value& x) { x.as_object().at("apply_request").as_object().at("reviewed_plan_digest") = Value(std::string(64, '0')); },
+            [](Value& x) { x.as_object().at("apply_request").as_object().at("transaction_id") = Value("different.operation"); },
+            [](Value& x) { x.as_object().at("apply_request").as_object().at("confirmation") = Value("INSPECT"); },
+            [](Value& x) { x.as_object().at("reviewed_plan").as_object().emplace("new_effect", Value(true)); },
+        };
+        for (const auto& change : changes) {
+            auto altered = snapshot;
+            change(altered);
+            check(refuses([&] { require_publisher_maintenance_snapshot_binding(altered, kind, id, operation_id, revision); }),
+                "changed original maintenance association accepted");
+        }
+        check(refuses([&] { require_publisher_maintenance_snapshot_binding(snapshot, PublisherOperationKind::install_local,
+            id, operation_id, revision); }), "install intent accepted maintenance snapshot");
+    }
+}
 int proof() {
+    snapshot_bindings();
     const fs::path root = fs::temp_directory_path() /
         ("usk-maintenance-mutation-" + std::to_string(GetCurrentProcessId()) + "-" +
             std::to_string(GetTickCount64()));

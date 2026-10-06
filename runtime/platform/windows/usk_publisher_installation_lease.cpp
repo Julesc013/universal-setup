@@ -20,6 +20,7 @@
 #include <optional>
 #include <sstream>
 #include <set>
+#include <tuple>
 #include <utility>
 
 namespace usk::platform::windows {
@@ -33,10 +34,11 @@ public:
     explicit Handle(HANDLE value) : value_(value) {
         if (!value || value == INVALID_HANDLE_VALUE) throw std::runtime_error("lease handle unavailable");
     }
-    ~Handle() { CloseHandle(value_); }
+    ~Handle() { if (value_ && value_ != INVALID_HANDLE_VALUE) CloseHandle(value_); }
     HANDLE get() const { return value_; }
     Handle(const Handle&) = delete;
     Handle& operator=(const Handle&) = delete;
+    Handle(Handle&& other) noexcept : value_(std::exchange(other.value_, INVALID_HANDLE_VALUE)) {}
 private:
     HANDLE value_;
 };
@@ -74,6 +76,67 @@ std::wstring record_name(const Value& record) {
 }
 bool equal(const Value& left, const Value& right) {
     return usk::json::canonical(left) == usk::json::canonical(right);
+}
+const char* operation_name(PublisherOperationKind kind) {
+    switch (kind) {
+    case PublisherOperationKind::install_local: return "install_local";
+    case PublisherOperationKind::repair: return "repair";
+    case PublisherOperationKind::move: return "move";
+    case PublisherOperationKind::uninstall: return "uninstall";
+    }
+    throw std::runtime_error("publisher operation kind invalid");
+}
+std::size_t context_limit(PublisherOperationKind kind) {
+    return kind == PublisherOperationKind::install_local ? 4u * 1024u * 1024u : 16u * 1024u * 1024u;
+}
+void exact_fields(const Value& value, const std::set<std::string>& fields) {
+    if (value.as_object().size() != fields.size()) throw InstallLeaseStale();
+    for (const auto& item : value.as_object())
+        if (!fields.count(item.first)) throw InstallLeaseStale();
+}
+bool sha256(const std::string& text) {
+    return text.size() == 64 && text.find_first_not_of("0123456789abcdef") == std::string::npos;
+}
+void require_root_data(const Value& value) {
+    exact_fields(value, {"file_id", "volume_serial"});
+    const auto& id = value.at("file_id").as_string();
+    const auto& serial = value.at("volume_serial").as_string();
+    if (id.size() != 32 || id.find_first_not_of("0123456789abcdef") != std::string::npos ||
+        id == std::string(32, '0') || serial.empty() ||
+        serial.find_first_not_of("0123456789") != std::string::npos ||
+        std::to_string(std::stoull(serial)) != serial) throw InstallLeaseStale();
+}
+void require_original_state_data(const Value& installed, const Value& ownership,
+    const std::string& install_id) {
+    exact_fields(installed, {"schema", "install_id", "product_id", "product_version", "recipe_digest",
+        "source_archive_digest", "target_root", "target_scope", "component_selection", "ownership_manifest_ref",
+        "ownership_manifest_digest", "entrypoints", "setup_abi", "transaction_id", "created_at",
+        "last_verification", "audit_chain_id", "lifecycle_status"});
+    exact_fields(ownership, {"schema", "manifest_id", "manifest_digest", "install_id", "target_root",
+        "created_by_transaction_id", "files", "directories"});
+    auto unsealed = ownership;
+    unsealed.as_object().erase("manifest_digest");
+    if (installed.at("schema").as_string() != "usk.installed_state.v1" ||
+        ownership.at("schema").as_string() != "usk.ownership_manifest.v1" ||
+        installed.at("install_id").as_string() != install_id ||
+        ownership.at("install_id").as_string() != install_id ||
+        !usk::record_io::valid_identifier(installed.at("transaction_id").as_string()) ||
+        !usk::record_io::valid_identifier(ownership.at("manifest_id").as_string()) ||
+        installed.at("ownership_manifest_ref").as_string() !=
+            "ownership/" + ownership.at("manifest_id").as_string() + ".json" ||
+        installed.at("ownership_manifest_digest").as_string() != ownership.at("manifest_digest").as_string() ||
+        ownership.at("manifest_digest").as_string() != usk::json::sha256_canonical(unsealed) ||
+        installed.at("target_scope").as_string() != "portable" ||
+        installed.at("target_root").as_string().empty() ||
+        installed.at("target_root").as_string() != ownership.at("target_root").as_string())
+        throw InstallLeaseStale();
+}
+std::string installed_plan_digest(Value installed) {
+    // The lifecycle's installed_digest deliberately excludes mutable read-only
+    // verification observations and the document schema; retain that contract.
+    installed.as_object().erase("schema");
+    installed.as_object().erase("last_verification");
+    return usk::json::sha256_canonical(installed);
 }
 std::wstring generation_name(std::uint64_t generation) {
     std::wostringstream result;
@@ -271,11 +334,248 @@ InstallLeasePreviousHolder observe_publisher_previous_lease_holder(const Value& 
     return status == WAIT_TIMEOUT ? InstallLeasePreviousHolder::live : InstallLeasePreviousHolder::unknown;
 }
 
+void require_publisher_maintenance_snapshot_binding(const Value& snapshot,
+    PublisherOperationKind kind, const std::string& install_id,
+    const std::string& operation_id, const std::string& revision) {
+    if (kind == PublisherOperationKind::install_local ||
+        !usk::record_io::valid_identifier(install_id) || !usk::record_io::valid_identifier(operation_id) ||
+        !sha256(revision) || revision == usk::json::sha256_canonical(Value(Value::Array{})))
+        throw InstallLeaseStale();
+    const std::string operation = operation_name(kind);
+    exact_fields(snapshot, {"schema", "operation", "install_id", "operation_id", "initial_state_revision",
+        "reviewed_plan", "apply_request", "installed_state", "ownership_manifest", "volume_root_identity",
+        "setup_root_identity", "state_root_identity", "setup_component", "installed_record", "ownership_record"});
+    const auto& plan = snapshot.at("reviewed_plan");
+    const auto& request = snapshot.at("apply_request");
+    const auto& installed = snapshot.at("installed_state");
+    const auto& ownership = snapshot.at("ownership_manifest");
+    switch (kind) {
+    case PublisherOperationKind::repair:
+        exact_fields(plan, {"created_at", "audit_root", "install_id", "installed_state_digest", "operation",
+            "ownership_manifest_digest", "policy_digest", "source_digest", "plan_id", "replacement_files",
+            "staging_parent", "state_root"});
+        (void)plan.at("replacement_files").as_array();
+        if (!sha256(plan.at("source_digest").as_string())) throw InstallLeaseStale();
+        break;
+    case PublisherOperationKind::move:
+        exact_fields(plan, {"audit_root", "complete_files", "created_at", "install_id", "installed_state_digest",
+            "old_root", "old_root_identity", "operation", "ownership_manifest_digest", "policy_digest",
+            "plan_id", "new_root", "staging_parent", "state_root"});
+        (void)plan.at("complete_files").as_array();
+        break;
+    case PublisherOperationKind::uninstall:
+        exact_fields(plan, {"audit_root", "created_at", "install_id", "installed_state_digest", "operation",
+            "ownership_manifest_digest", "plan_id", "policy_digest", "staging_parent", "state_root", "verification"});
+        (void)plan.at("verification").as_object();
+        break;
+    default: throw InstallLeaseStale();
+    }
+    if (!usk::record_io::valid_identifier(plan.at("plan_id").as_string()) ||
+        !sha256(plan.at("policy_digest").as_string())) throw InstallLeaseStale();
+    require_original_state_data(installed, ownership, install_id);
+    const auto component = std::filesystem::u8path(snapshot.at("setup_component").as_string());
+    const auto& installed_record = snapshot.at("installed_record").as_string();
+    if (!is_publisher_canonical_component(component.wstring()) || component.filename() != component ||
+        (installed_record != install_id + ".json" && installed_record !=
+            install_id + "." + installed.at("transaction_id").as_string() + ".json") ||
+        snapshot.at("ownership_record").as_string() != ownership.at("manifest_id").as_string() + ".json")
+        throw InstallLeaseStale();
+    exact_fields(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",
+        "transaction_id", "applied_at", "confirmation"});
+    if (snapshot.at("schema").as_string() != "usk.publisher.maintenance_reviewed_snapshot.v1" ||
+        snapshot.at("operation").as_string() != operation ||
+        snapshot.at("install_id").as_string() != install_id ||
+        snapshot.at("operation_id").as_string() != operation_id ||
+        snapshot.at("initial_state_revision").as_string() != revision ||
+        plan.at("operation").as_string() != operation || plan.at("install_id").as_string() != install_id ||
+        plan.at("installed_state_digest").as_string() != installed_plan_digest(installed) ||
+        plan.at("ownership_manifest_digest").as_string() != ownership.at("manifest_digest").as_string() ||
+        request.at("schema").as_string() != "usk." + operation + "_apply_request.v1" ||
+        request.at("confirmation").as_string() != "APPLY" ||
+        request.at("plan_request").at("install_id").as_string() != install_id ||
+        request.at("reviewed_plan_id").as_string() != plan.at("plan_id").as_string() ||
+        request.at("reviewed_plan_digest").as_string() != usk::json::sha256_canonical(plan) ||
+        request.at("transaction_id").as_string() != operation_id ||
+        request.at("applied_at").as_string().empty()) throw InstallLeaseStale();
+    for (const auto* root : {"volume_root_identity", "setup_root_identity", "state_root_identity"}) {
+        require_root_data(snapshot.at(root));
+        if (snapshot.at(root).at("volume_serial").as_string() !=
+            snapshot.at("volume_root_identity").at("volume_serial").as_string()) throw InstallLeaseStale();
+    }
+    if (equal(snapshot.at("volume_root_identity"), snapshot.at("setup_root_identity")) ||
+        equal(snapshot.at("volume_root_identity"), snapshot.at("state_root_identity")) ||
+        equal(snapshot.at("setup_root_identity"), snapshot.at("state_root_identity"))) throw InstallLeaseStale();
+}
+
+struct PublisherMaintenanceStateSnapshot::Impl {
+    HANDLE volume;
+    std::wstring volume_root, setup_component, installed_name, ownership_name;
+    const PublisherInstallOperationGuard& guard;
+    std::string install_id, service_sid, revision, installed_text, ownership_text;
+    std::unique_ptr<Handle> setup, state, installed_directory, ownership_directory,
+        installed_file, ownership_file;
+    Value volume_facts, setup_facts, state_facts, installed_directory_facts, ownership_directory_facts,
+        installed_facts, ownership_facts, installed, ownership;
+    Impl(HANDLE root, const std::wstring& root_name, const std::wstring& component,
+        const std::wstring& service, const PublisherInstallOperationGuard& held, const std::string& id,
+        const Value* original = nullptr)
+        : volume(root), volume_root(root_name), setup_component(component), guard(held), install_id(id) {
+        guard.require_owned(volume_root, install_id);
+        if (!is_publisher_canonical_component(component) || !usk::record_io::valid_identifier(id))
+            throw InstallLeaseStale();
+        service_sid = observe_current_restricted_publisher_service(service).service_sid;
+        volume_facts = directory_facts(volume);
+        setup = open_directory(volume, component);
+        state = open_directory(setup->get(), L"state");
+        installed_directory = open_directory(state->get(), L"installed");
+        ownership_directory = open_directory(state->get(), L"ownership");
+        setup_facts = directory_facts(setup->get());
+        state_facts = directory_facts(state->get());
+        installed_directory_facts = directory_facts(installed_directory->get());
+        ownership_directory_facts = directory_facts(ownership_directory->get());
+        const auto current_revision = observe_publisher_install_state_revision(state->get(), install_id, service_sid);
+        revision = original ? original->at("initial_state_revision").as_string() : current_revision;
+        if (original &&
+            (!equal(root_identity(volume, service_sid), original->at("volume_root_identity")) ||
+             !equal(root_identity(setup->get(), service_sid), original->at("setup_root_identity")) ||
+             !equal(root_identity(state->get(), service_sid), original->at("state_root_identity"))))
+            throw InstallLeaseStale();
+        std::tuple<std::string, std::string> selected;
+        bool found = false;
+        for (const auto& entry : observe_publisher_directory_entries(installed_directory->get())) {
+            const auto text = read_text(installed_directory->get(), entry, service_sid, 4u * 1024u * 1024u);
+            const auto document = usk::json::parse(text);
+            if (document.at("install_id").as_string() != install_id) continue;
+            if (original && entry.name != std::filesystem::u8path(original->at("installed_record").as_string()).wstring())
+                continue;
+            const auto order = std::make_tuple(document.at("created_at").as_string(),
+                document.at("transaction_id").as_string());
+            if (!found || selected < order) {
+                selected = order; found = true; installed = document;
+                installed_name = entry.name; installed_text = text;
+            }
+        }
+        if (!found) throw InstallStateRevisionStale();
+        if (original && !equal(installed, original->at("installed_state"))) throw InstallLeaseStale();
+        installed_file = open_file(installed_directory->get(), installed_name);
+        installed_facts = file_facts(installed_file->get());
+        if (read_from_start(installed_file->get()) != installed_text) throw InstallLeaseStale();
+        const auto& ref = installed.at("ownership_manifest_ref").as_string();
+        if (ref.rfind("ownership/", 0) != 0 || ref.size() <= 15 ||
+            ref.substr(ref.size() - 5) != ".json" ||
+            !usk::record_io::valid_identifier(ref.substr(10, ref.size() - 15))) throw InstallLeaseStale();
+        ownership_name = std::filesystem::u8path(ref).filename().wstring();
+        ownership_file = open_file(ownership_directory->get(), ownership_name);
+        ownership_facts = file_facts(ownership_file->get());
+        ownership_text = read_from_start(ownership_file->get());
+        ownership = usk::json::parse(ownership_text);
+        if (usk::json::canonical(ownership) + "\n" != ownership_text) throw InstallLeaseStale();
+        require_original_state_data(installed, ownership, install_id);
+        if (original) {
+            if (!equal(ownership, original->at("ownership_manifest"))) throw InstallLeaseStale();
+            require_custody();
+        } else require_initial_revision();
+    }
+    Value directory_facts(HANDLE handle) const {
+        (void)root_identity(handle, service_sid);
+        return publisher_handle_observation_json(observe_publisher_directory_handle(handle));
+    }
+    Value file_facts(HANDLE handle) const {
+        const auto facts = observe_publisher_file_handle(handle);
+        require_publisher_object_security_shape(facts, service_sid);
+        require_publisher_stream_shape(handle);
+        return publisher_handle_observation_json(facts);
+    }
+    std::unique_ptr<Handle> open_directory(HANDLE parent, const std::wstring& name) const {
+        const auto entry = child(parent, name);
+        if (!entry || !(entry->attributes & FILE_ATTRIBUTE_DIRECTORY)) throw InstallLeaseStale();
+        Handle acquired(open_publisher_listed_child(parent, *entry));
+        auto result = std::make_unique<Handle>(std::move(acquired));
+        (void)directory_facts(result->get());
+        return result;
+    }
+    std::unique_ptr<Handle> open_file(HANDLE parent, const std::wstring& name) const {
+        const auto entry = child(parent, name);
+        if (!entry || (entry->attributes & FILE_ATTRIBUTE_DIRECTORY)) throw InstallLeaseStale();
+        Handle acquired(open_publisher_listed_child(parent, *entry));
+        auto result = std::make_unique<Handle>(std::move(acquired));
+        (void)file_facts(result->get());
+        return result;
+    }
+    std::string read_from_start(HANDLE handle) const {
+        LARGE_INTEGER zero{};
+        if (!SetFilePointerEx(handle, zero, nullptr, FILE_BEGIN)) throw InstallLeaseStale();
+        return read_held_text(handle, service_sid, 4u * 1024u * 1024u);
+    }
+    void require_custody() const {
+        guard.require_owned(volume_root, install_id);
+        if (!equal(directory_facts(volume), volume_facts)) throw InstallLeaseStale();
+        const auto link = [&](HANDLE parent, const std::wstring& name, HANDLE retained,
+                              const Value& expected, bool regular) {
+            auto current = regular ? open_file(parent, name) : open_directory(parent, name);
+            const auto held_facts = regular ? file_facts(retained) : directory_facts(retained);
+            const auto fresh_facts = regular ? file_facts(current->get()) : directory_facts(current->get());
+            if (!equal(held_facts, expected) || !equal(fresh_facts, expected)) throw InstallLeaseStale();
+        };
+        link(volume, setup_component, setup->get(), setup_facts, false);
+        link(setup->get(), L"state", state->get(), state_facts, false);
+        link(state->get(), L"installed", installed_directory->get(), installed_directory_facts, false);
+        link(state->get(), L"ownership", ownership_directory->get(), ownership_directory_facts, false);
+        link(installed_directory->get(), installed_name, installed_file->get(), installed_facts, true);
+        link(ownership_directory->get(), ownership_name, ownership_file->get(), ownership_facts, true);
+        if (read_from_start(installed_file->get()) != installed_text ||
+            read_from_start(ownership_file->get()) != ownership_text) throw InstallLeaseStale();
+        guard.require_owned(volume_root, install_id);
+    }
+    void require_initial_revision() const {
+        require_custody();
+        if (observe_publisher_install_state_revision(state->get(), install_id, service_sid) != revision)
+            throw InstallStateRevisionStale();
+        require_custody();
+    }
+};
+PublisherMaintenanceStateSnapshot::PublisherMaintenanceStateSnapshot(HANDLE volume,
+    const std::wstring& root, const std::wstring& setup_component, const std::wstring& service,
+    const PublisherInstallOperationGuard& guard, const std::string& install_id)
+    : impl_(std::make_unique<Impl>(volume, root, setup_component, service, guard, install_id)) {}
+PublisherMaintenanceStateSnapshot::~PublisherMaintenanceStateSnapshot() = default;
+PublisherMaintenanceStateSnapshot::PublisherMaintenanceStateSnapshot(HANDLE volume, const std::wstring& root,
+    const std::wstring& service, const PublisherInstallOperationGuard& guard, const Value& original)
+    : impl_(std::make_unique<Impl>(volume, root,
+        std::filesystem::u8path(original.at("setup_component").as_string()).wstring(), service, guard,
+        original.at("install_id").as_string(), &original)) {}
+HANDLE PublisherMaintenanceStateSnapshot::setup_root() const { impl_->require_custody(); return impl_->setup->get(); }
+HANDLE PublisherMaintenanceStateSnapshot::state_root() const { impl_->require_custody(); return impl_->state->get(); }
+const std::string& PublisherMaintenanceStateSnapshot::initial_state_revision() const { impl_->require_custody(); return impl_->revision; }
+const Value& PublisherMaintenanceStateSnapshot::installed_state() const { impl_->require_custody(); return impl_->installed; }
+const Value& PublisherMaintenanceStateSnapshot::ownership_manifest() const { impl_->require_custody(); return impl_->ownership; }
+void PublisherMaintenanceStateSnapshot::require_custody() const { impl_->require_custody(); }
+void PublisherMaintenanceStateSnapshot::require_initial_revision() const { impl_->require_initial_revision(); }
+Value PublisherMaintenanceStateSnapshot::reviewed_snapshot(PublisherOperationKind kind,
+    const std::string& operation_id, const Value& plan, const Value& request) const {
+    impl_->require_initial_revision();
+    Value value(Value::Object{{"schema", Value("usk.publisher.maintenance_reviewed_snapshot.v1")},
+        {"operation", Value(operation_name(kind))}, {"install_id", Value(impl_->install_id)},
+        {"operation_id", Value(operation_id)}, {"initial_state_revision", Value(impl_->revision)},
+        {"reviewed_plan", plan}, {"apply_request", request}, {"installed_state", impl_->installed},
+        {"ownership_manifest", impl_->ownership},
+        {"setup_component", Value(std::filesystem::path(impl_->setup_component).u8string())},
+        {"installed_record", Value(std::filesystem::path(impl_->installed_name).u8string())},
+        {"ownership_record", Value(std::filesystem::path(impl_->ownership_name).u8string())},
+        {"volume_root_identity", root_identity(impl_->volume, impl_->service_sid)},
+        {"setup_root_identity", root_identity(impl_->setup->get(), impl_->service_sid)},
+        {"state_root_identity", root_identity(impl_->state->get(), impl_->service_sid)}});
+    require_publisher_maintenance_snapshot_binding(value, kind, impl_->install_id, operation_id, impl_->revision);
+    impl_->require_initial_revision();
+    return value;
+}
+
 struct PublisherInstallOperationContext::Impl {
     HANDLE volume;
-    std::wstring volume_root;
+    std::wstring volume_root, service_name;
     const PublisherInstallOperationGuard& guard;
     std::string install_id, operation_id, service_sid;
+    PublisherOperationKind kind;
     std::wstring install_name, context_name, roots_name;
     std::vector<unsigned char> descriptor;
     std::unique_ptr<Handle> operations, records, pending, file;
@@ -289,8 +589,9 @@ struct PublisherInstallOperationContext::Impl {
 
     Impl(HANDLE held_volume, const std::wstring& root, const std::wstring& service,
         const PublisherInstallOperationGuard& held, const std::string& install,
-        const std::string& operation)
-        : volume(held_volume), volume_root(root), guard(held), install_id(install), operation_id(operation) {
+        const std::string& operation, PublisherOperationKind operation_kind)
+        : volume(held_volume), volume_root(root), service_name(service), guard(held), install_id(install), operation_id(operation), kind(operation_kind) {
+        (void)operation_name(kind);
         guard.require_owned(volume_root, install_id);
         if (!usk::record_io::valid_identifier(install_id) || !usk::record_io::valid_identifier(operation_id))
             throw std::runtime_error("operation context identity invalid");
@@ -313,7 +614,7 @@ struct PublisherInstallOperationContext::Impl {
             return;
         }
         if (!pending) throw std::runtime_error("operation context pending root unavailable");
-        const auto text = read_text(records->get(), *entry, service_sid, 4u * 1024u * 1024u);
+        const auto text = read_text(records->get(), *entry, service_sid, context_limit(kind));
         original = usk::json::parse(text);
         const std::set<std::string> fields{"schema", "install_id", "operation", "operation_id",
             "volume_root_identity", "initial_state_revision", "reviewed_snapshot", "context_sha256"};
@@ -322,19 +623,27 @@ struct PublisherInstallOperationContext::Impl {
             if (!fields.count(item.first)) throw std::runtime_error("operation context field unknown");
         auto unsealed = original;
         unsealed.as_object().erase("context_sha256");
-        if (original.at("schema").as_string() != "usk.installation_operation_context.v1" ||
+        const bool install_context = kind == PublisherOperationKind::install_local;
+        if (original.at("schema").as_string() != (install_context ?
+                "usk.installation_operation_context.v1" : "usk.installation_operation_context.v2") ||
             original.at("install_id").as_string() != install_id ||
-            original.at("operation").as_string() != "install_local" ||
+            original.at("operation").as_string() != operation_name(kind) ||
             original.at("operation_id").as_string() != operation_id ||
             !equal(original.at("volume_root_identity"), volume_identity) ||
             original.at("context_sha256").as_string() != usk::json::sha256_canonical(unsealed) ||
-            original.at("initial_state_revision").as_string() !=
-                usk::json::sha256_canonical(Value(Value::Array{})) ||
+            (install_context && original.at("initial_state_revision").as_string() !=
+                usk::json::sha256_canonical(Value(Value::Array{}))) ||
             original.at("reviewed_snapshot").type() != Value::Type::object ||
             usk::json::canonical(original) + "\n" != text)
             throw std::runtime_error("operation context binding differs");
+        if (!install_context) {
+            require_publisher_maintenance_snapshot_binding(original.at("reviewed_snapshot"), kind,
+                install_id, operation_id, original.at("initial_state_revision").as_string());
+            if (!equal(original.at("reviewed_snapshot").at("volume_root_identity"), volume_identity))
+                throw InstallLeaseStale();
+        }
         bind_file(*entry);
-        if (read_held_text(file->get(), service_sid, 4u * 1024u * 1024u) != text)
+        if (read_held_text(file->get(), service_sid, context_limit(kind)) != text)
             throw std::runtime_error("operation context retained-handle readback differs");
         fence();
         load_roots();
@@ -398,7 +707,10 @@ struct PublisherInstallOperationContext::Impl {
                 root_basic.ChangeTime.QuadPart != roots_basic.ChangeTime.QuadPart ||
                 !equal(roots_facts, publisher_handle_observation_json(observe_publisher_file_handle(roots_file->get()))))
                 throw InstallLeaseStale();
-            const auto setup_name = std::filesystem::u8path(original.at("reviewed_snapshot").at("setup_root").as_string()).filename().wstring();
+            const auto& snapshot = original.at("reviewed_snapshot");
+            const auto setup_name = kind == PublisherOperationKind::install_local ?
+                std::filesystem::u8path(snapshot.at("setup_root").as_string()).filename().wstring() :
+                std::filesystem::u8path(snapshot.at("setup_component").as_string()).wstring();
             const auto setup_entry = child(volume, setup_name);
             if (!setup_entry) throw InstallLeaseStale();
             Handle setup(open_publisher_listed_child(volume, *setup_entry));
@@ -436,6 +748,10 @@ struct PublisherInstallOperationContext::Impl {
     }
     void bind_roots(HANDLE setup, HANDLE state) {
         fence();
+        if (kind != PublisherOperationKind::install_local &&
+            (!equal(root_identity(setup, service_sid), original.at("reviewed_snapshot").at("setup_root_identity")) ||
+             !equal(root_identity(state, service_sid), original.at("reviewed_snapshot").at("state_root_identity"))))
+            throw InstallLeaseStale();
         Value wanted(Value::Object{{"schema", Value("usk.installation_operation_roots.v1")},
             {"install_id", Value(install_id)}, {"operation_id", Value(operation_id)},
             {"context_sha256", original.at("context_sha256")},
@@ -462,8 +778,8 @@ struct PublisherInstallOperationContext::Impl {
         load_roots();
         if (!roots_file || !equal(wanted, roots_record)) throw InstallLeaseStale();
     }
-    std::wstring bootstrap_name(const Value& reservation, const wchar_t* kind) const {
-        return context_name.substr(0, context_name.size() - 5) + kind +
+    std::wstring bootstrap_name(const Value& reservation, const wchar_t* record_kind) const {
+        return context_name.substr(0, context_name.size() - 5) + record_kind +
             generation_name(reservation.at("ownership").at("generation").as_unsigned());
     }
     Value reservation_for(const Value& ownership) const {
@@ -543,6 +859,7 @@ struct PublisherInstallOperationContext::Impl {
         return tree;
     }
     bool bootstrap_resume_required() const {
+        if (kind != PublisherOperationKind::install_local) throw InstallLeaseStale();
         const auto history = reservations();
         if (history.empty()) return false; // Older partial roots are retained; no invented reservation.
         const auto publication_entry = child(volume, L"publication");
@@ -593,6 +910,7 @@ struct PublisherInstallOperationContext::Impl {
         if (!equal(read_bootstrap_record(name), value)) throw InstallLeaseStale();
     }
     void prepare_publication(const PublisherInstallationLease& lease) {
+        if (kind != PublisherOperationKind::install_local) throw InstallLeaseStale();
         fence();
         lease.require_start();
         const auto current = reservation_for(lease.ownership());
@@ -683,8 +1001,13 @@ struct PublisherInstallOperationContext::Impl {
     }
     void prepare(const Value& snapshot, const std::string& revision) {
         guard.require_owned(volume_root, install_id);
-        if (revision != usk::json::sha256_canonical(Value(Value::Array{})))
+        const bool install_context = kind == PublisherOperationKind::install_local;
+        if (install_context && revision != usk::json::sha256_canonical(Value(Value::Array{})))
             throw InstallStateRevisionStale();
+        if (!install_context) {
+            require_publisher_maintenance_snapshot_binding(snapshot, kind, install_id, operation_id, revision);
+            if (!equal(snapshot.at("volume_root_identity"), volume_identity)) throw InstallLeaseStale();
+        }
         if (file) {
             fence();
             if (!equal(original.at("reviewed_snapshot"), snapshot) ||
@@ -692,13 +1015,14 @@ struct PublisherInstallOperationContext::Impl {
             return;
         }
         if (!equal(volume_identity, root_identity(volume, service_sid))) throw InstallLeaseStale();
-        Value value(Value::Object{{"schema", Value("usk.installation_operation_context.v1")},
-            {"install_id", Value(install_id)}, {"operation", Value("install_local")},
+        Value value(Value::Object{{"schema", Value(install_context ?
+                "usk.installation_operation_context.v1" : "usk.installation_operation_context.v2")},
+            {"install_id", Value(install_id)}, {"operation", Value(operation_name(kind))},
             {"operation_id", Value(operation_id)}, {"volume_root_identity", volume_identity},
             {"initial_state_revision", Value(revision)}, {"reviewed_snapshot", snapshot}});
         value.as_object().emplace("context_sha256", Value(usk::json::sha256_canonical(value)));
         const auto text = usk::json::canonical(value) + "\n";
-        if (text.size() > 4u * 1024u * 1024u) throw std::runtime_error("operation context record budget exhausted");
+        if (text.size() > context_limit(kind)) throw std::runtime_error("operation context record budget exhausted");
         if (!operations) operations = directory(volume, L"installation-operations", true);
         if (!records) records = directory(operations->get(), install_name, true);
         if (!pending) pending = directory(records->get(), L"pending", true);
@@ -716,11 +1040,11 @@ struct PublisherInstallOperationContext::Impl {
             throw std::runtime_error("operation context write or flush failed");
         publish_publisher_record_no_replace(output.get(), records->get(), context_name, service_sid);
         const auto entry = child(records->get(), context_name);
-        if (!entry || read_text(records->get(), *entry, service_sid, 4u * 1024u * 1024u) != text)
+        if (!entry || read_text(records->get(), *entry, service_sid, context_limit(kind)) != text)
             throw std::runtime_error("operation context durable readback differs");
         original = std::move(value);
         bind_file(*entry);
-        if (read_held_text(file->get(), service_sid, 4u * 1024u * 1024u) != text)
+        if (read_held_text(file->get(), service_sid, context_limit(kind)) != text)
             throw std::runtime_error("operation context retained-handle readback differs");
         fence();
     }
@@ -728,11 +1052,36 @@ struct PublisherInstallOperationContext::Impl {
 PublisherInstallOperationContext::PublisherInstallOperationContext(HANDLE volume, const std::wstring& root,
     const std::wstring& service, const PublisherInstallOperationGuard& guard,
     const std::string& install_id, const std::string& operation_id)
-    : impl_(std::make_unique<Impl>(volume, root, service, guard, install_id, operation_id)) {}
+    : PublisherInstallOperationContext(volume, root, service, guard, install_id, operation_id,
+        PublisherOperationKind::install_local) {}
+PublisherInstallOperationContext::PublisherInstallOperationContext(HANDLE volume, const std::wstring& root,
+    const std::wstring& service, const PublisherInstallOperationGuard& guard,
+    const std::string& install_id, const std::string& operation_id, PublisherOperationKind kind)
+    : impl_(std::make_unique<Impl>(volume, root, service, guard, install_id, operation_id, kind)) {}
 PublisherInstallOperationContext::~PublisherInstallOperationContext() = default;
 bool PublisherInstallOperationContext::exists() const { return bool(impl_->file); }
 void PublisherInstallOperationContext::prepare(const Value& snapshot, const std::string& revision) {
+    if (impl_->kind != PublisherOperationKind::install_local) throw InstallLeaseStale();
     impl_->prepare(snapshot, revision);
+}
+void PublisherInstallOperationContext::prepare_maintenance(const PublisherMaintenanceStateSnapshot& state,
+    const Value& plan, const Value& request) {
+    if (impl_->kind == PublisherOperationKind::install_local) throw InstallLeaseStale();
+    const auto snapshot = state.reviewed_snapshot(impl_->kind, impl_->operation_id, plan, request);
+    state.require_initial_revision();
+    impl_->prepare(snapshot, state.initial_state_revision());
+    state.require_initial_revision();
+    impl_->bind_roots(state.setup_root(), state.state_root());
+    state.require_initial_revision();
+}
+std::unique_ptr<PublisherMaintenanceStateSnapshot> PublisherInstallOperationContext::restore_maintenance_state() const {
+    if (impl_->kind == PublisherOperationKind::install_local) throw InstallLeaseStale();
+    impl_->fence();
+    // The private constructor receives only this context's held immutable
+    // original snapshot. Arbitrary request JSON cannot select older custody.
+    return std::unique_ptr<PublisherMaintenanceStateSnapshot>(new PublisherMaintenanceStateSnapshot(
+        impl_->volume, impl_->volume_root, impl_->service_name,
+        impl_->guard, impl_->original.at("reviewed_snapshot")));
 }
 void PublisherInstallOperationContext::bind_state_roots(HANDLE setup, HANDLE state) {
     impl_->bind_roots(setup, state);

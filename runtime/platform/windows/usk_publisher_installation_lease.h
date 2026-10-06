@@ -10,6 +10,47 @@
 namespace usk::platform::windows {
 class PublisherInstallationLease;
 struct PublisherTreeObservation;
+enum class PublisherOperationKind { install_local, repair, move, uninstall };
+
+// Read-only original maintenance preimage under the actual installation guard.
+// Keeps the protected setup/state parents and exact original installed and
+// ownership records alive. No constructor writes, bootstraps or grants effects.
+// The owning native engine keeps this alive throughout the operation.
+class PublisherMaintenanceStateSnapshot final {
+public:
+    PublisherMaintenanceStateSnapshot(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& setup_component, const std::wstring& service_name,
+        const PublisherInstallOperationGuard& guard, const std::string& install_id);
+    ~PublisherMaintenanceStateSnapshot();
+    PublisherMaintenanceStateSnapshot(const PublisherMaintenanceStateSnapshot&) = delete;
+    PublisherMaintenanceStateSnapshot& operator=(const PublisherMaintenanceStateSnapshot&) = delete;
+    HANDLE setup_root() const;
+    HANDLE state_root() const;
+    const std::string& initial_state_revision() const;
+    const usk::json::Value& installed_state() const;
+    const usk::json::Value& ownership_manifest() const;
+    void require_custody() const;
+    // Fresh apply only: the complete actual installed record set must still
+    // equal its original guarded revision before the first intent write.
+    void require_initial_revision() const;
+    usk::json::Value reviewed_snapshot(PublisherOperationKind kind,
+        const std::string& operation_id, const usk::json::Value& reviewed_plan,
+        const usk::json::Value& apply_request) const;
+private:
+    friend class PublisherInstallOperationContext;
+    PublisherMaintenanceStateSnapshot(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
+        const usk::json::Value& original_snapshot);
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+// Closed data binding only, with no native ownership/lease verdict. Recovery
+// separately proves the retained original records, completed prefix and the
+// allowed current revision. This cannot activate a maintenance backend.
+void require_publisher_maintenance_snapshot_binding(const usk::json::Value& snapshot,
+    PublisherOperationKind kind, const std::string& install_id,
+    const std::string& operation_id, const std::string& initial_state_revision);
 
 // Internal data-shape check using the native tree observer's slash paths.
 // Security, held handles, exact original bytes and ownership remain separate
@@ -43,11 +84,24 @@ public:
     PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
         const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
         const std::string& install_id, const std::string& operation_id);
+    PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
+        const std::string& install_id, const std::string& operation_id,
+        PublisherOperationKind kind);
     ~PublisherInstallOperationContext();
     PublisherInstallOperationContext(const PublisherInstallOperationContext&) = delete;
     PublisherInstallOperationContext& operator=(const PublisherInstallOperationContext&) = delete;
     bool exists() const;
     void prepare(const usk::json::Value& reviewed_snapshot, const std::string& initial_state_revision);
+    // V1 install preparation keeps its original empty-revision semantics.
+    // Maintenance builds V2 intent from the held native preimage and exact
+    // reviewed plan/request; it repeats the guarded revision before any write.
+    void prepare_maintenance(const PublisherMaintenanceStateSnapshot& state,
+        const usk::json::Value& reviewed_plan, const usk::json::Value& apply_request);
+    // Read-only recovery of the exact protected original records, even when
+    // a bound postimage is now the newest installed record. No new plan or
+    // current-revision grant is inferred from successfully restoring custody.
+    std::unique_ptr<PublisherMaintenanceStateSnapshot> restore_maintenance_state() const;
     void bind_state_roots(HANDLE setup_root, HANDLE state_root);
     std::string lease_binding_sha256() const;
     const usk::json::Value& record() const;
