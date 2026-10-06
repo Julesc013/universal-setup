@@ -568,8 +568,7 @@ usk::lifecycle::VerificationReport verify_manifest(
             item.status = "wrong_type";
             ++report.modified_files;
         } else {
-            try {
-                const auto actual = observe_maintenance_file(path);
+            const auto record_file = [&](const MaintenanceFileObservation& actual) {
                 item.actual_sha256 = actual.sha256;
                 if (actual.size_bytes == file.size_bytes && item.actual_sha256 == file.sha256) {
                     item.status = "present";
@@ -577,9 +576,25 @@ usk::lifecycle::VerificationReport verify_manifest(
                     item.status = "modified";
                     ++report.modified_files;
                 }
-            } catch (const std::exception&) {
-                item.status = "unreadable";
-                ++report.modified_files;
+            };
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+            // A private native owner may refuse its authority or held custody.
+            // Preserve that refusal before the ordinary unreadable-file catch:
+            // it is not evidence of changed payload bytes and must not fall
+            // back to observing a pathname outside the original owner.
+            const auto native = usk::transaction::detail::observe_current_native_maintenance_file(path);
+            if (native) {
+                record_file({native->native_identity, native->sha256, native->size_bytes});
+            } else
+#endif
+            {
+                try {
+                    const auto actual = observe_maintenance_file(path);
+                    record_file(actual);
+                } catch (const std::exception&) {
+                    item.status = "unreadable";
+                    ++report.modified_files;
+                }
             }
         }
         report.files.push_back(std::move(item));

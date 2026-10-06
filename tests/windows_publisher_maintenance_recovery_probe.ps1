@@ -60,7 +60,11 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
     $case.interrupted=$interrupted
     $boundary=$receipt.maintenance_process_loss.boundary
     $documents=@($interrupted.independent.rows|Where-Object content_json|ForEach-Object {$_.content_json|ConvertFrom-Json})
-    $journal=@($documents|Where-Object {$_.schema -ceq 'usk.transaction_journal.v1' -and $_.transaction_id -ceq $apply.transaction_id})
+    # Native custody retains historical transaction snapshots with the same
+    # schema/TX. Only the exact authoritative journal is current state.
+    $journalPath=$drive+'setup-state\state\transactions\'+$apply.transaction_id+'.journal.json'
+    $journal=@($interrupted.independent.rows|Where-Object {$_.path -ceq $journalPath -and $_.content_json}|
+        ForEach-Object {$_.content_json|ConvertFrom-Json})
     $original=@($interrupted.independent.rows|Where-Object {
         $_.path -ceq ($drive+'setup-state\state\transactions\'+$apply.transaction_id+'.native-maintenance-created.json')})
     $confirm=@($interrupted.independent.rows|Where-Object {
@@ -68,7 +72,9 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
     $oldLease=$boundary.maintenance_writer_lease_ownership
     $completedBefore=@($documents|Where-Object {$_.schema -ceq 'usk.installation_lease_ownership.v1' -and
         $_.operation_id -ceq $apply.transaction_id -and $_.status -ceq 'completed'})
-    if($journal.Count -ne 1 -or $journal[0].current_state -ceq 'completed' -or $completedBefore.Count -ne 0 -or
+    if($journal.Count -ne 1 -or $journal[0].schema -cne 'usk.transaction_journal.v1' -or
+        $journal[0].transaction_id -cne $apply.transaction_id -or $journal[0].current_state -ceq 'completed' -or
+        $completedBefore.Count -ne 0 -or
         $original.Count -ne 1 -or $confirm.Count -ne 1 -or
         $confirm[0].sha256 -cne $boundary.maintenance_confirmation_sha256 -or
         $oldLease.holder.process_id -ne $boundary.service_pid -or
@@ -100,7 +106,7 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
     $case.after=$after
     $documents=@($after.independent.rows|Where-Object content_json|ForEach-Object {$_.content_json|ConvertFrom-Json})
     $journalAfter=@($after.independent.rows|Where-Object {
-        if(-not $_.content_json){return $false};$d=$_.content_json|ConvertFrom-Json
+        if($_.path -cne $journalPath -or -not $_.content_json){return $false};$d=$_.content_json|ConvertFrom-Json
         return $d.schema -ceq 'usk.transaction_journal.v1' -and $d.transaction_id -ceq $apply.transaction_id -and $d.current_state -ceq 'completed'})
     $sealed=@($documents|Where-Object {$_.schema -ceq 'usk.maintenance_effect_record.v1' -and
         $_.transaction_id -ceq $apply.transaction_id -and $_.phase -ceq 'sealed'})
