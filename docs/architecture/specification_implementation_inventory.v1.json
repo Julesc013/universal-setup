@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-06T00:51:48Z",
+  "generated_at": "2026-10-06T01:02:10Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -5191,7 +5191,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "1565100078319d9e9a1fc31a846e440f7abc3ecdb423af089b7c49541c0fd7ae"
+          "sha256": "a802199abc718a56c7ff4accd98bf5ac0a075169b891db1ca3824941b98d066f"
         },
         {
           "path": "tests/publisher_worker_security.py",
@@ -5683,7 +5683,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "1565100078319d9e9a1fc31a846e440f7abc3ecdb423af089b7c49541c0fd7ae"
+          "sha256": "a802199abc718a56c7ff4accd98bf5ac0a075169b891db1ca3824941b98d066f"
         },
         {
           "path": "tests/publisher_worker_security.py",
@@ -5787,7 +5787,7 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
+          "sha256": "084836af01095eebbe344e43ae9fa6192cce30d7f27648dd6bd458ec8d5a231b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -5846,7 +5846,7 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
+          "sha256": "084836af01095eebbe344e43ae9fa6192cce30d7f27648dd6bd458ec8d5a231b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -6227,7 +6227,7 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
+          "sha256": "084836af01095eebbe344e43ae9fa6192cce30d7f27648dd6bd458ec8d5a231b"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
@@ -6814,7 +6814,7 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
+          "sha256": "084836af01095eebbe344e43ae9fa6192cce30d7f27648dd6bd458ec8d5a231b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -6875,7 +6875,7 @@
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
+          "sha256": "084836af01095eebbe344e43ae9fa6192cce30d7f27648dd6bd458ec8d5a231b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",

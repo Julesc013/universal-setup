@@ -290,9 +290,9 @@ Value observe_settled_publisher_worker_security(const PublisherServiceObservatio
     if (cancel_event) require(WaitForSingleObject(cancel_event, 0) == WAIT_TIMEOUT,
         "publisher startup observation cancelled or unavailable");
     const auto started = GetTickCount64();
-    auto quiet_since = started;
     auto previous = observe_current_publisher_worker_security();
     require_publisher_worker_security(previous, service);
+    auto quiet_since = GetTickCount64();
     while (GetTickCount64() - started < 8000u) {
         if (cancel_event) {
             require(WaitForSingleObject(cancel_event, 200u) == WAIT_TIMEOUT,

@@ -1151,7 +1151,7 @@ int maintenance_effect_interruption_proof()
 int maintenance_whole_terminal_boundary_proof()
 {
     for (const std::string operation : {"repair", "move", "uninstall"})
-    for (const std::string point : {"transaction.effects.sealed.after_write", "transaction.completed.before_journal"}) {
+    for (const std::string point : {"transaction.effects.sealed.after_record", "transaction.completed.before_journal"}) {
         Fixture fixture;
         const fs::path target = fixture.root / "targets/portable";
         fs::create_directories(target.parent_path());
