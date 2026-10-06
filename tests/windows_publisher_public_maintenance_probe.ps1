@@ -15,6 +15,53 @@ function Invoke-StandardFreshMaintenance {
         scope='three_fresh_original_registered_operations';profile_qualified=$false;
         recovery_qualified=$false;cases=[Collections.Generic.List[object]]::new();status='running'}
     $receipt['maintenance']=$result # Retain an incomplete observation on failure.
+    $result['completed_retries']=[Collections.Generic.List[object]]::new()
+    function Invoke-CompletedMaintenanceRetry($OriginalCase,$BeforeRetry,[bool]$IncludeMovedRoot) {
+        $retry=[ordered]@{operation=$OriginalCase.operation;transaction_id=$OriginalCase.request.transaction_id;
+            response=$null;before_rows=@($BeforeRetry.independent.rows).Count;after_rows=$null;
+            before_rows_sha256=$null;after_rows_sha256=$null;status='running'}
+        $result.completed_retries.Add($retry)
+        $selector=@{schema='usk.publisher_maintenance_recovery_request.v1';operation=$OriginalCase.operation;
+            install_id=[string]$installed.install_id;transaction_id=$OriginalCase.request.transaction_id}
+        $retry.response=Invoke-StandardRequest ($OriginalCase.operation+'.recover') $selector
+        $historical=$retry.response.result.payload
+        $originalJournal=@($BeforeRetry.independent.rows|Where-Object {
+            if(-not $_.content_json){return $false}
+            $document=$_.content_json|ConvertFrom-Json
+            return $document.schema -ceq 'usk.transaction_journal.v1' -and
+                $document.transaction_id -ceq $selector.transaction_id -and $document.current_state -ceq 'completed'
+        })
+        $originalSeal=@($BeforeRetry.independent.rows|Where-Object {
+            if(-not $_.content_json){return $false}
+            $document=$_.content_json|ConvertFrom-Json
+            return $document.schema -ceq 'usk.maintenance_effect_record.v1' -and
+                $document.transaction_id -ceq $selector.transaction_id -and $document.phase -ceq 'sealed'
+        })
+        if($originalJournal.Count -ne 1 -or $originalSeal.Count -ne 1 -or
+            $historical.schema -cne 'usk.maintenance_recovery_report.v1' -or $historical.status -cne 'completed' -or
+            $historical.operation -cne $selector.operation -or $historical.install_id -cne $selector.install_id -or
+            $historical.transaction_id -cne $selector.transaction_id -or
+            $historical.plan_id -cne $OriginalCase.request.reviewed_plan_id -or
+            $historical.plan_digest -cne $OriginalCase.request.reviewed_plan_digest -or
+            $historical.transaction_snapshot_sha256 -cne $originalJournal[0].sha256 -or
+            $historical.effect_history_sha256 -cne ($originalSeal[0].content_json|ConvertFrom-Json).digest) {
+            throw 'Completed maintenance retry lost its original historical result'
+        }
+        $afterRetry=Read-NativeSnapshot -IncludeMovedMaintenanceRoot:$IncludeMovedRoot
+        $retry.after_rows=@($afterRetry.independent.rows).Count
+        $beforeText=$BeforeRetry.independent.rows|ConvertTo-Json -Depth 64 -Compress
+        $afterText=$afterRetry.independent.rows|ConvertTo-Json -Depth 64 -Compress
+        $digest=[Security.Cryptography.SHA256]::Create()
+        try {
+            $retry.before_rows_sha256=([BitConverter]::ToString($digest.ComputeHash(
+                [Text.Encoding]::UTF8.GetBytes($beforeText)))).Replace('-','').ToLowerInvariant()
+            $retry.after_rows_sha256=([BitConverter]::ToString($digest.ComputeHash(
+                [Text.Encoding]::UTF8.GetBytes($afterText)))).Replace('-','').ToLowerInvariant()
+        } finally { $digest.Dispose() }
+        if($beforeText -cne $afterText){throw 'Completed maintenance retry changed the native namespace or record bytes'}
+        $retry.status='historical_completed_without_effects'
+        return $afterRetry
+    }
     $sourceRoot=Join-Path $lab 'maintenance-authored-inputs'
     if(Test-Path -LiteralPath $sourceRoot){throw 'Maintenance source fixture already exists'}
     New-Item -ItemType Directory -Path $sourceRoot|Out-Null
@@ -157,6 +204,27 @@ function Invoke-StandardFreshMaintenance {
         }
         $currentInstalled=$state[0]
         $case.status='observed_completed'
+        $null=Invoke-CompletedMaintenanceRetry $case $after ($operation -cne 'repair')
+    }
+    # After move and uninstall, older payload names and later lease generations
+    # differ. Their completed records still provide only the original result.
+    $originalArchive=[IO.Path]::GetFullPath([string]$replacement.archive_file)
+    $sourceBoundary=[IO.Path]::GetFullPath($sourceRoot).TrimEnd('\')+'\'
+    $retiredArchive=[IO.Path]::GetFullPath((Join-Path $sourceRoot 'retired-maintenance-source.zip'))
+    if(-not $originalArchive.StartsWith($sourceBoundary,[StringComparison]::OrdinalIgnoreCase) -or
+        -not $retiredArchive.StartsWith($sourceBoundary,[StringComparison]::OrdinalIgnoreCase) -or
+        (Test-Path -LiteralPath $retiredArchive) -or
+        ((Get-Item -LiteralPath $originalArchive).Attributes -band
+            ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -ne 0 -or
+        (Get-FileHash -LiteralPath $originalArchive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $replacement.archive_sha256) {
+        throw 'Completed retry source retirement lacks the exact owned generated archive'
+    }
+    Move-Item -LiteralPath $originalArchive -Destination $retiredArchive -ErrorAction Stop
+    $result['completed_retry_source_retired']=@{original_path=$originalArchive;retired_path=$retiredArchive;
+        archive_sha256=$replacement.archive_sha256}
+    $late=Read-NativeSnapshot -IncludeMovedMaintenanceRoot
+    foreach($oldCase in @($result.cases|Where-Object operation -cne 'uninstall')) {
+        $late=Invoke-CompletedMaintenanceRetry $oldCase $late $true
     }
     $result.status='three_fresh_operations_observed'
     return $result

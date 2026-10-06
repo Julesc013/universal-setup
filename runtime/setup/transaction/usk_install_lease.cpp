@@ -195,4 +195,57 @@ Value finish_install_lease_ownership(const Value& ownership,
     result.as_object().at("result_state_revision") = Value(observed_state_revision);
     return seal(std::move(result));
 }
+
+std::optional<Value> select_completed_install_lease_history(
+    const std::vector<Value>& history, const Value& original_active)
+{
+    require_install_lease_record(original_active);
+    if (original_active.at("status").as_string() != "active" || history.empty() || history.size() > 4096u)
+        throw InstallLeaseStale();
+    const auto& root = original_active.at("state_root_identity");
+    const auto& install_id = original_active.at("install_id").as_string();
+    const auto& operation_id = original_active.at("operation_id").as_string();
+    const auto same_operation = [&](const Value& value) {
+        return value.at("operation").as_string() == original_active.at("operation").as_string() &&
+            value.at("operation_id").as_string() == operation_id &&
+            value.at("operation_context_sha256").as_string() == original_active.at("operation_context_sha256").as_string();
+    };
+    std::optional<Value> previous, completed;
+    bool found_original = false;
+    for (const auto& value : history) {
+        require_install_lease_record(value);
+        if (value.at("install_id").as_string() != install_id || !equal(value.at("state_root_identity"), root))
+            throw InstallLeaseStale();
+        Value expected;
+        if (value.at("status").as_string() == "active") {
+            InstallLeaseRequest transition{install_id, value.at("operation").as_string(),
+                value.at("operation_id").as_string(), value.at("attempt_id").as_string(),
+                value.at("expected_state_revision").as_string(), true, value.at("operation_context_sha256").as_string()};
+            // Validate recorded data transitions; this makes no claim about a
+            // historical holder's actual termination or current native custody.
+            expected = derive_install_lease_ownership(previous, transition, root, value.at("holder"),
+                transition.expected_state_revision, InstallLeasePreviousHolder::ended);
+        } else {
+            if (!previous) throw InstallLeaseStale();
+            expected = finish_install_lease_ownership(*previous, root, previous->at("holder"),
+                value.at("result_state_revision").as_string(), value.at("status").as_string() == "handoff");
+        }
+        if (!equal(value, expected)) throw InstallLeaseStale();
+        if (completed) {
+            // An immutable operation cannot acquire another continuation after
+            // its completion, even if a caller supplies a different context.
+            if (value.at("operation_id").as_string() == operation_id) throw InstallLeaseStale();
+        } else if (found_original) {
+            if (!same_operation(value)) throw InstallLeaseStale();
+            if (value.at("status").as_string() == "completed") completed = value;
+        } else if (value.at("generation").as_unsigned() == original_active.at("generation").as_unsigned() &&
+            value.at("status").as_string() == "active") {
+            if (!equal(value, original_active)) throw InstallLeaseStale();
+            found_original = true;
+        }
+        previous = value;
+    }
+    if (!found_original) throw InstallLeaseStale();
+    return completed;
+}
 } // namespace usk::transaction

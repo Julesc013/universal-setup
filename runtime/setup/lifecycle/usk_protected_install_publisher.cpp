@@ -13,6 +13,7 @@
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_record_io.h"
+#include "usk_state_repository.h"
 #include "usk_public_lifecycle.h"
 #include "usk_protected_install_publisher_internal.h"
 #include "usk_native_maintenance_context_internal.h"
@@ -3744,7 +3745,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             const auto& snapshot = original_context.record().at("reviewed_snapshot");
             const auto& plan = snapshot.at("reviewed_plan");
             auto original_state = original_context.restore_maintenance_state();
-            original_context.bind_state_roots(original_state->setup_root(), original_state->state_root());
+            original_context.require_bound_state_roots(original_state->setup_root(), original_state->state_root());
             std::wstring envelope_path;
             std::string envelope_sha256;
             const auto original_request = usk::json::canonical(snapshot.at("apply_request"));
@@ -3774,6 +3775,78 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             registered_operation_admission = admit_current_registered_operation(volume, observed.service_sid,
                 setup.u8string(), spec.target_root.u8string(), spec.plan_digest, usk::json::canonical(snapshot), operation_id);
             require_public_mount_mapping(volume, setup.u8string(), acceptance.u8string());
+            // An already completed operation is historical metadata. Prove it
+            // before constructing any writer or appending a recovery generation.
+            const auto original_active = observe_publisher_original_maintenance_lease(
+                original_state->state_root(), volume_root, service_name, *install_guard, original_context,
+                authenticated_request->observe_authenticated_object_access(volume).at("client").at("user_sid").as_string());
+            const auto old_completion = observe_publisher_completed_installation_lease(
+                original_state->state_root(), volume_root, service_name, *install_guard, original_active);
+            if (old_completion) {
+                const auto metadata = usk::transaction::TransactionSession::inspect_completed_history(spec);
+                const auto state_tree = observe_publisher_tree(original_state->state_root());
+                require_publisher_tree_security_shape(state_tree, observed.service_sid);
+                if (spec.audit_root.parent_path().lexically_normal() != setup ||
+                    !is_publisher_canonical_component(spec.audit_root.filename().wstring()))
+                    throw std::runtime_error("historical maintenance audit root differs from protected setup");
+                const auto find_audit = [&] {
+                    std::optional<PublisherDirectoryEntry> found;
+                    const auto name = spec.audit_root.filename().wstring();
+                    for (const auto& entry : observe_publisher_directory_entries(original_state->setup_root())) {
+                        if (CompareStringOrdinal(entry.name.c_str(), -1, name.c_str(), -1, TRUE) != CSTR_EQUAL) continue;
+                        if (entry.name != name || found) throw std::runtime_error("historical maintenance audit root is ambiguous");
+                        found = entry;
+                    }
+                    return found;
+                };
+                const auto audit_entry = find_audit();
+                if (!audit_entry) throw std::runtime_error("historical maintenance audit root is absent");
+                OwnedHandle audit_root(open_publisher_listed_child(original_state->setup_root(), *audit_entry));
+                const auto audit_tree = observe_publisher_tree(audit_root.get());
+                require_publisher_tree_security_shape(audit_tree, observed.service_sid);
+                const auto historical = usk::lifecycle::detail::inspect_completed_maintenance_history(spec);
+                const auto installed = usk::state::StateRepository(spec.state_root).read_installed_snapshot(install_id, operation_id);
+                const auto postimage = derive_publisher_maintenance_postimage_bindings(snapshot,
+                    usk::json::parse(usk::state::serialize_installed_state(installed)));
+                if (!historical.effects_complete || !historical.sealed || !historical.next_kind.empty() ||
+                    historical.transaction_snapshot_sha256 != metadata.snapshot_sha256 ||
+                    old_completion->at("result_state_revision").as_string() != usk::json::sha256_canonical(postimage))
+                    throw std::runtime_error("historical maintenance completion lost its immutable result binding");
+                original_state->require_custody(); original_context.require_fence();
+                const auto current_completion = observe_publisher_completed_installation_lease(
+                    original_state->state_root(), volume_root, service_name, *install_guard, original_active);
+                if (!current_completion || usk::json::canonical(*current_completion) != usk::json::canonical(*old_completion) ||
+                    usk::transaction::TransactionSession::inspect_completed_history(spec).snapshot_sha256 != metadata.snapshot_sha256 ||
+                    usk::transaction::MaintenanceEffectJournal::inspect(spec, metadata.stream.source_digest).journal_digest != historical.history_digest)
+                    throw std::runtime_error("historical maintenance records changed during result selection");
+                require_publisher_tree_phase_match(state_tree, observe_publisher_tree(original_state->state_root()));
+                require_publisher_tree_phase_match(audit_tree, observe_publisher_tree(audit_root.get()));
+                const auto current_audit = find_audit();
+                if (!current_audit) throw std::runtime_error("historical maintenance audit root was removed");
+                OwnedHandle audit_link(open_publisher_listed_child(original_state->setup_root(), *current_audit));
+                require_publisher_tree_phase_match(audit_tree, observe_publisher_tree(audit_link.get()));
+                const auto current_admission = admit_current_registered_operation(volume, observed.service_sid,
+                    setup.u8string(), spec.target_root.u8string(), spec.plan_digest, usk::json::canonical(snapshot), operation_id);
+                if (usk::json::canonical(current_admission) != usk::json::canonical(*registered_operation_admission))
+                    throw std::runtime_error("historical maintenance registered admission changed");
+                require_public_mount_mapping(volume, setup.u8string(), acceptance.u8string());
+                Value report(Value::Object{{"schema", Value("usk.maintenance_recovery_report.v1")}, {"status", Value("completed")},
+                    {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
+                    {"plan_id", Value(spec.plan_id)}, {"plan_digest", Value(spec.plan_digest)},
+                    {"transaction_snapshot_sha256", Value(metadata.snapshot_sha256)},
+                    {"effect_history_sha256", Value(historical.history_digest)}, {"source_digest", Value(metadata.stream.source_digest)},
+                    {"recorded_at", Value(metadata.recorded_at)}, {"report_id", Value("recovery." + operation + "." + operation_id)}});
+                report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
+                return usk::json::canonical(Value(Value::Object{
+                    {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+                    {"request_sha256", Value(usk::json::sha256_canonical(request))},
+                    {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
+                    {"service_name", Value(ascii(service_name))}, {"service_sid", Value(observed.service_sid)},
+                    {"process_id", Value(static_cast<std::uint64_t>(observed.process_id))},
+                    {"recovery_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")},
+                        {"status", Value("ok")}, {"payload", report}})},
+                    {"operation_admission", *registered_operation_admission}})) + "\n";
+            }
             const std::function<std::string()> revision = [&] {
                 return observe_publisher_install_state_revision(original_state->state_root(), install_id, observed.service_sid);
             };

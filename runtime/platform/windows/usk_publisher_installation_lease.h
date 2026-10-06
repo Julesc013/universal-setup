@@ -9,6 +9,7 @@
 #include <memory>
 namespace usk::platform::windows {
 class PublisherInstallationLease;
+class PublisherInstallOperationContext;
 struct PublisherTreeObservation;
 enum class PublisherOperationKind { install_local, repair, move, uninstall };
 
@@ -69,6 +70,19 @@ usk::json::Value observe_publisher_lease_holder();
 usk::json::Value observe_publisher_lease_root_identity(HANDLE root);
 std::string observe_publisher_install_state_revision(HANDLE state_root,
     const std::string& install_id, const std::string& service_sid);
+// Existing-only protected journal inspection under the actual installation
+// guard. Creates no directory, pending file or generation. The original active
+// record must be an exact member; an old completion is independent of today's
+// state revision or payload health and grants no further effects.
+std::optional<usk::json::Value> observe_publisher_completed_installation_lease(
+    HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const usk::json::Value& original_active);
+// Extract only the original active lease from the exact protected v2 custody
+// document. This supplies no creator, completed-result or replay authority.
+usk::json::Value observe_publisher_original_maintenance_lease(
+    HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const PublisherInstallOperationContext& context,
+    const std::string& authenticated_user_sid);
 // Exact sorted native record set behind the revision. The operation retains
 // this original set to derive only its reviewed installed postimage revision.
 usk::json::Value observe_publisher_install_state_bindings(HANDLE state_root,
@@ -114,6 +128,9 @@ public:
     // current-revision grant is inferred from successfully restoring custody.
     std::unique_ptr<PublisherMaintenanceStateSnapshot> restore_maintenance_state() const;
     void bind_state_roots(HANDLE setup_root, HANDLE state_root);
+    // Read-only recovery check. Missing original binding refuses instead of
+    // creating a new record or granting a new root association.
+    void require_bound_state_roots(HANDLE setup_root, HANDLE state_root) const;
     std::string lease_binding_sha256() const;
     const usk::json::Value& record() const;
     void require_fence() const;

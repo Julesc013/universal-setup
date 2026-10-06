@@ -4,6 +4,7 @@
 #include "usk_publisher_bound_rename.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_metadata.h"
+#include "usk_publisher_tree_observation.h"
 #include "usk_publisher_installation_lease.h"
 #include "usk_native_maintenance_transaction_internal.h"
 #include "usk_sha256.h"
@@ -98,18 +99,23 @@ void protect_owned_object(const fs::path& path, bool directory_object) {
     check(GetSecurityInfo(object.get(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
         &dacl, nullptr, &security) == ERROR_SUCCESS && dacl && IsValidAcl(dacl),
         "owned protected-fixture DACL unavailable");
+    // Supply the exact explicit postimage, rather than ask the filesystem to
+    // select an ordering while converting inherited ACEs to protected ones.
+    std::vector<unsigned char> explicit_acl(dacl->AclSize);
+    std::copy_n(reinterpret_cast<const unsigned char*>(dacl), dacl->AclSize, explicit_acl.begin());
+    auto* protected_acl = reinterpret_cast<PACL>(explicit_acl.data());
+    for (DWORD index = 0; index < protected_acl->AceCount; ++index) {
+        void* ace = nullptr;
+        check(GetAce(protected_acl, index, &ace) != FALSE, "owned fixture ACE unavailable");
+        static_cast<ACE_HEADER*>(ace)->AceFlags &= static_cast<BYTE>(~INHERITED_ACE);
+    }
     const auto error = SetSecurityInfo(object.get(), SE_FILE_OBJECT,
-        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr);
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, protected_acl, nullptr);
     LocalFree(security);
     check(error == ERROR_SUCCESS, "owned protected-fixture DACL update failed");
     const auto after = directory_object ? observe_publisher_directory_handle(object.get()) : observe_publisher_file_handle(object.get());
     before.dacl_protected = true;
-    // Predict this fixture's protection postimage from the held preimage:
-    // explicit ACEs precede the formerly inherited group, retaining each
-    // group's order and every type, mask, SID and other flag exactly.
-    std::stable_partition(before.dacl_aces.begin(), before.dacl_aces.end(), [](const auto& ace) {
-        return (ace.flags & INHERITED_ACE) == 0;
-    });
+    // Retain the exact supplied ACE order, types, masks, SIDs and other flags.
     for (auto& ace : before.dacl_aces) ace.flags &= static_cast<std::uint8_t>(~INHERITED_ACE);
     const auto expected = usk::json::canonical(publisher_handle_observation_json(before));
     const auto actual = usk::json::canonical(publisher_handle_observation_json(after));
@@ -226,6 +232,38 @@ void directory_publication_controls(const fs::path& root, HANDLE parent) {
             directory_facts(parent, final_name), parent_facts);
         check(removed.absence_confirmed, "owned publication fixture directory cleanup retained");
     }
+}
+void finalized_allocation_controls(const fs::path& root) {
+    const auto path = root / L"allocation-close";
+    check(fs::create_directory(path), "owned allocation fixture directory exists");
+    {
+        Held parent = directory(path);
+        Held output(CreateFileW((path / L"payload.bin").c_str(), GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr));
+        const std::string block(65536, 'a');
+        std::uint64_t total = 0;
+        while (total < 161000) {
+            const auto wanted = static_cast<DWORD>(std::min<std::uint64_t>(block.size(), 161000 - total));
+            DWORD written = 0;
+            check(WriteFile(output.get(), block.data(), wanted, &written, nullptr) && written == wanted,
+                "owned allocation fixture stream write failed");
+            total += written;
+        }
+        FILE_ALLOCATION_INFO allocation{};
+        allocation.AllocationSize.QuadPart = static_cast<LONGLONG>(total);
+        check(SetFileInformationByHandle(output.get(), FileAllocationInfo, &allocation, sizeof(allocation)) &&
+            FlushFileBuffers(output.get()), "owned stream allocation finalization failed");
+        const auto sealed = observe_publisher_tree(parent.get());
+        check(sealed.descendants.size() == 1 && sealed.descendants[0].size == total &&
+            sealed.descendants[0].streams.size() == 1, "owned finalized stream closure differs");
+        output.close_once();
+        const auto released = observe_publisher_tree(parent.get());
+        require_publisher_tree_phase_match(sealed, released);
+        check(released.descendants[0].sha256 == sealed.descendants[0].sha256,
+            "owned writer release changed finalized bytes");
+    }
+    check(fs::remove(path / L"payload.bin") && fs::remove(path), "owned allocation fixture cleanup failed");
 }
 void snapshot_bindings() {
     using usk::json::Value;
@@ -480,6 +518,7 @@ int proof() {
                 "owned no-replace rename changed bytes/identity or failed its namespace postimage");
         }
         ScopedPublisherEffectFence scope(fence);
+        finalized_allocation_controls(root);
         directory_publication_controls(root, bound_root.get());
         write(root / L"source/second.bin", second);
         {

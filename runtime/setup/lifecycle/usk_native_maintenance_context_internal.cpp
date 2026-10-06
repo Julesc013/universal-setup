@@ -1470,8 +1470,18 @@ struct NativeMaintenanceContext::Impl {
     }
     void finish_stream(const transaction::TransactionSpec& s, std::intptr_t handle, const std::string& id, std::uint64_t size, const std::string& sha) {
         require_stream(s, handle); auto& entry = stream(handle);
-        if (entry.complete || id != entry.stream_identity || size != entry.size || sha != entry.sha256 ||
-            !FlushFileBuffers(entry.handle.value)) throw std::runtime_error("native maintenance stream completion differs from its reviewed creation");
+        if (entry.complete || id != entry.stream_identity || size != entry.size || sha != entry.sha256)
+            throw std::runtime_error("native maintenance stream completion differs from its reviewed creation");
+        require_bytes(entry);
+        // NTFS may reserve more clusters while this original writer is open
+        // and release them on its last close. Finalize that owned allocation
+        // before sealing, so the exact stream facts survive publication's
+        // required descendant release. Never relax the phase comparison.
+        FILE_ALLOCATION_INFO allocation{};
+        allocation.AllocationSize.QuadPart = static_cast<LONGLONG>(entry.size);
+        if (!SetFileInformationByHandle(entry.handle.value, FileAllocationInfo, &allocation, sizeof(allocation)) ||
+            !FlushFileBuffers(entry.handle.value))
+            throw std::runtime_error("native maintenance stream allocation/flush was not confirmed");
         require_bytes(entry); entry.complete = true; require_authority(s);
     }
     std::map<fs::path, const Value*> repair_verification_manifest() const {
