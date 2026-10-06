@@ -7,7 +7,10 @@
 #include <cstddef>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
+
+namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
 
 namespace usk::record_io {
 
@@ -36,6 +39,25 @@ public:
 private:
     const RecordWriteOperations* previous_;
 };
+
+#if defined(_WIN32)
+// Read-only access to an exact record still held by its concrete native owner.
+// A supplied callback or JSON cannot activate this scope. Unknown paths use
+// the ordinary stable reader; a selected read's refusal never falls back.
+struct NativeRecordReadOperations {
+    std::function<std::optional<std::string>(const std::filesystem::path&, std::size_t)> read_owned_text;
+};
+class ScopedNativeRecordReadOperations final {
+public:
+    ~ScopedNativeRecordReadOperations();
+    ScopedNativeRecordReadOperations(const ScopedNativeRecordReadOperations&) = delete;
+    ScopedNativeRecordReadOperations& operator=(const ScopedNativeRecordReadOperations&) = delete;
+private:
+    friend class usk::lifecycle::detail::NativeMaintenanceContext;
+    explicit ScopedNativeRecordReadOperations(const NativeRecordReadOperations& operations);
+    ScopedNativeRecordReadOperations(NativeRecordReadOperations&&) = delete;
+};
+#endif
 
 #if defined(_WIN32)
 struct WindowsBoundRenameProbeResult {

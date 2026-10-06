@@ -219,6 +219,7 @@ struct NativeMaintenanceContext::Impl {
     bool installed_prepared = false, installed_issue_active = false, installed_confirmed = false, installed_uncertain = false;
     transaction::detail::NativeMaintenanceTransactionOperations operations;
     std::function<void()> effect_fence;
+    record_io::NativeRecordReadOperations record_reads;
     std::unique_ptr<PublisherMetadataSession> metadata;
     // These are protected-record observers. Neither their reopened handles
     // nor a parsed creator document is labelled as this worker's creation.
@@ -1164,6 +1165,34 @@ struct NativeMaintenanceContext::Impl {
             first.LastWriteTime.QuadPart != last.LastWriteTime.QuadPart || first.ChangeTime.QuadPart != last.ChangeTime.QuadPart)
             throw std::runtime_error("native maintenance installed byte postimage changed");
         require_installed_custody();
+    }
+    std::optional<std::string> read_owned_record(const fs::path& path, std::size_t maximum) const {
+        // Only this operation's exact published installed postimage is served.
+        // Other records keep their ordinary no-mutation-sharing reader. Never
+        // reopen this creator with weaker sharing or release its custody.
+        if (normalized(path) != installed_record_path) return std::nullopt;
+        require_authority(spec);
+        if (!installed_confirmed || !installed_postimage_file || !installed_postimage_file->complete ||
+            installed_record_text.size() > maximum)
+            throw std::runtime_error("native maintenance record read lacks a confirmed bounded installed postimage");
+        require_installed_bytes();
+        const HANDLE file = installed_postimage_file->handle.value;
+        LARGE_INTEGER zero{};
+        if (!SetFilePointerEx(file, zero, nullptr, FILE_BEGIN))
+            throw std::runtime_error("native maintenance installed record position unavailable");
+        std::string text(installed_record_text.size(), '\0');
+        std::size_t offset = 0;
+        while (offset != text.size()) {
+            const auto wanted = static_cast<DWORD>(std::min<std::size_t>(64u * 1024u, text.size() - offset));
+            DWORD count = 0;
+            if (!ReadFile(file, text.data() + offset, wanted, &count, nullptr) || count != wanted)
+                throw std::runtime_error("native maintenance installed record read changed");
+            offset += count;
+        }
+        if (text != installed_record_text)
+            throw std::runtime_error("native maintenance installed record differs from its original confirmed bytes");
+        require_installed_bytes(); require_authority(spec);
+        return text;
     }
     void metadata_prepare(const fs::path& path, const std::string& text) {
         require_authority(spec);
@@ -2384,9 +2413,14 @@ void NativeMaintenanceContext::bind_owner_backend() {
     hooks.confirm = [this](const auto& p, const auto& text, HANDLE file) { impl_->metadata_confirm(p, text, file); };
     hooks.failed = [this](const auto& p) { impl_->metadata_failed(p); };
     impl_->metadata->bind_native_maintenance_publication(std::move(hooks));
+    impl_->record_reads.read_owned_text = [this](const auto& p, auto maximum) {
+        return impl_->read_owned_record(p, maximum);
+    };
+    record_read_scope_.reset(new record_io::ScopedNativeRecordReadOperations(impl_->record_reads));
 }
 NativeMaintenanceContext::~NativeMaintenanceContext() {
     scope_.reset();
+    record_read_scope_.reset();
     impl_->metadata.reset();
     fence_.reset();
 }

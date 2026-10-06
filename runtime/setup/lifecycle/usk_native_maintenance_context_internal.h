@@ -7,6 +7,7 @@
 #include "usk_publisher_installation_lease.h"
 #include "usk_publisher_metadata.h"
 #include "usk_native_maintenance_transaction_internal.h"
+#include "usk_record_io.h"
 #include <memory>
 namespace usk::lifecycle::detail {
 struct MaintenanceRecoveryOperations;
@@ -55,6 +56,7 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> fence_;
+    std::unique_ptr<usk::record_io::ScopedNativeRecordReadOperations> record_read_scope_;
     // Destroy the borrowed callback scope before its owning operations/handles.
     std::unique_ptr<usk::transaction::detail::ScopedNativeMaintenanceTransaction> scope_;
 };
