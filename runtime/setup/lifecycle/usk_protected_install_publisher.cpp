@@ -3597,8 +3597,12 @@ std::string verify_completed_install_in_service(HANDLE volume,
     const auto installed = current.installed_state();
     const auto operation_id = installed.at("transaction_id").as_string();
     const auto lifecycle_status = installed.at("lifecycle_status").as_string();
+    const auto original_transaction = snapshot.at("transaction_id").as_string();
+    const bool supported_completed_state = operation_id == original_transaction ?
+        lifecycle_status == "installed" :
+        (lifecycle_status == "verified" || lifecycle_status == "move_pending_acceptance");
     if (request.at("transaction_id").as_string() != operation_id ||
-        (lifecycle_status != "verified" && lifecycle_status != "move_pending_acceptance") ||
+        !supported_completed_state ||
         installed.at("recipe_digest").as_string() != plan.recipe.recipe_digest)
         throw std::runtime_error("authenticated verify request lacks the current completed installed state");
     const auto target = std::filesystem::u8path(installed.at("target_root").as_string());
@@ -3611,9 +3615,8 @@ std::string verify_completed_install_in_service(HANDLE volume,
     std::unique_ptr<PublisherInstallOperationContext> context;
     std::optional<usk::transaction::TransactionSpec> spec;
     std::string transaction_sha, effect_sha;
-    const auto original_transaction = snapshot.at("transaction_id").as_string();
     if (operation_id == original_transaction) {
-        if (target != original_plan.target_root || lifecycle_status != "verified")
+        if (target != original_plan.target_root || lifecycle_status != "installed")
             throw std::runtime_error("initial verification state changed its original root");
         usk::lifecycle::require_completed_consumer_install(original_plan,
             original_transaction, snapshot.at("applied_at").as_string(),
