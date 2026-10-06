@@ -546,8 +546,10 @@ TransactionSession::TransactionSession(
         (spec_.transaction_id + ".journal.json");
     require_path_capacity(spec_);
 #if defined(_WIN32)
-    if (const auto* native = detail::ScopedNativeMaintenanceTransaction::current()) {
-        native->require_authority(spec_);
+    if (detail::ScopedNativeMaintenanceTransaction::current()) {
+        native_origin_ = true;
+        native_origin_binding_ = detail::ScopedNativeMaintenanceTransaction::current_binding();
+        (void)require_native_owner();
         // Native creation may be retained even if its completion record cannot
         // be written. Ordinary pathname rollback never acquires its custody.
         retain_stream_cleanup_ = true;
@@ -729,12 +731,31 @@ void TransactionSession::verify_roots_for_plan()
     journal_directory_identity_ = directory_identity(spec_.state_root / "transactions");
 }
 
+#if defined(_WIN32)
+const detail::NativeMaintenanceTransactionOperations* TransactionSession::require_native_owner() const {
+    detail::require_native_maintenance_origin_binding(native_origin_, native_origin_binding_,
+        detail::ScopedNativeMaintenanceTransaction::current_binding());
+    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+    if (native_origin_) {
+        if (!native) throw std::runtime_error("native maintenance transaction owner is absent");
+        native->require_authority(spec_);
+    } else if (native) throw std::runtime_error("ordinary transaction cannot enter native maintenance custody");
+    return native;
+}
+#endif
+
 void TransactionSession::persist_transition(const std::string& next_state)
 {
+#if defined(_WIN32)
+    (void)require_native_owner();
+#endif
     if (!valid_transition(current_state_, next_state)) {
         throw std::logic_error("invalid setup transaction state transition");
     }
     if (injector_) injector_(next_state, "before_journal");
+#if defined(_WIN32)
+    (void)require_native_owner();
+#endif
     const std::string previous = current_state_;
     transitions_.push_back(Transition{
         static_cast<std::uint64_t>(transitions_.size()),
@@ -758,10 +779,16 @@ void TransactionSession::persist_transition(const std::string& next_state)
         throw;
     }
     if (injector_) injector_(next_state, "after_journal");
+#if defined(_WIN32)
+    (void)require_native_owner();
+#endif
 }
 
 void TransactionSession::persist_snapshot()
 {
+#if defined(_WIN32)
+    (void)require_native_owner();
+#endif
     if (transitions_.empty() ||
         directory_identity(journal_path_.parent_path()) != journal_directory_identity_) {
         throw std::runtime_error("transaction journal directory identity changed");
@@ -777,11 +804,10 @@ void TransactionSession::create_staging_root()
         throw std::runtime_error("staging parent changed or staging root now exists");
     }
 #if defined(_WIN32)
-    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+    const auto* native = require_native_owner();
     if (native) {
-        native->require_authority(spec_);
         native->create_staging_root(spec_, staging_root_);
-        native->require_authority(spec_);
+        (void)require_native_owner();
     } else
 #endif
     {
@@ -808,7 +834,7 @@ void TransactionSession::verify_staging_identity() const
 void TransactionSession::remove_recorded_staging_closure()
 {
 #if defined(_WIN32)
-    if (const auto* native = detail::ScopedNativeMaintenanceTransaction::current()) {
+    if (const auto* native = require_native_owner()) {
         native->require_authority(spec_);
         throw std::runtime_error("native maintenance staging remains under engine custody; pathname cleanup refused");
     }
@@ -897,7 +923,7 @@ void TransactionSession::stage_file(
     const std::vector<unsigned char>& bytes)
 {
 #if defined(_WIN32)
-    if (const auto* native = detail::ScopedNativeMaintenanceTransaction::current()) {
+    if (const auto* native = require_native_owner()) {
         native->require_authority(spec_);
         throw std::runtime_error("native maintenance requires the creation-bound streaming path");
     }
@@ -936,6 +962,11 @@ void TransactionSession::stage_file(
         require_safe_directory(current);
     }
     if (injector_) injector_(current_state_, "before_stage_file");
+#if defined(_WIN32)
+    // The caller's injector may have changed the active owner lifetime. An
+    // ordinary session cannot adopt that scope for its pathname write.
+    (void)require_native_owner();
+#endif
     const fs::path destination = staging_root_ / relative_path;
     write_new_durable_file(destination, bytes.data(), bytes.size());
     staged_files_.push_back(StagedFile{
@@ -996,20 +1027,15 @@ StreamStageResult TransactionSession::stage_file_stream(
         source_identity_digest.empty() ? spec_.plan_digest : source_identity_digest, "intent", {}});
     persist_snapshot();
     if (injector_) injector_(current_state_, "after_stream_intent");
-#if defined(_WIN32)
-    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
-    if (native) native->require_authority(spec_);
-#endif
     fs::path current = staging_root_;
     auto last = relative_path.end();
     --last;
     for (auto iterator = relative_path.begin(); iterator != last; ++iterator) {
         current /= *iterator;
 #if defined(_WIN32)
-        if (native) {
-            native->require_authority(spec_);
+        if (const auto* native = require_native_owner()) {
             native->ensure_stream_parent(spec_, current);
-            native->require_authority(spec_);
+            (void)require_native_owner();
         } else
 #endif
         {
@@ -1034,10 +1060,9 @@ StreamStageResult TransactionSession::stage_file_stream(
     try {
         if (injector_) injector_(current_state_, "before_stage_stream");
 #if defined(_WIN32)
-        if (native) {
-            native->require_authority(spec_);
+        if (const auto* native = require_native_owner()) {
             handle = reinterpret_cast<HANDLE>(native->open_stream(spec_, destination, expected_size, expected_sha256));
-            native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+            require_native_owner()->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
         } else handle = CreateFileW(destination.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (handle == INVALID_HANDLE_VALUE) {
@@ -1081,8 +1106,7 @@ StreamStageResult TransactionSession::stage_file_stream(
 #if defined(_WIN32)
                 const DWORD request = static_cast<DWORD>(count - written_total);
                 DWORD written = 0;
-                if (native) {
-                    native->require_authority(spec_);
+                if (const auto* native = require_native_owner()) {
                     native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
                 }
                 if (!WriteFile(handle, buffer.data() + written_total, request, &written, nullptr) ||
@@ -1110,15 +1134,14 @@ StreamStageResult TransactionSession::stage_file_stream(
         if (injector_) injector_(current_state_, "before_stream_finalize");
         std::string actual_sha256;
 #if defined(_WIN32)
-        if (native) {
+        if (const auto* native = require_native_owner()) {
             actual_sha256 = digest.finish();
             if (total != expected_size || actual_sha256 != expected_sha256)
                 throw std::runtime_error("streamed staged file integrity changed");
-            native->require_authority(spec_);
             native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
             native->finish_stream(spec_, reinterpret_cast<std::intptr_t>(handle),
                 observation.output_identity, total, actual_sha256);
-            native->require_authority(spec_);
+            (void)require_native_owner();
             // Borrowed custody stays with the concrete engine. No close or
             // rollback by pathname follows failure of its native operation.
             handle = INVALID_HANDLE_VALUE;
@@ -1158,7 +1181,9 @@ StreamStageResult TransactionSession::stage_file_stream(
         return {actual_sha256, total, static_cast<std::uint64_t>(buffer.capacity())};
     } catch (...) {
 #if defined(_WIN32)
-        if (!native && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        // Borrowed native handles remain owned by the original engine even
+        // after its scope has ended. Never select cleanup from current TLS.
+        if (!native_origin_ && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
 #else
         if (descriptor >= 0) ::close(descriptor);
 #endif
@@ -1277,11 +1302,10 @@ void TransactionSession::commit_effect()
     }
     try {
 #if defined(_WIN32)
-        const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+        const auto* native = require_native_owner();
         if (native) {
-            native->require_authority(spec_);
             native->commit(spec_, staging_root_, staging_identity_, verified_closure_);
-            native->require_authority(spec_);
+            (void)require_native_owner();
         } else
 #endif
             rename_directory_no_replace(staging_root_, spec_.target_root);

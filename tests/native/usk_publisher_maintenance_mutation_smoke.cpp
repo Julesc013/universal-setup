@@ -5,6 +5,7 @@
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_metadata.h"
 #include "usk_publisher_installation_lease.h"
+#include "usk_native_maintenance_transaction_internal.h"
 #include "usk_sha256.h"
 #if defined(_WIN32)
 #include <filesystem>
@@ -211,7 +212,41 @@ void snapshot_bindings() {
             id, operation_id, revision); }), "install intent accepted maintenance snapshot");
     }
 }
+void transaction_origin_lifetimes() {
+    // These are inert identity tokens. They exercise the lifetime association
+    // only; they cannot construct a native adapter or grant native authority.
+    using usk::transaction::detail::require_native_maintenance_origin_binding;
+    const std::weak_ptr<const void> absent;
+    auto first = std::make_shared<const unsigned char>(static_cast<unsigned char>(0));
+    const std::weak_ptr<const void> original = first;
+    require_native_maintenance_origin_binding(true, original, original);
+    check(refuses([&] { require_native_maintenance_origin_binding(true, original, absent); }),
+        "native-origin transaction accepted missing active owner");
+    auto other = std::make_shared<const unsigned char>(static_cast<unsigned char>(0));
+    check(refuses([&] { require_native_maintenance_origin_binding(true, original, other); }),
+        "native-origin transaction adopted a different live owner");
+    first.reset();
+    check(refuses([&] { require_native_maintenance_origin_binding(true, original, original); }),
+        "native-origin transaction accepted its expired owner");
+    check(refuses([&] { require_native_maintenance_origin_binding(true, original, other); }),
+        "expired native origin adopted a replacement owner");
+
+    // Independent lifetimes can refer to exactly the same address. Comparing
+    // raw callback/owner addresses would incorrectly admit this replacement.
+    const unsigned char reused_address = 0;
+    const auto no_delete = [](const void*) {};
+    const std::shared_ptr<const void> lifetime_one(&reused_address, no_delete);
+    const std::shared_ptr<const void> lifetime_two(&reused_address, no_delete);
+    check(lifetime_one.get() == lifetime_two.get(), "same-address identity control differs");
+    check(refuses([&] { require_native_maintenance_origin_binding(true, lifetime_one, lifetime_two); }),
+        "native-origin transaction accepted reused-address replacement lifetime");
+    require_native_maintenance_origin_binding(false, absent, absent);
+    require_native_maintenance_origin_binding(false, absent, original);
+    check(refuses([&] { require_native_maintenance_origin_binding(false, absent, other); }),
+        "ordinary-origin transaction adopted an active native owner");
+}
 int proof() {
+    transaction_origin_lifetimes();
     snapshot_bindings();
     const fs::path root = fs::temp_directory_path() /
         ("usk-maintenance-mutation-" + std::to_string(GetCurrentProcessId()) + "-" +

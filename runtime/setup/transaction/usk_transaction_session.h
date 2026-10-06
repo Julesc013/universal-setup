@@ -16,6 +16,9 @@
 #include <vector>
 
 namespace usk::transaction {
+#if defined(_WIN32)
+namespace detail { struct NativeMaintenanceTransactionOperations; }
+#endif
 
 class NoReplaceCommitUnavailable final : public std::runtime_error {
 public:
@@ -128,6 +131,11 @@ public:
         FaultInjector injector = {});
 
 private:
+#if defined(_WIN32)
+    const detail::NativeMaintenanceTransactionOperations* require_native_owner() const;
+    bool native_origin_ = false;
+    std::weak_ptr<const void> native_origin_binding_;
+#endif
     struct Transition {
         std::uint64_t sequence = 0;
         std::string from;

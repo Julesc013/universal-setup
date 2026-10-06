@@ -5,8 +5,13 @@
 #if defined(_WIN32)
 #include "usk_transaction_session.h"
 #include <functional>
+#include <memory>
 namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
 namespace usk::transaction::detail {
+// Read-only lifetime policy. Supplied identities confer no native scope or
+// authority; the session separately uses the engine's private current binding.
+void require_native_maintenance_origin_binding(bool native_origin,
+    const std::weak_ptr<const void>& original, const std::weak_ptr<const void>& current);
 // Private engine adapter. The concrete native context alone can construct it;
 // no public caller, JSON field, setter or test callback activates this scope.
 // Presence is not authority: every entry independently calls the native owner.
@@ -35,7 +40,9 @@ private:
     explicit ScopedNativeMaintenanceTransaction(const NativeMaintenanceTransactionOperations& operations);
     ScopedNativeMaintenanceTransaction(NativeMaintenanceTransactionOperations&&) = delete;
     static const NativeMaintenanceTransactionOperations* current();
+    static std::weak_ptr<const void> current_binding();
     const NativeMaintenanceTransactionOperations& operations_;
+    std::shared_ptr<const void> identity_;
 };
 }
 #endif
