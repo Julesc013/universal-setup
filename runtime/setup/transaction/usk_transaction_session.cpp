@@ -1591,6 +1591,77 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     return result;
 }
 
+void TransactionSession::require_recovery_transition_extension(const TransactionSpec& spec,
+    const std::string& original_text, const std::string& original_snapshot_sha256,
+    const std::string& expected_current_snapshot_sha256)
+{
+    constexpr std::size_t maximum = 4u * 1024u * 1024u;
+    const auto hash = [](const std::string& text) {
+        base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        return digest.finish();
+    };
+    if (original_text.size() > maximum || !valid_sha256(original_snapshot_sha256) ||
+        !valid_sha256(expected_current_snapshot_sha256) || hash(original_text) != original_snapshot_sha256)
+        throw std::runtime_error("maintenance original transaction snapshot is unavailable");
+    const auto before = inspect_recovery(spec);
+    if (before.snapshot_sha256 != expected_current_snapshot_sha256 || !before.commit_started)
+        throw std::runtime_error("maintenance current transaction snapshot changed");
+    const auto current_text = read_bounded_text(absolute_normal(spec.state_root) / "transactions" /
+        (spec.transaction_id + ".journal.json"), maximum);
+    if (hash(current_text) != expected_current_snapshot_sha256)
+        throw std::runtime_error("maintenance current transaction bytes changed");
+    auto original = json::parse(original_text, {maximum, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    auto current = json::parse(current_text, {maximum, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    const auto& prefix = original.at("transitions").as_array();
+    const auto& transitions = current.at("transitions").as_array();
+    const auto& original_state = original.at("current_state").as_string();
+    if (prefix.empty() || transitions.size() < prefix.size() ||
+        (original_state != "committing" && original_state != "committed" && original_state != "recovery_required") ||
+        prefix.back().at("to").as_string() != original_state)
+        throw std::runtime_error("maintenance original transition prefix is not a committed effect anchor");
+    std::ostringstream original_chain;
+    for (std::size_t index = 0; index < transitions.size(); ++index) {
+        if (index < prefix.size()) {
+            if (json::canonical(transitions[index]) != json::canonical(prefix[index]))
+                throw std::runtime_error("maintenance original transaction transition was rewritten");
+            const auto& item = prefix[index];
+            const auto from = item.at("from").type() == json::Value::Type::null_value ?
+                std::string{} : item.at("from").as_string();
+            original_chain << index << '\0' << from << '\0' << item.at("to").as_string() << '\0'
+                << item.at("recorded_at").as_string() << '\n';
+        } else {
+            const auto& state = transitions[index].at("to").as_string();
+            if (state != "recovery_required" && state != "committing" && state != "committed" && state != "completed")
+                throw std::runtime_error("maintenance transaction extension is not finalization");
+        }
+    }
+    if (hash(original_chain.str()) != original.at("journal_digest").as_string())
+        throw std::runtime_error("maintenance original transaction chain digest changed");
+    // The current chain/digest was validated by inspect_recovery. Check the
+    // changing presentation fields as well; everything else remains exact.
+    for (const auto* document : {&original, &current}) {
+        const auto& state = document->at("current_state").as_string();
+        const auto& last = document->at("transitions").as_array().back();
+        const auto actions = (retain_stream_cleanup(*document) || retain_commit_cleanup(*document)) &&
+            state != "completed" && state != "committed" ?
+            std::vector<std::string>{"retain_for_operator"} : journal_actions(state);
+        json::Value::Array available;
+        for (const auto& action : actions) available.emplace_back(action);
+        const json::Value recovery(json::Value::Object{{"required", json::Value(state == "recovery_required")},
+            {"available_actions", json::Value(std::move(available))}});
+        if (document->at("updated_at").as_string() != last.at("recorded_at").as_string() ||
+            json::canonical(document->at("recovery")) != json::canonical(recovery))
+            throw std::runtime_error("maintenance transaction extension changed derived recovery fields");
+    }
+    for (const auto* key : {"transitions", "current_state", "journal_digest", "updated_at", "recovery"}) {
+        original.as_object().erase(key); current.as_object().erase(key);
+    }
+    if (json::canonical(original) != json::canonical(current) ||
+        inspect_recovery(spec).snapshot_sha256 != expected_current_snapshot_sha256)
+        throw std::runtime_error("maintenance transaction extension changed immutable fields or its snapshot");
+}
+
 std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
     const TransactionSpec& prior_spec,
     const std::string& new_transaction_id,

@@ -336,12 +336,26 @@ void MaintenanceEffectJournal::begin_effect(const std::string& kind, const Value
 
 std::optional<std::string> MaintenanceEffectJournal::apply_payload_effect()
 {
-    require_effect_authority();
-    if (failed_ || sealed_ || pending_kind_.empty() || payload_attempted_)
-        throw std::runtime_error("maintenance payload intent is absent, failed or already attempted");
     if (pending_kind_ != "backup_file" && pending_kind_ != "replace_file" &&
         pending_kind_ != "remove_file" && pending_kind_ != "remove_directory")
         throw std::runtime_error("maintenance payload dispatch received a non-payload intent");
+    const auto result = apply_owned_effect();
+    return result ? std::optional<std::string>(result->first) : std::nullopt;
+}
+
+std::optional<std::string> MaintenanceEffectJournal::apply_metadata_effect()
+{
+    if (pending_kind_ != "write_ownership" && pending_kind_ != "write_installed" && pending_kind_ != "append_audit")
+        throw std::runtime_error("maintenance metadata dispatch received a non-metadata intent");
+    const auto result = apply_owned_effect();
+    return result ? std::optional<std::string>(result->second) : std::nullopt;
+}
+
+std::optional<std::pair<std::string, std::string>> MaintenanceEffectJournal::apply_owned_effect()
+{
+    require_effect_authority();
+    if (failed_ || sealed_ || pending_kind_.empty() || payload_attempted_)
+        throw std::runtime_error("maintenance owned intent is absent, failed or already attempted");
 #if defined(_WIN32)
     if (native_origin_) {
         const auto history = inspect(spec_, source_digest_, true);
@@ -351,10 +365,11 @@ std::optional<std::string> MaintenanceEffectJournal::apply_payload_effect()
         const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
         payload_attempted_ = true;
         try {
-            payload_outcome_ = native->apply_payload(spec_, history);
+            const auto result = native->apply_effect(spec_, history);
+            payload_outcome_ = result.outcome;
             require_effect_authority();
-            validate_completion(pending_kind_, payload_outcome_, {});
-            return payload_outcome_;
+            validate_completion(pending_kind_, payload_outcome_, result.result_digest);
+            return std::make_pair(result.outcome, result.result_digest);
         } catch (...) { failed_ = true; throw; }
     }
 #endif
@@ -365,8 +380,7 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
 {
     if (pending_kind_.empty()) throw std::logic_error("maintenance completion has no intent");
 #if defined(_WIN32)
-    if (native_origin_ && (pending_kind_ == "backup_file" || pending_kind_ == "replace_file" ||
-        pending_kind_ == "remove_file" || pending_kind_ == "remove_directory")) {
+    if (native_origin_ && pending_kind_ != "publish_target") {
         require_effect_authority();
         if (!resumed_ && (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
             throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");
@@ -374,7 +388,7 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
         if (history.journal_digest != last_digest_ || history.next_sequence != sequence_ ||
             history.pending_sequence != pending_sequence_ || history.pending_kind != pending_kind_)
             throw std::runtime_error("native maintenance completion lost its original pending intent");
-        detail::ScopedNativeMaintenanceTransaction::current()->confirm_payload_completion(spec_, history, outcome);
+        detail::ScopedNativeMaintenanceTransaction::current()->confirm_effect_completion(spec_, history, outcome, result_digest);
         require_effect_authority();
     }
 #endif

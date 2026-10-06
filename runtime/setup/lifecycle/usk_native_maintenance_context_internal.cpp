@@ -112,15 +112,20 @@ struct NativeMaintenanceContext::Impl {
     bool payload_failed = false;
     std::set<std::string> attempted_payload_histories;
     struct ConfirmedPayload {
-        std::string transaction_sha256, outcome = "applied";
+        std::string transaction_sha256, outcome = "applied", result_digest;
+        std::shared_ptr<const std::string> transaction_text;
         bool confirmed = false;
     };
+    std::map<std::string, std::shared_ptr<const std::string>> transaction_snapshots;
+    std::size_t transaction_snapshot_bytes = 0;
     std::map<std::string, std::unique_ptr<ConfirmedPayload>> payload_outcomes;
     std::string active_payload_transaction, active_payload_history;
     Entry* staging_parent = nullptr;
     Entry* target_parent = nullptr;
     Entry* staging = nullptr;
     bool publication_attempted = false, publication_confirmed = false;
+    std::shared_ptr<const std::string> publication_transaction_text;
+    std::string publication_transaction_sha256, original_source_context;
     fs::path installed_record_path, prepared_record_path;
     Entry* installed_parent = nullptr;
     std::unique_ptr<Entry> installed_postimage_file;
@@ -211,9 +216,10 @@ struct NativeMaintenanceContext::Impl {
         operations.require_stream = [this](const auto& s, auto h) { require_stream(s, h); };
         operations.finish_stream = [this](const auto& s, auto h, const auto& id, auto size, const auto& sha) { finish_stream(s, h, id, size, sha); };
         operations.commit = [this](const auto& s, const auto& p, const auto& id, const auto& closure) { commit(s, p, id, closure); };
-        operations.apply_payload = [this](const auto& s, const auto& history) { return apply_payload(s, history); };
-        operations.confirm_payload_completion = [this](const auto& s, const auto& history, const auto& outcome) {
-            confirm_payload_completion(s, history, outcome);
+        operations.apply_effect = [this](const auto& s, const auto& history) { return apply_effect(s, history); };
+        operations.confirm_effect_completion = [this](const auto& s, const auto& history,
+            const auto& outcome, const auto& result_digest) {
+            confirm_effect_completion(s, history, outcome, result_digest);
         };
         admit_original_payload();
         require_authority(spec);
@@ -786,13 +792,35 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance removal was not confirmed; retained recovery required");
         return "applied";
     }
-    std::string apply_payload(const transaction::TransactionSpec& supplied,
+    std::shared_ptr<const std::string> retained_transaction_text(const std::string& expected_sha256) {
+        const auto found = transaction_snapshots.find(expected_sha256);
+        if (found != transaction_snapshots.end()) {
+            if (transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != expected_sha256)
+                throw std::runtime_error("native maintenance retained transaction snapshot changed");
+            return found->second;
+        }
+        const auto text = record_io::read_stable_text(spec.state_root / "transactions" /
+            (spec.transaction_id + ".journal.json"), 4u * 1024u * 1024u);
+        base::Sha256 hash; hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        if (hash.finish() != expected_sha256 ||
+            transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != expected_sha256)
+            throw std::runtime_error("native maintenance original transaction bytes changed");
+        constexpr std::size_t maximum = 16u * 1024u * 1024u;
+        if (transaction_snapshot_bytes > maximum || text.size() > maximum - transaction_snapshot_bytes)
+            throw std::runtime_error("native maintenance retained transaction snapshots exceed their bound");
+        auto retained = std::make_shared<const std::string>(text);
+        transaction_snapshots.emplace(expected_sha256, retained);
+        transaction_snapshot_bytes += text.size();
+        return retained;
+    }
+    transaction::detail::NativeMaintenanceTransactionOperations::EffectResult apply_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected) {
         require_authority(supplied);
         const auto history = require_pending(inspected.pending_kind);
         if (history.journal_digest != inspected.journal_digest || history.source_context != inspected.source_context ||
             history.pending_sequence != inspected.pending_sequence || !equal(history.pending_details, inspected.pending_details) ||
-            !publication_confirmed || !attempted_payload_histories.insert(history.journal_digest).second)
+            !publication_confirmed || payload_outcomes.size() >= 100000u ||
+            !attempted_payload_histories.insert(history.journal_digest).second)
             throw std::runtime_error("native maintenance payload lacks its single original publication/intent");
         try {
             const auto tx = transaction::TransactionSession::inspect_recovery(spec);
@@ -801,14 +829,16 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance payload intent changed before native entry");
             auto confirmation = std::make_unique<ConfirmedPayload>();
             confirmation->transaction_sha256 = tx.snapshot_sha256;
+            confirmation->transaction_text = retained_transaction_text(tx.snapshot_sha256);
             const auto inserted = payload_outcomes.emplace(history.journal_digest, std::move(confirmation));
             if (!inserted.second) throw std::runtime_error("native maintenance outcome already exists for this intent");
             active_payload_transaction = tx.snapshot_sha256;
             active_payload_history = history.journal_digest;
             require_authority(supplied);
             const auto& details = history.pending_details;
-            const auto relative = fs::u8path(details.at("relative_path").as_string());
-            std::string outcome = "applied";
+            const auto relative = details.contains("relative_path") ?
+                fs::u8path(details.at("relative_path").as_string()) : fs::path{};
+            std::string outcome = "applied", result_digest;
             if (history.pending_kind == "backup_file") {
                 auto& file = *original_files.at(relative);
                 require_file_details(file, details);
@@ -844,31 +874,93 @@ struct NativeMaintenanceContext::Impl {
                 outcome = remove_entry(*directory, details);
                 if (outcome == "retained" && role != "installed")
                     throw std::runtime_error("native maintenance created cleanup directory is not empty");
-            } else throw std::runtime_error("native maintenance payload kind is unsupported");
+            } else if (history.pending_kind == "write_ownership") {
+                auto postimage = maintenance_ownership_postimage(spec, history);
+                result_digest = state::StateRepository(spec.state_root).write_ownership(std::move(postimage)).manifest_digest;
+            } else if (history.pending_kind == "write_installed") {
+                const auto postimage = maintenance_installed_postimage(spec, history);
+                state::StateRepository(spec.state_root).write_installed(postimage);
+                result_digest = details.at("state_digest").as_string();
+            } else if (history.pending_kind == "append_audit") {
+                const auto postimage = maintenance_audit_postimage(spec, history);
+                result_digest = audit::AuditRepository(spec.audit_root).append(
+                    details.at("chain_id").as_string(), postimage).event_digest;
+            } else throw std::runtime_error("native maintenance owned effect kind is unsupported");
             require_authority(supplied);
             const auto after = transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest);
             if (after.journal_digest != history.journal_digest)
                 throw std::runtime_error("native maintenance intent changed during its effect");
             inserted.first->second->outcome = outcome;
+            inserted.first->second->result_digest = result_digest;
             inserted.first->second->confirmed = true;
             active_payload_transaction.clear(); active_payload_history.clear();
-            return outcome;
+            return {outcome, result_digest};
         } catch (...) { payload_failed = true; throw; }
     }
-    void confirm_payload_completion(const transaction::TransactionSpec& supplied,
-        const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome) const {
+    void confirm_effect_completion(const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
+        const std::string& result_digest) const {
         require_authority(supplied);
         const auto current = require_pending(inspected.pending_kind);
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);
         const auto found = payload_outcomes.find(current.journal_digest);
         if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
             found == payload_outcomes.end() || !found->second->confirmed || found->second->outcome != outcome ||
-            found->second->transaction_sha256 != tx.snapshot_sha256)
+            (!found->second->result_digest.empty() && found->second->result_digest != result_digest))
             throw std::runtime_error("native maintenance completion has no actual owned confirmed outcome");
+        transaction::TransactionSession::require_recovery_transition_extension(spec,
+            *found->second->transaction_text, found->second->transaction_sha256, tx.snapshot_sha256);
         // No observed-postcondition or newly resumed journal can fabricate an
         // outcome. Restored native creator/ended-holder proof remains absent
         // until the concrete source-free owner factory joins it separately.
         require_authority(supplied);
+    }
+    void require_recovery_authority(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& inspected_transaction,
+        const transaction::MaintenanceEffectInspection& inspected_history) const {
+        require_authority(supplied);
+        if (!publication_confirmed || original_source_context.empty())
+            throw std::runtime_error("native live maintenance recovery has no original confirmed publication");
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        if (current.snapshot_sha256 != inspected_transaction.snapshot_sha256 ||
+            history.journal_digest != inspected_history.journal_digest ||
+            history.pending_sequence != inspected_history.pending_sequence ||
+            history.pending_kind != inspected_history.pending_kind ||
+            !equal(history.pending_details, inspected_history.pending_details) ||
+            current.stream_source_context != original_source_context || history.source_context != original_source_context ||
+            !equal(read_maintenance_reviewed_plan(spec).at("reviewed_plan"),
+                original_context.record().at("reviewed_snapshot").at("reviewed_plan")))
+            throw std::runtime_error("native maintenance recovery changed its original transaction or context");
+        transaction::TransactionSession::require_recovery_transition_extension(spec,
+            *publication_transaction_text, publication_transaction_sha256, current.snapshot_sha256);
+        const auto selected = inspect_maintenance_continuation(spec);
+        if (selected.transaction_snapshot_sha256 != current.snapshot_sha256 ||
+            selected.history_digest != history.journal_digest)
+            throw std::runtime_error("native maintenance recovery changed its original complete prefix");
+        if (!history.pending_kind.empty()) {
+            (void)require_pending(history.pending_kind);
+            const auto observation = reconcile_maintenance_effect(spec);
+            if (observation.state == "compatible_after_effect") {
+                if (history.pending_kind == "publish_target") {
+                    require_entry(*staging);
+                    for (const auto& file : files) require_bytes(*file.second);
+                } else confirm_effect_completion(supplied, history, "applied", observation.result_digest);
+            }
+        }
+        require_authority(supplied);
+    }
+    std::string apply_recovery_effect(const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& history) {
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        require_recovery_authority(supplied, current, history);
+        const auto confirmed = payload_outcomes.find(history.journal_digest);
+        if (confirmed != payload_outcomes.end() && confirmed->second->confirmed) {
+            const auto observation = reconcile_maintenance_effect(spec);
+            confirm_effect_completion(supplied, history, confirmed->second->outcome, observation.result_digest);
+            return confirmed->second->outcome; // Actual same-owner result; never another native call.
+        }
+        return apply_effect(supplied, history).outcome;
     }
     void commit(const transaction::TransactionSpec& s, const fs::path& path, const std::string& id,
         const transaction::CommitClosureObservation& closure) {
@@ -877,6 +969,10 @@ struct NativeMaintenanceContext::Impl {
         if (!staging || publication_attempted || staging_relative(path) != fs::path(".") ||
             journal_identity(staging->handle.value) != id || closure.empty())
             throw std::runtime_error("native maintenance commit lacks its original created root/closure");
+        const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
+        publication_transaction_text = retained_transaction_text(transaction.snapshot_sha256);
+        publication_transaction_sha256 = transaction.snapshot_sha256;
+        original_source_context = transaction.stream_source_context;
         std::vector<PublisherExpectedFile> expected;
         std::vector<transaction::CommitClosureFile> journal_files;
         Value::Array created;
@@ -966,6 +1062,29 @@ NativeMaintenanceContext::~NativeMaintenanceContext() {
     scope_.reset();
     impl_->metadata.reset();
     fence_.reset();
+}
+MaintenanceRecoveryOperations NativeMaintenanceContext::recovery_operations() const {
+    using Scope = transaction::detail::ScopedNativeMaintenanceTransaction;
+    const auto original = Scope::current_binding();
+    const auto* expected = &impl_->operations;
+    const auto pin = [original, expected] {
+        transaction::detail::require_native_maintenance_origin_binding(true, original, Scope::current_binding());
+        if (Scope::current() != expected)
+            throw std::runtime_error("native maintenance recovery lost its original engine scope");
+    };
+    pin();
+    impl_->require_authority(impl_->spec);
+    if (!impl_->publication_confirmed)
+        throw std::runtime_error("native live maintenance recovery requires original confirmed publication");
+    auto* owner = impl_.get();
+    MaintenanceRecoveryOperations backend;
+    backend.require_authority = [pin, owner](const auto& s, const auto& tx, const auto& history) {
+        pin(); owner->require_recovery_authority(s, tx, history); pin();
+    };
+    backend.apply_effect = [pin, owner](const auto& s, const auto& history) {
+        pin(); auto result = owner->apply_recovery_effect(s, history); pin(); return result;
+    };
+    return backend;
 }
 }
 #endif

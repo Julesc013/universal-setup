@@ -17,6 +17,7 @@ void require_native_maintenance_origin_binding(bool native_origin,
 // no public caller, JSON field, setter or test callback activates this scope.
 // Presence is not authority: every entry independently calls the native owner.
 struct NativeMaintenanceTransactionOperations {
+    struct EffectResult { std::string outcome, result_digest; };
     std::function<void(const TransactionSpec&)> require_authority;
     std::function<void(const TransactionSpec&, const std::filesystem::path&)> create_staging_root;
     std::function<void(const TransactionSpec&, const std::filesystem::path&)> ensure_stream_parent;
@@ -29,12 +30,13 @@ struct NativeMaintenanceTransactionOperations {
         std::uint64_t, const std::string&)> finish_stream;
     std::function<void(const TransactionSpec&, const std::filesystem::path&,
         const std::string&, const CommitClosureObservation&)> commit;
-    // Exact durable original pending payload intent; the owner alone selects
+    // Exact durable original pending payload or metadata intent; the owner alone selects
     // held native objects and returns an independently confirmed outcome.
-    std::function<std::string(const TransactionSpec&, const MaintenanceEffectInspection&)> apply_payload;
+    std::function<EffectResult(const TransactionSpec&, const MaintenanceEffectInspection&)> apply_effect;
     // Completion of a resumed journal still requires this original owner's
     // actual confirmed outcome. Compatible observations alone are insufficient.
-    std::function<void(const TransactionSpec&, const MaintenanceEffectInspection&, const std::string&)> confirm_payload_completion;
+    std::function<void(const TransactionSpec&, const MaintenanceEffectInspection&,
+        const std::string&, const std::string&)> confirm_effect_completion;
 };
 class ScopedNativeMaintenanceTransaction final {
 public:

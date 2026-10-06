@@ -9,6 +9,7 @@
 #include "usk_native_maintenance_transaction_internal.h"
 #include <memory>
 namespace usk::lifecycle::detail {
+struct MaintenanceRecoveryOperations;
 // Native staging custody for the private service engine. Construction is
 // inaccessible to the public lifecycle, JSON and supplied callback backends.
 // The caller retains original state/intent, admission, channel and lease for
@@ -36,6 +37,9 @@ private:
         const usk::platform::windows::PublisherRequestChannel& channel,
         const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
         bool& effects_may_exist);
+    // Only the engine can obtain this live-owner adapter. It retains no owner
+    // lifetime; copied callbacks refuse before dereference after scope exit.
+    MaintenanceRecoveryOperations recovery_operations() const;
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> fence_;

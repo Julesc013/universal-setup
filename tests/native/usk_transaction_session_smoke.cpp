@@ -3,6 +3,7 @@
 
 #include "usk_transaction_session.h"
 #include "usk_json.h"
+#include "usk_sha256.h"
 
 #include <chrono>
 #include <filesystem>
@@ -88,6 +89,69 @@ bool throws(const std::function<void()>& operation)
         return true;
     }
     return false;
+}
+
+int original_transition_extension(Fixture& fixture, bool commit_supported)
+{
+    const auto spec = fixture.spec("original-transition-prefix");
+    TransactionSession session(spec, [](const std::string& state, const std::string& point) {
+        if (state == "committing" && point == "after_journal") throw std::runtime_error("retain original committing anchor");
+    });
+    session.stage_file("payload.txt", bytes("original"));
+    session.mark_staged(); session.mark_verified();
+    if (!throws([&] { session.commit_effect(); }) || session.current_state() != "committing") return 191;
+    const auto original_text = read_text(session.journal_path());
+    const auto original = TransactionSession::inspect_recovery(spec);
+    TransactionSession::require_recovery_transition_extension(spec, original_text,
+        original.snapshot_sha256, original.snapshot_sha256);
+    session.mark_recovery_required();
+    const auto current = TransactionSession::inspect_recovery(spec);
+    TransactionSession::require_recovery_transition_extension(spec, original_text,
+        original.snapshot_sha256, current.snapshot_sha256);
+    if (!throws([&] { TransactionSession::require_recovery_transition_extension(spec, original_text,
+            original.snapshot_sha256, original.snapshot_sha256); })) return 192;
+    const auto hash = [](const std::string& text) {
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        return digest.finish();
+    };
+    for (const int change : {0, 1, 2}) {
+        auto altered = usk::json::parse(original_text);
+        if (change == 1) altered.as_object().at("transitions").as_array().front().as_object()["recorded_at"] =
+            usk::json::Value("changed-original-transition");
+        else if (change == 2) altered.as_object()["journal_digest"] = usk::json::Value(std::string(64, '0'));
+        else altered.as_object()["created_at"] = usk::json::Value("changed-original-creation");
+        const auto text = usk::json::canonical(altered);
+        if (!throws([&] { TransactionSession::require_recovery_transition_extension(spec, text,
+                hash(text), current.snapshot_sha256); })) return 193;
+    }
+    // Even a structurally inspectable current journal must preserve immutable
+    // fields and its derived recovery presentation; no hash adoption.
+    const auto current_text = read_text(session.journal_path());
+    for (const bool change_immutable : {false, true}) {
+        auto altered = usk::json::parse(current_text);
+        if (change_immutable) altered.as_object()["created_at"] = usk::json::Value("changed-current-creation");
+        else altered.as_object().at("recovery").as_object()["required"] = usk::json::Value(false);
+        { std::ofstream output(session.journal_path(), std::ios::binary | std::ios::trunc);
+          output << usk::json::canonical(altered); }
+        const auto modified = TransactionSession::inspect_recovery(spec);
+        const bool refused = throws([&] { TransactionSession::require_recovery_transition_extension(spec,
+            original_text, original.snapshot_sha256, modified.snapshot_sha256); });
+        { std::ofstream output(session.journal_path(), std::ios::binary | std::ios::trunc); output << current_text; }
+        if (!refused) return 194;
+    }
+    if (commit_supported) {
+        const auto visible_spec = fixture.spec("visible-transition-prefix");
+        TransactionSession visible(visible_spec);
+        visible.stage_file("payload.txt", bytes("visible"));
+        visible.mark_staged(); visible.mark_verified(); visible.commit_effect();
+        const auto anchor = TransactionSession::inspect_recovery(visible_spec);
+        const auto anchor_text = read_text(visible.journal_path());
+        visible.mark_recovery_required(); visible.resume_committing(); visible.mark_committed(); visible.mark_completed();
+        TransactionSession::require_recovery_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, TransactionSession::inspect_recovery(visible_spec).snapshot_sha256);
+    }
+    return 0;
 }
 
 int happy_path(Fixture& fixture, bool& commit_supported)
@@ -476,6 +540,7 @@ int main()
     if (int result = initial_stream_binding_before_effects(fixture)) return result;
     bool commit_supported = false;
     if (int result = happy_path(fixture, commit_supported)) return result;
+    if (int result = original_transition_extension(fixture, commit_supported)) return result;
     if (int result = no_clobber(fixture)) return result;
     if (int result = rollback(fixture)) return result;
     if (int result = rollback_retains_foreign_content(fixture)) return result;

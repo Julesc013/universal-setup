@@ -933,7 +933,10 @@ void maintenance_installed_write(usk::transaction::MaintenanceEffectJournal& jou
         {"state_revision", maintenance_installed_revision(installed)}}));
     if (injector) injector(operation, "effect.write_installed.before_effect");
     journal.require_effect_authority();
-    repository.write_installed(installed);
+    const auto owned = journal.apply_metadata_effect();
+    if (owned) {
+        if (*owned != hash) throw std::runtime_error("native installed write returned an unexpected original postimage digest");
+    } else repository.write_installed(installed);
     if (injector) injector(operation, "effect.write_installed.after_effect");
     journal.require_effect_authority();
     journal.complete_effect("applied", hash);
@@ -948,10 +951,11 @@ void maintenance_audit_append(usk::transaction::MaintenanceEffectJournal& journa
         {"input", maintenance_audit_binding(input)}}));
     if (injector) injector(operation, "effect.append_audit.before_effect");
     journal.require_effect_authority();
-    const auto event = usk::audit::AuditRepository(audit_root).append(chain_id, input);
+    const auto owned = journal.apply_metadata_effect();
+    const auto event_digest = owned ? *owned : usk::audit::AuditRepository(audit_root).append(chain_id, input).event_digest;
     if (injector) injector(operation, "effect.append_audit.after_effect");
     journal.require_effect_authority();
-    journal.complete_effect("applied", event.event_digest);
+    journal.complete_effect("applied", event_digest);
 }
 
 Value move_plan_payload(const usk::lifecycle::MovePlan& plan)
@@ -2368,7 +2372,11 @@ RepairResult apply_repair(
             {"prior_manifest_digest", Value(current.second.manifest_digest)}}));
         if (fault_injector) fault_injector("repair", "effect.write_ownership.before_effect");
         effects.require_effect_authority();
-        ownership = repository.write_ownership(std::move(ownership));
+        if (const auto owned = effects.apply_metadata_effect()) {
+            ownership = repository.read_ownership(ownership.manifest_id);
+            if (ownership.manifest_digest != *owned)
+                throw std::runtime_error("native repair ownership returned an unexpected original postimage digest");
+        } else ownership = repository.write_ownership(std::move(ownership));
         if (fault_injector) fault_injector("repair", "effect.write_ownership.after_effect");
         effects.require_effect_authority();
         effects.complete_effect("applied", ownership.manifest_digest);
@@ -2511,7 +2519,11 @@ MoveResult apply_move(
             {"prior_manifest_digest", Value(current.second.manifest_digest)}}));
         if (fault_injector) fault_injector("move", "effect.write_ownership.before_effect");
         effects.require_effect_authority();
-        ownership = repository.write_ownership(std::move(ownership));
+        if (const auto owned = effects.apply_metadata_effect()) {
+            ownership = repository.read_ownership(ownership.manifest_id);
+            if (ownership.manifest_digest != *owned)
+                throw std::runtime_error("native move ownership returned an unexpected original postimage digest");
+        } else ownership = repository.write_ownership(std::move(ownership));
         if (fault_injector) fault_injector("move", "effect.write_ownership.after_effect");
         effects.require_effect_authority();
         effects.complete_effect("applied", ownership.manifest_digest);

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace usk::transaction {
@@ -62,6 +63,9 @@ public:
     // dispatch its exact pending payload intent through its original owner;
     // missing, ended or failed custody throws, never permits a path fallback.
     std::optional<std::string> apply_payload_effect();
+    // The original private owner writes the exact metadata postimage and
+    // returns its confirmed result digest; ordinary journals return nullopt.
+    std::optional<std::string> apply_metadata_effect();
     void seal();
     const std::filesystem::path& directory() const noexcept { return directory_; }
 
@@ -76,6 +80,7 @@ public:
         FaultInjector injector = {});
 
 private:
+    std::optional<std::pair<std::string, std::string>> apply_owned_effect();
     void bind_original_owner();
 #if defined(_WIN32)
     bool native_origin_ = false;

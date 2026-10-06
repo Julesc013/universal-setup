@@ -113,6 +113,13 @@ public:
         const std::string& source_digest,
         FaultInjector injector = {});
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
+    // Read-only comparison with bytes retained before an owned effect. Allows
+    // only an unchanged immutable journal and its exact original transition
+    // prefix plus valid finalization transitions. This confers no effect,
+    // creator, lease or completion authority.
+    static void require_recovery_transition_extension(const TransactionSpec& spec,
+        const std::string& original_text, const std::string& original_snapshot_sha256,
+        const std::string& expected_current_snapshot_sha256);
     // Read-only complete stream observations from that exact validated
     // snapshot, including original creation-handle output identities.
     static StreamJournal inspect_recovery_stream(const TransactionSpec& spec,
