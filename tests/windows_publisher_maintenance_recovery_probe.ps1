@@ -135,6 +135,33 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
     }
     $case['original_generation']=$oldLease.generation
     $case['completed_generation']=$completed[0].generation
+    # Verify the actual recovered transaction through the same held ordinary
+    # client, after the original package path has been retired. This reads
+    # current completion; it grants no authority to the recovery selector.
+    $verify=@{schema='usk.publisher_installed_verify_request.v1';
+        request_id='verify.maintenance.loss.'+$id;install_id=$installed.install_id;
+        transaction_id=$apply.transaction_id;report_id='verify.maintenance.loss.'+$id;
+        verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+    $case['verification']=Invoke-StandardRequest 'installed.verify' $verify
+    $verification=$case.verification.result.payload
+    if($verification.schema -cne 'usk.verification_report.v1' -or $verification.status -cne 'pass' -or
+        $verification.install_id -cne $verify.install_id -or $verification.report_id -cne $verify.report_id -or
+        $verification.verified_at -cne $verify.verified_at) {
+        throw 'Source-free recovered repair verification did not return its bound ordinary report'
+    }
+    $afterVerification=Read-NativeSnapshot
+    $beforeVerifyText=$after.independent.rows|ConvertTo-Json -Depth 64 -Compress
+    $afterVerifyText=$afterVerification.independent.rows|ConvertTo-Json -Depth 64 -Compress
+    if($beforeVerifyText -cne $afterVerifyText -or (Test-Path -LiteralPath $source) -or
+        (Get-FileHash -LiteralPath $retired -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Replacement.archive_sha256) {
+        throw 'Source-free recovered repair verification changed native state or retired source'
+    }
+    $digest=[Security.Cryptography.SHA256]::Create()
+    try {
+        $case['verification_native_rows_sha256']=([BitConverter]::ToString($digest.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($afterVerifyText)))).Replace('-','').ToLowerInvariant()
+    } finally {$digest.Dispose()}
+    $case['verification_native_rows']=@($afterVerification.independent.rows).Count
     $case.status='ended_worker_source_free_repair_observed'
     return $case
 }

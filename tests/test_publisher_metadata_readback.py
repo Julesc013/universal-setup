@@ -3,6 +3,7 @@
 
 import json
 import base64
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -13,6 +14,168 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_observer_failure_keeps_child_error_when_task_status_query_fails(self):
+        # Run only the owned failure serializer/formatter. No scheduled task,
+        # native observation or token-close acknowledgement is manufactured.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$source=[IO.File]::ReadAllText($env:USK_FAILURE_SOURCE)
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Outer reader syntax differs'}
+$strings=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.StringConstantExpressionAst] -and
+ $n.Value.Contains("schema='usk.publisher.metadata_observer_failure.v1';status='failed'")},$true))
+$branches=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and
+ $n.Extent.Text.StartsWith('if(Test-Path -LiteralPath $failureOutput)',[StringComparison]::Ordinal)},$true))
+if($strings.Count -ne 1 -or $branches.Count -ne 1){throw 'Actual failure serializer/formatter absent or ambiguous'}
+$output=Join-Path $env:USK_FAILURE_DIRECTORY 'success.json'
+$failureOutput=$output+'.failure.json'
+$child='$global:UskMetadataObserverPhase=''control_child_failure''; try { throw [InvalidOperationException]::new(''child-original-''+(''x''*10000)) }'+
+ $strings[0].Value.Replace('__FAILURE_OUTPUT__',$failureOutput.Replace("'","''"))
+& $env:USK_FAILURE_BINARY -NoProfile -NonInteractive -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child)))
+if($LASTEXITCODE -ne 1 -or (Test-Path -LiteralPath $output) -or (Test-Path -LiteralPath ($failureOutput+'.pending'))){
+ throw 'Failure-only atomic publication differs'
+}
+$record=[IO.File]::ReadAllText($failureOutput)|ConvertFrom-Json
+if($record.schema -cne 'usk.publisher.metadata_observer_failure.v1' -or $record.status -cne 'failed' -or
+ $record.phase -cne 'control_child_failure' -or $record.exception_type -cne 'System.InvalidOperationException' -or
+ $record.hresult -ne -2146233079 -or -not $record.message.StartsWith('child-original-',[StringComparison]::Ordinal) -or
+ $record.message.Length -ne 8192 -or $record.stack.Length -gt 8192 -or $record.observer_token_handles_closed -ne $false -or
+ (Get-Item -LiteralPath $failureOutput).Length -gt 65536){throw 'Actual child diagnostic differs'}
+function Get-ScheduledTaskInfo {param($TaskName,$ErrorAction) throw [InvalidOperationException]::new('task-status-unavailable-'+('z'*10000))}
+$name='inert-control';$caught=$null
+try {& ([scriptblock]::Create($branches[0].Extent.Text))} catch {$caught=$_.Exception.Message}
+$prefix='Independent observer failed: '
+$separator='; task result observation='
+if(-not $caught -or -not $caught.StartsWith($prefix,[StringComparison]::Ordinal)){throw 'Child diagnostic was masked'}
+$index=$caught.LastIndexOf($separator,[StringComparison]::Ordinal)
+if($index -lt $prefix.Length){throw 'Supplementary query observation absent'}
+$propagated=$caught.Substring($prefix.Length,$index-$prefix.Length)|ConvertFrom-Json
+$query=$caught.Substring($index+$separator.Length)|ConvertFrom-Json
+if($propagated.phase -cne $record.phase -or $propagated.hresult -ne $record.hresult -or
+ $propagated.message -cne $record.message -or $propagated.observer_token_handles_closed -ne $false -or
+ $query.available -ne $false -or $null -ne $query.result -or $query.error.Length -ne 8192 -or
+ -not $query.error.StartsWith('task-status-unavailable-',[StringComparison]::Ordinal)) {
+ throw 'Child failure or bounded supplementary query error differs'
+}
+"""
+        for binary in ("powershell", "pwsh"):
+            executable = shutil.which(binary)
+            if not executable:
+                continue
+            with self.subTest(binary=binary), tempfile.TemporaryDirectory() as directory:
+                environment = dict(os.environ, USK_FAILURE_SOURCE=str(root / "tests/windows_publisher_metadata_readback.ps1"),
+                                   USK_FAILURE_DIRECTORY=directory, USK_FAILURE_BINARY=executable)
+                result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                    base64.b64encode(code.encode("utf-16le")).decode()], env=environment,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+
+    def test_historical_payload_projection_requires_complete_current_record_links(self):
+        # Constructed metadata exercises the reader's observational join only;
+        # it supplies no native objects, access results or mutation authority.
+        root = Path(__file__).resolve().parents[1]
+        service = "S-1-5-80-1-2-3-4-5"
+        install, initial, current = "org.example.projection", "install.original", "repair.current"
+
+        def encoded(value):
+            return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+        def row(path, value):
+            text = encoded(value) + "\n"
+            return dict(path="E:\\" + path, directory=False, content_json=text,
+                        sha256=hashlib.sha256(text.encode()).hexdigest(), owner="S-1-5-18", protected=True,
+                        raw_aces=[dict(sid=sid, type=0, flags=0, access_mask=2032127)
+                                  for sid in ("S-1-5-18", service)])
+
+        snapshot = row("publication\\journal\\lab-reviewed-plan.json", dict(
+            schema="usk.publisher.lab_reviewed_plan_snapshot.v4", transaction_id=initial,
+            target_root="E:/publication/destination/visible", plan_request=dict(install_id=install)))
+        prepared = row("publication\\journal\\lab-prepared-evidence.json", dict(
+            source_binding=dict(reviewed_plan_snapshot_sha256=snapshot["sha256"])))
+        completion = row("publication\\state\\lab-installed-state.json", dict(
+            schema="usk.publisher.lab_installed_state.v2", prepared_record_sha256=prepared["sha256"],
+            source_binding=dict(reviewed_plan_snapshot_sha256=snapshot["sha256"]), visible_root_file_id="original-root"))
+        installed = [row(f"setup-state\\state\\installed\\{install}.{tx}.json", dict(
+            schema="usk.installed_state.v1", install_id=install, transaction_id=tx, created_at=stamp,
+            lifecycle_status=status, target_root="E:\\publication\\destination\\visible"))
+            for tx, stamp, status in ((initial, "2026-10-01T00:00:00Z", "installed"),
+                                     (current, "2026-10-01T00:00:01Z", "verified"))]
+        revision = hashlib.sha256(encoded([dict(record=entry["path"].rsplit("\\", 1)[1],
+            sha256=hashlib.sha256(entry["content_json"][:-1].encode()).hexdigest())
+            for entry in sorted(installed, key=lambda entry: entry["path"])]).encode()).hexdigest()
+        journal = row(f"setup-state\\state\\transactions\\{current}.journal.json", dict(
+            schema="usk.transaction_journal.v1", transaction_id=current, operation="repair", current_state="completed"))
+        lease = row("setup-state\\state\\leases\\install-owned\\g00000000000000000002-terminal.json", dict(
+            schema="usk.installation_lease_ownership.v1", install_id=install, operation_id=current,
+            operation="repair", status="completed", result_state_revision=revision, operation_context_sha256="a" * 64))
+        roots = row("installation-operations\\install-owned\\operation-owned-roots.json", dict(
+            schema="usk.installation_operation_roots.v1", install_id=install, operation_id=current,
+            roots_sha256="a" * 64, context_sha256="b" * 64))
+        context = row("installation-operations\\install-owned\\operation-owned.json", dict(
+            schema="usk.installation_operation_context.v2", install_id=install, operation_id=current,
+            operation="repair", context_sha256="b" * 64))
+        sealed = row(f"setup-state\\state\\transactions\\{current}.maintenance\\00000000000000000012.json", dict(
+            schema="usk.maintenance_effect_record.v1", transaction_id=current, phase="sealed"))
+        fixture = dict(service_sid=service, prepared=prepared, revision=revision,
+                       rows=[snapshot, completion, *installed, journal, lease, roots, context, sealed])
+        code = r"""$ErrorActionPreference='Stop'
+$source=[IO.File]::ReadAllText($env:USK_PROJECTION_SOURCE)
+$start=$source.IndexOf("`$observer=@'`n",[StringComparison]::Ordinal)
+if($start -lt 0){$start=$source.IndexOf("`$observer=@'`r`n",[StringComparison]::Ordinal)}
+if($start -lt 0){throw 'Observer body absent'}
+$body=$source.Substring($source.IndexOf("`n",$start)+1);$end=$body.IndexOf("`n'@",[StringComparison]::Ordinal)
+$t=$null;$e=$null;$ast=[Management.Automation.Language.Parser]::ParseInput($body.Substring(0,$end),[ref]$t,[ref]$e)
+if($e){throw 'Observer body syntax differs'}
+$functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -ceq 'Get-CompletedMaintenanceProjectionBasis'},$true))
+if($functions.Count -ne 1){throw 'Completed observational join absent or ambiguous'}
+. ([scriptblock]::Create($functions[0].Extent.Text))
+$fixture=[IO.File]::ReadAllText($env:USK_PROJECTION_FIXTURE)|ConvertFrom-Json
+$DriveRoot='E:\';$ServiceSid=$fixture.service_sid;$preparedRows=@($fixture.prepared)
+$prepared=$fixture.prepared.content_json|ConvertFrom-Json;$tree=@{root=@{file_id='original-root'}}
+foreach($variant in @('supported','missing_current','pending_journal','missing_seal','wrong_revision','wrong_context','outside_acl')) {
+ $rows=$fixture.rows|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
+ switch($variant) {
+  'missing_current' {$rows=@($rows|Where-Object path -cnotlike '*repair.current.json')}
+  'missing_seal' {$rows=@($rows|Where-Object path -cnotlike '*.maintenance\*')}
+  'pending_journal' {
+   $j=@($rows|Where-Object path -clike '*.journal.json')[0]
+   $v=$j.content_json|ConvertFrom-Json;$v.current_state='committed';$j.content_json=$v|ConvertTo-Json -Depth 16 -Compress
+  }
+  'wrong_revision' {
+   $j=@($rows|Where-Object path -clike '*terminal.json')[0]
+   $v=$j.content_json|ConvertFrom-Json;$v.result_state_revision='0'*64;$j.content_json=$v|ConvertTo-Json -Depth 16 -Compress
+  }
+  'wrong_context' {
+   $j=@($rows|Where-Object path -ceq 'E:\installation-operations\install-owned\operation-owned.json')[0]
+   $v=$j.content_json|ConvertFrom-Json;$v.context_sha256='0'*64;$j.content_json=$v|ConvertTo-Json -Depth 16 -Compress
+  }
+  'outside_acl' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces[1].sid='S-1-5-11'}
+ }
+ $refused=$false;$basis=$null
+ try {$basis=Get-CompletedMaintenanceProjectionBasis} catch {$refused=$true;if($variant -ceq 'supported'){throw}}
+ if($refused -ne ($variant -cne 'supported')){throw ('Observational join admission differs: '+$variant)}
+ if($basis -and ($basis.result_state_revision -cne $fixture.revision -or $basis.operation -cne 'repair' -or
+  $basis.transaction_id -cne 'repair.current' -or $basis.original_transaction_id -cne 'install.original')) {
+  throw 'Completed observational join result differs'
+ }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            fixture_path = Path(directory) / "constructed-records.json"
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+            environment = dict(os.environ, USK_PROJECTION_SOURCE=str(root / "tests/windows_publisher_metadata_readback.ps1"),
+                               USK_PROJECTION_FIXTURE=str(fixture_path))
+            for binary in ("powershell", "pwsh"):
+                if not shutil.which(binary):
+                    continue
+                with self.subTest(binary=binary):
+                    result = subprocess.run([binary, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                        base64.b64encode(code.encode("utf-16le")).decode()], env=environment,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+
     def test_observer_publishes_only_after_token_close_acknowledgement(self):
         root = Path(__file__).resolve().parents[1]
         code = r"""$ErrorActionPreference='Stop'

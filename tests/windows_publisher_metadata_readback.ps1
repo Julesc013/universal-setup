@@ -312,6 +312,7 @@ param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
         [string]$AbsentPublicationReservationPrefix='',
         [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0)
 $ErrorActionPreference='Stop'
+$global:UskMetadataObserverPhase='initialize_native_types'
 function Test-PublisherHeldCaptureRequestContext([string]$RequestId,[string]$Command) {
     return (($RequestId -cmatch '^public\.[0-9a-f]{32}$' -and
         $Command -cin @('install_local.apply','install_local.recover','installed.verify','publisher.observe',
@@ -1083,6 +1084,7 @@ if($CallerProcessId -ne 0) {
  }
 }
 try {
+$global:UskMetadataObserverPhase='read_current_native_objects'
 $rows=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
 $absenceBefore=$null;$absenceRoot=$null
@@ -1247,12 +1249,112 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
  if($preparedRows.Count -eq 1) {
   $prepared=$preparedRows[0].content_json|ConvertFrom-Json
   if($prepared.schema -cin @('usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8','usk.publisher.lab_phase_evidence.v9')) {
+   $global:UskMetadataObserverPhase='historical_descriptor_projection'
    $anchors=$prepared.protected_anchors;$tree=$prepared.sealed_tree
    $objects=@($anchors.boundary)+@($anchors.chain|ForEach-Object object)+
     @($anchors.staging,$anchors.destination_parent,$anchors.state,$anchors.journal,$tree.root)+
     @($tree.descendants|ForEach-Object object)
    if($objects.Count -gt 10000){throw 'Native descriptor projection exceeds its object bound'}
    $projected=[Collections.Generic.List[object]]::new()
+   $unavailable=[Collections.Generic.List[object]]::new()
+   $maintenanceBasis=$null
+   # This is an observational join, never effects authority. Initial profile
+   # projection still requires every original identity. Only protected, completed
+   # maintenance may make an old payload identity unavailable to this reader.
+   function Get-CompletedMaintenanceProjectionBasis {
+    function Require-PrivateProjectionRecord($Row) {
+     if($Row.owner -cne 'S-1-5-18' -or $Row.protected -ne $true -or @($Row.raw_aces).Count -ne 2 -or
+      $Row.raw_aces[0].sid -cne 'S-1-5-18' -or $Row.raw_aces[1].sid -cne $ServiceSid -or
+      @($Row.raw_aces|Where-Object {$_.type -ne 0 -or $_.flags -ne 0 -or $_.access_mask -ne 2032127}).Count) {
+      throw 'Historical payload projection metadata is outside the observed private policy'
+     }
+    }
+    function Hash-Text([string]$Text) {
+     $hash=[Security.Cryptography.SHA256]::Create()
+     try {return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)))).Replace('-','').ToLowerInvariant()}
+     finally {$hash.Dispose()}
+    }
+    $snapshotRows=@($rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-reviewed-plan.json'))
+    $completionRows=@($rows|Where-Object path -ceq ($DriveRoot+'publication\state\lab-installed-state.json'))
+    if($snapshotRows.Count -ne 1 -or $completionRows.Count -ne 1){throw 'Historical payload projection lacks original completion records'}
+    Require-PrivateProjectionRecord $snapshotRows[0];Require-PrivateProjectionRecord $completionRows[0]
+    $snapshot=$snapshotRows[0].content_json|ConvertFrom-Json
+    $completion=$completionRows[0].content_json|ConvertFrom-Json
+    $installId=[string]$snapshot.plan_request.install_id
+    if($snapshot.schema -cnotin @('usk.publisher.lab_reviewed_plan_snapshot.v3','usk.publisher.lab_reviewed_plan_snapshot.v4') -or
+     $installId -cnotmatch '^[A-Za-z0-9._-]{1,256}$' -or
+     $prepared.source_binding.reviewed_plan_snapshot_sha256 -cne $snapshotRows[0].sha256 -or
+     $completion.schema -cne 'usk.publisher.lab_installed_state.v2' -or
+     $completion.prepared_record_sha256 -cne $preparedRows[0].sha256 -or
+     $completion.source_binding.reviewed_plan_snapshot_sha256 -cne $snapshotRows[0].sha256 -or
+     $completion.visible_root_file_id -cne $tree.root.file_id){throw 'Historical payload projection original completion differs'}
+    $documents=[Collections.Generic.List[object]]::new()
+    foreach($row in $rows) {
+     if(-not $row.directory -and $row.content_json) {
+      $documents.Add([pscustomobject]@{row=$row;document=($row.content_json|ConvertFrom-Json)})
+     }
+    }
+    $installedPrefix=$DriveRoot+'setup-state\state\installed\'
+    $bindings=@{};$latest=$null
+    foreach($item in $documents) {
+     $doc=$item.document;$row=$item.row
+     if($doc.schema -cne 'usk.installed_state.v1' -or $doc.install_id -cne $installId -or
+      ((Split-Path -Parent $row.path)+'\') -cne $installedPrefix){continue}
+     Require-PrivateProjectionRecord $row
+     $name=Split-Path -Leaf $row.path
+     if($doc.transaction_id -cnotmatch '^[A-Za-z0-9._-]{1,256}$' -or
+      ($name -cne ($installId+'.'+$doc.transaction_id+'.json') -and $name -cne ($installId+'.json')) -or
+      -not $row.content_json.EndsWith("`n") -or (Hash-Text $row.content_json) -cne $row.sha256 -or $bindings.ContainsKey($name)) {
+      throw 'Historical payload projection installed record binding differs'
+     }
+     $bindings[$name]=Hash-Text $row.content_json.Substring(0,$row.content_json.Length-1)
+     if(-not $latest -or [StringComparer]::Ordinal.Compare([string]$latest.document.created_at,[string]$doc.created_at) -lt 0 -or
+      ($latest.document.created_at -ceq $doc.created_at -and
+       [StringComparer]::Ordinal.Compare([string]$latest.document.transaction_id,[string]$doc.transaction_id) -lt 0)) {$latest=$item}
+    }
+    if(-not $latest -or $latest.document.transaction_id -ceq $snapshot.transaction_id){throw 'Historical payload identity is absent without later installed state'}
+    $tx=[string]$latest.document.transaction_id
+    $names=[string[]]@($bindings.Keys);[Array]::Sort($names,[StringComparer]::Ordinal)
+    $revision=Hash-Text ('['+((@($names|ForEach-Object {'{"record":"'+$_+'","sha256":"'+$bindings[$_]+'"}'}) -join ',')+']'))
+    $journal=@($documents|Where-Object {$_.row.path -ceq ($DriveRoot+'setup-state\state\transactions\'+$tx+'.journal.json')})
+    $completed=@($documents|Where-Object {$_.document.schema -ceq 'usk.installation_lease_ownership.v1' -and
+     $_.document.install_id -ceq $installId -and $_.document.operation_id -ceq $tx -and $_.document.status -ceq 'completed' -and
+     $_.row.path.StartsWith(($DriveRoot+'setup-state\state\leases\'),[StringComparison]::Ordinal)})
+    if($journal.Count -ne 1 -or $journal[0].document.schema -cne 'usk.transaction_journal.v1' -or
+     $journal[0].document.transaction_id -cne $tx -or $journal[0].document.current_state -cne 'completed' -or
+     $completed.Count -ne 1 -or $completed[0].document.result_state_revision -cne $revision) {
+     throw 'Historical payload projection lacks completed transaction and exact native state revision'
+    }
+    $operation=[string]$journal[0].document.operation
+    $status=[string]$latest.document.lifecycle_status
+    $supported=($operation -ceq 'repair' -and $status -ceq 'verified') -or
+     ($operation -ceq 'move' -and $status -ceq 'move_pending_acceptance') -or
+     ($operation -ceq 'uninstall' -and $status -cin @('retired','uninstall_blocked'))
+    if(-not $supported -or $completed[0].document.operation -cne $operation){throw 'Historical payload projection maintenance operation differs'}
+    $roots=@($documents|Where-Object {$_.document.schema -ceq 'usk.installation_operation_roots.v1' -and
+     $_.document.install_id -ceq $installId -and $_.document.operation_id -ceq $tx -and
+     $_.document.roots_sha256 -ceq $completed[0].document.operation_context_sha256 -and
+     $_.row.path.StartsWith(($DriveRoot+'installation-operations\'),[StringComparison]::Ordinal)})
+    $contexts=@($documents|Where-Object {$_.document.schema -ceq 'usk.installation_operation_context.v2' -and
+     $_.document.install_id -ceq $installId -and $_.document.operation_id -ceq $tx -and $_.document.operation -ceq $operation -and
+     $_.row.path.StartsWith(($DriveRoot+'installation-operations\'),[StringComparison]::Ordinal)})
+    $sealed=@($documents|Where-Object {$_.document.schema -ceq 'usk.maintenance_effect_record.v1' -and
+     $_.document.transaction_id -ceq $tx -and $_.document.phase -ceq 'sealed' -and
+     ((Split-Path -Parent $_.row.path)+'\') -ceq ($DriveRoot+'setup-state\state\transactions\'+$tx+'.maintenance\')})
+    if($roots.Count -ne 1 -or $contexts.Count -ne 1 -or $sealed.Count -ne 1 -or
+     $roots[0].document.context_sha256 -cne $contexts[0].document.context_sha256) {
+     throw 'Historical payload projection lacks protected maintenance context and sealed effects'
+    }
+    foreach($item in @($journal[0],$completed[0],$roots[0],$contexts[0],$sealed[0])) {
+     Require-PrivateProjectionRecord $item.row
+    }
+    return [ordered]@{basis='protected_completed_maintenance_records_observed_no_effect_authority';
+     install_id=$installId;original_transaction_id=$snapshot.transaction_id;transaction_id=$tx;operation=$operation;
+     lifecycle_status=$status;target_root=$latest.document.target_root;original_target_root=$snapshot.target_root;result_state_revision=$revision;
+     installed_record_sha256=$latest.row.sha256;journal_sha256=$journal[0].row.sha256;
+     roots_record_sha256=$roots[0].row.sha256;context_record_sha256=$contexts[0].row.sha256;
+     completed_lease_sha256=$completed[0].row.sha256;sealed_effect_record_sha256=$sealed[0].row.sha256}
+   }
    foreach($nativeObject in $objects) {
     if($nativeObject.owner_sid -cne 'S-1-5-18' -or $nativeObject.dacl_protected -ne $true -or
        @($nativeObject.dacl_aces).Count -ne 2){throw 'Native descriptor projection is not the closed private policy'}
@@ -1263,6 +1365,18 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
         $ace.sid -cne $expectedSids[$aceIndex]){throw 'Native descriptor projection ACE differs'}
     }
     $matched=@(@($rows)+@($result.volume_boundary.root)|Where-Object file_id -ceq $nativeObject.file_id)
+    if($matched.Count -eq 0) {
+     $payload=@(@($tree.root)+@($tree.descendants|ForEach-Object object)|Where-Object file_id -ceq $nativeObject.file_id)
+     if($payload.Count -ne 1){throw 'Original publication anchor has no current independent identity'}
+     if(-not $maintenanceBasis){$maintenanceBasis=Get-CompletedMaintenanceProjectionBasis}
+     if($nativeObject.file_id -ceq $tree.root.file_id -and
+      ($maintenanceBasis.operation -cne 'uninstall' -or $maintenanceBasis.lifecycle_status -cne 'retired' -or
+       [IO.Path]::GetFullPath([string]$maintenanceBasis.target_root) -cne [IO.Path]::GetFullPath([string]$maintenanceBasis.original_target_root))) {
+      throw 'Historical payload root absence is unsupported by original-root retirement'
+     }
+     $unavailable.Add([ordered]@{native_object=$nativeObject;reason='original_payload_identity_not_in_current_snapshot'})
+     continue
+    }
     if($matched.Count -ne 1){throw 'Native descriptor projection lacks an independent identity/group binding'}
     $group=[Security.Principal.SecurityIdentifier]::new([string]$matched[0].effective_right_group_sid)
     if($group.Value -cne $matched[0].effective_right_group_sid){throw 'Observed group is not canonical'}
@@ -1274,13 +1388,21 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
      reconstructed_descriptor_hex=([BitConverter]::ToString($descriptorBytes)).Replace('-','').ToLowerInvariant();
      checks=$effectiveRights.CheckDescriptor($descriptorBytes)})
    }
-   $result['native_phase_descriptor_access']=[ordered]@{schema='usk.publisher.phase_descriptor_access.v1';
-    basis='native_closed_owner_dacl_with_independently_observed_group';
-    live_phase_access_check=$false;prepared_record_sha256=$preparedRows[0].sha256;objects=$projected}
+   if($unavailable.Count) {
+    $result['native_phase_descriptor_access']=[ordered]@{schema='usk.publisher.historical_phase_descriptor_access.v1';
+     basis='current_groups_observed_only_for_surviving_original_objects';availability='partial';
+     live_phase_access_check=$false;prepared_record_sha256=$preparedRows[0].sha256;objects=$projected;
+     unavailable_payload_objects=$unavailable;completed_maintenance_observation=$maintenanceBasis}
+   } else {
+    $result['native_phase_descriptor_access']=[ordered]@{schema='usk.publisher.phase_descriptor_access.v1';
+     basis='native_closed_owner_dacl_with_independently_observed_group';
+     live_phase_access_check=$false;prepared_record_sha256=$preparedRows[0].sha256;objects=$projected}
+   }
   }
  }
 }
 $temporary=$Output+'.pending'
+$global:UskMetadataObserverPhase='publish_closed_success_receipt'
 # Closing all observer-owned token/process duplicates is part of the success
 # barrier. A missed observer emits no acknowledgement; its caller retains the
 # generated login until exact close can be established or runner disposal.
@@ -1319,6 +1441,29 @@ try {
     if($AbsentPublicationReservationPrefix) {
         $command+=" -AbsentPublicationReservationPrefix '"+$AbsentPublicationReservationPrefix+"' -AbsentPublicationReservationGeneration "+$AbsentPublicationReservationGeneration
     }
+    $failureOutput=$output+'.failure.json'
+    $failureCommand=@'
+ catch {
+  $caught=$_
+  $failure=[ordered]@{schema='usk.publisher.metadata_observer_failure.v1';status='failed';
+   phase=$global:UskMetadataObserverPhase;exception_type=$caught.Exception.GetType().FullName;
+   hresult=$caught.Exception.HResult;message=$caught.Exception.Message;stack=$caught.ScriptStackTrace;
+   observer_token_handles_closed=$false}
+  foreach($field in @('message','stack')) {
+   $text=[string]$failure[$field];$failure[$field]=$text.Substring(0,[Math]::Min(8192,$text.Length))
+  }
+  $failurePath='__FAILURE_OUTPUT__';$failurePending=$failurePath+'.pending'
+  $stream=[IO.File]::Open($failurePending,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  try {
+   $bytes=[Text.UTF8Encoding]::new($false).GetBytes(($failure|ConvertTo-Json -Depth 4 -Compress))
+   $stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)
+  } finally {$stream.Dispose()}
+  [IO.File]::Move($failurePending,$failurePath)
+  exit 1
+ }
+'@
+    $command='$global:UskMetadataObserverPhase=''dispatch''; try { '+$command+' }'+
+        $failureCommand.Replace('__FAILURE_OUTPUT__',$failureOutput.Replace("'","''"))
     $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -EncodedCommand '+$encoded)
     $registered=$false
@@ -1327,7 +1472,25 @@ try {
         $registered=$true
         Start-ScheduledTask -TaskName $name
         $deadline=[DateTime]::UtcNow.AddSeconds(60)
-        while(-not (Test-Path -LiteralPath $output) -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        while(-not (Test-Path -LiteralPath $output) -and -not (Test-Path -LiteralPath $failureOutput) -and
+            [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 250}
+        if(Test-Path -LiteralPath $failureOutput) {
+            if((Get-Item -LiteralPath $failureOutput).Length -gt 65536){throw 'Independent observer failure diagnostic exceeds its bound'}
+            $diagnostic=Get-Content -LiteralPath $failureOutput -Raw|ConvertFrom-Json
+            if($diagnostic.schema -cne 'usk.publisher.metadata_observer_failure.v1' -or $diagnostic.status -cne 'failed') {
+                throw 'Independent observer failure diagnostic shape differs'
+            }
+            $taskResult=[ordered]@{available=$false;result=$null;error=$null}
+            try {
+                $taskInfo=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+                $taskResult.available=$true;$taskResult.result=$taskInfo.LastTaskResult
+            } catch {
+                $message=[string]$_.Exception.Message
+                $taskResult.error=$message.Substring(0,[Math]::Min(8192,$message.Length))
+            }
+            throw ('Independent observer failed: '+($diagnostic|ConvertTo-Json -Depth 4 -Compress)+
+                '; task result observation='+($taskResult|ConvertTo-Json -Depth 4 -Compress))
+        }
         if(-not (Test-Path -LiteralPath $output)){throw 'Independent observer receipt absent'}
         $observed=Get-Content -LiteralPath $output -Raw|ConvertFrom-Json
     } finally {
