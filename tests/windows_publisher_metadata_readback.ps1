@@ -13,9 +13,16 @@ function Initialize-PublisherMetadataNativeTypes {
     Add-Type -TypeDefinition $source.Substring($start,$end-$start)
 }
 function Assert-IndependentProtectedRows {
-    param($Rows,[string]$ServiceSid,[string]$ConsumerSid='',[string]$VisibleRoot='',[switch]$AllowPartial)
+    param($Rows,[string]$ServiceSid,[string]$ConsumerSid='',[string]$VisibleRoot='',[switch]$AllowPartial,
+        [string]$AdditionalConsumerRoot='')
+    if($AdditionalConsumerRoot -and ($VisibleRoot -cnotmatch '^[A-Z]:\\publication\\destination\\visible$' -or
+        $AdditionalConsumerRoot -cne ((Split-Path -Parent $VisibleRoot)+'\maintenance-moved'))) {
+        throw 'Additional consumer root requires the exact hosted maintenance destination'
+    }
     foreach($row in $Rows) {
-        $visible=$ConsumerSid -and ($row.path -ceq $VisibleRoot -or $row.path.StartsWith($VisibleRoot+'\',[StringComparison]::Ordinal))
+        $visible=$ConsumerSid -and ($row.path -ceq $VisibleRoot -or $row.path.StartsWith($VisibleRoot+'\',[StringComparison]::Ordinal) -or
+            ($AdditionalConsumerRoot -and ($row.path -ceq $AdditionalConsumerRoot -or
+                $row.path.StartsWith($AdditionalConsumerRoot+'\',[StringComparison]::Ordinal))))
         $readers=@($row.aces|Where-Object sid -eq $ConsumerSid)
         $required=if($visible -and (-not $AllowPartial -or $readers.Count)){3}else{2}
         $system=@($row.aces|Where-Object sid -eq 'S-1-5-18')
@@ -307,7 +314,8 @@ param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
 $ErrorActionPreference='Stop'
 function Test-PublisherHeldCaptureRequestContext([string]$RequestId,[string]$Command) {
     return (($RequestId -cmatch '^public\.[0-9a-f]{32}$' -and
-        $Command -cin @('install_local.apply','install_local.recover','installed.verify')) -or
+        $Command -cin @('install_local.apply','install_local.recover','installed.verify','publisher.observe',
+            'repair.apply','move.apply','uninstall.apply')) -or
         ($RequestId -cmatch '^contention\.[0-9a-f]{32}$' -and $Command -ceq 'registered_contention'))
 }
  Add-Type -TypeDefinition @"

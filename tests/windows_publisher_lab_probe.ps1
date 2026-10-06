@@ -27,6 +27,7 @@ param(
     [switch]$PublicStandardActiveInstallContention,
     [switch]$PublicStandardStalePlanQualification,
     [switch]$PublicStandardInstallationGuardConflict,
+    [switch]$PublicStandardMaintenanceQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$PublicStandardConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
@@ -45,6 +46,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicStandardMaintenanceQualification -and (-not $PublicInstallation -or -not $PublicStandardClient -or
+    $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
+    $PublicStandardStalePlanQualification -or $PublicStandardInstallationGuardConflict -or
+    $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardConstructedBootstrapDurableState -cne 'none')) {
+    throw 'Fresh maintenance requires its distinct hosted standard public journey'
+}
 if($PublicStandardInstallationGuardConflict -and (-not $PublicInstallation -or -not $PublicStandardClient -or
     $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
     $PublicStandardStalePlanQualification -or $PublicStandardConstructedBootstrapPrefix -cne 'none' -or
@@ -200,7 +207,8 @@ function Invoke-StandardPublicSystemTask {
     param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
         [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss,
         [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
-        [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none')
+        [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none',
+        [switch]$MaintenanceQualification)
     # No local invocation can reach this: the outer lab has already required a
     # fresh hosted VM and provisioned the exact disposable data disk.
     $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
@@ -238,6 +246,7 @@ function Invoke-StandardPublicSystemTask {
             $(if($ActiveInstallContention){' -ActiveInstallContention'}else{''})+
             $(if($StalePlanQualification){' -StalePlanQualification'}else{''})+
             $(if($InstallationGuardConflict){' -InstallationGuardConflict'}else{''})+
+            $(if($MaintenanceQualification){' -MaintenanceQualification'}else{''})+
             ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
             ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))) -join "`n"
     $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
@@ -463,6 +472,7 @@ try {
                 -ActiveInstallContention:$PublicStandardActiveInstallContention `
                 -StalePlanQualification:$PublicStandardStalePlanQualification `
                 -InstallationGuardConflict:$PublicStandardInstallationGuardConflict `
+                -MaintenanceQualification:$PublicStandardMaintenanceQualification `
                 -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
                 -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {

@@ -13,12 +13,18 @@ param(
     [switch]$ActiveInstallContention,
     [switch]$StalePlanQualification,
     [switch]$InstallationGuardConflict,
+    [switch]$MaintenanceQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$ConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
     [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
+if($MaintenanceQualification -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
+    $ActiveInstallContention -or $StalePlanQualification -or $InstallationGuardConflict -or
+    $ConstructedBootstrapPrefix -cne 'none' -or $ConstructedBootstrapDurableState -cne 'none')) {
+    throw 'Fresh maintenance requires its distinct ordinary public journey'
+}
 if($InstallationGuardConflict -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
     $ActiveInstallContention -or $StalePlanQualification -or $ConstructedBootstrapPrefix -cne 'none' -or
     $ConstructedBootstrapDurableState -cne 'none')) {throw 'Installation guard case requires its separate ordinary source-free lab'}
@@ -43,6 +49,7 @@ if($ConstructedBootstrapDurableState -cne 'none' -and
 . (Join-Path $PSScriptRoot 'windows_publisher_active_worker.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_bootstrap_prefix.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_install_guard_fixture.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_public_maintenance_probe.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -117,7 +124,9 @@ function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
         after=$After.independent.rows;drive=$drive;installed=$installed;volume_root_id=$After.independent.volume_boundary.root.file_id}
     Invoke-StandardLeaseEvidence $leaseRequest|Out-Null
 }
-function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][int]$PublicationReservedAbsentGeneration=0) {
+function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][int]$PublicationReservedAbsentGeneration=0,
+    [switch]$IncludeMovedMaintenanceRoot) {
+    if($IncludeMovedMaintenanceRoot -and -not $MaintenanceQualification){throw 'Maintenance readback scope is unavailable'}
     $script:observersClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
         -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
@@ -130,7 +139,8 @@ function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][
         $readback.independent.observer_token_handles_closed -ne $true){throw 'Standard independent reader cleanup differs'}
     $script:observersClosed=$true
     Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid -ConsumerSid $accountSid `
-        -VisibleRoot ($drive+'publication\destination\visible')
+        -VisibleRoot ($drive+'publication\destination\visible') `
+        -AdditionalConsumerRoot $(if($IncludeMovedMaintenanceRoot){$drive+'publication\destination\maintenance-moved'}else{''})
     return $readback
 }
 function Read-InstalledSnapshot {
@@ -832,6 +842,7 @@ try {
         ($receipt.source_free_service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress)) {
         throw 'Source-free service observation changed retained admission bindings'
     }
+    if($MaintenanceQualification){$receipt['maintenance']=Invoke-StandardFreshMaintenance}
     $receipt.status='standard_public_install_verified_recovered'
 } catch {$receipt.status='failed';$receipt['failure']=$_.Exception.Message}
 finally {

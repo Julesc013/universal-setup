@@ -24,14 +24,18 @@ $functions=@($reader.FindAll({param($node)
 if($functions.Count -ne 1){throw 'Held capture context predicate is ambiguous'}
 . ([scriptblock]::Create($functions[0].Extent.Text))
 $public='public.'+('a'*32);$contention='contention.'+('b'*32)
-foreach($command in @('install_local.apply','install_local.recover','installed.verify')) {
+foreach($command in @('install_local.apply','install_local.recover','installed.verify','publisher.observe',
+    'repair.apply','move.apply','uninstall.apply')) {
     if(-not (Test-PublisherHeldCaptureRequestContext $public $command)){throw 'Existing public capture pair refused'}
     if(Test-PublisherHeldCaptureRequestContext $contention $command){throw 'Cross-context public command admitted'}
 }
 if(-not (Test-PublisherHeldCaptureRequestContext $contention 'registered_contention')){throw 'Owned contention capture pair refused'}
 foreach($pair in @(@($public,'registered_contention'),@($contention,'publisher.observe'),
+    @($public,'repair.plan'),@($public,'repair.recover'),@($public,'REPAIR.APPLY'),
+    @($public,'publisher.inspect'),@('public.'+('a'*31),'repair.apply'),
+    @('public.'+('A'*32),'move.apply'),
     @('contention.'+('B'*32),'registered_contention'),@('contention.'+('b'*31),'registered_contention'),
     @($contention,'REGISTERED_CONTENTION'),@('other.'+('b'*32),'registered_contention'))) {
     if(Test-PublisherHeldCaptureRequestContext $pair[0] $pair[1]){throw 'Contradictory held capture context admitted'}
 }
-'Held capture context: four exact pairs accepted, nine contradictory pairs refused'
+'Held capture context: eight exact pairs accepted, nineteen contradictory pairs refused'
