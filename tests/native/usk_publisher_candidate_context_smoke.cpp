@@ -65,6 +65,19 @@ int main(int argc, char** argv)
         try { (void)parse_publisher_reviewed_operation_envelope(usk::json::canonical(envelope), usk::json::canonical(changed_apply)); }
         catch (const std::exception&) { refused = true; }
         if (!refused) return 7;
+        const Value recovery(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}});
+        if (usk::json::canonical(parse_publisher_maintenance_recovery_request(usk::json::canonical(recovery))) !=
+                usk::json::canonical(recovery)) return 8;
+        for (const auto field : {"schema", "operation", "install_id", "transaction_id", "source"}) {
+            auto wrong = recovery;
+            if (std::string(field) == "source") wrong.as_object().emplace(field, Value("unadmitted"));
+            else wrong.as_object().at(field) = Value(std::string(field) == "operation" ? "update" : "../substituted");
+            bool rejected = false;
+            try { (void)parse_publisher_maintenance_recovery_request(usk::json::canonical(wrong)); }
+            catch (const std::exception&) { rejected = true; }
+            if (!rejected) return 8;
+        }
     }
     // Pure durable-binding fixture; these are not OS observations or a plan
     // acceptance test. A non-lab caller ID must survive, while substitutions

@@ -3664,6 +3664,10 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         } else if (submitted_verify_request) {
             const auto request = usk::json::parse(*submitted_verify_request);
             install_guard.emplace(volume_root, request.at("install_id").as_string(), stop_event);
+        } else if (submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
+                "usk.publisher_maintenance_recovery_request.v1") {
+            const auto request = parse_publisher_maintenance_recovery_request(*submitted_recovery_request);
+            install_guard.emplace(volume_root, request.at("install_id").as_string(), stop_event);
         }
         // Both guards are held before source/installed-state revalidation and
         // before effects. Source-free legacy replay retains the volume guard.
@@ -3678,6 +3682,97 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             throw std::runtime_error("cannot open admitted publisher volume root; Win32 "+std::to_string(GetLastError()));
         }
         OwnedHandle held_volume(volume);
+        if (submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
+                "usk.publisher_maintenance_recovery_request.v1") {
+            using namespace usk::platform::windows;
+            using usk::json::Value;
+            const auto request = parse_publisher_maintenance_recovery_request(*submitted_recovery_request);
+            if (!registered_admission || !authenticated_request || !install_guard)
+                throw std::runtime_error("maintenance recovery requires the original registered native route");
+            const auto operation = request.at("operation").as_string();
+            const auto install_id = request.at("install_id").as_string();
+            const auto operation_id = request.at("transaction_id").as_string();
+            const auto kind = operation == "repair" ? PublisherOperationKind::repair :
+                operation == "move" ? PublisherOperationKind::move : PublisherOperationKind::uninstall;
+            PublisherInstallOperationContext original_context(volume, volume_root, service_name, *install_guard,
+                install_id, operation_id, kind);
+            if (!original_context.exists()) throw std::runtime_error("maintenance recovery original intent is absent");
+            publication_effects_may_exist = true;
+            const auto& snapshot = original_context.record().at("reviewed_snapshot");
+            const auto& plan = snapshot.at("reviewed_plan");
+            auto original_state = original_context.restore_maintenance_state();
+            original_context.bind_state_roots(original_state->setup_root(), original_state->state_root());
+            std::wstring envelope_path;
+            std::string envelope_sha256;
+            const auto original_request = usk::json::canonical(snapshot.at("apply_request"));
+            if (!registered_admission->select_reviewed_operation(original_request, *authenticated_request,
+                    envelope_path, envelope_sha256))
+                throw std::runtime_error("maintenance recovery lacks its original administrator-enrolled request");
+            const auto envelope = parse_publisher_reviewed_operation_envelope(
+                usk::json::canonical(registered_admission->selected_reviewed_envelope()), original_request);
+            const auto setup = std::filesystem::u8path(envelope.at("state_root").as_string());
+            const auto acceptance = std::filesystem::u8path(envelope.at("acceptance_root").as_string());
+            if (envelope.at("schema").as_string() != "usk.publisher.maintenance_reviewed_plan_envelope.v1" ||
+                !setup.is_absolute() || setup.lexically_normal() != setup || setup.relative_path() != setup.filename() ||
+                !is_publisher_canonical_component(setup.filename().wstring()) ||
+                !acceptance.is_absolute() || acceptance != acceptance.root_path() ||
+                setup.filename().u8string() != snapshot.at("setup_component").as_string())
+                throw std::runtime_error("maintenance recovery original envelope roots differ");
+            const auto installed_root = std::filesystem::u8path(original_state->installed_state().at("target_root").as_string());
+            usk::transaction::TransactionSpec spec{operation_id, plan.at("plan_id").as_string(),
+                usk::json::sha256_canonical(plan), operation, std::filesystem::u8path(plan.at("staging_parent").as_string()),
+                operation == "move" ? std::filesystem::u8path(plan.at("new_root").as_string()) :
+                    installed_root.parent_path() / ((operation == "repair" ? ".usk-repair-" : ".usk-uninstall-") + operation_id),
+                std::filesystem::u8path(plan.at("state_root").as_string()),
+                std::filesystem::u8path(plan.at("audit_root").as_string())};
+            usk::transaction::require_path_capacity(spec);
+            if (spec.state_root.parent_path().lexically_normal() != setup)
+                throw std::runtime_error("maintenance recovery metadata root differs from its original envelope");
+            registered_operation_admission = admit_current_registered_operation(volume, observed.service_sid,
+                setup.u8string(), spec.target_root.u8string(), spec.plan_digest, usk::json::canonical(snapshot), operation_id);
+            require_public_mount_mapping(volume, setup.u8string(), acceptance.u8string());
+            const std::function<std::string()> revision = [&] {
+                return observe_publisher_install_state_revision(original_state->state_root(), install_id, observed.service_sid);
+            };
+            const auto holder = observe_publisher_lease_holder();
+            static std::atomic<std::uint64_t> recovery_attempt{0};
+            usk::transaction::InstallLeaseRequest wanted{install_id, operation, operation_id,
+                "recovery." + std::to_string(GetCurrentProcessId()) + "." + holder.at("process_creation_time").as_string() +
+                    "." + std::to_string(++recovery_attempt), revision(), true, original_context.lease_binding_sha256()};
+            PublisherInstallationLease lease(original_state->state_root(), volume_root, service_name, *install_guard, wanted, revision);
+            lease.require_start();
+            // The private constructor independently proves original native
+            // custody and an ended original holder. No new source is opened.
+            std::unique_ptr<usk::lifecycle::detail::NativeMaintenanceContext> owner(
+                new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root, service_name, *install_guard,
+                    *original_state, original_context, lease, *registered_admission, *authenticated_request, spec,
+                    stop_event, publication_effects_may_exist,
+                    usk::lifecycle::detail::NativeMaintenanceContext::RecoveryAdmission::ended_original_holder));
+            const auto before = usk::transaction::TransactionSession::inspect_recovery(spec);
+            const auto before_effects = usk::transaction::MaintenanceEffectJournal::inspect(spec, before.stream_source_digest);
+            const auto completed = usk::lifecycle::detail::recover_maintenance_transaction(spec, before.snapshot_sha256,
+                before_effects.journal_digest, owner->recovery_operations());
+            const auto effects = usk::transaction::MaintenanceEffectJournal::inspect(spec, completed.stream_source_digest);
+            if (completed.current_state != "completed" || !effects.sealed || !effects.pending_kind.empty())
+                throw std::runtime_error("native maintenance recovery lacks its completed sealed original prefix");
+            Value report(Value::Object{{"schema", Value("usk.maintenance_recovery_report.v1")}, {"status", Value("completed")},
+                {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
+                {"plan_id", Value(spec.plan_id)}, {"plan_digest", Value(spec.plan_digest)},
+                {"transaction_snapshot_sha256", Value(completed.snapshot_sha256)},
+                {"effect_history_sha256", Value(effects.journal_digest)}, {"source_digest", Value(completed.stream_source_digest)},
+                {"recorded_at", Value(completed.recorded_at)}, {"report_id", Value("recovery." + operation + "." + operation_id)}});
+            report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
+            lease.finish(false);
+            return usk::json::canonical(Value(Value::Object{
+                {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+                {"request_sha256", Value(usk::json::sha256_canonical(request))},
+                {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
+                {"service_name", Value(ascii(service_name))}, {"service_sid", Value(observed.service_sid)},
+                {"process_id", Value(static_cast<std::uint64_t>(observed.process_id))},
+                {"recovery_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")},
+                    {"status", Value("ok")}, {"payload", report}})},
+                {"operation_admission", *registered_operation_admission}})) + "\n";
+        }
         if (submitted_apply_request) {
             using namespace usk::platform::windows;
             using usk::json::Value;

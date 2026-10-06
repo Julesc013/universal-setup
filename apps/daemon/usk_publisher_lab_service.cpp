@@ -315,7 +315,10 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                     config.reviewed_plan_envelope_path.clear();
                     config.reviewed_plan_envelope_sha256.clear();
                     config.submitted_verify_request=request;
-                } else if (schema == "usk.publisher_recovery_request.v1") {
+                } else if (schema == "usk.publisher_recovery_request.v1" ||
+                    schema == "usk.publisher_maintenance_recovery_request.v1") {
+                    if (schema == "usk.publisher_maintenance_recovery_request.v1")
+                        (void)usk::platform::windows::parse_publisher_maintenance_recovery_request(request);
                     config.recover_reviewed=true;
                     config.selected_archive_mode=false;
                     config.reviewed_plan_envelope_path.clear();

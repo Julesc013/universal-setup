@@ -127,6 +127,33 @@ void test_maintenance_response_binding() {
         wrong = response;
         wrong.as_object().emplace("recovery_installed_response", Value());
         refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        const Value recovery(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}});
+        Value recovered_report(Value::Object{{"schema", Value("usk.maintenance_recovery_report.v1")}, {"status", Value("completed")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")},
+            {"plan_id", Value("plan.one")}, {"plan_digest", Value(std::string(64, 'a'))},
+            {"transaction_snapshot_sha256", Value(std::string(64, 'b'))}, {"effect_history_sha256", Value(std::string(64, 'c'))},
+            {"source_digest", Value(std::string(64, 'd'))}, {"recorded_at", Value("2026-10-06T07:00:00Z")},
+            {"report_id", Value("recovery." + operation + ".tx.one")}});
+        recovered_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(recovered_report)));
+        auto recovered = response;
+        recovered.as_object().erase("apply_response");
+        recovered.as_object().at("request_sha256") = Value(usk::json::sha256_canonical(recovery));
+        recovered.as_object().emplace("recovery_response", Value(Value::Object{
+            {"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", recovered_report}}));
+        const auto encoded_recovery = usk::json::canonical(recovery);
+        require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(recovered), 123);
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(recovered), 123); });
+        refuses([&] { require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(response), 123); });
+        for (const auto field : {"operation", "plan_digest", "transaction_snapshot_sha256", "effect_history_sha256", "source_digest"}) {
+            auto invalid_report = recovered_report;
+            invalid_report.as_object().erase("report_digest");
+            invalid_report.as_object().at(field) = Value("substituted");
+            invalid_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(invalid_report)));
+            wrong = recovered;
+            wrong.as_object().at("recovery_response").as_object().at("payload") = invalid_report;
+            refuses([&] { require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(wrong), 123); });
+        }
     }
 }
 void test_service_observation_transport_binding() {

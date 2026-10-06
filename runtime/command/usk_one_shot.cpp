@@ -469,6 +469,10 @@ static OneShotResult run_publisher_request(const std::string& request_json,
                 command == "uninstall.apply")) {
             expected_schema = "usk." + command.substr(0, command.find('.')) + "_apply_request.v1";
             response_field = "apply_response";
+        } else if (!retain_observation && (command == "repair.recover" || command == "move.recover" ||
+                command == "uninstall.recover")) {
+            expected_schema = "usk.publisher_maintenance_recovery_request.v1";
+            response_field = "recovery_response";
         } else if (command == "publisher.inspect" && !retain_observation) {
             expected_schema = "usk.publisher_capability_request.v1";
         } else if (command == "publisher.observe") {
@@ -483,6 +487,10 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             input.at("payload").at("schema").as_string() != expected_schema)
             return failure(request_id, "invalid_request");
         submitted = input.at("payload");
+        if (response_field == "recovery_response" && (submitted.as_object().size() != 4 ||
+            submitted.at("operation").as_string() != command.substr(0, command.find('.')) ||
+            !safe_id(submitted.at("install_id").as_string()) || !safe_id(submitted.at("transaction_id").as_string())))
+            return failure(request_id, "invalid_request");
         if ((inspection || command == "publisher.observe") && (submitted.as_object().size() != 2 ||
             submitted.at("request_id").as_string() != request_id))
             return failure(request_id, "invalid_request");
@@ -567,26 +575,36 @@ static OneShotResult run_publisher_request(const std::string& request_json,
                         payload.at("report_digest").as_string() != observed.at("bound_report_digest").as_string())
                         throw std::runtime_error("publisher verification binding differs");
                 } else if (candidate_command == "repair.apply" || candidate_command == "move.apply" ||
-                    candidate_command == "uninstall.apply") {
+                    candidate_command == "uninstall.apply" || response_field == "recovery_response") {
                     const auto operation = candidate_command.substr(0, candidate_command.find('.'));
+                    const bool recovery = response_field == "recovery_response";
+                    const auto install_id = recovery ? submitted.at("install_id").as_string() :
+                        submitted.at("plan_request").at("install_id").as_string();
                     auto digest_body = payload;
                     digest_body.as_object().erase("report_digest");
                     const auto report_status = payload.at("status").as_string();
-                    const bool completed = operation == "move" ? report_status == "new_committed_old_retained" :
+                    const bool completed = recovery ? report_status == "completed" : operation == "move" ? report_status == "new_committed_old_retained" :
                         (report_status == "completed" || (operation == "uninstall" && report_status == "retained_foreign_content"));
                     if (observed.as_object().size() != 12 || !completed ||
                         observed.at("request_sha256").as_string() != usk::json::sha256_canonical(submitted) ||
                         observed.at("operation").as_string() != operation ||
-                        observed.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+                        observed.at("install_id").as_string() != install_id ||
                         observed.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
-                        payload.at("schema").as_string() != "usk." + operation + "_report.v1" ||
-                        payload.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+                        payload.at("schema").as_string() != (recovery ? "usk.maintenance_recovery_report.v1" : "usk." + operation + "_report.v1") ||
+                        payload.at("install_id").as_string() != install_id ||
                         payload.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
-                        payload.at("plan_id").as_string() != submitted.at("plan_request").at("plan_id").as_string() ||
-                        payload.at("report_id").as_string() != operation + "." + submitted.at("transaction_id").as_string() ||
+                        (!recovery && payload.at("plan_id").as_string() != submitted.at("plan_request").at("plan_id").as_string()) ||
+                        payload.at("report_id").as_string() != (recovery ? "recovery." : "") + operation + "." + submitted.at("transaction_id").as_string() ||
                         payload.at("report_digest").as_string() != usk::json::sha256_canonical(digest_body) ||
-                        payload.at("completed_at").as_string() != submitted.at("applied_at").as_string())
+                        (!recovery && payload.at("completed_at").as_string() != submitted.at("applied_at").as_string()))
                         throw std::runtime_error("publisher maintenance binding differs");
+                    if (recovery && (payload.as_object().size() != 13 || payload.at("operation").as_string() != operation ||
+                        !safe_id(payload.at("plan_id").as_string()) || payload.at("recorded_at").as_string().empty() ||
+                        !lower_hex(payload.at("plan_digest").as_string(), 64) ||
+                        !lower_hex(payload.at("transaction_snapshot_sha256").as_string(), 64) ||
+                        !lower_hex(payload.at("effect_history_sha256").as_string(), 64) ||
+                        !lower_hex(payload.at("source_digest").as_string(), 64)))
+                        throw std::runtime_error("publisher maintenance recovery original result differs");
                 } else {
                     const std::string install_id = candidate_command == "install_local.apply" ?
                         submitted.at("plan_request").at("install_id").as_string() :

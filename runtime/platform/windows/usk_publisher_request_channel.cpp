@@ -588,21 +588,28 @@ void require_publisher_response_binding(const std::wstring& service_name,
     }
 
     if (schema == "usk.repair_apply_request.v1" || schema == "usk.move_apply_request.v1" ||
-        schema == "usk.uninstall_apply_request.v1") {
-        const std::string operation = schema == "usk.repair_apply_request.v1" ? "repair" :
+        schema == "usk.uninstall_apply_request.v1" || schema == "usk.publisher_maintenance_recovery_request.v1") {
+        const bool recovery = schema == "usk.publisher_maintenance_recovery_request.v1";
+        const std::string operation = recovery ? submitted.at("operation").as_string() :
+            schema == "usk.repair_apply_request.v1" ? "repair" :
             schema == "usk.move_apply_request.v1" ? "move" : "uninstall";
-        const auto& public_response = observed.at("apply_response");
+        if (recovery && (submitted.as_object().size() != 4 ||
+            (operation != "repair" && operation != "move" && operation != "uninstall")))
+            throw std::runtime_error("publisher maintenance recovery selector differs");
+        const auto install_id = recovery ? submitted.at("install_id").as_string() :
+            submitted.at("plan_request").at("install_id").as_string();
+        const auto& public_response = observed.at(recovery ? "recovery_response" : "apply_response");
         const auto& report = public_response.at("payload");
         auto digest_body = report;
         digest_body.as_object().erase("report_digest");
         const auto& admission = observed.at("registered_admission");
         const auto report_status = report.at("status").as_string();
-        const bool completed = operation == "move" ? report_status == "new_committed_old_retained" :
+        const bool completed = recovery ? report_status == "completed" : operation == "move" ? report_status == "new_committed_old_retained" :
             (report_status == "completed" || (operation == "uninstall" && report_status == "retained_foreign_content"));
         if (observed.as_object().size() != 12 || status != "pass" || !completed ||
             observed.at("request_sha256").as_string() != usk::json::sha256_canonical(submitted) ||
             observed.at("operation").as_string() != operation ||
-            observed.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+            observed.at("install_id").as_string() != install_id ||
             observed.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
             observed.at("process_id").as_unsigned() == 0 || observed.at("process_id").as_unsigned() > 0xffffffffu ||
             (expected_process_id && observed.at("process_id").as_unsigned() != expected_process_id) ||
@@ -614,14 +621,24 @@ void require_publisher_response_binding(const std::wstring& service_name,
             admission.at("process_id").as_unsigned() != observed.at("process_id").as_unsigned() ||
             public_response.at("schema").as_string() != "usk.command_response.v1" ||
             public_response.at("status").as_string() != "ok" ||
-            report.at("schema").as_string() != "usk." + operation + "_report.v1" ||
-            report.at("install_id").as_string() != submitted.at("plan_request").at("install_id").as_string() ||
+            report.at("schema").as_string() != (recovery ? "usk.maintenance_recovery_report.v1" : "usk." + operation + "_report.v1") ||
+            report.at("install_id").as_string() != install_id ||
             report.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
-            report.at("plan_id").as_string() != submitted.at("plan_request").at("plan_id").as_string() ||
-            report.at("report_id").as_string() != operation + "." + submitted.at("transaction_id").as_string() ||
+            (!recovery && report.at("plan_id").as_string() != submitted.at("plan_request").at("plan_id").as_string()) ||
+            report.at("report_id").as_string() != (recovery ? "recovery." : "") + operation + "." + submitted.at("transaction_id").as_string() ||
             report.at("report_digest").as_string() != usk::json::sha256_canonical(digest_body) ||
-            report.at("completed_at").as_string() != submitted.at("applied_at").as_string())
+            (!recovery && report.at("completed_at").as_string() != submitted.at("applied_at").as_string()))
             throw std::runtime_error("publisher completed maintenance differs from request or live server");
+        if (recovery) {
+            if (report.as_object().size() != 13 || report.at("operation").as_string() != operation ||
+                report.at("plan_id").as_string().empty() || report.at("recorded_at").as_string().empty())
+                throw std::runtime_error("publisher maintenance recovery result differs from original context");
+            for (const auto field : {"plan_digest", "transaction_snapshot_sha256", "effect_history_sha256", "source_digest"}) {
+                const auto& digest = report.at(field).as_string();
+                if (digest.size() != 64 || digest.find_first_not_of("0123456789abcdef") != std::string::npos)
+                    throw std::runtime_error("publisher maintenance recovery result binding is absent");
+            }
+        }
         return;
     }
     if (schema == "usk.install_local_apply_request.v1" ||

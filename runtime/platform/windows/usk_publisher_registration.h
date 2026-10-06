@@ -15,6 +15,7 @@ int publisher_service_control_main(int argc, wchar_t** argv);
 // authority; enrollment and execution independently retain those native facts.
 usk::json::Value parse_publisher_reviewed_operation_envelope(
     const std::string& bytes, const std::string& canonical_request);
+usk::json::Value parse_publisher_maintenance_recovery_request(const std::string& bytes);
 // Opt-in administrator-created registration: the actual restricted service
 // holds the controller guard and protected executable through its one request,
 // and validates private registration/target/storage facts before receiving it.
@@ -39,7 +40,7 @@ public:
     // Absence preserves the original immutable SCM-envelope route.
     bool select_reviewed_operation(const std::string& request,
         const PublisherRequestChannel& channel, std::wstring& envelope_path,
-        std::string& envelope_sha256);
+        std::string& envelope_sha256) const;
     bool has_selected_reviewed_operation() const noexcept;
     usk::json::Value selected_reviewed_envelope() const;
     usk::json::Value selected_reviewed_operation_observation() const;

@@ -2350,6 +2350,24 @@ usk::json::Value parse_publisher_reviewed_operation_envelope(
     const std::string& bytes, const std::string& canonical_request) {
     return parse_reviewed_operation_envelope(bytes, canonical_request);
 }
+usk::json::Value parse_publisher_maintenance_recovery_request(const std::string& bytes) {
+    usk::json::ParseLimits limits;
+    limits.max_bytes = 2048;
+    limits.max_string_bytes = 256;
+    const auto request = usk::json::parse(bytes, limits);
+    const auto& operation = request.at("operation").as_string();
+    if (request.as_object().size() != 4 ||
+        request.at("schema").as_string() != "usk.publisher_maintenance_recovery_request.v1" ||
+        (operation != "repair" && operation != "move" && operation != "uninstall"))
+        throw std::runtime_error("maintenance recovery requires a closed original operation selector");
+    for (const auto field : {"install_id", "transaction_id"}) {
+        const auto& id = request.at(field).as_string();
+        if (id.empty() || id.size() > 128 || id.find_first_not_of(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos)
+            throw std::runtime_error("maintenance recovery original identity differs");
+    }
+    return request;
+}
 
 struct RegisteredPublisherAdmission::State {
     std::unique_ptr<ServiceControlGuard> control;
@@ -2458,7 +2476,7 @@ usk::json::Value RegisteredPublisherAdmission::evidence() const {
 
 bool RegisteredPublisherAdmission::select_reviewed_operation(const std::string& request,
     const PublisherRequestChannel& channel, std::wstring& envelope_path,
-    std::string& envelope_sha256) {
+    std::string& envelope_sha256) const {
     if (state_->selected_envelope_source)
         throw std::runtime_error("one-request registration already selected its operation");
     const auto admission = evidence();
@@ -2618,8 +2636,11 @@ std::string submit_registered_publisher_request(const std::wstring& name,
             schema != "usk.repair_apply_request.v1" && schema != "usk.move_apply_request.v1" &&
             schema != "usk.uninstall_apply_request.v1" &&
             schema != "usk.publisher_recovery_request.v1" &&
+            schema != "usk.publisher_maintenance_recovery_request.v1" &&
             schema != "usk.publisher_installed_verify_request.v1")
             throw std::runtime_error("publisher request schema is unavailable");
+        if (schema == "usk.publisher_maintenance_recovery_request.v1")
+            (void)parse_publisher_maintenance_recovery_request(request);
         if (options.conflict_wait_milliseconds > publisher_request_max_conflict_wait_milliseconds)
             throw std::invalid_argument("publisher contention wait exceeds bound");
         if (options.cancel_event) {
