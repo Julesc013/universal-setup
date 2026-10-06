@@ -79,6 +79,12 @@ function Invoke-StandardFreshMaintenance {
     $sourceAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),
         'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
     Set-Acl -LiteralPath $sourceRoot -AclObject $sourceAcl
+    if($MaintenanceRecoveryQualification){
+        $result['scope']='one_original_ended_worker_source_free_repair'
+        $result['ended_repair']=Invoke-StandardEndedRepairRecovery $replacement $sourceRoot
+        $result.status='ended_worker_source_free_repair_observed'
+        return $result
+    }
     $currentRoot=[IO.Path]::GetFullPath([string]$installed.target_root)
     $currentInstalled=$installed
     $movedRoot=$drive+'publication\destination\maintenance-moved'

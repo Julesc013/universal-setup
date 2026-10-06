@@ -915,6 +915,7 @@ void require_exclusive_volume_admission(const std::wstring& name,
                     (void)intended_device_security(bytes, sid, true);
                 };
                 const auto require_bootstrap_identity = [&] {
+                    ScopedControllerPrivilege backup_observation;
                     if (usk::json::canonical(registration_volume_identity(root, true)) !=
                             usk::json::canonical(unpublished_admission_identity->at("volume_identity")) ||
                         usk::json::canonical(dedicated_target_disk_identity(root)) !=

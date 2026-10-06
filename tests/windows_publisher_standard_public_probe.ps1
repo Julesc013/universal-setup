@@ -14,12 +14,14 @@ param(
     [switch]$StalePlanQualification,
     [switch]$InstallationGuardConflict,
     [switch]$MaintenanceQualification,
+    [switch]$MaintenanceRecoveryQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$ConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
     [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
+if($MaintenanceRecoveryQualification -and -not $MaintenanceQualification){throw 'Ended maintenance recovery requires its owned maintenance fixture'}
 if($MaintenanceQualification -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
     $ActiveInstallContention -or $StalePlanQualification -or $InstallationGuardConflict -or
     $ConstructedBootstrapPrefix -cne 'none' -or $ConstructedBootstrapDurableState -cne 'none')) {
@@ -50,6 +52,7 @@ if($ConstructedBootstrapDurableState -cne 'none' -and
 . (Join-Path $PSScriptRoot 'windows_publisher_bootstrap_prefix.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_install_guard_fixture.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_public_maintenance_probe.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_maintenance_recovery_probe.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -398,9 +401,9 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     }
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
-    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal) {
+    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal,[switch]$MaintenanceProcessLoss) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
-    $processLoss=$BootstrapLoss -or $PreservationLoss
+    $processLoss=$BootstrapLoss -or $PreservationLoss -or $MaintenanceProcessLoss
     $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal -or $InstallGuardRefusal
     if(($StalePlanRefusal -and $StateRevisionRefusal) -or
         (($StalePlanRefusal -or $StateRevisionRefusal) -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss))) {
@@ -409,9 +412,16 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
     if($InstallGuardRefusal -and ($StalePlanRefusal -or $StateRevisionRefusal -or $processLoss -or
         -not $InstallationGuardConflict -or $Command -cne 'installed.verify' -or $ExpectedExit -ne 4 -or
         -not $receipt.Contains('installation_guard_conflict'))) {throw 'Installation guard refusal scope differs'}
-    $lossKey=if($PreservationLoss){'bootstrap_preservation_loss'}else{'bootstrap_loss'}
-    $lossPhase=if($PreservationLoss){'bootstrap_preserved'}else{'bootstrap'}
-    if(($BootstrapLoss -and $PreservationLoss) -or ($processLoss -and
+    if($MaintenanceProcessLoss -and (-not $MaintenanceRecoveryQualification -or $BootstrapLoss -or $PreservationLoss -or
+        $structuredRefusal -or $Command -cne 'repair.apply' -or $ExpectedExit -ne 5 -or
+        $Payload.schema -cne 'usk.repair_apply_request.v1' -or
+        $Payload.transaction_id -cnotmatch '^maintenance\.repair\.[0-9a-f]{32}$' -or
+        $Payload.reviewed_plan_digest -cnotmatch '^[0-9a-f]{64}$' -or $receipt.Contains('maintenance_process_loss'))) {
+        throw 'Maintenance interruption requires its exact original owned repair'
+    }
+    $lossKey=if($MaintenanceProcessLoss){'maintenance_process_loss'}elseif($PreservationLoss){'bootstrap_preservation_loss'}else{'bootstrap_loss'}
+    $lossPhase=if($MaintenanceProcessLoss){'maintenance_published'}elseif($PreservationLoss){'bootstrap_preserved'}else{'bootstrap'}
+    if(($BootstrapLoss -and $PreservationLoss) -or (($BootstrapLoss -or $PreservationLoss) -and
         ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 5 -or -not $BootstrapProcessLoss -or
             $receipt.Contains($lossKey) -or ($PreservationLoss -and
                 (-not $BootstrapPreservationProcessLoss -or -not $receipt.Contains('bootstrap_loss')))))) {
@@ -446,7 +456,9 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$receipt.machine_sha256;
             capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
         if($processLoss) {
-            $receipt[$lossKey]=[ordered]@{schema=$(if($PreservationLoss){
+            $receipt[$lossKey]=[ordered]@{schema=$(if($MaintenanceProcessLoss){
+                    'usk.publisher_registered_maintenance_process_loss.v1'
+                }elseif($PreservationLoss){
                     'usk.publisher_registered_bootstrap_preservation_loss.v1'
                 }else{'usk.publisher_registered_bootstrap_loss.v1'});
                 client_capture=$clientCapture;response=$null;boundary=$null;readback=$null;reconciliation=$null}
@@ -458,7 +470,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
             $script:observersClosed=$false
             $operationPrefix=if($PreservationLoss){$script:bootstrapOperationPrefix}else{''}
-            $bootstrapObserver=Start-OwnedProductionBoundaryObserver -Phase $lossPhase -Service $service `
+            $maintenanceBoundary=@{}
+            if($MaintenanceProcessLoss){$maintenanceBoundary=@{MaintenanceTransactionId=$Payload.transaction_id;
+                MaintenancePlanDigest=$Payload.reviewed_plan_digest}}
+            $bootstrapObserver=Start-OwnedProductionBoundaryObserver @maintenanceBoundary -Phase $lossPhase -Service $service `
                 -ObserverRoot $observerRoot -VhdPath $VhdPath -VolumeRoot $VolumeRoot -DriveRoot $drive `
                 -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $registeredCommand `
                 -ServiceBinarySha256 $receipt.service_sha256 -BootstrapOperationPrefix $operationPrefix
