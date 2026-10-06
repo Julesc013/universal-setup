@@ -1294,7 +1294,9 @@ void TransactionSession::commit_effect()
             throw std::runtime_error("commit preparation refuses a changed verified closure");
         }
     } catch (...) {
-        persist_transition("recovery_required");
+        // Preserve the primary refusal if its fence also prevents recording
+        // recovery. The durable cleanup latch already withholds rollback.
+        try { persist_transition("recovery_required"); } catch (...) {}
         throw;
     }
     // Observations end here. This legacy hook/rename window has no protected
@@ -1317,7 +1319,9 @@ void TransactionSession::commit_effect()
 #endif
             rename_directory_no_replace(staging_root_, spec_.target_root);
     } catch (...) {
-        persist_transition("recovery_required");
+        // An uncertain native effect may refuse every subsequent record write.
+        // Retain the original exception without relaxing that effect fence.
+        try { persist_transition("recovery_required"); } catch (...) {}
         throw;
     }
     if (injector_) injector_(current_state_, "after_commit_effect");
@@ -1472,6 +1476,11 @@ std::string TransactionSession::render_journal() const
 
 RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& input)
 {
+    return inspect_recovery_impl(input, true);
+}
+
+RecoveryInspection TransactionSession::inspect_recovery_impl(const TransactionSpec& input, bool observe_payload)
+{
     TransactionSpec spec = input;
     spec.staging_parent = absolute_normal(spec.staging_parent);
     spec.target_root = absolute_normal(spec.target_root);
@@ -1555,6 +1564,11 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     usk::base::Sha256 snapshot_digest;
     snapshot_digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
     result.snapshot_sha256 = snapshot_digest.finish();
+    if (!observe_payload) {
+        if (result.current_state != "completed")
+            throw std::runtime_error("historical transaction journal is not completed");
+        return result;
+    }
     result.staging_exists = fs::exists(staging);
     result.target_exists = fs::exists(spec.target_root);
     if (result.staging_exists && reparse_or_symlink(staging)) {
@@ -1765,6 +1779,23 @@ StreamJournal TransactionSession::inspect_recovery_stream(const TransactionSpec&
     if (inspect_recovery(spec).snapshot_sha256 != expected_snapshot_sha256)
         throw std::runtime_error("recovery stream changed during inspection");
     return result;
+}
+
+CompletedTransactionHistory TransactionSession::inspect_completed_history(const TransactionSpec& spec)
+{
+    const auto before = inspect_recovery_impl(spec, false);
+    const fs::path journal = absolute_normal(spec.state_root) / "transactions" /
+        (spec.transaction_id + ".journal.json");
+    const auto text = read_bounded_text(journal, 4u * 1024u * 1024u);
+    base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    if (hash.finish() != before.snapshot_sha256)
+        throw std::runtime_error("historical transaction bytes changed");
+    const auto document = json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    auto stream = read_stream_journal(document, safe_relative_path);
+    if (inspect_recovery_impl(spec, false).snapshot_sha256 != before.snapshot_sha256)
+        throw std::runtime_error("historical transaction changed during inspection");
+    return {before.journal_digest, before.recorded_at, before.snapshot_sha256, std::move(stream)};
 }
 
 RecoveryInspection TransactionSession::finalize_maintenance(const TransactionSpec& spec,

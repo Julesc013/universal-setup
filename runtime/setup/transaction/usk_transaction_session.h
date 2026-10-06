@@ -69,6 +69,15 @@ struct RecoveryInspection {
     std::vector<std::string> available_actions;
 };
 
+// Historical metadata only. No current namespace facts, recovery actions or
+// mutation authority are inferred from an already completed journal.
+struct CompletedTransactionHistory {
+    std::string journal_digest;
+    std::string recorded_at;
+    std::string snapshot_sha256;
+    StreamJournal stream;
+};
+
 class TransactionSession {
 public:
     explicit TransactionSession(TransactionSpec spec, FaultInjector injector = {});
@@ -113,6 +122,7 @@ public:
         const std::string& source_digest,
         FaultInjector injector = {});
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
+    static CompletedTransactionHistory inspect_completed_history(const TransactionSpec& spec);
     // Read-only comparison with bytes retained before an owned effect. Allows
     // only an unchanged immutable journal and its exact original transition
     // prefix plus valid finalization transitions. This confers no effect,
@@ -138,6 +148,7 @@ public:
         FaultInjector injector = {});
 
 private:
+    static RecoveryInspection inspect_recovery_impl(const TransactionSpec& spec, bool observe_payload);
 #if defined(_WIN32)
     const detail::NativeMaintenanceTransactionOperations* require_native_owner() const;
     bool native_origin_ = false;

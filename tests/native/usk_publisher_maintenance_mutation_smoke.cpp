@@ -104,8 +104,12 @@ void protect_owned_object(const fs::path& path, bool directory_object) {
     check(error == ERROR_SUCCESS, "owned protected-fixture DACL update failed");
     const auto after = directory_object ? observe_publisher_directory_handle(object.get()) : observe_publisher_file_handle(object.get());
     before.dacl_protected = true;
-    // Explicit protection converts existing inherited ACEs to explicit ACEs;
-    // retain their order, types, masks, SIDs and all other flags exactly.
+    // Predict this fixture's protection postimage from the held preimage:
+    // explicit ACEs precede the formerly inherited group, retaining each
+    // group's order and every type, mask, SID and other flag exactly.
+    std::stable_partition(before.dacl_aces.begin(), before.dacl_aces.end(), [](const auto& ace) {
+        return (ace.flags & INHERITED_ACE) == 0;
+    });
     for (auto& ace : before.dacl_aces) ace.flags &= static_cast<std::uint8_t>(~INHERITED_ACE);
     const auto expected = usk::json::canonical(publisher_handle_observation_json(before));
     const auto actual = usk::json::canonical(publisher_handle_observation_json(after));

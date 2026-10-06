@@ -352,6 +352,37 @@ int fault_after_transition(Fixture& fixture, const std::string& state, int ordin
     return 0;
 }
 
+int commit_refusal_preserves_primary_error(Fixture& fixture)
+{
+    for (const bool refuse_recovery_record : {false, true}) {
+        const auto spec = fixture.spec(refuse_recovery_record ? "commit-primary-record-refused" : "commit-primary-recorded");
+        bool recovery_attempted = false;
+        TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+            if (state == "recovery_required" && point == "before_journal") {
+                recovery_attempted = true;
+                if (refuse_recovery_record) throw std::runtime_error("secondary recovery record refusal");
+            }
+        });
+        session.stage_file("payload.txt", bytes("original"));
+        session.mark_staged(); session.mark_verified();
+        // Change only this fixture's staged closure after verification. The
+        // primary preparation refusal must survive a second record refusal.
+        std::ofstream(session.staging_root() / "foreign.txt", std::ios::binary) << "foreign";
+        std::string primary;
+        try { session.commit_effect(); }
+        catch (const std::runtime_error& error) { primary = error.what(); }
+        if (primary != "commit refuses linked, unsupported, or unrecorded content" || !recovery_attempted) return 202;
+        const auto retained = TransactionSession::inspect_recovery(spec);
+        if (retained.current_state != (refuse_recovery_record ? "verified" : "recovery_required") ||
+            retained.available_actions != std::vector<std::string>{"retain_for_operator"} ||
+            !retained.staging_exists || retained.target_exists ||
+            read_text(session.staging_root() / "payload.txt") != "original" ||
+            read_text(session.staging_root() / "foreign.txt") != "foreign" ||
+            !throws([&] { session.rollback(); })) return 203;
+    }
+    return 0;
+}
+
 int fault_after_commit_effect(Fixture& fixture)
 {
     TransactionSpec spec = fixture.spec("fault-after-commit-effect");
@@ -547,6 +578,7 @@ int main()
     if (int result = staging_substitution(fixture)) return result;
     if (int result = target_ancestor_replacement(fixture)) return result;
     if (int result = partial_write_recovery(fixture)) return result;
+    if (int result = commit_refusal_preserves_primary_error(fixture)) return result;
 
     std::vector<std::string> states = {
         "created", "validated", "planned", "staging", "staged",

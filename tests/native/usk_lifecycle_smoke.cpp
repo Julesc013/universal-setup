@@ -1182,6 +1182,34 @@ int maintenance_effect_interruption_proof()
             if (again.snapshot_sha256 != whole.snapshot_sha256 || applied_effects != effect_calls ||
                 usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest).journal_digest != full_history.journal_digest)
                 throw std::runtime_error("completed maintenance replayed effects or changed its original terminal records");
+            // Later namespace changes cannot turn an old completed result into
+            // a new health verdict or require replay. This is an ordinary
+            // owned fixture; native protected history/lease admission is separate.
+            const auto historical_root = fs::u8path(resulting_state.target_root);
+            const auto renamed_root = historical_root.parent_path() /
+                fs::u8path(historical_root.filename().u8string() + ".historical");
+            if (!fs::is_directory(historical_root) || fs::exists(renamed_root))
+                throw std::runtime_error("historical maintenance fixture root is unavailable or occupied");
+            fs::rename(historical_root, renamed_root);
+            if (fs::exists(spec.target_root))
+                throw std::runtime_error("historical operation namespace was not released");
+            const std::string later_bytes = "later owned fixture substitution\n";
+            std::ofstream(spec.target_root, std::ios::binary) << later_bytes;
+            usk::base::Sha256 later_hash;
+            later_hash.update(reinterpret_cast<const unsigned char*>(later_bytes.data()), later_bytes.size());
+            const auto later_sha256 = later_hash.finish();
+            const auto historical = usk::lifecycle::detail::inspect_completed_maintenance_history(spec);
+            if (!historical.effects_complete || !historical.sealed || !historical.next_kind.empty() ||
+                historical.transaction_snapshot_sha256 != whole.snapshot_sha256 ||
+                historical.history_digest != full_history.journal_digest || applied_effects != effect_calls ||
+                !refuses([&] { (void)usk::transaction::TransactionSession::inspect_recovery(spec); }) ||
+                !refuses([&] { (void)usk::lifecycle::detail::inspect_maintenance_continuation(spec); }))
+                throw std::runtime_error("historical completion depended on later payload paths or claimed current health");
+            // Release this fixture's byte observer before removing its file.
+            if (usk::base::StableFile(spec.target_root).sha256_hex() != later_sha256)
+                throw std::runtime_error("historical reader changed its later owned fixture substitution");
+            if (!fs::remove(spec.target_root))
+                throw std::runtime_error("historical reader changed its later owned fixture substitution");
         } else if (effect_happened) {
             // This fixture independently observed the after-effect boundary.
             // A production resumer needs its native authority and current

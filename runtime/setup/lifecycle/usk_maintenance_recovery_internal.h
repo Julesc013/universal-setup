@@ -50,6 +50,14 @@ struct MaintenanceContinuationInspection {
 MaintenanceContinuationInspection inspect_maintenance_continuation(
     const transaction::TransactionSpec& spec);
 
+// Completed sealed history only. Validates the entire original ordered effect
+// prefix and immutable ownership/installed/audit postimages without reading
+// current payload paths. The result proves no current health or native actor,
+// lease membership or mutation authority; the native reader supplies those
+// separate protected-record observations before reporting an old completion.
+MaintenanceContinuationInspection inspect_completed_maintenance_history(
+    const transaction::TransactionSpec& spec);
+
 // Internal operation-local backend, supplied by the owner of the native
 // operation. require_authority must retain and revalidate the original intent,
 // current installed revision, generation/worker fence, record parents and all

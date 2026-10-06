@@ -2966,11 +2966,17 @@ bool maintenance_same_ownership(const state::OwnershipManifest& actual, const st
 }
 } // namespace
 
-json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& spec)
+static json::Value read_maintenance_reviewed_plan_impl(const transaction::TransactionSpec& spec, bool completed_history)
 {
-    const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
-    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
-    if (history.source_context != transaction.stream_source_context)
+    const auto historical = completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
+        transaction::CompletedTransactionHistory{};
+    const auto current = completed_history ? transaction::RecoveryInspection{} :
+        transaction::TransactionSession::inspect_recovery(spec);
+    const auto snapshot_sha256 = completed_history ? historical.snapshot_sha256 : current.snapshot_sha256;
+    const auto source_digest = completed_history ? historical.stream.source_digest : current.stream_source_digest;
+    const auto source_context = completed_history ? historical.stream.source_context : current.stream_source_context;
+    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
+    if (history.source_context != source_context)
         throw std::runtime_error("maintenance reviewed plan has inconsistent original context");
     const auto context = json::parse(history.source_context);
     if (!context.contains("reviewed_plan_ref") || !context.contains("reviewed_plan_sha256"))
@@ -3129,21 +3135,36 @@ json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& s
             if (!safe_relative(unknown.as_string())) throw std::runtime_error("maintenance uninstall unknown path is invalid");
         }
     }
-    const auto after_transaction = transaction::TransactionSession::inspect_recovery(spec);
-    const auto after_history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
-    if (after_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+    const auto after_snapshot = completed_history ? transaction::TransactionSession::inspect_completed_history(spec).snapshot_sha256 :
+        transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256;
+    const auto after_history = transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
+    if (after_snapshot != snapshot_sha256 ||
         after_history.journal_digest != history.journal_digest)
         throw std::runtime_error("maintenance reviewed plan changed during inspection");
     return artifact;
 }
 
-MaintenanceContinuationInspection inspect_maintenance_continuation(const transaction::TransactionSpec& spec)
+json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& spec)
 {
-    const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
-    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest, true);
-    const auto artifact = read_maintenance_reviewed_plan(spec);
+    return read_maintenance_reviewed_plan_impl(spec, false);
+}
+
+static MaintenanceContinuationInspection inspect_maintenance_prefix(const transaction::TransactionSpec& spec,
+    bool completed_history)
+{
+    const auto historical = completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
+        transaction::CompletedTransactionHistory{};
+    const auto current = completed_history ? transaction::RecoveryInspection{} :
+        transaction::TransactionSession::inspect_recovery(spec);
+    const auto snapshot_sha256 = completed_history ? historical.snapshot_sha256 : current.snapshot_sha256;
+    const auto source_digest = completed_history ? historical.stream.source_digest : current.stream_source_digest;
+    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, source_digest, true);
+    if (completed_history && (!history.sealed || !history.pending_kind.empty()))
+        throw std::runtime_error("maintenance historical result lacks a completed sealed original prefix");
+    const auto artifact = read_maintenance_reviewed_plan_impl(spec, completed_history);
     const auto context = json::parse(history.source_context);
-    const auto stream = transaction::TransactionSession::inspect_recovery_stream(spec, transaction.snapshot_sha256);
+    const auto stream = completed_history ? historical.stream :
+        transaction::TransactionSession::inspect_recovery_stream(spec, snapshot_sha256);
     if (history.source_context != stream.source_context || stream.publication_root_identity.empty() ||
         history.completed.size() != history.completed_effects || !stream.origin_transaction_id.empty())
         throw std::runtime_error("maintenance continuation lost its original stream or effect prefix");
@@ -3155,19 +3176,22 @@ MaintenanceContinuationInspection inspect_maintenance_continuation(const transac
     const auto original_ownership = repository.read_ownership(ownership_id_from_ref(original.ownership_manifest_ref));
     const fs::path installed_root = fs::u8path(original.target_root);
     const auto pin = [&] {
-        const auto current = transaction::TransactionSession::inspect_recovery(spec);
-        const auto effects = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
-        if (current.snapshot_sha256 != transaction.snapshot_sha256 || effects.journal_digest != history.journal_digest)
+        const auto pinned = completed_history ? transaction::TransactionSession::inspect_completed_history(spec).snapshot_sha256 :
+            transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256;
+        const auto effects = transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
+        if (pinned != snapshot_sha256 || effects.journal_digest != history.journal_digest)
             throw std::runtime_error("maintenance continuation changed during selection");
     };
     MaintenanceContinuationInspection result;
-    result.transaction_snapshot_sha256 = transaction.snapshot_sha256;
+    result.transaction_snapshot_sha256 = snapshot_sha256;
     result.history_digest = history.journal_digest;
     result.sealed = history.sealed;
     std::size_t consumed = 0;
     const auto select = [&](const std::string& kind, const std::function<Value(const Value*)>& details,
             const std::function<void(const transaction::CompletedMaintenanceEffect&)>& validate_result = {}) {
         const auto* completed = consumed < history.completed.size() ? &history.completed[consumed] : nullptr;
+        if (completed_history && !completed)
+            throw std::runtime_error("maintenance historical prefix is incomplete");
         const Value* retained = completed ? &completed->details :
             history.pending_kind.empty() ? nullptr : &history.pending_details;
         const Value expected = details(retained);
@@ -3274,7 +3298,7 @@ MaintenanceContinuationInspection inspect_maintenance_continuation(const transac
         if (identity.type() != Value::Type::null_value && !select("remove_directory", fixed(Value(Value::Object{
                 {"root_role", Value("installed")}, {"relative_path", Value("")}, {"native_identity", identity}})))) return result;
     }
-    if (spec.operation != "uninstall") {
+    if (spec.operation != "uninstall" && !completed_history) {
         const auto output_root = spec.operation == "move" ? spec.target_root : installed_root;
         const auto expected_root_identity = spec.operation == "move" ? stream.publication_root_identity :
             context.at("installed_root").at("native_identity").as_string();
@@ -3318,18 +3342,22 @@ MaintenanceContinuationInspection inspect_maintenance_continuation(const transac
         for (const auto& object : objects) if (object.at("type").as_string() == "directory")
             verification.directories.push_back({object.at("relative_path").as_string(), object.at("present").as_boolean() ? "present" : "missing"});
         for (const auto& path : observed.at("unknown_paths").as_array()) verification.unknown_paths.push_back(path.as_string());
-        const auto root = maintenance_object_presence(installed_root);
-        if (root == MaintenanceObjectState::indeterminate) throw std::runtime_error("uninstall retained root is indeterminate");
-        const bool removed = root == MaintenanceObjectState::absent;
+        const auto root = completed_history ? MaintenanceObjectState::indeterminate : maintenance_object_presence(installed_root);
+        if (!completed_history && root == MaintenanceObjectState::indeterminate)
+            throw std::runtime_error("uninstall retained root is indeterminate");
+        bool removed = completed_history || root == MaintenanceObjectState::absent;
         if (context.at("installed_root").at("native_identity").type() != Value::Type::null_value) {
             const auto root_effect = std::find_if(history.completed.begin(), history.completed.end(), [](const auto& effect) {
                 return effect.kind == "remove_directory" && effect.details.at("root_role").as_string() == "installed" &&
                     effect.details.at("relative_path").as_string().empty();
             });
-            if (root_effect == history.completed.end() || (root_effect->outcome == "applied") != removed)
+            if (root_effect == history.completed.end())
+                throw std::runtime_error("uninstall has no original root-removal completion");
+            if (completed_history) removed = root_effect->outcome == "applied";
+            else if ((root_effect->outcome == "applied") != removed)
                 throw std::runtime_error("uninstall root observation differs from its original removal completion");
         } else if (!removed) throw std::runtime_error("originally absent uninstall root became present");
-        if (!removed && transaction::observe_directory_identity(installed_root) !=
+        if (!completed_history && !removed && transaction::observe_directory_identity(installed_root) !=
                 context.at("installed_root").at("native_identity").as_string())
             throw std::runtime_error("uninstall retained root identity changed");
         verification.status = removed ? "pass" : "warn";
@@ -3349,8 +3377,20 @@ MaintenanceContinuationInspection inspect_maintenance_continuation(const transac
             basis.ownership_manifest_digest = ownership.manifest_digest;
             basis.lifecycle_status = "move_pending_acceptance";
         }
-        verification = verify_manifest(basis, spec.operation == "move" ? ownership : original_ownership,
-            "verify." + spec.transaction_id + (spec.operation == "repair" ? ".after" : ".new"), applied_at);
+        const auto report_id = "verify." + spec.transaction_id + (spec.operation == "repair" ? ".after" : ".new");
+        if (completed_history) {
+            // Read the original immutable result. Its verification digest is
+            // historical metadata, never a new verdict on today's payload.
+            const auto recorded = repository.read_installed_snapshot(original.install_id, spec.transaction_id);
+            if (recorded.last_verification.report_id != report_id || recorded.last_verification.verified_at != applied_at ||
+                (recorded.last_verification.status != "pass" && recorded.last_verification.status != "warn"))
+                throw std::runtime_error("maintenance historical verification differs from the original result");
+            verification.report_id = report_id;
+            verification.report_digest = recorded.last_verification.report_digest;
+            verification.status = recorded.last_verification.status;
+            verification.verified_at = applied_at;
+        } else verification = verify_manifest(basis, spec.operation == "move" ? ownership : original_ownership,
+            report_id, applied_at);
         if (verification.status == "fail") throw std::runtime_error("maintenance continuation has a damaged resulting owned closure");
         installed = revised_state(original, ownership, spec.transaction_id, applied_at,
             spec.operation == "repair" ? "verified" : "move_pending_acceptance", verification);
@@ -3412,6 +3452,16 @@ MaintenanceContinuationInspection inspect_maintenance_continuation(const transac
     result.effects_complete = true;
     pin();
     return result;
+}
+
+MaintenanceContinuationInspection inspect_maintenance_continuation(const transaction::TransactionSpec& spec)
+{
+    return inspect_maintenance_prefix(spec, false);
+}
+
+MaintenanceContinuationInspection inspect_completed_maintenance_history(const transaction::TransactionSpec& spec)
+{
+    return inspect_maintenance_prefix(spec, true);
 }
 
 state::OwnershipManifest maintenance_ownership_postimage(const transaction::TransactionSpec& spec,
