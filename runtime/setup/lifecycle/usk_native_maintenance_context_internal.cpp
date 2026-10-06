@@ -4,6 +4,7 @@
 #if defined(_WIN32)
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_bound_rename.h"
+#include "usk_publisher_consumer_access.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_metadata.h"
@@ -79,6 +80,16 @@ void require_custody_value_budget(const Value& value, std::size_t maximum) {
 }
 bool same(const PublisherHandleObservation& a, const PublisherHandleObservation& b) {
     return equal(publisher_handle_observation_json(a), publisher_handle_observation_json(b));
+}
+Value consumer_grant_postimage(Value before, const std::string& consumer_sid) {
+    auto& aces = before.as_object().at("dacl_aces").as_array();
+    if (aces.size() != 2u) throw std::runtime_error("native maintenance read grant lacks its private preimage");
+    require_publisher_consumer_sid(consumer_sid);
+    aces.emplace_back(Value::Object{{"type", Value(static_cast<std::uint64_t>(ACCESS_ALLOWED_ACE_TYPE))},
+        {"flags", Value(std::uint64_t{0})},
+        {"access_mask", Value(static_cast<std::uint64_t>(publisher_consumer_read_access_mask()))},
+        {"sid", Value(consumer_sid)}});
+    return before;
 }
 class Held final {
 public:
@@ -410,6 +421,23 @@ struct NativeMaintenanceContext::Impl {
                         std::none_of(ownership.begin(), ownership.end(), [&](const auto& owned) {
                             return owned_relative(owned.at("relative_path").as_string()) == relative;
                         })) throw std::runtime_error("native repair parent is outside its original owned replacement path");
+                } else if (kind == "consumer_read_grant") {
+                    members(details, {"root_role", "relative_path", "before", "after", "parent", "native_identity", "consumer_sid"});
+                    const auto role = details.at("root_role").as_string();
+                    const auto text = details.at("relative_path").as_string();
+                    const auto relative = text.empty() ? fs::path{} : owned_relative(text);
+                    const auto effect = intent.at("details").at("kind").as_string();
+                    if (original_consumer_sid.empty() || details.at("consumer_sid").as_string() != original_consumer_sid ||
+                        !equal(details.at("after"), consumer_grant_postimage(details.at("before"), original_consumer_sid)) ||
+                        !((spec.operation == "move" && role == "operation_target" && effect == "publish_target") ||
+                          (spec.operation == "repair" && role == "installed" && effect == "replace_file" && !relative.empty())))
+                        throw std::runtime_error("native maintenance read grant differs from its original consumer/intent");
+                    if (spec.operation == "repair") {
+                        const auto file = owned_relative(intent.at("details").at("effect").at("relative_path").as_string());
+                        const auto below = file.lexically_relative(relative);
+                        if (below.empty() || *below.begin() == fs::path(".."))
+                            throw std::runtime_error("native repair read grant is outside its original replacement path");
+                    }
                 } else if (kind == "created_metadata") {
                     members(details, {"setup_relative_path", "object", "parent", "size_bytes", "sha256"});
                     (void)owned_relative(details.at("setup_relative_path").as_string());
@@ -532,6 +560,36 @@ struct NativeMaintenanceContext::Impl {
                     throw std::runtime_error("native repair parent changed its original absence/creator lineage");
                 original_directories_after.at(relative).native_identity = details.at("native_identity").as_string();
                 repaired_parent_creations.insert(relative);
+            } else if (kind == "consumer_read_grant") {
+                const auto role = details.at("root_role").as_string();
+                const auto text = details.at("relative_path").as_string();
+                const auto relative = text.empty() ? fs::path{} : owned_relative(text);
+                const bool directory = (details.at("before").at("attributes").as_unsigned() & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                RestoredObject* object = nullptr;
+                if (role == "operation_target") {
+                    auto& objects = directory ? created_directories_after : created_files_after;
+                    const auto found = objects.find(relative);
+                    if (found != objects.end() && found->second.path == spec.target_root / relative) object = &found->second;
+                } else if (role == "installed" && directory && repaired_parent_creations.count(relative)) {
+                    object = &original_directories_after.at(relative);
+                } else if (role == "installed" && !directory) {
+                    const auto found = created_files_after.find(fs::path("payload") / relative);
+                    if (found != created_files_after.end() && found->second.path == installed_path / relative) object = &found->second;
+                }
+                if (!object || object->removed || object->directory != directory ||
+                    !equal(object->object, details.at("before")) || !equal(object->parent, details.at("parent")) ||
+                    object->native_identity != details.at("native_identity").as_string())
+                    throw std::runtime_error("native maintenance read grant lacks its exact surviving creator postimage");
+                const auto before = object->object;
+                object->object = details.at("after");
+                if (directory) {
+                    const auto update = [&](auto& objects) { for (auto& item : objects)
+                        if (item.second.path.parent_path() == object->path && equal(item.second.parent, before))
+                            item.second.parent = object->object;
+                    };
+                    update(created_directories_after); update(created_files_after);
+                    update(original_directories_after); update(original_files_after);
+                }
             } else if (kind == "created_metadata") {
                 if (!metadata_creations.emplace(record.at("pending_intent_sequence").as_unsigned(), &details).second)
                     throw std::runtime_error("native maintenance intent has repeated metadata creations");
@@ -1670,6 +1728,75 @@ struct NativeMaintenanceContext::Impl {
         transaction_snapshot_bytes += text.size();
         return retained;
     }
+    void grant_created_payload(Entry& entry, const std::string& role, const fs::path& relative) {
+        if ((!entry.created && !entry.restored_creation) || !entry.parent || original_consumer_sid.empty())
+            throw std::runtime_error("native maintenance read grant lacks original approved creator custody");
+        require_entry(entry);
+        if (!entry.directory) require_bytes(entry);
+        if (entry.facts.dacl_aces.size() == 3u) {
+            (void)publisher_consumer_read_object_projection(entry.facts, service.service_sid, original_consumer_sid, true);
+            return; // Full facts already match the retained confirmed creator/grant receipt.
+        }
+        const auto before = entry.facts;
+        auto after = grant_publisher_consumer_read_object(entry.handle.value, entry.directory, before,
+            service.service_sid, original_consumer_sid);
+        entry.facts = std::move(after);
+        require_entry(entry);
+        if (!entry.directory) require_bytes(entry);
+        persist_native_custody("consumer_read_grant", Value(Value::Object{
+            {"root_role", Value(role)}, {"relative_path", Value(relative.generic_u8string())},
+            {"before", publisher_handle_observation_json(before)}, {"after", publisher_handle_observation_json(entry.facts)},
+            {"parent", publisher_handle_observation_json(entry.parent->facts)},
+            {"native_identity", Value(journal_identity(entry.handle.value))}, {"consumer_sid", Value(original_consumer_sid)}}));
+    }
+    void complete_consumer_access(const transaction::MaintenanceEffectInspection& history) {
+        if (!((spec.operation == "repair" && history.pending_kind == "replace_file") ||
+              (spec.operation == "move" && history.pending_kind == "publish_target"))) return;
+        // A validated legacy completion has no reader policy to extend.
+        // Namespace/creator confirmation remains mandatory in its caller.
+        if (original_consumer_sid.empty()) return;
+        (void)require_pending(history.pending_kind);
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        try {
+            // A resumed pending completion can have a newer transaction
+            // snapshot than its old writer. Retain its actual bytes before
+            // any grant; every effect fence pins this SHA and original intent.
+            (void)retained_transaction_text(tx.snapshot_sha256);
+            active_payload_transaction = tx.snapshot_sha256; active_payload_history = history.journal_digest;
+            (void)require_pending(history.pending_kind);
+            if (spec.operation == "repair") {
+                const auto relative = owned_relative(history.pending_details.at("relative_path").as_string());
+                auto& file = *files.at(fs::path("payload") / relative);
+                const auto parent = original_directories.find(relative.parent_path());
+                if (parent == original_directories.end() || file.parent != parent->second || file.name != relative.filename().wstring())
+                    throw std::runtime_error("native repair read grant precedes its confirmed replacement");
+                grant_created_payload(file, "installed", relative);
+                // Deepest parents first. A parent update never invalidates a
+                // previously retained child; every receipt preserves full facts.
+                auto path = relative.parent_path();
+                while (!path.empty()) {
+                    auto* directory = original_directories.at(path);
+                    if (directory->created || directory->restored_creation) grant_created_payload(*directory, "installed", path);
+                    path = path.parent_path();
+                }
+            } else {
+                if (!staging || staging->parent != target_parent || staging->name != spec.target_root.filename().wstring())
+                    throw std::runtime_error("native move read grant precedes its confirmed publication");
+                for (auto& item : files) grant_created_payload(*item.second, "operation_target", item.first);
+                const auto key = relative_volume_path(spec.staging_parent / (".usk-stage-" + spec.transaction_id));
+                for (auto item = directories.rbegin(); item != directories.rend(); ++item) {
+                    auto& directory = *item->second;
+                    if (!(directory.created || directory.restored_creation)) continue;
+                    const auto relative = item->first.lexically_relative(key);
+                    if (relative.empty() || *relative.begin() == fs::path(".."))
+                        throw std::runtime_error("native move read grant escaped its original creation closure");
+                    grant_created_payload(directory, "operation_target", relative == fs::path(".") ? fs::path{} : relative);
+                }
+            }
+            (void)require_pending(history.pending_kind);
+            active_payload_transaction.clear(); active_payload_history.clear();
+        } catch (...) { payload_failed = true; throw; }
+    }
     transaction::detail::NativeMaintenanceTransactionOperations::EffectResult apply_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected) {
         require_authority(supplied);
@@ -1756,16 +1883,29 @@ struct NativeMaintenanceContext::Impl {
                 {"result_digest", result_digest.empty() ? Value{} : Value(result_digest)},
                 {"effect_transaction_snapshot_sha256", Value(tx.snapshot_sha256)}}));
             inserted.first->second->confirmed = true;
+            complete_consumer_access(history);
             active_payload_transaction.clear(); active_payload_history.clear();
             return {outcome, result_digest};
         } catch (...) { payload_failed = true; throw; }
     }
     void confirm_effect_completion(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
-        const std::string& result_digest) const {
+        const std::string& result_digest, bool complete_grants = true) {
         require_authority(supplied);
         const auto current = require_pending(inspected.pending_kind);
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        if (current.pending_kind == "publish_target") {
+            if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
+                !publication_confirmed || !staging || outcome != "applied" || !result_digest.empty())
+                throw std::runtime_error("native maintenance publication completion lacks its original confirmed custody");
+            transaction::TransactionSession::require_recovery_transition_extension(spec,
+                *publication_transaction_text, publication_transaction_sha256, tx.snapshot_sha256);
+            require_entry(*staging);
+            for (const auto& file : files) require_bytes(*file.second);
+            if (complete_grants) complete_consumer_access(current);
+            require_authority(supplied);
+            return;
+        }
         const auto found = payload_outcomes.find(current.journal_digest);
         if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
             found == payload_outcomes.end() || !found->second->confirmed || found->second->outcome != outcome ||
@@ -1773,6 +1913,7 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance completion has no actual owned confirmed outcome");
         transaction::TransactionSession::require_recovery_transition_extension(spec,
             *found->second->transaction_text, found->second->transaction_sha256, tx.snapshot_sha256);
+        if (complete_grants) complete_consumer_access(current);
         // No observed-postcondition or newly resumed journal can fabricate an
         // outcome. Restored native creator/ended-holder proof remains absent
         // until the concrete source-free owner factory joins it separately.
@@ -1780,7 +1921,7 @@ struct NativeMaintenanceContext::Impl {
     }
     void require_recovery_authority(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& inspected_transaction,
-        const transaction::MaintenanceEffectInspection& inspected_history) const {
+        const transaction::MaintenanceEffectInspection& inspected_history) {
         require_authority(supplied);
         if (!publication_confirmed || original_source_context.empty())
             throw std::runtime_error("native live maintenance recovery has no original confirmed publication");
@@ -1812,7 +1953,7 @@ struct NativeMaintenanceContext::Impl {
                     const auto actual = payload_outcomes.find(history.journal_digest);
                     if (actual == payload_outcomes.end() || !actual->second->confirmed)
                         throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
-                    confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest);
+                    confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
                 }
             }
         }
@@ -1824,6 +1965,7 @@ struct NativeMaintenanceContext::Impl {
         require_recovery_authority(supplied, current, history);
         const auto confirmed = payload_outcomes.find(history.journal_digest);
         if (confirmed != payload_outcomes.end() && confirmed->second->confirmed) {
+            complete_consumer_access(history);
             const auto observation = reconcile_maintenance_effect(spec);
             confirm_effect_completion(supplied, history, confirmed->second->outcome, observation.result_digest);
             return confirmed->second->outcome; // Actual same-owner result; never another native call.
@@ -1925,6 +2067,7 @@ struct NativeMaintenanceContext::Impl {
                 {"root", publisher_handle_observation_json(staging->facts)},
                 {"parent", publisher_handle_observation_json(target_parent->facts)},
                 {"publication_transaction_snapshot_sha256", Value(publication_transaction_sha256)}}));
+            complete_consumer_access(require_pending("publish_target"));
         } catch (...) { custody_failed = true; throw; }
     }
 };

@@ -380,9 +380,10 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
 {
     if (pending_kind_.empty()) throw std::logic_error("maintenance completion has no intent");
 #if defined(_WIN32)
-    if (native_origin_ && pending_kind_ != "publish_target") {
+    if (native_origin_) {
         require_effect_authority();
-        if (!resumed_ && (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
+        if (!resumed_ && pending_kind_ != "publish_target" &&
+            (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
             throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");
         const auto history = inspect(spec_, source_digest_, true);
         if (history.journal_digest != last_digest_ || history.next_sequence != sequence_ ||
