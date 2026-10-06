@@ -32,6 +32,9 @@ struct NativeMaintenanceTransactionOperations {
     // Exact durable original pending payload intent; the owner alone selects
     // held native objects and returns an independently confirmed outcome.
     std::function<std::string(const TransactionSpec&, const MaintenanceEffectInspection&)> apply_payload;
+    // Completion of a resumed journal still requires this original owner's
+    // actual confirmed outcome. Compatible observations alone are insufficient.
+    std::function<void(const TransactionSpec&, const MaintenanceEffectInspection&, const std::string&)> confirm_payload_completion;
 };
 class ScopedNativeMaintenanceTransaction final {
 public:

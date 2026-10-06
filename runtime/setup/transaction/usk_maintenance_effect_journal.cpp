@@ -366,9 +366,17 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
     if (pending_kind_.empty()) throw std::logic_error("maintenance completion has no intent");
 #if defined(_WIN32)
     if (native_origin_ && (pending_kind_ == "backup_file" || pending_kind_ == "replace_file" ||
-        pending_kind_ == "remove_file" || pending_kind_ == "remove_directory") &&
-        (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
-        throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");
+        pending_kind_ == "remove_file" || pending_kind_ == "remove_directory")) {
+        require_effect_authority();
+        if (!resumed_ && (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
+            throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");
+        const auto history = inspect(spec_, source_digest_, true);
+        if (history.journal_digest != last_digest_ || history.next_sequence != sequence_ ||
+            history.pending_sequence != pending_sequence_ || history.pending_kind != pending_kind_)
+            throw std::runtime_error("native maintenance completion lost its original pending intent");
+        detail::ScopedNativeMaintenanceTransaction::current()->confirm_payload_completion(spec_, history, outcome);
+        require_effect_authority();
+    }
 #endif
     validate_completion(pending_kind_, outcome, result_digest);
     persist("complete", Value(Value::Object{{"intent_sequence", Value(pending_sequence_)},
@@ -471,6 +479,9 @@ MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
       pending_kind_(std::move(inspected.pending_kind)), pending_sequence_(inspected.pending_sequence),
       sequence_(inspected.next_sequence), bytes_(inspected.serialized_bytes)
 {
+#if defined(_WIN32)
+    resumed_ = true;
+#endif
     bind_original_owner();
 }
 

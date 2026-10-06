@@ -98,6 +98,9 @@ private:
     bool failed_ = false;
     bool payload_attempted_ = false;
     std::string payload_outcome_;
+#if defined(_WIN32)
+    bool resumed_ = false;
+#endif
 };
 
 } // namespace usk::transaction

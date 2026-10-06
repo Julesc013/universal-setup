@@ -15,6 +15,7 @@
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_worker_security.h"
 #include "usk_record_io.h"
+#include "usk_utf8_path.h"
 #include "usk_sha256.h"
 #include "usk_maintenance_recovery_internal.h"
 #include <algorithm>
@@ -103,10 +104,19 @@ struct NativeMaintenanceContext::Impl {
     std::map<fs::path, std::unique_ptr<Entry>> files;
     std::map<fs::path, std::unique_ptr<Entry>> original_files;
     std::map<fs::path, Entry*> original_directories;
+    std::set<fs::path> absent_original_files, absent_original_directories;
+    fs::path original_admission_path;
+    std::string original_admission_text;
     Entry* installed_root = nullptr;
     std::string original_root_identity;
     bool payload_failed = false;
     std::set<std::string> attempted_payload_histories;
+    struct ConfirmedPayload {
+        std::string transaction_sha256, outcome = "applied";
+        bool confirmed = false;
+    };
+    std::map<std::string, std::unique_ptr<ConfirmedPayload>> payload_outcomes;
+    std::string active_payload_transaction, active_payload_history;
     Entry* staging_parent = nullptr;
     Entry* target_parent = nullptr;
     Entry* staging = nullptr;
@@ -202,8 +212,12 @@ struct NativeMaintenanceContext::Impl {
         operations.finish_stream = [this](const auto& s, auto h, const auto& id, auto size, const auto& sha) { finish_stream(s, h, id, size, sha); };
         operations.commit = [this](const auto& s, const auto& p, const auto& id, const auto& closure) { commit(s, p, id, closure); };
         operations.apply_payload = [this](const auto& s, const auto& history) { return apply_payload(s, history); };
+        operations.confirm_payload_completion = [this](const auto& s, const auto& history, const auto& outcome) {
+            confirm_payload_completion(s, history, outcome);
+        };
         admit_original_payload();
         require_authority(spec);
+        prepare_original_admission();
     }
     static fs::path normalized(const fs::path& path) { return fs::absolute(path).lexically_normal(); }
     static fs::path owned_relative(const std::string& value) {
@@ -319,6 +333,12 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance frozen worker security changed");
         if (installed_uncertain || payload_failed)
             throw std::runtime_error("native maintenance effect is uncertain; no further effects");
+        if (!active_payload_history.empty()) {
+            const auto current = transaction::TransactionSession::inspect_recovery(spec);
+            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+            if (current.snapshot_sha256 != active_payload_transaction || history.journal_digest != active_payload_history)
+                throw std::runtime_error("native maintenance original payload intent changed at its effect fence");
+        }
         const auto current_bindings = observe_publisher_install_state_bindings(original_state.state_root(),
             original_context.record().at("install_id").as_string(), service.service_sid);
         const bool original_revision = equal(current_bindings, snapshot.at("installed_record_bindings"));
@@ -573,7 +593,7 @@ struct NativeMaintenanceContext::Impl {
             const auto relative = owned_relative(file.at("relative_path").as_string());
             auto& parent = open_directory(root / relative.parent_path());
             const auto listed = child(parent.handle.value, relative.filename().wstring());
-            if (!listed) continue;
+            if (!listed) { absent_original_files.insert(relative); continue; }
             if (listed->attributes & FILE_ATTRIBUTE_DIRECTORY)
                 throw std::runtime_error("native maintenance original owned file changed type");
             auto entry = std::make_unique<Entry>();
@@ -612,9 +632,75 @@ struct NativeMaintenanceContext::Impl {
             const auto path = root / relative;
             auto& parent = open_directory(path.parent_path());
             const auto listed = child(parent.handle.value, path.filename().wstring());
-            if (!listed) continue;
+            if (!listed) { absent_original_directories.insert(relative); continue; }
             original_directories.emplace(relative, &open_directory(path));
         }
+    }
+    void prepare_original_admission() {
+        require_authority(spec);
+        constexpr std::size_t maximum = 16u * 1024u * 1024u;
+        original_admission_path = spec.state_root / "transactions" /
+            (spec.transaction_id + ".native-maintenance-original.json");
+        base::require_native_path_capacity(original_admission_path, base::NativePathKind::file,
+            "native maintenance original custody");
+        Value document(Value::Object{{"schema", Value("usk.publisher.maintenance_original_custody.v1")},
+            {"transaction_id", Value(spec.transaction_id)}, {"operation", Value(spec.operation)},
+            {"plan_digest", Value(spec.plan_digest)},
+            {"original_context_sha256", Value(original_context.lease_binding_sha256())},
+            {"original_lease_ownership", lease.ownership()}, {"worker_security", worker},
+            {"process_boundary", process_boundary}, {"registration_sha256", Value(json::sha256_canonical(registration))},
+            {"authenticated_client", client}, {"installed_root", publisher_handle_observation_json(installed_root->facts)},
+            {"installed_root_journal_identity", Value(original_root_identity)}});
+        std::size_t charged = json::canonical(document).size() + 128u;
+        Value::Array objects;
+        const auto append = [&](Value object) {
+            const auto bytes = json::canonical(object).size() + 1u;
+            if (charged > maximum || bytes > maximum - charged)
+                throw std::runtime_error("native maintenance original custody exceeds its durable bound");
+            charged += bytes; objects.push_back(std::move(object));
+        };
+        for (const auto& item : original_files) {
+            const auto& file = *item.second; require_bytes(file);
+            append(Value(Value::Object{{"relative_path", Value(item.first.generic_u8string())},
+                {"type", Value("file")}, {"present", Value(true)},
+                {"object", publisher_handle_observation_json(file.facts)},
+                {"parent", publisher_handle_observation_json(file.parent->facts)},
+                {"native_identity", Value(file.stream_identity)},
+                {"size_bytes", Value(file.size)}, {"sha256", Value(file.sha256)}}));
+        }
+        for (const auto& relative : absent_original_files)
+            append(Value(Value::Object{{"relative_path", Value(relative.generic_u8string())},
+                {"type", Value("file")}, {"present", Value(false)}, {"object", Value{}},
+                {"parent", Value{}}, {"native_identity", Value{}}, {"size_bytes", Value{}}, {"sha256", Value{}}}));
+        for (const auto& item : original_directories) {
+            const auto& directory = *item.second; require_entry(directory);
+            append(Value(Value::Object{{"relative_path", Value(item.first.generic_u8string())},
+                {"type", Value("directory")}, {"present", Value(true)},
+                {"object", publisher_handle_observation_json(directory.facts)},
+                {"parent", publisher_handle_observation_json(directory.parent ? directory.parent->facts : volume_facts)},
+                {"native_identity", Value(journal_identity(directory.handle.value))}}));
+        }
+        for (const auto& relative : absent_original_directories)
+            append(Value(Value::Object{{"relative_path", Value(relative.generic_u8string())},
+                {"type", Value("directory")}, {"present", Value(false)}, {"object", Value{}},
+                {"parent", Value{}}, {"native_identity", Value{}}}));
+        document.as_object().emplace("original_objects", Value(std::move(objects)));
+        original_admission_text = json::canonical(document) + "\n";
+        if (original_admission_text.size() > maximum)
+            throw std::runtime_error("native maintenance original custody exceeds its durable bound");
+        require_authority(spec);
+    }
+    void persist_original_admission() {
+        require_authority(spec);
+        // The private constructor is now effectful: original context, approved
+        // request and result capacity must be established by the engine before
+        // entry. The caller's effects output is marked before this create-only
+        // record, which precedes the first
+        // lifecycle journal and is never treated as a recovered creator grant.
+        record_io::write_new_durable_text(original_admission_path, original_admission_text);
+        if (record_io::read_stable_text(original_admission_path, 16u * 1024u * 1024u) != original_admission_text)
+            throw std::runtime_error("native maintenance original custody readback differs");
+        require_authority(spec);
     }
     transaction::MaintenanceEffectInspection require_pending(const std::string& kind) const {
         require_authority(spec);
@@ -674,6 +760,7 @@ struct NativeMaintenanceContext::Impl {
     }
     std::string remove_entry(Entry& entry, const Value& details) {
         require_entry(entry);
+        if (!entry.parent) throw std::runtime_error("native maintenance removal cannot use the volume as an operation parent");
         if (entry.directory) {
             if (journal_identity(entry.handle.value) != details.at("native_identity").as_string())
                 throw std::runtime_error("native maintenance directory lost its original identity");
@@ -708,6 +795,17 @@ struct NativeMaintenanceContext::Impl {
             !publication_confirmed || !attempted_payload_histories.insert(history.journal_digest).second)
             throw std::runtime_error("native maintenance payload lacks its single original publication/intent");
         try {
+            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+            const auto pinned = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+            if (pinned.journal_digest != history.journal_digest)
+                throw std::runtime_error("native maintenance payload intent changed before native entry");
+            auto confirmation = std::make_unique<ConfirmedPayload>();
+            confirmation->transaction_sha256 = tx.snapshot_sha256;
+            const auto inserted = payload_outcomes.emplace(history.journal_digest, std::move(confirmation));
+            if (!inserted.second) throw std::runtime_error("native maintenance outcome already exists for this intent");
+            active_payload_transaction = tx.snapshot_sha256;
+            active_payload_history = history.journal_digest;
+            require_authority(supplied);
             const auto& details = history.pending_details;
             const auto relative = fs::u8path(details.at("relative_path").as_string());
             std::string outcome = "applied";
@@ -751,8 +849,26 @@ struct NativeMaintenanceContext::Impl {
             const auto after = transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest);
             if (after.journal_digest != history.journal_digest)
                 throw std::runtime_error("native maintenance intent changed during its effect");
+            inserted.first->second->outcome = outcome;
+            inserted.first->second->confirmed = true;
+            active_payload_transaction.clear(); active_payload_history.clear();
             return outcome;
         } catch (...) { payload_failed = true; throw; }
+    }
+    void confirm_payload_completion(const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome) const {
+        require_authority(supplied);
+        const auto current = require_pending(inspected.pending_kind);
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        const auto found = payload_outcomes.find(current.journal_digest);
+        if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
+            found == payload_outcomes.end() || !found->second->confirmed || found->second->outcome != outcome ||
+            found->second->transaction_sha256 != tx.snapshot_sha256)
+            throw std::runtime_error("native maintenance completion has no actual owned confirmed outcome");
+        // No observed-postcondition or newly resumed journal can fabricate an
+        // outcome. Restored native creator/ended-holder proof remains absent
+        // until the concrete source-free owner factory joins it separately.
+        require_authority(supplied);
     }
     void commit(const transaction::TransactionSpec& s, const fs::path& path, const std::string& id,
         const transaction::CommitClosureObservation& closure) {
@@ -829,7 +945,7 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     const PublisherInstallOperationGuard& guard, const PublisherMaintenanceStateSnapshot& state,
     const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
     const RegisteredPublisherAdmission& admission, const PublisherRequestChannel& channel,
-    const transaction::TransactionSpec& spec, HANDLE cancel)
+    const transaction::TransactionSpec& spec, HANDLE cancel, bool& effects_may_exist)
     : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, lease, admission, channel, spec, cancel)) {
     fence_ = std::make_unique<ScopedPublisherEffectFence>(impl_->effect_fence);
     impl_->metadata = std::make_unique<PublisherMetadataSession>(volume, root,
@@ -842,6 +958,8 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     hooks.confirm = [this](const auto& p, const auto& text, HANDLE file) { impl_->metadata_confirm(p, text, file); };
     hooks.failed = [this](const auto& p) { impl_->metadata_failed(p); };
     impl_->metadata->bind_native_maintenance_publication(std::move(hooks));
+    effects_may_exist = true;
+    impl_->persist_original_admission();
     scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
 }
 NativeMaintenanceContext::~NativeMaintenanceContext() {

@@ -14,6 +14,10 @@ namespace usk::lifecycle::detail {
 // The caller retains original state/intent, admission, channel and lease for
 // this entire lifetime. Existing paths are admitted independently; reopened
 // objects are never labelled as this worker's native creations.
+// The fresh private constructor publishes bounded create-only original custody
+// before the first lifecycle journal. The engine must complete all request/
+// capacity preflight and supply its effects-may-exist output. This owner marks
+// that output before its first record effect, including constructor failure.
 class NativeMaintenanceContext final {
 public:
     ~NativeMaintenanceContext();
@@ -30,7 +34,8 @@ private:
         const usk::platform::windows::PublisherInstallationLease& lease,
         const usk::platform::windows::RegisteredPublisherAdmission& admission,
         const usk::platform::windows::PublisherRequestChannel& channel,
-        const usk::transaction::TransactionSpec& spec, HANDLE cancel_event);
+        const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
+        bool& effects_may_exist);
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> fence_;
