@@ -15,6 +15,7 @@
 #include "usk_publisher_worker_security.h"
 #include "usk_record_io.h"
 #include "usk_sha256.h"
+#include "usk_maintenance_recovery_internal.h"
 #include <algorithm>
 #include <array>
 #include <iomanip>
@@ -90,7 +91,14 @@ struct NativeMaintenanceContext::Impl {
     Entry* staging_parent = nullptr;
     Entry* target_parent = nullptr;
     Entry* staging = nullptr;
-    bool publication_attempted = false;
+    bool publication_attempted = false, publication_confirmed = false;
+    fs::path installed_record_path, prepared_record_path;
+    Entry* installed_parent = nullptr;
+    std::unique_ptr<Entry> installed_postimage_file;
+    PublisherHandleObservation installed_record_facts;
+    Value installed_postimage_bindings;
+    std::string installed_record_text, installed_record_sha256, prepared_transaction_sha256, prepared_history_sha256;
+    bool installed_prepared = false, installed_issue_active = false, installed_confirmed = false, installed_uncertain = false;
     transaction::detail::NativeMaintenanceTransactionOperations operations;
     std::function<void()> effect_fence;
     std::unique_ptr<PublisherMetadataSession> metadata;
@@ -163,6 +171,8 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance metadata paths do not name the original held setup roots");
         staging_parent = &open_directory(spec.staging_parent);
         target_parent = &open_directory(spec.target_root.parent_path());
+        installed_record_path = normalized(spec.state_root / "installed" /
+            (snapshot.at("install_id").as_string() + "." + spec.transaction_id + ".json"));
         require_authority(spec);
         effect_fence = [this] { require_authority(spec); };
         operations.require_authority = [this](const auto& s) { require_authority(s); };
@@ -276,13 +286,144 @@ struct NativeMaintenanceContext::Impl {
         require_publisher_process_boundary(current_process, service.process_id, service.service_sid, service.token.process_groups);
         if (!equal(current_worker, worker) || !equal(current_process, process_boundary))
             throw std::runtime_error("native maintenance frozen worker security changed");
-        if (observe_publisher_install_state_revision(original_state.state_root(),
-            original_context.record().at("install_id").as_string(), service.service_sid) != original_state.initial_state_revision())
+        if (installed_uncertain) throw std::runtime_error("native maintenance installed publication is uncertain; no further effects");
+        const auto current_bindings = observe_publisher_install_state_bindings(original_state.state_root(),
+            original_context.record().at("install_id").as_string(), service.service_sid);
+        const bool original_revision = equal(current_bindings, snapshot.at("installed_record_bindings"));
+        const bool postimage_revision = installed_prepared && equal(current_bindings, installed_postimage_bindings);
+        if (installed_confirmed ? !postimage_revision :
+            (installed_issue_active ? (!original_revision && !postimage_revision) : !original_revision))
             throw transaction::InstallStateRevisionStale();
+        require_installed_custody();
         (void)relative_volume_path(spec.state_root); (void)relative_volume_path(spec.target_root);
         require_client_read_only(volume, volume_facts);
         if (staging_parent) require_entry(*staging_parent);
         if (target_parent) require_entry(*target_parent);
+    }
+    void require_installed_custody() const {
+        if (!installed_postimage_file || installed_postimage_file->handle.value == INVALID_HANDLE_VALUE) return;
+        const auto observed = facts(installed_postimage_file->handle.value, false);
+        const bool pending = same(observed, installed_postimage_file->facts);
+        const bool published = same(observed, installed_record_facts);
+        if (installed_confirmed ? !published : (installed_issue_active ? (!pending && !published) : !pending))
+            throw std::runtime_error("native maintenance installed creation custody changed");
+        if (installed_parent) require_entry(*installed_parent);
+    }
+    void require_installed_bytes() const {
+        require_installed_custody();
+        const HANDLE file = installed_postimage_file->handle.value;
+        FILE_STANDARD_INFO size{}; FILE_BASIC_INFO first{}, last{};
+        LARGE_INTEGER zero{};
+        if (!GetFileInformationByHandleEx(file, FileStandardInfo, &size, sizeof(size)) ||
+            size.EndOfFile.QuadPart < 0 || static_cast<std::uint64_t>(size.EndOfFile.QuadPart) != installed_record_text.size() ||
+            !GetFileInformationByHandleEx(file, FileBasicInfo, &first, sizeof(first)) ||
+            !SetFilePointerEx(file, zero, nullptr, FILE_BEGIN))
+            throw std::runtime_error("native maintenance installed bytes are unavailable");
+        base::Sha256 hash;
+        std::array<unsigned char, 64u * 1024u> bytes{};
+        std::size_t remaining = installed_record_text.size();
+        while (remaining) {
+            const DWORD wanted = static_cast<DWORD>(std::min(remaining, bytes.size()));
+            DWORD count = 0;
+            if (!ReadFile(file, bytes.data(), wanted, &count, nullptr) || count != wanted)
+                throw std::runtime_error("native maintenance installed bytes changed");
+            hash.update(bytes.data(), count); remaining -= count;
+        }
+        if (hash.finish() != installed_record_sha256 ||
+            !GetFileInformationByHandleEx(file, FileBasicInfo, &last, sizeof(last)) ||
+            first.LastWriteTime.QuadPart != last.LastWriteTime.QuadPart || first.ChangeTime.QuadPart != last.ChangeTime.QuadPart)
+            throw std::runtime_error("native maintenance installed byte postimage changed");
+        require_installed_custody();
+    }
+    void metadata_prepare(const fs::path& path, const std::string& text) {
+        require_authority(spec);
+        if (normalized(path).parent_path() != installed_record_path.parent_path()) return;
+        if (normalized(path) != installed_record_path || installed_prepared || !publication_confirmed)
+            throw std::runtime_error("native maintenance refuses an unrelated or repeated installed publication");
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
+        const auto& snapshot = original_context.record().at("reviewed_snapshot");
+        const auto source = json::parse(history.source_context);
+        const auto artifact = read_maintenance_reviewed_plan(spec);
+        const auto next = inspect_maintenance_continuation(spec);
+        if (tx.stream_source_context != history.source_context || history.pending_kind != "write_installed" ||
+            !next.pending || next.next_kind != "write_installed" || next.history_digest != history.journal_digest ||
+            !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
+            source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
+            source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
+            source.at("original_installed_state_digest").as_string() != snapshot.at("reviewed_plan").at("installed_state_digest").as_string() ||
+            source.at("ownership_manifest_digest").as_string() != snapshot.at("ownership_manifest").at("manifest_digest").as_string() ||
+            source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string())
+            throw std::runtime_error("native maintenance installed publication lost its original pending effect");
+        const auto expected = maintenance_installed_postimage(spec, history);
+        if (state::serialize_installed_state(expected) != text)
+            throw std::runtime_error("native maintenance installed bytes differ from the original reviewed postimage");
+        auto bindings = derive_publisher_maintenance_postimage_bindings(snapshot, json::parse(text));
+        auto owner = std::make_unique<Entry>(); // Allocate custody before the writer's native create.
+        owner->directory = false; owner->created = true;
+        installed_parent = &open_directory(installed_record_path.parent_path());
+        prepared_record_path = path;
+        installed_record_text = text;
+        base::Sha256 hash; hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        installed_record_sha256 = hash.finish();
+        prepared_transaction_sha256 = tx.snapshot_sha256; prepared_history_sha256 = history.journal_digest;
+        installed_postimage_bindings = std::move(bindings);
+        installed_postimage_file = std::move(owner);
+        installed_prepared = true;
+        require_authority(spec);
+    }
+    bool metadata_created(const fs::path& path, const std::string& text, HANDLE file) {
+        require_authority(spec);
+        if (normalized(path).parent_path() != installed_record_path.parent_path()) return false;
+        if (!installed_prepared || path != prepared_record_path || text != installed_record_text ||
+            installed_postimage_file->handle.value != INVALID_HANDLE_VALUE)
+            throw std::runtime_error("native maintenance installed creation differs from its prepared effect");
+        auto observed = facts(file, false);
+        installed_record_facts = observed;
+        installed_record_facts.native_name = installed_parent->facts.native_name + L"\\" + installed_record_path.filename().wstring();
+        installed_postimage_file->facts = std::move(observed);
+        // Transfer only at the last nonthrowing step. The writer immediately
+        // releases its local owner and then borrows this exact created handle.
+        installed_postimage_file->handle.value = file;
+        return true;
+    }
+    void metadata_before_issue(const fs::path& path, const std::string& text) {
+        require_authority(spec);
+        if (normalized(path).parent_path() != installed_record_path.parent_path()) return;
+        if (path != prepared_record_path || text != installed_record_text || installed_issue_active || installed_confirmed)
+            throw std::runtime_error("native maintenance installed publication cannot be retried");
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+        if (tx.snapshot_sha256 != prepared_transaction_sha256 || history.journal_digest != prepared_history_sha256 ||
+            history.pending_kind != "write_installed")
+            throw std::runtime_error("native maintenance original pending installed effect changed before publication");
+        require_installed_bytes();
+        require_authority(spec);
+        installed_issue_active = true; // Last step before the writer's actual native call.
+    }
+    void metadata_confirm(const fs::path& path, const std::string& text, HANDLE file) {
+        require_authority(spec);
+        if (normalized(path).parent_path() != installed_record_path.parent_path()) return;
+        if (!installed_issue_active || installed_confirmed || path != prepared_record_path || text != installed_record_text ||
+            file != installed_postimage_file->handle.value ||
+            !same(observe_publisher_file_handle(file), installed_record_facts))
+            throw std::runtime_error("native maintenance installed publication is unconfirmed");
+        require_installed_bytes();
+        const auto listed = child(installed_parent->handle.value, installed_record_path.filename().wstring());
+        if (!listed) throw std::runtime_error("native maintenance published installed child is absent");
+        Held linked;
+        linked.value = open_publisher_listed_child(installed_parent->handle.value, *listed);
+        if (!same(facts(linked.value, false), installed_record_facts) ||
+            !equal(observe_publisher_install_state_bindings(original_state.state_root(),
+                original_context.record().at("install_id").as_string(), service.service_sid), installed_postimage_bindings))
+            throw std::runtime_error("native maintenance installed revision lacks its exact native postimage");
+        installed_confirmed = true; installed_issue_active = false; installed_postimage_file->complete = true;
+        require_authority(spec);
+    }
+    void metadata_failed(const fs::path& path) noexcept {
+        if (installed_prepared && path == prepared_record_path && installed_issue_active) {
+            installed_uncertain = true; installed_issue_active = false;
+        }
     }
     fs::path staging_relative(const fs::path& path) const {
         const auto root = normalized(spec.staging_parent / (".usk-stage-" + spec.transaction_id));
@@ -450,6 +591,7 @@ struct NativeMaintenanceContext::Impl {
         for (const auto& item : directories) if (item.second->created) require_entry(*item.second);
         for (const auto& item : files) require_bytes(*item.second);
         require_authority(s);
+        publication_confirmed = true;
     }
 };
 NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wstring& root, const std::wstring& service,
@@ -462,6 +604,13 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     impl_->metadata = std::make_unique<PublisherMetadataSession>(volume, root,
         fs::path(root) / fs::u8path(context.record().at("reviewed_snapshot").at("setup_component").as_string()),
         service, true, Impl::normalized(spec.state_root.parent_path()));
+    usk::platform::windows::detail::MetadataRecordPublicationHooks hooks;
+    hooks.prepare = [this](const auto& p, const auto& text) { impl_->metadata_prepare(p, text); };
+    hooks.created = [this](const auto& p, const auto& text, HANDLE file) { return impl_->metadata_created(p, text, file); };
+    hooks.before_issue = [this](const auto& p, const auto& text) { impl_->metadata_before_issue(p, text); };
+    hooks.confirm = [this](const auto& p, const auto& text, HANDLE file) { impl_->metadata_confirm(p, text, file); };
+    hooks.failed = [this](const auto& p) { impl_->metadata_failed(p); };
+    impl_->metadata->bind_native_maintenance_publication(std::move(hooks));
     scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
 }
 NativeMaintenanceContext::~NativeMaintenanceContext() {

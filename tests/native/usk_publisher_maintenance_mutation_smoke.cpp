@@ -8,6 +8,7 @@
 #include "usk_native_maintenance_transaction_internal.h"
 #include "usk_sha256.h"
 #if defined(_WIN32)
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -158,6 +159,42 @@ void snapshot_bindings() {
         complete_snapshot.as_object().at("initial_state_revision") = Value(complete_revision);
         complete_snapshot.as_object().emplace("installed_record_bindings", bindings);
         require_publisher_maintenance_snapshot_binding(complete_snapshot, kind, id, operation_id, complete_revision);
+        // Record-set derivation is data-only. The native owner separately pins
+        // the original pending effect and actual protected creation/publication.
+        auto postimage = installed;
+        postimage.as_object().at("transaction_id") = Value(operation_id);
+        postimage.as_object().at("created_at") = request.at("applied_at");
+        const auto after_bindings = derive_publisher_maintenance_postimage_bindings(complete_snapshot, postimage);
+        check(after_bindings.as_array().size() == 3 && after_bindings.as_array().front().at("record").as_string() ==
+            id + "." + operation_id + ".json", "derived create-only installed bindings are not complete and ordered");
+        for (const auto& original : bindings.as_array()) {
+            const auto found = std::find_if(after_bindings.as_array().begin(), after_bindings.as_array().end(),
+                [&](const auto& item) { return item.at("record").as_string() == original.at("record").as_string(); });
+            check(found != after_bindings.as_array().end() && usk::json::canonical(*found) == usk::json::canonical(original),
+                "postimage derivation replaced an original installed binding");
+        }
+        auto different_verification = postimage;
+        different_verification.as_object().at("last_verification").as_object().at("report_digest") = Value(std::string(64, '7'));
+        check(usk::json::sha256_canonical(after_bindings) != usk::json::sha256_canonical(
+            derive_publisher_maintenance_postimage_bindings(complete_snapshot, different_verification)),
+            "full installed revision omitted verification bytes");
+        for (const auto& change : std::vector<std::function<void(Value&)>>{
+                [](Value& x) { x.as_object().at("product_id") = Value("unrelated.product"); },
+                [](Value& x) { x.as_object().at("transaction_id") = Value("unrelated.transaction"); },
+                [](Value& x) { x.as_object().at("created_at") = Value("2026-10-02T00:00:02Z"); },
+                [](Value& x) { x.as_object().emplace("trusted", Value(true)); }}) {
+            auto changed = postimage; change(changed);
+            check(refuses([&] { (void)derive_publisher_maintenance_postimage_bindings(complete_snapshot, changed); }),
+                "postimage bindings adopted unrelated or changed original data");
+        }
+        check(refuses([&] { (void)derive_publisher_maintenance_postimage_bindings(snapshot, postimage); }),
+            "legacy digest-only snapshot granted a derived installed revision");
+        auto occupied = complete_snapshot;
+        auto occupied_bindings = after_bindings;
+        occupied.as_object().at("installed_record_bindings") = occupied_bindings;
+        occupied.as_object().at("initial_state_revision") = Value(usk::json::sha256_canonical(occupied_bindings));
+        check(refuses([&] { (void)derive_publisher_maintenance_postimage_bindings(occupied, postimage); }),
+            "derived create-only installed postimage replaced an occupied record");
         const std::vector<std::function<void(Value&)>> binding_changes{
             [](Value& x) { x.as_object().erase("installed_record_bindings"); },
             [](Value& x) { x.as_object().at("installed_record_bindings") = Value(Value::Array{}); },

@@ -323,6 +323,12 @@ usk::state::InstalledState parse_installed(const Value& value)
 
 namespace usk::state {
 
+std::string serialize_installed_state(const InstalledState& state)
+{
+    validate_installed(state);
+    return json::canonical(installed_document(state)) + "\n";
+}
+
 StateRepository::StateRepository(fs::path state_root) : root_(fs::absolute(std::move(state_root)).lexically_normal())
 {
     record_io::require_safe_directory(root_);
@@ -385,7 +391,7 @@ void StateRepository::write_installed(const InstalledState& state) const
     }
     record_io::write_new_durable_text(
         root_ / "installed" / (state.install_id + "." + state.transaction_id + ".json"),
-        json::canonical(installed_document(state)) + "\n");
+        serialize_installed_state(state));
 }
 
 InstalledState StateRepository::read_installed(const std::string& install_id) const

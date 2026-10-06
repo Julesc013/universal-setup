@@ -52,6 +52,13 @@ void require_publisher_maintenance_snapshot_binding(const usk::json::Value& snap
     PublisherOperationKind kind, const std::string& install_id,
     const std::string& operation_id, const std::string& initial_state_revision);
 
+// Derive one create-only record-set postimage from a complete original v2
+// snapshot and a separately validated installed document. Data association
+// only: the native owner must prove the exact original pending effect, bytes,
+// actual publication and allowed current revision. No observed set is adopted.
+usk::json::Value derive_publisher_maintenance_postimage_bindings(
+    const usk::json::Value& original_snapshot, const usk::json::Value& installed_postimage);
+
 // Internal data-shape check using the native tree observer's slash paths.
 // Security, held handles, exact original bytes and ownership remain separate
 // mandatory native checks; passing this helper grants no publication effects.

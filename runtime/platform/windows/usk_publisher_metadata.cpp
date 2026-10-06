@@ -23,6 +23,7 @@
 #include <cstring>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -39,6 +40,7 @@ public:
     OwnedHandle(const OwnedHandle&) = delete;
     OwnedHandle& operator=(const OwnedHandle&) = delete;
     HANDLE get() const { return handle_; }
+    HANDLE release() noexcept { const HANDLE result = handle_; handle_ = nullptr; return result; }
 private:
     HANDLE handle_;
 };
@@ -74,8 +76,9 @@ void require_active_publisher_effect_fence() {
     (*effect_fence)();
 }
 
-void publish_publisher_record_no_replace(HANDLE file, HANDLE parent, const std::wstring& name,
-    const std::string& service_sid) {
+namespace {
+void publish_record_no_replace(HANDLE file, HANDLE parent, const std::wstring& name,
+    const std::string& service_sid, const std::function<void()>* before_issue) {
     const auto before_file = observe_publisher_file_handle(file);
     const auto before_parent = observe_publisher_directory_handle(parent);
     require_publisher_object_security_shape(before_file, service_sid);
@@ -87,6 +90,9 @@ void publish_publisher_record_no_replace(HANDLE file, HANDLE parent, const std::
     PublisherRenameInformation information(parent, name);
     IO_STATUS_BLOCK io{};
     require_current_publisher_effect_fence();
+    // The owner latches the exact prepared revision immediately before the
+    // issued call. No allocation or other effect occurs between these steps.
+    if (before_issue) (*before_issue)();
     const NTSTATUS status = rename(file, &io, information.data(), information.size(),
         static_cast<FILE_INFORMATION_CLASS>(10)); // FileRenameInformation, ReplaceIfExists=false.
     if (status != 0 || io.Status != 0) {
@@ -106,6 +112,11 @@ void publish_publisher_record_no_replace(HANDLE file, HANDLE parent, const std::
     }
     if (!FlushFileBuffers(file)) throw std::runtime_error("metadata published record flush failed");
 }
+}
+void publish_publisher_record_no_replace(HANDLE file, HANDLE parent, const std::wstring& name,
+    const std::string& service_sid) {
+    publish_record_no_replace(file, parent, name, service_sid, nullptr);
+}
 
 struct PublisherMetadataSession::Impl {
     HANDLE volume;
@@ -120,6 +131,7 @@ struct PublisherMetadataSession::Impl {
     std::unique_ptr<OwnedHandle> pending;
     record_io::RecordWriteOperations operations;
     std::unique_ptr<record_io::ScopedRecordWriteOperations> scope;
+    std::unique_ptr<detail::MetadataRecordPublicationHooks> publication_hooks;
     bool initializing = false;
 
     Impl(HANDLE boundary, const std::wstring& guid, const fs::path& physical_root,
@@ -224,33 +236,47 @@ struct PublisherMetadataSession::Impl {
         if (content.size() > 16u * 1024u * 1024u) throw std::runtime_error("protected metadata record exceeds its byte budget");
         const std::wstring name = path.filename().wstring();
         if (!is_publisher_canonical_component(name)) throw std::runtime_error("unsafe metadata record name");
-        auto held = parents(path.parent_path());
-        HANDLE parent = held.empty() ? root->get() : held.back().get();
-        if (!pending) {
-            if (const auto existing = find_child(root->get(), L"pending")) {
-                pending = std::make_unique<OwnedHandle>(open_publisher_listed_child(root->get(), *existing, true, false, true));
-            } else {
-                pending = std::make_unique<OwnedHandle>(create_record_directory_relative_with_descriptor(root->get(), L"pending", descriptor));
-            }
-            require_publisher_tree_security_shape(observe_publisher_tree(pending->get()), service_sid);
+        std::function<void()> before_issue;
+        if (publication_hooks) {
+            publication_hooks->prepare(path, content);
+            before_issue = [this, &path, &content] { publication_hooks->before_issue(path, content); };
         }
-        static std::atomic<unsigned long long> sequence{0};
-        const std::wstring temporary = L"record-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
-            std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(++sequence);
-        OwnedHandle file(create_file_relative_with_descriptor(pending->get(), temporary, descriptor));
-        std::size_t offset = 0;
-        while (offset < content.size()) {
-            const DWORD requested = static_cast<DWORD>(std::min<std::size_t>(64u * 1024u, content.size() - offset));
-            DWORD written = 0;
-            require_current_publisher_effect_fence();
-            if (!WriteFile(file.get(), content.data() + offset, requested, &written, nullptr) || written != requested) {
-                throw std::runtime_error("protected metadata pending write failed");
+        try {
+            auto held = parents(path.parent_path());
+            HANDLE parent = held.empty() ? root->get() : held.back().get();
+            if (!pending) {
+                if (const auto existing = find_child(root->get(), L"pending")) {
+                    pending = std::make_unique<OwnedHandle>(open_publisher_listed_child(root->get(), *existing, true, false, true));
+                } else {
+                    pending = std::make_unique<OwnedHandle>(create_record_directory_relative_with_descriptor(root->get(), L"pending", descriptor));
+                }
+                require_publisher_tree_security_shape(observe_publisher_tree(pending->get()), service_sid);
             }
-            offset += written;
+            static std::atomic<unsigned long long> sequence{0};
+            const std::wstring temporary = L"record-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(++sequence);
+            OwnedHandle file(create_file_relative_with_descriptor(pending->get(), temporary, descriptor));
+            const HANDLE output = file.get();
+            if (publication_hooks && publication_hooks->created(path, content, output)) (void)file.release();
+            std::size_t offset = 0;
+            while (offset < content.size()) {
+                const DWORD requested = static_cast<DWORD>(std::min<std::size_t>(64u * 1024u, content.size() - offset));
+                DWORD written = 0;
+                require_current_publisher_effect_fence();
+                if (!WriteFile(output, content.data() + offset, requested, &written, nullptr) || written != requested) {
+                    throw std::runtime_error("protected metadata pending write failed");
+                }
+                offset += written;
+            }
+            if (!FlushFileBuffers(output)) throw std::runtime_error("protected metadata pending flush failed");
+            publish_record_no_replace(output, parent, name, service_sid,
+                publication_hooks ? &before_issue : nullptr);
+            if (publication_hooks) publication_hooks->confirm(path, content, output);
+            require_alias_mapping();
+        } catch (...) {
+            if (publication_hooks) publication_hooks->failed(path);
+            throw;
         }
-        if (!FlushFileBuffers(file.get())) throw std::runtime_error("protected metadata pending flush failed");
-        publish_publisher_record_no_replace(file.get(), parent, name, service_sid);
-        require_alias_mapping();
     }
 
     void publish_initialized_root() {
@@ -291,6 +317,13 @@ PublisherMetadataSession::PublisherMetadataSession(HANDLE volume, const std::wst
     const fs::path& root, const std::wstring& service, bool require_existing, const fs::path& public_alias)
     : impl_(std::make_unique<Impl>(volume, guid, root, service, require_existing, public_alias)) {}
 PublisherMetadataSession::~PublisherMetadataSession() = default;
+void PublisherMetadataSession::bind_native_maintenance_publication(detail::MetadataRecordPublicationHooks hooks) {
+    require_active_publisher_effect_fence();
+    if (impl_->publication_hooks || impl_->initializing || impl_->public_alias.empty() ||
+        !hooks.prepare || !hooks.created || !hooks.before_issue || !hooks.confirm || !hooks.failed)
+        throw std::runtime_error("native maintenance metadata publication binding unavailable");
+    impl_->publication_hooks = std::make_unique<detail::MetadataRecordPublicationHooks>(std::move(hooks));
+}
 const fs::path& PublisherMetadataSession::initialization_root() const { return impl_->root_path; }
 void PublisherMetadataSession::publish_initialized_root() { impl_->publish_initialized_root(); }
 } // namespace usk::platform::windows

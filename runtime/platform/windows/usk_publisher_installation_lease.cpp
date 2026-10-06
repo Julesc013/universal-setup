@@ -441,6 +441,37 @@ void require_publisher_maintenance_snapshot_binding(const Value& snapshot,
         equal(snapshot.at("setup_root_identity"), snapshot.at("state_root_identity"))) throw InstallLeaseStale();
 }
 
+Value derive_publisher_maintenance_postimage_bindings(const Value& snapshot, const Value& postimage) {
+    if (snapshot.at("schema").as_string() != "usk.publisher.maintenance_reviewed_snapshot.v2")
+        throw InstallLeaseStale();
+    const auto& operation = snapshot.at("operation").as_string();
+    const auto kind = operation == "repair" ? PublisherOperationKind::repair : operation == "move" ?
+        PublisherOperationKind::move : operation == "uninstall" ? PublisherOperationKind::uninstall :
+        PublisherOperationKind::install_local;
+    const auto& id = snapshot.at("install_id").as_string();
+    const auto& transaction = snapshot.at("operation_id").as_string();
+    require_publisher_maintenance_snapshot_binding(snapshot, kind, id, transaction,
+        snapshot.at("initial_state_revision").as_string());
+    auto permitted = snapshot.at("installed_state");
+    for (const auto* field : {"target_root", "ownership_manifest_ref", "ownership_manifest_digest", "transaction_id",
+            "created_at", "lifecycle_status", "last_verification"})
+        permitted.as_object().at(field) = postimage.at(field);
+    if (!equal(permitted, postimage) || postimage.at("transaction_id").as_string() != transaction ||
+        postimage.at("created_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string() ||
+        usk::json::canonical(postimage).size() + 1u > 4u * 1024u * 1024u)
+        throw InstallLeaseStale();
+    const auto& original = snapshot.at("installed_record_bindings").as_array();
+    if (original.size() >= history_limit) throw InstallLeaseStale();
+    std::map<std::string, Value> records;
+    for (const auto& item : original) records.emplace(item.at("record").as_string(), item.at("sha256"));
+    if (!records.emplace(id + "." + transaction + ".json", Value(usk::json::sha256_canonical(postimage))).second)
+        throw InstallLeaseStale(); // A create-only postimage never replaces an original record.
+    Value::Array result;
+    for (const auto& item : records)
+        result.emplace_back(Value::Object{{"record", Value(item.first)}, {"sha256", item.second}});
+    return Value(std::move(result));
+}
+
 struct PublisherMaintenanceStateSnapshot::Impl {
     HANDLE volume;
     std::wstring volume_root, setup_component, installed_name, ownership_name;

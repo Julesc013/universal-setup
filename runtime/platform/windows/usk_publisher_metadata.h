@@ -14,7 +14,22 @@
 #include <memory>
 #include <string>
 
+namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
 namespace usk::platform::windows {
+
+namespace detail {
+// Used only through the concrete native owner's private attachment. These
+// callbacks observe one protected writer operation; they confer no scope.
+struct MetadataRecordPublicationHooks {
+    std::function<void(const std::filesystem::path&, const std::string&)> prepare;
+    // True transfers this actual creation handle to the concrete owner before
+    // the writer's first byte effect. It must then outlive this writer call.
+    std::function<bool(const std::filesystem::path&, const std::string&, HANDLE)> created;
+    std::function<void(const std::filesystem::path&, const std::string&)> before_issue;
+    std::function<void(const std::filesystem::path&, const std::string&, HANDLE)> confirm;
+    std::function<void(const std::filesystem::path&)> failed;
+};
+}
 
 // Internal, operation-local fence. Only a live service lease supplies this
 // check; JSON and public callers cannot install or activate it. The borrowed
@@ -55,6 +70,8 @@ public:
     const std::filesystem::path& initialization_root() const;
     void publish_initialized_root();
 private:
+    friend class usk::lifecycle::detail::NativeMaintenanceContext;
+    void bind_native_maintenance_publication(detail::MetadataRecordPublicationHooks hooks);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
