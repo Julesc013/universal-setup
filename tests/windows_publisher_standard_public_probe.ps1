@@ -524,13 +524,23 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
         if(-not $responseMatches) {
+            if(Test-Path -LiteralPath $nativeOutput) {
+                if((Get-Item -LiteralPath $nativeOutput).Length -gt 4MB) {throw 'Failed native response exceeds its diagnostic bound'}
+                $receipt['failed_native_response']=[ordered]@{command=$Command;request_id=$requestId;
+                    native_json=[IO.File]::ReadAllText($nativeOutput);
+                    sha256=(Get-FileHash -LiteralPath $nativeOutput -Algorithm SHA256).Hash.ToLowerInvariant();
+                    qualification_granted=$false}
+            }
             # Diagnose the measured failure using the same held client tokens.
             # Partial rows are retained evidence only, never a successful install.
             $script:observersClosed=$false
             $diagnostic=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
                 -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
                 -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
-                -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number
+                -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number `
+                -AdditionalConsumerRoot $(if($MaintenanceQualification -and $Command -cin @('repair.apply','move.apply','uninstall.apply')){
+                    $drive+'publication\destination\maintenance-moved'
+                }else{''})
             $receipt['failed_request_readback']=$diagnostic
             if(-not $diagnostic.observer_task_removed -or $diagnostic.independent.observer_token_handles_closed -ne $true){
                 throw 'Failed-request diagnostic observer closure is unconfirmed'

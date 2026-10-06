@@ -1113,8 +1113,20 @@ std::string read_phase_record(HANDLE journal, const std::wstring& name) {
     return stored;
 }
 
+enum class ReviewedInstallSnapshotPurpose { current_install_request, original_consumer_completion };
+void require_original_install_snapshot_binding(const usk::json::Value& snapshot);
+void require_original_consumer_snapshot_scope();
+void require_reviewed_install_snapshot_binding(const usk::json::Value& snapshot,
+    ReviewedInstallSnapshotPurpose purpose) {
+    if (purpose == ReviewedInstallSnapshotPurpose::original_consumer_completion) {
+        require_original_consumer_snapshot_scope();
+        require_original_install_snapshot_binding(snapshot);
+    } else usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot);
+}
+
 void require_reviewed_plan_snapshot(const std::string& record,
-    const usk::json::Value& prepared, const std::string& selected_digest) {
+    const usk::json::Value& prepared, const std::string& selected_digest,
+    ReviewedInstallSnapshotPurpose purpose = ReviewedInstallSnapshotPurpose::current_install_request) {
     const auto snapshot = usk::json::parse(record);
     const std::wstring selected_name =
         selected_visible_component(snapshot.at("target_root").as_string());
@@ -1163,7 +1175,7 @@ void require_reviewed_plan_snapshot(const std::string& record,
                 usk::json::sha256_canonical(context.at("policy"))) {
             throw std::runtime_error("recovery finalization policy context differs");
         }
-        usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot);
+        require_reviewed_install_snapshot_binding(snapshot, purpose);
     }
     std::vector<usk::platform::windows::PublisherExpectedFile> files;
     for (const auto& entry : snapshot.at("planned_entries").as_array()) {
@@ -1182,15 +1194,39 @@ void require_reviewed_plan_snapshot(const std::string& record,
     visible_component = selected_name;
 }
 
+// Original consumer completion binds its own immutable install request. A
+// separately enrolled maintenance request is not an install replay request.
+void require_original_install_snapshot_binding(const usk::json::Value& snapshot) {
+    const bool consumer_bound = snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
+    const bool caller_bound = consumer_bound || snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
+    if ((!consumer_read_sid.empty() && !consumer_bound) ||
+        (consumer_bound && snapshot.at("consumer_read_sid").as_string() != consumer_read_sid))
+        throw StaleReviewedInstallRequest();
+    if (consumer_bound) usk::platform::windows::require_publisher_consumer_sid(snapshot.at("consumer_read_sid").as_string());
+    if (!caller_bound) return;
+    const auto& apply=snapshot.at("apply_request");
+    if (snapshot.as_object().size() != (consumer_bound ? 17u : 16u) || apply.as_object().size() != 7 ||
+        apply.at("schema").as_string() != "usk.install_local_apply_request.v1" ||
+        apply.at("confirmation").as_string() != "APPLY" ||
+        usk::json::canonical(apply.at("plan_request")) != usk::json::canonical(snapshot.at("plan_request")) ||
+        apply.at("reviewed_plan_id").as_string() != snapshot.at("plan_request").at("request_id").as_string() ||
+        apply.at("reviewed_plan_digest").as_string() != snapshot.at("plan_digest").as_string() ||
+        apply.at("transaction_id").as_string() != snapshot.at("transaction_id").as_string() ||
+        !usk::record_io::valid_identifier(apply.at("transaction_id").as_string()) ||
+        apply.at("applied_at").as_string() != snapshot.at("applied_at").as_string())
+        throw std::runtime_error("durable caller apply binding differs");
+}
+
 usk::lifecycle::InstallPlan restore_reviewed_install_plan(
-    const std::string& record) {
+    const std::string& record,
+    ReviewedInstallSnapshotPurpose purpose = ReviewedInstallSnapshotPurpose::current_install_request) {
     const auto snapshot = usk::json::parse(record);
     if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
         snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
         snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") {
         throw std::runtime_error("protected public finalization requires a v2 plan snapshot");
     }
-    usk::lifecycle::require_candidate_snapshot_apply_binding(snapshot);
+    require_reviewed_install_snapshot_binding(snapshot, purpose);
     const auto& request = snapshot.at("plan_request");
     const auto& recipe = request.at("recipe");
     const std::filesystem::path setup_root(snapshot.at("setup_root").as_string());
@@ -3159,6 +3195,11 @@ public:
     ScopedCandidateApply& operator=(const ScopedCandidateApply&)=delete;
 };
 thread_local bool execution_active=false;
+void require_original_consumer_snapshot_scope() {
+    if (!execution_active || !registered_admission || !authenticated_request ||
+        !registered_admission->has_selected_reviewed_operation())
+        throw std::runtime_error("original consumer snapshot requires the selected registered native operation");
+}
 struct ScopedExecution {
     explicit ScopedExecution(const usk::platform::windows::CandidatePublisherConfiguration& config) {
         if (execution_active) throw std::runtime_error("nested publisher execution");
@@ -3239,7 +3280,11 @@ void usk::lifecycle::retain_candidate_publisher_operation_failure(std::exception
         if (dynamic_cast<const InstallLeaseConflict*>(&error) || dynamic_cast<const InstallStateRevisionStale*>(&error) ||
             dynamic_cast<const InstallLeaseStale*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
             dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherOperationCancelled*>(&error) ||
-            ((candidate_maintenance || (!candidate_apply->entered && candidate_apply->refusal_before_effects)) &&
+            // Only an actual preflight failure can retain the before-effects
+            // classification. Maintenance preparation may already persist
+            // intent and ownership before its native owner is constructed.
+            ((candidate_maintenance ? candidate_maintenance->preflight :
+                (!candidate_apply->entered && candidate_apply->refusal_before_effects)) &&
                 (dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
                 dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error)))) {
             if (candidate_maintenance) candidate_maintenance->operation_failure = failure;
@@ -3275,26 +3320,11 @@ std::optional<usk::json::Value> usk::lifecycle::candidate_publisher_plan_replay(
 void usk::lifecycle::require_candidate_snapshot_apply_binding(const usk::json::Value& snapshot) {
     const bool consumer_bound = snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4";
     const bool caller_bound = consumer_bound || snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v3";
-    if ((!consumer_read_sid.empty() && !consumer_bound) ||
-        (consumer_bound && snapshot.at("consumer_read_sid").as_string() != consumer_read_sid) ||
-        (submitted_apply_request && (!caller_bound ||
-         usk::json::canonical(snapshot.at("apply_request")) != *submitted_apply_request))) {
+    if (submitted_apply_request && (!caller_bound ||
+        usk::json::canonical(snapshot.at("apply_request")) != *submitted_apply_request)) {
         throw StaleReviewedInstallRequest();
     }
-    if (consumer_bound) usk::platform::windows::require_publisher_consumer_sid(snapshot.at("consumer_read_sid").as_string());
-    if (!caller_bound) return;
-    const auto& apply=snapshot.at("apply_request");
-    if (snapshot.as_object().size() != (consumer_bound ? 17u : 16u) || apply.as_object().size() != 7 ||
-        apply.at("schema").as_string() != "usk.install_local_apply_request.v1" ||
-        apply.at("confirmation").as_string() != "APPLY" ||
-        usk::json::canonical(apply.at("plan_request")) != usk::json::canonical(snapshot.at("plan_request")) ||
-        apply.at("reviewed_plan_id").as_string() != snapshot.at("plan_request").at("request_id").as_string() ||
-        apply.at("reviewed_plan_digest").as_string() != snapshot.at("plan_digest").as_string() ||
-        apply.at("transaction_id").as_string() != snapshot.at("transaction_id").as_string() ||
-        !usk::record_io::valid_identifier(apply.at("transaction_id").as_string()) ||
-        apply.at("applied_at").as_string() != snapshot.at("applied_at").as_string()) {
-        throw std::runtime_error("durable caller apply binding differs");
-    }
+    require_original_install_snapshot_binding(snapshot);
 }
 
 void usk::lifecycle::prepare_in_candidate_maintenance_context(
@@ -3389,7 +3419,10 @@ struct CompletedVerificationBoundary {
 };
 
 CompletedVerificationBoundary observe_completed_verification_boundary(
-    HANDLE volume, const std::string& service_sid, bool observe_payload = true) {
+    HANDLE volume, const std::string& service_sid, bool observe_payload = true,
+    ReviewedInstallSnapshotPurpose purpose = ReviewedInstallSnapshotPurpose::current_install_request) {
+    if (purpose == ReviewedInstallSnapshotPurpose::original_consumer_completion && observe_payload)
+        throw std::runtime_error("original consumer snapshot purpose is limited to immutable completion records");
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{L"staging", L"destination", L"state", L"journal"};
     const auto anchors = observe_publisher_anchor_set(volume, {L"publication"}, names);
@@ -3478,7 +3511,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
     }
     require_prepared_execution_phases(prepared, service_sid);
     const std::string selected_digest = prepared.at("selected_file_set_digest").as_string();
-    require_reviewed_plan_snapshot(snapshot_record, prepared, selected_digest);
+    require_reviewed_plan_snapshot(snapshot_record, prepared, selected_digest, purpose);
     const std::string staged_name =
         ascii(anchors.staging.object.native_name) + "\\candidate";
     const std::string visible_name =
@@ -3619,13 +3652,16 @@ usk::json::Value usk::platform::windows::observe_candidate_original_consumer_ins
         root != volume_root || service_label != service_name)
         throw std::runtime_error("original consumer completion requires the live registered engine");
     const auto service = observe_current_restricted_publisher_service(service_label);
-    const auto before = observe_completed_verification_boundary(volume, service.service_sid, false);
+    const auto before = observe_completed_verification_boundary(volume, service.service_sid, false,
+        ReviewedInstallSnapshotPurpose::original_consumer_completion);
     const auto snapshot = usk::json::parse(before.snapshot_record);
-    const auto plan = restore_reviewed_install_plan(before.snapshot_record);
+    const auto plan = restore_reviewed_install_plan(before.snapshot_record,
+        ReviewedInstallSnapshotPurpose::original_consumer_completion);
     usk::lifecycle::require_original_completed_consumer_install(plan,
         snapshot.at("transaction_id").as_string(), snapshot.at("applied_at").as_string(),
         before.completion_digest, root, volume, service_label);
-    const auto after = observe_completed_verification_boundary(volume, service.service_sid, false);
+    const auto after = observe_completed_verification_boundary(volume, service.service_sid, false,
+        ReviewedInstallSnapshotPurpose::original_consumer_completion);
     if (before.snapshot_record != after.snapshot_record || before.completion_digest != after.completion_digest ||
         before.observation != after.observation)
         throw std::runtime_error("original completed consumer records changed during admission");
