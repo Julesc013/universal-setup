@@ -7,6 +7,7 @@
 #include "usk_publisher_consumer_access.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_execution_observation.h"
+#include "usk_publisher_handle_observation.h"
 #include "usk_publisher_metadata.h"
 #include "usk_publisher_maintenance_mutation.h"
 #include "usk_publisher_process_boundary.h"
@@ -106,6 +107,14 @@ public:
             throw std::runtime_error("native maintenance observer close was not confirmed; retained recovery required");
         value = INVALID_HANDLE_VALUE;
     }
+    void adopt_after_confirmed_close(Held& replacement) {
+        if (!close_attempted || value != INVALID_HANDLE_VALUE || replacement.close_attempted ||
+            replacement.value == INVALID_HANDLE_VALUE || !replacement.value)
+            throw std::runtime_error("native maintenance observer transfer lacks a confirmed release");
+        value = replacement.value;
+        replacement.value = INVALID_HANDLE_VALUE;
+        close_attempted = false;
+    }
 private:
     // A failed observer close is quarantined through worker disposal. Its
     // numeric value is never used again and the destructor never retries it.
@@ -137,6 +146,9 @@ struct NativeMaintenanceContext::Impl {
         std::wstring name;
         PublisherHandleObservation facts{};
         bool directory = true, created = false, restored_creation = false, complete = false;
+        // Creation provenance belongs to the object. This flag distinguishes
+        // a subsequently reopened observer from its original creation handle.
+        bool reopened_observer = false;
         std::uint64_t size = 0;
         std::string sha256, stream_identity;
     };
@@ -1316,6 +1328,49 @@ struct NativeMaintenanceContext::Impl {
             if (!is_publisher_canonical_component(component.wstring())) throw std::runtime_error("native maintenance stream component refused");
         return relative;
     }
+    void use_directory_parent_observer(Entry& entry) {
+        if (!entry.directory || !entry.parent || (!entry.created && !entry.restored_creation))
+            throw std::runtime_error("native maintenance parent observer lacks original directory custody");
+        try {
+            require_authority(spec); require_entry(entry);
+            const auto listed = child(entry.parent->handle.value, entry.name);
+            if (!listed) throw std::runtime_error("native maintenance directory observer child is absent");
+            Held replacement;
+            replacement.value = open_publisher_listed_child(entry.parent->handle.value, *listed,
+                true, false, true, false, false, maintenance_names.get());
+            const auto access = observe_publisher_handle_granted_access(replacement.value);
+            if (!same(facts(replacement.value, true), entry.facts) ||
+                (access & DELETE) || (access & (FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY)) !=
+                    (FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY))
+                throw std::runtime_error("native maintenance directory parent observer changed identity/access");
+            // Open before closing: the exact root/object remains held across
+            // this transition, while its later destination role has no DELETE.
+            require_entry(entry); require_authority(spec);
+            entry.handle.close_observer_once();
+            entry.handle.adopt_after_confirmed_close(replacement);
+            entry.reopened_observer = true;
+            require_entry(entry); require_authority(spec);
+        } catch (...) { custody_failed = true; throw; }
+    }
+    void reopen_created_descendant(Entry& entry, const std::string& native_identity) {
+        if (!entry.created || !entry.parent || entry.handle.value != INVALID_HANDLE_VALUE)
+            throw std::runtime_error("native maintenance descendant observer lacks its released creator");
+        require_entry(*entry.parent); require_authority(spec);
+        const auto listed = child(entry.parent->handle.value, entry.name);
+        if (!listed) throw std::runtime_error("native maintenance original created descendant is absent");
+        Held replacement;
+        replacement.value = entry.directory ? open_publisher_listed_child(entry.parent->handle.value, *listed,
+            true, false, true, false, false, maintenance_names.get()) :
+            open_publisher_listed_maintenance_file(entry.parent->handle.value, *listed);
+        if (!same(facts(replacement.value, entry.directory), entry.facts) ||
+            journal_identity(replacement.value) != native_identity ||
+            (entry.directory && (observe_publisher_handle_granted_access(replacement.value) & DELETE)))
+            throw std::runtime_error("native maintenance descendant observer changed original identity/facts");
+        entry.handle.adopt_after_confirmed_close(replacement);
+        entry.reopened_observer = true;
+        if (entry.directory) require_entry(entry); else require_bytes(entry);
+        require_authority(spec);
+    }
     Entry& create_directory(Entry& parent, const fs::path& relative, const std::wstring& name) {
         require_entry(parent);
         const auto key = relative_volume_path(spec.staging_parent / (".usk-stage-" + spec.transaction_id)) / relative;
@@ -1334,6 +1389,7 @@ struct NativeMaintenanceContext::Impl {
                     {"parent", publisher_handle_observation_json(parent.facts)},
                     {"native_identity", Value(journal_identity(held.handle.value))}}));
             } catch (...) { custody_failed = true; throw; }
+            use_directory_parent_observer(held);
         }
         return held;
     }
@@ -1385,7 +1441,8 @@ struct NativeMaintenanceContext::Impl {
     }
     void require_stream(const transaction::TransactionSpec& s, std::intptr_t handle) const {
         require_authority(s); const auto& entry = stream(handle);
-        if (publication_attempted || !entry.created || entry.directory) throw std::runtime_error("native maintenance stream is unavailable for staging");
+        if (publication_attempted || !entry.created || entry.directory || entry.reopened_observer)
+            throw std::runtime_error("native maintenance stream is unavailable for staging");
         require_entry(entry);
         if (transaction::stream_output_identity(handle) != entry.stream_identity)
             throw std::runtime_error("native maintenance stream creation identity changed");
@@ -1739,6 +1796,7 @@ struct NativeMaintenanceContext::Impl {
                 {"native_identity", Value(journal_identity(held.handle.value))}}));
             if (!original_directories.emplace(relative, &held).second)
                 throw std::runtime_error("native repair parent creator was repeated");
+            use_directory_parent_observer(held);
             parent = &held;
         }
         require_entry(*parent); (void)require_pending("replace_file"); return *parent;
@@ -1825,16 +1883,30 @@ struct NativeMaintenanceContext::Impl {
             return; // Full facts already match the retained confirmed creator/grant receipt.
         }
         const auto before = entry.facts;
-        auto after = grant_publisher_consumer_read_object(entry.handle.value, entry.directory, before,
-            service.service_sid, original_consumer_sid);
-        entry.facts = std::move(after);
-        require_entry(entry);
-        if (!entry.directory) require_bytes(entry);
-        persist_native_custody("consumer_read_grant", Value(Value::Object{
-            {"root_role", Value(role)}, {"relative_path", Value(relative.generic_u8string())},
-            {"before", publisher_handle_observation_json(before)}, {"after", publisher_handle_observation_json(entry.facts)},
-            {"parent", publisher_handle_observation_json(entry.parent->facts)},
-            {"native_identity", Value(journal_identity(entry.handle.value))}, {"consumer_sid", Value(original_consumer_sid)}}));
+        try {
+            require_authority(spec);
+            const auto listed = child(entry.parent->handle.value, entry.name);
+            if (!listed) throw std::runtime_error("native maintenance consumer-grant recipient is absent");
+            Held acl;
+            acl.value = open_publisher_listed_child(entry.parent->handle.value, *listed,
+                false, false, false, true, false, maintenance_names.get());
+            const auto access = observe_publisher_handle_granted_access(acl.value);
+            if (!same(facts(acl.value, entry.directory), before) || !(access & WRITE_DAC) || (access & DELETE))
+                throw std::runtime_error("native maintenance ACL observer changed recipient/access");
+            require_entry(entry);
+            if (!entry.directory) require_bytes(entry);
+            entry.facts = grant_publisher_consumer_read_object(acl.value, entry.directory, before,
+                service.service_sid, original_consumer_sid);
+            require_entry(entry);
+            if (!entry.directory) require_bytes(entry);
+            acl.close_observer_once();
+            require_authority(spec);
+            persist_native_custody("consumer_read_grant", Value(Value::Object{
+                {"root_role", Value(role)}, {"relative_path", Value(relative.generic_u8string())},
+                {"before", publisher_handle_observation_json(before)}, {"after", publisher_handle_observation_json(entry.facts)},
+                {"parent", publisher_handle_observation_json(entry.parent->facts)},
+                {"native_identity", Value(journal_identity(entry.handle.value))}, {"consumer_sid", Value(original_consumer_sid)}}));
+        } catch (...) { custody_failed = true; throw; }
     }
     void complete_consumer_access(const transaction::MaintenanceEffectInspection& history) {
         if (!((spec.operation == "repair" && history.pending_kind == "replace_file") ||
@@ -2219,20 +2291,41 @@ struct NativeMaintenanceContext::Impl {
             auto fact = item.second->facts; fact.native_name.replace(0, sealed.root.native_name.size(), new_name);
             after.emplace_back(item.second.get(), std::move(fact));
         }
+        std::vector<std::pair<Entry*, std::string>> descendants;
+        for (const auto& item : directories) if (item.second->created && item.second.get() != staging)
+            descendants.emplace_back(item.second.get(), journal_identity(item.second->handle.value));
+        const auto depth = [](const Entry* entry) {
+            std::size_t result = 0;
+            for (; entry; entry = entry->parent) ++result;
+            return result;
+        };
+        std::stable_sort(descendants.begin(), descendants.end(), [&](const auto& a, const auto& b) {
+            return depth(a.first) < depth(b.first);
+        });
+        for (const auto& item : files)
+            descendants.emplace_back(item.second.get(), journal_identity(item.second->handle.value));
         auto next_component = spec.target_root.filename().wstring();
-        // Latch before any possible issued call. An unconfirmed rename leaves
-        // every handle in this owner and grants neither a retry nor cleanup.
+        // Freeze all borrowed streams before releasing descendants. NTFS
+        // directory rename requires them closed. The protected root and its
+        // outside parents remain held, with the exact creator closure durable.
+        // Any uncertain close/rename/postimage grants neither retry nor cleanup.
         publication_attempted = true;
-        (void)probe_publisher_bound_rename_no_replace(staging->handle.value, target_parent->handle.value,
-            next_component, sealed.root, target_parent->facts, [&] { require_authority(s); }, maintenance_names.get());
-        staging->parent = target_parent; staging->name.swap(next_component);
-        for (auto& item : after) item.first->facts = std::move(item.second);
-        require_publisher_tree_phase_match(sealed, observe_publisher_tree(staging->handle.value), new_name);
-        for (const auto& item : directories) if (item.second->created) require_entry(*item.second);
-        for (const auto& item : files) require_bytes(*item.second);
-        require_authority(s);
-        publication_confirmed = true;
         try {
+            for (auto it = descendants.rbegin(); it != descendants.rend(); ++it)
+                it->first->handle.close_observer_once();
+            require_entry(*staging); require_authority(s);
+            require_publisher_tree_phase_match(sealed, observe_publisher_tree(staging->handle.value));
+            (void)probe_publisher_bound_rename_no_replace(staging->handle.value, target_parent->handle.value,
+                next_component, sealed.root, target_parent->facts, [&] { require_authority(s); }, maintenance_names.get());
+            staging->parent = target_parent; staging->name.swap(next_component);
+            for (auto& item : after) item.first->facts = std::move(item.second);
+            use_directory_parent_observer(*staging);
+            for (const auto& item : descendants) reopen_created_descendant(*item.first, item.second);
+            require_publisher_tree_phase_match(sealed, observe_publisher_tree(staging->handle.value), new_name);
+            for (const auto& item : directories) if (item.second->created) require_entry(*item.second);
+            for (const auto& item : files) require_bytes(*item.second);
+            require_authority(s);
+            publication_confirmed = true;
             base::Sha256 created_hash;
             created_hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
             persist_native_custody("confirmed_publication", Value(Value::Object{

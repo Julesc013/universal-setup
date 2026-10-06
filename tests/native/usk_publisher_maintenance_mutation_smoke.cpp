@@ -15,6 +15,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <aclapi.h>
 
 namespace fs = std::filesystem;
 using namespace usk::platform::windows;
@@ -27,16 +28,24 @@ public:
     explicit Held(HANDLE value) : value_(value) {
         check(value && value != INVALID_HANDLE_VALUE, "owned fixture handle open failed");
     }
-    ~Held() { CloseHandle(value_); }
+    ~Held() { if (!close_attempted_) CloseHandle(value_); }
     Held(const Held&) = delete;
     Held& operator=(const Held&) = delete;
     HANDLE get() const { return value_; }
+    void close_once() {
+        check(!close_attempted_, "owned fixture observer already released");
+        close_attempted_ = true;
+        check(CloseHandle(value_) != FALSE, "owned fixture observer close unconfirmed");
+        value_ = INVALID_HANDLE_VALUE;
+    }
 private:
     HANDLE value_;
+    bool close_attempted_ = false;
 };
-Held directory(const fs::path& path) {
+Held directory(const fs::path& path, bool rename_source = false) {
     return Held(CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY |
-        FILE_TRAVERSE | FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | READ_CONTROL | SYNCHRONIZE,
+        FILE_TRAVERSE | FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | READ_CONTROL | SYNCHRONIZE |
+        (rename_source ? DELETE : 0),
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
 }
@@ -79,6 +88,140 @@ void remove_file(HANDLE parent, const std::wstring& name, const std::string& byt
     check(result.native_call_attempted && result.absence_confirmed &&
         result.object_file_id == file.file_id && result.native_status == 0 && result.io_status == 0,
         "owned file removal lacked native identity/absence confirmation");
+}
+void protect_owned_object(const fs::path& path, bool directory_object) {
+    Held object(CreateFileW(path.c_str(), READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | (directory_object ? FILE_FLAG_BACKUP_SEMANTICS : 0), nullptr));
+    auto before = directory_object ? observe_publisher_directory_handle(object.get()) : observe_publisher_file_handle(object.get());
+    PSECURITY_DESCRIPTOR security = nullptr; PACL dacl = nullptr;
+    check(GetSecurityInfo(object.get(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
+        &dacl, nullptr, &security) == ERROR_SUCCESS && dacl && IsValidAcl(dacl),
+        "owned protected-fixture DACL unavailable");
+    const auto error = SetSecurityInfo(object.get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr);
+    LocalFree(security);
+    check(error == ERROR_SUCCESS, "owned protected-fixture DACL update failed");
+    const auto after = directory_object ? observe_publisher_directory_handle(object.get()) : observe_publisher_file_handle(object.get());
+    before.dacl_protected = true;
+    // Explicit protection converts existing inherited ACEs to explicit ACEs;
+    // retain their order, types, masks, SIDs and all other flags exactly.
+    for (auto& ace : before.dacl_aces) ace.flags &= static_cast<std::uint8_t>(~INHERITED_ACE);
+    const auto expected = usk::json::canonical(publisher_handle_observation_json(before));
+    const auto actual = usk::json::canonical(publisher_handle_observation_json(after));
+    if (expected != actual) {
+        std::cerr << "owned protection " << path.u8string() << " expected: " << expected << "\nactual: " << actual << '\n';
+        throw std::runtime_error("owned fixture protection changed original identity or policy");
+    }
+    object.close_once();
+}
+void directory_publication_controls(const fs::path& root, HANDLE parent) {
+    const auto parent_facts = observe_publisher_directory_handle(parent);
+    const std::string bytes = "owned directory publication payload\n";
+    check(!(observe_publisher_handle_granted_access(parent) & DELETE),
+        "ordinary publication destination parent has DELETE access");
+    const auto check_moved = [](PublisherHandleObservation before, const PublisherHandleObservation& after,
+        const std::wstring& old_root, const std::wstring& new_root, const char* phase = "publication") {
+        check(before.native_name.compare(0, old_root.size(), old_root) == 0,
+            "owned publication preimage escaped its root");
+        before.native_name.replace(0, old_root.size(), new_root);
+        const auto expected = usk::json::canonical(publisher_handle_observation_json(before));
+        const auto actual = usk::json::canonical(publisher_handle_observation_json(after));
+        if (expected != actual) {
+            std::cerr << "owned " << phase << " expected: " << expected << "\nactual: " << actual << '\n';
+            throw std::runtime_error("owned publication changed original full facts");
+        }
+    };
+    for (const bool release_descendants : {false, true}) {
+        const auto source_name = release_descendants ? L"closed-descendants" : L"open-descendants";
+        const auto target_name = release_descendants ? L"published-descendants" : L"denied-descendants";
+        check(fs::create_directory(root / source_name) && fs::create_directory(root / source_name / L"nested"),
+            "owned publication source creation failed");
+        write(root / source_name / L"nested/payload.bin", bytes);
+        // Protect only these exact self-created fixture objects. Their actual
+        // actor, owner and permissions are retained; this is no birth admission.
+        protect_owned_object(root / source_name, true);
+        protect_owned_object(root / source_name / L"nested", true);
+        protect_owned_object(root / source_name / L"nested/payload.bin", false);
+        auto source = directory(root / source_name, true);
+        Held nested(open_publisher_listed_child(source.get(), listed(source.get(), L"nested"), true, false, true));
+        Held file(open_publisher_listed_maintenance_file(nested.get(), listed(nested.get(), L"payload.bin")));
+        const auto source_before = observe_publisher_directory_handle(source.get());
+        const auto nested_before = observe_publisher_directory_handle(nested.get());
+        const auto file_before = observe_publisher_file_handle(file.get());
+        if (!release_descendants) {
+            bool unconfirmed = false;
+            try { (void)probe_publisher_bound_rename_no_replace(source.get(), parent, target_name,
+                source_before, parent_facts); }
+            catch (const PublisherRenameUnconfirmed&) { unconfirmed = true; }
+            check(unconfirmed && directory_facts(parent, source_name).file_id == source_before.file_id &&
+                !fs::exists(root / target_name) && file_facts(nested.get(), L"payload.bin").file_id == file_before.file_id,
+                "open descendant rename did not retain the observed source/absent target");
+            // This finite owned negative fixture is never retried or adopted as
+            // production recovery. Its actual unchanged namespace is observed.
+            file.close_once(); nested.close_once(); source.close_once();
+            auto cleanup = directory(root / source_name);
+            { auto child = directory(root / source_name / L"nested"); remove_file(child.get(), L"payload.bin", bytes); }
+            const auto removed = remove_publisher_bound_empty_directory(cleanup.get(), L"nested",
+                directory_facts(cleanup.get(), L"nested"), observe_publisher_directory_handle(cleanup.get()));
+            check(removed.absence_confirmed, "owned negative nested cleanup retained");
+            cleanup.close_once();
+        } else {
+            file.close_once(); nested.close_once();
+            const auto result = probe_publisher_bound_rename_no_replace(source.get(), parent, target_name,
+                source_before, parent_facts);
+            const auto source_after = observe_publisher_directory_handle(source.get());
+            check(result.native_status == 0 && result.io_status == 0, "closed descendant publication unconfirmed");
+            check_moved(source_before, source_after, source_before.native_name, source_after.native_name);
+            // Bridge the exact root before releasing its original DELETE owner.
+            Held visible(open_publisher_listed_child(parent, listed(parent, target_name), true, false, true));
+            check_moved(source_before, observe_publisher_directory_handle(visible.get()),
+                source_before.native_name, source_after.native_name);
+            source.close_once();
+            check(!(observe_publisher_handle_granted_access(visible.get()) & DELETE),
+                "published root parent observer retained DELETE");
+            Held child(open_publisher_listed_child(visible.get(), listed(visible.get(), L"nested"), true, false, true));
+            Held payload(open_publisher_listed_maintenance_file(child.get(), listed(child.get(), L"payload.bin")));
+            check_moved(nested_before, observe_publisher_directory_handle(child.get()), source_before.native_name, source_after.native_name);
+            check_moved(file_before, observe_publisher_file_handle(payload.get()), source_before.native_name, source_after.native_name,
+                "reopened payload");
+            // A separate exact ACL observer obtains the right on the handle;
+            // existing descriptor permission alone does not confer WRITE_DAC.
+            check(!(observe_publisher_handle_granted_access(payload.get()) & WRITE_DAC),
+                "ordinary payload observer unexpectedly has WRITE_DAC");
+            Held acl(open_publisher_listed_child(child.get(), listed(child.get(), L"payload.bin"), false, false, false, true));
+            const auto access = observe_publisher_handle_granted_access(acl.get());
+            check((access & WRITE_DAC) && !(access & DELETE), "ordinary exact ACL observer has incorrect access");
+            check_moved(file_before, observe_publisher_file_handle(acl.get()), source_before.native_name, source_after.native_name,
+                "ACL preimage");
+            PSECURITY_DESCRIPTOR security = nullptr; PACL dacl = nullptr;
+            check(GetSecurityInfo(acl.get(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
+                &dacl, nullptr, &security) == ERROR_SUCCESS && dacl && IsValidAcl(dacl),
+                "owned ACL preimage unavailable");
+            const auto error = SetSecurityInfo(acl.get(), SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                nullptr, nullptr, dacl, nullptr);
+            LocalFree(security);
+            check(error == ERROR_SUCCESS, "owned exact ACL observer could not set its unchanged DACL");
+            acl.close_once();
+            check_moved(file_before, observe_publisher_file_handle(payload.get()), source_before.native_name, source_after.native_name,
+                "ACL postimage");
+            const auto moved = rename_publisher_bound_file_no_replace(payload.get(), child.get(), L"payload.bin",
+                visible.get(), L"payload.bin", observe_publisher_file_handle(payload.get()),
+                observe_publisher_directory_handle(child.get()), observe_publisher_directory_handle(visible.get()), bytes.size(), hash(bytes));
+            check(moved.file_id == file_before.file_id, "published parent file rename changed original identity");
+            payload.close_once(); child.close_once();
+            remove_file(visible.get(), L"payload.bin", bytes);
+            const auto removed = remove_publisher_bound_empty_directory(visible.get(), L"nested",
+                directory_facts(visible.get(), L"nested"), observe_publisher_directory_handle(visible.get()));
+            check(removed.absence_confirmed, "owned positive nested cleanup retained");
+            visible.close_once();
+        }
+        const auto final_name = release_descendants ? target_name : source_name;
+        const auto removed = remove_publisher_bound_empty_directory(parent, final_name,
+            directory_facts(parent, final_name), parent_facts);
+        check(removed.absence_confirmed, "owned publication fixture directory cleanup retained");
+    }
 }
 void snapshot_bindings() {
     using usk::json::Value;
@@ -333,6 +476,7 @@ int proof() {
                 "owned no-replace rename changed bytes/identity or failed its namespace postimage");
         }
         ScopedPublisherEffectFence scope(fence);
+        directory_publication_controls(root, bound_root.get());
         write(root / L"source/second.bin", second);
         {
             Held file(open_publisher_listed_maintenance_file(source.get(), listed(source.get(), L"second.bin")));
