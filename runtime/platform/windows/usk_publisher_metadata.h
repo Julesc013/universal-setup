@@ -28,6 +28,8 @@ public:
     ScopedPublisherEffectFence(std::function<void()>&&) = delete;
 };
 void require_current_publisher_effect_fence();
+// Mandatory for new native maintenance effects; absence is a refusal.
+void require_active_publisher_effect_fence();
 
 // Publish an already flushed, privately created protected record, relative
 // to a retained protected parent. No replacement or path-based reopen.

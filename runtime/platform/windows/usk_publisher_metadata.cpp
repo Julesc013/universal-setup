@@ -69,6 +69,10 @@ ScopedPublisherEffectFence::ScopedPublisherEffectFence(const std::function<void(
 }
 ScopedPublisherEffectFence::~ScopedPublisherEffectFence() { effect_fence = nullptr; }
 void require_current_publisher_effect_fence() { if (effect_fence) (*effect_fence)(); }
+void require_active_publisher_effect_fence() {
+    if (!effect_fence) throw std::runtime_error("publisher native maintenance effect fence unavailable");
+    (*effect_fence)();
+}
 
 void publish_publisher_record_no_replace(HANDLE file, HANDLE parent, const std::wstring& name,
     const std::string& service_sid) {

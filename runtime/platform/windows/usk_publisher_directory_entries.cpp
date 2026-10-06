@@ -177,7 +177,8 @@ namespace {
 HANDLE open_listed_child(HANDLE parent,
     const PublisherDirectoryEntry& listed,
     bool require_add_subdirectory, bool require_delete, bool require_add_file,
-    bool require_write_dac, bool backup_observation, bool metadata_security) {
+    bool require_write_dac, bool backup_observation, bool metadata_security,
+    bool maintenance_file = false) {
     if (!parent || parent == INVALID_HANDLE_VALUE ||
         !valid_component(listed.name)) {
         throw std::runtime_error("publisher relative child open has invalid inputs");
@@ -202,7 +203,9 @@ HANDLE open_listed_child(HANDLE parent,
     if (backup_observation && !metadata_security &&
         (require_add_subdirectory || require_delete || require_add_file || require_write_dac))
         throw std::runtime_error("backup observation cannot request mutation rights");
-    if ((require_add_subdirectory || require_delete || require_add_file) &&
+    if (maintenance_file && directory)
+        throw std::runtime_error("maintenance mutable file must be regular");
+    if ((require_add_subdirectory || require_add_file || (require_delete && !maintenance_file)) &&
         !directory) {
         throw std::runtime_error("publisher mutable child must be a directory");
     }
@@ -271,6 +274,11 @@ HANDLE open_publisher_listed_child(HANDLE parent,
     bool require_write_dac, bool backup_observation) {
     return open_listed_child(parent, listed, require_add_subdirectory, require_delete,
         require_add_file, require_write_dac, backup_observation, false);
+}
+
+HANDLE open_publisher_listed_maintenance_file(HANDLE parent,
+    const PublisherDirectoryEntry& listed) {
+    return open_listed_child(parent, listed, false, true, false, false, false, false, true);
 }
 
 HANDLE open_publisher_metadata_dacl_child(HANDLE parent,

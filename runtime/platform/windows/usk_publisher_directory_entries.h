@@ -48,6 +48,12 @@ HANDLE open_publisher_listed_child(HANDLE parent,
     bool require_add_file = false, bool require_write_dac = false,
     bool backup_observation = false);
 
+// Private maintenance open for a listed regular file. Requests read and
+// DELETE only, preserving the original no-follow/128-bit listing/parent
+// checks. Caller retains native operation custody; this grants no effect.
+HANDLE open_publisher_listed_maintenance_file(HANDLE parent,
+    const PublisherDirectoryEntry& listed);
+
 // Separate controller admission route for the exact listed Windows metadata
 // directory. Requires scoped backup/restore privileges and durable target
 // intent; requests WRITE_DAC, never data/name mutation or WRITE_OWNER.
