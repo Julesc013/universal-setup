@@ -27,6 +27,12 @@ struct MaintenanceEffectReconciliation {
 MaintenanceEffectReconciliation reconcile_maintenance_effect(
     const transaction::TransactionSpec& spec);
 
+// Bounded create-only original plan and owned-object observations, joined to
+// the actual transaction/context and original immutable installed revision.
+// Source readers and payload bytes are never stored here. This read-only
+// record confers no native custody, replay or current-revision authority.
+json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& spec);
+
 // Internal operation-local backend, supplied by the owner of the native
 // operation. require_authority must retain and revalidate the original intent,
 // current installed revision, generation/worker fence, record parents and all

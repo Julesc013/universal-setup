@@ -242,7 +242,7 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     if((Get-Service $service).Status -ne 'Stopped'){throw 'Public one-request service did not stop'}
     return $result
 }
-function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[string]$VolumeRoot,[uint32]$DiskNumber,[long]$PartitionOffset,[long]$PartitionSize,[string]$ServiceSid,[switch]$RequireUnrelated) {
+function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[string]$VolumeRoot,[uint32]$DiskNumber,[long]$PartitionOffset,[long]$PartitionSize,[string]$ServiceSid,$DeviceIntent,[switch]$RequireUnrelated) {
     $root=$Boundary.root
     $prepared=@($Observation.rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Volume boundary has no retained prepared binding'}
@@ -281,6 +281,21 @@ function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[
         }
     }
     if($serviceAces -ne 1){throw 'Independent raw-volume service grant absent or repeated'}
+    $intended=$DeviceIntent.intended_policy
+    if($null -eq $intended -or @($intended.PSObject.Properties).Count -ne 3 -or
+        $intended.owner -cne $deviceRaw.Owner.Value -or $intended.dacl_protected -ne $true -or
+        -not ($deviceRaw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or
+        @($intended.aces).Count -ne $deviceRaw.DiscretionaryAcl.Count) {
+        throw 'Independent mounted device policy differs from the retained bootstrap intent'
+    }
+    for($index=0;$index -lt $deviceRaw.DiscretionaryAcl.Count;$index++) {
+        $actual=$deviceRaw.DiscretionaryAcl[$index];$expected=$intended.aces[$index]
+        if(@($expected.PSObject.Properties).Count -ne 4 -or $expected.type -ne [uint32]$actual.AceType -or
+            $expected.flags -ne [uint32]$actual.AceFlags -or $expected.sid -cne $actual.SecurityIdentifier.Value -or
+            $expected.mask -ne [uint32]([long]$actual.AccessMask -band 0xffffffff)) {
+            throw 'Independent mounted device ordered ACE differs from the retained bootstrap intent'
+        }
+    }
     foreach($checks in @($root.effective_rights,$boundary.device.checks)) {
         $principals=@('filtered')
         if($RequireUnrelated) {
@@ -337,7 +352,7 @@ function Read-IndependentPublicRows {
         throw 'Independent held machine-client token binding differs'
     }
     $boundary=$readback.independent.volume_boundary
-    Assert-PublicVolumeBoundary $readback.independent $boundary $drive $VolumeRoot $disk.Number $partitions[0].Offset $partitions[0].Size $sid -RequireUnrelated
+    Assert-PublicVolumeBoundary $readback.independent $boundary $drive $VolumeRoot $disk.Number $partitions[0].Offset $partitions[0].Size $sid $targetIntent.mounted_device_transition -RequireUnrelated
     $boundaryJson=$boundary|ConvertTo-Json -Depth 16 -Compress
     if($volumeBoundaryBaseline -and $boundaryJson -cne $volumeBoundaryBaseline) {
         throw 'Independent volume-root/device boundary changed across recovery or replay'
@@ -684,7 +699,15 @@ try {
     $targetAdmittedPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-admitted.json')
     $targetIntent=Get-Content -LiteralPath $targetIntentPath -Raw|ConvertFrom-Json
     $targetIntentHash=(Get-FileHash -LiteralPath $targetIntentPath -Algorithm SHA256).Hash
-    if($targetIntent.schema -cne 'usk.publisher_target_intent.v2'){throw 'Target transition intent schema differs'}
+    if($targetIntent.schema -cne 'usk.publisher_target_intent.v3' -or @($targetIntent.PSObject.Properties).Count -ne 5 -or
+        @($targetIntent.mounted_device_transition.PSObject.Properties).Count -ne 2 -or
+        $targetIntent.mounted_device_transition.original_owner_dacl.Length -gt 8192) {
+        throw 'Target transition intent schema or mounted device binding differs'
+    }
+    $originalDevice=[Security.AccessControl.RawSecurityDescriptor]::new($targetIntent.mounted_device_transition.original_owner_dacl)
+    if($null -eq $originalDevice.DiscretionaryAcl -or $originalDevice.Owner.Value -cnotin @('S-1-5-18','S-1-5-32-544')) {
+        throw 'Target transition intent has an unavailable original mounted device descriptor'
+    }
     Assert-VolumeMetadataSnapshot $metadataBefore $targetIntent.original_metadata
     $metadataAfter=Read-VolumeMetadata
     Assert-VolumeMetadataSnapshot $metadataAfter $targetIntent.identity.metadata

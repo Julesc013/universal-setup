@@ -22,6 +22,12 @@ bool require_publisher_device_acl_shape(PSID owner, PACL dacl, PSID service_sid)
 // target. All other ACEs and the owner must pass the existing strict profile.
 std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, PSID service_sid);
 
+// Pure bounded bootstrap postimage. Retains the trusted owner and ordered ACEs,
+// reduces only the recognized default when necessary, adds the exact service
+// grant and protects inheritance. Caller must separately bind original intent,
+// unpublished target/custody and exclusive admission before accepting a target.
+std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
 } // namespace usk::platform::windows
 #endif
 #endif

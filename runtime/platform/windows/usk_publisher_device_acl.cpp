@@ -5,6 +5,7 @@
 
 #if defined(_WIN32)
 #include <array>
+#include <aclapi.h>
 #include <cstddef>
 #include <sddl.h>
 #include <stdexcept>
@@ -123,6 +124,54 @@ std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, P
         throw std::runtime_error("publisher device lacks the known default modify grant");
     (void)require_publisher_device_acl_shape(owner, restricted, service_sid);
     return bytes;
+}
+
+std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid) {
+    if (!dacl || !IsValidAcl(dacl) || dacl->AceCount > 64u || dacl->AclSize > 16384u)
+        throw std::runtime_error("publisher device admission DACL is unavailable or exceeds its bound");
+    std::vector<BYTE> reduced;
+    bool granted = false;
+    try { granted = require_publisher_device_acl_shape(owner, dacl, service_sid); }
+    catch (const std::exception&) {
+        reduced = restrict_publisher_default_device_acl(owner, dacl, service_sid);
+        dacl = reinterpret_cast<PACL>(reduced.data());
+        granted = require_publisher_device_acl_shape(owner, dacl, service_sid);
+    }
+    PACL composed = dacl;
+    if (!granted) {
+        EXPLICIT_ACCESS_W grant{};
+        grant.grfAccessPermissions = FILE_ALL_ACCESS;
+        grant.grfAccessMode = GRANT_ACCESS;
+        grant.grfInheritance = NO_INHERITANCE;
+        grant.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        grant.Trustee.TrusteeType = TRUSTEE_IS_USER;
+        grant.Trustee.ptstrName = reinterpret_cast<LPWSTR>(service_sid);
+        const DWORD error = SetEntriesInAclW(1, &grant, dacl, &composed);
+        if (error != ERROR_SUCCESS || !composed)
+            throw std::runtime_error("publisher device admission grant cannot be composed");
+    }
+    try {
+        if (!require_publisher_device_acl_shape(owner, composed, service_sid))
+            throw std::runtime_error("publisher device admission postimage lacks its exact service grant");
+        SECURITY_DESCRIPTOR descriptor{};
+        if (!InitializeSecurityDescriptor(&descriptor, SECURITY_DESCRIPTOR_REVISION) ||
+            !SetSecurityDescriptorOwner(&descriptor, owner, FALSE) ||
+            !SetSecurityDescriptorDacl(&descriptor, TRUE, composed, FALSE) ||
+            !SetSecurityDescriptorControl(&descriptor, SE_DACL_PROTECTED, SE_DACL_PROTECTED))
+            throw std::runtime_error("publisher device admission postimage cannot be initialized");
+        DWORD needed = 0;
+        MakeSelfRelativeSD(&descriptor, nullptr, &needed);
+        if (needed == 0 || needed > 16384u)
+            throw std::runtime_error("publisher device admission postimage exceeds its bound");
+        std::vector<BYTE> result(needed);
+        if (!MakeSelfRelativeSD(&descriptor, result.data(), &needed))
+            throw std::runtime_error("publisher device admission postimage cannot be retained");
+        if (!granted) LocalFree(composed);
+        return result;
+    } catch (...) {
+        if (!granted) LocalFree(composed);
+        throw;
+    }
 }
 
 } // namespace usk::platform::windows

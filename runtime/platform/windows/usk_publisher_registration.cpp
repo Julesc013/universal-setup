@@ -1208,6 +1208,118 @@ std::string owner_dacl_sddl(HANDLE object) {
     return owner_dacl_sddl(read_publisher_owner_dacl_from_handle(object));
 }
 
+// Owner, ordered ACEs and inheritance protection are the intended policy.
+// AUTO_INHERITED bookkeeping can differ after SetSecurityInfo; it supplies
+// no additional grant and is not substituted for these actual policy fields.
+usk::json::Value device_owner_dacl_policy(const std::vector<BYTE>& bytes) {
+    using usk::json::Value;
+    if (bytes.empty() || bytes.size() > 16384u || !IsValidSecurityDescriptor(const_cast<BYTE*>(bytes.data())))
+        throw std::runtime_error("mounted device security is unavailable or exceeds its bound");
+    auto* descriptor = const_cast<BYTE*>(bytes.data());
+    PSID owner = nullptr; PACL dacl = nullptr;
+    BOOL defaulted = FALSE, present = FALSE;
+    SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) || !owner || !IsValidSid(owner) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present || !dacl ||
+        !IsValidAcl(dacl) || dacl->AceCount > 65u ||
+        !GetSecurityDescriptorControl(descriptor, &control, &revision))
+        throw std::runtime_error("mounted device owner or DACL cannot be retained");
+    const auto sid_text = [](PSID sid) {
+        LPWSTR rendered = nullptr;
+        if (!sid || !IsValidSid(sid) || !ConvertSidToStringSidW(sid, &rendered) || !rendered)
+            throw std::runtime_error("mounted device principal is unavailable");
+        const auto text = utf8(rendered);
+        LocalFree(rendered);
+        return text;
+    };
+    Value::Array aces;
+    for (DWORD index = 0; index < dacl->AceCount; ++index) {
+        void* entry = nullptr;
+        if (!GetAce(dacl, index, &entry) || !entry)
+            throw std::runtime_error("mounted device ACE is unavailable");
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(entry);
+        if (ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE || ace->Header.AceSize < sizeof(ACCESS_ALLOWED_ACE))
+            throw std::runtime_error("mounted device ACE is unsupported");
+        const auto* sid = reinterpret_cast<const SID*>(&ace->SidStart);
+        if (sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES ||
+            offsetof(ACCESS_ALLOWED_ACE, SidStart) + 8u + 4u * sid->SubAuthorityCount > ace->Header.AceSize)
+            throw std::runtime_error("mounted device ACE principal is truncated");
+        aces.emplace_back(Value::Object{{"type", Value(static_cast<std::uint64_t>(ace->Header.AceType))},
+            {"flags", Value(static_cast<std::uint64_t>(ace->Header.AceFlags))},
+            {"mask", Value(static_cast<std::uint64_t>(ace->Mask))},
+            {"sid", Value(sid_text(const_cast<SID*>(sid)))}});
+    }
+    return Value(Value::Object{{"owner", Value(sid_text(owner))},
+        {"dacl_protected", Value((control & SE_DACL_PROTECTED) != 0)}, {"aces", Value(std::move(aces))}});
+}
+
+std::vector<BYTE> intended_device_security(const std::vector<BYTE>& original,
+    const std::vector<BYTE>& service_sid) {
+    (void)device_owner_dacl_policy(original);
+    auto* descriptor = const_cast<BYTE*>(original.data());
+    PSID owner = nullptr; PACL dacl = nullptr; BOOL defaulted = FALSE, present = FALSE;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present)
+        throw std::runtime_error("mounted device prestate cannot be decoded");
+    return usk::platform::windows::publisher_device_admission_postimage(owner, dacl,
+        const_cast<BYTE*>(service_sid.data()));
+}
+
+usk::json::Value capture_mounted_device_transition(const std::wstring& volume,
+    const std::vector<BYTE>& service_sid) {
+    FileHandle device(CreateFileW(volume.substr(0, volume.size() - 1).c_str(), READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr));
+    if (device.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("mounted device prestate is unavailable");
+    const auto original = read_publisher_owner_dacl_from_handle(device.get());
+    const auto original_sddl = owner_dacl_sddl(original);
+    if (original_sddl.size() > 8192u) throw std::runtime_error("mounted device prestate exceeds its text bound");
+    const auto intended = intended_device_security(original, service_sid);
+    return usk::json::Value(usk::json::Value::Object{
+        {"original_owner_dacl", usk::json::Value(original_sddl)},
+        {"intended_policy", device_owner_dacl_policy(intended)}});
+}
+
+// Only the unpublished target's protected v3 intent supplies this bootstrap
+// prestate. Generic admission/recovery keeps the strict remount check.
+void apply_mounted_device_transition(const std::wstring& volume, const std::vector<BYTE>& service_sid,
+    const usk::json::Value& transition, bool permit_original_effect) {
+    if (transition.as_object().size() != 2 || !transition.contains("original_owner_dacl") || !transition.contains("intended_policy"))
+        throw std::runtime_error("mounted device transition has invalid fields");
+    const auto& original_text = transition.at("original_owner_dacl").as_string();
+    if (original_text.empty() || original_text.size() > 8192u)
+        throw std::runtime_error("mounted device transition prestate is unavailable or exceeds its bound");
+    const std::wstring original_wide(original_text.begin(), original_text.end());
+    LocalDescriptor original(original_wide.c_str());
+    const auto length = GetSecurityDescriptorLength(original.get());
+    const auto* first = static_cast<const BYTE*>(original.get());
+    const auto intended = intended_device_security(std::vector<BYTE>(first, first + length), service_sid);
+    const auto expected = usk::json::canonical(device_owner_dacl_policy(intended));
+    if (usk::json::canonical(transition.at("intended_policy")) != expected)
+        throw std::runtime_error("mounted device intended policy differs from its original prestate");
+    FileHandle device(CreateFileW(volume.substr(0, volume.size() - 1).c_str(), READ_CONTROL | WRITE_DAC,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr));
+    if (device.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("mounted device bootstrap security handle is unavailable");
+    const auto current = read_publisher_owner_dacl_from_handle(device.get());
+    if (usk::json::canonical(device_owner_dacl_policy(current)) == expected) return;
+    if (!permit_original_effect)
+        throw std::runtime_error("admitted target cannot repeat its mounted device bootstrap effect");
+    if (owner_dacl_sddl(current) != original_text)
+        throw std::runtime_error("mounted device differs from retained original and intended security");
+    PACL dacl = nullptr; BOOL present = FALSE, defaulted = FALSE;
+    if (!GetSecurityDescriptorDacl(const_cast<BYTE*>(intended.data()), &present, &dacl, &defaulted) || !present || !dacl)
+        throw std::runtime_error("mounted device intended DACL is unavailable");
+    const DWORD error = SetSecurityInfo(device.get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr);
+    if (error != ERROR_SUCCESS)
+        throw std::runtime_error("mounted device bootstrap security outcome is uncertain; Win32 " + std::to_string(error));
+    if (usk::json::canonical(device_owner_dacl_policy(read_publisher_owner_dacl_from_handle(device.get()))) != expected)
+        throw std::runtime_error("mounted device bootstrap security poststate differs; retained");
+    // This handle closes before the final FSCTL_LOCK_VOLUME attempt. A metadata
+    // write/readback is not exclusive admission or proof of revoked handles.
+}
+
 bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
     const PublisherHandleObservation& observation, bool require_protected = true) {
     auto* descriptor = const_cast<BYTE*>(bytes.data());
@@ -1451,16 +1563,21 @@ void provision_registered_target(const std::wstring& name) {
     try {
         const auto disk = dedicated_target_disk_identity(volume);
         prove_initial_exclusive_access(volume);
-        Value original_metadata, expected_metadata, retained;
+        Value original_metadata, expected_metadata, retained, device_transition;
+        const auto service_sid = publisher_service_sid(name);
         std::string original_security;
         if (intent_retained) {
             retained = read_protected_document(intent_path);
-            if (retained.as_object().size() != 4 ||
-                retained.at("schema").as_string() != "usk.publisher_target_intent.v2")
+            const auto& schema = retained.at("schema").as_string();
+            const bool legacy = schema == "usk.publisher_target_intent.v2";
+            if ((legacy && retained.as_object().size() != 4) ||
+                (!legacy && (schema != "usk.publisher_target_intent.v3" || retained.as_object().size() != 5 ||
+                    !retained.contains("mounted_device_transition"))))
                 throw std::runtime_error("retained target admission intent has an unsupported shape");
             original_metadata = retained.at("original_metadata");
             expected_metadata = protected_metadata_snapshot(original_metadata);
             original_security = retained.at("original_owner_dacl").as_string();
+            if (!legacy) device_transition = retained.at("mounted_device_transition");
         }
         {
             ScopedControllerPrivilege backup;
@@ -1485,10 +1602,12 @@ void provision_registered_target(const std::wstring& name) {
             if (usk::json::canonical(retained.at("identity")) != usk::json::canonical(identity))
                 throw std::runtime_error("retained target admission identity or intended metadata differs");
         } else {
+            device_transition = capture_mounted_device_transition(volume, service_sid);
             write_protected_document(intent_path, Value(Value::Object{
-                {"schema", Value("usk.publisher_target_intent.v2")}, {"identity", identity},
+                {"schema", Value("usk.publisher_target_intent.v3")}, {"identity", identity},
                 {"original_metadata", original_metadata},
-                {"original_owner_dacl", Value(original_security)}
+                {"original_owner_dacl", Value(original_security)},
+                {"mounted_device_transition", device_transition}
             }));
         }
         intent_retained = true;
@@ -1517,6 +1636,15 @@ void provision_registered_target(const std::wstring& name) {
             }
             require_publisher_object_security_shape(observe_publisher_directory_handle(root.get()),
                 binding.at("service_sid").as_string());
+        }
+        if (device_transition.type() != Value::Type::null_value) {
+            // Reentry/new mutation is bound to the same protected unpublished
+            // namespace, registration and disk before the device-only effect.
+            if (usk::json::canonical(registration_volume_identity(volume)) !=
+                    usk::json::canonical(binding.at("volume_identity")) ||
+                usk::json::canonical(dedicated_target_disk_identity(volume)) != usk::json::canonical(disk))
+                throw std::runtime_error("mounted device bootstrap identity is unavailable");
+            apply_mounted_device_transition(volume, service_sid, device_transition, !protected_document_exists(admitted_path));
         }
         // This second successful lock proves no conflicting file handles
         // remain after root hardening; it never revokes an open handle. It also verifies

@@ -57,6 +57,19 @@ remain recovery inputs rather than mutation or pathname cleanup authority;
 the stream journal retains incomplete effects for inspection. Operation-specific
 effect replay and public maintenance finalization are still incomplete.
 
+New contexts also bind the raw SHA-256 and filename of a create-only
+`usk.maintenance_reviewed_plan.v1` record in the transaction directory. Its
+8 MiB bound covers the exact reviewed action list and original owned-object
+observations, including native identity/hash/size or safely observed absence.
+The first transaction context declares this record before staging creation;
+the record is written before payload staging or any maintenance effect.
+Interrupted metadata creation can leave the declared record unavailable and
+must retain/refuse. Source-free reads validate the exact bytes, plan digest,
+original immutable installed/ownership basis and closed bounded fields.
+Archive readers and payload bytes are excluded. Legacy contexts remain
+inspectable but cannot supply a missing full plan. These observations confer
+no current revision, native custody or whole-operation recovery authority.
+
 Maintenance also appends create-only `usk.maintenance_effect_record.v1` records
 under the original transaction's `.maintenance` directory. The first record binds
 that same source context and the journal directory observation. Each publication,

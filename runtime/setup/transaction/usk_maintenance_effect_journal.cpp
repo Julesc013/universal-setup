@@ -73,11 +73,21 @@ void validate_context(const usk::transaction::TransactionSpec& spec, const std::
     if (text.empty() || text.size() > 16384u)
         throw std::runtime_error("maintenance context exceeds its bound");
     const Value value = usk::json::parse(text, {16384u, 8u, 128u, 16384u});
-    exact_keys(value, {"schema", "operation", "install_id", "transaction_id", "plan_id",
+    std::set<std::string> keys{"schema", "operation", "install_id", "transaction_id", "plan_id",
         "plan_digest", "policy_digest", "applied_at", "original_installed_transaction_id",
         "original_installed_state_digest", "ownership_manifest_ref", "ownership_manifest_digest",
         "original_source_archive_digest", "installed_root", "operation_target_root",
-        "operation_target_parent", "staging_parent", "state_root", "audit_root"});
+        "operation_target_parent", "staging_parent", "state_root", "audit_root"};
+    if (value.contains("reviewed_plan_ref") || value.contains("reviewed_plan_sha256")) {
+        keys.insert("reviewed_plan_ref");
+        keys.insert("reviewed_plan_sha256");
+        exact_keys(value, keys);
+        if (value.at("reviewed_plan_ref").as_string() != spec.transaction_id + ".maintenance-plan.json" ||
+            !digest(value.at("reviewed_plan_sha256").as_string()))
+            throw std::runtime_error("maintenance reviewed-plan binding is invalid");
+    } else {
+        exact_keys(value, keys);
+    }
     if (usk::json::canonical(value) != text ||
         value.at("schema").as_string() != "usk.maintenance_source_context.v1" ||
         (spec.operation != "repair" && spec.operation != "move" && spec.operation != "uninstall") ||

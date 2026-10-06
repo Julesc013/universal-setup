@@ -588,6 +588,7 @@ int maintenance_directory_status_proof()
 
 int maintenance_absent_root_context_proof()
 {
+    for (const bool plan_written : {false, true}) {
     Fixture fixture;
     const fs::path target = fixture.root / "targets/portable";
     fs::create_directories(target.parent_path());
@@ -606,23 +607,33 @@ int maintenance_absent_root_context_proof()
     if (!refuses([&] { (void)usk::lifecycle::apply_uninstall(plan, plan.plan_digest,
             "tx.absent.uninstall", "2026-10-01T00:00:04Z",
             [&](const std::string&, const std::string& point) {
-                if (point == "transaction.staging.after_journal") {
+                if (point == (plan_written ? "transaction.reviewed_plan.after_write" : "transaction.staging.after_journal")) {
                     reached_journal = true;
                     throw std::runtime_error("absent-root journal interruption");
                 }
             }); }) || !reached_journal) {
         throw std::runtime_error("genuine missing maintenance root did not reach its journal");
     }
-    const auto inspected = usk::transaction::TransactionSession::inspect_recovery({
+    const usk::transaction::TransactionSpec spec{
         "tx.absent.uninstall", plan.plan_id, plan.plan_digest, "uninstall", fixture.roots.staging_parent,
-        target.parent_path() / ".usk-uninstall-tx.absent.uninstall", fixture.roots.state_root, fixture.roots.audit_root});
+        target.parent_path() / ".usk-uninstall-tx.absent.uninstall", fixture.roots.state_root, fixture.roots.audit_root};
+    const auto inspected = usk::transaction::TransactionSession::inspect_recovery(spec);
     const auto context = usk::json::parse(inspected.stream_source_context);
     if (context.at("installed_root").at("native_identity").type() != usk::json::Value::Type::null_value ||
         context.at("original_installed_transaction_id").as_string() != original.installed_state.transaction_id ||
         inspected.stream_source_digest != usk::json::sha256_canonical(context) || fs::exists(target) ||
-        inspected.staging_exists || inspected.target_exists ||
-        inspected.available_actions != std::vector<std::string>{"abandon"}) {
+        inspected.staging_exists != plan_written || inspected.target_exists ||
+        inspected.available_actions != std::vector<std::string>{plan_written ? "retain_for_operator" : "abandon"}) {
         throw std::runtime_error("genuine absence was not retained without recreating the root");
+    }
+    if (plan_written) {
+        const auto artifact = usk::lifecycle::detail::read_maintenance_reviewed_plan(spec);
+        for (const auto& object : artifact.at("original_owned_objects").as_array()) {
+            if (object.at("present").as_boolean() ||
+                object.at("native_identity").type() != usk::json::Value::Type::null_value)
+                throw std::runtime_error("genuine missing owned objects were not preserved as absent observations");
+        }
+    }
     }
     return 0;
 }
@@ -712,6 +723,127 @@ int maintenance_context_at_staging_boundary()
     return 0;
 }
 
+int maintenance_reviewed_plan_boundary_proof()
+{
+    for (const std::string operation : {"repair", "move", "uninstall"})
+        for (const bool written : {false, true}) {
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/portable";
+        fs::create_directories(target.parent_path());
+        const std::string install_id = "install.reviewed." + operation;
+        const auto install = usk::lifecycle::plan_install("plan.reviewed.install", install_id,
+            "2026-10-01T00:00:00Z", target, fixture.roots, recipe(), payload());
+        const auto original = usk::lifecycle::apply_install(install, install.plan_digest,
+            "tx.reviewed.install", "2026-10-01T00:00:01Z");
+        write_text(target / "keep.txt", "unknown content retained");
+        const std::string unknown_sha = usk::base::StableFile(target / "keep.txt").sha256_hex();
+        const auto original_file_id = usk::base::StableFile(target / "app/readme.txt").identity();
+        const std::string transaction_id = "tx.reviewed." + operation;
+        const fs::path destination = fixture.root / "targets/moved";
+        const fs::path operation_target = operation == "move" ? destination :
+            target.parent_path() / (".usk-" + operation + "-" + transaction_id);
+        const fs::path staging_parent = operation == "move" ? destination.parent_path() : fixture.roots.staging_parent;
+        std::string plan_id, plan_digest;
+        bool reached = false;
+        const auto interrupt = [&](const std::string& actual_operation, const std::string& point) {
+            if (actual_operation == operation && point == (written ?
+                    "transaction.reviewed_plan.after_write" : "transaction.reviewed_plan.before_write")) {
+                reached = true;
+                throw std::runtime_error("reviewed-plan metadata interruption");
+            }
+        };
+        const bool interrupted = refuses([&] {
+            if (operation == "repair") {
+                write_text(target / "app/readme.txt", "damaged preimage retained");
+                const auto plan = usk::lifecycle::plan_repair(fixture.roots, install_id,
+                    "plan.reviewed.repair", "2026-10-01T00:00:02Z", payload());
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_repair(plan, plan_digest, transaction_id,
+                    "2026-10-01T00:00:03Z", interrupt);
+            } else if (operation == "move") {
+                const auto plan = usk::lifecycle::plan_move(fixture.roots, install_id,
+                    "plan.reviewed.move", "2026-10-01T00:00:02Z", destination);
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_move(plan, plan_digest, transaction_id,
+                    "2026-10-01T00:00:03Z", interrupt);
+            } else {
+                const auto plan = usk::lifecycle::plan_uninstall(fixture.roots, install_id,
+                    "plan.reviewed.uninstall", "2026-10-01T00:00:02Z");
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_uninstall(plan, plan_digest, transaction_id,
+                    "2026-10-01T00:00:03Z", interrupt);
+            }
+        });
+        if (!interrupted || !reached) throw std::runtime_error("reviewed-plan metadata boundary was not exercised");
+        // Reopen after the reviewed plan and its readers have gone out of scope.
+        const usk::transaction::TransactionSpec spec{transaction_id, plan_id, plan_digest, operation,
+            staging_parent, operation_target, fixture.roots.state_root, fixture.roots.audit_root};
+        const auto transaction = usk::transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+        const auto context = usk::json::parse(history.source_context);
+        const fs::path artifact_path = fixture.roots.state_root / "transactions" / context.at("reviewed_plan_ref").as_string();
+        if (fs::exists(artifact_path) != written || !history.pending_kind.empty() || history.completed_effects != 0u ||
+            transaction.commit_started || fs::exists(operation_target) ||
+            usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha)
+            throw std::runtime_error("reviewed-plan metadata boundary changed payload or claimed commit");
+        if (!written) {
+            if (!refuses([&] { (void)usk::lifecycle::detail::read_maintenance_reviewed_plan(spec); }))
+                throw std::runtime_error("unwritten reviewed plan was treated as available");
+            continue;
+        }
+        const auto artifact = usk::lifecycle::detail::read_maintenance_reviewed_plan(spec);
+        const auto& observations = artifact.at("original_owned_objects").as_array();
+        if (usk::json::sha256_canonical(artifact.at("reviewed_plan")) != plan_digest ||
+            observations.size() != original.ownership.files.size() + original.ownership.directories.size())
+            throw std::runtime_error("reviewed plan lost its full original action basis");
+        const auto found = std::find_if(observations.begin(), observations.end(), [](const auto& item) {
+            return item.at("relative_path").as_string() == "app/readme.txt";
+        });
+        if (found == observations.end() || !found->at("present").as_boolean() ||
+            found->at("native_identity").as_string() != original_file_id.volume_id + ":" + original_file_id.file_id ||
+            found->at("sha256").as_string() != usk::base::StableFile(target / "app/readme.txt").sha256_hex())
+            throw std::runtime_error("reviewed plan lost its original owned preimage");
+        if (!refuses([&] { usk::record_io::write_new_durable_text(artifact_path, "replacement\n"); }))
+            throw std::runtime_error("reviewed-plan writer replaced an existing durable record");
+        auto changed = spec;
+        changed.plan_digest = std::string(64u, '0');
+        if (!refuses([&] { (void)usk::lifecycle::detail::read_maintenance_reviewed_plan(changed); }))
+            throw std::runtime_error("reviewed-plan reader accepted a changed plan binding");
+        if (operation == "repair") {
+            // Older contexts remain valid inspection inputs, but do not acquire
+            // a reviewed-plan artifact or any replay authority.
+            auto legacy_context = context;
+            legacy_context.as_object().erase("reviewed_plan_ref");
+            legacy_context.as_object().erase("reviewed_plan_sha256");
+            auto legacy = spec;
+            legacy.transaction_id = "tx.reviewed.legacy";
+            legacy.target_root = target.parent_path() / ".usk-repair-tx.reviewed.legacy";
+            legacy_context.as_object().at("transaction_id") = usk::json::Value(legacy.transaction_id);
+            legacy_context.as_object().at("operation_target_root") = usk::json::Value(legacy.target_root.generic_u8string());
+            const std::string legacy_text = usk::json::canonical(legacy_context);
+            auto retained = usk::transaction::TransactionSession::begin_streaming(legacy,
+                usk::json::sha256_canonical(legacy_context), legacy_text);
+            usk::transaction::MaintenanceEffectJournal legacy_effects(legacy, legacy_text);
+            if (usk::transaction::MaintenanceEffectJournal::inspect(legacy,
+                    usk::json::sha256_canonical(legacy_context)).source_context != legacy_text ||
+                !refuses([&] { (void)usk::lifecycle::detail::read_maintenance_reviewed_plan(legacy); }))
+                throw std::runtime_error("legacy context inspection or missing-plan refusal changed");
+        }
+        const auto retained_transaction = usk::transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256;
+        const auto retained_history = usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest).journal_digest;
+        // Ordinary owned metadata corruption control. It must refuse without
+        // changing the transaction or effect history.
+        std::ofstream corrupted(artifact_path, std::ios::binary | std::ios::app);
+        corrupted << '\n';
+        corrupted.close();
+        if (!refuses([&] { (void)usk::lifecycle::detail::read_maintenance_reviewed_plan(spec); }) ||
+            usk::transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != retained_transaction ||
+            usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest).journal_digest != retained_history)
+            throw std::runtime_error("reviewed-plan corruption was accepted or changed retained journals");
+    }
+    return 0;
+}
+
 int maintenance_effect_interruption_proof()
 {
     struct Boundary { const char* operation; const char* kind; const char* side; };
@@ -793,6 +925,17 @@ int maintenance_effect_interruption_proof()
                 (effect_happened ? "compatible_after_effect" : "compatible_before_effect"))
             throw std::runtime_error(operation + "." + kind + "." + side + " lost its source-free effect reconciliation");
         const auto context = usk::json::parse(history.source_context);
+        const auto reviewed = usk::lifecycle::detail::read_maintenance_reviewed_plan(spec);
+        if (usk::json::sha256_canonical(reviewed.at("reviewed_plan")) != plan_digest ||
+            reviewed.at("original_owned_objects").as_array().size() !=
+                original.ownership.files.size() + original.ownership.directories.size())
+            throw std::runtime_error("source-free effect recovery lost its original reviewed plan");
+        const auto& original_objects = reviewed.at("original_owned_objects").as_array();
+        const auto readme = std::find_if(original_objects.begin(), original_objects.end(), [](const auto& item) {
+            return item.at("relative_path").as_string() == "app/readme.txt";
+        });
+        if (readme == original_objects.end() || readme->at("sha256").as_string() != original_readme_sha)
+            throw std::runtime_error("source-free recovery replaced the original preimage observation with current contents");
         const auto original_snapshot = usk::state::StateRepository(fixture.roots.state_root).read_installed_snapshot(
             install_id, context.at("original_installed_transaction_id").as_string());
         if (history.sealed || history.pending_kind != kind ||
@@ -1884,6 +2027,9 @@ int main(int argc, char** argv)
         }
         if (const int maintenance = maintenance_context_at_staging_boundary()) {
             return maintenance;
+        }
+        if (const int reviewed = maintenance_reviewed_plan_boundary_proof()) {
+            return reviewed;
         }
         if (const int effects = maintenance_effect_interruption_proof()) {
             return effects;
