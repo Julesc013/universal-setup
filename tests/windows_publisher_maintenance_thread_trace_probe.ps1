@@ -27,7 +27,9 @@ New-Item -ItemType Directory -Path $traceRoot -ErrorAction Stop | Out-Null
 $instance='USKMaintenanceCreator'+[Guid]::NewGuid().ToString('N')
 $etl=Join-Path $traceRoot 'maintenance-thread-creator.etl'
 $profile=Join-Path $PSScriptRoot 'windows_publisher_maintenance_thread_trace.wprp'
-$wpr=(Get-Command wpr.exe -CommandType Application -ErrorAction Stop).Source
+# Pin the OS tool: hosted PATH can contain both System32 and WPT installations.
+$wpr=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\wpr.exe'))
+if(-not (Test-Path -LiteralPath $wpr -PathType Leaf)) {throw 'The pinned Windows WPR executable is absent'}
 $sourceCommit=& git -C $env:GITHUB_WORKSPACE rev-parse HEAD
 if($LASTEXITCODE -ne 0){throw 'Thread trace source commit is unavailable'}
 $sourceTree=& git -C $env:GITHUB_WORKSPACE rev-parse 'HEAD^{tree}'
