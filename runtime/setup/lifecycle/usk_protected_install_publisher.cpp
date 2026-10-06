@@ -3569,28 +3569,135 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
 }
 
 std::string verify_completed_install_in_service(HANDLE volume,
-    const std::string& service_sid) {
+    const std::string& service_sid,
+    const usk::platform::windows::PublisherInstallOperationGuard& guard) {
+    using namespace usk::platform::windows;
+    using usk::json::Value;
     if (!submitted_verify_request) throw std::runtime_error("authenticated verify request is absent");
     const auto request = usk::json::parse(*submitted_verify_request);
     if (request.as_object().size() != 6 ||
         request.at("schema").as_string() != "usk.publisher_installed_verify_request.v1") {
         throw std::runtime_error("authenticated verify request shape differs");
     }
-    const auto boundary = observe_completed_verification_boundary(volume, service_sid);
+    // Initial completion is immutable intent. The payload and transaction to
+    // verify come from the latest actual guarded installed record instead.
+    const auto boundary = observe_completed_verification_boundary(volume, service_sid, false);
     const std::string snapshot_record = boundary.snapshot_record;
     const auto snapshot = usk::json::parse(snapshot_record);
     if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
         snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") {
         throw std::runtime_error("read-only verify requires caller-bound installed snapshot");
     }
-    const auto plan = restore_reviewed_install_plan(snapshot_record);
-    if (request.at("install_id").as_string() != plan.install_id ||
-        request.at("transaction_id").as_string() != snapshot.at("transaction_id").as_string()) {
-        throw std::runtime_error("authenticated verify request differs from completed install");
+    const auto original_plan = restore_reviewed_install_plan(snapshot_record);
+    auto plan = original_plan;
+    if (request.at("install_id").as_string() != plan.install_id)
+        throw std::runtime_error("authenticated verify request differs from the installed identity");
+    PublisherMaintenanceStateSnapshot current(volume, volume_root,
+        plan.roots.state_root.parent_path().filename().wstring(), service_name, guard, plan.install_id);
+    const auto installed = current.installed_state();
+    const auto operation_id = installed.at("transaction_id").as_string();
+    const auto lifecycle_status = installed.at("lifecycle_status").as_string();
+    if (request.at("transaction_id").as_string() != operation_id ||
+        (lifecycle_status != "verified" && lifecycle_status != "move_pending_acceptance") ||
+        installed.at("recipe_digest").as_string() != plan.recipe.recipe_digest)
+        throw std::runtime_error("authenticated verify request lacks the current completed installed state");
+    const auto target = std::filesystem::u8path(installed.at("target_root").as_string());
+    if (!target.is_absolute() || target.lexically_normal() != target ||
+        target.parent_path() != original_plan.target_root.parent_path() ||
+        !is_publisher_canonical_component(target.filename().wstring()))
+        throw std::runtime_error("current verify target differs from the protected publication parent");
+    plan.target_root = target;
+    std::string expected_root_id = boundary.visible_root_file_id;
+    std::unique_ptr<PublisherInstallOperationContext> context;
+    std::optional<usk::transaction::TransactionSpec> spec;
+    std::string transaction_sha, effect_sha;
+    const auto original_transaction = snapshot.at("transaction_id").as_string();
+    if (operation_id == original_transaction) {
+        if (target != original_plan.target_root || lifecycle_status != "verified")
+            throw std::runtime_error("initial verification state changed its original root");
+        usk::lifecycle::require_completed_consumer_install(original_plan,
+            original_transaction, snapshot.at("applied_at").as_string(),
+            boundary.completion_digest, volume_root, volume, service_name);
+    } else {
+        if (!registered_admission || !authenticated_request || consumer_read_sid.empty())
+            throw std::runtime_error("maintained verification requires the authenticated registered consumer");
+        usk::lifecycle::require_original_completed_consumer_install(original_plan,
+            original_transaction, snapshot.at("applied_at").as_string(),
+            boundary.completion_digest, volume_root, volume, service_name);
+        context = PublisherInstallOperationContext::inspect_existing(volume, volume_root,
+            service_name, guard, plan.install_id, operation_id);
+        const auto& intent = context->record();
+        const auto operation = intent.at("operation").as_string();
+        if (operation != "repair" && operation != "move")
+            throw std::runtime_error("current installed transaction is not completed repair or move");
+        const auto& reviewed = intent.at("reviewed_snapshot");
+        const auto& maintenance_plan = reviewed.at("reviewed_plan");
+        const auto prior_target = std::filesystem::u8path(reviewed.at("installed_state").at("target_root").as_string());
+        spec.emplace(usk::transaction::TransactionSpec{operation_id, maintenance_plan.at("plan_id").as_string(),
+            usk::json::sha256_canonical(maintenance_plan), operation,
+            std::filesystem::u8path(maintenance_plan.at("staging_parent").as_string()),
+            operation == "move" ? std::filesystem::u8path(maintenance_plan.at("new_root").as_string()) :
+                prior_target.parent_path()/(".usk-repair-"+operation_id),
+            std::filesystem::u8path(maintenance_plan.at("state_root").as_string()),
+            std::filesystem::u8path(maintenance_plan.at("audit_root").as_string())});
+        if (spec->state_root != plan.roots.state_root || spec->audit_root != plan.roots.audit_root ||
+            (operation == "move" ? target != spec->target_root : target != prior_target))
+            throw std::runtime_error("current verification roots differ from completed maintenance intent");
+        usk::transaction::require_path_capacity(*spec);
+        context->require_bound_state_roots(current.setup_root(), current.state_root());
+        const auto user_sid = authenticated_request->observe_authenticated_object_access(volume)
+            .at("client").at("user_sid").as_string();
+        if (user_sid != consumer_read_sid) throw std::runtime_error("current verification consumer changed");
+        const auto active = observe_publisher_original_maintenance_lease(current.state_root(), volume_root,
+            service_name, guard, *context, user_sid);
+        const auto completion = observe_publisher_completed_installation_lease(current.state_root(), volume_root,
+            service_name, guard, active);
+        const auto postimage = derive_publisher_maintenance_postimage_bindings(reviewed, installed);
+        const auto result_revision = usk::json::sha256_canonical(postimage);
+        const auto metadata = usk::transaction::TransactionSession::inspect_completed_history(*spec);
+        const auto effects = usk::lifecycle::detail::inspect_completed_maintenance_history(*spec);
+        if (!completion || completion->at("result_state_revision").as_string() != result_revision ||
+            current.initial_state_revision() != result_revision || !effects.effects_complete ||
+            !effects.sealed || !effects.next_kind.empty() || effects.transaction_snapshot_sha256 != metadata.snapshot_sha256)
+            throw std::runtime_error("current verification lacks sealed maintenance and exact current revision");
+        transaction_sha = metadata.snapshot_sha256; effect_sha = effects.history_digest;
+        const Value original_completion(Value::Object{
+            {"schema", Value("usk.publisher.original_consumer_completion.v1")}, {"install_id", Value(plan.install_id)},
+            {"original_transaction_id", Value(original_transaction)},
+            {"setup_root", Value(plan.roots.state_root.parent_path().u8string())},
+            {"consumer_read_sid", Value(consumer_read_sid)},
+            {"reviewed_snapshot_sha256", Value(record_sha256(snapshot_record))},
+            {"prepared_record_sha256", Value(boundary.prepared_digest)},
+            {"visible_record_sha256", Value(boundary.visible_digest)},
+            {"completion_record_sha256", Value(boundary.completion_digest)},
+            {"original_visible_root_file_id", Value(boundary.visible_root_file_id)}});
+        expected_root_id = observe_publisher_completed_maintenance_root_id(current.state_root(), volume_root,
+            service_name, guard, *context, user_sid, original_completion, *spec);
     }
-    usk::lifecycle::require_completed_consumer_install(plan,
-        snapshot.at("transaction_id").as_string(), snapshot.at("applied_at").as_string(),
-        boundary.completion_digest, volume_root, volume, service_name);
+    const auto state_tree = observe_publisher_tree(current.state_root());
+    require_publisher_tree_security_shape(state_tree, service_sid);
+    OwnedHandle audit(open_exact_lab_child(current.setup_root(), plan.roots.audit_root.filename().wstring()));
+    const auto audit_tree = observe_publisher_tree(audit.get());
+    require_publisher_tree_security_shape(audit_tree, service_sid);
+    OwnedHandle publication(open_exact_lab_child(volume, L"publication"));
+    OwnedHandle destination(open_exact_lab_child(publication.get(), L"destination"));
+    const auto require_destination = [&] {
+        std::set<std::wstring> expected{original_plan.target_root.filename().wstring(), target.filename().wstring()};
+        const auto entries = observe_publisher_directory_entries(destination.get());
+        if (entries.size() != expected.size()) throw std::runtime_error("current verification destination population differs");
+        for (const auto& entry : entries)
+            if (!(entry.attributes & FILE_ATTRIBUTE_DIRECTORY) || !expected.erase(entry.name))
+                throw std::runtime_error("current verification found an unrelated destination object");
+    };
+    require_destination();
+    OwnedHandle payload(open_exact_lab_child(destination.get(), target.filename().wstring()));
+    const auto payload_tree = observe_publisher_tree(payload.get());
+    if (payload_tree.root.file_id != expected_root_id)
+        throw std::runtime_error("current verification root is not the original recorded native object");
+    const auto protected_payload = consumer_read_sid.empty() ? payload_tree :
+        publisher_consumer_read_projection(payload_tree, service_sid, consumer_read_sid, true);
+    require_publisher_tree_security_shape(protected_payload, service_sid);
+    current.require_initial_revision();
     const auto public_request = usk::json::Value(usk::json::Value::Object{
         {"schema", usk::json::Value("usk.installed_verify_request.v1")},
         {"request_id", request.at("request_id")},
@@ -3599,7 +3706,7 @@ std::string verify_completed_install_in_service(HANDLE volume,
         {"verified_at", request.at("verified_at")}});
     std::string response;
     with_public_roots_bound(volume, plan,
-        boundary.visible_root_file_id, [&] {
+        expected_root_id, [&] {
         const std::string input = usk::json::canonical(public_request);
         int status = -1;
         char* raw = usk_public_lifecycle_command_json("installed.verify",
@@ -3631,7 +3738,18 @@ std::string verify_completed_install_in_service(HANDLE volume,
         status != bound_report.status) {
         throw std::runtime_error("public verification differs from held-volume payload");
     }
-    const auto after = observe_completed_verification_boundary(volume, service_sid);
+    current.require_initial_revision();
+    if (context) {
+        context->require_fence();
+        if (usk::transaction::TransactionSession::inspect_completed_history(*spec).snapshot_sha256 != transaction_sha ||
+            usk::lifecycle::detail::inspect_completed_maintenance_history(*spec).history_digest != effect_sha)
+            throw std::runtime_error("completed maintenance changed during read-only verification");
+    }
+    require_destination();
+    require_publisher_tree_phase_match(payload_tree, observe_publisher_tree(payload.get()));
+    require_publisher_tree_phase_match(state_tree, observe_publisher_tree(current.state_root()));
+    require_publisher_tree_phase_match(audit_tree, observe_publisher_tree(audit.get()));
+    const auto after = observe_completed_verification_boundary(volume, service_sid, false);
     if (after.snapshot_record != snapshot_record ||
         after.completion_digest != boundary.completion_digest ||
         after.visible_root_file_id != boundary.visible_root_file_id ||
@@ -3640,7 +3758,7 @@ std::string verify_completed_install_in_service(HANDLE volume,
     }
     return "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
         json_quote(status == "pass" ? "pass" : "failed") +
-        ",\"transaction_id\":" + json_quote(snapshot.at("transaction_id").as_string()) +
+        ",\"transaction_id\":" + json_quote(operation_id) +
         ",\"bound_report_digest\":" + json_quote(bound_report.report_digest) +
         ",\"verify_response\":" + response + "}\n";
 }
@@ -4264,7 +4382,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 start_installation_lease(reviewed_plan_from_protected_snapshot(volume, observed.service_sid, false, false), true);
             }
             if (verify_installed_request) {
-                return verify_completed_install_in_service(volume, observed.service_sid);
+                if (!install_guard) throw std::runtime_error("installed verification guard is absent");
+                return verify_completed_install_in_service(volume, observed.service_sid, *install_guard);
             }
             if (recover_prepared) {
                 anchors = observe_prepared_recovery(volume, observed.service_sid,

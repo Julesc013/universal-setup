@@ -209,6 +209,28 @@ function Invoke-StandardFreshMaintenance {
             throw 'Maintenance uninstall did not remove the current owned root'
         }
         $currentInstalled=$state[0]
+        if($operation -cne 'uninstall') {
+            $verify=@{schema='usk.publisher_installed_verify_request.v1';
+                request_id='verify.maintenance.'+$operation+'.'+$id;install_id=$installed.install_id;
+                transaction_id=$applyMaintenance.transaction_id;report_id='verify.maintenance.'+$operation+'.'+$id;
+                verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+            $case['verification']=Invoke-StandardRequest 'installed.verify' $verify
+            $verifiedReport=$case.verification.result.payload
+            if($verifiedReport.schema -cne 'usk.verification_report.v1' -or $verifiedReport.status -cne 'pass' -or
+                $verifiedReport.install_id -cne $installed.install_id -or $verifiedReport.report_id -cne $verify.report_id) {
+                throw 'Current maintained installation verification did not pass through the ordinary public caller'
+            }
+            $afterVerification=Read-NativeSnapshot -IncludeMovedMaintenanceRoot:($operation -ceq 'move')
+            $beforeVerifyText=$after.independent.rows|ConvertTo-Json -Depth 64 -Compress
+            $afterVerifyText=$afterVerification.independent.rows|ConvertTo-Json -Depth 64 -Compress
+            if($beforeVerifyText -cne $afterVerifyText){throw 'Current maintenance verification changed native objects or record bytes'}
+            $digest=[Security.Cryptography.SHA256]::Create()
+            try {
+                $case['verification_native_rows_sha256']=([BitConverter]::ToString($digest.ComputeHash(
+                    [Text.Encoding]::UTF8.GetBytes($afterVerifyText)))).Replace('-','').ToLowerInvariant()
+            } finally {$digest.Dispose()}
+            $case['verification_native_rows']=@($afterVerification.independent.rows).Count
+        }
         $case.status='observed_completed'
         $null=Invoke-CompletedMaintenanceRetry $case $after ($operation -cne 'repair')
     }

@@ -104,6 +104,10 @@ int original_transition_extension(Fixture& fixture, bool commit_supported)
     const auto original = TransactionSession::inspect_recovery(spec);
     TransactionSession::require_recovery_transition_extension(spec, original_text,
         original.snapshot_sha256, original.snapshot_sha256);
+    if (!throws([&] { TransactionSession::require_completed_transition_extension(spec, original_text,
+            original.snapshot_sha256, original.snapshot_sha256); }) ||
+        read_text(session.journal_path()) != original_text ||
+        read_text(session.staging_root()/"payload.txt") != "original") return 195;
     session.mark_recovery_required();
     const auto current = TransactionSession::inspect_recovery(spec);
     TransactionSession::require_recovery_transition_extension(spec, original_text,
@@ -150,6 +154,29 @@ int original_transition_extension(Fixture& fixture, bool commit_supported)
         visible.mark_recovery_required(); visible.resume_committing(); visible.mark_committed(); visible.mark_completed();
         TransactionSession::require_recovery_transition_extension(visible_spec, anchor_text,
             anchor.snapshot_sha256, TransactionSession::inspect_recovery(visible_spec).snapshot_sha256);
+        const auto completed = TransactionSession::inspect_completed_history(visible_spec);
+        const auto completed_text = read_text(visible.journal_path());
+        TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, completed.snapshot_sha256);
+        if (!throws([&] { TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+                anchor.snapshot_sha256, anchor.snapshot_sha256); }) ||
+            read_text(visible.journal_path()) != completed_text) return 196;
+#if !defined(_WIN32)
+        // Completed metadata provenance does not reopen or select actions from
+        // a substituted payload path. The service must separately hold and
+        // verify the genuine root; this metadata helper grants no such proof.
+        auto retained = visible_spec.target_root; retained += "-retained";
+        fs::rename(visible_spec.target_root, retained);
+        fs::create_directory_symlink(retained, visible_spec.target_root);
+        TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, completed.snapshot_sha256);
+        const bool live_refused = throws([&] { TransactionSession::require_recovery_transition_extension(
+            visible_spec, anchor_text, anchor.snapshot_sha256, completed.snapshot_sha256); });
+        const bool unchanged = read_text(visible.journal_path()) == completed_text &&
+            read_text(retained/"payload.txt") == "visible";
+        fs::remove(visible_spec.target_root); fs::rename(retained, visible_spec.target_root);
+        if (!live_refused || !unchanged) return 197;
+#endif
     }
     return 0;
 }

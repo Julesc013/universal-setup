@@ -1616,6 +1616,20 @@ void TransactionSession::require_recovery_transition_extension(const Transaction
     const std::string& original_text, const std::string& original_snapshot_sha256,
     const std::string& expected_current_snapshot_sha256)
 {
+    require_transition_extension_impl(spec, original_text, original_snapshot_sha256,
+        expected_current_snapshot_sha256, false);
+}
+void TransactionSession::require_completed_transition_extension(const TransactionSpec& spec,
+    const std::string& original_text, const std::string& original_snapshot_sha256,
+    const std::string& expected_current_snapshot_sha256)
+{
+    require_transition_extension_impl(spec, original_text, original_snapshot_sha256,
+        expected_current_snapshot_sha256, true);
+}
+void TransactionSession::require_transition_extension_impl(const TransactionSpec& spec,
+    const std::string& original_text, const std::string& original_snapshot_sha256,
+    const std::string& expected_current_snapshot_sha256, bool completed_history)
+{
     constexpr std::size_t maximum = 4u * 1024u * 1024u;
     const auto hash = [](const std::string& text) {
         base::Sha256 digest;
@@ -1625,7 +1639,8 @@ void TransactionSession::require_recovery_transition_extension(const Transaction
     if (original_text.size() > maximum || !valid_sha256(original_snapshot_sha256) ||
         !valid_sha256(expected_current_snapshot_sha256) || hash(original_text) != original_snapshot_sha256)
         throw std::runtime_error("maintenance original transaction snapshot is unavailable");
-    const auto before = inspect_recovery(spec);
+    const auto inspect = [&] { return inspect_recovery_impl(spec, !completed_history); };
+    const auto before = inspect();
     if (before.snapshot_sha256 != expected_current_snapshot_sha256 || !before.commit_started)
         throw std::runtime_error("maintenance current transaction snapshot changed");
     const auto current_text = read_bounded_text(absolute_normal(spec.state_root) / "transactions" /
@@ -1679,7 +1694,7 @@ void TransactionSession::require_recovery_transition_extension(const Transaction
         original.as_object().erase(key); current.as_object().erase(key);
     }
     if (json::canonical(original) != json::canonical(current) ||
-        inspect_recovery(spec).snapshot_sha256 != expected_current_snapshot_sha256)
+        inspect().snapshot_sha256 != expected_current_snapshot_sha256)
         throw std::runtime_error("maintenance transaction extension changed immutable fields or its snapshot");
 }
 

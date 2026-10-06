@@ -130,6 +130,11 @@ public:
     static void require_recovery_transition_extension(const TransactionSpec& spec,
         const std::string& original_text, const std::string& original_snapshot_sha256,
         const std::string& expected_current_snapshot_sha256);
+    // Completed-only metadata comparison. Does not inspect payload paths or
+    // select recovery actions; native creator/root custody is a separate proof.
+    static void require_completed_transition_extension(const TransactionSpec& spec,
+        const std::string& original_text, const std::string& original_snapshot_sha256,
+        const std::string& expected_current_snapshot_sha256);
     // Read-only complete stream observations from that exact validated
     // snapshot, including original creation-handle output identities.
     static StreamJournal inspect_recovery_stream(const TransactionSpec& spec,
@@ -149,6 +154,9 @@ public:
 
 private:
     static RecoveryInspection inspect_recovery_impl(const TransactionSpec& spec, bool observe_payload);
+    static void require_transition_extension_impl(const TransactionSpec& spec,
+        const std::string& original_text, const std::string& original_snapshot_sha256,
+        const std::string& expected_current_snapshot_sha256, bool completed_history);
 #if defined(_WIN32)
     const detail::NativeMaintenanceTransactionOperations* require_native_owner() const;
     bool native_origin_ = false;

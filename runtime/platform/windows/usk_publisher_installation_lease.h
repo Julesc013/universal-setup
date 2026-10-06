@@ -7,6 +7,7 @@
 #include "usk_publisher_volume_operation_guard.h"
 #include <functional>
 #include <memory>
+namespace usk::transaction { struct TransactionSpec; }
 namespace usk::platform::windows {
 class PublisherInstallationLease;
 class PublisherInstallOperationContext;
@@ -83,6 +84,15 @@ usk::json::Value observe_publisher_original_maintenance_lease(
     HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
     const PublisherInstallOperationGuard& guard, const PublisherInstallOperationContext& context,
     const std::string& authenticated_user_sid);
+// Read-only completed-operation root provenance from protected original
+// creator records. This returns an identity to compare, never effect authority.
+// Current revision, sealed transaction/effects and actual payload security
+// remain mandatory independent checks by the service verifier.
+std::string observe_publisher_completed_maintenance_root_id(
+    HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const PublisherInstallOperationContext& context,
+    const std::string& authenticated_user_sid, const usk::json::Value& original_consumer_completion,
+    const usk::transaction::TransactionSpec& spec);
 // Exact sorted native record set behind the revision. The operation retains
 // this original set to derive only its reviewed installed postimage revision.
 usk::json::Value observe_publisher_install_state_bindings(HANDLE state_root,
@@ -106,6 +116,12 @@ usk::transaction::InstallLeasePreviousHolder observe_publisher_previous_lease_ho
 // this native context or permits changing an existing operation.
 class PublisherInstallOperationContext final {
 public:
+    // Existing-only inspection holds read/list handles and rejects every
+    // writer entry. It cannot bootstrap intent, bind roots or acquire a lease.
+    static std::unique_ptr<PublisherInstallOperationContext> inspect_existing(
+        HANDLE volume, const std::wstring& volume_root, const std::wstring& service_name,
+        const PublisherInstallOperationGuard& guard, const std::string& install_id,
+        const std::string& operation_id);
     PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
         const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
         const std::string& install_id, const std::string& operation_id);
@@ -142,6 +158,10 @@ public:
     // a no-replace move. Incomplete anchors remain protected and retained.
     void prepare_publication(const PublisherInstallationLease& lease);
 private:
+    PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
+        const std::string& install_id, const std::string& operation_id,
+        PublisherOperationKind kind, bool read_only);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
