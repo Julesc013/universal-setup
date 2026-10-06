@@ -1815,6 +1815,114 @@ void provision_registered_target(const std::wstring& name) {
     }
 }
 
+// Initial enrollment already records both successful provisioning locks.
+// Owned safe-original v3 starts observe that completed hardware boundary;
+// they do not dismount it again or acquire ACL mutation authority.
+struct RegisteredTargetStartObservation {
+    std::wstring volume;
+    usk::json::Value binding;
+    usk::json::Value identity;
+    usk::json::Value intended_policy;
+    std::string service_sid;
+    std::unique_ptr<FileHandle> root;
+    std::unique_ptr<FileHandle> device;
+    std::array<std::unique_ptr<FileHandle>, 3> records;
+
+    void verify(const std::wstring& name, const std::wstring& command) const {
+        if (usk::json::canonical(read_registration_binding(name, command, volume)) !=
+                usk::json::canonical(binding))
+            throw std::runtime_error("registered start binding changed");
+        require_publisher_stream_shape(root->get());
+        const auto root_facts = observe_publisher_directory_handle(root->get());
+        const auto volume_facts = observe_local_ntfs_volume_handle(root->get());
+        require_publisher_object_security_shape(root_facts, service_sid);
+        const auto& expected_volume = identity.at("volume_identity");
+        if (root_facts.file_id != expected_volume.at("root_file_id").as_string() ||
+            std::to_string(volume_facts.file_id_volume_serial) != expected_volume.at("volume_serial").as_string() ||
+            usk::json::canonical(registration_volume_identity(volume)) !=
+                usk::json::canonical(expected_volume) ||
+            usk::json::canonical(dedicated_target_disk_identity(volume)) !=
+                usk::json::canonical(identity.at("disk_identity")) ||
+            usk::json::canonical(device_owner_dacl_policy(
+                read_publisher_owner_dacl_from_handle(device->get()))) !=
+                usk::json::canonical(intended_policy))
+            throw std::runtime_error("registered start native boundary or intended device policy differs");
+    }
+};
+
+std::unique_ptr<RegisteredTargetStartObservation> observe_registered_target_for_start(
+    const std::wstring& name, const std::wstring& command, const std::wstring& volume) {
+    const auto parent = registration_binding_path(name).parent_path();
+    const auto intent_path = parent / (name + L".target-intent.json");
+    const auto admitted_path = parent / (name + L".target-admitted.json");
+    if (!protected_document_exists(intent_path)) {
+        if (protected_document_exists(admitted_path))
+            throw std::runtime_error("registered start admission has no original intent");
+        return {}; // Existing generic registrations retain exclusive admission.
+    }
+    auto observation = std::make_unique<RegisteredTargetStartObservation>();
+    const std::array<std::filesystem::path, 3> paths{
+        registration_binding_path(name), intent_path, admitted_path};
+    // Keep the original protected records closed to writes/replacement through
+    // SCM start. Parsing still uses the existing bounded no-link/stream checks.
+    for (std::size_t index = 0; index < paths.size(); ++index) {
+        if (index == 2 && !protected_document_exists(admitted_path)) break;
+        observation->records[index] = std::make_unique<FileHandle>(paths[index].c_str(),
+            GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+            FILE_FLAG_OPEN_REPARSE_POINT);
+        if (observation->records[index]->get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("registered start protected record custody unavailable");
+        require_control_lock_shape(observation->records[index]->get(), false);
+        require_publisher_stream_shape(observation->records[index]->get());
+        if (observe_publisher_file_handle(observation->records[index]->get()).link_count != 1)
+            throw std::runtime_error("registered start protected record has another link");
+    }
+    const auto intent = read_protected_document(intent_path);
+    if (!publisher_target_intent_has_device_transition(intent)) return {}; // V2 unchanged.
+    if (!observation->records[2])
+        throw std::runtime_error("registered start target enrollment is incomplete");
+    const auto admitted = read_protected_document(admitted_path);
+    observation->binding = read_registration_binding(name, command, volume);
+    observation->identity = intent.at("identity");
+    if (observation->identity.as_object().size() != 4 ||
+        admitted.as_object().size() != 2 ||
+        admitted.at("schema").as_string() != "usk.publisher_target_admitted.v1" ||
+        usk::json::canonical(admitted.at("identity")) != usk::json::canonical(observation->identity) ||
+        observation->identity.at("registration_sha256").as_string() !=
+            usk::json::sha256_canonical(observation->binding) ||
+        usk::json::canonical(observation->identity.at("volume_identity")) !=
+            usk::json::canonical(observation->binding.at("volume_identity")) ||
+        usk::json::canonical(observation->identity.at("metadata")) !=
+            usk::json::canonical(protected_metadata_snapshot(intent.at("original_metadata"))))
+        throw std::runtime_error("registered start protected admission identity differs");
+    const auto sid = publisher_service_sid(name);
+    const auto& transition = intent.at("mounted_device_transition");
+    const auto original = device_security_from_sddl(transition.at("original_owner_dacl").as_string());
+    observation->intended_policy = transition.at("intended_policy");
+    if (usk::json::canonical(device_owner_dacl_policy(intended_device_security(original, sid))) !=
+            usk::json::canonical(observation->intended_policy))
+        throw std::runtime_error("registered start intended policy differs from original derivation");
+    try {
+        (void)intended_device_security(original, sid, true);
+    } catch (const std::runtime_error&) {
+        return {}; // Recognized default-AU originals keep their existing lock path.
+    }
+    observation->volume = volume;
+    observation->service_sid = observation->binding.at("service_sid").as_string();
+    ScopedControllerPrivilege backup;
+    observation->root = std::make_unique<FileHandle>(volume.c_str(),
+        FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    observation->device = std::make_unique<FileHandle>(volume.substr(0, volume.size() - 1).c_str(),
+        READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0);
+    if (observation->root->get() == INVALID_HANDLE_VALUE ||
+        observation->device->get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("registered start read-only native custody unavailable");
+    observation->verify(name, command);
+    return observation;
+}
+
 void register_service(const std::wstring& name, const std::wstring& binary,
     const std::wstring& volume, const std::wstring& envelope,
     const std::wstring& digest, const std::wstring& caller,
@@ -2291,8 +2399,11 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     if (exact_command && config.binary_path != *exact_command) {
         throw std::runtime_error("registered reviewed source or caller differs");
     }
-    if (command_arguments(config.binary_path)[5] != L"--verify-installed")
-        require_exclusive_volume_admission(name, volume);
+    std::unique_ptr<RegisteredTargetStartObservation> start_observation;
+    if (command_arguments(config.binary_path)[5] != L"--verify-installed") {
+        start_observation = observe_registered_target_for_start(name, config.binary_path, volume);
+        if (!start_observation) require_exclusive_volume_admission(name, volume);
+    }
     if (!StartServiceW(service.get(), 0, nullptr)) {
         const DWORD error = GetLastError();
         if (exact_command) {
@@ -2305,6 +2416,13 @@ void request_start(const std::wstring& name, const std::wstring& binary,
         }
         throw std::runtime_error("matching publisher service could not start; Win32 " +
             std::to_string(error));
+    }
+    if (start_observation) {
+        const auto after = query_configuration(service.get());
+        require_profile(after);
+        if (after.binary_path != config.binary_path)
+            throw std::runtime_error("registered start configuration changed");
+        start_observation->verify(name, after.binary_path);
     }
 }
 
@@ -2803,6 +2921,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
     std::unique_ptr<ServiceControlGuard> control;
     std::unique_ptr<ServiceHandle> service;
     std::unique_ptr<usk::base::StableFile> binary;
+    std::unique_ptr<RegisteredTargetStartObservation> start_observation;
     std::wstring admitted_image;
     try {
         ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
@@ -2996,14 +3115,23 @@ std::string submit_registered_publisher_request(const std::wstring& name,
             reinterpret_cast<BYTE*>(&status), sizeof(status), &needed))
             throw std::runtime_error("publisher process status is unavailable");
         if (status.dwCurrentState == SERVICE_STOPPED) {
-            if (schema != "usk.publisher_installed_verify_request.v1")
-                require_exclusive_volume_admission(name, args[4]);
+            if (schema != "usk.publisher_installed_verify_request.v1") {
+                start_observation = observe_registered_target_for_start(name, before.binary_path, args[4]);
+                if (!start_observation) require_exclusive_volume_admission(name, args[4]);
+            }
             const auto after_admission = query_configuration(service->get());
             require_profile(after_admission);
             if (after_admission.binary_path != before.binary_path)
                 throw std::runtime_error("publisher registration changed during admission");
             if (!StartServiceW(service->get(), 0, nullptr))
                 throw std::runtime_error("publisher could not be started");
+            if (start_observation) {
+                const auto after_start = query_configuration(service->get());
+                require_profile(after_start);
+                if (after_start.binary_path != before.binary_path)
+                    throw std::runtime_error("publisher registration changed across start");
+                start_observation->verify(name, after_start.binary_path);
+            }
         } else if (status.dwCurrentState != SERVICE_RUNNING &&
                    status.dwCurrentState != SERVICE_START_PENDING) {
             throw std::runtime_error("publisher is unavailable while stopping");
