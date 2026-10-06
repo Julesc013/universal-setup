@@ -6,6 +6,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include "usk_json.h"
 #include <vector>
 
 namespace usk::platform::windows {
@@ -27,6 +28,11 @@ std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, P
 // grant and protects inheritance. Caller must separately bind original intent,
 // unpublished target/custody and exclusive admission before accepting a target.
 std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
+// Closed data-shape check only. V3 must carry a nonnull mounted transition;
+// false is reserved for legacy v2. Native identity, intended-policy derivation
+// and mutation authority remain mandatory checks in the owning controller.
+bool publisher_target_intent_has_device_transition(const json::Value& intent);
 
 } // namespace usk::platform::windows
 #endif

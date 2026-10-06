@@ -207,7 +207,25 @@ try {
  $boundary=@{root=@{path='Q:\';directory=$true;file_id=$native.file_id;native_name='\';attributes=22;
   link_count=1;case_sensitive=$false;streams=@();owner='S-1-5-18';protected=$true;raw_aces=$aces;effective_rights=$rights.CheckDescriptor($bytes)};
   device=@{path='\\?\Volume{00000000-0000-0000-0000-000000000001}';extent=$parsed;raw_security=$security;checks=$rights.CheckDescriptor($bytes)}}
- Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service
+ $deviceIntent=@{original_owner_dacl=$security;intended_policy=@{owner='S-1-5-18';dacl_protected=$true;
+  aces=@(@{type=0;flags=0;mask=2032127;sid='S-1-5-18'},@{type=0;flags=0;mask=2032127;sid=$service})}}|ConvertTo-Json -Depth 12|ConvertFrom-Json
+ Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent
+ $badIntents=0
+ foreach($change in @(
+  {param($i) $i.PSObject.Properties.Remove('intended_policy')},
+  {param($i) $i.intended_policy=$null},
+  {param($i) $i.intended_policy.owner='S-1-5-32-544'},
+  {param($i) $i.intended_policy.dacl_protected=$false},
+  {param($i) $i.intended_policy.aces[0].mask=1179785},
+  {param($i) $i.intended_policy.aces[0].flags=16},
+  {param($i) $i.intended_policy.aces[1].sid='S-1-5-32-545'},
+  {param($i) $i.intended_policy.aces=@($i.intended_policy.aces[0])})) {
+  $bad=$deviceIntent|ConvertTo-Json -Depth 12|ConvertFrom-Json;& $change $bad
+  $refused=$false
+  try {Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $bad}catch {$refused=$true}
+  if(-not $refused){throw 'Missing or mismatched mounted device intent was admitted'}
+  ++$badIntents
+ }
  $badBoundaries=0
  foreach($change in @(
   {param($b) $b.root.file_id='123456789abcdef0:06000000000005000000000000000000'},
@@ -220,7 +238,7 @@ try {
   {param($b) $b.device.checks.filtered.maximum_allowed.granted=65536})) {
   $bad=$boundary|ConvertTo-Json -Depth 16|ConvertFrom-Json;& $change $bad
   $refused=$false
-  try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service}catch {$refused=$true}
+  try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent}catch {$refused=$true}
   if(-not $refused){throw 'Contradictory volume namespace/device facts were admitted'}
   ++$badBoundaries
  }
@@ -228,7 +246,7 @@ try {
  $three=$boundary|ConvertTo-Json -Depth 16|ConvertFrom-Json
  $three.root.effective_rights|Add-Member NoteProperty unrelated $three.root.effective_rights.filtered
  $three.device.checks|Add-Member NoteProperty unrelated $three.device.checks.filtered
- Assert-PublicVolumeBoundary $observed $three 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service -RequireUnrelated
+ Assert-PublicVolumeBoundary $observed $three 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent -RequireUnrelated
  $unrelatedRefusals=0
  foreach($location in @('root','device')) {
   foreach($missing in @('all','maximum_allowed','write_or_add_file','append_or_add_directory','write_ea','delete_child','write_attributes','delete','write_dac','write_owner')) {
@@ -237,12 +255,12 @@ try {
    if($missing -ceq 'all'){$checks.PSObject.Properties.Remove('unrelated')}
    else {$checks.unrelated.PSObject.Properties.Remove($missing)}
    $refused=$false
-   try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service -RequireUnrelated}catch {$refused=$true}
+   try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent -RequireUnrelated}catch {$refused=$true}
    if(-not $refused){throw 'Missing unrelated boundary evidence was admitted'}
    ++$unrelatedRefusals
   }
  }
- @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries;missing_unrelated_refusals=$unrelatedRefusals}|ConvertTo-Json -Compress
+ @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries;missing_unrelated_refusals=$unrelatedRefusals;device_intent_refusals=$badIntents}|ConvertTo-Json -Compress
 } finally {$rights.Dispose()}
 """
         for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
@@ -257,7 +275,7 @@ try {
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), {
                     'owned_token_control': True, 'extent_refusals': 7, 'boundary_refusals': 8,
-                    'missing_unrelated_refusals': 20})
+                    'missing_unrelated_refusals': 20, 'device_intent_refusals': 8})
 
     def test_real_client_token_is_captured_before_resume_and_read_after_exit(self):
         root = Path(__file__).resolve().parents[1]

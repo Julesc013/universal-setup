@@ -117,6 +117,37 @@ int main() {
         !refuses(baseline + L"(A;;0x2;;;BU)", false, true) ||
         !refuses(baseline + service + service, false, true) ||
         !refuses(L"O:BUD:(A;;FA;;;SY)(A;;FA;;;BA)" + default_modify, false, true)) return 4;
+    using usk::json::Value;
+    const Value policy(Value::Object{{"owner", Value("S-1-5-18")}, {"dacl_protected", Value(true)},
+        {"aces", Value(Value::Array{Value(Value::Object{{"type", Value(std::uint64_t{0})},
+            {"flags", Value(std::uint64_t{0})}, {"mask", Value(std::uint64_t{2032127})}, {"sid", Value("S-1-5-18")}})})}});
+    const Value intent(Value::Object{{"schema", Value("usk.publisher_target_intent.v3")},
+        {"identity", Value(Value::Object{})}, {"original_metadata", Value(Value::Array{})},
+        {"original_owner_dacl", Value("O:SYD:P(A;;FA;;;SY)")},
+        {"mounted_device_transition", Value(Value::Object{{"original_owner_dacl", Value("O:SYD:(A;;FA;;;SY)")},
+            {"intended_policy", policy}})}});
+    // Shapes only, never admission/native effects. Native derivation and
+    // identity/custody remain separate and mandatory in the controller.
+    if (!usk::platform::windows::publisher_target_intent_has_device_transition(intent)) return 5;
+    auto legacy = intent;
+    legacy.as_object().at("schema") = Value("usk.publisher_target_intent.v2");
+    legacy.as_object().erase("mounted_device_transition");
+    if (usk::platform::windows::publisher_target_intent_has_device_transition(legacy)) return 5;
+    for (unsigned variant = 0; variant < 8u; ++variant) {
+        auto malformed = intent;
+        if (variant == 0) malformed.as_object().at("mounted_device_transition") = Value();
+        if (variant == 1) malformed.as_object().erase("mounted_device_transition");
+        if (variant == 2) malformed.as_object().emplace("extra", Value());
+        if (variant == 3) malformed.as_object().at("mounted_device_transition").as_object().at("intended_policy") = Value();
+        if (variant == 4) malformed.as_object().at("mounted_device_transition").as_object().at("intended_policy").as_object().erase("aces");
+        if (variant == 5) malformed.as_object().at("schema") = Value("usk.publisher_target_intent.v9");
+        if (variant == 6) malformed.as_object().at("mounted_device_transition").as_object().at("original_owner_dacl") = Value("");
+        if (variant == 7) { malformed = legacy; malformed.as_object().emplace("mounted_device_transition", Value()); }
+        bool refused = false;
+        try { (void)usk::platform::windows::publisher_target_intent_has_device_transition(malformed); }
+        catch (const std::runtime_error&) { refused = true; }
+        if (!refused) return 6;
+    }
     return 0;
 }
 #endif

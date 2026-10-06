@@ -1568,16 +1568,11 @@ void provision_registered_target(const std::wstring& name) {
         std::string original_security;
         if (intent_retained) {
             retained = read_protected_document(intent_path);
-            const auto& schema = retained.at("schema").as_string();
-            const bool legacy = schema == "usk.publisher_target_intent.v2";
-            if ((legacy && retained.as_object().size() != 4) ||
-                (!legacy && (schema != "usk.publisher_target_intent.v3" || retained.as_object().size() != 5 ||
-                    !retained.contains("mounted_device_transition"))))
-                throw std::runtime_error("retained target admission intent has an unsupported shape");
+            const bool has_device_transition = publisher_target_intent_has_device_transition(retained);
             original_metadata = retained.at("original_metadata");
             expected_metadata = protected_metadata_snapshot(original_metadata);
             original_security = retained.at("original_owner_dacl").as_string();
-            if (!legacy) device_transition = retained.at("mounted_device_transition");
+            if (has_device_transition) device_transition = retained.at("mounted_device_transition");
         }
         {
             ScopedControllerPrivilege backup;
