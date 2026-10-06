@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_transaction_session.h"
+#include "usk_native_maintenance_transaction_internal.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 
@@ -595,6 +596,53 @@ int initial_stream_binding_before_effects(Fixture& fixture)
 int main()
 {
     Fixture fixture;
+#if defined(_WIN32)
+    // Real ordinary sessions produce these journals. The internal validator
+    // only checks data binding; these controls activate no native owner.
+    using usk::transaction::detail::require_native_maintenance_journal_binding;
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        auto spec = fixture.spec("journal-binding-" + operation);
+        spec.operation = operation;
+        std::string initial;
+        TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+            if (state == "created" && point == "after_journal")
+                initial = read_text(spec.state_root / "transactions" / (spec.transaction_id + ".journal.json"));
+        });
+        require_native_maintenance_journal_binding(spec, session.journal_path(), initial, {}, true);
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(initial.data()), initial.size());
+        const auto predecessor = digest.finish();
+        const auto later = read_text(session.journal_path());
+        require_native_maintenance_journal_binding(spec, session.journal_path(), later, predecessor, false);
+        if (!throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, {}, true); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), initial, predecessor, true); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, {}, false); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, "unbound", false); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path().parent_path() / "other.json", later, predecessor, false); }))
+            return 201;
+        using Value = usk::json::Value;
+        const std::vector<std::function<void(Value&)>> changes{
+            [](Value& v) { v.as_object().at("transaction_id") = Value("another.transaction"); },
+            [](Value& v) { v.as_object().at("plan_id") = Value("another.plan"); },
+            [](Value& v) { v.as_object().at("plan_digest") = Value(std::string(64, '0')); },
+            [](Value& v) { v.as_object().at("operation") = Value("install_local"); },
+            [](Value& v) { v.as_object().at("roots").as_array().front().as_object().at("root") = Value("C:/unrelated"); },
+            [](Value& v) { v.as_object().at("roots").as_array().push_back(v.at("roots").as_array().front()); },
+            [](Value& v) { v.as_object().at("current_state") = Value("completed"); },
+            [](Value& v) { v.as_object().at("transitions").as_array().clear(); },
+            [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("sequence") = Value(std::uint64_t{1}); },
+            [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("from") = Value("created"); },
+        };
+        for (const auto& change : changes) {
+            auto altered = usk::json::parse(initial);
+            change(altered);
+            if (!throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(),
+                usk::json::canonical(altered), {}, true); })) return 202;
+        }
+        if (read_text(session.journal_path()) != later ||
+            usk::transaction::detail::observe_current_native_maintenance_file(session.journal_path())) return 203;
+    }
+#endif
     if (int result = initial_stream_binding_before_effects(fixture)) return result;
     bool commit_supported = false;
     if (int result = happy_path(fixture, commit_supported)) return result;

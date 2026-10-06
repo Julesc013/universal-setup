@@ -570,6 +570,9 @@ TransactionSession::TransactionSession(
         require_disjoint(spec_.target_root, spec_.audit_root);
         require_disjoint(spec_.state_root, spec_.audit_root);
         const std::string text = read_bounded_text(journal_path_, 4u * 1024u * 1024u);
+        usk::base::Sha256 persisted;
+        persisted.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        persisted_journal_sha256_ = persisted.finish();
         const usk::json::Value document = usk::json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
         if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||
             document.at("transaction_id").as_string() != spec_.transaction_id ||
@@ -768,11 +771,7 @@ void TransactionSession::persist_transition(const std::string& next_state)
         if (!first && directory_identity(journal_path_.parent_path()) != journal_directory_identity_) {
             throw std::runtime_error("transaction journal directory identity changed");
         }
-        atomic_write_journal(
-            journal_path_,
-            render_journal(),
-            transitions_.back().sequence,
-            first);
+        persist_journal(transitions_.back().sequence, first);
     } catch (...) {
         current_state_ = previous;
         transitions_.pop_back();
@@ -793,8 +792,23 @@ void TransactionSession::persist_snapshot()
         directory_identity(journal_path_.parent_path()) != journal_directory_identity_) {
         throw std::runtime_error("transaction journal directory identity changed");
     }
-    atomic_write_journal(
-        journal_path_, render_journal(), transitions_.back().sequence + 1u, false);
+    persist_journal(transitions_.back().sequence + 1u, false);
+}
+
+void TransactionSession::persist_journal(std::uint64_t sequence, bool first)
+{
+    const std::string text = render_journal();
+#if defined(_WIN32)
+    if (const auto* native = require_native_owner()) {
+        native->persist_journal(spec_, journal_path_, text, persisted_journal_sha256_, first);
+        (void)require_native_owner();
+        usk::base::Sha256 persisted;
+        persisted.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        persisted_journal_sha256_ = persisted.finish();
+        return;
+    }
+#endif
+    atomic_write_journal(journal_path_, text, sequence, first);
 }
 
 void TransactionSession::create_staging_root()

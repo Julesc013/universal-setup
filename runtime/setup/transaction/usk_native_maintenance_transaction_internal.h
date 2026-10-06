@@ -23,12 +23,20 @@ std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenan
 // authority; the session separately uses the engine's private current binding.
 void require_native_maintenance_origin_binding(bool native_origin,
     const std::weak_ptr<const void>& original, const std::weak_ptr<const void>& current);
+// Read-only binding validation. It creates neither an owner nor effects.
+void require_native_maintenance_journal_binding(const TransactionSpec& spec,
+    const std::filesystem::path& path, const std::string& content,
+    const std::string& predecessor_sha256, bool first);
 // Private engine adapter. The concrete native context alone can construct it;
 // no public caller, JSON field, setter or test callback activates this scope.
 // Presence is not authority: every entry independently calls the native owner.
 struct NativeMaintenanceTransactionOperations {
     struct EffectResult { std::string outcome, result_digest; };
     std::function<void(const TransactionSpec&)> require_authority;
+    // The original owner publishes an exact journal postimage, with initial
+    // no-replace and subsequent exact-predecessor replacement semantics.
+    std::function<void(const TransactionSpec&, const std::filesystem::path&,
+        const std::string&, const std::string&, bool)> persist_journal;
     std::function<void(const TransactionSpec&, const std::filesystem::path&)> create_staging_root;
     std::function<void(const TransactionSpec&, const std::filesystem::path&)> ensure_stream_parent;
     // Returned native handle is borrowed. The engine keeps custody through

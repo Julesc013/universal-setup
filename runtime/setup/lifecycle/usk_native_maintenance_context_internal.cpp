@@ -2413,6 +2413,20 @@ void NativeMaintenanceContext::bind_owner_backend() {
     hooks.confirm = [this](const auto& p, const auto& text, HANDLE file) { impl_->metadata_confirm(p, text, file); };
     hooks.failed = [this](const auto& p) { impl_->metadata_failed(p); };
     impl_->metadata->bind_native_maintenance_publication(std::move(hooks));
+    impl_->operations.persist_journal = [this](const auto& spec, const auto& path, const auto& text,
+        const auto& predecessor, bool first) {
+        try {
+            impl_->require_authority(spec);
+            transaction::detail::require_native_maintenance_journal_binding(spec, path, text, predecessor, first);
+            impl_->metadata->persist_maintenance_journal(path, text, predecessor, first);
+            impl_->require_authority(spec);
+        } catch (...) {
+            // A failed journal may have advanced durable state. Stop all
+            // effects through this original owner and preserve the first error.
+            impl_->custody_failed = true;
+            throw;
+        }
+    };
     impl_->record_reads.read_owned_text = [this](const auto& p, auto maximum) {
         return impl_->read_owned_record(p, maximum);
     };

@@ -6,6 +6,7 @@
 #include "usk_publisher_metadata.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_installation_lease.h"
+#include "usk_publisher_rename_information.h"
 #include "usk_native_maintenance_transaction_internal.h"
 #include "usk_sha256.h"
 #if defined(_WIN32)
@@ -18,6 +19,7 @@
 #include <vector>
 #include <aclapi.h>
 #include <sddl.h>
+#include <winternl.h>
 
 namespace fs = std::filesystem;
 using namespace usk::platform::windows;
@@ -90,6 +92,82 @@ void remove_file(HANDLE parent, const std::wstring& name, const std::string& byt
     check(result.native_call_attempted && result.absence_confirmed &&
         result.object_file_id == file.file_id && result.native_status == 0 && result.io_status == 0,
         "owned file removal lacked native identity/absence confirmation");
+}
+void journal_replacement_controls(const fs::path& root) {
+    // Self-created ordinary objects exercise classic native replacement only;
+    // no restricted-service descriptor, native owner or maintenance grant.
+    const auto path = root / L"journal-replacement";
+    check(fs::create_directory(path), "owned journal fixture already exists");
+    const std::string old_bytes = "owned predecessor journal\n", new_bytes = "owned successor journal\n";
+    write(path / L"journal.json", old_bytes);
+    write(path / L"pending.json", new_bytes);
+    auto parent = directory(path);
+    const auto parent_before = observe_publisher_directory_handle(parent.get());
+    const auto old_listing = listed(parent.get(), L"journal.json");
+    Held prior(open_publisher_listed_child(parent.get(), old_listing));
+    Held creator(CreateFileW((path / L"pending.json").c_str(), GENERIC_READ | GENERIC_WRITE | DELETE | READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    const auto old_before = observe_publisher_file_handle(prior.get());
+    const auto new_before = observe_publisher_file_handle(creator.get());
+    const auto equal = [](const auto& a, const auto& b) {
+        return usk::json::canonical(publisher_handle_observation_json(a)) ==
+            usk::json::canonical(publisher_handle_observation_json(b));
+    };
+    const auto read = [](HANDLE file) {
+        LARGE_INTEGER size{}, zero{}, after{};
+        check(GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= 4096 &&
+            SetFilePointerEx(file, zero, nullptr, FILE_BEGIN), "owned held journal size/position unavailable");
+        std::string bytes(static_cast<std::size_t>(size.QuadPart), '\0');
+        DWORD count = 0;
+        check(ReadFile(file, &bytes[0], static_cast<DWORD>(bytes.size()), &count, nullptr) &&
+            count == bytes.size() && GetFileSizeEx(file, &after) && after.QuadPart == size.QuadPart,
+            "owned held journal bytes unavailable or changed");
+        return bytes;
+    };
+    using RenameFn = NTSTATUS (NTAPI *)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+    auto* rename = reinterpret_cast<RenameFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtSetInformationFile"));
+    check(rename != nullptr, "owned journal native rename unavailable");
+    PublisherRenameInformation information(parent.get(), L"journal.json");
+    static_cast<FILE_RENAME_INFO*>(information.data())->ReplaceIfExists = TRUE;
+    IO_STATUS_BLOCK blocked_io{};
+    const auto blocked = rename(creator.get(), &blocked_io, information.data(), information.size(),
+        static_cast<FILE_INFORMATION_CLASS>(10));
+    check(blocked != 0 && equal(old_before, observe_publisher_file_handle(prior.get())) &&
+        equal(new_before, observe_publisher_file_handle(creator.get())) &&
+        equal(parent_before, observe_publisher_directory_handle(parent.get())) &&
+        equal(old_before, file_facts(parent.get(), L"journal.json")) &&
+        equal(new_before, file_facts(parent.get(), L"pending.json")) &&
+        read(prior.get()) == old_bytes && read(creator.get()) == new_bytes,
+        "classic held-target replacement did not refuse with unchanged actual preimages");
+    prior.close_once();
+    check(listed(parent.get(), L"journal.json").file_id == old_listing.file_id &&
+        equal(parent_before, observe_publisher_directory_handle(parent.get())),
+        "owned journal predecessor namespace changed after confirmed close");
+    IO_STATUS_BLOCK published_io{};
+    const auto published = rename(creator.get(), &published_io, information.data(), information.size(),
+        static_cast<FILE_INFORMATION_CLASS>(10));
+    check(published == 0 && published_io.Status == 0, "classic journal replacement after close unconfirmed");
+    auto expected = new_before;
+    expected.native_name = parent_before.native_name + L"\\journal.json";
+    check(equal(expected, observe_publisher_file_handle(creator.get())) &&
+        equal(expected, file_facts(parent.get(), L"journal.json")) &&
+        equal(parent_before, observe_publisher_directory_handle(parent.get())) &&
+        !fs::exists(path / L"pending.json") && read(creator.get()) == new_bytes &&
+        FlushFileBuffers(creator.get()), "classic journal replacement postimage differs");
+    creator.close_once();
+    const std::function<void()> fence = [&] {
+        check(equal(parent_before, observe_publisher_directory_handle(parent.get())),
+            "owned journal parent changed during cleanup");
+    };
+    {
+        ScopedPublisherEffectFence scope(fence);
+        remove_file(parent.get(), L"journal.json", new_bytes);
+    }
+    parent.close_once();
+    check(fs::remove(path), "owned empty journal fixture retained");
+    std::cout << "classic journal replacement: held target refused with NTSTATUS " <<
+        static_cast<unsigned long>(blocked) << "; confirmed-close replacement/postimage passed\n";
 }
 void protect_owned_object(const fs::path& path, bool directory_object) {
     Held object(CreateFileW(path.c_str(), READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES,
@@ -474,6 +552,7 @@ int proof() {
     // Failure retains this finite fixture for inspection. Cleanup is exact,
     // non-recursive and follows successful bound removal of all created data.
     std::cerr << "ordinary native mutation fixture: " << root.u8string() << '\n';
+    journal_replacement_controls(root);
     check(fs::create_directory(root / L"source") && fs::create_directory(root / L"destination"),
         "owned fixture parents unavailable");
     const std::string original = "owned original payload\n", second = "owned second payload\n";

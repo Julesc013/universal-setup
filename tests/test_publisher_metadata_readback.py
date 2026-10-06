@@ -83,7 +83,7 @@ if($propagated.phase -cne $record.phase -or $propagated.hresult -ne $record.hres
 
         def row(path, value):
             text = encoded(value) + "\n"
-            return dict(path="E:\\" + path, directory=False, content_json=text,
+            return dict(path="E:\\" + path, directory=False, file_id="constructed-data-only", content_json=text,
                         sha256=hashlib.sha256(text.encode()).hexdigest(), owner="S-1-5-18", protected=True,
                         raw_aces=[dict(sid=sid, type=0, flags=0, access_mask=2032127)
                                   for sid in ("S-1-5-18", service)])
@@ -134,7 +134,8 @@ if($functions.Count -ne 1){throw 'Completed observational join absent or ambiguo
 $fixture=[IO.File]::ReadAllText($env:USK_PROJECTION_FIXTURE)|ConvertFrom-Json
 $DriveRoot='E:\';$ServiceSid=$fixture.service_sid;$preparedRows=@($fixture.prepared)
 $prepared=$fixture.prepared.content_json|ConvertFrom-Json;$tree=@{root=@{file_id='original-root'}}
-foreach($variant in @('supported','missing_current','pending_journal','missing_seal','wrong_revision','wrong_context','outside_acl')) {
+foreach($variant in @('supported','missing_current','pending_journal','missing_seal','wrong_revision','wrong_context',
+ 'outside_acl','outside_owner','unprotected','outside_mask','outside_flags','outside_ace_count')) {
  $rows=$fixture.rows|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
  switch($variant) {
   'missing_current' {$rows=@($rows|Where-Object path -cnotlike '*repair.current.json')}
@@ -152,9 +153,32 @@ foreach($variant in @('supported','missing_current','pending_journal','missing_s
    $v=$j.content_json|ConvertFrom-Json;$v.context_sha256='0'*64;$j.content_json=$v|ConvertTo-Json -Depth 16 -Compress
   }
   'outside_acl' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces[1].sid='S-1-5-11'}
+  'outside_owner' {@($rows|Where-Object path -clike '*.journal.json')[0].owner='S-1-5-11'}
+  'unprotected' {@($rows|Where-Object path -clike '*.journal.json')[0].protected=$false}
+  'outside_mask' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces[1].access_mask=1179785}
+  'outside_flags' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces[1].flags=16}
+  'outside_ace_count' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces=@()}
  }
  $refused=$false;$basis=$null
- try {$basis=Get-CompletedMaintenanceProjectionBasis} catch {$refused=$true;if($variant -ceq 'supported'){throw}}
+ try {$basis=Get-CompletedMaintenanceProjectionBasis} catch {
+  $refused=$true;if($variant -ceq 'supported'){throw}
+  if($variant -cin @('outside_acl','outside_owner','unprotected','outside_mask','outside_flags','outside_ace_count')) {
+   $diagnosticPrefix='Historical payload projection metadata is outside the observed private policy; row='
+   if(-not $_.Exception.Message.StartsWith($diagnosticPrefix,[StringComparison]::Ordinal)){throw 'Private-row diagnostic absent'}
+   $facts=$_.Exception.Message.Substring($diagnosticPrefix.Length)|ConvertFrom-Json
+   $expected=@($rows|Where-Object path -clike '*.journal.json')[0]
+   if($facts.role -cne 'transaction_journal' -or $facts.path -cne $expected.path -or $facts.path_truncated -ne $false -or
+    $facts.file_id -cne $expected.file_id -or $facts.sha256 -cne $expected.sha256 -or $facts.owner -cne $expected.owner -or
+    $facts.protected -ne $expected.protected -or $facts.raw_ace_count -ne @($expected.raw_aces).Count) {
+    throw 'Private-row diagnostic differs from the offending constructed data'
+   }
+   for($i=0;$i -lt @($expected.raw_aces).Count;$i++) {
+    foreach($field in @('sid','type','flags','access_mask')) {
+     if($facts.raw_aces[$i].$field -cne $expected.raw_aces[$i].$field){throw 'Private-row ACE diagnostic differs'}
+    }
+   }
+  }
+ }
  if($refused -ne ($variant -cne 'supported')){throw ('Observational join admission differs: '+$variant)}
  if($basis -and ($basis.result_state_revision -cne $fixture.revision -or $basis.operation -cne 'repair' -or
   $basis.transaction_id -cne 'repair.current' -or $basis.original_transaction_id -cne 'install.original')) {

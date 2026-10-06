@@ -14,6 +14,7 @@
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_record_io.h"
+#include "usk_sha256.h"
 #include "usk_utf8_path.h"
 
 #include <winternl.h>
@@ -41,6 +42,11 @@ public:
     OwnedHandle& operator=(const OwnedHandle&) = delete;
     HANDLE get() const { return handle_; }
     HANDLE release() noexcept { const HANDLE result = handle_; handle_ = nullptr; return result; }
+    bool close_once() noexcept {
+        const HANDLE closing = handle_;
+        handle_ = nullptr; // Unknown close is never retried by destruction.
+        return closing && CloseHandle(closing) != FALSE;
+    }
 private:
     HANDLE handle_;
 };
@@ -60,6 +66,31 @@ void require_boundary_rights(const PublisherHandleObservation& boundary,
     // Use the accepted profile's exact owner/protected-DACL predicate for the
     // volume boundary as well as its children; do not admit a broader parent.
     require_publisher_object_security_shape(boundary, service_sid);
+}
+
+std::string held_journal_sha256(HANDLE file) {
+    LARGE_INTEGER size{}, zero{};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart < 1 || size.QuadPart > 4u * 1024u * 1024u ||
+        !SetFilePointerEx(file, zero, nullptr, FILE_BEGIN))
+        throw std::runtime_error("protected journal content size or position unavailable");
+    base::Sha256 digest;
+    std::vector<unsigned char> buffer(64u * 1024u);
+    std::uint64_t total = 0;
+    for (;;) {
+        DWORD read = 0;
+        if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr))
+            throw std::runtime_error("protected journal same-handle read failed");
+        if (!read) break;
+        if (total + read > static_cast<std::uint64_t>(size.QuadPart))
+            throw std::runtime_error("protected journal grew during same-handle read");
+        digest.update(buffer.data(), read);
+        total += read;
+    }
+    LARGE_INTEGER after{};
+    if (total != static_cast<std::uint64_t>(size.QuadPart) || !GetFileSizeEx(file, &after) ||
+        after.QuadPart != size.QuadPart)
+        throw std::runtime_error("protected journal content size changed");
+    return digest.finish();
 }
 
 } // namespace
@@ -133,6 +164,7 @@ struct PublisherMetadataSession::Impl {
     std::unique_ptr<record_io::ScopedRecordWriteOperations> scope;
     std::unique_ptr<detail::MetadataRecordPublicationHooks> publication_hooks;
     bool initializing = false;
+    bool journal_publication_unconfirmed = false;
 
     Impl(HANDLE boundary, const std::wstring& guid, const fs::path& physical_root,
         const std::wstring& service_name, bool require_existing, const fs::path& alias_path)
@@ -279,6 +311,126 @@ struct PublisherMetadataSession::Impl {
         }
     }
 
+    void persist_journal(const fs::path& path, const std::string& content,
+        const std::string& predecessor, bool first) {
+        require_active_publisher_effect_fence();
+        if (initializing || !publication_hooks || public_alias.empty() || journal_publication_unconfirmed ||
+            content.empty() || content.size() > 4u * 1024u * 1024u || first != predecessor.empty())
+            throw std::runtime_error("protected original maintenance journal writer unavailable");
+        const auto name = path.filename().wstring();
+        if (!is_publisher_canonical_component(name))
+            throw std::runtime_error("protected journal name is invalid");
+        auto held = parents(path.parent_path());
+        HANDLE parent = held.empty() ? root->get() : held.back().get();
+        const auto parent_before = observe_publisher_directory_handle(parent);
+        require_publisher_object_security_shape(parent_before, service_sid);
+        const auto original = find_child(parent, name);
+        if (first != !original)
+            throw std::runtime_error("protected journal initial/existing namespace differs");
+        std::unique_ptr<OwnedHandle> prior;
+        PublisherHandleObservation prior_facts{};
+        if (original) {
+            prior = std::make_unique<OwnedHandle>(open_publisher_listed_child(parent, *original));
+            prior_facts = observe_publisher_file_handle(prior->get());
+            require_publisher_object_security_shape(prior_facts, service_sid);
+            if (held_journal_sha256(prior->get()) != predecessor)
+                throw std::runtime_error("protected journal predecessor differs from original session");
+        }
+        // Keep the actual new creation handle until publication and complete
+        // readback. This path never borrows the installed-record effect hook.
+        if (!pending) {
+            if (const auto existing = find_child(root->get(), L"pending"))
+                pending = std::make_unique<OwnedHandle>(open_publisher_listed_child(root->get(), *existing, true, false, true));
+            else pending = std::make_unique<OwnedHandle>(create_record_directory_relative_with_descriptor(root->get(), L"pending", descriptor));
+            require_publisher_tree_security_shape(observe_publisher_tree(pending->get()), service_sid);
+        }
+        static std::atomic<unsigned long long> sequence{0};
+        const auto temporary = L"journal-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+            std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(++sequence);
+        OwnedHandle file(create_file_relative_with_descriptor(pending->get(), temporary, descriptor));
+        const auto created = observe_publisher_file_handle(file.get());
+        require_publisher_object_security_shape(created, service_sid);
+        std::size_t offset = 0;
+        while (offset < content.size()) {
+            require_active_publisher_effect_fence();
+            const auto count = static_cast<DWORD>(std::min<std::size_t>(64u * 1024u, content.size() - offset));
+            DWORD written = 0;
+            if (!WriteFile(file.get(), content.data() + offset, count, &written, nullptr) || written != count)
+                throw std::runtime_error("protected journal pending write failed; material retained");
+            offset += written;
+        }
+        require_active_publisher_effect_fence();
+        if (!FlushFileBuffers(file.get()))
+            throw std::runtime_error("protected journal pending flush failed; material retained");
+        base::Sha256 expected;
+        expected.update(reinterpret_cast<const unsigned char*>(content.data()), content.size());
+        const auto postimage = expected.finish();
+        if (held_journal_sha256(file.get()) != postimage)
+            throw std::runtime_error("protected journal creator bytes differ; material retained");
+        const auto current = find_child(parent, name);
+        if (first ? static_cast<bool>(current) : (!current || current->file_id != original->file_id))
+            throw std::runtime_error("protected journal predecessor namespace changed");
+        if (prior && (json::canonical(publisher_handle_observation_json(observe_publisher_file_handle(prior->get()))) !=
+                json::canonical(publisher_handle_observation_json(prior_facts)) ||
+            held_journal_sha256(prior->get()) != predecessor))
+            throw std::runtime_error("protected journal held predecessor changed");
+        if (json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(parent))) !=
+            json::canonical(publisher_handle_observation_json(parent_before)))
+            throw std::runtime_error("protected journal parent changed");
+        const auto before_issue = observe_publisher_file_handle(file.get());
+        require_publisher_object_security_shape(before_issue, service_sid);
+        if (before_issue.file_id != created.file_id ||
+            before_issue.native_name != created.native_name)
+            throw std::runtime_error("protected journal creator identity changed");
+        using RenameFn = NTSTATUS (NTAPI *)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+        auto* rename = reinterpret_cast<RenameFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtSetInformationFile"));
+        if (!rename) throw std::runtime_error("protected journal native rename unavailable");
+        PublisherRenameInformation information(parent, name);
+        static_cast<FILE_RENAME_INFO*>(information.data())->ReplaceIfExists = first ? FALSE : TRUE;
+        IO_STATUS_BLOCK io{};
+        require_alias_mapping();
+        require_active_publisher_effect_fence();
+        // Classic FileRenameInformation cannot replace an open target data
+        // stream. Release this verified predecessor exactly once under the
+        // retained protected parent and original single-owner operation fence.
+        // The creator stays held; this is not an atomic compare-and-swap claim.
+        if (prior && !prior->close_once()) {
+            journal_publication_unconfirmed = true;
+            throw std::runtime_error("protected journal predecessor close unconfirmed; no publication issued");
+        }
+        const auto final_target = find_child(parent, name);
+        if (first ? static_cast<bool>(final_target) : (!final_target || final_target->file_id != original->file_id))
+            throw std::runtime_error("protected journal predecessor namespace changed after release");
+        if (json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(parent))) !=
+            json::canonical(publisher_handle_observation_json(parent_before)))
+            throw std::runtime_error("protected journal parent changed after predecessor release");
+        require_alias_mapping();
+        require_active_publisher_effect_fence();
+        journal_publication_unconfirmed = true;
+        const auto status = rename(file.get(), &io, information.data(), information.size(),
+            static_cast<FILE_INFORMATION_CLASS>(10));
+        if (status != 0 || io.Status != 0)
+            throw PublisherRenameUnconfirmed("protected journal publication unconfirmed; native status " +
+                std::to_string(static_cast<unsigned long>(status)) + "; IO status " +
+                std::to_string(static_cast<unsigned long>(io.Status)));
+        const auto after = observe_publisher_file_handle(file.get());
+        require_publisher_object_security_shape(after, service_sid);
+        const auto published = find_child(parent, name);
+        if (!published) throw PublisherRenameUnconfirmed("protected journal published name is absent");
+        OwnedHandle visible(open_publisher_listed_child(parent, *published));
+        if (json::canonical(publisher_handle_observation_json(observe_publisher_file_handle(visible.get()))) !=
+                json::canonical(publisher_handle_observation_json(after)) || after.file_id != created.file_id ||
+            after.native_name != parent_before.native_name + L"\\" + name ||
+            held_journal_sha256(file.get()) != postimage ||
+            json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(parent))) !=
+                json::canonical(publisher_handle_observation_json(parent_before)))
+            throw PublisherRenameUnconfirmed("protected journal actual publication postimage differs");
+        if (!FlushFileBuffers(file.get())) throw PublisherRenameUnconfirmed("protected journal published flush unconfirmed");
+        require_alias_mapping();
+        require_active_publisher_effect_fence();
+        journal_publication_unconfirmed = false;
+    }
+
     void publish_initialized_root() {
         if (!initializing) return;
         if (!root || !find_child(root->get(), L".usk-owned-root.v1.json")) {
@@ -323,6 +475,10 @@ void PublisherMetadataSession::bind_native_maintenance_publication(detail::Metad
         !hooks.prepare || !hooks.created || !hooks.before_issue || !hooks.confirm || !hooks.failed)
         throw std::runtime_error("native maintenance metadata publication binding unavailable");
     impl_->publication_hooks = std::make_unique<detail::MetadataRecordPublicationHooks>(std::move(hooks));
+}
+void PublisherMetadataSession::persist_maintenance_journal(const fs::path& path,
+    const std::string& content, const std::string& predecessor, bool first) {
+    impl_->persist_journal(path, content, predecessor, first);
 }
 const fs::path& PublisherMetadataSession::initialization_root() const { return impl_->root_path; }
 void PublisherMetadataSession::publish_initialized_root() { impl_->publish_initialized_root(); }

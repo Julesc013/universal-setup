@@ -72,6 +72,8 @@ public:
 private:
     friend class usk::lifecycle::detail::NativeMaintenanceContext;
     void bind_native_maintenance_publication(detail::MetadataRecordPublicationHooks hooks);
+    void persist_maintenance_journal(const std::filesystem::path& path,
+        const std::string& content, const std::string& predecessor_sha256, bool first);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

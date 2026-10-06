@@ -1262,11 +1262,21 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
    # projection still requires every original identity. Only protected, completed
    # maintenance may make an old payload identity unavailable to this reader.
    function Get-CompletedMaintenanceProjectionBasis {
-    function Require-PrivateProjectionRecord($Row) {
+    function Require-PrivateProjectionRecord($Row,[string]$Role) {
      if($Row.owner -cne 'S-1-5-18' -or $Row.protected -ne $true -or @($Row.raw_aces).Count -ne 2 -or
       $Row.raw_aces[0].sid -cne 'S-1-5-18' -or $Row.raw_aces[1].sid -cne $ServiceSid -or
       @($Row.raw_aces|Where-Object {$_.type -ne 0 -or $_.flags -ne 0 -or $_.access_mask -ne 2032127}).Count) {
-      throw 'Historical payload projection metadata is outside the observed private policy'
+      # Keep the actual offending row's bounded native facts. Content and
+      # effective-access claims are omitted; this diagnostic grants no authority.
+      $path=[string]$Row.path;$aces=@($Row.raw_aces)
+      $facts=[ordered]@{role=$Role;path=$path.Substring(0,[Math]::Min(1024,$path.Length));
+       path_truncated=($path.Length -gt 1024);file_id=[string]$Row.file_id;sha256=[string]$Row.sha256;
+       owner=[string]$Row.owner;protected=$Row.protected;raw_ace_count=$aces.Count;
+       raw_aces=@($aces|Select-Object -First 16|ForEach-Object {
+        @{type=$_.type;flags=$_.flags;access_mask=$_.access_mask;sid=[string]$_.sid}
+       })}
+      throw ('Historical payload projection metadata is outside the observed private policy; row='+
+       ($facts|ConvertTo-Json -Depth 6 -Compress))
      }
     }
     function Hash-Text([string]$Text) {
@@ -1277,7 +1287,8 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
     $snapshotRows=@($rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-reviewed-plan.json'))
     $completionRows=@($rows|Where-Object path -ceq ($DriveRoot+'publication\state\lab-installed-state.json'))
     if($snapshotRows.Count -ne 1 -or $completionRows.Count -ne 1){throw 'Historical payload projection lacks original completion records'}
-    Require-PrivateProjectionRecord $snapshotRows[0];Require-PrivateProjectionRecord $completionRows[0]
+    Require-PrivateProjectionRecord $snapshotRows[0] 'reviewed_plan'
+    Require-PrivateProjectionRecord $completionRows[0] 'initial_completion'
     $snapshot=$snapshotRows[0].content_json|ConvertFrom-Json
     $completion=$completionRows[0].content_json|ConvertFrom-Json
     $installId=[string]$snapshot.plan_request.install_id
@@ -1300,7 +1311,7 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
      $doc=$item.document;$row=$item.row
      if($doc.schema -cne 'usk.installed_state.v1' -or $doc.install_id -cne $installId -or
       ((Split-Path -Parent $row.path)+'\') -cne $installedPrefix){continue}
-     Require-PrivateProjectionRecord $row
+     Require-PrivateProjectionRecord $row 'installed_record'
      $name=Split-Path -Leaf $row.path
      if($doc.transaction_id -cnotmatch '^[A-Za-z0-9._-]{1,256}$' -or
       ($name -cne ($installId+'.'+$doc.transaction_id+'.json') -and $name -cne ($installId+'.json')) -or
@@ -1345,9 +1356,11 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
      $roots[0].document.context_sha256 -cne $contexts[0].document.context_sha256) {
      throw 'Historical payload projection lacks protected maintenance context and sealed effects'
     }
-    foreach($item in @($journal[0],$completed[0],$roots[0],$contexts[0],$sealed[0])) {
-     Require-PrivateProjectionRecord $item.row
-    }
+    Require-PrivateProjectionRecord $journal[0].row 'transaction_journal'
+    Require-PrivateProjectionRecord $completed[0].row 'completed_lease'
+    Require-PrivateProjectionRecord $roots[0].row 'operation_roots'
+    Require-PrivateProjectionRecord $contexts[0].row 'operation_context'
+    Require-PrivateProjectionRecord $sealed[0].row 'sealed_effect'
     return [ordered]@{basis='protected_completed_maintenance_records_observed_no_effect_authority';
      install_id=$installId;original_transaction_id=$snapshot.transaction_id;transaction_id=$tx;operation=$operation;
      lifecycle_status=$status;target_root=$latest.document.target_root;original_target_root=$snapshot.target_root;result_state_revision=$revision;

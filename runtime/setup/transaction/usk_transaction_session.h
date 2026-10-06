@@ -180,6 +180,7 @@ private:
     void verify_staging_identity() const;
     void create_staging_root();
     void persist_snapshot();
+    void persist_journal(std::uint64_t sequence, bool first);
     void verify_recorded_staging_closure() const;
     CommitClosureObservation observe_staged_commit_closure() const;
     void remove_recorded_staging_closure();
@@ -203,6 +204,7 @@ private:
     std::string staging_parent_identity_;
     std::string target_parent_identity_;
     std::string journal_directory_identity_;
+    std::string persisted_journal_sha256_;
     std::vector<Transition> transitions_;
     std::vector<StagedFile> staged_files_;
 };
