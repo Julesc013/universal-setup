@@ -106,7 +106,12 @@ struct NativeMaintenanceContext::Impl {
     std::map<fs::path, Entry*> original_directories;
     std::set<fs::path> absent_original_files, absent_original_directories;
     fs::path original_admission_path;
-    std::string original_admission_text;
+    std::string original_admission_text, original_admission_sha256;
+    fs::path native_custody_directory, native_snapshot_directory;
+    std::uint64_t native_custody_sequence = 0;
+    std::size_t native_custody_bytes = 0;
+    std::string native_custody_digest;
+    bool custody_failed = false;
     Entry* installed_root = nullptr;
     std::string original_root_identity;
     bool payload_failed = false;
@@ -337,7 +342,7 @@ struct NativeMaintenanceContext::Impl {
         require_publisher_process_boundary(current_process, service.process_id, service.service_sid, service.token.process_groups);
         if (!equal(current_worker, worker) || !equal(current_process, process_boundary))
             throw std::runtime_error("native maintenance frozen worker security changed");
-        if (installed_uncertain || payload_failed)
+        if (installed_uncertain || payload_failed || custody_failed)
             throw std::runtime_error("native maintenance effect is uncertain; no further effects");
         if (!active_payload_history.empty()) {
             const auto current = transaction::TransactionSession::inspect_recovery(spec);
@@ -461,7 +466,32 @@ struct NativeMaintenanceContext::Impl {
     }
     void metadata_confirm(const fs::path& path, const std::string& text, HANDLE file) {
         require_authority(spec);
-        if (normalized(path).parent_path() != installed_record_path.parent_path()) return;
+        if (normalized(path).parent_path() != installed_record_path.parent_path()) {
+            if (active_payload_history.empty()) return;
+            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+            const auto& details = history.pending_details;
+            bool selected = false;
+            if (history.pending_kind == "write_ownership") selected = normalized(path) ==
+                normalized(spec.state_root / "ownership" / (details.at("manifest_id").as_string() + ".json"));
+            else if (history.pending_kind == "append_audit" &&
+                normalized(path).parent_path() == normalized(spec.audit_root / "chains" /
+                    details.at("chain_id").as_string())) {
+                const auto document = json::parse(text);
+                std::ostringstream name;
+                name << std::setw(20) << std::setfill('0') << document.at("sequence").as_unsigned() << ".event.json";
+                if (path.filename().u8string() != name.str() ||
+                    document.at("audit_chain_id").as_string() != details.at("chain_id").as_string() ||
+                    document.at("transaction_id").as_string() != spec.transaction_id)
+                    throw std::runtime_error("native maintenance audit creation differs from its actual selected append");
+                selected = true;
+            }
+            if (selected) {
+                (void)require_pending(history.pending_kind);
+                persist_metadata_creation(path, text, file);
+            }
+            return;
+        }
         if (!installed_issue_active || installed_confirmed || path != prepared_record_path || text != installed_record_text ||
             file != installed_postimage_file->handle.value ||
             !same(observe_publisher_file_handle(file), installed_record_facts))
@@ -477,6 +507,48 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance installed revision lacks its exact native postimage");
         installed_confirmed = true; installed_issue_active = false; installed_postimage_file->complete = true;
         require_authority(spec);
+        persist_metadata_creation(path, text, file);
+    }
+    void persist_metadata_creation(const fs::path& path, const std::string& text, HANDLE file) {
+        // This callback receives the protected writer's actual new handle
+        // after confirmed no-replace publication and before writer disposal.
+        // Reopened child handles below are observers, never labelled creations.
+        const auto object = facts(file, false);
+        auto& parent = open_directory(path.parent_path());
+        const auto listed = child(parent.handle.value, path.filename().wstring());
+        if (!listed) throw std::runtime_error("native maintenance metadata creation lost its parent link");
+        Held linked;
+        linked.value = open_publisher_listed_child(parent.handle.value, *listed);
+        if (!same(facts(linked.value, false), object))
+            throw std::runtime_error("native maintenance metadata creation differs from its published child");
+        FILE_STANDARD_INFO size{}; FILE_BASIC_INFO first{}, last{}; LARGE_INTEGER zero{};
+        if (!GetFileInformationByHandleEx(file, FileStandardInfo, &size, sizeof(size)) ||
+            size.DeletePending || size.Directory || size.EndOfFile.QuadPart < 0 ||
+            static_cast<std::uint64_t>(size.EndOfFile.QuadPart) != text.size() ||
+            !GetFileInformationByHandleEx(file, FileBasicInfo, &first, sizeof(first)) ||
+            !SetFilePointerEx(file, zero, nullptr, FILE_BEGIN))
+            throw std::runtime_error("native maintenance metadata creation bytes are unavailable");
+        base::Sha256 actual, expected;
+        expected.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        const auto expected_sha256 = expected.finish();
+        std::array<unsigned char, 64u * 1024u> bytes{}; std::size_t remaining = text.size();
+        while (remaining) {
+            const auto wanted = static_cast<DWORD>(std::min(remaining, bytes.size())); DWORD count = 0;
+            if (!ReadFile(file, bytes.data(), wanted, &count, nullptr) || count != wanted)
+                throw std::runtime_error("native maintenance metadata creation read changed");
+            actual.update(bytes.data(), count); remaining -= count;
+        }
+        if (actual.finish() != expected_sha256 ||
+            !GetFileInformationByHandleEx(file, FileBasicInfo, &last, sizeof(last)) ||
+            first.LastWriteTime.QuadPart != last.LastWriteTime.QuadPart ||
+            first.ChangeTime.QuadPart != last.ChangeTime.QuadPart || !same(facts(file, false), object))
+            throw std::runtime_error("native maintenance metadata creation postimage changed");
+        require_entry(parent); require_authority(spec);
+        persist_native_custody("created_metadata", Value(Value::Object{
+            {"setup_relative_path", Value(normalized(path).lexically_relative(normalized(spec.state_root.parent_path())).generic_u8string())},
+            {"object", publisher_handle_observation_json(object)}, {"parent", publisher_handle_observation_json(parent.facts)},
+            {"size_bytes", Value(static_cast<std::uint64_t>(text.size()))}, {"sha256", Value(expected_sha256)}}));
+        require_entry(parent); require_authority(spec);
     }
     void metadata_failed(const fs::path& path) noexcept {
         if (installed_prepared && path == prepared_record_path && installed_issue_active) {
@@ -500,6 +572,14 @@ struct NativeMaintenanceContext::Impl {
         auto& held = *inserted.first->second;
         held.handle.value = create_staged_directory_relative_with_descriptor(parent.handle.value, name, descriptor);
         held.facts = facts(held.handle.value, true); require_entry(held);
+        if (publication_confirmed) {
+            try {
+                persist_native_custody("later_created_directory", Value(Value::Object{
+                    {"relative_path", Value(relative.generic_u8string())},
+                    {"object", publisher_handle_observation_json(held.facts)},
+                    {"parent", publisher_handle_observation_json(parent.facts)}}));
+            } catch (...) { custody_failed = true; throw; }
+        }
         return held;
     }
     void create_staging(const transaction::TransactionSpec& s, const fs::path& path) {
@@ -694,6 +774,15 @@ struct NativeMaintenanceContext::Impl {
         original_admission_text = json::canonical(document) + "\n";
         if (original_admission_text.size() > maximum)
             throw std::runtime_error("native maintenance original custody exceeds its durable bound");
+        base::Sha256 hash;
+        hash.update(reinterpret_cast<const unsigned char*>(original_admission_text.data()), original_admission_text.size());
+        original_admission_sha256 = hash.finish();
+        native_custody_directory = spec.state_root / "transactions" / (spec.transaction_id + ".native-maintenance-custody");
+        native_snapshot_directory = spec.state_root / "transactions" / (spec.transaction_id + ".native-maintenance-snapshots");
+        base::require_native_path_capacity(native_custody_directory / "00000000000000000000.json",
+            base::NativePathKind::file, "native maintenance later custody");
+        base::require_native_path_capacity(native_snapshot_directory / (std::string(64, '0') + ".json"),
+            base::NativePathKind::file, "native maintenance retained snapshot");
         require_authority(spec);
     }
     void persist_original_admission() {
@@ -706,7 +795,41 @@ struct NativeMaintenanceContext::Impl {
         record_io::write_new_durable_text(original_admission_path, original_admission_text);
         if (record_io::read_stable_text(original_admission_path, 16u * 1024u * 1024u) != original_admission_text)
             throw std::runtime_error("native maintenance original custody readback differs");
+        record_io::create_directory_exclusive(native_custody_directory.parent_path(), native_custody_directory.filename().u8string());
+        record_io::create_directory_exclusive(native_snapshot_directory.parent_path(), native_snapshot_directory.filename().u8string());
         require_authority(spec);
+    }
+    void persist_native_custody(const std::string& kind, Value details) {
+        require_authority(spec);
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        Value record(Value::Object{{"schema", Value("usk.publisher.maintenance_native_custody.v1")},
+            {"transaction_id", Value(spec.transaction_id)}, {"plan_digest", Value(spec.plan_digest)},
+            {"original_context_sha256", Value(original_context.lease_binding_sha256())},
+            {"original_admission_sha256", Value(original_admission_sha256)},
+            {"original_lease_ownership_sha256", Value(json::sha256_canonical(lease.ownership()))},
+            {"sequence", Value(native_custody_sequence)}, {"kind", Value(kind)},
+            {"previous_record_sha256", native_custody_digest.empty() ? Value{} : Value(native_custody_digest)},
+            {"transaction_snapshot_sha256", Value(tx.snapshot_sha256)},
+            {"pending_history_sha256", active_payload_history.empty() ? Value{} : Value(active_payload_history)},
+            {"details", std::move(details)}});
+        const auto text = json::canonical(record) + "\n";
+        constexpr std::size_t maximum_record = 1024u * 1024u;
+        constexpr std::size_t maximum_total = 256u * 1024u * 1024u;
+        if (native_custody_sequence >= 200000u || text.size() > maximum_record ||
+            native_custody_bytes > maximum_total || text.size() > maximum_total - native_custody_bytes)
+            throw std::runtime_error("native maintenance later custody exceeds its finite bounds");
+        std::ostringstream name;
+        name << std::setw(20) << std::setfill('0') << native_custody_sequence << ".json";
+        const auto path = native_custody_directory / name.str();
+        base::Sha256 hash;
+        hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        auto next_digest = hash.finish(); // Allocate before the record effect.
+        record_io::write_new_durable_text(path, text);
+        if (record_io::read_stable_text(path, maximum_record) != text)
+            throw std::runtime_error("native maintenance later custody readback differs");
+        require_authority(spec);
+        native_custody_digest.swap(next_digest);
+        native_custody_bytes += text.size(); ++native_custody_sequence;
     }
     transaction::MaintenanceEffectInspection require_pending(const std::string& kind) const {
         require_authority(spec);
@@ -809,6 +932,13 @@ struct NativeMaintenanceContext::Impl {
         if (transaction_snapshot_bytes > maximum || text.size() > maximum - transaction_snapshot_bytes)
             throw std::runtime_error("native maintenance retained transaction snapshots exceed their bound");
         auto retained = std::make_shared<const std::string>(text);
+        const auto path = native_snapshot_directory / (expected_sha256 + ".json");
+        try {
+            record_io::write_new_durable_text(path, text);
+            if (record_io::read_stable_text(path, 4u * 1024u * 1024u) != text)
+                throw std::runtime_error("native maintenance retained transaction readback differs");
+            require_authority(spec);
+        } catch (...) { custody_failed = true; throw; }
         transaction_snapshots.emplace(expected_sha256, retained);
         transaction_snapshot_bytes += text.size();
         return retained;
@@ -892,6 +1022,11 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance intent changed during its effect");
             inserted.first->second->outcome = outcome;
             inserted.first->second->result_digest = result_digest;
+            persist_native_custody("confirmed_effect", Value(Value::Object{
+                {"intent_sequence", Value(history.pending_sequence)}, {"effect_kind", Value(history.pending_kind)},
+                {"effect_details", history.pending_details}, {"outcome", Value(outcome)},
+                {"result_digest", result_digest.empty() ? Value{} : Value(result_digest)},
+                {"effect_transaction_snapshot_sha256", Value(tx.snapshot_sha256)}}));
             inserted.first->second->confirmed = true;
             active_payload_transaction.clear(); active_payload_history.clear();
             return {outcome, result_digest};
