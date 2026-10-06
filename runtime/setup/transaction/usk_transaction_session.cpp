@@ -9,6 +9,7 @@
 #include "usk_maintenance_effect_journal.h"
 #include "usk_json.h"
 #include "usk_utf8_path.h"
+#include "usk_native_maintenance_transaction_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -544,6 +545,15 @@ TransactionSession::TransactionSession(
     journal_path_ = spec_.state_root / "transactions" /
         (spec_.transaction_id + ".journal.json");
     require_path_capacity(spec_);
+#if defined(_WIN32)
+    if (const auto* native = detail::ScopedNativeMaintenanceTransaction::current()) {
+        native->require_authority(spec_);
+        // Native creation may be retained even if its completion record cannot
+        // be written. Ordinary pathname rollback never acquires its custody.
+        retain_stream_cleanup_ = true;
+        retain_commit_cleanup_ = true;
+    }
+#endif
     created_at_ = iso8601_now();
 
     if (resume_mode == ResumeMode::finalization || resume_mode == ResumeMode::maintenance_finalization)
@@ -766,9 +776,18 @@ void TransactionSession::create_staging_root()
         fs::exists(staging_root_)) {
         throw std::runtime_error("staging parent changed or staging root now exists");
     }
-    std::error_code error;
-    if (!fs::create_directory(staging_root_, error) || error) {
-        throw std::runtime_error("cannot exclusively create setup-owned staging root");
+#if defined(_WIN32)
+    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+    if (native) {
+        native->require_authority(spec_);
+        native->create_staging_root(spec_, staging_root_);
+        native->require_authority(spec_);
+    } else
+#endif
+    {
+        std::error_code error;
+        if (!fs::create_directory(staging_root_, error) || error)
+            throw std::runtime_error("cannot exclusively create setup-owned staging root");
     }
     staging_identity_ = directory_identity(staging_root_);
     if (stream_journal_.present) {
@@ -788,6 +807,12 @@ void TransactionSession::verify_staging_identity() const
 
 void TransactionSession::remove_recorded_staging_closure()
 {
+#if defined(_WIN32)
+    if (const auto* native = detail::ScopedNativeMaintenanceTransaction::current()) {
+        native->require_authority(spec_);
+        throw std::runtime_error("native maintenance staging remains under engine custody; pathname cleanup refused");
+    }
+#endif
     if (retain_stream_cleanup_ || retain_commit_cleanup_) {
         throw std::runtime_error("streamed staging is retained; automatic rollback has no deletion authority");
     }
@@ -871,6 +896,12 @@ void TransactionSession::stage_file(
     const fs::path& relative_path,
     const std::vector<unsigned char>& bytes)
 {
+#if defined(_WIN32)
+    if (const auto* native = detail::ScopedNativeMaintenanceTransaction::current()) {
+        native->require_authority(spec_);
+        throw std::runtime_error("native maintenance requires the creation-bound streaming path");
+    }
+#endif
     if (current_state_ != "staging" || !safe_relative_path(relative_path)) {
         throw std::runtime_error("staged file path or transaction state is invalid");
     }
@@ -965,15 +996,28 @@ StreamStageResult TransactionSession::stage_file_stream(
         source_identity_digest.empty() ? spec_.plan_digest : source_identity_digest, "intent", {}});
     persist_snapshot();
     if (injector_) injector_(current_state_, "after_stream_intent");
+#if defined(_WIN32)
+    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+    if (native) native->require_authority(spec_);
+#endif
     fs::path current = staging_root_;
     auto last = relative_path.end();
     --last;
     for (auto iterator = relative_path.begin(); iterator != last; ++iterator) {
         current /= *iterator;
-        std::error_code error;
-        if (!fs::exists(current)) {
-            if (!fs::create_directory(current, error) || error) {
-                throw std::runtime_error("cannot create owned streaming staging directory");
+#if defined(_WIN32)
+        if (native) {
+            native->require_authority(spec_);
+            native->ensure_stream_parent(spec_, current);
+            native->require_authority(spec_);
+        } else
+#endif
+        {
+            std::error_code error;
+            if (!fs::exists(current)) {
+                if (!fs::create_directory(current, error) || error) {
+                    throw std::runtime_error("cannot create owned streaming staging directory");
+                }
             }
         }
         require_safe_directory(current);
@@ -990,8 +1034,11 @@ StreamStageResult TransactionSession::stage_file_stream(
     try {
         if (injector_) injector_(current_state_, "before_stage_stream");
 #if defined(_WIN32)
-        handle = CreateFileW(
-            destination.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+        if (native) {
+            native->require_authority(spec_);
+            handle = reinterpret_cast<HANDLE>(native->open_stream(spec_, destination, expected_size, expected_sha256));
+            native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+        } else handle = CreateFileW(destination.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (handle == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("cannot exclusively create streamed transaction file");
@@ -1034,6 +1081,10 @@ StreamStageResult TransactionSession::stage_file_stream(
 #if defined(_WIN32)
                 const DWORD request = static_cast<DWORD>(count - written_total);
                 DWORD written = 0;
+                if (native) {
+                    native->require_authority(spec_);
+                    native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+                }
                 if (!WriteFile(handle, buffer.data() + written_total, request, &written, nullptr) ||
                     written == 0) {
                     throw std::runtime_error("cannot write streamed transaction file");
@@ -1057,17 +1108,33 @@ StreamStageResult TransactionSession::stage_file_stream(
             throw std::runtime_error("streamed source exceeded its reviewed size");
         }
         if (injector_) injector_(current_state_, "before_stream_finalize");
+        std::string actual_sha256;
 #if defined(_WIN32)
-        const BOOL flushed = FlushFileBuffers(handle);
-        if (stream_output_identity(reinterpret_cast<std::intptr_t>(handle)) != observation.output_identity) {
-            throw std::runtime_error("stream output handle identity changed");
-        }
-        if (!CloseHandle(handle)) {
-            throw std::runtime_error("cannot close streamed transaction file");
-        }
-        handle = INVALID_HANDLE_VALUE;
-        if (!flushed) {
-            throw std::runtime_error("cannot flush streamed transaction file");
+        if (native) {
+            actual_sha256 = digest.finish();
+            if (total != expected_size || actual_sha256 != expected_sha256)
+                throw std::runtime_error("streamed staged file integrity changed");
+            native->require_authority(spec_);
+            native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+            native->finish_stream(spec_, reinterpret_cast<std::intptr_t>(handle),
+                observation.output_identity, total, actual_sha256);
+            native->require_authority(spec_);
+            // Borrowed custody stays with the concrete engine. No close or
+            // rollback by pathname follows failure of its native operation.
+            handle = INVALID_HANDLE_VALUE;
+        } else {
+            const BOOL flushed = FlushFileBuffers(handle);
+            if (stream_output_identity(reinterpret_cast<std::intptr_t>(handle)) != observation.output_identity) {
+                throw std::runtime_error("stream output handle identity changed");
+            }
+            if (!CloseHandle(handle)) {
+                throw std::runtime_error("cannot close streamed transaction file");
+            }
+            handle = INVALID_HANDLE_VALUE;
+            if (!flushed) {
+                throw std::runtime_error("cannot flush streamed transaction file");
+            }
+            actual_sha256 = digest.finish();
         }
 #else
         const int flushed = ::fsync(descriptor);
@@ -1079,8 +1146,8 @@ StreamStageResult TransactionSession::stage_file_stream(
         if (flushed != 0 || closed != 0) {
             throw std::runtime_error("cannot flush streamed transaction file");
         }
+        actual_sha256 = digest.finish();
 #endif
-        const std::string actual_sha256 = digest.finish();
         if (total != expected_size || actual_sha256 != expected_sha256) {
             throw std::runtime_error("streamed staged file integrity changed");
         }
@@ -1091,7 +1158,7 @@ StreamStageResult TransactionSession::stage_file_stream(
         return {actual_sha256, total, static_cast<std::uint64_t>(buffer.capacity())};
     } catch (...) {
 #if defined(_WIN32)
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        if (!native && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
 #else
         if (descriptor >= 0) ::close(descriptor);
 #endif
@@ -1209,7 +1276,15 @@ void TransactionSession::commit_effect()
         throw std::runtime_error("target changed immediately before no-replace commit");
     }
     try {
-        rename_directory_no_replace(staging_root_, spec_.target_root);
+#if defined(_WIN32)
+        const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+        if (native) {
+            native->require_authority(spec_);
+            native->commit(spec_, staging_root_, staging_identity_, verified_closure_);
+            native->require_authority(spec_);
+        } else
+#endif
+            rename_directory_no_replace(staging_root_, spec_.target_root);
     } catch (...) {
         persist_transition("recovery_required");
         throw;

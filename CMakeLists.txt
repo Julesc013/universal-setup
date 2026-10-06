@@ -141,6 +141,7 @@ set_target_properties(usk_policy_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(usk_transaction_static STATIC
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_native_maintenance_transaction_internal.cpp
   runtime/setup/transaction/usk_install_lease.cpp
   runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp
@@ -200,6 +201,7 @@ target_link_libraries(usk_lifecycle_static PUBLIC
 )
 if(WIN32)
   target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_protected_install_publisher.cpp)
+  target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp)
   target_compile_definitions(usk_lifecycle_static PRIVATE
     USK_INTERNAL_PUBLISHER_FINALIZATION)
   target_link_libraries(usk_lifecycle_static PRIVATE usk_publisher_windows_static)
@@ -239,6 +241,7 @@ set(USK_CORE_SOURCES
   runtime/setup/state/usk_state_repository.cpp
   runtime/setup/streaming/usk_streaming_source_target.cpp
   runtime/setup/transaction/usk_transaction_session.cpp
+  runtime/setup/transaction/usk_native_maintenance_transaction_internal.cpp
   runtime/setup/transaction/usk_install_lease.cpp
   runtime/setup/transaction/usk_replacement_session.cpp
   runtime/setup/transaction/usk_commit_authority.cpp

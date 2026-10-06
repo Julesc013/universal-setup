@@ -62,6 +62,10 @@ usk::json::Value observe_publisher_lease_holder();
 usk::json::Value observe_publisher_lease_root_identity(HANDLE root);
 std::string observe_publisher_install_state_revision(HANDLE state_root,
     const std::string& install_id, const std::string& service_sid);
+// Exact sorted native record set behind the revision. The operation retains
+// this original set to derive only its reviewed installed postimage revision.
+usk::json::Value observe_publisher_install_state_bindings(HANDLE state_root,
+    const std::string& install_id, const std::string& service_sid);
 // Read-only fresh-install preflight under the actual installation guard. An
 // absent setup root represents empty state; existing state/installed roots
 // must be complete and safe. The caller separately validates the full setup

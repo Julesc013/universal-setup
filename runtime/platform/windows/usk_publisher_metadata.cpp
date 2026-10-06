@@ -112,6 +112,7 @@ struct PublisherMetadataSession::Impl {
     fs::path volume_path;
     fs::path root_path;
     fs::path final_root_path;
+    fs::path public_alias;
     std::wstring root_name;
     std::string service_sid;
     std::vector<unsigned char> descriptor;
@@ -122,9 +123,10 @@ struct PublisherMetadataSession::Impl {
     bool initializing = false;
 
     Impl(HANDLE boundary, const std::wstring& guid, const fs::path& physical_root,
-        const std::wstring& service_name, bool require_existing)
+        const std::wstring& service_name, bool require_existing, const fs::path& alias_path)
         : volume(boundary), volume_path(guid), root_path(physical_root.lexically_normal()),
-          final_root_path(root_path), root_name(root_path.filename().wstring()) {
+          final_root_path(root_path), public_alias(alias_path.empty() ? fs::path{} : fs::absolute(alias_path).lexically_normal()),
+          root_name(root_path.filename().wstring()) {
         const auto service = observe_current_restricted_publisher_service(service_name);
         service_sid = service.service_sid;
         descriptor = make_publisher_directory_security_descriptor(std::wstring(service_sid.begin(), service_sid.end()));
@@ -145,6 +147,11 @@ struct PublisherMetadataSession::Impl {
         }
         require_boundary_rights(boundary_facts, service_sid);
         observe_local_ntfs_volume_handle(volume);
+        if (!public_alias.empty()) {
+            if (!require_existing || public_alias.relative_path() != fs::path(root_name))
+                throw std::runtime_error("metadata public alias must name the existing direct setup child");
+            require_alias_mapping();
+        }
         if (const auto existing = find_child(volume, root_name)) {
             root = std::make_unique<OwnedHandle>(open_publisher_listed_child(volume, *existing, true, false, true));
             require_publisher_tree_security_shape(observe_publisher_tree(root->get()), service_sid);
@@ -163,10 +170,23 @@ struct PublisherMetadataSession::Impl {
         scope = std::make_unique<record_io::ScopedRecordWriteOperations>(operations);
     }
 
+    void require_alias_mapping() const {
+        if (public_alias.empty()) return;
+        require_active_publisher_effect_fence();
+        const std::wstring drive = public_alias.root_name().wstring() + L"\\";
+        wchar_t mapped[128]{};
+        if (drive.size() != 3 || drive[1] != L':' ||
+            !GetVolumeNameForVolumeMountPointW(drive.c_str(), mapped, static_cast<DWORD>(std::size(mapped))) ||
+            CompareStringOrdinal(mapped, -1, volume_path.c_str(), -1, TRUE) != CSTR_EQUAL)
+            throw std::runtime_error("metadata public alias lost its held volume mapping");
+    }
     std::vector<OwnedHandle> parents(const fs::path& parent) {
         if (!root) throw std::runtime_error("protected metadata root has not been created");
+        require_alias_mapping();
         const fs::path normalized = parent.lexically_normal();
-        const fs::path relative = normalized.lexically_relative(root_path);
+        fs::path relative = normalized.lexically_relative(root_path);
+        if (!public_alias.empty() && (relative.empty() || *relative.begin() == fs::path(L"..")))
+            relative = normalized.lexically_relative(public_alias);
         if (relative.empty()) throw std::runtime_error("metadata parent lies outside protected root");
         std::vector<OwnedHandle> handles;
         HANDLE current = root->get();
@@ -197,6 +217,7 @@ struct PublisherMetadataSession::Impl {
         HANDLE anchor = held.empty() ? root->get() : held.back().get();
         OwnedHandle created(create_directory_relative_with_descriptor(anchor, component, descriptor));
         require_publisher_object_security_shape(observe_publisher_directory_handle(created.get()), service_sid);
+        require_alias_mapping();
     }
 
     void write_record(const fs::path& path, const std::string& content) {
@@ -229,6 +250,7 @@ struct PublisherMetadataSession::Impl {
         }
         if (!FlushFileBuffers(file.get())) throw std::runtime_error("protected metadata pending flush failed");
         publish_publisher_record_no_replace(file.get(), parent, name, service_sid);
+        require_alias_mapping();
     }
 
     void publish_initialized_root() {
@@ -266,8 +288,8 @@ struct PublisherMetadataSession::Impl {
 };
 
 PublisherMetadataSession::PublisherMetadataSession(HANDLE volume, const std::wstring& guid,
-    const fs::path& root, const std::wstring& service, bool require_existing)
-    : impl_(std::make_unique<Impl>(volume, guid, root, service, require_existing)) {}
+    const fs::path& root, const std::wstring& service, bool require_existing, const fs::path& public_alias)
+    : impl_(std::make_unique<Impl>(volume, guid, root, service, require_existing, public_alias)) {}
 PublisherMetadataSession::~PublisherMetadataSession() = default;
 const fs::path& PublisherMetadataSession::initialization_root() const { return impl_->root_path; }
 void PublisherMetadataSession::publish_initialized_root() { impl_->publish_initialized_root(); }

@@ -146,6 +146,42 @@ void snapshot_bindings() {
         auto verification_only = snapshot;
         verification_only.as_object().at("installed_state").as_object().at("last_verification") = Value(Value::Object{});
         require_publisher_maintenance_snapshot_binding(verification_only, kind, id, operation_id, revision);
+        auto complete_snapshot = snapshot;
+        Value bindings(Value::Array{
+            Value(Value::Object{{"record", Value(id + ".fixture.original.json")},
+                {"sha256", Value(usk::json::sha256_canonical(installed))}}),
+            Value(Value::Object{{"record", Value(id + ".fixture.previous.json")},
+                {"sha256", Value(std::string(64, '9'))}})});
+        const auto complete_revision = usk::json::sha256_canonical(bindings);
+        complete_snapshot.as_object().at("schema") = Value("usk.publisher.maintenance_reviewed_snapshot.v2");
+        complete_snapshot.as_object().at("initial_state_revision") = Value(complete_revision);
+        complete_snapshot.as_object().emplace("installed_record_bindings", bindings);
+        require_publisher_maintenance_snapshot_binding(complete_snapshot, kind, id, operation_id, complete_revision);
+        const std::vector<std::function<void(Value&)>> binding_changes{
+            [](Value& x) { x.as_object().erase("installed_record_bindings"); },
+            [](Value& x) { x.as_object().at("installed_record_bindings") = Value(Value::Array{}); },
+            [](Value& x) { auto& b = x.as_object().at("installed_record_bindings").as_array(); b.push_back(b.front()); },
+            [](Value& x) { auto& b = x.as_object().at("installed_record_bindings").as_array(); std::swap(b.front(), b.back()); },
+            [](Value& x) { x.as_object().at("installed_record_bindings").as_array().front().as_object().at("sha256") = Value(std::string(64, '0')); },
+            [](Value& x) { x.as_object().at("installed_record_bindings").as_array().front().as_object().at("record") = Value("unrelated.install.fixture.original.json"); },
+            [](Value& x) { x.as_object().at("installed_record_bindings").as_array().back().as_object().at("record") = Value("fixture.install...json"); },
+            [](Value& x) { x.as_object().at("installed_record_bindings").as_array().back().as_object().emplace("trusted", Value(true)); },
+            [](Value& x) { x.as_object().at("installed_state").as_object().at("last_verification") = Value(Value::Object{}); },
+        };
+        for (const auto& change : binding_changes) {
+            auto altered = complete_snapshot;
+            change(altered);
+            check(refuses([&] { require_publisher_maintenance_snapshot_binding(altered, kind, id, operation_id, complete_revision); }),
+                "changed complete original installed record set accepted");
+            // Also recompute the data checksum so ordering, names, selected
+            // bytes and closed fields are tested independently of that hash.
+            if (altered.contains("installed_record_bindings")) {
+                const auto changed_revision = usk::json::sha256_canonical(altered.at("installed_record_bindings"));
+                altered.as_object().at("initial_state_revision") = Value(changed_revision);
+                check(refuses([&] { require_publisher_maintenance_snapshot_binding(altered, kind, id, operation_id, changed_revision); }),
+                    "self-consistent malformed original record bindings accepted");
+            }
+        }
         const std::vector<std::function<void(Value&)>> changes{
             [](Value& x) { x.as_object().emplace("trusted", Value(true)); },
             [](Value& x) { x.as_object().at("schema") = Value("usk.publisher.maintenance_reviewed_snapshot.v2"); },

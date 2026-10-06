@@ -41,11 +41,14 @@ void publish_publisher_record_no_replace(HANDLE file, HANDLE parent,
 // in a separate pending directory before parent-bound no-replace publication.
 // Caller must bind the volume/namespace and operation; this does not admit a
 // production publisher profile or grant a public client filesystem authority.
+// An optional public drive alias is accepted only for the already-existing
+// direct setup child on this held GUID volume. Every effect still uses native
+// retained parents; a changed drive mapping refuses before further writes.
 class PublisherMetadataSession {
 public:
     PublisherMetadataSession(HANDLE volume_root, const std::wstring& volume_guid_root,
         const std::filesystem::path& physical_setup_root, const std::wstring& service_name,
-        bool require_existing = false);
+        bool require_existing = false, const std::filesystem::path& public_setup_alias = {});
     ~PublisherMetadataSession();
     PublisherMetadataSession(const PublisherMetadataSession&) = delete;
     PublisherMetadataSession& operator=(const PublisherMetadataSession&) = delete;
