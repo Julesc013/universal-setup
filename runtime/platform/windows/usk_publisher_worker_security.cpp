@@ -319,7 +319,140 @@ Value observe_settled_publisher_worker_security(const PublisherServiceObservatio
 
 struct PublisherWorkerSecurityContinuity::Impl {
     const Value baseline;
+    const ULONGLONG started_at = GetTickCount64();
     std::map<DWORD, std::unique_ptr<Handle>> threads;
+
+    static Value diagnostic_text(const wchar_t* text, std::size_t units, bool clipped = false) {
+        // Failure evidence only. Never expose an unbounded optional native
+        // description or module path, and never split a UTF-8 code point.
+        if (!text || !units) return Value(Value::Object{{"value", Value("")}, {"truncated", Value(clipped)}});
+        const auto count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text,
+            static_cast<int>(units), nullptr, 0, nullptr, nullptr);
+        if (!count) return Value(Value::Object{{"conversion_error", Value(static_cast<std::uint64_t>(GetLastError()))}});
+        std::string converted(static_cast<std::size_t>(count), '\0');
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text, static_cast<int>(units),
+                converted.data(), count, nullptr, nullptr) != count)
+            return Value(Value::Object{{"conversion_error", Value(static_cast<std::uint64_t>(GetLastError()))}});
+        if (converted.size() > 160u) {
+            std::size_t end = 160u;
+            while (end && (static_cast<unsigned char>(converted[end]) & 0xc0u) == 0x80u) --end;
+            converted.resize(end); clipped = true;
+        }
+        return Value(Value::Object{{"value", Value(std::move(converted))}, {"truncated", Value(clipped)}});
+    }
+    static Value diagnostic_added_thread(DWORD id) {
+        Value::Object facts{{"census_thread_id", Value(static_cast<std::uint64_t>(id))}};
+        const auto raw = OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, id);
+        if (!raw) {
+            facts.emplace("open_error", Value(static_cast<std::uint64_t>(GetLastError())));
+            return Value(std::move(facts));
+        }
+        // Optional reads cannot replace the original rejection. Every handle
+        // is query-only, non-inheritable and held across identity readback.
+        try {
+            Handle held(raw);
+            const auto process = GetProcessIdOfThread(held.get());
+            const auto thread = GetThreadId(held.get());
+            FILETIME creation{}, exit{}, kernel{}, user{};
+            if (!GetThreadTimes(held.get(), &creation, &exit, &kernel, &user)) {
+                facts.emplace("times_error", Value(static_cast<std::uint64_t>(GetLastError())));
+                return Value(std::move(facts));
+            }
+            facts.emplace("process_id", Value(static_cast<std::uint64_t>(process)));
+            facts.emplace("thread_id", Value(static_cast<std::uint64_t>(thread)));
+            facts.emplace("creation_time", Value(hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime)));
+            const bool same_process = process == GetCurrentProcessId() && thread == id;
+            facts.emplace("identity_matches_census", Value(same_process));
+            const auto wait = WaitForSingleObject(held.get(), 0);
+            facts.emplace("wait_result", Value(static_cast<std::uint64_t>(wait)));
+            if (wait == WAIT_FAILED) facts.emplace("wait_error", Value(static_cast<std::uint64_t>(GetLastError())));
+            if (!same_process) return Value(std::move(facts));
+
+            using Description = HRESULT (WINAPI*)(HANDLE, PWSTR*);
+            const auto description = reinterpret_cast<Description>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetThreadDescription"));
+            if (description) {
+                PWSTR name = nullptr;
+                const auto status = description(held.get(), &name);
+                LocalAllocation memory{reinterpret_cast<HLOCAL>(name)};
+                facts.emplace("description_hresult", Value(static_cast<std::uint64_t>(static_cast<std::uint32_t>(status))));
+                if (SUCCEEDED(status) && name) {
+                    std::size_t units = 0;
+                    while (units != 256u && name[units]) ++units;
+                    facts.emplace("description", diagnostic_text(name, units, units == 256u));
+                }
+            } else facts.emplace("description_unavailable", Value(true));
+
+            using Query = LONG (WINAPI*)(HANDLE, int, PVOID, ULONG, PULONG);
+            const auto query = reinterpret_cast<Query>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationThread"));
+            if (query) {
+                PVOID address = nullptr; ULONG returned = 0;
+                // Documented ThreadQuerySetWin32StartAddress information class.
+                // Dynamic lookup is diagnostic only; absence never admits it.
+                const auto status = query(held.get(), 9, &address, static_cast<ULONG>(sizeof(address)), &returned);
+                facts.emplace("start_address_ntstatus", Value(static_cast<std::uint64_t>(static_cast<std::uint32_t>(status))));
+                facts.emplace("start_address_returned_bytes", Value(static_cast<std::uint64_t>(returned)));
+                if (status >= 0 && address && returned == sizeof(address)) {
+                    facts.emplace("start_address", Value(hex64(reinterpret_cast<std::uintptr_t>(address))));
+                    HMODULE module = nullptr;
+                    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(address), &module)) {
+                        struct Module { HMODULE handle; ~Module() { FreeLibrary(handle); } } pinned{module};
+                        wchar_t path[512]{};
+                        const auto size = GetModuleFileNameW(module, path, static_cast<DWORD>(std::size(path)));
+                        if (size) facts.emplace("start_module", diagnostic_text(path, size, size == std::size(path)));
+                        else facts.emplace("start_module_error", Value(static_cast<std::uint64_t>(GetLastError())));
+                    } else facts.emplace("start_module_error", Value(static_cast<std::uint64_t>(GetLastError())));
+                }
+            } else facts.emplace("start_address_unavailable", Value(true));
+            FILETIME repeated{}, repeated_exit{}, repeated_kernel{}, repeated_user{};
+            const bool read = GetThreadTimes(held.get(), &repeated, &repeated_exit, &repeated_kernel, &repeated_user) != FALSE;
+            if (!read) facts.emplace("repeated_times_error", Value(static_cast<std::uint64_t>(GetLastError())));
+            facts.emplace("identity_stable", Value(read && GetProcessIdOfThread(held.get()) == process &&
+                GetThreadId(held.get()) == thread && CompareFileTime(&creation, &repeated) == 0));
+        } catch (const std::exception& error) {
+            facts.emplace("optional_read_error", Value(std::string(error.what()).substr(0, 160u)));
+        }
+        return Value(std::move(facts));
+    }
+    [[noreturn]] void reject_added_threads(const std::vector<DWORD>& ids, const char* census,
+        unsigned round, const std::string& failure_context) const {
+        Value::Array original, unknown;
+        std::size_t added_count = 0;
+        for (const auto& item : baseline.at("threads").as_array()) {
+            if (original.size() == 16u) break;
+            original.emplace_back(Value::Object{{"thread_id", item.at("thread_id")}, {"creation_time", item.at("creation_time")}});
+        }
+        for (const auto id : ids) if (!threads.count(id)) {
+            ++added_count;
+            if (unknown.size() != 8u) unknown.push_back(diagnostic_added_thread(id));
+        }
+        Value evidence(Value::Object{{"schema", Value("usk.publisher_worker_thread_addition_diagnostic.v1")},
+            {"scope", Value("bounded_native_refusal_readback_no_authority")}, {"census", Value(census)},
+            {"readback_round", Value(static_cast<std::uint64_t>(round + 1u))},
+            {"process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
+            {"current_thread_id", Value(static_cast<std::uint64_t>(GetCurrentThreadId()))},
+            {"elapsed_since_continuity_creation_ms", Value(static_cast<std::uint64_t>(GetTickCount64() - started_at))},
+            {"baseline_sha256", Value(usk::json::sha256_canonical(baseline))},
+            {"baseline_thread_count", Value(static_cast<std::uint64_t>(baseline.at("threads").as_array().size()))},
+            {"baseline_threads", Value(std::move(original))},
+            {"census_thread_count", Value(static_cast<std::uint64_t>(ids.size()))},
+            {"added_thread_count", Value(static_cast<std::uint64_t>(added_count))},
+            {"added_threads", Value(std::move(unknown))},
+            {"owner_context", Value(failure_context.substr(0, 1024u))},
+            {"owner_context_truncated", Value(failure_context.size() > 1024u)},
+            {"optional_details_omitted", Value(false)}});
+        auto encoded = usk::json::canonical(evidence);
+        if (encoded.size() > 8192u) {
+            // Keep every retained actual identity/count; discard optional text
+            // if unusual escaping exceeds the final diagnostic byte bound.
+            for (auto& item : evidence.as_object().at("added_threads").as_array())
+                for (const auto* key : {"description", "start_module", "optional_read_error"}) item.as_object().erase(key);
+            evidence.as_object().at("owner_context") = Value("");
+            evidence.as_object().at("owner_context_truncated") = Value(true);
+            evidence.as_object().at("optional_details_omitted") = Value(true);
+            encoded = usk::json::canonical(evidence);
+        }
+        throw std::runtime_error("publisher maintenance worker added a thread after its frozen baseline; diagnostic=" + encoded);
+    }
 
     static void require_identity(HANDLE handle, const Value& original, FILETIME& exit) {
         FILETIME creation{}, kernel{}, user{};
@@ -394,7 +527,7 @@ struct PublisherWorkerSecurityContinuity::Impl {
         require_no_thread_token(handle);
         return Value(std::move(facts));
     }
-    Value observe_current(const std::function<void(const char*)>& checkpoint) const {
+    Value observe_current(const std::function<void(const char*)>& checkpoint, const std::string& failure_context = {}) const {
         const auto require_execution = [&] {
             require(GetCurrentProcessId() == baseline.at("process_id").as_unsigned(),
                 "publisher maintenance frozen worker context changed");
@@ -405,10 +538,9 @@ struct PublisherWorkerSecurityContinuity::Impl {
         std::map<DWORD, const Value*> originals;
         for (const auto& item : baseline.at("threads").as_array())
             originals.emplace(static_cast<DWORD>(item.at("thread_id").as_unsigned()), &item);
-        const auto require_known_ids = [&](const std::vector<DWORD>& ids) {
+        const auto require_known_ids = [&](const std::vector<DWORD>& ids, const char* census, unsigned round) {
             for (const auto id : ids)
-                require(originals.count(id) != 0,
-                    "publisher maintenance worker added a thread after its frozen baseline");
+                if (!originals.count(id)) reject_added_threads(ids, census, round, failure_context);
         };
         // No policy exception is caught. Only positively proved retirement of
         // a retained original can discard a sample and start another one.
@@ -422,7 +554,7 @@ struct PublisherWorkerSecurityContinuity::Impl {
             require(usk::json::canonical(Value(primary)) == usk::json::canonical(baseline.at("primary_token")),
                 "publisher maintenance frozen primary token or defaults changed");
             const auto first_ids = thread_ids();
-            require_known_ids(first_ids);
+            require_known_ids(first_ids, "first_population_snapshot", round);
             if (checkpoint) checkpoint("after_population_snapshot");
             Value::Array observed;
             std::vector<DWORD> live_ids;
@@ -436,7 +568,7 @@ struct PublisherWorkerSecurityContinuity::Impl {
             }
             if (checkpoint) checkpoint("after_live_readback");
             const auto final_ids = thread_ids();
-            require_known_ids(final_ids);
+            require_known_ids(final_ids, "final_population_snapshot", round);
             require(std::includes(live_ids.begin(), live_ids.end(), final_ids.begin(), final_ids.end()),
                 "publisher maintenance native population contradicts retained original retirement");
             bool retired_after_readback = false;
@@ -464,7 +596,9 @@ struct PublisherWorkerSecurityContinuity::Impl {
 PublisherWorkerSecurityContinuity::PublisherWorkerSecurityContinuity(const Value& baseline)
     : impl_(std::make_unique<Impl>(baseline)) {}
 PublisherWorkerSecurityContinuity::~PublisherWorkerSecurityContinuity() = default;
-Value PublisherWorkerSecurityContinuity::observe_current() const { return impl_->observe_current({}); }
+Value PublisherWorkerSecurityContinuity::observe_current(const std::string& failure_context) const {
+    return impl_->observe_current({}, failure_context);
+}
 Value detail::observe_publisher_worker_continuity_for_test(const PublisherWorkerSecurityContinuity& continuity,
     const std::function<void(const char*)>& checkpoint) {
     return continuity.impl_->observe_current(checkpoint);

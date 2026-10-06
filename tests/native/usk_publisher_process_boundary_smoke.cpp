@@ -117,6 +117,9 @@ public:
     TestThread(const TestThread&) = delete;
     TestThread& operator=(const TestThread&) = delete;
     HANDLE handle() const { return thread_; }
+    static std::uintptr_t default_start_address() {
+        return reinterpret_cast<std::uintptr_t>(&wait_for_release);
+    }
     DWORD id() const { return id_; }
     void retire() {
         check(SetEvent(stop_) && WaitForSingleObject(thread_, 5000u) == WAIT_OBJECT_0,
@@ -192,6 +195,45 @@ struct ExecutionThreadControl {
         return 0;
     }
 };
+Value require_added_thread_diagnostic(const std::string& diagnostic, const Value& baseline,
+    const TestThread& added, const char* census) {
+    const std::string marker = "; diagnostic=";
+    const auto position = diagnostic.find(marker);
+    check(position != std::string::npos && diagnostic.size() - position - marker.size() <= 8192u,
+        "actual addition refusal lost its bounded diagnostic");
+    const auto evidence = usk::json::parse(diagnostic.substr(position + marker.size()));
+    check(evidence.at("schema").as_string() == "usk.publisher_worker_thread_addition_diagnostic.v1" &&
+        evidence.at("scope").as_string() == "bounded_native_refusal_readback_no_authority" &&
+        evidence.at("census").as_string() == census &&
+        evidence.at("process_id").as_unsigned() == GetCurrentProcessId() &&
+        evidence.at("current_thread_id").as_unsigned() == GetCurrentThreadId() &&
+        evidence.at("baseline_sha256").as_string() == usk::json::sha256_canonical(baseline) &&
+        evidence.at("baseline_thread_count").as_unsigned() == baseline.at("threads").as_array().size() &&
+        evidence.at("added_thread_count").as_unsigned() >= 1u,
+        "addition diagnostic changed the actual baseline or census context");
+    std::size_t matches = 0;
+    for (const auto& thread : evidence.at("added_threads").as_array()) {
+        if (thread.at("census_thread_id").as_unsigned() != added.id()) continue;
+        ++matches;
+        FILETIME creation{}, exit{}, kernel{}, user{};
+        check(GetThreadTimes(added.handle(), &creation, &exit, &kernel, &user) != FALSE,
+            "independent held added-thread birth unavailable");
+        check(thread.at("identity_matches_census").as_boolean() && thread.at("identity_stable").as_boolean() &&
+            thread.at("thread_id").as_unsigned() == added.id() &&
+            thread.at("process_id").as_unsigned() == GetCurrentProcessId() &&
+            thread.at("wait_result").as_unsigned() == WAIT_TIMEOUT &&
+            std::stoull(thread.at("creation_time").as_string(), nullptr, 16) ==
+                ((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime),
+            "addition diagnostic lost the actually held owned-thread identity");
+        if (thread.contains("start_address") && thread.contains("start_module")) {
+            check(std::stoull(thread.at("start_address").as_string(), nullptr, 16) == TestThread::default_start_address() &&
+                !thread.at("start_module").at("value").as_string().empty(),
+                "optional native thread start differs from its actual creator routine");
+        }
+    }
+    check(matches == 1u, "actual added-thread diagnostic is absent or repeated");
+    return evidence;
+}
 void worker_lifetime_controls() {
     // Ordinary owned test threads only; no service, token mutation or native
     // effect scope. The continuity observer itself has query-only handles.
@@ -216,11 +258,33 @@ void worker_lifetime_controls() {
     {
         TestThread added;
         std::string diagnostic;
-        try { (void)continuity.observe_current(); }
+        try { (void)continuity.observe_current("ordinary-added-thread-control"); }
         catch (const std::exception& error) { diagnostic = error.what(); }
         check(diagnostic.find("added a thread after its frozen baseline") != std::string::npos,
             "actual added thread was admitted or refused for an unrelated reason");
+        const auto evidence = require_added_thread_diagnostic(diagnostic, baseline, added, "first_population_snapshot");
+        check(evidence.at("owner_context").as_string() == "ordinary-added-thread-control" &&
+            !evidence.at("owner_context_truncated").as_boolean() && usk::json::canonical(baseline) == frozen,
+            "refusal diagnostic changed the original baseline or supplied only failure context");
         added.retire();
+    }
+    {
+        std::vector<std::unique_ptr<TestThread>> added;
+        for (unsigned index = 0; index != 9u; ++index) added.push_back(std::make_unique<TestThread>());
+        std::string diagnostic;
+        try { (void)continuity.observe_current(std::string(1024u, '\1')); }
+        catch (const std::exception& error) { diagnostic = error.what(); }
+        const auto marker = diagnostic.find("; diagnostic=");
+        check(marker != std::string::npos && diagnostic.size() - marker - 13u <= 8192u,
+            "multiple actual additions exceeded the final diagnostic bound");
+        const auto evidence = usk::json::parse(diagnostic.substr(marker + 13u));
+        check(evidence.at("added_thread_count").as_unsigned() >= 9u &&
+            evidence.at("added_threads").as_array().size() == 8u &&
+            evidence.at("optional_details_omitted").as_boolean() &&
+            evidence.at("owner_context_truncated").as_boolean() && usk::json::canonical(baseline) == frozen,
+            "bounded optional diagnostics admitted additions or hid its truncation");
+        for (const auto& thread : added) thread->retire();
+        (void)continuity.observe_current();
     }
     {
         ExecutionThreadControl control{continuity, {}};
@@ -312,6 +376,7 @@ void worker_retirement_readback_controls() {
         } catch (const std::exception& error) { diagnostic = error.what(); }
         check(added && diagnostic.find("added a thread after its frozen baseline") != std::string::npos,
             "native population bracket admitted a newly added actual thread");
+        (void)require_added_thread_diagnostic(diagnostic, baseline, *added, "final_population_snapshot");
         added->retire();
         (void)continuity.observe_current();
     }

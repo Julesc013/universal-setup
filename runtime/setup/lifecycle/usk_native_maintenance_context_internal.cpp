@@ -1104,7 +1104,19 @@ struct NativeMaintenanceContext::Impl {
         if (!same(observe_publisher_directory_handle(volume), volume_facts) ||
             !equal(admission.evidence(), registration) || !equal(admission.selected_reviewed_operation_observation(), selection))
             throw std::runtime_error("native maintenance held registration or boundary changed");
-        const auto current_worker = worker_continuity->observe_current();
+        // This is bounded failure context from the already existing owner;
+        // none of these values admits a thread or authorizes another effect.
+        const auto current_worker = worker_continuity->observe_current(json::canonical(Value(Value::Object{
+            {"schema", Value("usk.native_maintenance_security_failure_context.v1")},
+            {"checkpoint", Value("require_authority")},
+            {"operation", Value(spec.operation)}, {"transaction_id", Value(spec.transaction_id)},
+            {"restored_owner", Value(restored_owner)},
+            {"next_native_custody_sequence", Value(native_custody_sequence)},
+            {"active_payload_transaction_sha256", Value(active_payload_transaction)},
+            {"active_payload_history_sha256", Value(active_payload_history)},
+            {"installed_prepared", Value(installed_prepared)},
+            {"installed_issue_active", Value(installed_issue_active)},
+            {"installed_confirmed", Value(installed_confirmed)}})));
         require_publisher_worker_security(current_worker, service);
         const auto current_process = observe_current_publisher_process_boundary();
         require_publisher_process_boundary(current_process, service.process_id, service.service_sid, service.token.process_groups);

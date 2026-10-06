@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <functional>
 #include <memory>
+#include <string>
 #include "usk_json.h"
 #include "usk_publisher_token_observation.h"
 
@@ -50,7 +51,9 @@ public:
     ~PublisherWorkerSecurityContinuity();
     PublisherWorkerSecurityContinuity(const PublisherWorkerSecurityContinuity&) = delete;
     PublisherWorkerSecurityContinuity& operator=(const PublisherWorkerSecurityContinuity&) = delete;
-    usk::json::Value observe_current() const;
+    // Optional bounded failure context supplies diagnostics only. It cannot
+    // change the native baseline, observations or refusal predicates.
+    usk::json::Value observe_current(const std::string& failure_context = {}) const;
 private:
     friend usk::json::Value detail::observe_publisher_worker_continuity_for_test(
         const PublisherWorkerSecurityContinuity&, const std::function<void(const char*)>&);
