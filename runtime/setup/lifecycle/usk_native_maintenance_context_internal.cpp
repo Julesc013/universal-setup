@@ -111,9 +111,10 @@ private:
     // numeric value is never used again and the destructor never retries it.
     bool close_attempted = false;
 };
-std::optional<PublisherDirectoryEntry> child(HANDLE parent, const std::wstring& name) {
+std::optional<PublisherDirectoryEntry> child_with_names(HANDLE parent, const std::wstring& name,
+    const PublisherMaintenanceNames* maintenance_names) {
     std::optional<PublisherDirectoryEntry> result;
-    for (const auto& entry : observe_publisher_directory_entries(parent)) {
+    for (const auto& entry : observe_publisher_directory_entries(parent, 64u * 1024u * 1024u, maintenance_names)) {
         if (CompareStringOrdinal(entry.name.c_str(), -1, name.c_str(), -1, TRUE) != CSTR_EQUAL) continue;
         if (entry.name != name || result) throw std::runtime_error("native maintenance child name is ambiguous");
         result = entry;
@@ -158,6 +159,7 @@ struct NativeMaintenanceContext::Impl {
     PublisherVolumeObservation volume_observation;
     std::vector<unsigned char> descriptor;
     std::map<fs::path, std::unique_ptr<Entry>> directories;
+    std::unique_ptr<PublisherMaintenanceNames> maintenance_names;
     std::map<fs::path, std::unique_ptr<Entry>> files;
     std::map<fs::path, std::unique_ptr<Entry>> original_files;
     std::map<fs::path, Entry*> original_directories;
@@ -214,6 +216,10 @@ struct NativeMaintenanceContext::Impl {
         std::string original_text, created_text, last_digest;
         std::size_t record_bytes = 0, snapshot_bytes = 0;
     };
+
+    std::optional<PublisherDirectoryEntry> child(HANDLE parent, const std::wstring& name) const {
+        return child_with_names(parent, name, maintenance_names.get());
+    }
 
     std::string read_restoration_record(const fs::path& path, std::size_t maximum) {
         original_context.require_fence(); original_state.require_custody(); lease.require_fence();
@@ -879,11 +885,19 @@ struct NativeMaintenanceContext::Impl {
         require_publisher_process_boundary(process_boundary, service.process_id, service.service_sid, service.token.process_groups);
         worker = observe_settled_publisher_worker_security(service, cancel_event);
         descriptor = make_publisher_directory_security_descriptor(std::wstring(service.service_sid.begin(), service.service_sid.end()));
+        // These are already admitted canonical protected parents. Bind only
+        // this original operation's generated staging and repair/uninstall
+        // roots to their actual native identities before observing those names.
+        staging_parent = &open_directory(spec.staging_parent);
+        target_parent = &open_directory(spec.target_root.parent_path());
+        maintenance_names.reset(new PublisherMaintenanceNames(staging_parent->handle.value,
+            target_parent->handle.value, spec.transaction_id, spec.operation));
         // Actual protected completion and immutable original public records
         // are proved before recognizing any payload read ACE. The private
         // engine and this owner supply the live native guard/lease; returned
         // JSON alone cannot construct this owner or authorize an effect.
-        original_consumer_completion = observe_candidate_original_consumer_install(volume, volume_root, service_name);
+        original_consumer_completion = observe_candidate_original_consumer_install(volume, volume_root, service_name,
+            *maintenance_names);
         if (original_consumer_completion.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
             normalized(fs::u8path(original_consumer_completion.at("setup_root").as_string())) != normalized(spec.state_root.parent_path()))
             throw std::runtime_error("native maintenance original consumer completion belongs to another install");
@@ -903,8 +917,6 @@ struct NativeMaintenanceContext::Impl {
             relative_volume_path(spec.audit_root) != setup_component / "audit" ||
             (spec.operation != "move" && relative_volume_path(spec.staging_parent) != setup_component / "staging"))
             throw std::runtime_error("native maintenance metadata paths do not name the original held setup roots");
-        staging_parent = &open_directory(spec.staging_parent);
-        target_parent = &open_directory(spec.target_root.parent_path());
         installed_record_path = normalized(spec.state_root / "installed" /
             (snapshot.at("install_id").as_string() + "." + spec.transaction_id + ".json"));
         if (restore) restore_custody(read_restoration_custody());
@@ -945,9 +957,14 @@ struct NativeMaintenanceContext::Impl {
             !GetVolumeNameForVolumeMountPointW(drive.c_str(), mapped, static_cast<DWORD>(std::size(mapped))) ||
             CompareStringOrdinal(mapped, -1, volume_root.c_str(), -1, TRUE) != CSTR_EQUAL)
             throw std::runtime_error("native maintenance public path lost its admitted volume mapping");
-        for (const auto& component : absolute.relative_path())
-            if (!is_publisher_canonical_component(component.wstring()))
+        auto native = volume_facts.native_name;
+        for (const auto& component : absolute.relative_path()) {
+            if (!native.empty() && native.back() != L'\\') native += L'\\';
+            native += component.wstring();
+            if (!is_publisher_canonical_component(component.wstring()) &&
+                (!maintenance_names || !maintenance_names->allows_native_path(native)))
                 throw std::runtime_error("native maintenance path has an unsafe component");
+        }
         return absolute.relative_path();
     }
     void require_client_read_only(HANDLE handle, const PublisherHandleObservation& facts) const {
@@ -991,7 +1008,8 @@ struct NativeMaintenanceContext::Impl {
         const auto listed = child(parent, entry.name);
         if (!listed) throw std::runtime_error("native maintenance retained child is absent");
         Held independent;
-        independent.value = open_publisher_listed_child(parent, *listed);
+        independent.value = open_publisher_listed_child(parent, *listed, false, false, false,
+            false, false, maintenance_names.get());
         if (!same(facts(independent.value, entry.directory), entry.facts))
             throw std::runtime_error("native maintenance retained parent link changed");
     }
@@ -1011,7 +1029,8 @@ struct NativeMaintenanceContext::Impl {
             const auto listed = child(parent_handle, held.name);
             if (!listed || !(listed->attributes & FILE_ATTRIBUTE_DIRECTORY))
                 throw std::runtime_error("native maintenance required protected directory is absent");
-            held.handle.value = open_publisher_listed_child(parent_handle, *listed, true, false, true);
+            held.handle.value = open_publisher_listed_child(parent_handle, *listed, true, false, true,
+                false, false, maintenance_names.get());
             held.facts = facts(held.handle.value, true);
             require_entry(held); parent = &held;
         }
@@ -1282,7 +1301,8 @@ struct NativeMaintenanceContext::Impl {
         auto entry = std::make_unique<Entry>(); entry->parent = &parent; entry->name = name; entry->created = true;
         auto inserted = directories.emplace(key.lexically_normal(), std::move(entry));
         auto& held = *inserted.first->second;
-        held.handle.value = create_staged_directory_relative_with_descriptor(parent.handle.value, name, descriptor);
+        held.handle.value = create_staged_directory_relative_with_descriptor(parent.handle.value, name, descriptor,
+            maintenance_names.get());
         held.facts = facts(held.handle.value, true); require_entry(held);
         if (publication_confirmed) {
             try {
@@ -1682,7 +1702,7 @@ struct NativeMaintenanceContext::Impl {
             // primitive independently returns retained without an issued call.
             if (!observe_publisher_directory_entries(entry.handle.value).empty()) {
                 const auto result = remove_publisher_bound_empty_directory(entry.parent->handle.value, entry.name,
-                    entry.facts, entry.parent->facts);
+                    entry.facts, entry.parent->facts, maintenance_names.get());
                 if (result.native_call_attempted || result.absence_confirmed)
                     throw std::runtime_error("native maintenance nonempty directory unexpectedly changed");
                 return "retained";
@@ -1694,7 +1714,8 @@ struct NativeMaintenanceContext::Impl {
         // owner's redundant observer first, retaining full original facts,
         // creation provenance and independently held parent/generation custody.
         entry.handle.close_observer_once();
-        const auto result = entry.directory ? remove_publisher_bound_empty_directory(parent.handle.value, entry.name, expected, parent.facts) :
+        const auto result = entry.directory ? remove_publisher_bound_empty_directory(parent.handle.value, entry.name, expected, parent.facts,
+            maintenance_names.get()) :
             remove_publisher_bound_file(parent.handle.value, entry.name, expected, parent.facts, entry.size, entry.sha256);
         if (!result.native_call_attempted || !result.absence_confirmed)
             throw std::runtime_error("native maintenance removal was not confirmed; retained recovery required");
@@ -2051,7 +2072,7 @@ struct NativeMaintenanceContext::Impl {
         // every handle in this owner and grants neither a retry nor cleanup.
         publication_attempted = true;
         (void)probe_publisher_bound_rename_no_replace(staging->handle.value, target_parent->handle.value,
-            next_component, sealed.root, target_parent->facts, [&] { require_authority(s); });
+            next_component, sealed.root, target_parent->facts, [&] { require_authority(s); }, maintenance_names.get());
         staging->parent = target_parent; staging->name.swap(next_component);
         for (auto& item : after) item.first->facts = std::move(item.second);
         require_publisher_tree_phase_match(sealed, observe_publisher_tree(staging->handle.value), new_name);

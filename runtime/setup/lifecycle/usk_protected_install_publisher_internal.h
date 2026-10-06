@@ -10,6 +10,7 @@
 #include <optional>
 namespace usk::transaction { struct TransactionSpec; }
 namespace usk::platform::windows {
+class PublisherMaintenanceNames;
 class PublisherRequestChannel;
 class RegisteredPublisherAdmission;
 // Private candidate host configuration. This is not a public SDK capability.
@@ -73,7 +74,8 @@ void require_candidate_publisher_execution_records(
 // immutable completed public metadata. Available only inside the registered
 // engine; it observes no current payload and grants no mutation capability.
 usk::json::Value observe_candidate_original_consumer_install(HANDLE volume,
-    const std::wstring& volume_root, const std::wstring& service_name);
+    const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherMaintenanceNames& maintenance_names);
 }
 namespace usk::lifecycle {
 class ProtectedApplyEffectsRetained final : public std::runtime_error {

@@ -20,10 +20,11 @@ namespace usk::platform::windows {
 namespace detail {
 struct PublisherRemovalOwner final {
     PublisherRemovalOwner() = default;
-    void open_once(HANDLE parent, const PublisherDirectoryEntry& listed, bool directory) {
+    void open_once(HANDLE parent, const PublisherDirectoryEntry& listed, bool directory,
+        const PublisherMaintenanceNames* maintenance_names) {
         if (value_ != INVALID_HANDLE_VALUE || disposition_attempted || close_attempted)
             throw std::runtime_error("maintenance removal owner already initialized or quarantined");
-        value_ = directory ? open_publisher_listed_child(parent, listed, false, true) :
+        value_ = directory ? open_publisher_listed_child(parent, listed, false, true, false, false, false, maintenance_names) :
             open_publisher_listed_maintenance_file(parent, listed);
     }
     ~PublisherRemovalOwner() {
@@ -73,9 +74,10 @@ std::wstring child_name(const PublisherHandleObservation& parent, const std::wst
     if (parent.native_name.empty()) throw std::runtime_error("maintenance file parent native name unavailable");
     return parent.native_name + (parent.native_name.back() == L'\\' ? L"" : L"\\") + component;
 }
-std::optional<PublisherDirectoryEntry> exact_child(HANDLE parent, const std::wstring& component) {
+std::optional<PublisherDirectoryEntry> exact_child(HANDLE parent, const std::wstring& component,
+    const PublisherMaintenanceNames* maintenance_names = nullptr) {
     std::optional<PublisherDirectoryEntry> selected;
-    for (const auto& entry : observe_publisher_directory_entries(parent)) {
+    for (const auto& entry : observe_publisher_directory_entries(parent, 64u * 1024u * 1024u, maintenance_names)) {
         if (CompareStringOrdinal(entry.name.c_str(), -1, component.c_str(), -1, TRUE) != CSTR_EQUAL) continue;
         if (entry.name != component || selected) throw std::runtime_error("maintenance file name is ambiguous");
         selected = entry;
@@ -265,8 +267,9 @@ PublisherBoundRemovalObservation remove_bound_object(
     HANDLE parent, const std::wstring& component,
     const PublisherHandleObservation& expected,
     const PublisherHandleObservation& expected_parent,
-    bool directory, std::uint64_t expected_size, const std::string& expected_sha256) {
-    if (!parent || parent == INVALID_HANDLE_VALUE || !is_publisher_canonical_component(component) ||
+    bool directory, std::uint64_t expected_size, const std::string& expected_sha256,
+    const PublisherMaintenanceNames* maintenance_names = nullptr) {
+    if (!parent || parent == INVALID_HANDLE_VALUE || !is_publisher_admitted_component(parent, component, maintenance_names) ||
         expected.native_name != child_name(expected_parent, component) ||
         expected.file_id == expected_parent.file_id ||
         (!directory && (expected_sha256.size() != 64 ||
@@ -274,10 +277,10 @@ PublisherBoundRemovalObservation remove_bound_object(
         throw std::runtime_error("maintenance native removal inputs invalid");
     require_active_publisher_effect_fence();
     require_parent(parent, expected_parent);
-    const auto listed = exact_child(parent, component);
+    const auto listed = exact_child(parent, component, maintenance_names);
     if (!listed) throw std::runtime_error("maintenance native removal original child absent");
     auto owner = std::make_shared<detail::PublisherRemovalOwner>();
-    owner->open_once(parent, *listed, directory);
+    owner->open_once(parent, *listed, directory, maintenance_names);
     const auto require_object = [&] {
         if (directory) {
             const auto observed = observe_publisher_directory_handle(owner->get());
@@ -360,9 +363,9 @@ PublisherBoundRemovalObservation remove_publisher_bound_file(
 PublisherBoundRemovalObservation remove_publisher_bound_empty_directory(
     HANDLE parent, const std::wstring& component,
     const PublisherHandleObservation& expected_directory,
-    const PublisherHandleObservation& expected_parent) {
+    const PublisherHandleObservation& expected_parent, const PublisherMaintenanceNames* maintenance_names) {
     return remove_bound_object(parent, component, expected_directory, expected_parent,
-        true, 0, {});
+        true, 0, {}, maintenance_names);
 }
 }
 #endif

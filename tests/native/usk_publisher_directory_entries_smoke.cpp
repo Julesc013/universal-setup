@@ -47,6 +47,39 @@ Handle open_directory(const fs::path& path) {
 
 int main() {
     try {
+        // Name protocol only: these values cannot construct the private
+        // parent binding or admit a native maintenance operation.
+        using usk::platform::windows::is_publisher_generated_maintenance_component;
+        using usk::platform::windows::is_publisher_canonical_component;
+        for (const auto* operation : {"repair", "move", "uninstall"}) {
+            check(is_publisher_generated_maintenance_component(L".usk-stage-tx.1", "tx.1", operation, true),
+                "original generated staging component was refused");
+            check(!is_publisher_generated_maintenance_component(L".usk-stage-tx.2", "tx.1", operation, true),
+                "another operation's generated staging component was admitted");
+        }
+        check(is_publisher_generated_maintenance_component(L".usk-repair-tx.1", "tx.1", "repair", false) &&
+            is_publisher_generated_maintenance_component(L".usk-uninstall-tx.1", "tx.1", "uninstall", false) &&
+            !is_publisher_generated_maintenance_component(L".usk-repair-tx.1", "tx.1", "uninstall", false) &&
+            !is_publisher_generated_maintenance_component(L".usk-uninstall-tx.1", "tx.1", "repair", false) &&
+            !is_publisher_generated_maintenance_component(L".usk-repair-tx.1", "tx.1", "move", false),
+            "generated operation target crossed its original kind");
+        for (const auto* transaction : {"", "tx/1", "tx\\1", "tx:1", "tx. ", "tx."}) {
+            const std::string text(transaction);
+            const auto name = std::string(".usk-stage-") + text;
+            check(!is_publisher_generated_maintenance_component(std::wstring(name.begin(), name.end()), text, "repair", true),
+                "unsafe generated transaction component was admitted");
+        }
+        check(!is_publisher_canonical_component(L".usk-stage-tx.1") &&
+            !is_publisher_canonical_component(L".usk-repair-tx.1") &&
+            !is_publisher_canonical_component(L".usk-uninstall-tx.1") &&
+            !is_publisher_generated_maintenance_component(L".USK-stage-tx.1", "tx.1", "repair", true) &&
+            !is_publisher_generated_maintenance_component(L".usk-stage-tx.1", "tx.1", "install_local", true),
+            "internal grammar widened ordinary component admission");
+        const std::string bounded_id(128, 'a'), oversized_id(129, 'a');
+        check(is_publisher_generated_maintenance_component(L".usk-stage-" + std::wstring(128, L'a'), bounded_id, "repair", true) &&
+            !is_publisher_generated_maintenance_component(L".usk-stage-" + std::wstring(129, L'a'), oversized_id, "repair", true) &&
+            is_publisher_canonical_component(L".usk-owned-root.v1.json"),
+            "generated ID bound or existing metadata marker changed");
         const auto root = fs::temp_directory_path() /
             ("usk-publisher-entries-" + std::to_string(
                 std::chrono::steady_clock::now().time_since_epoch().count()));

@@ -3420,9 +3420,14 @@ struct CompletedVerificationBoundary {
 
 CompletedVerificationBoundary observe_completed_verification_boundary(
     HANDLE volume, const std::string& service_sid, bool observe_payload = true,
-    ReviewedInstallSnapshotPurpose purpose = ReviewedInstallSnapshotPurpose::current_install_request) {
+    ReviewedInstallSnapshotPurpose purpose = ReviewedInstallSnapshotPurpose::current_install_request,
+    const usk::platform::windows::PublisherMaintenanceNames* maintenance_names = nullptr) {
     if (purpose == ReviewedInstallSnapshotPurpose::original_consumer_completion && observe_payload)
         throw std::runtime_error("original consumer snapshot purpose is limited to immutable completion records");
+    if (maintenance_names && (observe_payload || purpose != ReviewedInstallSnapshotPurpose::original_consumer_completion))
+        throw std::runtime_error("generated maintenance names are limited to the original consumer metadata reader");
+    if (purpose == ReviewedInstallSnapshotPurpose::original_consumer_completion)
+        require_original_consumer_snapshot_scope();
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{L"staging", L"destination", L"state", L"journal"};
     const auto anchors = observe_publisher_anchor_set(volume, {L"publication"}, names);
@@ -3444,7 +3449,8 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         throw std::runtime_error("verification target has no durable reviewed snapshot binding");
     }
     visible_component = selected_visible_component(snapshot.at("target_root").as_string());
-    const auto destination_entries = observe_publisher_directory_entries(destination.get());
+    const auto destination_entries = observe_publisher_directory_entries(destination.get(),
+        64u * 1024u * 1024u, maintenance_names);
     if (observe_publisher_directory_entries(publication.get()).size() != 4 ||
         !observe_publisher_directory_entries(staging.get()).empty() ||
         (observe_payload && (destination_entries.size() != 1 || destination_entries.front().name != visible_component))) {
@@ -3647,13 +3653,14 @@ void usk::platform::windows::require_candidate_publisher_execution_records(
 }
 
 usk::json::Value usk::platform::windows::observe_candidate_original_consumer_install(
-    HANDLE volume, const std::wstring& root, const std::wstring& service_label) {
+    HANDLE volume, const std::wstring& root, const std::wstring& service_label,
+    const PublisherMaintenanceNames& maintenance_names) {
     if (!execution_active || !registered_admission || !authenticated_request ||
         root != volume_root || service_label != service_name)
         throw std::runtime_error("original consumer completion requires the live registered engine");
     const auto service = observe_current_restricted_publisher_service(service_label);
     const auto before = observe_completed_verification_boundary(volume, service.service_sid, false,
-        ReviewedInstallSnapshotPurpose::original_consumer_completion);
+        ReviewedInstallSnapshotPurpose::original_consumer_completion, &maintenance_names);
     const auto snapshot = usk::json::parse(before.snapshot_record);
     const auto plan = restore_reviewed_install_plan(before.snapshot_record,
         ReviewedInstallSnapshotPurpose::original_consumer_completion);
@@ -3661,7 +3668,7 @@ usk::json::Value usk::platform::windows::observe_candidate_original_consumer_ins
         snapshot.at("transaction_id").as_string(), snapshot.at("applied_at").as_string(),
         before.completion_digest, root, volume, service_label);
     const auto after = observe_completed_verification_boundary(volume, service.service_sid, false,
-        ReviewedInstallSnapshotPurpose::original_consumer_completion);
+        ReviewedInstallSnapshotPurpose::original_consumer_completion, &maintenance_names);
     if (before.snapshot_record != after.snapshot_record || before.completion_digest != after.completion_digest ||
         before.observation != after.observation)
         throw std::runtime_error("original completed consumer records changed during admission");

@@ -10,6 +10,7 @@
 #include <string>
 
 namespace usk::platform::windows {
+class PublisherMaintenanceNames;
 struct PublisherBoundFileRenameObservation {
     std::string file_id, sha256, source_parent_file_id, destination_parent_file_id;
     std::uint64_t size_bytes;
@@ -67,7 +68,8 @@ PublisherBoundRemovalObservation remove_publisher_bound_file(
 PublisherBoundRemovalObservation remove_publisher_bound_empty_directory(
     HANDLE parent, const std::wstring& component,
     const PublisherHandleObservation& expected_directory,
-    const PublisherHandleObservation& expected_parent);
+    const PublisherHandleObservation& expected_parent,
+    const PublisherMaintenanceNames* maintenance_names = nullptr);
 }
 #endif
 #endif

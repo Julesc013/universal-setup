@@ -79,8 +79,60 @@ bool is_publisher_canonical_component(const std::wstring& name) {
     return valid_component(name);
 }
 
+bool is_publisher_generated_maintenance_component(const std::wstring& name,
+    const std::string& transaction_id, const std::string& operation, bool staging) {
+    if (transaction_id.empty() || transaction_id.size() > 128u ||
+        (operation != "repair" && operation != "move" && operation != "uninstall")) return false;
+    for (const unsigned char ch : transaction_id)
+        if (!((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+              (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' || ch == '.')) return false;
+    if (!staging && operation == "move") return false;
+    const std::string prefix = staging ? ".usk-stage-" : operation == "repair" ? ".usk-repair-" : ".usk-uninstall-";
+    const auto expected = prefix + transaction_id;
+    return name == std::wstring(expected.begin(), expected.end()) && valid_component(name.substr(1));
+}
+
+PublisherMaintenanceNames::PublisherMaintenanceNames(HANDLE staging_parent, HANDLE target_parent,
+    const std::string& transaction_id, const std::string& operation) {
+    const auto add = [&](HANDLE parent, const std::string& prefix, bool staging) {
+        const auto text = prefix + transaction_id;
+        const std::wstring name(text.begin(), text.end());
+        if (!is_publisher_generated_maintenance_component(name, transaction_id, operation, staging))
+            throw std::runtime_error("native maintenance generated name binding is invalid");
+        const auto facts = observe_publisher_directory_handle(parent);
+        if (facts.native_name.empty()) throw std::runtime_error("native maintenance generated-name parent is unnamed");
+        bindings_.push_back({parent, facts, name});
+    };
+    add(staging_parent, ".usk-stage-", true);
+    if (operation != "move") add(target_parent, operation == "repair" ? ".usk-repair-" : ".usk-uninstall-", false);
+}
+bool PublisherMaintenanceNames::allows(HANDLE parent, const std::wstring& name) const {
+    for (const auto& binding : bindings_) {
+        if (binding.name != name) continue;
+        const auto expected = publisher_handle_observation_json(binding.facts);
+        if (usk::json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(binding.parent))) !=
+                usk::json::canonical(expected))
+            throw std::runtime_error("native maintenance generated-name parent changed");
+        if (usk::json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(parent))) ==
+                usk::json::canonical(expected)) return true;
+    }
+    return false;
+}
+bool PublisherMaintenanceNames::allows_native_path(const std::wstring& path) const {
+    for (const auto& binding : bindings_) {
+        const auto expected = binding.facts.native_name +
+            (binding.facts.native_name.back() == L'\\' ? L"" : L"\\") + binding.name;
+        if (path == expected && allows(binding.parent, binding.name)) return true;
+    }
+    return false;
+}
+bool is_publisher_admitted_component(HANDLE parent, const std::wstring& name,
+    const PublisherMaintenanceNames* maintenance_names) {
+    return valid_component(name) || (maintenance_names && maintenance_names->allows(parent, name));
+}
+
 std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
-    HANDLE directory, std::size_t byte_budget) {
+    HANDLE directory, std::size_t byte_budget, const PublisherMaintenanceNames* maintenance_names) {
     if (!directory || directory == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("publisher directory enumeration requires a handle");
     }
@@ -136,7 +188,7 @@ std::vector<PublisherDirectoryEntry> observe_publisher_directory_entries(
             std::wstring name(info->FileName,
                 info->FileNameLength / sizeof(WCHAR));
             if (name != L"." && name != L"..") {
-                if (!valid_component(name)) {
+                if (!is_publisher_admitted_component(directory, name, maintenance_names)) {
                     throw std::runtime_error("publisher directory name is outside the canonical profile");
                 }
                 if (names.find(name) != names.end()) {
@@ -178,9 +230,9 @@ HANDLE open_listed_child(HANDLE parent,
     const PublisherDirectoryEntry& listed,
     bool require_add_subdirectory, bool require_delete, bool require_add_file,
     bool require_write_dac, bool backup_observation, bool metadata_security,
-    bool maintenance_file = false) {
+    bool maintenance_file = false, const PublisherMaintenanceNames* maintenance_names = nullptr) {
     if (!parent || parent == INVALID_HANDLE_VALUE ||
-        !valid_component(listed.name)) {
+        !is_publisher_admitted_component(parent, listed.name, maintenance_names)) {
         throw std::runtime_error("publisher relative child open has invalid inputs");
     }
     using NtCreateFileFn = NTSTATUS (NTAPI *)(PHANDLE, ACCESS_MASK,
@@ -271,9 +323,9 @@ HANDLE open_listed_child(HANDLE parent,
 HANDLE open_publisher_listed_child(HANDLE parent,
     const PublisherDirectoryEntry& listed,
     bool require_add_subdirectory, bool require_delete, bool require_add_file,
-    bool require_write_dac, bool backup_observation) {
+    bool require_write_dac, bool backup_observation, const PublisherMaintenanceNames* maintenance_names) {
     return open_listed_child(parent, listed, require_add_subdirectory, require_delete,
-        require_add_file, require_write_dac, backup_observation, false);
+        require_add_file, require_write_dac, backup_observation, false, false, maintenance_names);
 }
 
 HANDLE open_publisher_listed_maintenance_file(HANDLE parent,
