@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: tools_no_execution_golden
+title: Tools No Execution Golden
+status: active
+objective: Verify Q41 tool outputs never enable unknown execution, apply, rename, deletion, or migration.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task tools_no_execution_golden
+no_model_calls: true
+no_network_calls: true

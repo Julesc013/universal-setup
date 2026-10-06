@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Managed Section Patch",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "patch_id",
+    "operation_id",
+    "path",
+    "section_name",
+    "replacement_content",
+    "replacement_hash",
+    "preserve_trailing_newline",
+    "expected_existing_hash",
+    "resulting_file_hash",
+    "status",
+    "warnings",
+    "conflicts",
+    "no_real_apply_boundary"
+  ],
+  "properties": {
+    "schema_version": {"const": "aide.managed-section-patch.v0"},
+    "patch_id": {"type": "string"},
+    "operation_id": {"type": "string"},
+    "path": {"type": "string"},
+    "section_name": {"type": "string"},
+    "replacement_content": {"type": "string"},
+    "replacement_hash": {"type": "string"},
+    "preserve_trailing_newline": {"type": "boolean"},
+    "expected_existing_hash": {"type": "string"},
+    "resulting_file_hash": {"type": "string"},
+    "status": {"type": "string"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "no_real_apply_boundary": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

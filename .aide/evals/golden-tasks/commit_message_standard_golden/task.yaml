@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+task_id: commit_message_standard_golden
+title: Commit Message Standard Golden
+status: active
+purpose: Check Q27 structured commit-message policy, hook, template, and parser behavior.
+input_refs:
+  - .aide/policies/commit-messages.yaml
+  - .aide/hooks/commit-msg
+  - .aide/git/commit-template.md
+acceptance_ref: .aide/evals/golden-tasks/commit_message_standard_golden/acceptance.md
+expected_result: PASS

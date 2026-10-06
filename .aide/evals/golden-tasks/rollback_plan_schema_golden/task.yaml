@@ -1,0 +1,10 @@
+id: rollback_plan_schema_golden
+title: Rollback Plan Schema Golden
+status: active
+task_type: golden_task
+runner: aide_lite
+command: py -3 .aide/scripts/aide_lite.py eval run --task rollback_plan_schema_golden
+expected_result: PASS
+no_provider_calls: true
+no_network_calls: true
+

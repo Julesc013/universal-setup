@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string"},
+    "normal_post_task_default": {"type": "boolean"},
+    "promotion_gate": {"type": "boolean"},
+    "purpose": {"type": "string"},
+    "tier": {"enum": ["T0", "T1", "T2", "T3"], "type": "string"}
+  },
+  "required": ["tier", "name", "purpose", "normal_post_task_default", "promotion_gate"],
+  "type": "object"
+}
+

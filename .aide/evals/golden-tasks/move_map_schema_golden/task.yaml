@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: move_map_schema_golden
+title: Move Map Schema Golden
+status: active
+objective: Verify Q39 move-map schema exists and remains dry-run/no-apply.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task move_map_schema_golden
+no_model_calls: true
+no_network_calls: true

@@ -1,0 +1,88 @@
+schema_version: aide.tool-absorption-policy.v0
+policy_id: aide.tool-absorption.v0
+status: active
+purpose: >
+  Define deterministic, local, preservation-first discovery and wrap-planning
+  for existing repo-specific management tools.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - inventory_only_by_default
+  - no_apply_in_q41
+  - no_tool_deletion
+  - no_tool_rename
+  - no_tool_migration
+  - no_unknown_tool_execution
+absorption_sequence:
+  - discover
+  - classify
+  - map_capability
+  - plan_wrapper
+  - review
+  - future_wrap
+  - future_adapt
+  - future_migrate
+  - future_retire
+tool_fates:
+  - keep
+  - wrap
+  - adapt
+  - extract
+  - convert
+  - archive
+  - drop_candidate
+  - shim
+  - unknown
+capability_families:
+  - validate
+  - test
+  - build
+  - audit
+  - lint
+  - format
+  - generate
+  - migrate
+  - release
+  - package
+  - install
+  - docs
+  - security
+  - repo_policy
+  - context
+  - unknown
+required_outputs:
+  - .aide/tools/latest-tool-inventory.json
+  - .aide/tools/latest-tool-classification.json
+  - .aide/tools/latest-tool-wrap-plan.json
+  - .aide/tools/latest-tool-adapter-map.json
+  - .aide/tools/tool-risk-summary.md
+safety_rules:
+  unknown_tools_execution_allowed: false
+  wrap_is_active_execution: false
+  adapt_is_migration: false
+  drop_candidate_is_delete_approval: false
+  rename_allowed_in_q41: false
+  deletion_allowed_in_q41: false
+  target_mutation_allowed_in_q41: false
+source_inputs:
+  - git_tracked_files
+  - repo_intelligence_index
+  - file_quality_ledger
+  - root_inventory
+  - path_name_patterns
+  - shebangs
+  - file_extensions
+  - command_catalogs
+  - docs_references
+  - known_ci_workflow_files
+  - known_aide_surfaces
+non_goals:
+  - no deletion
+  - no renaming
+  - no wrapping execution
+  - no target mutation
+  - no old-tool retirement in Q41
+  - no concrete Dominium tool absorption
+  - no concrete Eureka validator absorption

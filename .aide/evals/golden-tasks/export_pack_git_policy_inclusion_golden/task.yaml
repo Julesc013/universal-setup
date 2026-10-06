@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: export_pack_git_policy_inclusion_golden
+title: Export Pack Git Policy Inclusion Golden
+status: active
+description: Verify the portable pack or imported target contains generic Git workflow policy, helper policy, project profiles, docs, and command support.
+quality_dimensions:
+  - export_inclusion
+  - branch_workflow
+  - dry_run_default

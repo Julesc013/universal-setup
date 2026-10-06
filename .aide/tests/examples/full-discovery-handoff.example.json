@@ -1,0 +1,15 @@
+{
+  "branch": "main",
+  "command_to_run_externally": "py -3 -m unittest discover -s .aide/scripts/tests",
+  "commit": "example",
+  "expected_raw_log_artifacts": [".aide/tests/artifacts/full-discovery.log"],
+  "expected_summary_path": ".aide/tests/latest-full-discovery-summary.json",
+  "full_suite_executed": false,
+  "generated_by": "aide-lite",
+  "reason": "promotion gate requires T3 evidence",
+  "repo": "aide",
+  "schema_version": "aide.full-discovery-handoff.v0",
+  "status": "WAITING_FOR_EXTERNAL_FULL_DISCOVERY",
+  "stale_summary_rule": "commit and branch must match"
+}
+

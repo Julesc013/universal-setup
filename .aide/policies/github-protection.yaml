@@ -1,0 +1,63 @@
+schema_version: aide.github-protection-policy.v0
+policy_id: aide.github-protection.v0
+status: active
+purpose: >
+  Define the report-only GitHub protection advisory layer for AIDE so future
+  branch protection and CI activation can be planned from repo-local evidence
+  without mutating GitHub settings during Q35.
+operating_mode:
+  - advisory_only
+  - report_first
+  - no GitHub API mutation
+  - no_branch_protection_application
+  - no_workflow_installation
+  - no_release_publishing
+github_api_mutation: false
+workflow_file_written: false
+workflow_installation: false
+branch_protection_applied: false
+release_publishing: false
+tag_creation: false
+network_calls: false
+provider_or_model_calls: false
+source_inputs:
+  - git workflow policy
+  - branch roles policy
+  - promotion rules policy
+  - ci gates policy
+  - current local Git state
+  - commit discipline policy
+  - changelog preview policy
+advisory_outputs:
+  - .aide/github/github-advisory.json
+  - .aide/github/github-advisory.md
+  - .aide/github/branch-protection-plan.json
+  - .aide/github/branch-protection-plan.md
+  - .aide/github/ci-advisory.json
+  - .aide/github/ci-advisory.md
+  - .aide/github/latest-github-status.md
+protected_branch_roles:
+  - canonical
+  - integration
+  - release
+  - deploy
+required_before_future_apply:
+  - clean_or_understood_worktree
+  - current_pack_status_pass
+  - current_validation_pass
+  - current_commit_check_pass
+  - changelog_preview_generated
+  - review_packet_exists
+  - explicit_operator_approval
+  - rollback_or_disable_plan
+non_goals:
+  - no GitHub API mutation
+  - no active branch protection changes
+  - no .github/workflows creation
+  - no CI activation
+  - no tag creation
+  - no GitHub Release creation
+  - no branch mutation
+  - no push
+  - no provider calls
+  - no model calls

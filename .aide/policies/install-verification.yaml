@@ -1,0 +1,30 @@
+schema_version: aide.install-verification-policy.v0
+policy_id: aide.install-verification.v0
+status: active
+purpose: >
+  Define verification commands and evidence checks expected before any future
+  install apply, repair, upgrade, rollback, or uninstall phase.
+verification_commands:
+  - doctor
+  - validate
+  - test
+  - selftest
+  - eval run
+  - pack-status
+  - intent validate
+  - repo validate
+  - quality validate
+  - refactor validate
+  - roots validate
+  - tools validate
+  - commit check
+  - git policy
+  - changelog validate
+  - no secrets/local-state
+  - target-specific validators
+verification_rules:
+  provider_model_calls_allowed: false
+  network_calls_allowed: false
+  q43_apply_allowed: false
+  target_specific_validators_are_reported: true
+  failures_are_evidence_not_auto_fix: true

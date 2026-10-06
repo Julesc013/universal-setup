@@ -1,0 +1,12 @@
+schema_version: aide.golden-task.v0
+task_id: context-packet-no-full-repo-dump
+title: Context Packet No Full Repo Dump
+status: active
+purpose: Check that context compilation references maps and indexes without dumping raw source content.
+input_refs:
+  - .aide/context/latest-context-packet.md
+  - .aide/context/repo-map.json
+  - .aide/context/test-map.json
+  - .aide/context/context-index.json
+acceptance_ref: .aide/evals/golden-tasks/context-packet-no-full-repo-dump/acceptance.md
+expected_result: PASS

@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Jules Carboni
+# SPDX-License-Identifier: Apache-2.0
+# Modified for Universal Setup: target-owned existing campaign initialization.
+schema_version: aide.profile.template.v0
+profile_id: universal_setup
+project_name: Universal Setup
+generated_from: aide-lite-pack-v0
+status: initialized
+purpose: Complete Universal Setup under the existing USK-SPEC-TO-RELEASE-01 campaign.
+current_focus:
+  phase: production-publisher-and-local-maintenance
+  primary_goal: Implement, qualify and release Universal Setup through the existing WorkUnits.
+  next_task: Repair PR237 native target admission and qualify connected installation and maintenance.
+deferred_surfaces:
+  - Optional AIDE provider/model calls and Gateway execution remain inactive.
+runtime:
+  gateway_forwarding: deferred
+  provider_calls: forbidden_until_reviewed_phase
+  model_calls: forbidden_until_reviewed_phase
+local_state:
+  root: .aide.local/
+  committed: false
+notes: >
+  Existing release/index campaign records, exact bindings and engineering memory
+  remain authoritative. This tooling import creates no goal, campaign or queue.
+  Builds, tests, logs and laboratory continue through the existing FacMan output
+  root and resource guard: 20GiB campaign cap, 10GiB disk reserve, 2GiB RAM reserve,
+  one heavy job. No AIDE job pool, provider, model, global setting or worker is activated.

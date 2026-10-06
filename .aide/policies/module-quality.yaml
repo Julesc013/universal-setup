@@ -1,0 +1,35 @@
+schema_version: aide.module-quality-policy.v0
+policy_id: q38-module-quality-v0
+status: active
+purpose: >
+  Define first-pass deterministic module quality warnings for large,
+  dependency-heavy, mixed-purpose, or under-validated files.
+operating_mode:
+  deterministic_local: true
+  advisory_only: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+first_pass_heuristics:
+  large_file_warning_threshold_bytes: 100000
+  high_dependency_count_warning: 120
+  high_import_count_warning: 25
+  source_without_tests_docs_warning: true
+  public_api_heuristic_warning: true
+  mixed_purpose_hints:
+    - high path-reference count
+    - high import count
+    - tool file with many command handlers
+    - source file with many repeated helper definitions
+  no_automatic_refactor_without_q39_q40_evidence: true
+result_language:
+  - large_module_candidate
+  - high_dependency_count_candidate
+  - mixed_purpose_candidate
+  - missing_test_candidate
+  - missing_doc_candidate
+non_goals:
+  - no refactor action
+  - no extraction action
+  - no product readiness claim
+  - no semantic LLM module scoring

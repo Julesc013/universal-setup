@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Transaction",
+  "type": "object",
+  "required": ["schema_version", "transaction_id", "mode", "phases", "operations", "staged_changes", "safety_gates", "rollback_record", "no_apply_boundary", "evidence"],
+  "properties": {
+    "schema_version": {"const": "aide.transaction.v0"},
+    "transaction_id": {"type": "string"},
+    "mode": {"enum": ["report_only", "fixture_only"]},
+    "phases": {"type": "array", "items": {"type": "string"}},
+    "operations": {"type": "array", "items": {"type": "object"}},
+    "staged_changes": {"type": "array", "items": {"type": "object"}},
+    "safety_gates": {"type": "array", "items": {"type": "object"}},
+    "rollback_record": {"type": "object"},
+    "no_apply_boundary": {"type": "object"},
+    "evidence": {"type": "object"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.doc-link-map-schema.v0",
+  "title": "AIDE Doc Link Map",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "records"],
+  "properties": {
+    "schema_version": {"const": "aide.doc-link-map.v0"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["doc_path", "links", "path_references", "stale_candidates", "reasons"],
+        "properties": {
+          "doc_path": {"type": "string"},
+          "links": {"type": "array", "items": {"type": "string"}},
+          "path_references": {"type": "array", "items": {"type": "string"}},
+          "stale_candidates": {"type": "array", "items": {"type": "string"}},
+          "reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

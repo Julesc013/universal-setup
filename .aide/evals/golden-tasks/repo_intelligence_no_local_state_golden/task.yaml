@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: repo_intelligence_no_local_state_golden
+title: Repo Intelligence No Local State Golden
+status: active
+description: Verify Q37 excludes .aide.local and flags local state if inspected.
+runner: .aide/scripts/aide_lite.py eval run --task repo_intelligence_no_local_state_golden
+quality_dimensions:
+  - local_state_boundary
+  - no_secret_storage
+  - source_state_boundary

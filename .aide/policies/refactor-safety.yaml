@@ -1,0 +1,32 @@
+schema_version: aide.refactor-safety-policy.v0
+policy_id: aide-refactor-safety-v0
+status: active
+purpose: >
+  Define default safety gates for structural change planning and future apply
+  authorization.
+forbidden_by_default:
+  - deleting files
+  - moving files
+  - rewriting references
+  - changing product behavior
+  - modifying generated outputs as source
+  - mutating branches
+  - mutating target repos
+  - provider/model/network calls
+  - applying migrations
+required_before_future_apply:
+  - clean or understood worktree
+  - source inventory
+  - move/salvage map
+  - path alias plan
+  - validation plan
+  - rollback plan
+  - evidence
+  - review gate
+q39_no_apply_enforcement:
+  apply_allowed_default: false
+  operation_apply_allowed_default: false
+  final_deletion_approval_allowed: false
+  destructive_fates_require_future_review: true
+  dry_run_must_not_mutate_files: true
+  reference_rewrites_are_planned_only: true

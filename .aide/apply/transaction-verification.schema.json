@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Transaction Verification",
+  "type": "object",
+  "required": ["schema_version", "transaction_id", "result", "verified_at", "checks", "blockers", "no_apply_boundary"],
+  "properties": {
+    "schema_version": {"const": "aide.transaction-verification.v0"},
+    "transaction_id": {"type": "string"},
+    "result": {"enum": ["PASS", "WARN", "FAIL", "BLOCKED"]},
+    "verified_at": {"type": "string"},
+    "checks": {"type": "array", "items": {"type": "object"}},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "no_apply_boundary": {"type": "object"}
+  },
+  "additionalProperties": true
+}

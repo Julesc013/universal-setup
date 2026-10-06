@@ -1,0 +1,20 @@
+{
+  "schema_version": "aide.test-coverage-map.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "tests_detected",
+    "likely_test_targets",
+    "missing_test_or_validator_candidates",
+    "caveats"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "generated_by": { "type": "string" },
+    "tests_detected": { "type": "integer" },
+    "likely_test_targets": { "type": "array" },
+    "missing_test_or_validator_candidates": { "type": "array" },
+    "caveats": { "type": "array" }
+  }
+}

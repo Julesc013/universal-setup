@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repair-verification.schema.v0",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "commands", "future_apply_requirements", "no_apply"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "commands": {"type": "array"},
+    "future_apply_requirements": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

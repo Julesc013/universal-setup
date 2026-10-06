@@ -1,0 +1,11 @@
+{
+  "schema_version": "aide.transaction-evidence.v0",
+  "example": true,
+  "evidence_id": "transaction-fixture-evidence",
+  "transaction_id": "transaction-fixture-example",
+  "evidence_class": "fixture_only_transaction",
+  "refs": [".aide/reports/transaction-fixture-plan.json", ".aide/reports/transaction-fixture-validation.md"],
+  "validation_commands": ["py -3 .aide/scripts/aide_lite.py transaction fixture-verify"],
+  "result": "PASS",
+  "no_apply_boundary": {"real_repo_apply_allowed": false, "target_mutation": false, "branch_mutation": false, "provider_or_model_calls": "none", "network_calls": "none"}
+}

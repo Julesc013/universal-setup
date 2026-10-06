@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: reuse_modularity_report_golden
+title: Reuse Modularity Report Golden
+status: active
+objective: Verify Q38 reuse/modularity reports stay candidate-only and never extract or deduplicate code.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task reuse_modularity_report_golden
+no_model_calls: true
+no_network_calls: true

@@ -19,3 +19,12 @@ version = "1.3.2"
 spdx_license_expression = "Zlib"
 license_file = "zlib-LICENSE"
 provenance_file = "external/zlib/provenance.v1.toml"
+
+# Optional development tooling; not linked or included in runtime packages.
+[[third_party_development_dependency]]
+id = "aide-lite"
+version = "1402003782ee9e23d3892065f3b4e4dc329ccbfe"
+spdx_license_expression = "Apache-2.0"
+license_file = "external/aide/LICENSE"
+notice_file = "external/aide/NOTICE"
+provenance_file = "external/aide/provenance.v1.json"

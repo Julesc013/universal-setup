@@ -1,0 +1,70 @@
+schema_version: q24.adapters-policy.v0
+policy_id: aide.adapters.v0
+status: active
+purpose: >
+  Define the deterministic Existing Tool Adapter Compiler boundary for
+  generating concise AIDE token-survival guidance for tools users already use,
+  without making generated outputs canonical truth or enabling runtime calls.
+operating_mode:
+  - template_compiler_only
+  - generated_or_preview_outputs
+  - no_tool_runtime_calls
+  - no_provider_calls
+adapter_targets:
+  - codex_agents_md
+  - claude_code
+  - aider
+  - cline
+  - continue
+  - cursor
+  - windsurf
+  - vscode_optional
+source_inputs:
+  - token_budget_policy
+  - compact_task_prompt
+  - evidence_review_prompt
+  - context_compiler_policy
+  - verifier_policy
+  - golden_tasks_policy
+  - router_profile
+  - cache_local_state_policy
+  - export_import_policy
+output_policy:
+  preserve_manual_content: true
+  managed_sections_required: true
+  preview_only_when_risky: true
+  generated_outputs_not_canonical: true
+  no_raw_prompt_logs: true
+  no_secrets: true
+drift_policy:
+  detect_manual_drift: true
+  do_not_overwrite_unmanaged_content: true
+  report_drift_before_replace: true
+safety_rules:
+  - no_provider_keys
+  - no_model_calls
+  - no_network_calls
+  - no_gateway_forwarding
+  - no_autonomous_loop
+  - no_full_history_prompting
+  - no_full_repo_prompting
+token_rule:
+  adapter_guidance_must_be_compact: true
+  adapter_guidance_must_reference_packets: true
+  adapter_guidance_must_not_duplicate_full_doctrine: true
+root_write_policy:
+  default_action: preview_only
+  safe_managed_targets:
+    - codex_agents_md
+  preview_only_targets:
+    - claude_code
+    - aider
+    - cline
+    - continue
+    - cursor
+    - windsurf
+    - vscode_optional
+raw_prompt_storage_default: false
+raw_response_storage_default: false
+provider_or_model_calls: false
+network_calls: false

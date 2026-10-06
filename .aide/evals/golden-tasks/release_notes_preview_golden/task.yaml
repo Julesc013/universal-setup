@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: release_notes_preview_golden
+title: Release Notes Preview Golden
+status: active
+purpose: Check Q34 release-note preview extraction and preview-only release caveats.
+input_refs:
+  - .aide/changelog/RELEASE_NOTES.preview.md
+  - .aide/changelog/release-notes.preview.json
+acceptance_ref: .aide/evals/golden-tasks/release_notes_preview_golden/acceptance.md
+expected_result: PASS

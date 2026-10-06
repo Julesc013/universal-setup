@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repair-classification.schema.v0",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "repair_classes", "class_counts", "risk_counts", "severity_counts", "no_apply"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "repair_classes": {"type": "array"},
+    "class_counts": {"type": "object"},
+    "risk_counts": {"type": "object"},
+    "severity_counts": {"type": "object"},
+    "no_apply": {"const": true}
+  }
+}

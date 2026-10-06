@@ -1,0 +1,24 @@
+schema_version: aide.excerpt-policy.v0
+policy_id: q11-excerpt-policy-v0
+status: active-pending-review
+purpose: Control exact context references and prevent accidental whole-file prompting.
+defaults:
+  full_file_inline_by_default: false
+  prefer_refs_and_line_ranges: true
+  line_range_syntax: path#Lstart-Lend
+  max_inline_excerpt_chars: 1200
+  max_inline_excerpt_lines: 40
+inline_allowed_only_when:
+  - explicitly_requested
+  - small_hot_excerpt
+  - requirements_or_tests_need_exact_text
+forbidden_inline:
+  - ignored_files
+  - secrets
+  - local_state
+  - caches
+  - binary_artifacts
+  - raw_provider_credentials
+future_phase_notes:
+  - Q12 verifier may inline exact requirements, failing tests, or diff hunks when required.
+  - Full-file inline remains forbidden unless a later reviewed policy changes it.

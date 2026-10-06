@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: repo_ownership_map_golden
+title: Repo Ownership Map Golden
+status: active
+description: Verify Q37 ownership map includes AIDE control-plane and harness owners.
+runner: .aide/scripts/aide_lite.py eval run --task repo_ownership_map_golden
+quality_dimensions:
+  - ownership_map
+  - repo_grounding
+  - deterministic_output

@@ -1,0 +1,39 @@
+{
+  "schema_version": "aide.managed-section-report.v0",
+  "example": true,
+  "report_id": "managed-section-fixture-report",
+  "mode": "fixture_only",
+  "files_inspected": [
+    ".aide/examples/apply/managed-section-fixtures/valid_input.md"
+  ],
+  "sections_found": [
+    {
+      "path": ".aide/examples/apply/managed-section-fixtures/valid_input.md",
+      "section_name": "aide-fixture-section"
+    }
+  ],
+  "sections_patched_in_fixture": [
+    {
+      "operation_id": "op-managed-section-valid-fixture",
+      "manual_content_preserved": true
+    }
+  ],
+  "conflicts": [],
+  "manual_content_preservation": {
+    "required": true,
+    "verified": true
+  },
+  "rollback_evidence": {
+    "preimage_recorded": true,
+    "postimage_recorded": true,
+    "rollback_execution": false
+  },
+  "no_real_apply_boundary": {
+    "real_repo_apply_allowed": false,
+    "target_mutation": false,
+    "branch_mutation": false,
+    "provider_or_model_calls": "none",
+    "network_calls": "none"
+  },
+  "status": "PASS"
+}

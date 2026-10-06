@@ -1,0 +1,19 @@
+schema_version: aide.uninstall-verification-policy.v0
+policy_id: aide.uninstall-verification.v0
+status: active
+purpose: >
+  Define future verification commands for any reviewed uninstall apply phase.
+future_verification_commands:
+  - doctor
+  - validate
+  - test
+  - selftest
+  - eval run
+  - pack-status
+  - rollback validate
+  - uninstall validate
+  - no secrets/local-state
+  - target-specific validators
+q46_behavior:
+  verification_is_planned_only: true
+  no_apply_or_mutation: true

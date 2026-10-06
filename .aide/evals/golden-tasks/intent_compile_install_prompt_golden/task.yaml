@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: intent_compile_install_prompt_golden
+title: Intent Compile Install Prompt Golden
+status: active
+description: Verify target install prompts become preflight and preservation WorkUnits.
+runner: .aide/scripts/aide_lite.py eval run --task intent_compile_install_prompt_golden
+quality_dimensions:
+  - target_safety
+  - preflight_required
+  - no_target_mutation

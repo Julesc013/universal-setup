@@ -1,0 +1,35 @@
+schema_version: aide.cache-key-policy.v0
+policy_id: q18-cache-key-policy
+status: active-pending-review
+purpose: Define deterministic cache-key metadata for known AIDE packet and report surfaces without storing raw content.
+cache_key_format: aide-cache-v0:<surface>:<short_sha256>
+hash_method: sha256
+stable_json_serialization:
+  sort_keys: true
+  separators: compact
+key_inputs:
+  - content_sha256
+  - dependency_hashes
+  - policy_versions
+  - dirty_state
+known_surfaces:
+  - latest_task_packet
+  - latest_context_packet
+  - latest_review_packet
+  - latest_verification_report
+  - latest_route_decision
+  - latest_golden_tasks_report
+  - token_savings_summary
+metadata_only: true
+raw_prompt_storage_default: false
+raw_response_storage_default: false
+local_state_root: .aide.local/
+refuse_paths:
+  - .aide.local/**
+  - .env
+  - secrets/**
+  - ignored paths
+  - binary-like files
+quality_rule:
+  - cache_key_metadata_is_not_permission_to_reuse_unsafe_content
+  - cache_hit_must_not_bypass_verifier_or_golden_tasks

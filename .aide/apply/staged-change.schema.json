@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Staged Change",
+  "type": "object",
+  "required": ["schema_version", "change_id", "operation_id", "path", "operation_class", "stage_path", "preimage_ref", "postimage_ref", "verification_status"],
+  "properties": {
+    "schema_version": {"const": "aide.staged-change.v0"},
+    "change_id": {"type": "string"},
+    "operation_id": {"type": "string"},
+    "path": {"type": "string"},
+    "operation_class": {"type": "string"},
+    "stage_path": {"type": "string"},
+    "preimage_ref": {"type": "string"},
+    "postimage_ref": {"type": "string"},
+    "verification_status": {"enum": ["pending", "pass", "warn", "fail", "blocked"]}
+  },
+  "additionalProperties": true
+}

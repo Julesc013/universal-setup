@@ -1,0 +1,13 @@
+{
+  "schema_version": "aide.managed-section-operation.v0",
+  "example": true,
+  "operation_id": "op-managed-section-fixture",
+  "path": ".aide/examples/apply/fixture-root/AGENTS.fixture.md",
+  "section_id": "aide-fixture-section",
+  "marker_begin": "<!-- AIDE-GENERATED:BEGIN section=aide-fixture-section -->",
+  "marker_end": "<!-- AIDE-GENERATED:END section=aide-fixture-section -->",
+  "replacement": "## Fixture Section\n\nGenerated fixture content only.\n",
+  "preimage_hash": "sha256:fixture-preimage",
+  "postimage_hash": "sha256:fixture-postimage",
+  "real_repo_apply_allowed": false
+}

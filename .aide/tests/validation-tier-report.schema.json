@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "generated_by": {"type": "string"},
+    "mode": {"const": "report_only"},
+    "normal_post_task": {"type": "array"},
+    "promotion_checkpoint_release": {"type": "array"},
+    "schema_version": {"type": "string"},
+    "tiers": {"type": "array"}
+  },
+  "required": ["schema_version", "generated_by", "mode", "normal_post_task", "promotion_checkpoint_release", "tiers"],
+  "type": "object"
+}
+

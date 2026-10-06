@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Transaction Preimage",
+  "type": "object",
+  "required": ["schema_version", "path", "exists", "sha256", "size_bytes", "captured_at", "capture_mode"],
+  "properties": {
+    "schema_version": {"const": "aide.transaction-preimage.v0"},
+    "path": {"type": "string"},
+    "exists": {"type": "boolean"},
+    "sha256": {"type": "string"},
+    "size_bytes": {"type": "integer"},
+    "captured_at": {"type": "string"},
+    "capture_mode": {"enum": ["report_only", "fixture_only"]}
+  },
+  "additionalProperties": true
+}

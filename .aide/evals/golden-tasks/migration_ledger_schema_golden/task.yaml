@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: migration_ledger_schema_golden
+title: Migration Ledger Schema Golden
+status: active
+objective: Verify Q39 migration-ledger schema exists for future dry-run and reviewed apply records.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task migration_ledger_schema_golden
+no_model_calls: true
+no_network_calls: true

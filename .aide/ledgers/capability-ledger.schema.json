@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.ledgers.capability-ledger.v0",
+  "title": "AIDE Capability Ledger",
+  "type": "object",
+  "required": ["schema_version", "ledger_id", "generated_at", "append_only", "records", "no_apply_boundary"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.capability-ledger.v0" },
+    "ledger_id": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "append_only": { "type": "boolean", "const": true },
+    "mode": { "type": "string" },
+    "record_count": { "type": "integer" },
+    "state_counts": { "type": "object" },
+    "no_apply_boundary": {
+      "type": "object",
+      "required": ["task_execution", "repair_execution", "branch_mutation", "target_mutation", "release_publication", "provider_or_model_calls", "network_calls"],
+      "properties": {
+        "task_execution": { "type": "boolean", "const": false },
+        "repair_execution": { "type": "boolean", "const": false },
+        "branch_mutation": { "type": "boolean", "const": false },
+        "target_mutation": { "type": "boolean", "const": false },
+        "release_publication": { "type": "boolean", "const": false },
+        "provider_or_model_calls": { "type": "string", "const": "none" },
+        "network_calls": { "type": "string", "const": "none" }
+      },
+      "additionalProperties": false
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["record_id", "capability_id", "title", "description", "observed_states", "dominant_state", "modifiers", "evidence_classes", "evidence_refs", "docs_refs", "code_refs", "test_refs", "golden_task_refs", "command_refs", "generated_report_refs", "target_refs", "limitations", "overclaim_refs", "confidence", "status", "reality_notes", "no_apply_boundary", "recorded_at", "example"],
+        "properties": {
+          "record_id": { "type": "string" },
+          "capability_id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "observed_states": { "type": "array", "items": { "type": "string", "enum": ["planned", "specified", "stubbed", "implemented", "tested", "exposed", "documented", "deprecated", "removed", "unknown"] } },
+          "dominant_state": { "type": "string", "enum": ["planned", "specified", "stubbed", "implemented", "tested", "exposed", "documented", "deprecated", "removed", "unknown"] },
+          "modifiers": { "type": "array", "items": { "type": "string" } },
+          "evidence_classes": { "type": "array", "items": { "type": "string" } },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "missing_evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "docs_refs": { "type": "array", "items": { "type": "string" } },
+          "code_refs": { "type": "array", "items": { "type": "string" } },
+          "test_refs": { "type": "array", "items": { "type": "string" } },
+          "golden_task_refs": { "type": "array", "items": { "type": "string" } },
+          "command_refs": { "type": "array", "items": { "type": "string" } },
+          "generated_report_refs": { "type": "array", "items": { "type": "string" } },
+          "target_refs": { "type": "array", "items": { "type": "string" } },
+          "limitations": { "type": "array", "items": { "type": "string" } },
+          "overclaim_refs": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "status": { "type": "string" },
+          "reality_notes": { "type": "string" },
+          "no_apply_boundary": { "type": "boolean", "const": true },
+          "recorded_at": { "type": "string" },
+          "example": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

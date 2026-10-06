@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: tool_fate_no_delete_approval_golden
+title: Tool Fate No Delete Approval Golden
+status: active
+objective: Verify Q41 drop_candidate and wrap fates are not deletion or execution approval.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task tool_fate_no_delete_approval_golden
+no_model_calls: true
+no_network_calls: true

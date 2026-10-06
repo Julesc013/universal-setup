@@ -1,0 +1,14 @@
+schema_version: aide.doctor-policy.v0
+policy_id: aide.doctor.v0
+status: active
+purpose: Define how doctor output relates to no-apply repair planning.
+doctor_rules:
+  doctor_may_recommend_repair_plan: true
+  doctor_must_not_apply_repair: true
+  doctor_may_cite_latest_repair_report: true
+  doctor_remains_conservative: true
+  repair_warnings_do_not_fail_doctor_by_default: true
+  blocking_repair_issues_require_review: true
+integration:
+  latest_repair_plan_ref: .aide/repair/latest-repair-plan.md
+  latest_doctor_repair_report_ref: .aide/repair/latest-doctor-repair-report.md

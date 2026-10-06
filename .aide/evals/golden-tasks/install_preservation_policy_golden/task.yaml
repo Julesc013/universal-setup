@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: install_preservation_policy_golden
+title: Install Preservation Policy Golden
+status: active
+runner: aide_lite
+command: eval run --task install_preservation_policy_golden
+expected_result: PASS
+no_model_calls: true
+network_calls: false

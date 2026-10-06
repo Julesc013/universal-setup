@@ -1,0 +1,137 @@
+schema_version: aide.file-quality-policy.v0
+policy_id: q38-file-quality-ledger-v0
+status: active
+purpose: >
+  Define deterministic, repo-local, advisory-only quality measurement for AIDE
+  files using Q37 repo intelligence outputs.
+operating_mode:
+  deterministic_local: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  advisory_only: true
+  no_file_mutation: true
+  no_file_deletion: true
+source_inputs:
+  - .aide/repo/file-inventory.json
+  - .aide/repo/ownership-map.json
+  - .aide/repo/dependency-map.json
+  - .aide/repo/test-map.json
+  - .aide/repo/doc-link-map.json
+  - .aide/repo/generated-map.json
+  - .aide/repo/orphan-candidates.json
+quality_dimensions:
+  - owner_known
+  - kind_known
+  - status_known
+  - generated_boundary_known
+  - evidence_boundary_known
+  - local_state_boundary_safe
+  - docs_present_or_exempt
+  - tests_present_or_exempt
+  - validators_present_or_exempt
+  - doc_links_current
+  - dependencies_known
+  - orphan_candidate_reviewed
+  - public_surface_documented
+  - module_size_reviewed
+  - mixed_purpose_reviewed
+  - reuse_candidate_reviewed
+result_levels:
+  - pass
+  - warn
+  - fail
+  - unknown
+  - exempt
+  - not_applicable
+default_policy:
+  active_source_files_should_have_owner: true
+  active_source_tool_files_should_have_test_validator_or_exemption: true
+  public_docs_contracts_tools_should_have_docs: true
+  generated_evidence_not_canonical_source_by_default: true
+  stale_doc_path_references_warn: true
+  orphan_candidates_warn_never_delete: true
+  unknown_owner_kind_status_warn: true
+  tracked_local_state_or_secret_like_paths_fail: true
+level_rules:
+  fail:
+    - tracked local-state path
+    - tracked secret-like path
+    - structurally invalid file-quality record
+    - policy-forbidden state
+  warn:
+    - unknown owner/kind/status
+    - stale doc refs
+    - active source/tool/policy/contract/schema missing docs when public-surface heuristics apply
+    - active source/tool missing tests or validators
+    - orphan_candidate
+    - large module candidate
+    - mixed-purpose candidate
+    - reuse candidate
+  pass:
+    - known owner/kind/status and no current warnings
+  exempt:
+    - evidence-only files do not need tests
+    - generated previews do not need docs
+    - templates do not need active test coverage
+    - archived files do not need active docs/tests
+    - top-level README files are documentation, not source
+    - hook scripts may use smoke validation rather than unit tests
+  unknown:
+    - insufficient repo intelligence data
+exemptions:
+  evidence_only:
+    applies_when:
+      - kind: evidence
+      - status: evidence_only
+    dimensions:
+      docs_present_or_exempt: exempt
+      tests_present_or_exempt: exempt
+      validators_present_or_exempt: exempt
+  generated:
+    applies_when:
+      - generated: true
+      - status: generated
+    dimensions:
+      docs_present_or_exempt: exempt
+      tests_present_or_exempt: exempt
+      validators_present_or_exempt: exempt
+  template:
+    applies_when:
+      - template: true
+      - status: template_only
+    dimensions:
+      docs_present_or_exempt: exempt
+      tests_present_or_exempt: exempt
+      validators_present_or_exempt: exempt
+  documentation:
+    applies_when:
+      - kind: doc
+    dimensions:
+      tests_present_or_exempt: not_applicable
+      validators_present_or_exempt: not_applicable
+  schema_contract_policy:
+    applies_when:
+      - kind: schema
+      - kind: contract
+      - kind: policy
+    dimensions:
+      tests_present_or_exempt: validator_or_policy_validation_allowed
+thresholds:
+  large_file_warning_bytes: 100000
+  high_dependency_reference_count: 120
+  high_import_count: 25
+  duplicate_hash_min_files: 2
+  repeated_helper_name_min_files: 2
+output_files:
+  - .aide/reports/file-quality-ledger.json
+  - .aide/reports/file-quality-summary.md
+  - .aide/reports/module-quality-report.md
+  - .aide/reports/docs-consistency-report.md
+  - .aide/reports/test-coverage-map.md
+  - .aide/reports/reuse-modularity-report.md
+non_goals:
+  - no semantic LLM scoring
+  - no automatic fixes
+  - no deletion recommendations as final truth
+  - no product readiness claim

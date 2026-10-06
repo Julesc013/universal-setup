@@ -1,0 +1,90 @@
+schema_version: aide.task-lifecycle-policy.v0
+policy_id: aide-task-os-lifecycle-v0
+status: active-pending-review
+mode: report_only_no_apply
+purpose: >
+  Define AIDE Task OS v0 lifecycle states and transitions for WorkUnits
+  without applying file, branch, repair, checkpoint, or promotion mutations.
+
+allowed_states:
+  - proposed
+  - ready
+  - running
+  - done_local
+  - partial
+  - blocked_repairable
+  - blocked_missing_prereq
+  - blocked_needs_decision
+  - blocked_unsafe
+  - repair_queued
+  - resume_ready
+  - merge_candidate
+  - merged_to_dev
+  - checkpoint_candidate
+  - promoted_to_main
+  - quarantined
+  - superseded
+
+allowed_transitions:
+  proposed: [ready, blocked_missing_prereq, blocked_needs_decision, superseded]
+  ready: [running, blocked_missing_prereq, blocked_unsafe, superseded]
+  running: [done_local, partial, blocked_repairable, blocked_missing_prereq, blocked_needs_decision, blocked_unsafe]
+  done_local: [merge_candidate, checkpoint_candidate, superseded]
+  partial: [resume_ready, repair_queued, blocked_needs_decision, quarantined, superseded]
+  blocked_repairable: [repair_queued, resume_ready, quarantined, superseded]
+  blocked_missing_prereq: [ready, repair_queued, superseded]
+  blocked_needs_decision: [ready, repair_queued, quarantined, superseded]
+  blocked_unsafe: [quarantined, superseded]
+  repair_queued: [running, resume_ready, quarantined, superseded]
+  resume_ready: [running, superseded]
+  merge_candidate: [merged_to_dev, checkpoint_candidate, repair_queued, quarantined]
+  merged_to_dev: [checkpoint_candidate, repair_queued, quarantined]
+  checkpoint_candidate: [promoted_to_main, repair_queued, quarantined, superseded]
+  promoted_to_main: []
+  quarantined: [repair_queued, superseded]
+  superseded: []
+
+terminal_states:
+  - promoted_to_main
+  - superseded
+repairable_states:
+  - partial
+  - blocked_repairable
+  - blocked_missing_prereq
+  - repair_queued
+  - resume_ready
+unsafe_states:
+  - blocked_unsafe
+  - quarantined
+review_gated_states:
+  - done_local
+  - merge_candidate
+  - checkpoint_candidate
+  - promoted_to_main
+promotion_eligible_states:
+  - checkpoint_candidate
+non_promotion_states:
+  - proposed
+  - ready
+  - running
+  - partial
+  - blocked_repairable
+  - blocked_missing_prereq
+  - blocked_needs_decision
+  - blocked_unsafe
+  - repair_queued
+  - resume_ready
+  - merge_candidate
+  - merged_to_dev
+  - quarantined
+  - superseded
+
+rules:
+  partial_is_not_failure: true
+  blocked_is_not_deletion: true
+  repairable_blockers_should_produce_repair_plans: true
+  unsafe_blockers_should_quarantine: true
+  main_promotion_requires_evidence: true
+  dev_integration_may_allow_classified_non_fatal_warnings: true
+  no_state_transition_applies_branch_or_file_mutation_in_x_os_00: true
+  report_only_until_later_queue_item_authorizes_commands: true

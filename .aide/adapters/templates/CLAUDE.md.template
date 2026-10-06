@@ -1,0 +1,16 @@
+{{managed_begin}}
+# AIDE Existing-Tool Adapter: Claude Code
+
+- Start from `.aide/context/latest-task-packet.md`; ask for more context only
+  when the packet is insufficient.
+- Do not request or paste whole histories, whole repositories, raw prompt logs,
+  raw response logs, secrets, provider keys, or `.aide.local/` contents.
+- Use repo path refs and line refs. Keep doctrine and project memory referenced
+  by path instead of duplicating it.
+- Run `py -3 .aide/scripts/aide_lite.py doctor`, `validate`, `pack`, `verify`,
+  and `review-pack` where available.
+- Keep Gateway/provider behavior no-call and advisory unless future reviewed
+  policy enables live execution.
+- Produce compact status, changed files, validation, evidence, risks, and next
+  step. Stop at review gates.
+{{managed_end}}

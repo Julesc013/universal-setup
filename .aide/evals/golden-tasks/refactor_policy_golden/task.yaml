@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: refactor_policy_golden
+title: Refactor Policy Golden
+status: active
+objective: Verify Q39 refactor policies define deterministic dry-run and no-apply planning anchors.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task refactor_policy_golden
+no_model_calls: true
+no_network_calls: true

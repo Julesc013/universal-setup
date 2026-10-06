@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: capability_ledger_generation_golden
+title: Capability Ledger Generation Golden
+status: active
+description: Verify capability scan and ledger reports classify all reality states conservatively.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task capability_ledger_generation_golden
+quality_dimensions:
+  - ledger_generation
+  - capability_reality
+  - deterministic_output

@@ -1,0 +1,60 @@
+schema_version: aide.gateway-endpoints.v0
+gateway_policy: .aide/policies/gateway.yaml
+endpoints:
+  - path: /health
+    method: GET
+    purpose: Report local Gateway skeleton liveness and disabled provider/model flags.
+    input_policy: no_request_body_required
+    output_policy: compact_json_metadata_only
+    raw_prompt_storage: false
+    raw_response_storage: false
+    provider_calls: false
+    model_calls: false
+    outbound_network_calls: false
+  - path: /status
+    method: GET
+    purpose: Report local policy and artifact readiness across Q09-Q19 surfaces.
+    input_policy: no_request_body_required
+    output_policy: compact_json_metadata_and_repo_relative_refs_only
+    raw_prompt_storage: false
+    raw_response_storage: false
+    provider_calls: false
+    model_calls: false
+    outbound_network_calls: false
+  - path: /route/explain
+    method: GET
+    purpose: Return the latest advisory route decision if present, or a compact warning if missing.
+    input_policy: optional_query_ignored_in_q19
+    output_policy: compact_json_route_metadata_only
+    raw_prompt_storage: false
+    raw_response_storage: false
+    provider_calls: false
+    model_calls: false
+    outbound_network_calls: false
+  - path: /summaries
+    method: GET
+    purpose: Return compact references to current task, context, review, verification, token, golden, outcome, cache, and route artifacts.
+    input_policy: no_request_body_required
+    output_policy: repo_relative_refs_and_short_status_only
+    raw_prompt_storage: false
+    raw_response_storage: false
+    provider_calls: false
+    model_calls: false
+    outbound_network_calls: false
+  - path: /version
+    method: GET
+    purpose: Report Gateway skeleton and policy/profile version metadata where available.
+    input_policy: no_request_body_required
+    output_policy: compact_json_metadata_only
+    raw_prompt_storage: false
+    raw_response_storage: false
+    provider_calls: false
+    model_calls: false
+    outbound_network_calls: false
+forbidden_in_q19:
+  - /v1/chat/completions
+  - /v1/responses
+  - /anthropic/v1/messages
+  - /mcp/tools
+  - provider proxy forwarding
+  - model execution

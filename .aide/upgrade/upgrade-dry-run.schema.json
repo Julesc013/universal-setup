@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "plan_id",
+    "operations",
+    "planned_updates",
+    "planned_skips",
+    "planned_preservations",
+    "planned_conflicts",
+    "blocking_issues",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "operations": {"type": "array"},
+    "planned_updates": {"type": "integer"},
+    "planned_skips": {"type": "integer"},
+    "planned_preservations": {"type": "integer"},
+    "planned_conflicts": {"type": "integer"},
+    "blocking_issues": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}

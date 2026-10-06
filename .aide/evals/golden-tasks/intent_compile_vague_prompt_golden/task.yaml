@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: intent_compile_vague_prompt_golden
+title: Intent Compile Vague Prompt Golden
+status: active
+description: Verify vague prompts compile to queue/context inspection without product work.
+runner: .aide/scripts/aide_lite.py eval run --task intent_compile_vague_prompt_golden
+quality_dimensions:
+  - prompt_normalization
+  - no_raw_intent_execution
+  - deterministic_output

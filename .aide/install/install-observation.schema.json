@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.install-observation.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "target_root",
+    "observed_aide_state",
+    "existing_files",
+    "existing_managed_sections",
+    "target_specific_files",
+    "local_state_ignored",
+    "conflicts",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "target_root": {"type": "string"},
+    "observed_aide_state": {"type": "object"},
+    "existing_files": {"type": "array"},
+    "existing_managed_sections": {"type": "array"},
+    "target_specific_files": {"type": "array"},
+    "local_state_ignored": {"type": "boolean"},
+    "conflicts": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

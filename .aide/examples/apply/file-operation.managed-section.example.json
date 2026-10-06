@@ -1,0 +1,12 @@
+{
+  "schema_version": "aide.file-operation.v0",
+  "example": true,
+  "operation_id": "op-managed-section-fixture",
+  "operation_class": "update_managed_section",
+  "path": ".aide/examples/apply/fixture-root/AGENTS.fixture.md",
+  "intent": "Replace a fixture-only managed section while preserving manual text outside markers.",
+  "destructive": false,
+  "real_repo_apply_allowed": false,
+  "fixture_only_allowed": true,
+  "safety_gates": ["managed_section_markers_valid", "preimage_hash_recorded", "postimage_hash_predicted", "rollback_record_created", "no_real_repo_apply_mode"]
+}

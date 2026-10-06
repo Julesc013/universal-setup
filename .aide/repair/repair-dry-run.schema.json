@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repair-dry-run.schema.v0",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "plan_id", "operations", "planned_writes", "planned_skips", "planned_conflicts", "blocking_issues", "no_apply"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "operations": {"type": "array"},
+    "planned_writes": {"type": "integer"},
+    "planned_skips": {"type": "integer"},
+    "planned_conflicts": {"type": "integer"},
+    "blocking_issues": {"type": "integer"},
+    "no_apply": {"const": true}
+  }
+}

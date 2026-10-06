@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: changelog_json_shape_golden
+title: Changelog JSON Shape Golden
+status: active
+purpose: Check Q34 changelog and release-note JSON preview shapes.
+input_refs:
+  - .aide/changelog/changelog.preview.json
+  - .aide/changelog/release-notes.preview.json
+acceptance_ref: .aide/evals/golden-tasks/changelog_json_shape_golden/acceptance.md
+expected_result: PASS

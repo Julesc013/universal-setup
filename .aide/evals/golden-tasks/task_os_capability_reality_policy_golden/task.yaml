@@ -1,0 +1,10 @@
+id: task_os_capability_reality_policy_golden
+title: Task OS Capability Reality Policy Golden
+status: active
+objective: Verify capability reality states and no-overclaim proof rules.
+quality_dimensions:
+  - capability_reality
+  - proof_boundaries
+  - no_overclaim
+runner: .aide/scripts/aide_lite.py eval run --task task_os_capability_reality_policy_golden
+no_call: true

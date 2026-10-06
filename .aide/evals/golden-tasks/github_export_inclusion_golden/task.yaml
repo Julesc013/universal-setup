@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: github_export_inclusion_golden
+title: GitHub Export Inclusion Golden
+status: active
+description: Verify Q35 portable export and generated-report exclusion.
+runner: .aide/scripts/aide_lite.py eval run --task github_export_inclusion_golden
+quality_dimensions:
+  - export_inclusion
+  - source_state_boundary
+  - target_safety

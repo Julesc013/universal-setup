@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: github_protection_policy_golden
+title: GitHub Protection Policy Golden
+status: active
+description: Verify Q35 GitHub protection policy remains advisory-only.
+runner: .aide/scripts/aide_lite.py eval run --task github_protection_policy_golden
+quality_dimensions:
+  - policy_anchors
+  - branch_protection
+  - no_mutation

@@ -1,0 +1,54 @@
+schema_version: aide.commit-message-disposition-policy.v1
+policy_id: aide-exact-historical-commit-message-dispositions-v1
+status: proposed_for_review
+purpose: >
+  Permit a separately reviewed, exact-record disposition for an immutable
+  historical commit-message failure without changing the original message or
+  weakening the active standard for new commits.
+applicability:
+  range_checks_only: true
+  latest_checks_remain_strict: true
+  message_file_checks_remain_strict: true
+  exact_commit_object_required: true
+  accepted_human_review_required: true
+identity:
+  required:
+    - full_commit_object_id
+    - exact_tree_object_id
+    - ordered_parent_object_ids
+    - canonical_message_sha256
+    - exact_failed_check_messages
+    - canonical_record_digest
+  replacement_objects_disabled: true
+decision:
+  allowed_scope: historical_commit_message_only
+  allowed_decision: accept_historical_nonconformance
+  statuses:
+    proposed: visible_but_ineffective
+    accepted: effective_only_when_every_identity_and_evidence_check_passes
+    rejected: visible_but_ineffective
+  reviewer_prefixes:
+    - owner
+    - reviewer
+  authorized_reviewers:
+    - owner:Julesc013
+  accepted_decision_schema: aide.commit-message-disposition-decision.v1
+  decision_window_start: 2026-09-22
+  future_review_dates_rejected: true
+  exact_decision_subject_match_required: true
+  whole_registry_validation_required: true
+  decision_and_evidence_content_hashes_required: true
+  source_registry: .aide/git/commit-message-dispositions.json
+  source_registry_is_portable: false
+reporting:
+  accepted_result: PASS_WITH_DISPOSITIONS
+  accepted_commit_label: DISPOSITIONED
+  preserve_original_failures: true
+  raw_mode_flag: --no-dispositions
+prohibitions:
+  wildcard_or_prefix_matches: true
+  blanket_merge_exemptions: true
+  history_rewrite: true
+  fabricated_historical_pass: true
+  self_approval: true
+  permission_widening: true

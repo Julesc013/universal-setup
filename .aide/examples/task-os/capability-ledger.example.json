@@ -1,0 +1,43 @@
+{
+  "schema_version": "aide.capability-ledger.v0",
+  "ledger_id": "EXAMPLE-CAPABILITY-LEDGER",
+  "generated_at": "2026-06-02T00:00:00Z",
+  "append_only": true,
+  "no_apply_boundary": {
+    "task_execution": false,
+    "repair_execution": false,
+    "branch_mutation": false,
+    "target_mutation": false,
+    "release_publication": false,
+    "provider_or_model_calls": "none",
+    "network_calls": "none"
+  },
+  "records": [
+    {
+      "record_id": "EXAMPLE-CAPABILITY-RECORD-00",
+      "capability_id": "example.task-os.schema",
+      "title": "Example Task OS Schema",
+      "description": "Example record for a specified capability contract.",
+      "observed_states": ["specified"],
+      "dominant_state": "specified",
+      "modifiers": ["report_only"],
+      "evidence_classes": ["schema_only"],
+      "evidence_refs": ["example://evidence"],
+      "docs_refs": [],
+      "code_refs": [],
+      "test_refs": [],
+      "golden_task_refs": [],
+      "command_refs": [],
+      "generated_report_refs": [],
+      "target_refs": [],
+      "limitations": ["example only"],
+      "overclaim_refs": [],
+      "confidence": "high",
+      "status": "example",
+      "reality_notes": "Example only; docs or schemas alone do not prove runtime behavior.",
+      "no_apply_boundary": true,
+      "recorded_at": "2026-06-02T00:00:00Z",
+      "example": true
+    }
+  ]
+}

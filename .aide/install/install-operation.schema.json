@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.install-operation.schema.v0",
+  "type": "object",
+  "required": [
+    "operation_id",
+    "operation_type",
+    "source_path",
+    "target_path",
+    "target_class",
+    "ownership",
+    "action",
+    "reason",
+    "conflict_status",
+    "overwrite_allowed",
+    "migration_required",
+    "apply_allowed"
+  ],
+  "properties": {
+    "operation_id": {"type": "string"},
+    "operation_type": {"type": "string"},
+    "source_path": {"type": "string"},
+    "target_path": {"type": "string"},
+    "target_class": {"type": "string"},
+    "ownership": {"type": "string"},
+    "action": {"type": "string"},
+    "reason": {"type": "string"},
+    "conflict_status": {"type": "string"},
+    "overwrite_allowed": {"const": false},
+    "migration_required": {"type": "boolean"},
+    "apply_allowed": {"const": false}
+  }
+}

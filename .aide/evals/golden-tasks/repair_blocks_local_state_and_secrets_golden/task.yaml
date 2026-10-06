@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: repair_blocks_local_state_and_secrets_golden
+title: Repair Blocks Local State And Secrets Golden
+status: active
+runner: aide_lite
+command: eval run --task repair_blocks_local_state_and_secrets_golden
+expected_result: PASS
+no_model_calls: true
+network_calls: false

@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: capability_no_apply_boundary_golden
+title: Capability No Apply Boundary Golden
+status: active
+description: Verify X-OS-02 capability outputs do not apply, mutate targets, mutate branches, publish releases, or call providers/models/network.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task capability_no_apply_boundary_golden
+quality_dimensions:
+  - no_apply
+  - no_target_mutation
+  - no_provider_calls

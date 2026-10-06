@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: refactor_plan_schema_golden
+title: Refactor Plan Schema Golden
+status: active
+objective: Verify Q39 refactor plan and operation schemas plus the no-apply example plan.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task refactor_plan_schema_golden
+no_model_calls: true
+no_network_calls: true

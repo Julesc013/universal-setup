@@ -1,0 +1,10 @@
+id: task_os_example_records_golden
+title: Task OS Example Records Golden
+status: active
+objective: Verify Task OS examples are examples and parse deterministically.
+quality_dimensions:
+  - example_records
+  - source_state_boundary
+  - deterministic_output
+runner: .aide/scripts/aide_lite.py eval run --task task_os_example_records_golden
+no_call: true

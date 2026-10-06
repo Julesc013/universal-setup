@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: capability_overclaim_report_golden
+title: Capability Overclaim Report Golden
+status: active
+description: Verify capability overclaim reporting is typed, conservative, and report-only.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task capability_overclaim_report_golden
+quality_dimensions:
+  - no_overclaim
+  - report_only
+  - safety_boundary

@@ -1,0 +1,10 @@
+{
+  "schema_version": "aide.conflict-record.v0",
+  "example": true,
+  "conflict_id": "fixture-no-conflict",
+  "path": ".aide/examples/apply/fixture-root/AGENTS.fixture.md",
+  "conflict_class": "none",
+  "severity": "low",
+  "resolution_state": "resolved",
+  "apply_blocked": false
+}

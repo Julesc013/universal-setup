@@ -1,0 +1,136 @@
+schema_version: aide.commit-message-policy.v0
+policy_id: aide-commit-message-standard-v0
+status: active
+purpose: >
+  Require structured, changelog-ready Git commit messages for AIDE-managed work
+  so future agents can audit, replay, summarize, and release from repo-local
+  history without long chat context.
+standard: Conventional Commits with structured Markdown body
+subject:
+  format: "type(scope): summary"
+  subject_max_chars: 72
+  allowed_types:
+    - feat
+    - fix
+    - docs
+    - test
+    - refactor
+    - perf
+    - build
+    - ci
+    - chore
+    - audit
+    - security
+    - release
+    - revert
+    - policy
+    - schema
+    - contract
+    - connector
+    - snapshot
+  allowed_scopes:
+    - aide
+    - policy
+    - commit
+    - task
+    - workunit
+    - recovery
+    - changelog
+    - docs
+    - eval
+    - test
+    - pack
+    - queue
+    - harness
+    - compat
+    - gateway
+    - provider
+    - adapter
+    - export
+    - import
+    - git
+    - branch
+    - workflow
+    - promotion
+    - sync
+    - prune
+  scope_guidance: Use the smallest stable subsystem name; avoid product claims not supported by evidence.
+  no_trailing_period: true
+  no_vague_summaries: true
+  forbidden_vague_summaries:
+    - update
+    - updates
+    - changes
+    - misc
+    - wip
+    - stuff
+    - work
+    - fix
+    - fixes
+body:
+  markdown_required: true
+  required_headings:
+    - "## Summary"
+    - "## Why"
+    - "## Changed"
+    - "## Validation"
+    - "## Changelog"
+    - "## Risks"
+    - "## Follow-up"
+  required_body_headings:
+    - "## Summary"
+    - "## Why"
+    - "## Changed"
+    - "## Validation"
+    - "## Changelog"
+    - "## Risks"
+    - "## Follow-up"
+  validation_result_tokens:
+    - PASS
+    - WARN
+    - FAIL
+    - NOT RUN
+  changelog_categories:
+    - Added
+    - Changed
+    - Fixed
+    - Removed
+    - Deprecated
+    - Security
+    - Docs
+    - Tests
+    - Internal
+    - Risks
+    - Follow-up
+trailers:
+  required_for_aide_queue_work: true
+  allowed:
+    - AIDE-Task
+    - AIDE-Phase
+    - AIDE-Result
+    - AIDE-Scope
+    - AIDE-Token-Impact
+    - AIDE-Quality-Gate
+  optional_future:
+    - AIDE-Branch-Role
+    - AIDE-Integration-Target
+automation:
+  checker_command: "py -3 .aide/scripts/aide_lite.py commit check --message-file <path>"
+  latest_commit_check: "py -3 .aide/scripts/aide_lite.py commit check --latest"
+  range_check: "py -3 .aide/scripts/aide_lite.py commit check --range <base>..HEAD"
+  template_command: "py -3 .aide/scripts/aide_lite.py commit template"
+  install_hook: "py -3 .aide/scripts/aide_lite.py commit install-hook"
+  managed_create: "py -3 .aide/scripts/aide_lite.py commit create --message-file <path> --expect-message-sha256 <digest> --expect-ref <ref> --expect-head <oid> --expect-tree <oid> --path <path> [--apply]"
+  hook_template: ".aide/hooks/commit-msg"
+  local_hook_config: "core.hooksPath=.aide/hooks"
+  changelog_preview: "py -3 .aide/scripts/aide_lite.py changelog preview"
+enforcement:
+  existing_history: report_malformed_do_not_rewrite
+  latest_commit: fail_for_new_q27_and_later_commits
+  range_check: fail_if_any_in_scope_commit_fails
+  hook_installation: opt_in
+non_goals:
+  - no network calls
+  - no provider calls
+  - no automatic release publishing
+  - no rewriting published history

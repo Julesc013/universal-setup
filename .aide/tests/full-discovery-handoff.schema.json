@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "command_to_run_externally": {"type": "string"},
+    "expected_raw_log_artifacts": {"type": "array"},
+    "expected_summary_path": {"type": "string"},
+    "full_suite_executed": {"const": false},
+    "generated_by": {"type": "string"},
+    "reason": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "status": {"const": "WAITING_FOR_EXTERNAL_FULL_DISCOVERY"}
+  },
+  "required": ["schema_version", "generated_by", "status", "reason", "command_to_run_externally", "expected_summary_path", "expected_raw_log_artifacts", "full_suite_executed"],
+  "type": "object"
+}
+

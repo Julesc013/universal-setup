@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+task_id: git_live_repo_no_mutation_golden
+title: Git Live Repo No Mutation Golden
+status: active
+purpose: Check live AIDE helper plans remain no-mutation by default.
+input_refs:
+  - .aide/git/helper-policy.yaml
+  - .aide/git/helper-commands.md
+  - .aide/git/latest-helper-plan.json
+acceptance_ref: .aide/evals/golden-tasks/git_live_repo_no_mutation_golden/acceptance.md
+expected_result: PASS

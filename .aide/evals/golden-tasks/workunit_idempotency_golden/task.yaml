@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: workunit_idempotency_golden
+title: WorkUnit Idempotency Golden
+status: active
+purpose: Check Q27 WorkUnit idempotency, no-op, and recovery state anchors.
+input_refs:
+  - .aide/policies/work-units.yaml
+  - .aide/policies/recovery.yaml
+acceptance_ref: .aide/evals/golden-tasks/workunit_idempotency_golden/acceptance.md
+expected_result: PASS

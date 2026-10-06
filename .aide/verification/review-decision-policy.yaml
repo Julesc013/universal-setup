@@ -1,0 +1,56 @@
+schema_version: aide.review-decision-policy.v0
+policy_id: q13-evidence-review-workflow
+status: active-pending-review
+purpose: >
+  Define bounded evidence-review decisions so GPT-5.5 or a human reviewer
+  can judge compact review packets without full chat history, whole repo
+  dumps, automatic model calls, or unbounded architecture resynthesis.
+allowed_decisions:
+  - PASS
+  - PASS_WITH_NOTES
+  - REQUEST_CHANGES
+  - BLOCKED
+decision_rules:
+  PASS:
+    allowed_when:
+      - acceptance criteria are met
+      - validation is recorded and proportionate
+      - verifier result is PASS or any warnings are explicitly non-blocking
+      - no scope violations or secret/local-state risks are present
+      - unresolved risks do not block the phase objective
+  PASS_WITH_NOTES:
+    allowed_when:
+      - acceptance criteria are materially met
+      - remaining issues are minor, explicit, and safe to defer
+      - validation is sufficient for the phase risk
+      - verifier warnings are understood and non-blocking
+  REQUEST_CHANGES:
+    required_when:
+      - acceptance criteria are missing
+      - validation is missing, unrun, or insufficient for the claimed outcome
+      - verifier result includes unresolved warnings that affect correctness
+      - changed files exceed scope without a clear allowed reason
+      - evidence is incomplete but repair is straightforward
+  BLOCKED:
+    required_when:
+      - required evidence is unavailable
+      - verifier result is FAIL and cannot be resolved within the review packet
+      - a safety, secret, local-state, or policy issue prevents approval
+      - reviewer cannot decide without context that the packet should have provided
+reviewer_rules:
+  evidence_only_by_default: true
+  do_not_request_full_history_unless_packet_insufficient: true
+  do_not_approve_missing_validation_as_pass: true
+  do_not_reward_scope_creep: true
+  required_output_sections:
+    - DECISION
+    - REASONS
+    - REQUIRED_FIXES
+    - OPTIONAL_NOTES
+    - NEXT_PHASE
+non_goals:
+  - no automatic GPT call
+  - no LLM-as-judge automation
+  - no semantic diff analysis
+  - no provider calls
+  - no automatic repair

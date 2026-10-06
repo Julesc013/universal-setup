@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.migration-ledger.schema.v0",
+  "type": "object",
+  "required": [
+    "event_id",
+    "timestamp_or_commit",
+    "operation",
+    "source",
+    "target",
+    "schema_version",
+    "ledger_id",
+    "generated_by",
+    "source_commit",
+    "status",
+    "evidence",
+    "validation",
+    "rollback",
+    "events",
+    "warnings",
+    "no_apply",
+    "notes"
+  ],
+  "properties": {
+    "event_id": {"type": "string"},
+    "timestamp_or_commit": {"type": "string"},
+    "operation": {"type": "string"},
+    "source": {"type": "string"},
+    "target": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "ledger_id": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "status": {"type": "string"},
+    "evidence": {"type": "array"},
+    "validation": {"type": "array"},
+    "rollback": {"type": "array"},
+    "events": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true},
+    "notes": {"type": "array"}
+  }
+}

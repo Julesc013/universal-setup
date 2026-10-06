@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.salvage-map.schema.v0",
+  "type": "object",
+  "required": [
+    "map_id",
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "status",
+    "source_path",
+    "source_inputs",
+    "entries",
+    "extracted_items",
+    "fates",
+    "target_paths",
+    "reasons",
+    "preservation_notes",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "map_id": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "status": {"type": "string"},
+    "source_path": {"type": "string"},
+    "source_inputs": {"type": "array"},
+    "entries": {"type": "array"},
+    "extracted_items": {"type": "array"},
+    "fates": {"type": "array"},
+    "target_paths": {"type": "array"},
+    "reasons": {"type": "array"},
+    "preservation_notes": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

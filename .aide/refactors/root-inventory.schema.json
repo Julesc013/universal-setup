@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "file_count": {
+      "type": "integer"
+    },
+    "generated_at_or_source_ref": {
+      "type": "string"
+    },
+    "generated_by": {
+      "type": "string"
+    },
+    "no_apply": {
+      "const": true
+    },
+    "roots": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "source_commit": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "roots",
+    "file_count",
+    "generated_at_or_source_ref",
+    "warnings",
+    "no_apply"
+  ],
+  "type": "object"
+}

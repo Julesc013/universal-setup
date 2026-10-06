@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: migration_policy_golden
+title: Migration Policy Golden
+status: active
+objective: Verify Q39 migration stages, states, compatibility rules, and no mandatory migration boundary.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task migration_policy_golden
+no_model_calls: true
+no_network_calls: true

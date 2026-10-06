@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.ledgers.branch-provenance.v0",
+  "title": "AIDE Branch Provenance",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "branch",
+    "role",
+    "base_commit",
+    "head_commit",
+    "workunit_refs",
+    "actor_refs",
+    "machine_id",
+    "created_at",
+    "updated_at",
+    "integration_status",
+    "promotion_status",
+    "no_remote_mutation_boundary"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.branch-provenance.v0" },
+    "branch": { "type": "string" },
+    "role": { "type": "string" },
+    "base_commit": { "type": "string" },
+    "head_commit": { "type": "string" },
+    "workunit_refs": { "type": "array", "items": { "type": "string" } },
+    "actor_refs": { "type": "array", "items": { "type": "string" } },
+    "machine_id": { "type": "string" },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "integration_status": { "type": "string" },
+    "promotion_status": { "type": "string" },
+    "no_remote_mutation_boundary": { "type": "boolean", "const": true }
+  },
+  "additionalProperties": false
+}

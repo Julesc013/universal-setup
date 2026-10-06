@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: capability_seed_presence_golden
+title: Capability Seed Presence Golden
+status: active
+description: Verify X-OS-02 capability seeds, schemas, states, modifiers, and required files exist.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task capability_seed_presence_golden
+quality_dimensions:
+  - capability_reality
+  - schema_shape
+  - policy_anchors

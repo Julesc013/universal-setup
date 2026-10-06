@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE GitHub Release Checklist",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "checklist_id",
+    "source_commit",
+    "release_bundle_ref",
+    "checks",
+    "blockers",
+    "warnings",
+    "manual_review_required",
+    "no_publish"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "checklist_id": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "release_bundle_ref": {"type": "string"},
+    "checks": {"type": "array", "items": {"type": "object"}},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "manual_review_required": {"type": "array", "items": {"type": "string"}},
+    "no_publish": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

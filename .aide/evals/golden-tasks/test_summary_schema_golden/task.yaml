@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: test_summary_schema_golden
+title: Test Summary Schema Golden
+status: active
+description: Verify compact test summary validation accepts compact examples and rejects raw log payloads.
+

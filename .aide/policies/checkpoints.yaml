@@ -1,0 +1,62 @@
+schema_version: aide.checkpoints-policy.v0
+policy_id: aide-task-os-checkpoints-v0
+status: active-pending-review
+mode: report_only_no_apply
+purpose: >
+  Define report-only checkpoint inputs, validation tiers, warning disposition,
+  repair pass limits, and promotion decision classes.
+
+checkpoint_inputs:
+  - candidate_workunits
+  - merge_plan_refs
+  - validation_tiers_required
+  - blocker_refs
+  - warning_disposition
+  - evidence_refs
+  - branch_provenance_refs
+
+validation_tiers:
+  normal_post_task: [T0, T1]
+  checkpoint: [T0, T1, relevant_T2, T3]
+  promotion: [T0, T1, relevant_T2, T3]
+  release: [T0, T1, relevant_T2, T3]
+
+warning_disposition_classes:
+  - harmless
+  - expected_generated_state
+  - expected_review_gate
+  - expected_dirty_pack_provenance
+  - assigned_next
+  - blocking
+  - unknown_needs_review
+
+promotion_decisions:
+  - promote
+  - promote_with_classified_warnings
+  - repair_required
+  - quarantine_required
+  - defer
+  - blocked
+  - unknown
+
+repair_pass_limits:
+  max_checkpoint_repair_passes: 2
+  repeated_same_blocker_requires_quarantine_or_human_decision: true
+
+required_evidence_for_promotion:
+  - validation tier evidence
+  - review packet or equivalent review record
+  - blocker ledger status
+  - capability reality ledger status
+  - branch provenance record when branch work exists
+
+failure_quarantine_handling:
+  unsafe_or_unknown_warnings_block_main: true
+  fail_unknown_blocks_promotion: true
+  quarantine_is_not_deletion: true
+
+boundaries:
+  merge_apply_allowed: false
+  promotion_apply_allowed: false
+  checkpoint_apply_allowed: false
+  branch_mutation_allowed: false

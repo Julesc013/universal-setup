@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: root_recycling_policy_golden
+title: Root Recycling Policy Golden
+status: active
+objective: Verify Q40 root recycling policies define deterministic dry-run and no-apply anchors.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task root_recycling_policy_golden
+no_model_calls: true
+no_network_calls: true

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.ownership-record.schema.v0",
+  "type": "object",
+  "required": [
+    "path",
+    "ownership_class",
+    "source",
+    "installed_by",
+    "managed_section",
+    "preserve",
+    "target_specific",
+    "local_only",
+    "evidence_refs"
+  ],
+  "properties": {
+    "path": {"type": "string"},
+    "ownership_class": {"type": "string"},
+    "source": {"type": "string"},
+    "installed_by": {"type": "string"},
+    "managed_section": {"type": "boolean"},
+    "preserve": {"type": "boolean"},
+    "target_specific": {"type": "boolean"},
+    "local_only": {"type": "boolean"},
+    "evidence_refs": {"type": "array"}
+  }
+}

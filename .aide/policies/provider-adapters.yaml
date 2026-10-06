@@ -1,0 +1,68 @@
+schema_version: aide.provider-adapters-policy.v0
+policy_id: q20-provider-adapter-v0
+status: active-pending-review
+purpose: >
+  Define Q20 offline provider-adapter contracts and metadata validation for
+  provider families before AIDE enables live provider calls, model calls,
+  outbound network calls, provider probes, Gateway forwarding, credential setup,
+  provider billing, or runtime execution.
+operating_mode:
+  - offline_contracts_only
+  - metadata_validation_only
+  - no_provider_calls
+adapter_classes:
+  - deterministic_tool
+  - human_review
+  - local_model
+  - remote_model
+  - aggregator
+  - unknown
+provider_families:
+  - deterministic_tools
+  - human
+  - local_ollama
+  - local_lm_studio
+  - local_llama_cpp
+  - local_vllm
+  - local_sglang
+  - openai
+  - anthropic
+  - google_gemini
+  - deepseek
+  - openrouter
+  - other_remote_provider
+credential_policy:
+  credentials_required_must_be_declared: true
+  credentials_never_committed: true
+  credentials_live_only_in_local_state: true
+  local_state_root: .aide.local/
+call_policy:
+  live_calls_allowed_in_q20: false
+  network_calls_allowed_in_q20: false
+  model_calls_allowed_in_q20: false
+  provider_probe_calls_allowed_in_q20: false
+output_policy:
+  provider_status_metadata_allowed: true
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+  no_secret_logging: true
+quality_policy:
+  provider_selection_must_respect_router_profile: true
+  hard_floors_must_not_demote: true
+  verifier_and_golden_tasks_not_bypassed: true
+future_work:
+  - provider_probe_phase_required
+  - gateway_forwarding_phase_required
+  - credential_setup_phase_required
+validation:
+  metadata_must_list_provider_family: true
+  metadata_must_declare_credentials_required: true
+  metadata_must_declare_privacy_class: true
+  metadata_must_disable_live_calls_in_q20: true
+  no_credentials_in_committed_metadata: true
+limitations:
+  - no_measured_provider_performance
+  - no_live_provider_availability
+  - no_current_pricing_claims
+  - no_local_model_installation_claims
+  - no_gateway_forwarding

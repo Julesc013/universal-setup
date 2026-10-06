@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.test-map-schema.v0",
+  "title": "AIDE Test Map",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "records"],
+  "properties": {
+    "schema_version": {"const": "aide.test-map.v0"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test_path", "likely_targets", "confidence", "reasons"],
+        "properties": {
+          "test_path": {"type": "string"},
+          "likely_targets": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "string"},
+          "reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

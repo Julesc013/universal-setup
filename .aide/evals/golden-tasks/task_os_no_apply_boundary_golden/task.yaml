@@ -1,0 +1,10 @@
+id: task_os_no_apply_boundary_golden
+title: Task OS No Apply Boundary Golden
+status: active
+objective: Verify Task OS v0 stays report-only and does not introduce apply behavior.
+quality_dimensions:
+  - no_apply
+  - no_branch_mutation
+  - no_target_mutation
+runner: .aide/scripts/aide_lite.py eval run --task task_os_no_apply_boundary_golden
+no_call: true

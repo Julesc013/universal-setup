@@ -1,0 +1,41 @@
+schema_version: aide.local-state-policy.v0
+policy_id: q18-cache-local-state-boundary
+status: active-pending-review
+purpose: >
+  Separate committed AIDE contract state from machine-local runtime state so
+  future Gateway, Runtime, provider, cache, trace, and ledger work does not
+  commit secrets, raw prompts, raw responses, or user-specific local data.
+committed_state_root: .aide/
+local_state_root: .aide.local/
+local_state_example_root: .aide.local.example/
+secrets_policy:
+  never_commit_secrets: true
+  provider_keys_local_only: true
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+allowed_local_state:
+  - provider_key_refs
+  - local user preferences
+  - prompt hashes
+  - response hashes
+  - context cache
+  - tool result cache
+  - route decision cache
+  - traces
+  - local ledgers
+  - embeddings/vector indexes only under future explicit policy
+forbidden_committed_state:
+  - actual `.aide.local/`
+  - secrets
+  - provider keys
+  - raw prompts
+  - raw responses
+  - local traces
+  - machine-specific absolute paths
+migration_note:
+  - future Gateway/Service must respect this boundary
+validation_requirements:
+  - .aide.local/ must be gitignored
+  - .aide.local/ must not be tracked or staged
+  - .aide.local.example/ must contain examples only
+  - committed cache reports must be metadata only

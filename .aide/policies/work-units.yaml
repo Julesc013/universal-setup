@@ -1,0 +1,82 @@
+schema_version: aide.work-units-policy.v0
+policy_id: aide-workunit-idempotency-standard-v0
+status: active
+purpose: >
+  Define WorkUnit identity, idempotency, completion, duplicate handling, and
+  recovery predicates for replay-safe AIDE queue execution.
+identity_model:
+  stable_id_required: true
+  canonical_id_sources:
+    - queue_task_id
+    - task_yaml_id
+    - latest_task_packet_phase
+  idempotency_key: "{task_id}:{allowed_paths_hash}:{acceptance_hash}"
+required_preflight:
+  - inspect_git_status
+  - inspect_current_branch_role
+  - inspect_queue_index
+  - inspect_task_yaml
+  - inspect_status_yaml
+  - inspect_existing_evidence
+  - inspect_latest_task_packet
+  - inspect_dependency_status
+branch_aware_recovery:
+  canonical_main: discourage direct edits except emergency repair
+  integration_dev: allow direct edits only for integration repair or explicit scope
+  task_branch: preferred for normal bounded work
+  unknown_branch: conservative inspect-before-editing state
+  duplicate_work: no-op if accepted work is already contained in current branch
+  q28_behavior: report_only_no_branch_mutation
+dependency_handling:
+  missing_dependency: report_blocked
+  partial_dependency: prefer_safe_completion_or_stop
+  passed_with_notes_dependency: proceed_with_recorded_warnings
+completion_predicates:
+  - status_is_needs_review_or_passed
+  - required_evidence_files_exist
+  - validation_evidence_present
+  - acceptance_criteria_addressed
+  - no_forbidden_paths_touched
+duplicate_behavior:
+  if_already_complete: noop_already_complete
+  if_partial: resume_from_evidence
+  if_conflicting_prompt: reconcile_before_editing
+out_of_order_behavior:
+  inspect_prerequisites_first: true
+  do_not_skip_required_repair_silently: true
+  document_reconciliation: true
+dirty_tree_behavior:
+  preserve_unrelated_changes: true
+  classify_changes_against_allowed_paths: true
+  stop_on_forbidden_or_destructive_ambiguity: true
+evidence_requirements:
+  - changed-files.md
+  - validation.md
+  - phase_specific_reports
+  - remaining-risks.md
+no_op_behavior:
+  result_state: noop_already_complete
+  required_output: no-op reason, evidence refs, validation summary
+  mutation_allowed: false
+recovery_behavior:
+  default_mode: report_first
+  autonomous_recovery_allowed_for:
+    - missing_bounded_metadata
+    - stale_status_reconciliation
+    - generated_artifact_refresh
+  stop_required_for:
+    - missing_external_secret
+    - destructive_ambiguity
+    - manual_content_conflict_without_clear_merge
+states:
+  - planned
+  - ready
+  - running
+  - partial
+  - needs_review
+  - passed
+  - passed_with_notes
+  - blocked
+  - superseded
+  - noop_already_complete
+  - reopened

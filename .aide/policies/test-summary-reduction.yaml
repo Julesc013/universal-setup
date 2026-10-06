@@ -1,0 +1,20 @@
+schema_version: aide.test-summary-reduction-policy.v0
+policy_id: aide.test-summary-reduction.v0
+status: active-pending-review
+mode: compact_summary
+
+compact_summary:
+  no_raw_log_payload: true
+  selected_tracebacks: allowed_when_short_and_relevant
+  raw_logs: external_artifacts_only
+  failure_family_summary: required
+  timeout_classification: required
+  stale_summary_detection: required
+  secret_scan_required: true
+
+rules:
+  no_skip_to_pass: true
+  must_not_delete_tests: true
+  skip_to_make_green_forbidden: true
+  long_output_must_be_reduced_before_ai_review: true
+

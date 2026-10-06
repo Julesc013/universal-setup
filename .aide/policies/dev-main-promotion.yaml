@@ -1,0 +1,54 @@
+schema_version: aide.dev-main-promotion-policy.v0
+policy_id: aide-task-os-dev-main-promotion-v0
+status: active-pending-review
+mode: report_only_no_branch_mutation
+purpose: >
+  Define the Task OS interpretation of dev as progress surface and main as
+  evidence-backed truth surface without implementing branch mutation.
+
+branch_doctrine:
+  dev: progress surface
+  main: evidence-backed truth surface
+
+may_enter_dev:
+  - done_local work with task evidence
+  - classified non-fatal warnings
+  - repairable partial work only when clearly marked and isolated
+  - report-only generated evidence
+
+may_not_enter_dev:
+  - unsafe unquarantined blockers
+  - unknown destructive risk
+  - unclassified target mutation
+  - raw prompt execution artifacts
+
+may_enter_main:
+  - reviewed checkpoint candidates
+  - full required validation tiers passed
+  - warnings classified and accepted by policy
+  - capability reality matches implementation evidence
+  - branch provenance and task ledgers are coherent
+
+blocks_main:
+  - FAIL_REPAIRABLE
+  - FAIL_UNSAFE
+  - FAIL_UNKNOWN
+  - missing T3 when promotion requires T3
+  - unresolved unsafe blocker
+  - docs-only claim without implementation evidence
+  - release draft treated as publication
+  - dry-run treated as apply
+
+result_semantics:
+  PASS: evidence supports the gate
+  PASS_WITH_WARNINGS: evidence supports the gate with classified warnings
+  FAIL_REPAIRABLE: repair task or split required before promotion
+  FAIL_UNSAFE: quarantine and human decision required
+  FAIL_UNKNOWN: classify before continuation or promotion
+
+boundaries:
+  branch_creation_allowed: false
+  merge_allowed: false
+  push_allowed: false
+  promotion_allowed: false
+  remote_mutation_allowed: false

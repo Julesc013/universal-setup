@@ -1,0 +1,8 @@
+{
+  "example_id": "evidence-review",
+  "task_text": "Review the latest compact evidence packet for PASS_WITH_NOTES",
+  "expected_task_class": "evidence_review_packet",
+  "expected_route_class": "frontier",
+  "fallback_route_class": "human_review",
+  "reason": "Premium review is justified only from compact review-packet evidence."
+}

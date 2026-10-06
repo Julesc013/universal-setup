@@ -1,0 +1,142 @@
+schema_version: aide.rollback-classes-policy.v0
+policy_id: aide.rollback-classes.v0
+status: active
+purpose: >
+  Define rollback planning classes used to describe future recovery actions
+  without applying them in Q46.
+class_requirements:
+  required_fields:
+    - class_id
+    - detection_hints
+    - risk_class
+    - preserve_by_default
+    - future_apply_allowed
+    - validation_required
+    - evidence_required
+    - rollback_note_required
+classes:
+  restore_previous_portable_file_future:
+    detection_hints:
+      - upgrade plan updated an AIDE-owned portable file
+      - prior source reference is available
+    risk_class: medium
+    preserve_by_default: false
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  remove_new_portable_file_future:
+    detection_hints:
+      - install or upgrade plan introduced a new AIDE-owned portable file
+      - ownership ledger confirms non-target-specific ownership
+    risk_class: high
+    preserve_by_default: false
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  restore_managed_section_future:
+    detection_hints:
+      - managed section snapshot exists
+      - manual content outside markers is preserved
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  restore_previous_policy_future:
+    detection_hints:
+      - policy file changed from a previous AIDE-owned version
+    risk_class: medium
+    preserve_by_default: false
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  restore_previous_script_future:
+    detection_hints:
+      - script file changed from a previous AIDE-owned version
+    risk_class: high
+    preserve_by_default: false
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  regenerate_target_state_future:
+    detection_hints:
+      - generated target state can be recreated by target-local commands
+    risk_class: medium
+    preserve_by_default: true
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  preserve_target_specific:
+    detection_hints:
+      - target memory, queue, evidence, reports, golden tasks, doctrine, or tools
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: never_without_target_review
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  manual_review_required:
+    detection_hints:
+      - unknown owner
+      - manual content
+      - ambiguous plan evidence
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  blocked_missing_ledger:
+    detection_hints:
+      - ownership ledger is missing
+      - prior install or upgrade evidence is missing
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  blocked_ambiguous_ownership:
+    detection_hints:
+      - owner cannot be established
+      - path appears in both source pack and target-specific state
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  blocked_local_state_or_secret:
+    detection_hints:
+      - .aide.local, .env, secrets, or secret-like path is tracked
+    risk_class: critical
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+  no_action:
+    detection_hints:
+      - no rollback action is needed
+    risk_class: low
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: false
+    evidence_required: false
+    rollback_note_required: false
+  unknown:
+    detection_hints:
+      - no deterministic class matches
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+    rollback_note_required: true
+

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Release Validation",
+  "type": "object",
+  "required": [
+    "validation_id",
+    "commands",
+    "fixture_extract",
+    "checksum_validation",
+    "pack_status",
+    "secret_scan",
+    "warnings",
+    "blockers"
+  ],
+  "properties": {
+    "validation_id": {"type": "string"},
+    "commands": {"type": "array"},
+    "fixture_extract": {"type": "object"},
+    "checksum_validation": {"type": "object"},
+    "pack_status": {"type": "string"},
+    "secret_scan": {"type": "object"},
+    "warnings": {"type": "array"},
+    "blockers": {"type": "array"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,112 @@
+schema_version: aide.capability-reality-policy.v0
+policy_id: aide-task-os-capability-reality-v0
+status: active-pending-review
+mode: report_only_no_apply
+purpose: >
+  Prevent docs, fixtures, dry-runs, report-only commands, and metadata from
+  being misread as implemented or exposed product capability.
+
+capability_states:
+  - planned
+  - specified
+  - stubbed
+  - implemented
+  - tested
+  - exposed
+  - documented
+  - deprecated
+  - removed
+  - unknown
+
+evidence_classes:
+  - docs_only
+  - fixture_only
+  - report_only
+  - dry_run_only
+  - no_call
+  - release_draft_only
+  - local_generated
+  - source_generated
+  - target_specific
+  - test_only
+  - schema_only
+  - policy_only
+  - command_surface
+  - runtime_code
+  - export_pack
+  - queue_evidence
+  - unknown
+
+reality_modifiers:
+  - local_only
+  - report_only
+  - dry_run_only
+  - no_call
+  - release_draft_only
+  - target_specific
+  - source_generated_only
+  - fixture_only
+  - docs_only
+  - test_only
+  - review_gated
+  - apply_gated
+  - deprecated
+  - removed
+  - unknown
+
+overclaim_classes:
+  - docs_only_claimed_as_implemented
+  - fixture_only_claimed_as_production
+  - report_only_claimed_as_apply
+  - no_call_claimed_as_live_provider
+  - release_draft_claimed_as_published
+  - dry_run_claimed_as_apply
+  - source_generated_claimed_as_target_truth
+  - target_pilot_claimed_as_product_general
+  - test_only_claimed_as_exposed
+  - deprecated_claimed_as_active
+  - removed_claimed_as_available
+  - unknown_claimed_as_verified
+
+proof_rules:
+  docs_only_claims_are_not_implementation_proof: true
+  fixture_only_behavior_is_not_production_behavior: true
+  report_only_commands_are_not_apply_behavior: true
+  no_call_provider_metadata_is_not_live_provider_integration: true
+  release_draft_is_not_publication: true
+  install_dry_run_is_not_install_apply: true
+  repair_dry_run_is_not_repair_apply: true
+  branch_plan_is_not_branch_mutation: true
+  gateway_status_is_not_gateway_runtime_forwarding: true
+  target_pilot_is_not_product_general_availability: true
+  source_generated_state_is_not_target_truth: true
+  unknown_state_must_not_be_promoted_to_verified: true
+
+ledger_requirements:
+  capability_id_required: true
+  dominant_state_required: true
+  evidence_refs_required: true
+  evidence_class_required: true
+  reality_notes_required: true
+  no_apply_boundary_required: true
+  overclaim_review_required: true
+
+command_boundary:
+  status_command: report_only
+  scan_command: report_only
+  ledger_command: report_only
+  overclaim_report_command: report_only
+  validate_command: report_only
+  task_execution_allowed: false
+  repair_execution_allowed: false
+  apply_allowed: false
+  target_mutation_allowed: false
+  branch_mutation_allowed: false
+  release_publication_allowed: false
+  provider_or_model_calls_allowed: false
+  network_calls_allowed: false
+
+promotion_gate:
+  mismatch_blocks_main: true
+  unknown_state_blocks_main: true
+  documented_without_evidence_is_warning_or_blocker: true

@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import tomllib
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tools import aide_pack_policy_check
 EXPECTED_LICENSE = """MIT License
 
 Copyright (c) 2026 Jules C
@@ -32,7 +35,7 @@ SOFTWARE.
 SPDX_COPYRIGHT = "SPDX-FileCopyrightText: 2026 Jules C"
 SPDX_LICENSE = "SPDX-License-Identifier: MIT"
 COVERED_SUFFIXES = {".c", ".cmake", ".cpp", ".h", ".py", ".toml", ".yaml", ".yml"}
-IGNORED_PARTS = {".git", ".pytest_cache", "__pycache__", "build", "dist", "out"}
+IGNORED_PARTS = {".aide.local", ".git", ".pytest_cache", "__pycache__", "build", "dist", "out"}
 
 
 def separately_validated_third_party(relative: Path) -> bool:
@@ -88,8 +91,14 @@ def validate() -> list[str]:
             "provenance_file": "external/zlib/provenance.v1.toml",
         }]:
             problems.append("license contract zlib dependency record drifted")
+        if contract.get("third_party_development_dependency") != [aide_pack_policy_check.DEVELOPMENT_DEPENDENCY]:
+            problems.append("license contract AIDE development dependency record drifted")
 
+    aide_problems, aide_licensed = aide_pack_policy_check.validate(ROOT)
+    problems.extend(aide_problems)
     for path in covered_files():
+        if path.relative_to(ROOT) in aide_licensed:
+            continue
         header = "\n".join(path.read_text(encoding="utf-8").splitlines()[:8])
         relative = path.relative_to(ROOT)
         if SPDX_COPYRIGHT not in header:

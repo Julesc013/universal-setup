@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "required": [
+    "operation_id",
+    "uninstall_class",
+    "target_path",
+    "ownership_class",
+    "action",
+    "reason",
+    "preserve_target_state",
+    "delete_allowed",
+    "managed_section_removal_allowed",
+    "apply_allowed",
+    "validation_required",
+    "recovery_hint"
+  ],
+  "properties": {
+    "operation_id": {"type": "string"},
+    "uninstall_class": {"type": "string"},
+    "target_path": {"type": "string"},
+    "ownership_class": {"type": "string"},
+    "action": {"type": "string"},
+    "reason": {"type": "string"},
+    "preserve_target_state": {"type": "boolean"},
+    "delete_allowed": {"type": "boolean", "default": false},
+    "managed_section_removal_allowed": {"type": "boolean", "default": false},
+    "apply_allowed": {"type": "boolean", "default": false},
+    "validation_required": {"type": "array"},
+    "recovery_hint": {"type": "string"}
+  }
+}
+

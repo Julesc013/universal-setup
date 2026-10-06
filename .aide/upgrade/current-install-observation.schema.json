@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "target_root",
+    "installed_aide_state",
+    "installed_versions",
+    "installed_files",
+    "target_specific_files",
+    "generated_target_state",
+    "preserved_surfaces",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "target_root": {"type": "string"},
+    "installed_aide_state": {"type": "object"},
+    "installed_versions": {"type": "object"},
+    "installed_files": {"type": "array"},
+    "target_specific_files": {"type": "array"},
+    "generated_target_state": {"type": "array"},
+    "preserved_surfaces": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}

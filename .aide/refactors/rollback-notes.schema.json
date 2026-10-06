@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.rollback-notes.schema.v0",
+  "type": "object",
+  "required": [
+    "rollback_id",
+    "status",
+    "preconditions",
+    "restore_steps",
+    "validation",
+    "risks",
+    "no_apply"
+  ],
+  "properties": {
+    "rollback_id": {"type": "string"},
+    "status": {"type": "string"},
+    "preconditions": {"type": "array"},
+    "restore_steps": {"type": "array"},
+    "validation": {"type": "array"},
+    "risks": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

@@ -1,0 +1,63 @@
+schema_version: aide.root-inventory-policy.v0
+policy_id: aide-root-inventory-v0
+status: active
+purpose: >
+  Define deterministic local inputs and grouping rules for root-level inventory.
+
+operating_mode:
+  deterministic_local: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  inventory_only: true
+  no_file_moves: true
+  no_file_deletes: true
+
+source_inputs:
+  - git_tracked_files
+  - repo_intelligence_index
+  - file_quality_ledger
+  - top_level_directory_listing
+  - known_generated_local_source_control_roots
+  - known_aide_surfaces
+  - root_exception_records
+
+root_grouping:
+  top_level_directory: default
+  root_files_group: repo-root
+  dot_directory_root_preserved: true
+  normalized_separator: /
+
+known_root_roles:
+  .aide: AIDE control plane
+  .agents: agent configuration and skills
+  core: shared core and harness surfaces
+  docs: documentation
+  scripts: executable entrypoints
+  shared: shared code or records
+  hosts: host adapters
+  bridges: bridge records
+  governance: governance records
+  inventory: inventory records
+  matrices: support and capability matrices
+  specs: specifications
+  tests: tests
+  fixtures: fixtures
+  repo-root: root documentation and project metadata
+
+generated_or_local_boundaries:
+  generated_patterns:
+    - .aide/export/**
+    - .aide/context/latest-*
+    - .aide/reports/**
+    - .aide/roots/latest-*
+  local_forbidden_patterns:
+    - .aide.local/**
+    - .env
+    - secrets/**
+
+review_language:
+  use_candidate_language: true
+  no_dead_file_claims: true
+  no_deletion_approval: true
+  future_maps_required_before_moves: true

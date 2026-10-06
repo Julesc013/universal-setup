@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.map-validation-report.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "result",
+    "checks",
+    "warnings",
+    "no_apply",
+    "move_delete_rewrite_detected"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "result": {"type": "string"},
+    "checks": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true},
+    "move_delete_rewrite_detected": {"const": false}
+  }
+}

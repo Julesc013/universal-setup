@@ -1,0 +1,55 @@
+schema_version: aide.model-capabilities.v0
+registry_id: q17-advisory-capability-dimensions
+status: advisory_metadata_only
+purpose: >
+  Define capability dimensions used by route profiles. Q17 does not claim any
+  live provider availability, current pricing, or model-specific performance.
+capability_dimensions:
+  - capability_id: code_edit
+    description: Can propose or apply bounded code changes when separately authorized and verified.
+  - capability_id: structured_output
+    description: Can produce deterministic-ish structured text for review or tooling.
+  - capability_id: json_schema
+    description: Can target schema-shaped output when a future provider supports it.
+  - capability_id: long_context
+    description: Can consume larger compact packets when required by risk or complexity.
+  - capability_id: tool_use
+    description: Can use tools under a future controlled runtime.
+  - capability_id: local_execution
+    description: Can run deterministic repo-local commands without model calls.
+  - capability_id: privacy_sensitive
+    description: Suitable for local or human-first handling of sensitive work.
+  - capability_id: reasoning_heavy
+    description: Suitable for high-uncertainty design, safety, or final review.
+  - capability_id: cheap_bulk
+    description: Suitable for low-risk repeatable drafts when externally checkable.
+  - capability_id: frontier_review
+    description: Suitable for high-stakes review where premium reasoning is justified.
+  - capability_id: human_judgement
+    description: Requires accountable human decision or explicit review gate.
+  - capability_id: deterministic_transform
+    description: Can be completed by scripts/tests without model generation.
+  - capability_id: test_execution
+    description: Can run or interpret deterministic tests.
+  - capability_id: file_system_access
+    description: Can inspect repo-local files under explicit path boundaries.
+provider_capability_notes:
+  deterministic_tools:
+    status: available_by_configuration
+    capabilities:
+      - deterministic_transform
+      - test_execution
+      - local_execution
+      - file_system_access
+  human:
+    status: available_by_configuration
+    capabilities:
+      - human_judgement
+      - frontier_review
+      - privacy_sensitive
+  local_model_families:
+    status: planned
+    capabilities_are_advisory: true
+  remote_model_families:
+    status: planned
+    capabilities_are_advisory: true

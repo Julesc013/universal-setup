@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+task_id: token-ledger-budget-check
+title: Token Ledger Budget Check
+status: active
+purpose: Check that estimated token metadata exists without raw prompt or response storage.
+input_refs:
+  - .aide/reports/token-ledger.jsonl
+  - .aide/reports/token-savings-summary.md
+  - .aide/policies/token-ledger.yaml
+acceptance_ref: .aide/evals/golden-tasks/token-ledger-budget-check/acceptance.md
+expected_result: PASS

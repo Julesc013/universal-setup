@@ -1,0 +1,68 @@
+schema_version: aide.refactor-policy.v0
+policy_id: aide-refactor-control-plane-v0
+status: active
+purpose: >
+  Define AIDE's deterministic local refactor planning model so structural
+  changes are represented as reviewable dry-run plans before any future apply
+  phase moves, deletes, rewrites, migrates, or refactors files.
+operating_mode:
+  deterministic_local: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  dry_run_first: true
+  no_apply_in_q39: true
+  no_file_moves: true
+  no_file_deletes: true
+  no_reference_rewrites: true
+refactor_classes:
+  - rename
+  - move
+  - split
+  - extract
+  - convert
+  - archive
+  - drop_candidate
+  - shim
+  - alias
+  - generated_boundary_fix
+  - docs_reference_fix
+  - test_coverage_followup
+  - ownership_reclassification
+fate_vocabulary:
+  keep: preserve in place.
+  wrap: preserve and place a future wrapper around behavior.
+  adapt: preserve and adapt through a future compatibility layer.
+  extract: candidate for future extraction after review.
+  convert: candidate for future format or structure conversion after review.
+  archive: candidate for future archival; not applied in Q39.
+  drop_candidate: candidate requiring review; never deletion approval.
+  shim: planned compatibility surface; not created in Q39.
+  alias: planned path alias; not applied in Q39.
+  unknown: unresolved fate requiring more evidence.
+planning_inputs:
+  - repo_intelligence_index
+  - file_quality_ledger
+  - intent_packet
+  - workunit_draft
+  - branch_policy
+  - validation_policy
+output_artifacts:
+  - refactor_plan
+  - move_map
+  - salvage_map
+  - path_aliases
+  - migration_ledger
+  - rollback_notes
+  - evidence_packet
+candidate_language_required: true
+drop_candidate_is_deletion_approval: false
+archive_is_applied: false
+shim_is_created: false
+alias_is_applied: false
+non_goals:
+  - no apply
+  - no moves
+  - no deletes
+  - no target mutation
+  - no source rewrite

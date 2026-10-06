@@ -1,0 +1,24 @@
+schema_version: aide.upgrade-migrations-policy.v0
+policy_id: aide.upgrade-migrations.v0
+status: active
+purpose: >
+  Define mandatory and optional migration gates for future AIDE upgrades.
+mandatory_migration_reasons:
+  - unsafe old format
+  - unsupported schema version
+  - validation blocker
+  - ambiguous truth
+  - source-state contamination
+  - current file blocks command execution
+  - current file conflicts with canonical AIDE ownership
+optional_migration_reasons:
+  - old naming convention
+  - legacy-but-compatible policy
+  - target-local extension can remain
+  - old generated packet can be regenerated later
+rules:
+  mandatory_migration_planned_only_in_q45: true
+  optional_migrations_deferred: true
+  no_migration_applied_in_q45: true
+  automatic_migration_allowed: false
+  future_migration_requires_evidence_and_rollback: true

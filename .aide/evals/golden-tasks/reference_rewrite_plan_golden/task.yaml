@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+task_id: reference_rewrite_plan_golden
+title: Reference Rewrite Plan Golden
+status: active
+runner: aide_lite
+command: eval run --task reference_rewrite_plan_golden
+deterministic: true
+network_calls: false
+provider_calls: false

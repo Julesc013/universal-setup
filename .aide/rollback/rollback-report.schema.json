@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "observation_ref",
+    "plan_ref",
+    "dry_run_ref",
+    "future_actions",
+    "preservations",
+    "blockers",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "observation_ref": {"type": "string"},
+    "plan_ref": {"type": "string"},
+    "dry_run_ref": {"type": "string"},
+    "future_actions": {"type": "integer"},
+    "preservations": {"type": "integer"},
+    "blockers": {"type": "integer"},
+    "no_apply": {"type": "boolean"}
+  }
+}
+

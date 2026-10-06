@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: managed_section_schema_presence_golden
+title: Managed Section Schema Presence Golden
+status: active
+task_type: golden_task
+runner: .aide/scripts/aide_lite.py eval run --task managed_section_schema_presence_golden

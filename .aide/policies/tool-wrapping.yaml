@@ -1,0 +1,34 @@
+schema_version: aide.tool-wrapping-policy.v0
+policy_id: aide.tool-wrapping.v0
+status: active
+purpose: >
+  Define future wrapper planning records for existing tools. Q41 records wrapper
+  intent only and does not execute wrappers.
+wrapper_model:
+  required_fields:
+    - wrapper_id
+    - source_tool
+    - capability_family
+    - input_contract
+    - output_contract
+    - command_preview
+    - validation_required
+    - safety_notes
+    - execution_allowed
+defaults:
+  execution_allowed: false
+  no_apply: true
+  wrapper_status: planned
+  command_preview_executes: false
+safety_rules:
+  unknown_tool_execution_allowed: false
+  command_preview_is_documentation_only: true
+  wrapper_creation_requires_future_review: true
+  target_repo_wrapper_execution_requires_target_generated_plan: true
+validation_required:
+  - source tool inventory record
+  - capability classification
+  - risk classification
+  - output contract or evidence-only output rule
+  - nonzero validation plan
+  - no raw secret capture

@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: quality_no_delete_recommendation_golden
+title: Quality No Delete Recommendation Golden
+status: active
+objective: Verify Q38 quality outputs never recommend deletion as final truth.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task quality_no_delete_recommendation_golden
+no_model_calls: true
+no_network_calls: true
