@@ -830,14 +830,18 @@ int retired_reinstall_replay() {
 int concurrent_original_and_replay() {
     for (bool deflate : {false, true}) {
         Fixture fixture; auto original = plan(fixture, deflate);
-        std::mutex mutex; std::condition_variable ready; int verified = 0; bool release = false;
+        std::mutex mutex; std::condition_variable ready; int verified = 0, committing = 0;
+        bool release = false, commit_release = false;
         std::atomic<int> completed{0};
         std::string original_error, replay_error;
         const auto barrier = [&](const std::string&, const std::string& point) {
-            if (point != "transaction.verified.after_journal") return;
-            std::unique_lock<std::mutex> lock(mutex); ++verified; ready.notify_all();
-            if (!ready.wait_for(lock, std::chrono::seconds(20), [&] { return release; })) {
-                throw std::runtime_error("bounded commit rendezvous expired");
+            const bool commit = point == "transaction.committing.after_journal";
+            if (!commit && point != "transaction.verified.after_journal") return;
+            std::unique_lock<std::mutex> lock(mutex);
+            if (commit) ++committing; else ++verified;
+            ready.notify_all();
+            if (!ready.wait_for(lock, std::chrono::seconds(20), [&] { return commit ? commit_release : release; })) {
+                throw std::runtime_error(commit ? "bounded publication rendezvous expired" : "bounded verified rendezvous expired");
             }
         };
         std::thread first([&] {
@@ -846,7 +850,7 @@ int concurrent_original_and_replay() {
         });
         bool first_ready = false;
         { std::unique_lock<std::mutex> lock(mutex); first_ready = ready.wait_for(lock, std::chrono::seconds(20), [&] { return verified == 1; }); }
-        if (!first_ready) { { std::lock_guard<std::mutex> lock(mutex); release = true; } ready.notify_all(); first.join(); return 120; }
+        if (!first_ready) { { std::lock_guard<std::mutex> lock(mutex); release = true; commit_release = true; } ready.notify_all(); first.join(); return 120; }
         auto fresh = plan(fixture, deflate);
         const auto restart = native_restart_request(fixture, fresh, "old");
         std::thread second([&] {
@@ -855,10 +859,20 @@ int concurrent_original_and_replay() {
         });
         bool both_ready = false;
         { std::unique_lock<std::mutex> lock(mutex); both_ready = ready.wait_for(lock, std::chrono::seconds(20), [&] { return verified == 2; }); release = true; }
+        ready.notify_all();
+        // Verified transactions have not yet checked target absence. Keep
+        // either contender from publishing until both passed that preflight
+        // and durably entered committing; otherwise a valid earlier refusal
+        // can be mistaken for a failed no-replace rename race.
+        bool both_committing = false;
+        { std::unique_lock<std::mutex> lock(mutex);
+            if (both_ready) both_committing = ready.wait_for(lock, std::chrono::seconds(20), [&] { return committing == 2; });
+            commit_release = true;
+        }
         ready.notify_all(); first.join(); second.join();
-        if (!both_ready || completed.load() != 1 || read(fixture.root / "target/bin/probe.txt") != probe_content()) {
+        if (!both_ready || !both_committing || completed.load() != 1 || read(fixture.root / "target/bin/probe.txt") != probe_content()) {
             std::cerr << "concurrent commit: deflate=" << deflate << " both_ready=" << both_ready
-                << " completed=" << completed.load() << " original_error=" << original_error
+                << " both_committing=" << both_committing << " completed=" << completed.load() << " original_error=" << original_error
                 << " replay_error=" << replay_error << '\n';
             return 121;
         }

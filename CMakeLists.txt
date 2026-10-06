@@ -913,9 +913,12 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_interruption_recovery_smoke PRIVATE usk_lifecycle_static)
   add_test(NAME usk_interruption_recovery_smoke COMMAND usk_interruption_recovery_smoke)
 
-  add_executable(usk_public_lifecycle_smoke tests/native/usk_public_lifecycle_smoke.cpp)
+  add_executable(usk_public_lifecycle_smoke
+    tests/native/usk_public_lifecycle_smoke.cpp
+    runtime/command/usk_one_shot.cpp)
   target_compile_features(usk_public_lifecycle_smoke PRIVATE cxx_std_17)
-  target_include_directories(usk_public_lifecycle_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
+  target_include_directories(usk_public_lifecycle_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS}
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command")
   target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)
   add_test(NAME usk_public_lifecycle_smoke COMMAND usk_public_lifecycle_smoke)
 

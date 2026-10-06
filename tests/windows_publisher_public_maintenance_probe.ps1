@@ -24,6 +24,10 @@ function Invoke-StandardFreshMaintenance {
         --output $sourceRoot --target ($drive+'publication\destination\visible') --request-id ('maintenance.source.'+$id)
     if($LASTEXITCODE -ne 0){throw 'Maintenance replacement authoring failed'}
     $replacement=($generated -join "`n")|ConvertFrom-Json
+    $result['replacement_archive']=$replacement
+    if($replacement.archive_sha256 -cne $installed.source_archive_digest) {
+        throw 'Newly authored maintenance archive differs from the actual installed source binding'
+    }
     $sourceAcl=Get-Acl -LiteralPath $sourceRoot
     $sourceAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),
         'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
@@ -46,10 +50,11 @@ function Invoke-StandardFreshMaintenance {
                 -DriveRoot $drive -VisibleRoot $currentRoot -PayloadRelativePath 'bin/core.bin' -ExpectedSha256 $selected[0].sha256
         }
         $stamp=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
-        if($stamp -cle [string]$currentInstalled.created_at) {
+        $priorStamp=([DateTime]$currentInstalled.created_at).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        if($stamp -cle $priorStamp) {
             Start-Sleep -Milliseconds 1100
             $stamp=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
-            if($stamp -cle [string]$currentInstalled.created_at){throw 'Maintenance timestamp did not advance the actual installed revision'}
+            if($stamp -cle $priorStamp){throw 'Maintenance timestamp did not advance the actual installed revision'}
         }
         $planRequest=[ordered]@{schema=('usk.'+$operation+'_plan_request.v1');request_id=('request.'+$operation+'.'+$id);
             plan_id=('plan.'+$operation+'.'+$id);install_id=[string]$installed.install_id;created_at=$stamp}
@@ -61,12 +66,15 @@ function Invoke-StandardFreshMaintenance {
         Write-Json $requestPath @{schema='usk.oneshot_request.v1';request_id=$planRequest.request_id;
             command=($operation+'.plan');payload=$planRequest;dry_run=$true}
         $planned=& $MachineBinary --machine --request-file $requestPath --context-file $context
-        if($LASTEXITCODE -ne 0){throw ('Maintenance real planner refused '+$operation)}
+        $plannerExit=$LASTEXITCODE
         $plan=($planned -join "`n")|ConvertFrom-Json
+        $case.plan=$plan
+        $case['plan_request']=$planRequest
+        $case['planner_exit_code']=$plannerExit
+        if($plannerExit -ne 0){throw ('Maintenance real planner refused '+$operation+': '+($plan|ConvertTo-Json -Compress -Depth 16))}
         if($plan.status -cne 'ok' -or $plan.result.status -cne 'ok' -or
             $plan.result.payload.plan_id -cne $planRequest.plan_id -or
             $plan.result.payload.plan_digest -cnotmatch '^[0-9a-f]{64}$') {throw 'Maintenance real plan binding differs'}
-        $case.plan=$plan
         $applyMaintenance=[ordered]@{schema=('usk.'+$operation+'_apply_request.v1');plan_request=$planRequest;
             reviewed_plan_id=$planRequest.plan_id;reviewed_plan_digest=$plan.result.payload.plan_digest;
             transaction_id=('maintenance.'+$operation+'.'+$id);applied_at=$stamp;confirmation='APPLY'}

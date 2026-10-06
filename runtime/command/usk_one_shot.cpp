@@ -299,7 +299,8 @@ bool initial_command(const std::string& command)
 {
     return command == "command_graph.inspect" || command == "command_graph.inspect_v2" ||
         command == "policy.inspect" || command == "diagnostics.report" ||
-        command == "install_local.inspect" || command == "install_local.plan";
+        command == "install_local.inspect" || command == "install_local.plan" ||
+        command == "repair.plan" || command == "move.plan" || command == "uninstall.plan";
 }
 
 } // namespace
@@ -366,7 +367,9 @@ OneShotResult run_one_shot(const std::string& request_json,
             input.at("payload").type() != Value::Type::object) {
             return failure(request_id, "invalid_request");
         }
-        if ((command == "install_local.plan") != (context_config != nullptr)) {
+        const bool configured_plan = command == "install_local.plan" || command == "repair.plan" ||
+            command == "move.plan" || command == "uninstall.plan";
+        if (configured_plan != (context_config != nullptr)) {
             return failure(request_id, "context_mismatch");
         }
         if (context_config != nullptr && !valid_context(*context_config)) {

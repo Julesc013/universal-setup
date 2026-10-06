@@ -584,6 +584,19 @@ int main()
         "\"target_policy_activation\":\"operator_acceptance_candidate\"}");
     const auto configured = usk::command::read_context_config(configuration);
     if (configured.state_root != "C:/setup") return 12;
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const auto plan_preview = usk::json::canonical(usk::json::Value(usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.oneshot_request.v1")}, {"request_id", usk::json::Value("maintenance.preview")},
+            {"command", usk::json::Value(operation + ".plan")}, {"payload", usk::json::Value(usk::json::Value::Object{})},
+            {"dry_run", usk::json::Value(true)}}));
+        if (!refused_with(plan_preview, "context_mismatch")) return 26;
+        auto live = usk::json::parse(plan_preview);
+        live.as_object()["dry_run"] = usk::json::Value(false);
+        if (usk::json::parse(usk::command::run_one_shot(usk::json::canonical(live), &configured).document)
+                .at("error").at("code").as_string() != "invalid_request") return 27;
+        live.as_object()["command"] = usk::json::Value(operation + ".apply");
+        if (!refused_with(usk::json::canonical(live), "command_unavailable")) return 28;
+    }
     const auto legacy = usk::command::run_one_shot(plan_request, &configured);
     if (legacy.exit_code == 0 ||
         usk::json::parse(legacy.document).at("error").at("code").as_string() !=
