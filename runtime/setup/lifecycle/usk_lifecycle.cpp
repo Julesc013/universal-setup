@@ -849,8 +849,10 @@ MaintenanceSession begin_maintenance(
             if (injector) injector("effects." + phase, point);
         });
     if (injector) injector("reviewed_plan", "before_write");
+    effects->require_effect_authority();
     usk::record_io::write_new_durable_text(artifact_path, artifact_text);
     if (injector) injector("reviewed_plan", "after_write");
+    effects->require_effect_authority();
     return {std::move(transaction), std::move(effects)};
 }
 
@@ -874,8 +876,10 @@ void maintenance_effect(usk::transaction::MaintenanceEffectJournal& journal,
 {
     journal.begin_effect(kind, details);
     if (injector) injector(operation, "effect." + kind + ".before_effect");
+    journal.require_effect_authority();
     effect();
     if (injector) injector(operation, "effect." + kind + ".after_effect");
+    journal.require_effect_authority();
     journal.complete_effect();
 }
 
@@ -923,8 +927,10 @@ void maintenance_installed_write(usk::transaction::MaintenanceEffectJournal& jou
         {"install_id", Value(installed.install_id)}, {"state_digest", Value(hash)},
         {"state_revision", maintenance_installed_revision(installed)}}));
     if (injector) injector(operation, "effect.write_installed.before_effect");
+    journal.require_effect_authority();
     repository.write_installed(installed);
     if (injector) injector(operation, "effect.write_installed.after_effect");
+    journal.require_effect_authority();
     journal.complete_effect("applied", hash);
 }
 
@@ -936,8 +942,10 @@ void maintenance_audit_append(usk::transaction::MaintenanceEffectJournal& journa
         {"input_digest", Value(usk::json::sha256_canonical(maintenance_audit_binding(input)))},
         {"input", maintenance_audit_binding(input)}}));
     if (injector) injector(operation, "effect.append_audit.before_effect");
+    journal.require_effect_authority();
     const auto event = usk::audit::AuditRepository(audit_root).append(chain_id, input);
     if (injector) injector(operation, "effect.append_audit.after_effect");
+    journal.require_effect_authority();
     journal.complete_effect("applied", event.event_digest);
 }
 
@@ -2354,8 +2362,10 @@ RepairResult apply_repair(
         effects.begin_effect("write_ownership", Value(Value::Object{{"manifest_id", Value(ownership.manifest_id)},
             {"prior_manifest_digest", Value(current.second.manifest_digest)}}));
         if (fault_injector) fault_injector("repair", "effect.write_ownership.before_effect");
+        effects.require_effect_authority();
         ownership = repository.write_ownership(std::move(ownership));
         if (fault_injector) fault_injector("repair", "effect.write_ownership.after_effect");
+        effects.require_effect_authority();
         effects.complete_effect("applied", ownership.manifest_digest);
         state::InstalledState installed = revised_state(
             current.first, ownership, transaction_id, applied_at, "verified", after);
@@ -2495,8 +2505,10 @@ MoveResult apply_move(
         effects.begin_effect("write_ownership", Value(Value::Object{{"manifest_id", Value(ownership.manifest_id)},
             {"prior_manifest_digest", Value(current.second.manifest_digest)}}));
         if (fault_injector) fault_injector("move", "effect.write_ownership.before_effect");
+        effects.require_effect_authority();
         ownership = repository.write_ownership(std::move(ownership));
         if (fault_injector) fault_injector("move", "effect.write_ownership.after_effect");
+        effects.require_effect_authority();
         effects.complete_effect("applied", ownership.manifest_digest);
         state::InstalledState provisional = current.first;
         provisional.target_root = plan.new_root.string();
@@ -2743,6 +2755,7 @@ UninstallResult apply_uninstall(
                 {"root_role", Value("installed")}, {"relative_path", Value(relative)},
                 {"native_identity", Value(identity)}}));
             if (fault_injector) fault_injector("uninstall", "effect.remove_directory.before_effect");
+            effects.require_effect_authority();
             std::error_code error;
             const bool removed = fs::remove(path, error) && !error;
             if (!removed) {
@@ -2751,6 +2764,7 @@ UninstallResult apply_uninstall(
                 result.retained_directories.push_back(relative);
             }
             if (fault_injector) fault_injector("uninstall", "effect.remove_directory.after_effect");
+            effects.require_effect_authority();
             effects.complete_effect(removed ? "applied" : "retained");
         }
         std::error_code root_observation_error;
@@ -2763,11 +2777,13 @@ UninstallResult apply_uninstall(
                 {"root_role", Value("installed")}, {"relative_path", Value("")},
                 {"native_identity", Value(identity)}}));
             if (fault_injector) fault_injector("uninstall", "effect.remove_directory.before_effect");
+            effects.require_effect_authority();
             std::error_code root_error;
             result.target_removed = fs::remove(install_root, root_error) && !root_error;
             if (!result.target_removed && transaction::observe_directory_identity(install_root) != identity)
                 throw std::runtime_error("retained uninstall root observation changed");
             if (fault_injector) fault_injector("uninstall", "effect.remove_directory.after_effect");
+            effects.require_effect_authority();
             effects.complete_effect(result.target_removed ? "applied" : "retained");
         }
 

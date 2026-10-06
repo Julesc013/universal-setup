@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_maintenance_effect_journal.h"
+#include "usk_native_maintenance_transaction_internal.h"
 #include "usk_record_io.h"
 #include "usk_utf8_path.h"
 
@@ -245,6 +246,7 @@ MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
     const std::string& source_context, FaultInjector injector)
     : spec_(std::move(spec)), injector_(std::move(injector))
 {
+    bind_original_owner();
     validate_context(spec_, source_context);
     source_digest_ = json::sha256_canonical(json::parse(source_context));
     directory_ = fs::absolute(spec_.state_root).lexically_normal() / "transactions" /
@@ -258,12 +260,36 @@ MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
         {"directory_identity", Value(directory_identity_)}}));
 }
 
+void MaintenanceEffectJournal::bind_original_owner()
+{
+#if defined(_WIN32)
+    native_origin_ = detail::ScopedNativeMaintenanceTransaction::current() != nullptr;
+    if (native_origin_) native_origin_binding_ = detail::ScopedNativeMaintenanceTransaction::current_binding();
+#endif
+    require_effect_authority();
+}
+
+void MaintenanceEffectJournal::require_effect_authority() const
+{
+#if defined(_WIN32)
+    detail::require_native_maintenance_origin_binding(native_origin_, native_origin_binding_,
+        detail::ScopedNativeMaintenanceTransaction::current_binding());
+    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+    if (native_origin_) {
+        if (!native) throw std::runtime_error("native maintenance effect journal lost its original owner");
+        native->require_authority(spec_);
+    } else if (native) throw std::runtime_error("ordinary effect journal cannot adopt native maintenance custody");
+#endif
+}
+
 void MaintenanceEffectJournal::persist(const std::string& phase, const Value& details)
 {
     if (failed_ || sealed_ || sequence_ >= maximum_records)
         throw std::runtime_error("maintenance journal cannot accept another record");
     try {
+        require_effect_authority();
         if (injector_) injector_(phase, "before_record");
+        require_effect_authority();
         if (observe_directory_identity(directory_) != directory_identity_)
             throw std::runtime_error("maintenance journal directory changed");
         if (sequence_ != 0u) {
@@ -288,6 +314,7 @@ void MaintenanceEffectJournal::persist(const std::string& phase, const Value& de
         bytes_ += text.size();
         ++sequence_;
         if (injector_) injector_(phase, "after_record");
+        require_effect_authority();
     } catch (...) {
         // A failed write/callback may have left a durable record. Reopening
         // through inspection is required; this object cannot retry over it.
@@ -409,6 +436,7 @@ MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
       pending_kind_(std::move(inspected.pending_kind)), pending_sequence_(inspected.pending_sequence),
       sequence_(inspected.next_sequence), bytes_(inspected.serialized_bytes)
 {
+    bind_original_owner();
 }
 
 std::unique_ptr<MaintenanceEffectJournal> MaintenanceEffectJournal::resume(const TransactionSpec& spec,

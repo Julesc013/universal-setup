@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
+namespace usk::transaction { class MaintenanceEffectJournal; }
 namespace usk::transaction::detail {
 // Read-only lifetime policy. Supplied identities confer no native scope or
 // authority; the session separately uses the engine's private current binding.
@@ -36,6 +37,7 @@ public:
     ScopedNativeMaintenanceTransaction& operator=(const ScopedNativeMaintenanceTransaction&) = delete;
 private:
     friend class usk::transaction::TransactionSession;
+    friend class usk::transaction::MaintenanceEffectJournal;
     friend class usk::lifecycle::detail::NativeMaintenanceContext;
     explicit ScopedNativeMaintenanceTransaction(const NativeMaintenanceTransactionOperations& operations);
     ScopedNativeMaintenanceTransaction(NativeMaintenanceTransactionOperations&&) = delete;

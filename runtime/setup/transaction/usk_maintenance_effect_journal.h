@@ -53,6 +53,10 @@ public:
     void begin_effect(const std::string& kind, const json::Value& details);
     void complete_effect(const std::string& outcome = "applied",
         const std::string& result_digest = {});
+    // Revalidate the journal's permanently bound original owner immediately
+    // after an external injector and before an effect. This read-only check
+    // grants no native backend, replay or generic fallback authority.
+    void require_effect_authority() const;
     void seal();
     const std::filesystem::path& directory() const noexcept { return directory_; }
 
@@ -67,6 +71,11 @@ public:
         FaultInjector injector = {});
 
 private:
+    void bind_original_owner();
+#if defined(_WIN32)
+    bool native_origin_ = false;
+    std::weak_ptr<const void> native_origin_binding_;
+#endif
     MaintenanceEffectJournal(TransactionSpec spec, MaintenanceEffectInspection inspected,
         FaultInjector injector);
     void persist(const std::string& phase, const json::Value& details);
