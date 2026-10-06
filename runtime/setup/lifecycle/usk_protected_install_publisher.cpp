@@ -3350,10 +3350,11 @@ struct CompletedVerificationBoundary {
     std::string completion_digest;
     std::string visible_root_file_id;
     std::string observation;
+    std::string prepared_digest, visible_digest;
 };
 
 CompletedVerificationBoundary observe_completed_verification_boundary(
-    HANDLE volume, const std::string& service_sid) {
+    HANDLE volume, const std::string& service_sid, bool observe_payload = true) {
     using namespace usk::platform::windows;
     const PublisherAnchorNames names{L"staging", L"destination", L"state", L"journal"};
     const auto anchors = observe_publisher_anchor_set(volume, {L"publication"}, names);
@@ -3378,17 +3379,17 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
     const auto destination_entries = observe_publisher_directory_entries(destination.get());
     if (observe_publisher_directory_entries(publication.get()).size() != 4 ||
         !observe_publisher_directory_entries(staging.get()).empty() ||
-        destination_entries.size() != 1 || destination_entries.front().name != visible_component) {
+        (observe_payload && (destination_entries.size() != 1 || destination_entries.front().name != visible_component))) {
         throw std::runtime_error("verification requires a completed protected namespace");
     }
-    OwnedHandle visible(open_exact_lab_child(destination.get(), visible_component));
+    OwnedHandle visible(observe_payload ? open_exact_lab_child(destination.get(), visible_component) : INVALID_HANDLE_VALUE);
     const std::string visible_record = read_phase_record(journal.get(), L"lab-visible-evidence.json");
     const std::string completion_record = read_phase_record(state.get(), L"lab-installed-state.json");
     const auto bound = usk::json::parse(visible_record);
     const auto completion = usk::json::parse(completion_record);
     const auto journal_tree = observe_publisher_tree(journal.get());
     const auto state_tree = observe_publisher_tree(state.get());
-    const auto visible_tree = observe_publisher_tree(visible.get());
+    const auto visible_tree = observe_payload ? std::make_optional(observe_publisher_tree(visible.get())) : std::nullopt;
     require_publisher_tree_security_shape(journal_tree, service_sid);
     require_publisher_tree_security_shape(state_tree, service_sid);
     const auto snapshot_schema = snapshot.at("schema").as_string();
@@ -3401,10 +3402,13 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
     // A completed v4 install has granted every visible object to its exact
     // consumer. Project that one read-only ACE away before checking the
     // protected seal; a missing or broader grant is never accepted.
-    const auto protected_visible = consumer_bound ?
-        publisher_consumer_read_projection(visible_tree, service_sid,
-            consumer_read_sid, true) : visible_tree;
-    require_publisher_tree_security_shape(protected_visible, service_sid);
+    if (visible_tree) {
+        const auto protected_visible = consumer_bound ?
+            publisher_consumer_read_projection(*visible_tree, service_sid,
+                consumer_read_sid, true) : *visible_tree;
+        require_publisher_tree_security_shape(protected_visible, service_sid);
+    }
+    const auto original_root_id = prepared.at("sealed_tree").at("root").at("file_id").as_string();
     const std::string prepared_digest = record_sha256(prepared_record);
     const std::string snapshot_digest = record_sha256(snapshot_record);
     const std::string visible_digest = record_sha256(visible_record);
@@ -3427,7 +3431,8 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         prepared.at("phase").as_string() != "lab_prepared_evidence" ||
         prepared.at("service_sid").as_string() != service_sid ||
         prepared.at("destination_name").as_string() != ascii(visible_component) ||
-        prepared.at("source_file_id").as_string() != visible_tree.root.file_id ||
+        prepared.at("source_file_id").as_string() != original_root_id ||
+        (visible_tree && visible_tree->root.file_id != original_root_id) ||
         prepared.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
         prepared.at("volume_serial").as_unsigned() !=
@@ -3448,7 +3453,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
     if (bound.as_object().size() != visible_record_field_count(prepared.at("schema").as_string()) ||
         bound.at("schema").as_string() != prepared.at("schema").as_string() ||
         bound.at("phase").as_string() != "lab_visible_evidence" ||
-        bound.at("source_file_id").as_string() != visible_tree.root.file_id ||
+        bound.at("source_file_id").as_string() != original_root_id ||
         bound.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
         bound.at("destination_name").as_string() != ascii(visible_component) ||
@@ -3465,7 +3470,7 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
             anchors.chain.volume.file_id_volume_serial ||
         completion.at("prepared_record_sha256").as_string() != prepared_digest ||
         completion.at("visible_record_sha256").as_string() != visible_digest ||
-        completion.at("visible_root_file_id").as_string() != visible_tree.root.file_id ||
+        completion.at("visible_root_file_id").as_string() != original_root_id ||
         completion.at("destination_parent_file_id").as_string() !=
             anchors.destination_parent.object.file_id ||
         completion.at("destination_name").as_string() != ascii(visible_component) ||
@@ -3479,12 +3484,13 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
         observe_publisher_anchor_set(volume, {L"publication"}, names));
     require_publisher_tree_phase_match(journal_tree, observe_publisher_tree(journal.get()));
     require_publisher_tree_phase_match(state_tree, observe_publisher_tree(state.get()));
-    require_publisher_tree_phase_match(visible_tree, observe_publisher_tree(visible.get()));
+    if (visible_tree) require_publisher_tree_phase_match(*visible_tree, observe_publisher_tree(visible.get()));
     // Current payload bytes may differ from the sealed install. The shared
     // verifier reports that drift; protected intent and root identity may not.
-    return {snapshot_record, completion_digest, visible_tree.root.file_id,
+    return {snapshot_record, completion_digest, original_root_id,
         json_anchor_set(anchors) + "\n" + json_tree(journal_tree) + "\n" +
-            json_tree(state_tree) + "\n" + json_tree(visible_tree)};
+            json_tree(state_tree) + (visible_tree ? "\n" + json_tree(*visible_tree) : ""),
+        prepared_digest, visible_digest};
 }
 
 std::string verify_completed_install_in_service(HANDLE volume,
@@ -3570,6 +3576,34 @@ void usk::platform::windows::require_candidate_publisher_execution_records(
     const std::wstring& expected_service_name, const std::string& expected_service_sid) {
     require_prepared_execution_phases(prepared, expected_service_sid, expected_service_name);
     require_visible_execution_phase(visible, expected_service_sid, prepared, expected_service_name);
+}
+
+usk::json::Value usk::platform::windows::observe_candidate_original_consumer_install(
+    HANDLE volume, const std::wstring& root, const std::wstring& service_label) {
+    if (!execution_active || !registered_admission || !authenticated_request ||
+        root != volume_root || service_label != service_name)
+        throw std::runtime_error("original consumer completion requires the live registered engine");
+    const auto service = observe_current_restricted_publisher_service(service_label);
+    const auto before = observe_completed_verification_boundary(volume, service.service_sid, false);
+    const auto snapshot = usk::json::parse(before.snapshot_record);
+    const auto plan = restore_reviewed_install_plan(before.snapshot_record);
+    usk::lifecycle::require_original_completed_consumer_install(plan,
+        snapshot.at("transaction_id").as_string(), snapshot.at("applied_at").as_string(),
+        before.completion_digest, root, volume, service_label);
+    const auto after = observe_completed_verification_boundary(volume, service.service_sid, false);
+    if (before.snapshot_record != after.snapshot_record || before.completion_digest != after.completion_digest ||
+        before.observation != after.observation)
+        throw std::runtime_error("original completed consumer records changed during admission");
+    using usk::json::Value;
+    return Value(Value::Object{{"schema", Value("usk.publisher.original_consumer_completion.v1")},
+        {"install_id", Value(plan.install_id)}, {"original_transaction_id", snapshot.at("transaction_id")},
+        {"setup_root", Value(plan.roots.state_root.parent_path().u8string())},
+        {"consumer_read_sid", Value(consumer_read_sid)},
+        {"reviewed_snapshot_sha256", Value(record_sha256(before.snapshot_record))},
+        {"prepared_record_sha256", Value(before.prepared_digest)},
+        {"visible_record_sha256", Value(before.visible_digest)},
+        {"completion_record_sha256", Value(before.completion_digest)},
+        {"original_visible_root_file_id", Value(before.visible_root_file_id)}});
 }
 
 std::string usk::platform::windows::execute_candidate_restricted_publisher(

@@ -62,6 +62,11 @@ std::string execute_candidate_restricted_publisher(
 void require_candidate_publisher_execution_records(
     const usk::json::Value& prepared, const usk::json::Value& visible,
     const std::wstring& service_name, const std::string& service_sid);
+// Read-only proof from the actual original protected completion records and
+// immutable completed public metadata. Available only inside the registered
+// engine; it observes no current payload and grants no mutation capability.
+usk::json::Value observe_candidate_original_consumer_install(HANDLE volume,
+    const std::wstring& volume_root, const std::wstring& service_name);
 }
 namespace usk::lifecycle {
 class ProtectedApplyEffectsRetained final : public std::runtime_error {

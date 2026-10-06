@@ -1784,20 +1784,22 @@ static std::string protected_record_sha256(const std::string& record)
     return hash.finish();
 }
 
-void require_completed_consumer_install(const InstallPlan& plan,
+namespace {
+void require_completed_consumer_metadata(const InstallPlan& plan,
     const std::string& transaction_id, const std::string& applied_at,
     const std::string& protected_completion_sha256,
     const std::wstring& volume_guid_root, HANDLE volume,
-    const std::wstring& service_name)
+    const std::wstring& service_name, bool original_prefix)
 {
     const auto bound_state = publisher_volume_bound_path(plan.roots.state_root,volume_guid_root);
     platform::windows::PublisherMetadataSession metadata(volume,volume_guid_root,
         bound_state.parent_path(),service_name,true);
     state::StateRepository repository(publisher_volume_bound_path(plan.roots.state_root,volume_guid_root));
-    const auto installed = repository.read_installed(plan.install_id);
+    const auto installed = original_prefix ? repository.read_installed_snapshot(plan.install_id, transaction_id) :
+        repository.read_installed(plan.install_id);
     const auto ownership = repository.read_ownership("ownership." + plan.install_id + "." + transaction_id);
     audit::AuditRepository audits(publisher_volume_bound_path(plan.roots.audit_root,volume_guid_root));
-    const auto chain = audits.read_and_validate_chain_bounded(installed.audit_chain_id,2);
+    const auto chain = audits.read_and_validate_chain_bounded(installed.audit_chain_id, original_prefix ? 256u : 2u);
     if (installed.audit_chain_id != install_audit_chain_id(plan.install_id,transaction_id,false) ||
         ownership.directories != directory_closure(plan.files) ||
         ownership.files.size() != plan.files.size()) {
@@ -1823,7 +1825,7 @@ void require_completed_consumer_install(const InstallPlan& plan,
         ownership.manifest_digest != installed.ownership_manifest_digest ||
         installed.ownership_manifest_ref != "ownership/" + ownership.manifest_id + ".json" ||
         ownership.install_id != plan.install_id || ownership.created_by_transaction_id != transaction_id ||
-        ownership.target_root != plan.target_root.string() || chain.size() != 2 ||
+        ownership.target_root != plan.target_root.string() || (original_prefix ? chain.size() < 2u : chain.size() != 2u) ||
         chain[0].created_at != applied_at || chain[0].operation != "install_local" ||
         chain[0].phase != "validated" || chain[0].status != "pass" ||
         chain[0].transaction_id != transaction_id || chain[0].plan_id != plan.plan_id ||
@@ -1838,6 +1840,25 @@ void require_completed_consumer_install(const InstallPlan& plan,
         chain[1].message != "protected managed install completed") {
         throw std::runtime_error("consumer access requires matching completed public metadata");
     }
+}
+} // namespace
+void require_completed_consumer_install(const InstallPlan& plan,
+    const std::string& transaction_id, const std::string& applied_at,
+    const std::string& protected_completion_sha256,
+    const std::wstring& volume_guid_root, HANDLE volume,
+    const std::wstring& service_name)
+{
+    require_completed_consumer_metadata(plan, transaction_id, applied_at, protected_completion_sha256,
+        volume_guid_root, volume, service_name, false);
+}
+void require_original_completed_consumer_install(const InstallPlan& plan,
+    const std::string& transaction_id, const std::string& applied_at,
+    const std::string& protected_completion_sha256,
+    const std::wstring& volume_guid_root, HANDLE volume,
+    const std::wstring& service_name)
+{
+    require_completed_consumer_metadata(plan, transaction_id, applied_at, protected_completion_sha256,
+        volume_guid_root, volume, service_name, true);
 }
 
 VerificationReport verify_completed_install_on_bound_volume(

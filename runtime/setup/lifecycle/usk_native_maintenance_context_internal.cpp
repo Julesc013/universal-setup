@@ -140,6 +140,9 @@ struct NativeMaintenanceContext::Impl {
     HANDLE cancel_event;
     PublisherServiceObservation service;
     Value worker, process_boundary, registration, selection, client;
+    Value original_consumer_completion;
+    std::string original_consumer_sid;
+    std::vector<std::wstring> consumer_payload_roots;
     PublisherHandleObservation volume_facts;
     PublisherVolumeObservation volume_observation;
     std::vector<unsigned char> descriptor;
@@ -241,14 +244,15 @@ struct NativeMaintenanceContext::Impl {
             (spec.transaction_id + ".native-maintenance-original.json"), 16u * 1024u * 1024u);
         saved.original = closed_record(saved.original_text, {"schema", "transaction_id", "operation", "plan_digest",
             "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
-            "registration_sha256", "authenticated_client", "installed_root", "installed_root_journal_identity", "original_objects"}, 16u * 1024u * 1024u);
+            "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root", "installed_root_journal_identity", "original_objects"}, 16u * 1024u * 1024u);
         const auto& original = saved.original;
-        if (original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v1" ||
+        if (original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v2" ||
             original.at("transaction_id").as_string() != spec.transaction_id ||
             original.at("operation").as_string() != spec.operation || original.at("plan_digest").as_string() != spec.plan_digest ||
             original.at("original_context_sha256").as_string() != original_context.lease_binding_sha256() ||
             original.at("authenticated_client").at("user_sid").as_string() != client.at("user_sid").as_string() ||
-            !digest(original.at("registration_sha256").as_string()))
+            !digest(original.at("registration_sha256").as_string()) ||
+            !equal(original.at("original_consumer_completion"), original_consumer_completion))
             throw std::runtime_error("native maintenance original custody differs from its protected intent/caller");
         const auto& old_lease = original.at("original_lease_ownership");
         // The actual journal, actual current native generation and an ended
@@ -787,6 +791,25 @@ struct NativeMaintenanceContext::Impl {
         require_publisher_process_boundary(process_boundary, service.process_id, service.service_sid, service.token.process_groups);
         worker = observe_settled_publisher_worker_security(service, cancel_event);
         descriptor = make_publisher_directory_security_descriptor(std::wstring(service.service_sid.begin(), service.service_sid.end()));
+        // Actual protected completion and immutable original public records
+        // are proved before recognizing any payload read ACE. The private
+        // engine and this owner supply the live native guard/lease; returned
+        // JSON alone cannot construct this owner or authorize an effect.
+        original_consumer_completion = observe_candidate_original_consumer_install(volume, volume_root, service_name);
+        if (original_consumer_completion.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
+            normalized(fs::u8path(original_consumer_completion.at("setup_root").as_string())) != normalized(spec.state_root.parent_path()))
+            throw std::runtime_error("native maintenance original consumer completion belongs to another install");
+        original_consumer_sid = original_consumer_completion.at("consumer_read_sid").as_string();
+        for (const auto& path : {installed_root, normalized(spec.target_root)}) {
+            auto native = volume_facts.native_name;
+            if (native.empty()) throw std::runtime_error("native maintenance volume name is absent");
+            for (const auto& part : relative_volume_path(path)) {
+                if (native.back() != L'\\') native += L'\\';
+                native += part.wstring();
+            }
+            consumer_payload_roots.push_back(std::move(native));
+        }
+        retain_original_consumer_records();
         const auto setup_component = fs::u8path(snapshot.at("setup_component").as_string());
         if (relative_volume_path(spec.state_root) != setup_component / "state" ||
             relative_volume_path(spec.audit_root) != setup_component / "audit" ||
@@ -856,7 +879,15 @@ struct NativeMaintenanceContext::Impl {
     }
     PublisherHandleObservation facts(HANDLE handle, bool directory) const {
         const auto observed = directory ? observe_publisher_directory_handle(handle) : observe_publisher_file_handle(handle);
-        require_publisher_object_security_shape(observed, service.service_sid);
+        if (observed.dacl_aces.size() == 3u) {
+            const bool payload = std::any_of(consumer_payload_roots.begin(), consumer_payload_roots.end(), [&](const auto& root) {
+                return observed.native_name == root || (observed.native_name.size() > root.size() &&
+                    observed.native_name.compare(0, root.size(), root) == 0 && observed.native_name[root.size()] == L'\\');
+            });
+            if (original_consumer_sid.empty() || !payload)
+                throw std::runtime_error("native maintenance consumer ACE is outside its original approved payload");
+            (void)publisher_consumer_read_object_projection(observed, service.service_sid, original_consumer_sid, true);
+        } else require_publisher_object_security_shape(observed, service.service_sid);
         require_publisher_stream_shape(handle);
         observe_publisher_noninheritable_handle_flags(handle);
         if (observe_local_ntfs_volume_handle(handle).file_id_volume_serial != volume_observation.file_id_volume_serial)
@@ -920,7 +951,7 @@ struct NativeMaintenanceContext::Impl {
             !equal(ownership.at("state_root_identity"), snapshot.at("state_root_identity")))
             throw transaction::InstallLeaseStale();
         if (restored_owner) lease.require_recovery_lineage(original_lease_ownership);
-        if (restored_owner) for (const auto& observer : restoration_record_observers) require_bytes(*observer);
+        for (const auto& observer : restoration_record_observers) require_bytes(*observer);
         if (removed_original_root_parent) {
             require_entry(*removed_original_root_parent);
             if (child(removed_original_root_parent->handle.value, removed_original_root_name))
@@ -1316,6 +1347,18 @@ struct NativeMaintenanceContext::Impl {
             original_directories.emplace(relative, &open_directory(path));
         }
     }
+    void retain_original_consumer_records() {
+        const auto publication = spec.target_root.root_path() / "publication";
+        for (const auto& record : std::vector<std::pair<fs::path, std::string>>{
+            {publication / "journal" / "lab-prepared-evidence.json", "prepared_record_sha256"},
+            {publication / "journal" / "lab-reviewed-plan.json", "reviewed_snapshot_sha256"},
+            {publication / "journal" / "lab-visible-evidence.json", "visible_record_sha256"},
+            {publication / "state" / "lab-installed-state.json", "completion_record_sha256"}}) {
+            const auto text = read_restoration_record(record.first, 4u * 1024u * 1024u);
+            if (raw_digest(text) != original_consumer_completion.at(record.second).as_string())
+                throw std::runtime_error("native maintenance protected original consumer record changed");
+        }
+    }
     void prepare_original_admission() {
         require_authority(spec);
         constexpr std::size_t maximum = 16u * 1024u * 1024u;
@@ -1323,13 +1366,14 @@ struct NativeMaintenanceContext::Impl {
             (spec.transaction_id + ".native-maintenance-original.json");
         base::require_native_path_capacity(original_admission_path, base::NativePathKind::file,
             "native maintenance original custody");
-        Value document(Value::Object{{"schema", Value("usk.publisher.maintenance_original_custody.v1")},
+        Value document(Value::Object{{"schema", Value("usk.publisher.maintenance_original_custody.v2")},
             {"transaction_id", Value(spec.transaction_id)}, {"operation", Value(spec.operation)},
             {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
             {"original_lease_ownership", lease.ownership()}, {"worker_security", worker},
             {"process_boundary", process_boundary}, {"registration_sha256", Value(json::sha256_canonical(registration))},
-            {"authenticated_client", client}, {"installed_root", publisher_handle_observation_json(installed_root->facts)},
+            {"authenticated_client", client}, {"original_consumer_completion", original_consumer_completion},
+            {"installed_root", publisher_handle_observation_json(installed_root->facts)},
             {"installed_root_journal_identity", Value(original_root_identity)}});
         std::size_t charged = json::canonical(document).size() + 128u;
         Value::Array objects;

@@ -109,6 +109,11 @@ void require_publisher_object_security_shape(
 PublisherTreeObservation publisher_consumer_read_projection(
     const PublisherTreeObservation& tree, const std::string& service_sid,
     const std::string& consumer_sid, bool require_every_grant = false);
+// Same read-only predicate for one independently observed payload object.
+// The caller must separately prove the original consumer policy and role.
+PublisherHandleObservation publisher_consumer_read_object_projection(
+    const PublisherHandleObservation& object, const std::string& service_sid,
+    const std::string& consumer_sid, bool require_grant = false);
 
 // Reopen one exact visible component relative to a retained destination-parent
 // handle, freshly observe its tree, and compare it with the sealed tree. This
