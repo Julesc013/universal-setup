@@ -124,15 +124,21 @@ $result=[ordered]@{schema='usk.publisher.production_rename_observer.v1';status='
     termination=$null;failure=$null}
 try {
     if($config.schema -cne 'usk.publisher.production_rename_observer_config.v1' -or
-        $config.phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename') -or
+        $config.phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published') -or
         $result.identity -cne 'S-1-5-18' -or
         $config.service_name -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
         $config.service_binary_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
         $config.process_id -le 0 -or
         $config.drive_letter -cnotmatch '^[A-Z]$' -or
         $config.visible_path -cne ($config.drive_letter+':\publication\destination\visible') -or
-        $config.journal_path -cne ($config.drive_letter+':\publication\journal\lab-'+
-            $(if($config.phase -cin @('bootstrap','bootstrap_preserved','prepublish')){'prepared'}else{'visible'})+'-evidence.json') -or
+        $config.journal_path -cne $(if($config.phase -ceq 'maintenance_published') {
+            if($config.maintenance_transaction_id -cnotmatch '^maintenance\.repair\.[0-9a-f]{32}$' -or
+                $config.maintenance_plan_digest -cnotmatch '^[0-9a-f]{64}$' -or
+                $config.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$'){throw 'Maintenance boundary binding differs'}
+            $config.drive_letter+':\setup-state\state\transactions\'+$config.maintenance_transaction_id+
+                '.native-maintenance-custody\00000000000000000000.json'
+        } else {$config.drive_letter+':\publication\journal\lab-'+
+            $(if($config.phase -cin @('bootstrap','bootstrap_preserved','prepublish')){'prepared'}else{'visible'})+'-evidence.json'}) -or
         $config.volume_guid_root -cnotmatch '^\\\\\?\\Volume\{[0-9a-f-]{36}\}\\$' -or
         (Split-Path -Parent $config.ready_path) -cne $PSScriptRoot -or
         (Split-Path -Parent $config.output_path) -cne $PSScriptRoot -or
@@ -169,6 +175,11 @@ try {
     $owned=[Collections.Generic.List[object]]::new()
     $owned.Add($process)
     $held|Add-Member -NotePropertyName UskOwnedTree -NotePropertyValue $owned
+    $result['process_creation_file_time']=$held.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16')
+    if($config.phase -ceq 'maintenance_published' -and
+        $result.process_creation_file_time -cne $config.process_creation_file_time) {
+        throw 'Maintenance observer current worker birth differs'
+    }
     $publication=$config.drive_letter+':\publication'
     $candidate=$publication+'\staging\candidate'
     if($config.phase -cin @('bootstrap','bootstrap_preserved')) {
@@ -204,6 +215,57 @@ try {
     $deadline=[DateTime]::UtcNow.AddSeconds(120)
     while([DateTime]::UtcNow -lt $deadline) {
         if($held.HasExited){throw 'Production service exited before visible rename'}
+        if($config.phase -ceq 'maintenance_published') {
+            if(-not (Test-Path -LiteralPath $config.journal_path)){Start-Sleep -Milliseconds 1;continue}
+            if(((Get-Item -LiteralPath $config.journal_path).Attributes -band
+                ([IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint)) -ne 0) {
+                throw 'Maintenance confirmation is not an ordinary owned record'
+            }
+            $sealed=$null
+            try {
+                # Deny writers: presence alone cannot select the kill boundary.
+                $sealed=[IO.FileStream]::new($config.journal_path,[IO.FileMode]::Open,
+                    [IO.FileAccess]::Read,[IO.FileShare]::Read)
+            } catch [IO.IOException] {
+                $errorCode=$_.Exception.HResult -band 0xffff
+                if($errorCode -cin @(32,33)){Start-Sleep -Milliseconds 1;continue}
+                throw
+            }
+            try {
+                if($sealed.Length -le 0 -or $sealed.Length -gt 1MB){throw 'Maintenance confirmation exceeds its bound'}
+                $reader=[IO.StreamReader]::new($sealed,[Text.UTF8Encoding]::new($false,$true),$false,4096,$true)
+                try {$text=$reader.ReadToEnd()}finally{$reader.Dispose()}
+                $record=$text|ConvertFrom-Json
+                $writer=$record.writer_lease_ownership
+                if($record.schema -cne 'usk.publisher.maintenance_native_custody.v2' -or
+                    $record.transaction_id -cne $config.maintenance_transaction_id -or
+                    $record.plan_digest -cne $config.maintenance_plan_digest -or
+                    $writer.schema -cne 'usk.installation_lease_ownership.v1' -or
+                    $writer.status -cne 'active' -or $writer.operation -cne 'repair' -or
+                    $writer.operation_id -cne $config.maintenance_transaction_id -or
+                    $record.original_context_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                    $writer.operation_context_sha256 -cne $record.original_context_sha256 -or
+                    $writer.holder.process_id -ne $held.Id -or
+                    $writer.holder.process_creation_time -cne $result.process_creation_file_time -or
+                    $record.sequence -ne 0 -or $record.kind -cne 'confirmed_publication' -or
+                    $record.details.publication_transaction_snapshot_sha256 -cne $record.transaction_snapshot_sha256) {
+                    throw 'Maintenance confirmation is outside the exact original publication'
+                }
+                $result.boundary_seen_utc=[DateTime]::UtcNow.ToString('o')
+                $result.journal_before_kill=$true
+                $result.termination=Stop-OwnedPublisherProcessTree $held -RequireLiveKill
+                $result.journal_after_kill=Test-Path -LiteralPath $config.journal_path
+                $result['maintenance_transaction_id']=$record.transaction_id
+                $result['maintenance_plan_digest']=$record.plan_digest
+                $result['maintenance_writer_lease_ownership']=$writer
+                $result['maintenance_confirmation_sha256']=(Get-FileHash -LiteralPath $config.journal_path -Algorithm SHA256).Hash.ToLowerInvariant()
+                $result.status='terminated_confirmed_maintenance_publication'
+            } finally {$sealed.Dispose()}
+            if((Get-Volume -DriveLetter $config.drive_letter -ErrorAction Stop).UniqueId -cne $config.volume_guid_root) {
+                throw 'Maintenance observer volume changed during termination'
+            }
+            break
+        }
         if($config.phase -ceq 'bootstrap_preserved') {
             $native=$fastBoundary.ObserveAndTerminate()
             foreach($key in $native.Keys){$result[$key]=$native[$key]}
@@ -325,5 +387,5 @@ try {
         ($result|ConvertTo-Json -Depth 8 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     [IO.File]::Move($outputTemp,$config.output_path)
 }
-if($result.status -cnotin @('terminated_publication_bootstrap','terminated_publication_preserved','terminated_prepared_prerename',
+if($result.status -cnotin @('terminated_confirmed_maintenance_publication','terminated_publication_bootstrap','terminated_publication_preserved','terminated_prepared_prerename',
     'terminated_postrename_prejournal')){exit 1}

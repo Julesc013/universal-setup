@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <vector>
 #include <aclapi.h>
+#include <sddl.h>
 
 namespace fs = std::filesystem;
 using namespace usk::platform::windows;
@@ -95,28 +96,23 @@ void protect_owned_object(const fs::path& path, bool directory_object) {
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
         FILE_FLAG_OPEN_REPARSE_POINT | (directory_object ? FILE_FLAG_BACKUP_SEMANTICS : 0), nullptr));
     auto before = directory_object ? observe_publisher_directory_handle(object.get()) : observe_publisher_file_handle(object.get());
+    // These are this fixture's self-created objects. Give their actual owner
+    // one explicit, non-inheritable full-control ACE; ancestor ACL ordering
+    // is outside the publication control's subject. This is no birth profile.
     PSECURITY_DESCRIPTOR security = nullptr; PACL dacl = nullptr;
-    check(GetSecurityInfo(object.get(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
-        &dacl, nullptr, &security) == ERROR_SUCCESS && dacl && IsValidAcl(dacl),
-        "owned protected-fixture DACL unavailable");
-    // Supply the exact explicit postimage, rather than ask the filesystem to
-    // select an ordering while converting inherited ACEs to protected ones.
-    std::vector<unsigned char> explicit_acl(dacl->AclSize);
-    std::copy_n(reinterpret_cast<const unsigned char*>(dacl), dacl->AclSize, explicit_acl.begin());
-    auto* protected_acl = reinterpret_cast<PACL>(explicit_acl.data());
-    for (DWORD index = 0; index < protected_acl->AceCount; ++index) {
-        void* ace = nullptr;
-        check(GetAce(protected_acl, index, &ace) != FALSE, "owned fixture ACE unavailable");
-        static_cast<ACE_HEADER*>(ace)->AceFlags &= static_cast<BYTE>(~INHERITED_ACE);
-    }
+    const auto policy = "D:P(A;;FA;;;" + before.owner_sid + ")";
+    check(ConvertStringSecurityDescriptorToSecurityDescriptorA(policy.c_str(),
+        SDDL_REVISION_1, &security, nullptr) != FALSE, "owned fixture policy conversion failed");
+    BOOL present = FALSE, defaulted = FALSE;
+    check(GetSecurityDescriptorDacl(security, &present, &dacl, &defaulted) && present && dacl && IsValidAcl(dacl),
+        "owned fixture explicit DACL unavailable");
     const auto error = SetSecurityInfo(object.get(), SE_FILE_OBJECT,
-        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, protected_acl, nullptr);
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr);
     LocalFree(security);
     check(error == ERROR_SUCCESS, "owned protected-fixture DACL update failed");
     const auto after = directory_object ? observe_publisher_directory_handle(object.get()) : observe_publisher_file_handle(object.get());
     before.dacl_protected = true;
-    // Retain the exact supplied ACE order, types, masks, SIDs and other flags.
-    for (auto& ace : before.dacl_aces) ace.flags &= static_cast<std::uint8_t>(~INHERITED_ACE);
+    before.dacl_aces = {{ACCESS_ALLOWED_ACE_TYPE, 0, FILE_ALL_ACCESS, before.owner_sid}};
     const auto expected = usk::json::canonical(publisher_handle_observation_json(before));
     const auto actual = usk::json::canonical(publisher_handle_observation_json(after));
     if (expected != actual) {
@@ -148,11 +144,12 @@ void directory_publication_controls(const fs::path& root, HANDLE parent) {
         check(fs::create_directory(root / source_name) && fs::create_directory(root / source_name / L"nested"),
             "owned publication source creation failed");
         write(root / source_name / L"nested/payload.bin", bytes);
-        // Protect only these exact self-created fixture objects. Their actual
-        // actor, owner and permissions are retained; this is no birth admission.
-        protect_owned_object(root / source_name, true);
-        protect_owned_object(root / source_name / L"nested", true);
+        // Protect leaves first: a non-inheritable parent policy can remove
+        // inherited child grants before they can be opened for setup. Every
+        // child is protected before its parent; subsequent full facts stay exact.
         protect_owned_object(root / source_name / L"nested/payload.bin", false);
+        protect_owned_object(root / source_name / L"nested", true);
+        protect_owned_object(root / source_name, true);
         auto source = directory(root / source_name, true);
         Held nested(open_publisher_listed_child(source.get(), listed(source.get(), L"nested"), true, false, true));
         Held file(open_publisher_listed_maintenance_file(nested.get(), listed(nested.get(), L"payload.bin")));

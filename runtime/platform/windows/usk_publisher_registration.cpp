@@ -63,12 +63,22 @@ private:
 class FileHandle {
 public:
     explicit FileHandle(HANDLE value) : value_(value) {}
+    FileHandle(const wchar_t* path, DWORD access, DWORD sharing, DWORD flags) noexcept
+        : value_(CreateFileW(path, access, sharing, nullptr, OPEN_EXISTING, flags, nullptr)) {}
     ~FileHandle() { if (value_ != INVALID_HANDLE_VALUE) CloseHandle(value_); }
     FileHandle(const FileHandle&) = delete;
     FileHandle& operator=(const FileHandle&) = delete;
     HANDLE get() const noexcept { return value_; }
     HANDLE release() noexcept { const HANDLE value = value_; value_ = INVALID_HANDLE_VALUE; return value; }
     void close() noexcept { if (value_ != INVALID_HANDLE_VALUE) CloseHandle(release()); }
+    void close_confirmed() {
+        // Consume custody before the call: an unknown close is never retried
+        // or used as proof that this controller released raw mutation access.
+        const HANDLE closing = release();
+        if (closing == INVALID_HANDLE_VALUE || !CloseHandle(closing))
+            throw std::runtime_error("publisher raw device handle close unconfirmed; Win32 " +
+                std::to_string(GetLastError()));
+    }
 private:
     HANDLE value_;
 };
@@ -645,6 +655,7 @@ void require_volume(const std::wstring& value) {
 }
 
 std::string owner_dacl_sddl(const std::vector<BYTE>& bytes);
+usk::json::Value device_owner_dacl_policy(const std::vector<BYTE>& bytes);
 
 // Bounded read-only diagnostics, never an admission verdict. When collected
 // after refusal they describe a fresh observation, not the earlier failing
@@ -764,7 +775,10 @@ void require_volume_device_service_access(HANDLE volume,
 // dedicated volume. First check its exact service-owned NTFS root, and close
 // that observation handle before requesting the lock.
 void require_exclusive_volume_admission(const std::wstring& name,
-    const std::wstring& root) {
+    const std::wstring& root, FileHandle* retained_mounted_device = nullptr,
+    const usk::json::Value* retained_intended_policy = nullptr) {
+    if ((retained_mounted_device != nullptr) != (retained_intended_policy != nullptr))
+        throw std::runtime_error("mounted device admission custody/policy association differs");
     require_volume(root);
     auto sid = publisher_service_sid(name);
     LPWSTR rendered = nullptr;
@@ -783,19 +797,18 @@ void require_exclusive_volume_admission(const std::wstring& name,
     ULONGLONG root_volume_serial = 0;
     const auto observe_root = [&] {
         ScopedControllerPrivilege backup_observation;
-        FileHandle held_root(CreateFileW(root.c_str(),
+        auto held_root = std::make_unique<FileHandle>(root.c_str(),
             FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            nullptr));
-        if (held_root.get() == INVALID_HANDLE_VALUE) {
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+        if (held_root->get() == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("cannot open protected volume root for admission; Win32 " +
                 std::to_string(GetLastError()));
         }
         const auto volume_facts =
-            usk::platform::windows::observe_local_ntfs_volume_handle(held_root.get());
+            usk::platform::windows::observe_local_ntfs_volume_handle(held_root->get());
         const auto root_facts =
-            usk::platform::windows::observe_publisher_directory_handle(held_root.get());
+            usk::platform::windows::observe_publisher_directory_handle(held_root->get());
         usk::platform::windows::require_publisher_object_security_shape(
             root_facts, service_sid_ascii);
         if (root_file_id.empty()) {
@@ -805,18 +818,23 @@ void require_exclusive_volume_admission(const std::wstring& name,
             volume_facts.file_id_volume_serial != root_volume_serial) {
             throw std::runtime_error("publisher volume root changed across exclusive admission");
         }
+        return held_root;
     };
     observe_root();
     const std::wstring device = root.substr(0, root.size() - 1);
-    FileHandle volume(CreateFileW(device.c_str(),
+    FileHandle volume(!retained_mounted_device ? CreateFileW(device.c_str(),
         GENERIC_READ | GENERIC_WRITE | READ_CONTROL | WRITE_DAC,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
-    if (volume.get() == INVALID_HANDLE_VALUE) {
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr) : INVALID_HANDLE_VALUE);
+    // The unpublished v3 caller owns the exact mounted transition file object.
+    // Borrow it through lock/remount rather than closing that native reference
+    // and hardening a different direct-volume file object after dismount.
+    const HANDLE locking_volume = retained_mounted_device ? retained_mounted_device->get() : volume.get();
+    if (locking_volume == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("cannot open dedicated publisher volume for exclusive admission; Win32 " +
             std::to_string(GetLastError()));
     }
     DWORD returned = 0;
-    if (!DeviceIoControl(volume.get(), FSCTL_LOCK_VOLUME, nullptr, 0,
+    if (!DeviceIoControl(locking_volume, FSCTL_LOCK_VOLUME, nullptr, 0,
             nullptr, 0, &returned, nullptr)) {
         throw std::runtime_error("publisher volume has a pre-opened file or cannot be locked; Win32 " +
             std::to_string(GetLastError()));
@@ -825,13 +843,13 @@ void require_exclusive_volume_admission(const std::wstring& name,
     // Inspect and repair its device ACL before any other process can acquire a
     // newly granted raw-volume handle after unlock.
     try {
-        require_volume_device_service_access(volume.get(), sid, true);
+        require_volume_device_service_access(locking_volume, sid, true);
     } catch (const std::exception& error) {
         throw std::runtime_error(
             std::string("locked publisher volume device ACL admission: ") + error.what());
     }
-    const auto locked_admitted_device = device_acl_diagnostic(volume.get());
-    if (!DeviceIoControl(volume.get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
+    const auto locked_admitted_device = device_acl_diagnostic(locking_volume);
+    if (!DeviceIoControl(locking_volume, FSCTL_UNLOCK_VOLUME, nullptr, 0,
             nullptr, 0, &returned, nullptr)) {
         throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
             std::to_string(GetLastError()));
@@ -840,26 +858,59 @@ void require_exclusive_volume_admission(const std::wstring& name,
     // device-security check before releasing that native reference. Unlock has
     // already completed; the new mount must independently pass the strict
     // profile. A restored outside-mutation grant still refuses admission.
-    observe_root(); // Remount through the same GUID and recheck the exact root.
-    FileHandle remounted(CreateFileW(device.c_str(), READ_CONTROL | WRITE_DAC,
+    auto remounted_root = observe_root(); // Pin the exact remounted root read-only.
+    FileHandle remounted(CreateFileW(device.c_str(), READ_CONTROL,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
         OPEN_EXISTING, 0, nullptr));
     if (remounted.get() == INVALID_HANDLE_VALUE)
-        throw std::runtime_error("remounted publisher device cannot be secured; Win32 " +
+        throw std::runtime_error("remounted publisher device cannot be observed; Win32 " +
             std::to_string(GetLastError()));
+    const auto require_strict_device = [&](HANDLE handle) {
+        // Post-unlock admission is observation only. The locked/bootstrap
+        // helper can add a missing service ACE or protect a DACL; neither
+        // effect is permitted after the final custody-clearing lock.
+        const auto bytes = read_publisher_owner_dacl_from_handle(handle);
+        auto* descriptor = const_cast<BYTE*>(bytes.data());
+        PSID owner = nullptr; PACL dacl = nullptr;
+        BOOL owner_defaulted = FALSE, present = FALSE, dacl_defaulted = FALSE;
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorOwner(descriptor, &owner, &owner_defaulted) ||
+            !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &dacl_defaulted) ||
+            !present || !dacl || !GetSecurityDescriptorControl(descriptor, &control, &revision) ||
+            (control & SE_DACL_PROTECTED) == 0 ||
+            !require_publisher_device_acl_shape(owner, dacl, const_cast<BYTE*>(sid.data())))
+            throw std::runtime_error("remounted publisher device lacks its protected service policy");
+        if (retained_intended_policy &&
+            usk::json::canonical(device_owner_dacl_policy(bytes)) !=
+                usk::json::canonical(*retained_intended_policy))
+            throw std::runtime_error("mounted device differs from retained intended policy");
+    };
     try {
-        require_volume_device_service_access(remounted.get(), sid);
+        require_strict_device(locking_volume);
+        require_strict_device(remounted.get());
     } catch (const std::exception& error) {
         const auto diagnostic = usk::json::Value(usk::json::Value::Object{
             {"schema", usk::json::Value("usk.publisher_device_remount_diagnostic.v1")},
             {"locked_admitted_device", locked_admitted_device},
             {"fresh_observations_after_refusal", usk::json::Value(usk::json::Value::Object{
-                {"original_locking_handle", device_acl_diagnostic(volume.get())},
+                {"original_locking_handle", device_acl_diagnostic(locking_volume)},
                 {"remounted_device_handle", device_acl_diagnostic(remounted.get())}})}});
         throw std::runtime_error(
             std::string("remounted publisher volume device ACL admission: ") + error.what() +
             "; diagnostic " + usk::json::canonical(diagnostic));
     }
+    // Keep a read-only mounted root while releasing the actual raw writer.
+    // No controller WRITE_DAC/direct-write handle survives successful admission.
+    if (retained_mounted_device) retained_mounted_device->close_confirmed();
+    else volume.close_confirmed();
+    FileHandle released_device(CreateFileW(device.c_str(), READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, 0, nullptr));
+    if (released_device.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("publisher device post-release observation unavailable; Win32 " +
+            std::to_string(GetLastError()));
+    require_strict_device(released_device.get());
+    const auto root_after_release = observe_root();
 }
 
 std::wstring command_prefix(const std::wstring& service,
@@ -1283,7 +1334,7 @@ usk::json::Value capture_mounted_device_transition(const std::wstring& volume,
 
 // Only the unpublished target's protected v3 intent supplies this bootstrap
 // prestate. Generic admission/recovery keeps the strict remount check.
-void apply_mounted_device_transition(const std::wstring& volume, const std::vector<BYTE>& service_sid,
+std::unique_ptr<FileHandle> apply_mounted_device_transition(const std::wstring& volume, const std::vector<BYTE>& service_sid,
     const usk::json::Value& transition, bool permit_original_effect) {
     if (transition.as_object().size() != 2 || !transition.contains("original_owner_dacl") || !transition.contains("intended_policy"))
         throw std::runtime_error("mounted device transition has invalid fields");
@@ -1298,12 +1349,14 @@ void apply_mounted_device_transition(const std::wstring& volume, const std::vect
     const auto expected = usk::json::canonical(device_owner_dacl_policy(intended));
     if (usk::json::canonical(transition.at("intended_policy")) != expected)
         throw std::runtime_error("mounted device intended policy differs from its original prestate");
-    FileHandle device(CreateFileW(volume.substr(0, volume.size() - 1).c_str(), READ_CONTROL | WRITE_DAC,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr));
-    if (device.get() == INVALID_HANDLE_VALUE)
+    // make_unique allocates custody before this constructor opens the handle.
+    auto device = std::make_unique<FileHandle>(volume.substr(0, volume.size() - 1).c_str(),
+        GENERIC_READ | GENERIC_WRITE | READ_CONTROL | WRITE_DAC,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, 0);
+    if (device->get() == INVALID_HANDLE_VALUE)
         throw std::runtime_error("mounted device bootstrap security handle is unavailable");
-    const auto current = read_publisher_owner_dacl_from_handle(device.get());
-    if (usk::json::canonical(device_owner_dacl_policy(current)) == expected) return;
+    const auto current = read_publisher_owner_dacl_from_handle(device->get());
+    if (usk::json::canonical(device_owner_dacl_policy(current)) == expected) return device;
     if (!permit_original_effect)
         throw std::runtime_error("admitted target cannot repeat its mounted device bootstrap effect");
     if (owner_dacl_sddl(current) != original_text)
@@ -1311,14 +1364,15 @@ void apply_mounted_device_transition(const std::wstring& volume, const std::vect
     PACL dacl = nullptr; BOOL present = FALSE, defaulted = FALSE;
     if (!GetSecurityDescriptorDacl(const_cast<BYTE*>(intended.data()), &present, &dacl, &defaulted) || !present || !dacl)
         throw std::runtime_error("mounted device intended DACL is unavailable");
-    const DWORD error = SetSecurityInfo(device.get(), SE_FILE_OBJECT,
+    const DWORD error = SetSecurityInfo(device->get(), SE_FILE_OBJECT,
         DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr);
     if (error != ERROR_SUCCESS)
         throw std::runtime_error("mounted device bootstrap security outcome is uncertain; Win32 " + std::to_string(error));
-    if (usk::json::canonical(device_owner_dacl_policy(read_publisher_owner_dacl_from_handle(device.get()))) != expected)
+    if (usk::json::canonical(device_owner_dacl_policy(read_publisher_owner_dacl_from_handle(device->get()))) != expected)
         throw std::runtime_error("mounted device bootstrap security poststate differs; retained");
-    // This handle closes before the final FSCTL_LOCK_VOLUME attempt. A metadata
-    // write/readback is not exclusive admission or proof of revoked handles.
+    // Keep this exact mounted file object through the final lock and strict
+    // remount checks. This metadata effect alone does not revoke open handles.
+    return device;
 }
 
 bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
@@ -1633,6 +1687,7 @@ void provision_registered_target(const std::wstring& name) {
             require_publisher_object_security_shape(observe_publisher_directory_handle(root.get()),
                 binding.at("service_sid").as_string());
         }
+        std::unique_ptr<FileHandle> mounted_device;
         if (device_transition.type() != Value::Type::null_value) {
             // Reentry/new mutation is bound to the same protected unpublished
             // namespace, registration and disk before the device-only effect.
@@ -1640,12 +1695,14 @@ void provision_registered_target(const std::wstring& name) {
                     usk::json::canonical(binding.at("volume_identity")) ||
                 usk::json::canonical(dedicated_target_disk_identity(volume)) != usk::json::canonical(disk))
                 throw std::runtime_error("mounted device bootstrap identity is unavailable");
-            apply_mounted_device_transition(volume, service_sid, device_transition, !protected_document_exists(admitted_path));
+            mounted_device = apply_mounted_device_transition(volume, service_sid, device_transition,
+                !protected_document_exists(admitted_path));
         }
         // This second successful lock proves no conflicting file handles
         // remain after root hardening; it never revokes an open handle. It also verifies
         // the remounted root and restricted-service raw-device access.
-        require_exclusive_volume_admission(name, volume);
+        require_exclusive_volume_admission(name, volume,
+            mounted_device.get(), mounted_device ? &device_transition.at("intended_policy") : nullptr);
         {
             ScopedControllerPrivilege backup;
             FileHandle root(CreateFileW(volume.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,
