@@ -22,6 +22,7 @@
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
+#include "usk_native_maintenance_transaction_internal.h"
 #endif
 
 #include <algorithm>
@@ -513,6 +514,22 @@ std::string installed_digest(const usk::state::InstalledState& state)
 
 std::string verification_digest(const usk::lifecycle::VerificationReport& report);
 
+struct MaintenanceFileObservation {
+    std::string native_identity, sha256;
+    std::uint64_t size_bytes = 0;
+};
+MaintenanceFileObservation observe_maintenance_file(const fs::path& path) {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    if (const auto native = usk::transaction::detail::observe_current_native_maintenance_file(path))
+        return {native->native_identity, native->sha256, native->size_bytes};
+#endif
+    usk::base::StableFile file(path);
+    const auto identity = file.identity();
+    const auto digest = file.sha256_hex();
+    file.verify_unchanged();
+    return {identity.volume_id + ":" + identity.file_id, digest, identity.size_bytes};
+}
+
 usk::lifecycle::VerificationReport verify_manifest(
     const usk::state::InstalledState& state,
     const usk::state::OwnershipManifest& ownership,
@@ -552,10 +569,9 @@ usk::lifecycle::VerificationReport verify_manifest(
             ++report.modified_files;
         } else {
             try {
-                usk::base::StableFile actual(path);
-                item.actual_sha256 = actual.sha256_hex();
-                actual.verify_unchanged();
-                if (actual.identity().size_bytes == file.size_bytes && item.actual_sha256 == file.sha256) {
+                const auto actual = observe_maintenance_file(path);
+                item.actual_sha256 = actual.sha256;
+                if (actual.size_bytes == file.size_bytes && item.actual_sha256 == file.sha256) {
                     item.status = "present";
                 } else {
                     item.status = "modified";
@@ -746,16 +762,13 @@ Value maintenance_owned_observations(const usk::state::InstalledState& installed
             if (directory) {
                 item.as_object().at("native_identity") = Value(usk::transaction::observe_directory_identity(path));
             } else {
-                usk::base::StableFile file(path);
-                const auto identity = file.identity();
-                if (identity.size_bytes > (1ull << 32) || identity.size_bytes > (1ull << 34) - logical_bytes)
+                const auto file = observe_maintenance_file(path);
+                if (file.size_bytes > (1ull << 32) || file.size_bytes > (1ull << 34) - logical_bytes)
                     throw std::runtime_error("maintenance original owned files exceed observation byte bounds");
-                logical_bytes += identity.size_bytes;
-                const auto digest = file.sha256_hex();
-                file.verify_unchanged();
-                item.as_object().at("native_identity") = Value(identity.volume_id + ":" + identity.file_id);
-                item.as_object().at("sha256") = Value(digest);
-                item.as_object().at("size_bytes") = Value(identity.size_bytes);
+                logical_bytes += file.size_bytes;
+                item.as_object().at("native_identity") = Value(file.native_identity);
+                item.as_object().at("sha256") = Value(file.sha256);
+                item.as_object().at("size_bytes") = Value(file.size_bytes);
             }
         }
         result.push_back(std::move(item));
@@ -862,13 +875,10 @@ MaintenanceSession begin_maintenance(
 Value maintenance_file_observation(const fs::path& path, const std::string& relative_path,
     const std::string& root_role = {})
 {
-    usk::base::StableFile file(path);
-    const auto identity = file.identity();
-    const auto sha256 = file.sha256_hex();
-    file.verify_unchanged();
+    const auto file = observe_maintenance_file(path);
     Value result(Value::Object{{"relative_path", Value(relative_path)},
-        {"native_identity", Value(identity.volume_id + ":" + identity.file_id)},
-        {"sha256", Value(sha256)}, {"size_bytes", Value(identity.size_bytes)}});
+        {"native_identity", Value(file.native_identity)},
+        {"sha256", Value(file.sha256)}, {"size_bytes", Value(file.size_bytes)}});
     if (!root_role.empty()) result.as_object().emplace("root_role", Value(root_role));
     return result;
 }
@@ -3666,12 +3676,10 @@ MaintenanceEffectReconciliation reconcile_maintenance_effect(const transaction::
         const auto status = presence(path);
         if (status != ObjectState::matching) return status;
         try {
-            base::StableFile actual(path);
-            const auto identity = actual.identity();
-            if (identity.volume_id + ":" + identity.file_id != expected.at("native_identity").as_string() ||
-                identity.size_bytes != expected.at("size_bytes").as_unsigned() ||
-                actual.sha256_hex() != expected.at("sha256").as_string()) return ObjectState::different;
-            actual.verify_unchanged();
+            const auto actual = observe_maintenance_file(path);
+            if (actual.native_identity != expected.at("native_identity").as_string() ||
+                actual.size_bytes != expected.at("size_bytes").as_unsigned() ||
+                actual.sha256 != expected.at("sha256").as_string()) return ObjectState::different;
             return ObjectState::matching;
         } catch (const std::exception&) { return ObjectState::indeterminate; }
     };

@@ -22,7 +22,8 @@ ScopedNativeMaintenanceTransaction::ScopedNativeMaintenanceTransaction(
     const NativeMaintenanceTransactionOperations& operations) : operations_(operations) {
     if (active_operations || !operations.require_authority || !operations.create_staging_root ||
         !operations.ensure_stream_parent || !operations.open_stream || !operations.require_stream ||
-        !operations.finish_stream || !operations.commit || !operations.apply_effect || !operations.confirm_effect_completion)
+        !operations.finish_stream || !operations.observe_commit_closure || !operations.observe_file ||
+        !operations.commit || !operations.apply_effect || !operations.confirm_effect_completion)
         throw std::runtime_error("native maintenance transaction owner is absent, incomplete or nested");
     // A distinct control block identifies this lifetime even if an operations
     // object or native owner address is later reused. Sessions retain weak
@@ -38,5 +39,12 @@ ScopedNativeMaintenanceTransaction::~ScopedNativeMaintenanceTransaction() {
 }
 const NativeMaintenanceTransactionOperations* ScopedNativeMaintenanceTransaction::current() { return active_operations; }
 std::weak_ptr<const void> ScopedNativeMaintenanceTransaction::current_binding() { return active_binding; }
+std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenance_file(
+    const std::filesystem::path& path) {
+    if (!active_operations) return std::nullopt;
+    if (active_binding.expired() || !active_operations->observe_file)
+        throw std::runtime_error("native maintenance file observer lost its original owner; no pathname fallback");
+    return active_operations->observe_file(path);
+}
 }
 #endif

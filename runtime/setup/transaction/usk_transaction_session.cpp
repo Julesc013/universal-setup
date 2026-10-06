@@ -1256,6 +1256,13 @@ CommitClosureObservation TransactionSession::observe_staged_commit_closure() con
         files.push_back({file.relative_path, file.sha256, file.size_bytes,
             stream == stream_journal_.entries.end() ? std::string{} : stream->output_identity});
     }
+#if defined(_WIN32)
+    if (const auto* native = require_native_owner()) {
+        const auto result = native->observe_commit_closure(spec_, staging_root_, files);
+        (void)require_native_owner();
+        return result;
+    }
+#endif
     return observe_commit_closure(staging_root_, files);
 }
 

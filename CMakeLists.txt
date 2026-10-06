@@ -740,7 +740,9 @@ if(USK_BUILD_TESTS)
     usk_enable_strict_warnings(usk_publisher_volume_operation_guard_smoke)
     add_test(NAME usk_publisher_volume_operation_guard_smoke
       COMMAND usk_publisher_volume_operation_guard_smoke)
-    set_tests_properties(usk_publisher_volume_operation_guard_smoke PROPERTIES TIMEOUT 30)
+    # The release/cancellation deadlines exercise real threads. Keep competing
+    # SDK builds and native tests from delaying the fixture's release signal.
+    set_tests_properties(usk_publisher_volume_operation_guard_smoke PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
 
     add_executable(usk_publisher_device_acl_smoke
       tests/native/usk_publisher_device_acl_smoke.cpp)

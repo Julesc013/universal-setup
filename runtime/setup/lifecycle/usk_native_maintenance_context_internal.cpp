@@ -162,6 +162,8 @@ struct NativeMaintenanceContext::Impl {
     std::unique_ptr<PublisherMaintenanceNames> maintenance_names;
     std::map<fs::path, std::unique_ptr<Entry>> files;
     std::map<fs::path, std::unique_ptr<Entry>> original_files;
+    // Read-only repair verification custody never enters the mutation maps.
+    std::map<fs::path, std::unique_ptr<Entry>> verification_files;
     std::map<fs::path, Entry*> original_directories;
     std::set<fs::path> absent_original_files, absent_original_directories;
     fs::path original_admission_path;
@@ -497,6 +499,8 @@ struct NativeMaintenanceContext::Impl {
             !equal(publisher_handle_observation_json(target_parent->facts), saved.created.at("target_parent")))
             throw std::runtime_error("native maintenance publication changed its original native namespace postimage");
         std::map<fs::path, RestoredObject> original_files_after, original_directories_after, created_files_after, created_directories_after;
+        std::map<fs::path, RestoredObject> verification_files_after;
+        const auto verification_manifest = repair_verification_manifest();
         std::set<fs::path> repaired_parent_creations;
         for (const auto& item : saved.original.at("original_objects").as_array()) {
             const bool directory = item.at("type").as_string() == "directory";
@@ -506,6 +510,11 @@ struct NativeMaintenanceContext::Impl {
                 std::set<std::string>{"relative_path", "type", "present", "object", "parent", "native_identity", "size_bytes", "sha256"});
             const auto text = item.at("relative_path").as_string();
             const auto relative = text.empty() && directory ? fs::path{} : owned_relative(text);
+            const auto verification = directory ? verification_manifest.end() : verification_manifest.find(relative);
+            if (verification != verification_manifest.end() && (!item.at("present").as_boolean() ||
+                item.at("size_bytes").as_unsigned() != verification->second->at("size_bytes").as_unsigned() ||
+                item.at("sha256").as_string() != verification->second->at("sha256").as_string()))
+                throw std::runtime_error("native repair verification custody differs from its original owned bytes");
             if (!item.at("present").as_boolean()) {
                 if (item.at("object").type() != Value::Type::null_value || item.at("parent").type() != Value::Type::null_value ||
                     item.at("native_identity").type() != Value::Type::null_value)
@@ -515,10 +524,13 @@ struct NativeMaintenanceContext::Impl {
             RestoredObject object{item.at("object"), item.at("parent"), relative.empty() ? installed_path : installed_path / relative, directory};
             object.native_identity = item.at("native_identity").as_string();
             if (!directory) { object.size = item.at("size_bytes").as_unsigned(); object.sha256 = item.at("sha256").as_string(); }
-            if (!(directory ? original_directories_after : original_files_after).emplace(relative, std::move(object)).second)
+            auto& objects = directory ? original_directories_after :
+                (verification != verification_manifest.end() ? verification_files_after : original_files_after);
+            if (!objects.emplace(relative, std::move(object)).second)
                 throw std::runtime_error("native maintenance original object repeats");
         }
-        if (original_files_after.size() > 100000u || original_directories_after.size() > 100001u ||
+        if (verification_files_after.size() != verification_manifest.size() ||
+            original_files_after.size() + verification_files_after.size() > 100000u || original_directories_after.size() > 100001u ||
             !original_directories_after.count(fs::path{}) ||
             !equal(original_directories_after.at(fs::path{}).object, saved.original.at("installed_root")))
             throw std::runtime_error("native maintenance original installed root is absent");
@@ -594,7 +606,7 @@ struct NativeMaintenanceContext::Impl {
                             item.second.parent = object->object;
                     };
                     update(created_directories_after); update(created_files_after);
-                    update(original_directories_after); update(original_files_after);
+                    update(original_directories_after); update(original_files_after); update(verification_files_after);
                 }
             } else if (kind == "created_metadata") {
                 if (!metadata_creations.emplace(record.at("pending_intent_sequence").as_unsigned(), &details).second)
@@ -703,7 +715,7 @@ struct NativeMaintenanceContext::Impl {
                 if (item.first.empty()) staging = entry;
             }
         }
-        const auto restore_file = [&](const RestoredObject& object, bool creation) -> std::unique_ptr<Entry> {
+        const auto restore_file = [&](const RestoredObject& object, bool creation, bool read_only = false) -> std::unique_ptr<Entry> {
             if (object.removed) { require_absent(object); return {}; }
             auto& parent = open_directory(object.path.parent_path());
             if (!equal(publisher_handle_observation_json(parent.facts), object.parent))
@@ -713,7 +725,8 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance original surviving file is absent");
             auto entry = std::make_unique<Entry>();
             entry->directory = false; entry->parent = &parent; entry->name = object.path.filename().wstring();
-            entry->handle.value = open_publisher_listed_maintenance_file(parent.handle.value, *listed);
+            entry->handle.value = read_only ? open_publisher_listed_child(parent.handle.value, *listed) :
+                open_publisher_listed_maintenance_file(parent.handle.value, *listed);
             entry->facts = facts(entry->handle.value, false); entry->size = object.size; entry->sha256 = object.sha256;
             entry->stream_identity = journal_identity(entry->handle.value);
             if (!equal(publisher_handle_observation_json(entry->facts), object.object) ||
@@ -727,6 +740,11 @@ struct NativeMaintenanceContext::Impl {
         }
         for (const auto& item : created_files_after) {
             auto entry = restore_file(item.second, true); if (entry) files.emplace(item.first, std::move(entry));
+        }
+        for (const auto& item : verification_files_after) {
+            auto entry = restore_file(item.second, false, true);
+            if (!entry || !verification_files.emplace(item.first, std::move(entry)).second)
+                throw std::runtime_error("native repair verification custody is absent or repeated");
         }
         const auto require_original_absence = [&](const fs::path& relative, bool directory) {
             auto missing = relative;
@@ -929,6 +947,10 @@ struct NativeMaintenanceContext::Impl {
         operations.open_stream = [this](const auto& s, const auto& p, auto size, const auto& sha) { return open_stream(s, p, size, sha); };
         operations.require_stream = [this](const auto& s, auto h) { require_stream(s, h); };
         operations.finish_stream = [this](const auto& s, auto h, const auto& id, auto size, const auto& sha) { finish_stream(s, h, id, size, sha); };
+        operations.observe_commit_closure = [this](const auto& s, const auto& p, const auto& files) {
+            return observe_created_closure(s, p, files);
+        };
+        operations.observe_file = [this](const auto& p) { return observe_owned_file(p); };
         operations.commit = [this](const auto& s, const auto& p, const auto& id, const auto& closure) { commit(s, p, id, closure); };
         operations.apply_effect = [this](const auto& s, const auto& history) { return apply_effect(s, history); };
         operations.confirm_effect_completion = [this](const auto& s, const auto& history,
@@ -1395,6 +1417,44 @@ struct NativeMaintenanceContext::Impl {
             !FlushFileBuffers(entry.handle.value)) throw std::runtime_error("native maintenance stream completion differs from its reviewed creation");
         require_bytes(entry); entry.complete = true; require_authority(s);
     }
+    std::map<fs::path, const Value*> repair_verification_manifest() const {
+        std::map<fs::path, const Value*> result;
+        if (spec.operation != "repair") return result;
+        const auto& snapshot = original_context.record().at("reviewed_snapshot");
+        const auto& owned = snapshot.at("ownership_manifest").at("files").as_array();
+        const auto& replacements = snapshot.at("reviewed_plan").at("replacement_files").as_array();
+        if (owned.size() > 100000u || replacements.size() > 100000u)
+            throw std::runtime_error("native repair verification closure exceeds its finite bound");
+        for (const auto& file : owned)
+            if (!result.emplace(owned_relative(file.at("relative_path").as_string()), &file).second)
+                throw std::runtime_error("native repair owned verification path repeated");
+        for (const auto& file : replacements)
+            if (result.erase(owned_relative(file.at("relative_path").as_string())) != 1u)
+                throw std::runtime_error("native repair replacement is outside its exact owned closure");
+        return result;
+    }
+    void admit_original_file_bytes(Entry& held, std::uint64_t& logical_bytes) {
+        FILE_STANDARD_INFO standard{};
+        if (!GetFileInformationByHandleEx(held.handle.value, FileStandardInfo, &standard, sizeof(standard)) ||
+            standard.DeletePending || standard.Directory || standard.EndOfFile.QuadPart < 0 ||
+            static_cast<std::uint64_t>(standard.EndOfFile.QuadPart) > (1ull << 32) ||
+            static_cast<std::uint64_t>(standard.EndOfFile.QuadPart) > (1ull << 34) - logical_bytes)
+            throw std::runtime_error("native maintenance original owned bytes exceed observation bounds");
+        held.size = static_cast<std::uint64_t>(standard.EndOfFile.QuadPart); logical_bytes += held.size;
+        LARGE_INTEGER zero{};
+        if (!SetFilePointerEx(held.handle.value, zero, nullptr, FILE_BEGIN))
+            throw std::runtime_error("native maintenance original file position unavailable");
+        base::Sha256 hash; std::array<unsigned char, 64u * 1024u> bytes{}; std::uint64_t consumed = 0;
+        while (consumed < held.size) {
+            DWORD count = 0;
+            const DWORD wanted = static_cast<DWORD>(std::min<std::uint64_t>(bytes.size(), held.size - consumed));
+            if (!ReadFile(held.handle.value, bytes.data(), wanted, &count, nullptr) || count != wanted)
+                throw std::runtime_error("native maintenance original owned file read changed");
+            hash.update(bytes.data(), count); consumed += count;
+        }
+        held.sha256 = hash.finish(); held.stream_identity = journal_identity(held.handle.value);
+        require_bytes(held);
+    }
     void admit_original_payload() {
         const auto& snapshot = original_context.record().at("reviewed_snapshot");
         const auto root = fs::u8path(snapshot.at("installed_state").at("target_root").as_string());
@@ -1448,26 +1508,29 @@ struct NativeMaintenanceContext::Impl {
             auto& held = *inserted.first->second;
             held.handle.value = open_publisher_listed_maintenance_file(parent.handle.value, *listed);
             held.facts = facts(held.handle.value, false);
-            FILE_STANDARD_INFO standard{};
-            if (!GetFileInformationByHandleEx(held.handle.value, FileStandardInfo, &standard, sizeof(standard)) ||
-                standard.DeletePending || standard.Directory || standard.EndOfFile.QuadPart < 0 ||
-                static_cast<std::uint64_t>(standard.EndOfFile.QuadPart) > (1ull << 32) ||
-                static_cast<std::uint64_t>(standard.EndOfFile.QuadPart) > (1ull << 34) - logical_bytes)
-                throw std::runtime_error("native maintenance original owned bytes exceed observation bounds");
-            held.size = static_cast<std::uint64_t>(standard.EndOfFile.QuadPart); logical_bytes += held.size;
-            LARGE_INTEGER zero{};
-            if (!SetFilePointerEx(held.handle.value, zero, nullptr, FILE_BEGIN))
-                throw std::runtime_error("native maintenance original file position unavailable");
-            base::Sha256 hash; std::array<unsigned char, 64u * 1024u> bytes{}; std::uint64_t consumed = 0;
-            while (consumed < held.size) {
-                DWORD count = 0;
-                const DWORD wanted = static_cast<DWORD>(std::min<std::uint64_t>(bytes.size(), held.size - consumed));
-                if (!ReadFile(held.handle.value, bytes.data(), wanted, &count, nullptr) || count != wanted)
-                    throw std::runtime_error("native maintenance original owned file read changed");
-                hash.update(bytes.data(), count); consumed += count;
-            }
-            held.sha256 = hash.finish(); held.stream_identity = journal_identity(held.handle.value);
-            require_bytes(held);
+            admit_original_file_bytes(held, logical_bytes);
+        }
+        for (const auto& item : repair_verification_manifest()) {
+            const auto& relative = item.first;
+            const auto original_parent = original_directories.find(relative.parent_path());
+            if (original_parent == original_directories.end())
+                throw std::runtime_error("native repair healthy file lacks its retained original parent");
+            auto& parent = *original_parent->second;
+            require_entry(parent);
+            const auto listed = child(parent.handle.value, relative.filename().wstring());
+            if (!listed || (listed->attributes & FILE_ATTRIBUTE_DIRECTORY))
+                throw std::runtime_error("native repair healthy owned file is absent or changed type");
+            auto entry = std::make_unique<Entry>();
+            entry->parent = &parent; entry->name = relative.filename().wstring(); entry->directory = false;
+            auto inserted = verification_files.emplace(relative, std::move(entry));
+            if (!inserted.second) throw std::runtime_error("native repair healthy owned file repeated");
+            auto& held = *inserted.first->second;
+            held.handle.value = open_publisher_listed_child(parent.handle.value, *listed);
+            held.facts = facts(held.handle.value, false);
+            admit_original_file_bytes(held, logical_bytes);
+            if (held.size != item.second->at("size_bytes").as_unsigned() ||
+                held.sha256 != item.second->at("sha256").as_string())
+                throw std::runtime_error("native repair healthy owned bytes differ from the original manifest");
         }
     }
     void retain_original_consumer_records() {
@@ -1506,15 +1569,18 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance original custody exceeds its durable bound");
             charged += bytes; objects.push_back(std::move(object));
         };
-        for (const auto& item : original_files) {
-            const auto& file = *item.second; require_bytes(file);
-            append(Value(Value::Object{{"relative_path", Value(item.first.generic_u8string())},
-                {"type", Value("file")}, {"present", Value(true)},
-                {"object", publisher_handle_observation_json(file.facts)},
-                {"parent", publisher_handle_observation_json(file.parent->facts)},
-                {"native_identity", Value(file.stream_identity)},
-                {"size_bytes", Value(file.size)}, {"sha256", Value(file.sha256)}}));
-        }
+        const auto append_files = [&](const auto& entries) {
+            for (const auto& item : entries) {
+                const auto& file = *item.second; require_bytes(file);
+                append(Value(Value::Object{{"relative_path", Value(item.first.generic_u8string())},
+                    {"type", Value("file")}, {"present", Value(true)},
+                    {"object", publisher_handle_observation_json(file.facts)},
+                    {"parent", publisher_handle_observation_json(file.parent->facts)},
+                    {"native_identity", Value(file.stream_identity)},
+                    {"size_bytes", Value(file.size)}, {"sha256", Value(file.sha256)}}));
+            }
+        };
+        append_files(original_files); append_files(verification_files);
         for (const auto& relative : absent_original_files)
             append(Value(Value::Object{{"relative_path", Value(relative.generic_u8string())},
                 {"type", Value("file")}, {"present", Value(false)}, {"object", Value{}},
@@ -1993,6 +2059,92 @@ struct NativeMaintenanceContext::Impl {
         }
         return apply_effect(supplied, history).outcome;
     }
+    transaction::detail::NativeMaintenanceFileObservation observe_owned_file(const fs::path& path) const {
+        require_authority(spec);
+        auto wanted = volume_facts.native_name;
+        if (!wanted.empty() && wanted.back() != L'\\') wanted += L'\\';
+        wanted += relative_volume_path(path).native();
+        const Entry* selected = nullptr;
+        const auto select = [&](const auto& entries) {
+            for (const auto& item : entries) {
+                const auto& entry = *item.second;
+                if (entry.handle.value == INVALID_HANDLE_VALUE || entry.facts.native_name != wanted) continue;
+                if (selected) throw std::runtime_error("native maintenance file observation has ambiguous held custody");
+                selected = &entry;
+            }
+        };
+        select(files); select(original_files); select(verification_files);
+        if (!selected || selected->directory || (selected->created && !selected->complete))
+            throw std::runtime_error("native maintenance file observation is outside its retained completed files");
+        require_bytes(*selected);
+        transaction::detail::NativeMaintenanceFileObservation result{
+            journal_identity(selected->handle.value), selected->sha256, selected->size};
+        require_authority(spec);
+        return result;
+    }
+    transaction::CommitClosureObservation observe_created_closure(const transaction::TransactionSpec& s,
+        const fs::path& path, const std::vector<transaction::CommitClosureFile>& requested) const {
+        require_authority(s);
+        if (!staging || !staging->created || publication_attempted || staging_relative(path) != fs::path(".") ||
+            requested.size() != files.size() || requested.size() > transaction::maximum_commit_closure_entries)
+            throw std::runtime_error("native maintenance closure lacks its original unpublished creation set");
+        std::set<std::string> expected_files, expected_directories;
+        std::vector<PublisherExpectedFile> expected;
+        for (const auto& file : requested) {
+            const auto relative = owned_relative(file.relative_path.generic_u8string());
+            if (!expected_files.insert(relative.generic_u8string()).second)
+                throw std::runtime_error("native maintenance closure repeats a recorded file");
+            std::size_t depth = 0;
+            for (const auto& part : relative) {
+                (void)part;
+                if (++depth > transaction::maximum_commit_closure_depth)
+                    throw std::runtime_error("native maintenance closure path depth exceeded");
+            }
+            for (auto parent = relative.parent_path(); !parent.empty(); parent = parent.parent_path())
+                expected_directories.insert(parent.generic_u8string());
+            if (expected_files.size() + expected_directories.size() > transaction::maximum_commit_closure_entries)
+                throw std::runtime_error("native maintenance closure entry budget exceeded");
+            const auto found = files.find(relative);
+            if (found == files.end() || !found->second->created || !found->second->complete ||
+                found->second->size != file.size_bytes || found->second->sha256 != file.sha256 ||
+                found->second->stream_identity != file.stream_output_identity)
+                throw std::runtime_error("native maintenance closure differs from its completed stream creators");
+            require_bytes(*found->second);
+            expected.push_back({relative.generic_wstring(), file.size_bytes, file.sha256});
+        }
+        require_entry(*staging);
+        const auto tree = observe_publisher_tree(staging->handle.value);
+        require_publisher_tree_security_shape(tree, service.service_sid);
+        require_publisher_tree_exact_file_closure(tree, expected);
+        if (tree.descendants.size() != expected_files.size() + expected_directories.size() ||
+            !same(tree.root, staging->facts))
+            throw std::runtime_error("native maintenance closure has an unrelated root or directory");
+        transaction::CommitClosureObservation result{{"D:", journal_identity(staging->handle.value)}};
+        for (const auto& object : tree.descendants) {
+            const auto relative = fs::path(object.relative_path);
+            const bool directory = (object.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            const Entry* held = nullptr;
+            if (directory) {
+                if (!expected_directories.count(relative.generic_u8string()))
+                    throw std::runtime_error("native maintenance closure has an unrecorded directory");
+                const auto found = directories.find((relative_volume_path(path) / relative).lexically_normal());
+                if (found == directories.end() || !found->second->created)
+                    throw std::runtime_error("native maintenance closure directory lacks its original creator");
+                held = found->second.get(); require_entry(*held);
+            } else {
+                held = files.at(relative).get(); require_bytes(*held);
+                if (object.size != held->size || object.sha256 != held->sha256)
+                    throw std::runtime_error("native maintenance closure bytes differ from its held stream");
+            }
+            if (!same(object.object, held->facts) ||
+                !result.emplace((directory ? "D:" : "F:") + relative.generic_u8string(),
+                    journal_identity(held->handle.value)).second)
+                throw std::runtime_error("native maintenance closure lost its exact native creation identity");
+        }
+        require_publisher_tree_phase_match(tree, observe_publisher_tree(staging->handle.value));
+        require_authority(s);
+        return result;
+    }
     void commit(const transaction::TransactionSpec& s, const fs::path& path, const std::string& id,
         const transaction::CommitClosureObservation& closure) {
         require_authority(s);
@@ -2017,7 +2169,7 @@ struct NativeMaintenanceContext::Impl {
         const auto sealed = observe_publisher_tree(staging->handle.value);
         require_publisher_tree_security_shape(sealed, service.service_sid);
         require_publisher_tree_exact_file_closure(sealed, expected);
-        if (transaction::observe_commit_closure(path, journal_files) != closure)
+        if (observe_created_closure(s, path, journal_files) != closure)
             throw std::runtime_error("native maintenance generic closure differs from the held created tree");
         for (const auto& object : sealed.descendants) {
             const auto relative = fs::path(object.relative_path);

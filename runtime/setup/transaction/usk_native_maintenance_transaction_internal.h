@@ -6,9 +6,19 @@
 #include "usk_transaction_session.h"
 #include <functional>
 #include <memory>
+#include <optional>
 namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
 namespace usk::transaction { class MaintenanceEffectJournal; struct MaintenanceEffectInspection; }
 namespace usk::transaction::detail {
+struct NativeMaintenanceFileObservation {
+    std::string native_identity, sha256;
+    std::uint64_t size_bytes = 0;
+};
+// Read-only facts from the current concrete owner's retained file. Absence of
+// a native scope returns null; an active scope never falls back by pathname.
+// These values confer no custody, completion or mutation authority.
+std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenance_file(
+    const std::filesystem::path& path);
 // Read-only lifetime policy. Supplied identities confer no native scope or
 // authority; the session separately uses the engine's private current binding.
 void require_native_maintenance_origin_binding(bool native_origin,
@@ -28,6 +38,9 @@ struct NativeMaintenanceTransactionOperations {
     std::function<void(const TransactionSpec&, std::intptr_t)> require_stream;
     std::function<void(const TransactionSpec&, std::intptr_t, const std::string&,
         std::uint64_t, const std::string&)> finish_stream;
+    std::function<CommitClosureObservation(const TransactionSpec&, const std::filesystem::path&,
+        const std::vector<CommitClosureFile>&)> observe_commit_closure;
+    std::function<NativeMaintenanceFileObservation(const std::filesystem::path&)> observe_file;
     std::function<void(const TransactionSpec&, const std::filesystem::path&,
         const std::string&, const CommitClosureObservation&)> commit;
     // Exact durable original pending payload or metadata intent; the owner alone selects
