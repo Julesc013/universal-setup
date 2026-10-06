@@ -309,6 +309,99 @@ Value observe_settled_publisher_worker_security(const PublisherServiceObservatio
     throw std::runtime_error("publisher startup worker population did not settle before effects");
 }
 
+struct PublisherWorkerSecurityContinuity::Impl {
+    const Value baseline;
+    std::map<DWORD, std::unique_ptr<Handle>> threads;
+
+    static void require_identity(HANDLE handle, const Value& original, FILETIME& exit) {
+        FILETIME creation{}, kernel{}, user{};
+        require(GetProcessIdOfThread(handle) == GetCurrentProcessId() &&
+            GetThreadId(handle) == original.at("thread_id").as_unsigned() &&
+            GetThreadTimes(handle, &creation, &exit, &kernel, &user) &&
+            original.at("creation_time").as_string() ==
+                hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime),
+            "publisher maintenance retained thread identity changed or unavailable");
+    }
+    static void require_live(HANDLE handle, const Value& original) {
+        FILETIME exit{};
+        require_identity(handle, original, exit);
+        require(WaitForSingleObject(handle, 0) == WAIT_TIMEOUT,
+            "publisher maintenance surviving original thread exited during readback");
+        require_no_thread_token(handle);
+        auto facts = object_security(handle);
+        facts.emplace("thread_id", original.at("thread_id"));
+        facts.emplace("creation_time", original.at("creation_time"));
+        facts.emplace("thread_impersonating", Value(false));
+        require(usk::json::canonical(Value(facts)) == usk::json::canonical(original),
+            "publisher maintenance surviving original thread security changed");
+    }
+    explicit Impl(const Value& original) : baseline(original) {
+        require(usk::json::canonical(observe_current_publisher_worker_security()) == usk::json::canonical(baseline),
+            "publisher maintenance baseline differs from actual worker before thread pinning");
+        for (const auto& item : baseline.at("threads").as_array()) {
+            const auto id = static_cast<DWORD>(item.at("thread_id").as_unsigned());
+            auto held = std::make_unique<Handle>(OpenThread(
+                THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE, FALSE, id));
+            require_live(held->get(), item);
+            require(threads.emplace(id, std::move(held)).second,
+                "publisher maintenance original thread identity repeated");
+        }
+        require(usk::json::canonical(observe_current_publisher_worker_security()) == usk::json::canonical(baseline),
+            "publisher maintenance baseline changed while pinning original threads");
+        for (const auto& item : baseline.at("threads").as_array())
+            require_live(threads.at(static_cast<DWORD>(item.at("thread_id").as_unsigned()))->get(), item);
+    }
+    Value observe_current() const {
+        const auto current = observe_current_publisher_worker_security();
+        require(current.at("schema").as_string() == baseline.at("schema").as_string() &&
+            current.at("scope").as_string() == baseline.at("scope").as_string() &&
+            current.at("process_id").as_unsigned() == baseline.at("process_id").as_unsigned(),
+            "publisher maintenance frozen worker context changed");
+        require(current.at("current_thread_id").as_unsigned() == baseline.at("current_thread_id").as_unsigned(),
+            "publisher maintenance original execution thread changed");
+        require(usk::json::canonical(current.at("primary_token")) == usk::json::canonical(baseline.at("primary_token")),
+            "publisher maintenance frozen primary token or defaults changed");
+        std::map<DWORD, const Value*> originals;
+        for (const auto& item : baseline.at("threads").as_array())
+            originals.emplace(static_cast<DWORD>(item.at("thread_id").as_unsigned()), &item);
+        std::vector<DWORD> current_ids;
+        for (const auto& item : current.at("threads").as_array()) {
+            const auto id = static_cast<DWORD>(item.at("thread_id").as_unsigned());
+            const auto original = originals.find(id);
+            require(original != originals.end(), "publisher maintenance worker added a thread after its frozen baseline");
+            require(usk::json::canonical(item) == usk::json::canonical(*original->second),
+                "publisher maintenance surviving original thread facts changed");
+            current_ids.push_back(id);
+        }
+        // Retain even terminated handles until this proof is destroyed. Missing
+        // numeric IDs or saved JSON alone cannot prove original-object exit.
+        const auto require_originals = [&] {
+            for (const auto& item : originals) {
+                const auto handle = threads.at(item.first)->get();
+                if (std::binary_search(current_ids.begin(), current_ids.end(), item.first)) {
+                    require_live(handle, *item.second);
+                } else {
+                    require(item.first != baseline.at("current_thread_id").as_unsigned() &&
+                        WaitForSingleObject(handle, 0) == WAIT_OBJECT_0,
+                        "publisher maintenance missing original thread lacks retained-handle retirement proof");
+                    FILETIME exit{};
+                    require_identity(handle, *item.second, exit);
+                    require(exit.dwHighDateTime || exit.dwLowDateTime,
+                        "publisher maintenance missing original thread lacks retained-handle retirement proof");
+                }
+            }
+        };
+        require_originals();
+        require(thread_ids() == current_ids, "publisher maintenance thread population changed across continuity readback");
+        require_originals();
+        return current;
+    }
+};
+PublisherWorkerSecurityContinuity::PublisherWorkerSecurityContinuity(const Value& baseline)
+    : impl_(std::make_unique<Impl>(baseline)) {}
+PublisherWorkerSecurityContinuity::~PublisherWorkerSecurityContinuity() = default;
+Value PublisherWorkerSecurityContinuity::observe_current() const { return impl_->observe_current(); }
+
 void require_publisher_worker_security(const Value& value, const PublisherServiceObservation& service) {
     require(value.as_object().size() == 6 && value.at("schema").as_string() == "usk.publisher_worker_security.v1" &&
         value.at("scope").as_string() == "stored_primary_token_defaults_and_process_thread_owner_dacls" &&

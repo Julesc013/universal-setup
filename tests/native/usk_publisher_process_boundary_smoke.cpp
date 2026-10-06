@@ -5,8 +5,10 @@
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_worker_security.h"
 #include <functional>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 using usk::json::Value;
 using namespace usk::platform::windows;
@@ -95,17 +97,172 @@ void worker_security_controls() {
     refuses([](Value& value) { value.as_object().at("primary_token").as_object().at("token_id") = Value("0000000000000502"); });
     refuses([](Value& value) { value.as_object().at("threads").as_array().front().as_object().at("thread_impersonating") = Value(true); });
 }
+class TestThread {
+public:
+    explicit TestThread(LPTHREAD_START_ROUTINE routine = nullptr, void* parameter = nullptr) {
+        stop_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        check(stop_ != nullptr, "test thread release event unavailable");
+        thread_ = CreateThread(nullptr, 0, routine ? routine : wait_for_release,
+            routine ? parameter : stop_, 0, &id_);
+        if (!thread_) { CloseHandle(stop_); throw std::runtime_error("test helper thread unavailable"); }
+    }
+    ~TestThread() {
+        if (!SetEvent(stop_) || WaitForSingleObject(thread_, 5000u) != WAIT_OBJECT_0) {
+            std::cerr << "test helper still active; fail-stop before releasing its dependencies\n";
+            std::_Exit(1);
+        }
+        CloseHandle(thread_); CloseHandle(stop_);
+    }
+    TestThread(const TestThread&) = delete;
+    TestThread& operator=(const TestThread&) = delete;
+    HANDLE handle() const { return thread_; }
+    DWORD id() const { return id_; }
+    void retire() {
+        check(SetEvent(stop_) && WaitForSingleObject(thread_, 5000u) == WAIT_OBJECT_0,
+            "actual test thread did not end");
+    }
+private:
+    static DWORD WINAPI wait_for_release(void* parameter) {
+        return WaitForSingleObject(static_cast<HANDLE>(parameter), INFINITE) == WAIT_OBJECT_0 ? 0u : 1u;
+    }
+    HANDLE stop_ = nullptr, thread_ = nullptr;
+    DWORD id_ = 0;
+};
+class TestThreadDacl {
+public:
+    explicit TestThreadDacl(HANDLE thread) : thread_(thread) {
+        DWORD size = 0;
+        constexpr auto information = DACL_SECURITY_INFORMATION;
+        check(!GetKernelObjectSecurity(thread_, information, nullptr, 0, &size) &&
+            GetLastError() == ERROR_INSUFFICIENT_BUFFER && size && size <= 1024u * 1024u,
+            "test thread original descriptor size unavailable");
+        original_.resize(size);
+        check(GetKernelObjectSecurity(thread_, information, original_.data(), size, &size) != FALSE,
+            "test thread original descriptor unavailable");
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        check(GetSecurityDescriptorControl(original_.data(), &control, &revision) != FALSE,
+            "test thread original descriptor control unavailable");
+        original_protected_ = (control & SE_DACL_PROTECTED) != 0;
+        BOOL present = FALSE, defaulted = FALSE; PACL dacl = nullptr;
+        check(GetSecurityDescriptorDacl(original_.data(), &present, &dacl, &defaulted) && present && dacl,
+            "test thread original DACL unavailable");
+        unsigned char sid[SECURITY_MAX_SID_SIZE]{}; DWORD sid_size = sizeof(sid);
+        check(CreateWellKnownSid(WinWorldSid, nullptr, sid, &sid_size) != FALSE,
+            "test thread control SID unavailable");
+        const auto size_with_deny = static_cast<DWORD>(dacl->AclSize + sizeof(ACCESS_DENIED_ACE) - sizeof(DWORD) + sid_size);
+        std::vector<unsigned char> changed(size_with_deny);
+        auto* changed_acl = reinterpret_cast<PACL>(changed.data());
+        check(InitializeAcl(changed_acl, size_with_deny, ACL_REVISION) &&
+            AddAccessDeniedAce(changed_acl, ACL_REVISION, THREAD_SET_INFORMATION, sid),
+            "test thread control deny ACE unavailable");
+        for (DWORD index = 0; index != dacl->AceCount; ++index) {
+            void* ace_value = nullptr;
+            check(GetAce(dacl, index, &ace_value) && AddAce(changed_acl, ACL_REVISION, MAXDWORD, ace_value,
+                static_cast<ACE_HEADER*>(ace_value)->AceSize), "test thread original ACE copy failed");
+        }
+        SECURITY_DESCRIPTOR descriptor{};
+        check(InitializeSecurityDescriptor(&descriptor, SECURITY_DESCRIPTOR_REVISION) &&
+            SetSecurityDescriptorDacl(&descriptor, TRUE, changed_acl, FALSE) &&
+            SetSecurityDescriptorControl(&descriptor, SE_DACL_PROTECTED, original_protected_ ? SE_DACL_PROTECTED : 0) &&
+            SetKernelObjectSecurity(thread_, information, &descriptor), "test thread stored DACL change failed");
+    }
+    ~TestThreadDacl() { restore(); }
+    TestThreadDacl(const TestThreadDacl&) = delete;
+    TestThreadDacl& operator=(const TestThreadDacl&) = delete;
+    void restore_checked() { check(restore(), "test thread descriptor restoration failed"); }
+private:
+    bool restore() {
+        if (restored_) return true;
+        restored_ = SetKernelObjectSecurity(thread_, DACL_SECURITY_INFORMATION | (original_protected_ ?
+            PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION), original_.data()) != FALSE;
+        return restored_;
+    }
+    HANDLE thread_;
+    std::vector<unsigned char> original_;
+    bool original_protected_ = false, restored_ = false;
+};
+struct ExecutionThreadControl {
+    const PublisherWorkerSecurityContinuity& continuity;
+    std::string diagnostic;
+    static DWORD WINAPI run(void* parameter) {
+        auto& control = *static_cast<ExecutionThreadControl*>(parameter);
+        try { (void)control.continuity.observe_current(); }
+        catch (const std::exception& error) { control.diagnostic = error.what(); }
+        return 0;
+    }
+};
+void worker_lifetime_controls() {
+    // Ordinary owned test threads only; no service, token mutation or native
+    // effect scope. The continuity observer itself has query-only handles.
+    TestThread original;
+    const auto baseline = observe_current_publisher_worker_security();
+    const auto frozen = usk::json::canonical(baseline);
+    PublisherWorkerSecurityContinuity continuity(baseline);
+    check(usk::json::canonical(continuity.observe_current()) == frozen,
+        "unchanged actual worker continuity failed");
+    const auto refuses_baseline = [&](const std::function<void(Value&)>& change) {
+        auto forged = baseline; change(forged);
+        std::string diagnostic;
+        try { PublisherWorkerSecurityContinuity invalid(forged); }
+        catch (const std::exception& error) { diagnostic = error.what(); }
+        check(diagnostic.find("differs from actual worker before thread pinning") != std::string::npos,
+            "forged baseline was admitted or refused for an unrelated reason");
+    };
+    refuses_baseline([](Value& value) { value.as_object().at("primary_token").as_object().at("token_id") = Value("0000000000000000"); });
+    refuses_baseline([](Value& value) { value.as_object().at("current_thread_id") = Value(std::uint64_t{0}); });
+    refuses_baseline([](Value& value) { value.as_object().at("threads").as_array().clear(); });
+    refuses_baseline([](Value& value) { value.as_object().at("threads").as_array().front().as_object().at("creation_time") = Value("0000000000000001"); });
+    {
+        TestThread added;
+        std::string diagnostic;
+        try { (void)continuity.observe_current(); }
+        catch (const std::exception& error) { diagnostic = error.what(); }
+        check(diagnostic.find("added a thread after its frozen baseline") != std::string::npos,
+            "actual added thread was admitted or refused for an unrelated reason");
+        added.retire();
+    }
+    {
+        ExecutionThreadControl control{continuity, {}};
+        TestThread different(ExecutionThreadControl::run, &control);
+        different.retire();
+        check(control.diagnostic.find("original execution thread changed") != std::string::npos,
+            "different actual execution thread was admitted or refused for an unrelated reason");
+    }
+    {
+        TestThreadDacl changed(original.handle());
+        check(usk::json::canonical(observe_current_publisher_worker_security()) != frozen,
+            "test thread stored security control did not change native facts");
+        std::string diagnostic;
+        try { (void)continuity.observe_current(); }
+        catch (const std::exception& error) { diagnostic = error.what(); }
+        changed.restore_checked();
+        if (diagnostic.find("surviving original thread facts changed") == std::string::npos)
+            std::cerr << "actual security-control refusal: " << diagnostic << '\n';
+        check(diagnostic.find("surviving original thread facts changed") != std::string::npos,
+            "changed actual surviving thread security was admitted or refused for an unrelated reason");
+    }
+    (void)continuity.observe_current();
+    original.retire();
+    for (unsigned repeat = 0; repeat != 2; ++repeat) {
+        const auto current = continuity.observe_current();
+        for (const auto& thread : current.at("threads").as_array())
+            check(thread.at("thread_id").as_unsigned() != original.id(), "ended original test thread still reported live");
+        check(usk::json::canonical(baseline) == frozen, "original worker baseline was refreshed");
+    }
+    std::cout << "actual retained-thread retirement and addition/security/execution/forgery controls passed\n";
+}
 } // namespace
 
 int main() {
     try {
-        // Ordinary-process readback only: no SCM, descriptor changes or opens
-        // against another process. These facts confer no publisher authority.
+        // Ordinary-process readback and owned test-thread controls only. No
+        // SCM or opens against another process; no publisher effect authority.
         const auto actual = observe_current_publisher_process_boundary();
         check(actual.as_object().size() == 7 && actual.at("process_id").as_unsigned() == GetCurrentProcessId() &&
             actual.at("dacl_present").as_boolean() && !actual.at("owner_sid").as_string().empty(),
             "current process owner/DACL facts were not observed");
         worker_security_controls();
+        worker_lifetime_controls();
 
         // Synthetic policy controls are separate from the native observation.
         require_publisher_process_boundary(boundary(), 500, service_sid, groups);

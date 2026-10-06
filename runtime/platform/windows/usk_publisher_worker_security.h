@@ -7,6 +7,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <memory>
 #include "usk_json.h"
 #include "usk_publisher_token_observation.h"
 
@@ -24,6 +25,24 @@ void require_publisher_worker_security(const usk::json::Value& value,
 // Refuses cancellation, observation failure or an8s unsettled deadline.
 usk::json::Value observe_settled_publisher_worker_security(
     const PublisherServiceObservation& service, HANDLE cancel_event = nullptr);
+// Read-only lifetime proof, established before this owner's maintenance effects.
+// The supplied baseline must equal actual native observations around pinning
+// all original query-only thread handles. It grants no effect authority.
+// Only signaled retirement of an original non-execution thread is allowed;
+// every surviving fact and non-thread field stays frozen. The original JSON
+// is never refreshed, and creation/execution observation equality is unchanged.
+// Population checks remain bracketed; retirement during readback can refuse.
+class PublisherWorkerSecurityContinuity {
+public:
+    explicit PublisherWorkerSecurityContinuity(const usk::json::Value& baseline);
+    ~PublisherWorkerSecurityContinuity();
+    PublisherWorkerSecurityContinuity(const PublisherWorkerSecurityContinuity&) = delete;
+    PublisherWorkerSecurityContinuity& operator=(const PublisherWorkerSecurityContinuity&) = delete;
+    usk::json::Value observe_current() const;
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 } // namespace usk::platform::windows
 #endif
 #endif

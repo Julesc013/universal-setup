@@ -164,6 +164,7 @@ struct NativeMaintenanceContext::Impl {
     HANDLE cancel_event;
     PublisherServiceObservation service;
     Value worker, process_boundary, registration, selection, client;
+    std::unique_ptr<PublisherWorkerSecurityContinuity> worker_continuity;
     Value original_consumer_completion;
     std::string original_consumer_sid;
     std::vector<std::wstring> consumer_payload_roots;
@@ -914,6 +915,7 @@ struct NativeMaintenanceContext::Impl {
         process_boundary = observe_current_publisher_process_boundary();
         require_publisher_process_boundary(process_boundary, service.process_id, service.service_sid, service.token.process_groups);
         worker = observe_settled_publisher_worker_security(service, cancel_event);
+        worker_continuity = std::make_unique<PublisherWorkerSecurityContinuity>(worker);
         descriptor = make_publisher_directory_security_descriptor(std::wstring(service.service_sid.begin(), service.service_sid.end()));
         // These are already admitted canonical protected parents. Bind only
         // this original operation's generated staging and repair/uninstall
@@ -1101,12 +1103,12 @@ struct NativeMaintenanceContext::Impl {
         if (!same(observe_publisher_directory_handle(volume), volume_facts) ||
             !equal(admission.evidence(), registration) || !equal(admission.selected_reviewed_operation_observation(), selection))
             throw std::runtime_error("native maintenance held registration or boundary changed");
-        const auto current_worker = observe_current_publisher_worker_security();
+        const auto current_worker = worker_continuity->observe_current();
         require_publisher_worker_security(current_worker, service);
         const auto current_process = observe_current_publisher_process_boundary();
         require_publisher_process_boundary(current_process, service.process_id, service.service_sid, service.token.process_groups);
-        if (!equal(current_worker, worker) || !equal(current_process, process_boundary))
-            throw std::runtime_error("native maintenance frozen worker security changed");
+        if (!equal(current_process, process_boundary))
+            throw std::runtime_error("native maintenance frozen process boundary changed");
         if (installed_uncertain || payload_failed || custody_failed)
             throw std::runtime_error("native maintenance effect is uncertain; no further effects");
         if (!active_payload_history.empty()) {
