@@ -1301,6 +1301,49 @@ struct PublisherInstallationLease::Impl {
         require_install_lease_fence(active, *current, root_identity(state_root, service_sid),
             observe_publisher_lease_holder());
     }
+    void recovery_lineage(const Value& original) const {
+        fence();
+        require_install_lease_record(original);
+        if (!request.recovery || original.at("status").as_string() != "active" ||
+            original.at("generation").as_unsigned() >= active.at("generation").as_unsigned() ||
+            original.at("install_id").as_string() != request.install_id ||
+            original.at("operation").as_string() != request.operation ||
+            original.at("operation_id").as_string() != request.operation_id ||
+            original.at("operation_context_sha256").as_string() != request.operation_context_sha256 ||
+            !equal(original.at("state_root_identity"), root))
+            throw InstallLeaseStale();
+        // latest() validated every protected journal transition at fence().
+        // Independently read actual members again: a JSON record or a hash
+        // matching the current predecessor is insufficient original custody.
+        bool found_original = false, found_current = false;
+        for (const auto& entry : observe_publisher_directory_entries(records->get())) {
+            if (entry.name == L"pending") continue;
+            const auto value = read_record(records->get(), entry, service_sid);
+            if (value.at("generation").as_unsigned() < original.at("generation").as_unsigned()) continue;
+            if (value.at("install_id").as_string() != request.install_id ||
+                value.at("operation").as_string() != request.operation ||
+                value.at("operation_id").as_string() != request.operation_id ||
+                value.at("operation_context_sha256").as_string() != request.operation_context_sha256 ||
+                !equal(value.at("state_root_identity"), root) ||
+                value.at("status").as_string() == "completed")
+                throw InstallLeaseStale();
+            if (entry.name == record_name(original)) {
+                if (!equal(value, original)) throw InstallLeaseStale();
+                found_original = true;
+            }
+            if (entry.name == record_name(active)) {
+                if (!equal(value, active)) throw InstallLeaseStale();
+                found_current = true;
+            } else if (value.at("status").as_string() == "active") {
+                const auto ended = observe_publisher_previous_lease_holder(value.at("holder"));
+                if (ended != InstallLeasePreviousHolder::ended &&
+                    ended != InstallLeasePreviousHolder::identity_reused)
+                    throw InstallLeaseConflict();
+            }
+        }
+        if (!found_original || !found_current) throw InstallLeaseStale();
+        fence();
+    }
 };
 
 PublisherInstallationLease::PublisherInstallationLease(HANDLE state, const std::wstring& volume,
@@ -1314,6 +1357,9 @@ void PublisherInstallationLease::require_start() const {
 }
 void PublisherInstallationLease::require_fence() const { impl_->fence(); }
 const Value& PublisherInstallationLease::ownership() const { return impl_->active; }
+void PublisherInstallationLease::require_recovery_lineage(const Value& original) const {
+    impl_->recovery_lineage(original);
+}
 void PublisherInstallationLease::finish(bool handoff) {
     impl_->fence();
     const auto terminal = finish_install_lease_ownership(impl_->active,

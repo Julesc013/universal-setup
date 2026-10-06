@@ -148,6 +148,12 @@ public:
     void require_fence() const;
     void finish(bool handoff);
     const usk::json::Value& ownership() const;
+    // Read-only native recovery proof: the supplied original active record
+    // must be an exact member of this held protected journal, followed only
+    // by this same unfinished operation. Every earlier holder must actually
+    // have ended (PID plus birth identity); the current lease is a newer
+    // recovery generation. This proves no payload/metadata postcondition.
+    void require_recovery_lineage(const usk::json::Value& original_ownership) const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

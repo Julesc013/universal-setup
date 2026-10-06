@@ -37,6 +37,18 @@ private:
         const usk::platform::windows::PublisherRequestChannel& channel,
         const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
         bool& effects_may_exist);
+    enum class RecoveryAdmission { ended_original_holder };
+    NativeMaintenanceContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name,
+        const usk::platform::windows::PublisherInstallOperationGuard& guard,
+        const usk::platform::windows::PublisherMaintenanceStateSnapshot& original_state,
+        const usk::platform::windows::PublisherInstallOperationContext& original_context,
+        const usk::platform::windows::PublisherInstallationLease& lease,
+        const usk::platform::windows::RegisteredPublisherAdmission& admission,
+        const usk::platform::windows::PublisherRequestChannel& channel,
+        const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
+        bool& effects_may_exist, RecoveryAdmission);
+    void bind_owner_backend();
     // Only the engine can obtain this live-owner adapter. It retains no owner
     // lifetime; copied callbacks refuse before dereference after scope exit.
     MaintenanceRecoveryOperations recovery_operations() const;

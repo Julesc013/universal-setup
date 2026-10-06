@@ -34,6 +34,49 @@ using usk::json::Value;
 using namespace usk::platform::windows;
 namespace {
 bool equal(const Value& a, const Value& b) { return json::canonical(a) == json::canonical(b); }
+void members(const Value& value, const std::set<std::string>& expected) {
+    if (value.as_object().size() != expected.size())
+        throw std::runtime_error("native maintenance custody fields differ");
+    for (const auto& item : value.as_object()) if (!expected.count(item.first))
+        throw std::runtime_error("native maintenance custody field is unknown");
+}
+bool digest(const std::string& value) {
+    return value.size() == 64u && std::all_of(value.begin(), value.end(), [](char ch) {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+    });
+}
+std::string raw_digest(const std::string& text) {
+    base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    return hash.finish();
+}
+std::string sequence_name(std::uint64_t sequence) {
+    std::ostringstream name;
+    name << std::setw(20) << std::setfill('0') << sequence << ".json";
+    return name.str();
+}
+json::ParseLimits custody_parse_limits(std::size_t maximum) {
+    json::ParseLimits limits;
+    limits.max_bytes = maximum;
+    limits.max_values = maximum > 4u * 1024u * 1024u ? 2000000u : 100000u;
+    return limits;
+}
+void require_custody_value_budget(const Value& value, std::size_t maximum) {
+    const auto limits = custody_parse_limits(maximum);
+    std::size_t count = 0;
+    const auto visit = [&](const auto& self, const Value& current, std::size_t depth) -> void {
+        if (++count > limits.max_values || depth > limits.max_depth ||
+            (current.type() == Value::Type::string && current.as_string().size() > limits.max_string_bytes))
+            throw std::runtime_error("native maintenance custody exceeds its closed-reader value budget");
+        if (current.type() == Value::Type::array) for (const auto& child : current.as_array()) self(self, child, depth + 1u);
+        if (current.type() == Value::Type::object) for (const auto& child : current.as_object()) {
+            if (child.first.size() > limits.max_string_bytes)
+                throw std::runtime_error("native maintenance custody key exceeds its closed-reader string budget");
+            self(self, child.second, depth + 1u);
+        }
+    };
+    visit(visit, value, 0u);
+}
 bool same(const PublisherHandleObservation& a, const PublisherHandleObservation& b) {
     return equal(publisher_handle_observation_json(a), publisher_handle_observation_json(b));
 }
@@ -81,7 +124,7 @@ struct NativeMaintenanceContext::Impl {
         Entry* parent = nullptr;
         std::wstring name;
         PublisherHandleObservation facts{};
-        bool directory = true, created = false, complete = false;
+        bool directory = true, created = false, restored_creation = false, complete = false;
         std::uint64_t size = 0;
         std::string sha256, stream_identity;
     };
@@ -112,7 +155,12 @@ struct NativeMaintenanceContext::Impl {
     std::size_t native_custody_bytes = 0;
     std::string native_custody_digest;
     bool custody_failed = false;
+    bool restored_owner = false;
+    Value original_lease_ownership;
+    std::string admitted_lease_revision;
     Entry* installed_root = nullptr;
+    Entry* removed_original_root_parent = nullptr;
+    std::wstring removed_original_root_name;
     std::string original_root_identity;
     bool payload_failed = false;
     std::set<std::string> attempted_payload_histories;
@@ -141,16 +189,551 @@ struct NativeMaintenanceContext::Impl {
     transaction::detail::NativeMaintenanceTransactionOperations operations;
     std::function<void()> effect_fence;
     std::unique_ptr<PublisherMetadataSession> metadata;
+    // These are protected-record observers. Neither their reopened handles
+    // nor a parsed creator document is labelled as this worker's creation.
+    std::vector<std::unique_ptr<Entry>> restoration_record_observers;
+    struct RestorationCustody {
+        Value original, created, publication;
+        std::vector<Value> records;
+        std::map<std::string, std::shared_ptr<const std::string>> snapshots;
+        std::map<std::uint64_t, Value> intents;
+        std::string original_text, created_text, last_digest;
+        std::size_t record_bytes = 0, snapshot_bytes = 0;
+    };
+
+    std::string read_restoration_record(const fs::path& path, std::size_t maximum) {
+        original_context.require_fence(); original_state.require_custody(); lease.require_fence();
+        auto& parent = open_directory(path.parent_path());
+        const auto listed = child(parent.handle.value, path.filename().wstring());
+        if (!listed || (listed->attributes & FILE_ATTRIBUTE_DIRECTORY))
+            throw std::runtime_error("native maintenance original protected record is absent");
+        auto entry = std::make_unique<Entry>();
+        entry->parent = &parent; entry->name = path.filename().wstring(); entry->directory = false;
+        entry->handle.value = open_publisher_listed_child(parent.handle.value, *listed);
+        entry->facts = facts(entry->handle.value, false);
+        FILE_STANDARD_INFO size{}; LARGE_INTEGER zero{};
+        if (!GetFileInformationByHandleEx(entry->handle.value, FileStandardInfo, &size, sizeof(size)) ||
+            size.DeletePending || size.Directory || size.EndOfFile.QuadPart <= 0 ||
+            static_cast<std::uint64_t>(size.EndOfFile.QuadPart) > maximum ||
+            !SetFilePointerEx(entry->handle.value, zero, nullptr, FILE_BEGIN))
+            throw std::runtime_error("native maintenance original protected record exceeds its bound");
+        std::string text(static_cast<std::size_t>(size.EndOfFile.QuadPart), '\0'); DWORD read = 0;
+        if (!ReadFile(entry->handle.value, text.data(), static_cast<DWORD>(text.size()), &read, nullptr) ||
+            read != text.size()) throw std::runtime_error("native maintenance original protected record read failed");
+        entry->size = text.size(); entry->sha256 = raw_digest(text);
+        require_bytes(*entry);
+        restoration_record_observers.push_back(std::move(entry));
+        original_context.require_fence(); original_state.require_custody(); lease.require_fence();
+        return text;
+    }
+    static Value closed_record(const std::string& text, const std::set<std::string>& fields,
+        std::size_t maximum = 1024u * 1024u) {
+        auto value = json::parse(text, custody_parse_limits(maximum)); members(value, fields);
+        if (json::canonical(value) + "\n" != text)
+            throw std::runtime_error("native maintenance original protected record is not canonical");
+        return value;
+    }
+    RestorationCustody read_restoration_custody() {
+        RestorationCustody saved;
+        const auto& snapshot = original_context.record().at("reviewed_snapshot");
+        const auto transactions = spec.state_root / "transactions";
+        saved.original_text = read_restoration_record(transactions /
+            (spec.transaction_id + ".native-maintenance-original.json"), 16u * 1024u * 1024u);
+        saved.original = closed_record(saved.original_text, {"schema", "transaction_id", "operation", "plan_digest",
+            "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
+            "registration_sha256", "authenticated_client", "installed_root", "installed_root_journal_identity", "original_objects"}, 16u * 1024u * 1024u);
+        const auto& original = saved.original;
+        if (original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v1" ||
+            original.at("transaction_id").as_string() != spec.transaction_id ||
+            original.at("operation").as_string() != spec.operation || original.at("plan_digest").as_string() != spec.plan_digest ||
+            original.at("original_context_sha256").as_string() != original_context.lease_binding_sha256() ||
+            original.at("authenticated_client").at("user_sid").as_string() != client.at("user_sid").as_string() ||
+            !digest(original.at("registration_sha256").as_string()))
+            throw std::runtime_error("native maintenance original custody differs from its protected intent/caller");
+        const auto& old_lease = original.at("original_lease_ownership");
+        // The actual journal, actual current native generation and an ended
+        // PID+birth holder are proved before consuming any creator/outcome.
+        lease.require_recovery_lineage(old_lease);
+        if (old_lease.at("expected_state_revision").as_string() != snapshot.at("initial_state_revision").as_string() ||
+            original.at("worker_security").at("process_id").as_unsigned() != old_lease.at("holder").at("process_id").as_unsigned() ||
+            original.at("process_boundary").at("process_id").as_unsigned() != old_lease.at("holder").at("process_id").as_unsigned())
+            throw std::runtime_error("native maintenance original creator differs from its actual lease holder");
+        const auto original_sha = raw_digest(saved.original_text), old_lease_sha = json::sha256_canonical(old_lease);
+        saved.created_text = read_restoration_record(transactions /
+            (spec.transaction_id + ".native-maintenance-created.json"), 16u * 1024u * 1024u);
+        saved.created = closed_record(saved.created_text, {"schema", "transaction_id", "plan_digest", "original_context_sha256",
+            "original_admission_sha256", "lease_ownership_sha256", "transaction_snapshot_sha256", "source_context",
+            "worker_security", "process_boundary", "registration_sha256", "authenticated_client", "root", "root_parent",
+            "target_parent", "root_native_identity", "created_objects"}, 16u * 1024u * 1024u);
+        if (saved.created.at("schema").as_string() != "usk.publisher.maintenance_created_closure.v2" ||
+            saved.created.at("transaction_id").as_string() != spec.transaction_id ||
+            saved.created.at("plan_digest").as_string() != spec.plan_digest ||
+            saved.created.at("original_context_sha256").as_string() != original_context.lease_binding_sha256() ||
+            saved.created.at("original_admission_sha256").as_string() != original_sha ||
+            saved.created.at("lease_ownership_sha256").as_string() != old_lease_sha)
+            throw std::runtime_error("native maintenance created closure lost its actual original admission");
+        for (const auto* name : {"worker_security", "process_boundary", "registration_sha256", "authenticated_client"})
+            if (!equal(saved.created.at(name), original.at(name)))
+                throw std::runtime_error("native maintenance created closure changed its original provenance");
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest, true);
+        if (current.stream_source_context != saved.created.at("source_context").as_string() ||
+            history.source_context != current.stream_source_context ||
+            !equal(read_maintenance_reviewed_plan(spec).at("reviewed_plan"), snapshot.at("reviewed_plan")))
+            throw std::runtime_error("native maintenance restoration changed its original transaction/plan");
+        const auto snapshot_path = transactions / (spec.transaction_id + ".native-maintenance-snapshots");
+        auto& snapshots = open_directory(snapshot_path);
+        const auto snapshot_entries = observe_publisher_directory_entries(snapshots.handle.value);
+        if (snapshot_entries.size() > 100000u) throw std::runtime_error("native maintenance snapshot count exceeds its bound");
+        for (const auto& entry : snapshot_entries) {
+            const auto name = fs::path(entry.name).u8string();
+            if (name.size() != 69u || name.substr(64) != ".json" || !digest(name.substr(0, 64)))
+                throw std::runtime_error("native maintenance retained snapshot name differs");
+            auto text = read_restoration_record(snapshot_path / entry.name, 4u * 1024u * 1024u);
+            if (text.size() > 16u * 1024u * 1024u - saved.snapshot_bytes || raw_digest(text) != name.substr(0, 64))
+                throw std::runtime_error("native maintenance retained snapshot bytes exceed or differ from their bound");
+            saved.snapshot_bytes += text.size();
+            transaction::TransactionSession::require_recovery_transition_extension(spec, text, name.substr(0, 64), current.snapshot_sha256);
+            if (!saved.snapshots.emplace(name.substr(0, 64), std::make_shared<const std::string>(std::move(text))).second)
+                throw std::runtime_error("native maintenance retained snapshot repeats");
+        }
+        const auto publication_snapshot = saved.created.at("transaction_snapshot_sha256").as_string();
+        if (!saved.snapshots.count(publication_snapshot))
+            throw std::runtime_error("native maintenance original publication snapshot is absent");
+        const auto custody_path = transactions / (spec.transaction_id + ".native-maintenance-custody");
+        auto& custody = open_directory(custody_path);
+        const auto entries = observe_publisher_directory_entries(custody.handle.value);
+        if (entries.empty() || entries.size() > 200000u)
+            throw std::runtime_error("native maintenance custody count exceeds its bound");
+        std::map<std::wstring, PublisherDirectoryEntry> ordered;
+        for (const auto& entry : entries) if (!ordered.emplace(entry.name, entry).second)
+            throw std::runtime_error("native maintenance custody name repeats");
+        std::set<std::uint64_t> confirmed_sequences;
+        std::set<std::string> checked_writers;
+        std::map<std::uint64_t, const transaction::CompletedMaintenanceEffect*> completed_by_sequence;
+        for (const auto& completed : history.completed) completed_by_sequence.emplace(completed.intent_sequence, &completed);
+        std::map<std::uint64_t, Value> intents;
+        for (const auto& item : ordered) {
+            const auto sequence = static_cast<std::uint64_t>(saved.records.size());
+            if (item.first != fs::u8path(sequence_name(sequence)).wstring())
+                throw std::runtime_error("native maintenance custody prefix has a gap or unknown name");
+            const auto text = read_restoration_record(custody_path / item.first, 1024u * 1024u);
+            if (text.size() > 256u * 1024u * 1024u - saved.record_bytes)
+                throw std::runtime_error("native maintenance custody bytes exceed their bound");
+            auto record = closed_record(text, {"schema", "transaction_id", "plan_digest", "original_context_sha256",
+                "original_admission_sha256", "original_lease_ownership_sha256", "writer_lease_ownership", "sequence", "kind", "previous_record_sha256",
+                "transaction_snapshot_sha256", "pending_history_sha256", "pending_intent_sequence", "details"});
+            if (record.at("schema").as_string() != "usk.publisher.maintenance_native_custody.v2" ||
+                record.at("transaction_id").as_string() != spec.transaction_id || record.at("plan_digest").as_string() != spec.plan_digest ||
+                record.at("original_context_sha256").as_string() != original_context.lease_binding_sha256() ||
+                record.at("original_admission_sha256").as_string() != original_sha ||
+                record.at("original_lease_ownership_sha256").as_string() != old_lease_sha ||
+                record.at("sequence").as_unsigned() != sequence ||
+                !equal(record.at("previous_record_sha256"), saved.last_digest.empty() ? Value{} : Value(saved.last_digest)) ||
+                !saved.snapshots.count(record.at("transaction_snapshot_sha256").as_string()))
+                throw std::runtime_error("native maintenance custody record changed its original prefix/binding");
+            if (checked_writers.insert(json::sha256_canonical(record.at("writer_lease_ownership"))).second)
+                lease.require_recovery_lineage(record.at("writer_lease_ownership"));
+            const auto& kind = record.at("kind").as_string(); const auto& details = record.at("details");
+            if (kind == "confirmed_publication") {
+                members(details, {"created_closure_sha256", "root", "parent", "publication_transaction_snapshot_sha256"});
+                if (sequence != 0u || details.at("created_closure_sha256").as_string() != raw_digest(saved.created_text) ||
+                    details.at("publication_transaction_snapshot_sha256").as_string() != publication_snapshot ||
+                    record.at("transaction_snapshot_sha256").as_string() != publication_snapshot ||
+                    record.at("pending_history_sha256").type() != Value::Type::null_value ||
+                    record.at("pending_intent_sequence").type() != Value::Type::null_value ||
+                    !equal(details.at("parent"), saved.created.at("target_parent")))
+                    throw std::runtime_error("native maintenance publication lacks its original confirmed receipt");
+                saved.publication = details;
+            } else {
+                if (saved.publication.type() != Value::Type::object || !digest(record.at("pending_history_sha256").as_string()))
+                    throw std::runtime_error("native maintenance effect custody precedes its confirmed publication");
+                const auto intent_sequence = record.at("pending_intent_sequence").as_unsigned();
+                auto found_intent = intents.find(intent_sequence);
+                if (found_intent == intents.end()) {
+                    const auto intent_text = read_restoration_record(transactions / (spec.transaction_id + ".maintenance") /
+                        sequence_name(intent_sequence), 32768u);
+                    auto intent = json::parse(intent_text);
+                    if (intent.at("phase").as_string() != "intent" || intent.at("sequence").as_unsigned() != intent_sequence ||
+                        intent.at("transaction_id").as_string() != spec.transaction_id ||
+                        intent.at("source_digest").as_string() != history.source_digest)
+                        throw std::runtime_error("native maintenance custody intent differs from its original history");
+                    found_intent = intents.emplace(intent_sequence, std::move(intent)).first;
+                }
+                const auto& intent = found_intent->second;
+                if (intent.at("digest").as_string() != record.at("pending_history_sha256").as_string())
+                    throw std::runtime_error("native maintenance custody changed its original intent digest");
+                const auto completed = completed_by_sequence.find(intent_sequence);
+                if (completed != completed_by_sequence.end()) {
+                    if (completed->second->kind != intent.at("details").at("kind").as_string() ||
+                        !equal(completed->second->details, intent.at("details").at("effect")))
+                        throw std::runtime_error("native maintenance custody intent differs from its completed prefix");
+                } else if (history.pending_sequence != intent_sequence ||
+                    history.pending_kind != intent.at("details").at("kind").as_string() ||
+                    !equal(history.pending_details, intent.at("details").at("effect")) ||
+                    history.journal_digest != record.at("pending_history_sha256").as_string())
+                    throw std::runtime_error("native maintenance custody intent is outside its exact original prefix");
+                if (kind == "confirmed_effect") {
+                    members(details, {"intent_sequence", "effect_kind", "effect_details", "outcome", "result_digest",
+                        "effect_transaction_snapshot_sha256"});
+                    if (details.at("intent_sequence").as_unsigned() != intent_sequence ||
+                        intent.at("details").at("kind").as_string() != details.at("effect_kind").as_string() ||
+                        !equal(intent.at("details").at("effect"), details.at("effect_details")) ||
+                        details.at("effect_transaction_snapshot_sha256").as_string() != record.at("transaction_snapshot_sha256").as_string() ||
+                        !confirmed_sequences.insert(intent_sequence).second)
+                        throw std::runtime_error("native maintenance confirmed outcome lost its actual original intent");
+                    auto result = details.at("result_digest").type() == Value::Type::null_value ?
+                        std::string{} : details.at("result_digest").as_string();
+                    if (completed != completed_by_sequence.end() &&
+                        (completed->second->outcome != details.at("outcome").as_string() || completed->second->result_digest != result))
+                        throw std::runtime_error("native maintenance confirmed outcome is outside the exact original completed prefix");
+                    if (details.at("outcome").as_string() != "applied" &&
+                        !(details.at("outcome").as_string() == "retained" && details.at("effect_kind").as_string() == "remove_directory"))
+                        throw std::runtime_error("native maintenance confirmed outcome is unsupported");
+                } else if (kind == "later_created_directory") {
+                    members(details, {"relative_path", "object", "parent", "native_identity"});
+                    const auto relative = owned_relative(details.at("relative_path").as_string());
+                    if (*relative.begin() != fs::path("backup") || intent.at("details").at("kind").as_string() != "backup_file")
+                        throw std::runtime_error("native maintenance later creation is outside its original backup role");
+                } else if (kind == "created_metadata") {
+                    members(details, {"setup_relative_path", "object", "parent", "size_bytes", "sha256"});
+                    (void)owned_relative(details.at("setup_relative_path").as_string());
+                    if (!digest(details.at("sha256").as_string()) || details.at("size_bytes").as_unsigned() > 4u * 1024u * 1024u)
+                        throw std::runtime_error("native maintenance metadata creation exceeds its original bound");
+                    const auto& effect_kind = intent.at("details").at("kind").as_string();
+                    if (effect_kind != "write_ownership" && effect_kind != "write_installed" && effect_kind != "append_audit")
+                        throw std::runtime_error("native maintenance metadata creation has a non-metadata intent");
+                } else throw std::runtime_error("native maintenance custody kind is unsupported");
+            }
+            saved.record_bytes += text.size(); saved.last_digest = raw_digest(text); saved.records.push_back(std::move(record));
+        }
+        // Record custody and lineage remain read-only. The separate owner
+        // restore must still prove payload/parent/metadata native postimages.
+        for (const auto& completed : history.completed)
+            if (completed.kind != "publish_target" && !confirmed_sequences.count(completed.intent_sequence))
+                throw std::runtime_error("native maintenance completed prefix lacks its original confirmed custody");
+        saved.intents = std::move(intents);
+        for (const auto& observer : restoration_record_observers) require_bytes(*observer);
+        lease.require_recovery_lineage(old_lease);
+        return saved;
+    }
+    struct RestoredObject {
+        Value object, parent;
+        fs::path path;
+        bool directory = false, removed = false;
+        std::uint64_t size = 0;
+        std::string sha256, native_identity;
+    };
+    static Value renamed_facts(Value object, const Value& parent, const fs::path& component) {
+        object.as_object().at("native_name") = Value(parent.at("native_name").as_string() + "\\" + component.u8string());
+        return object;
+    }
+    static Value published_facts(Value object, const Value& from, const Value& to) {
+        const auto old_root = from.at("native_name").as_string(), next_root = to.at("native_name").as_string();
+        auto name = object.at("native_name").as_string();
+        if (name != old_root && name.rfind(old_root + "\\", 0) != 0)
+            throw std::runtime_error("native maintenance creation escaped its original root");
+        name.replace(0, old_root.size(), next_root);
+        object.as_object().at("native_name") = Value(std::move(name));
+        return object;
+    }
+    void restore_custody(RestorationCustody saved) {
+        const auto& snapshot = original_context.record().at("reviewed_snapshot");
+        const auto installed_path = normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string()));
+        original_lease_ownership = saved.original.at("original_lease_ownership");
+        const auto& created_root = saved.created.at("root");
+        const auto published_root = renamed_facts(created_root, saved.created.at("target_parent"), spec.target_root.filename());
+        if (!equal(published_root, saved.publication.at("root")) ||
+            !equal(publisher_handle_observation_json(staging_parent->facts), saved.created.at("root_parent")) ||
+            !equal(publisher_handle_observation_json(target_parent->facts), saved.created.at("target_parent")))
+            throw std::runtime_error("native maintenance publication changed its original native namespace postimage");
+        std::map<fs::path, RestoredObject> original_files_after, original_directories_after, created_files_after, created_directories_after;
+        for (const auto& item : saved.original.at("original_objects").as_array()) {
+            const bool directory = item.at("type").as_string() == "directory";
+            if (!directory && item.at("type").as_string() != "file")
+                throw std::runtime_error("native maintenance original object type differs");
+            members(item, directory ? std::set<std::string>{"relative_path", "type", "present", "object", "parent", "native_identity"} :
+                std::set<std::string>{"relative_path", "type", "present", "object", "parent", "native_identity", "size_bytes", "sha256"});
+            const auto text = item.at("relative_path").as_string();
+            const auto relative = text.empty() && directory ? fs::path{} : owned_relative(text);
+            if (!item.at("present").as_boolean()) {
+                if (item.at("object").type() != Value::Type::null_value || item.at("parent").type() != Value::Type::null_value ||
+                    item.at("native_identity").type() != Value::Type::null_value)
+                    throw std::runtime_error("native maintenance absent original acquired object facts");
+                (directory ? absent_original_directories : absent_original_files).insert(relative); continue;
+            }
+            RestoredObject object{item.at("object"), item.at("parent"), relative.empty() ? installed_path : installed_path / relative, directory};
+            object.native_identity = item.at("native_identity").as_string();
+            if (!directory) { object.size = item.at("size_bytes").as_unsigned(); object.sha256 = item.at("sha256").as_string(); }
+            if (!(directory ? original_directories_after : original_files_after).emplace(relative, std::move(object)).second)
+                throw std::runtime_error("native maintenance original object repeats");
+        }
+        if (original_files_after.size() > 100000u || original_directories_after.size() > 100001u ||
+            !original_directories_after.count(fs::path{}) ||
+            !equal(original_directories_after.at(fs::path{}).object, saved.original.at("installed_root")))
+            throw std::runtime_error("native maintenance original installed root is absent");
+        created_directories_after.emplace(fs::path{}, RestoredObject{published_root, saved.created.at("target_parent"), spec.target_root, true});
+        created_directories_after.at(fs::path{}).native_identity = saved.created.at("root_native_identity").as_string();
+        for (const auto& item : saved.created.at("created_objects").as_array()) {
+            members(item, {"relative_path", "object", "native_identity", "size_bytes", "sha256"});
+            const auto relative = owned_relative(item.at("relative_path").as_string());
+            const bool directory = (item.at("object").at("attributes").as_unsigned() & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            RestoredObject object{published_facts(item.at("object"), created_root, published_root), Value{}, spec.target_root / relative, directory};
+            object.native_identity = item.at("native_identity").as_string();
+            if (!directory) { object.size = item.at("size_bytes").as_unsigned(); object.sha256 = item.at("sha256").as_string(); }
+            if (!(directory ? created_directories_after : created_files_after).emplace(relative, std::move(object)).second)
+                throw std::runtime_error("native maintenance original creation repeats");
+        }
+        const auto assign_created_parent = [&](const fs::path& relative, RestoredObject& object) {
+            const auto parent = created_directories_after.find(relative.parent_path());
+            if (parent == created_directories_after.end())
+                throw std::runtime_error("native maintenance original creation lacks its parent custody");
+            object.parent = parent->second.object;
+            if (!equal(object.object, renamed_facts(object.object, object.parent, relative.filename())))
+                throw std::runtime_error("native maintenance original creation has a contradictory native path");
+        };
+        for (auto& item : created_directories_after) if (!item.first.empty()) assign_created_parent(item.first, item.second);
+        for (auto& item : created_files_after) assign_created_parent(item.first, item.second);
+        std::map<std::uint64_t, const Value*> metadata_creations;
+        for (const auto& record : saved.records) {
+            const auto& kind = record.at("kind").as_string(); const auto& details = record.at("details");
+            if (kind == "later_created_directory") {
+                const auto relative = owned_relative(details.at("relative_path").as_string());
+                const auto parent = created_directories_after.find(relative.parent_path());
+                if (parent == created_directories_after.end() || parent->second.removed ||
+                    !equal(parent->second.object, details.at("parent")) ||
+                    !equal(details.at("object"), renamed_facts(details.at("object"), details.at("parent"), relative.filename())) ||
+                    !created_directories_after.emplace(relative, RestoredObject{details.at("object"), details.at("parent"), spec.target_root / relative, true}).second)
+                    throw std::runtime_error("native maintenance later directory changed its original creator/parent");
+                created_directories_after.at(relative).native_identity = details.at("native_identity").as_string();
+            } else if (kind == "created_metadata") {
+                if (!metadata_creations.emplace(record.at("pending_intent_sequence").as_unsigned(), &details).second)
+                    throw std::runtime_error("native maintenance intent has repeated metadata creations");
+            } else if (kind == "confirmed_effect") {
+                const auto& effect = details.at("effect_kind").as_string(); const auto& data = details.at("effect_details");
+                const auto relative = data.contains("relative_path") && !data.at("relative_path").as_string().empty() ?
+                    owned_relative(data.at("relative_path").as_string()) : fs::path{};
+                if (effect == "backup_file") {
+                    auto& object = original_files_after.at(relative);
+                    if (object.native_identity != data.at("native_identity").as_string() || object.size != data.at("size_bytes").as_unsigned() ||
+                        object.sha256 != data.at("sha256").as_string())
+                        throw std::runtime_error("native maintenance backup intent changed its original object/bytes");
+                    const auto backup = fs::path("backup") / relative;
+                    const auto& parent = created_directories_after.at(backup.parent_path());
+                    if (object.removed || parent.removed) throw std::runtime_error("native maintenance backup lost original custody");
+                    object.object = renamed_facts(object.object, parent.object, backup.filename());
+                    object.parent = parent.object; object.path = spec.target_root / backup;
+                } else if (effect == "replace_file") {
+                    auto& object = created_files_after.at(fs::path("payload") / relative);
+                    if (object.native_identity != data.at("native_identity").as_string() || object.size != data.at("size_bytes").as_unsigned() ||
+                        object.sha256 != data.at("sha256").as_string())
+                        throw std::runtime_error("native maintenance replacement intent changed its original creation/bytes");
+                    const auto& parent = original_directories_after.at(relative.parent_path());
+                    if (object.removed || parent.removed) throw std::runtime_error("native maintenance replacement lost original custody");
+                    object.object = renamed_facts(object.object, parent.object, relative.filename());
+                    object.parent = parent.object; object.path = installed_path / relative;
+                } else if (effect == "remove_file" || effect == "remove_directory") {
+                    const bool directory = effect == "remove_directory";
+                    const auto role = data.at("root_role").as_string();
+                    RestoredObject* object = nullptr;
+                    if (role == "installed") object = &(directory ? original_directories_after : original_files_after).at(relative);
+                    else if (role == "operation_target" && directory) object = &created_directories_after.at(relative);
+                    else if (role == "operation_target" && spec.operation == "repair" && !relative.empty() && *relative.begin() == fs::path("backup"))
+                        object = &original_files_after.at(relative.lexically_relative("backup"));
+                    else if (role == "operation_target" && spec.operation == "uninstall" && relative == fs::path("operation.marker"))
+                        object = &created_files_after.at(relative);
+                    if (!object || object->removed || object->directory != directory)
+                        throw std::runtime_error("native maintenance removal lost its exact original object");
+                    if (object->native_identity != data.at("native_identity").as_string() || (!directory &&
+                        (object->size != data.at("size_bytes").as_unsigned() || object->sha256 != data.at("sha256").as_string())))
+                        throw std::runtime_error("native maintenance removal intent changed its original object/bytes");
+                    object->removed = details.at("outcome").as_string() == "applied";
+                }
+            }
+        }
+        const auto require_absent = [&](const RestoredObject& object) {
+            // Descendants of a confirmed removed parent are checked at that
+            // nearest surviving parent's native child; never reopen through
+            // an absent directory and adopt a same-path substitute.
+            for (const auto& item : created_directories_after) if (item.second.removed &&
+                object.path != item.second.path && object.path.lexically_relative(item.second.path).generic_u8string().rfind("..", 0) != 0)
+                return;
+            for (const auto& item : original_directories_after) if (item.second.removed &&
+                object.path != item.second.path && object.path.lexically_relative(item.second.path).generic_u8string().rfind("..", 0) != 0)
+                return;
+            auto& parent = open_directory(object.path.parent_path());
+            if (!equal(publisher_handle_observation_json(parent.facts), object.parent) || child(parent.handle.value, object.path.filename().wstring()))
+                throw std::runtime_error("native maintenance confirmed removal no longer has its original absence");
+        };
+        const auto restore_directory = [&](const RestoredObject& object, const fs::path& key, bool creation) -> Entry* {
+            if (object.removed) { require_absent(object); return nullptr; }
+            auto& observed = open_directory(object.path);
+            if (!equal(publisher_handle_observation_json(observed.facts), object.object) ||
+                !equal(publisher_handle_observation_json(observed.parent ? observed.parent->facts : volume_facts), object.parent) ||
+                (!object.native_identity.empty() && journal_identity(observed.handle.value) != object.native_identity))
+                throw std::runtime_error("native maintenance restored directory differs from its original postimage");
+            observed.restored_creation = creation;
+            if (creation) {
+                const auto actual_key = relative_volume_path(object.path);
+                if (actual_key != key) {
+                    auto node = directories.extract(actual_key); node.key() = key;
+                    if (!directories.insert(std::move(node)).inserted)
+                        throw std::runtime_error("native maintenance restored directory key conflicts");
+                }
+            }
+            return &observed;
+        };
+        for (const auto& item : original_directories_after) {
+            auto* entry = restore_directory(item.second, relative_volume_path(item.second.path), false);
+            if (entry) original_directories.emplace(item.first, entry);
+        }
+        original_root_identity = saved.original.at("installed_root_journal_identity").as_string();
+        const auto& original_root = original_directories_after.at(fs::path{});
+        if (original_root.removed) {
+            if (spec.operation != "uninstall" || original_root.native_identity != original_root_identity)
+                throw std::runtime_error("native maintenance original root removal differs from its saved custody");
+            removed_original_root_parent = &open_directory(installed_path.parent_path());
+            removed_original_root_name = installed_path.filename().wstring();
+            if (!equal(publisher_handle_observation_json(removed_original_root_parent->facts), original_root.parent) ||
+                child(removed_original_root_parent->handle.value, removed_original_root_name))
+                throw std::runtime_error("native maintenance original root removal lost its held-parent absence");
+        } else {
+            installed_root = original_directories.at(fs::path{});
+            if (journal_identity(installed_root->handle.value) != original_root_identity)
+                throw std::runtime_error("native maintenance original installed root identity changed");
+        }
+        const auto staging_key = relative_volume_path(spec.staging_parent / (".usk-stage-" + spec.transaction_id));
+        // Keep native-path keys while opening descendants. Re-key all creator
+        // entries only after every parent has been independently opened.
+        std::vector<std::pair<fs::path, fs::path>> created_keys;
+        for (const auto& item : created_directories_after) {
+            auto* entry = restore_directory(item.second, relative_volume_path(item.second.path), true);
+            if (entry) {
+                created_keys.emplace_back(relative_volume_path(item.second.path), item.first.empty() ? staging_key : staging_key / item.first);
+                if (item.first.empty()) staging = entry;
+            }
+        }
+        const auto restore_file = [&](const RestoredObject& object, bool creation) -> std::unique_ptr<Entry> {
+            if (object.removed) { require_absent(object); return {}; }
+            auto& parent = open_directory(object.path.parent_path());
+            if (!equal(publisher_handle_observation_json(parent.facts), object.parent))
+                throw std::runtime_error("native maintenance restored file changed its original parent");
+            const auto listed = child(parent.handle.value, object.path.filename().wstring());
+            if (!listed || (listed->attributes & FILE_ATTRIBUTE_DIRECTORY))
+                throw std::runtime_error("native maintenance original surviving file is absent");
+            auto entry = std::make_unique<Entry>();
+            entry->directory = false; entry->parent = &parent; entry->name = object.path.filename().wstring();
+            entry->handle.value = open_publisher_listed_maintenance_file(parent.handle.value, *listed);
+            entry->facts = facts(entry->handle.value, false); entry->size = object.size; entry->sha256 = object.sha256;
+            entry->stream_identity = journal_identity(entry->handle.value);
+            if (!equal(publisher_handle_observation_json(entry->facts), object.object) ||
+                (!object.native_identity.empty() && entry->stream_identity != object.native_identity))
+                throw std::runtime_error("native maintenance restored file differs from its original native postimage");
+            require_bytes(*entry); entry->restored_creation = creation; entry->complete = true;
+            return entry;
+        };
+        for (const auto& item : original_files_after) {
+            auto entry = restore_file(item.second, false); if (entry) original_files.emplace(item.first, std::move(entry));
+        }
+        for (const auto& item : created_files_after) {
+            auto entry = restore_file(item.second, true); if (entry) files.emplace(item.first, std::move(entry));
+        }
+        const auto require_original_absence = [&](const fs::path& relative, bool directory) {
+            const auto parent = original_directories_after.find(relative.parent_path());
+            if (parent == original_directories_after.end())
+                throw std::runtime_error("native maintenance original absence lacks retained parent custody");
+            RestoredObject absent{Value{}, parent->second.object, installed_path / relative, directory};
+            require_absent(absent);
+        };
+        for (const auto& relative : absent_original_files) {
+            const auto replacement = created_files_after.find(fs::path("payload") / relative);
+            if (replacement == created_files_after.end() || replacement->second.removed ||
+                normalized(replacement->second.path) != normalized(installed_path / relative))
+                require_original_absence(relative, false);
+        }
+        for (const auto& relative : absent_original_directories) require_original_absence(relative, true);
+        for (const auto& record : saved.records) if (record.at("kind").as_string() == "confirmed_effect") {
+            const auto& data = record.at("details"); const auto sequence = data.at("intent_sequence").as_unsigned();
+            const auto& effect = data.at("effect_kind").as_string();
+            if (effect == "write_ownership" || effect == "write_installed" || effect == "append_audit") {
+                const auto found = metadata_creations.find(sequence);
+                if (found == metadata_creations.end()) throw std::runtime_error("native maintenance metadata outcome lacks its actual creator receipt");
+                const auto& creation = *found->second; const auto& details = data.at("effect_details");
+                const auto path = normalized(spec.state_root.parent_path() / owned_relative(creation.at("setup_relative_path").as_string()));
+                const auto text = read_restoration_record(path, 4u * 1024u * 1024u);
+                const auto& observed = *restoration_record_observers.back();
+                if (observed.size != creation.at("size_bytes").as_unsigned() || observed.sha256 != creation.at("sha256").as_string() ||
+                    !equal(publisher_handle_observation_json(observed.facts), creation.at("object")) ||
+                    !equal(publisher_handle_observation_json(observed.parent->facts), creation.at("parent")))
+                    throw std::runtime_error("native maintenance metadata postimage differs from its actual creator");
+                const auto document = json::parse(text);
+                if (effect == "write_installed") {
+                    auto expected = snapshot.at("installed_state");
+                    for (const auto* field : {"target_root", "ownership_manifest_ref", "ownership_manifest_digest", "transaction_id",
+                            "created_at", "lifecycle_status", "last_verification"})
+                        expected.as_object().at(field) = details.at("state_revision").at(field);
+                    if (path != installed_record_path || !equal(expected, document) || json::canonical(document) + "\n" != text || installed_confirmed)
+                        throw std::runtime_error("native maintenance installed postimage changed its original reviewed intent");
+                    installed_postimage_bindings = derive_publisher_maintenance_postimage_bindings(snapshot, document);
+                    installed_record_text = text; installed_record_sha256 = observed.sha256; installed_record_facts = observed.facts;
+                    installed_parent = observed.parent;
+                    RestoredObject restored{creation.at("object"), creation.at("parent"), path, false, false, observed.size, observed.sha256};
+                    installed_postimage_file = restore_file(restored, true);
+                    installed_prepared = true; installed_confirmed = true;
+                } else if (effect == "write_ownership") {
+                    if (path != normalized(spec.state_root / "ownership" / (details.at("manifest_id").as_string() + ".json")) ||
+                        document.at("manifest_digest").as_string() != data.at("result_digest").as_string())
+                        throw std::runtime_error("native maintenance ownership postimage changed its original intent");
+                } else {
+                    std::ostringstream name; name << std::setw(20) << std::setfill('0') << document.at("sequence").as_unsigned() << ".event.json";
+                    if (path != normalized(spec.audit_root / "chains" / details.at("chain_id").as_string() / name.str()) ||
+                        document.at("transaction_id").as_string() != spec.transaction_id ||
+                        document.at("event_digest").as_string() != data.at("result_digest").as_string())
+                        throw std::runtime_error("native maintenance audit postimage changed its original intent");
+                }
+            }
+            auto outcome = std::make_unique<ConfirmedPayload>();
+            outcome->transaction_sha256 = data.at("effect_transaction_snapshot_sha256").as_string();
+            outcome->transaction_text = saved.snapshots.at(outcome->transaction_sha256);
+            outcome->outcome = data.at("outcome").as_string();
+            outcome->result_digest = data.at("result_digest").type() == Value::Type::null_value ? std::string{} : data.at("result_digest").as_string();
+            outcome->confirmed = true;
+            payload_outcomes.emplace(record.at("pending_history_sha256").as_string(), std::move(outcome));
+            attempted_payload_histories.insert(record.at("pending_history_sha256").as_string());
+        }
+        for (const auto& item : created_keys) if (item.first != item.second) {
+            auto node = directories.extract(item.first); node.key() = item.second;
+            if (!directories.insert(std::move(node)).inserted)
+                throw std::runtime_error("native maintenance restored creation key conflicts");
+        }
+        const auto selected = inspect_maintenance_continuation(spec);
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        if (selected.transaction_snapshot_sha256 != current.snapshot_sha256)
+            throw std::runtime_error("native maintenance original complete prefix changed during restoration");
+        original_admission_text = std::move(saved.original_text); original_admission_sha256 = raw_digest(original_admission_text);
+        original_admission_path = spec.state_root / "transactions" / (spec.transaction_id + ".native-maintenance-original.json");
+        native_custody_directory = spec.state_root / "transactions" / (spec.transaction_id + ".native-maintenance-custody");
+        native_snapshot_directory = spec.state_root / "transactions" / (spec.transaction_id + ".native-maintenance-snapshots");
+        native_custody_sequence = saved.records.size(); native_custody_bytes = saved.record_bytes; native_custody_digest = std::move(saved.last_digest);
+        transaction_snapshot_bytes = saved.snapshot_bytes; transaction_snapshots = std::move(saved.snapshots);
+        publication_transaction_sha256 = saved.created.at("transaction_snapshot_sha256").as_string();
+        publication_transaction_text = transaction_snapshots.at(publication_transaction_sha256);
+        original_source_context = saved.created.at("source_context").as_string();
+        publication_attempted = true; publication_confirmed = true;
+        admitted_lease_revision = installed_confirmed ? json::sha256_canonical(installed_postimage_bindings) : snapshot.at("initial_state_revision").as_string();
+        lease.require_recovery_lineage(original_lease_ownership);
+    }
 
     Impl(HANDLE boundary, const std::wstring& root, const std::wstring& service_label,
         const PublisherInstallOperationGuard& installation_guard,
         const PublisherMaintenanceStateSnapshot& state,
         const PublisherInstallOperationContext& context, const PublisherInstallationLease& active_lease,
         const RegisteredPublisherAdmission& registered, const PublisherRequestChannel& authenticated,
-        const transaction::TransactionSpec& transaction_spec, HANDLE cancel)
+        const transaction::TransactionSpec& transaction_spec, HANDLE cancel, bool restore = false)
         : volume(boundary), volume_root(root), service_name(service_label), guard(installation_guard),
           original_state(state), original_context(context), lease(active_lease), admission(registered),
           channel(authenticated), spec(transaction_spec), cancel_event(cancel) {
+        restored_owner = restore;
         const auto& snapshot = original_context.record().at("reviewed_snapshot");
         if (snapshot.at("schema").as_string() != "usk.publisher.maintenance_reviewed_snapshot.v2" ||
             !admission.has_selected_reviewed_operation() ||
@@ -172,7 +755,8 @@ struct NativeMaintenanceContext::Impl {
             normalized(spec.target_root) != normalized(expected_target) ||
             normalized(spec.state_root.parent_path()).filename().u8string() != snapshot.at("setup_component").as_string())
             throw std::runtime_error("native maintenance operation target differs from its original action");
-        original_state.require_initial_revision();
+        if (restore) original_state.require_custody();
+        else original_state.require_initial_revision();
         original_context.require_fence();
         lease.require_start();
         if (!equal(original_state.installed_state(), snapshot.at("installed_state")) ||
@@ -212,6 +796,8 @@ struct NativeMaintenanceContext::Impl {
         target_parent = &open_directory(spec.target_root.parent_path());
         installed_record_path = normalized(spec.state_root / "installed" /
             (snapshot.at("install_id").as_string() + "." + spec.transaction_id + ".json"));
+        if (restore) restore_custody(read_restoration_custody());
+        else { original_lease_ownership = lease.ownership(); admitted_lease_revision = snapshot.at("initial_state_revision").as_string(); }
         require_authority(spec);
         effect_fence = [this] { require_authority(spec); };
         operations.require_authority = [this](const auto& s) { require_authority(s); };
@@ -226,9 +812,9 @@ struct NativeMaintenanceContext::Impl {
             const auto& outcome, const auto& result_digest) {
             confirm_effect_completion(s, history, outcome, result_digest);
         };
-        admit_original_payload();
+        if (!restore) admit_original_payload();
         require_authority(spec);
-        prepare_original_admission();
+        if (!restore) prepare_original_admission();
     }
     static fs::path normalized(const fs::path& path) { return fs::absolute(path).lexically_normal(); }
     static fs::path owned_relative(const std::string& value) {
@@ -330,9 +916,16 @@ struct NativeMaintenanceContext::Impl {
             ownership.at("operation").as_string() != spec.operation ||
             ownership.at("operation_id").as_string() != spec.transaction_id ||
             ownership.at("operation_context_sha256").as_string() != original_context.lease_binding_sha256() ||
-            ownership.at("expected_state_revision").as_string() != snapshot.at("initial_state_revision").as_string() ||
+            ownership.at("expected_state_revision").as_string() != admitted_lease_revision ||
             !equal(ownership.at("state_root_identity"), snapshot.at("state_root_identity")))
             throw transaction::InstallLeaseStale();
+        if (restored_owner) lease.require_recovery_lineage(original_lease_ownership);
+        if (restored_owner) for (const auto& observer : restoration_record_observers) require_bytes(*observer);
+        if (removed_original_root_parent) {
+            require_entry(*removed_original_root_parent);
+            if (child(removed_original_root_parent->handle.value, removed_original_root_name))
+                throw std::runtime_error("native maintenance removed original root was replaced");
+        }
         if (!same(observe_publisher_directory_handle(volume), volume_facts) ||
             !equal(admission.evidence(), registration) || !equal(admission.selected_reviewed_operation_observation(), selection))
             throw std::runtime_error("native maintenance held registration or boundary changed");
@@ -577,7 +1170,8 @@ struct NativeMaintenanceContext::Impl {
                 persist_native_custody("later_created_directory", Value(Value::Object{
                     {"relative_path", Value(relative.generic_u8string())},
                     {"object", publisher_handle_observation_json(held.facts)},
-                    {"parent", publisher_handle_observation_json(parent.facts)}}));
+                    {"parent", publisher_handle_observation_json(parent.facts)},
+                    {"native_identity", Value(journal_identity(held.handle.value))}}));
             } catch (...) { custody_failed = true; throw; }
         }
         return held;
@@ -771,6 +1365,7 @@ struct NativeMaintenanceContext::Impl {
                 {"type", Value("directory")}, {"present", Value(false)}, {"object", Value{}},
                 {"parent", Value{}}, {"native_identity", Value{}}}));
         document.as_object().emplace("original_objects", Value(std::move(objects)));
+        require_custody_value_budget(document, maximum);
         original_admission_text = json::canonical(document) + "\n";
         if (original_admission_text.size() > maximum)
             throw std::runtime_error("native maintenance original custody exceeds its durable bound");
@@ -802,16 +1397,26 @@ struct NativeMaintenanceContext::Impl {
     void persist_native_custody(const std::string& kind, Value details) {
         require_authority(spec);
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-        Value record(Value::Object{{"schema", Value("usk.publisher.maintenance_native_custody.v1")},
+        Value pending_sequence;
+        if (!active_payload_history.empty()) {
+            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+            if (history.journal_digest != active_payload_history || history.pending_kind.empty())
+                throw std::runtime_error("native maintenance custody lost its exact active intent");
+            pending_sequence = Value(history.pending_sequence);
+        }
+        Value record(Value::Object{{"schema", Value("usk.publisher.maintenance_native_custody.v2")},
             {"transaction_id", Value(spec.transaction_id)}, {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
             {"original_admission_sha256", Value(original_admission_sha256)},
-            {"original_lease_ownership_sha256", Value(json::sha256_canonical(lease.ownership()))},
+            {"original_lease_ownership_sha256", Value(json::sha256_canonical(original_lease_ownership))},
+            {"writer_lease_ownership", lease.ownership()},
             {"sequence", Value(native_custody_sequence)}, {"kind", Value(kind)},
             {"previous_record_sha256", native_custody_digest.empty() ? Value{} : Value(native_custody_digest)},
             {"transaction_snapshot_sha256", Value(tx.snapshot_sha256)},
             {"pending_history_sha256", active_payload_history.empty() ? Value{} : Value(active_payload_history)},
+            {"pending_intent_sequence", std::move(pending_sequence)},
             {"details", std::move(details)}});
+        require_custody_value_budget(record, 1024u * 1024u);
         const auto text = json::canonical(record) + "\n";
         constexpr std::size_t maximum_record = 1024u * 1024u;
         constexpr std::size_t maximum_total = 256u * 1024u * 1024u;
@@ -867,7 +1472,8 @@ struct NativeMaintenanceContext::Impl {
                     throw std::runtime_error("native maintenance target directory lacks original creation custody");
                 parent = &create_directory(*parent, partial, component.wstring());
             } else parent = found->second.get();
-            if (!parent->created) throw std::runtime_error("native maintenance target directory was not created by this owner");
+            if (!parent->created && !parent->restored_creation)
+                throw std::runtime_error("native maintenance target directory lacks proved creation custody");
             require_entry(*parent);
         }
         require_entry(*parent); return *parent;
@@ -980,7 +1586,8 @@ struct NativeMaintenanceContext::Impl {
                 rename_file(file, parent, backup.filename().wstring());
             } else if (history.pending_kind == "replace_file") {
                 auto& file = *files.at(fs::path("payload") / relative);
-                if (!file.created || !file.complete) throw std::runtime_error("native repair replacement lacks completed creation custody");
+                if ((!file.created && !file.restored_creation) || !file.complete)
+                    throw std::runtime_error("native repair replacement lacks completed creation custody");
                 require_file_details(file, details);
                 auto& parent = open_directory(fs::u8path(original_state.installed_state().at("target_root").as_string()) / relative.parent_path());
                 rename_file(file, parent, relative.filename().wstring());
@@ -1080,7 +1687,12 @@ struct NativeMaintenanceContext::Impl {
                 if (history.pending_kind == "publish_target") {
                     require_entry(*staging);
                     for (const auto& file : files) require_bytes(*file.second);
-                } else confirm_effect_completion(supplied, history, "applied", observation.result_digest);
+                } else {
+                    const auto actual = payload_outcomes.find(history.journal_digest);
+                    if (actual == payload_outcomes.end() || !actual->second->confirmed)
+                        throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
+                    confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest);
+                }
             }
         }
         require_authority(supplied);
@@ -1123,20 +1735,34 @@ struct NativeMaintenanceContext::Impl {
         require_publisher_tree_exact_file_closure(sealed, expected);
         if (transaction::observe_commit_closure(path, journal_files) != closure)
             throw std::runtime_error("native maintenance generic closure differs from the held created tree");
-        for (const auto& object : sealed.descendants) created.push_back(Value(Value::Object{
-            {"relative_path", Value(fs::path(object.relative_path).generic_u8string())},
+        for (const auto& object : sealed.descendants) {
+            const auto relative = fs::path(object.relative_path);
+            const bool directory = (object.object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            const HANDLE created_handle = directory ? directories.at((relative_volume_path(path) / relative).lexically_normal())->handle.value :
+                files.at(relative)->handle.value;
+            created.push_back(Value(Value::Object{
+            {"relative_path", Value(relative.generic_u8string())},
             {"object", publisher_handle_observation_json(object.object)},
+            {"native_identity", Value(journal_identity(created_handle))},
             {"size_bytes", Value(object.size)}, {"sha256", Value(object.sha256)}}));
+        }
         // This record describes this worker's held creations, not a recovered
         // handle or a callback assertion. It precedes the native publication.
-        const Value custody(Value::Object{{"schema", Value("usk.publisher.maintenance_created_closure.v1")},
+        const Value custody(Value::Object{{"schema", Value("usk.publisher.maintenance_created_closure.v2")},
             {"transaction_id", Value(spec.transaction_id)}, {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
+            {"original_admission_sha256", Value(original_admission_sha256)},
             {"lease_ownership_sha256", Value(json::sha256_canonical(lease.ownership()))},
+            {"transaction_snapshot_sha256", Value(publication_transaction_sha256)},
+            {"source_context", Value(original_source_context)},
             {"worker_security", worker}, {"process_boundary", process_boundary},
             {"registration_sha256", Value(json::sha256_canonical(registration))},
             {"authenticated_client", client}, {"root", publisher_handle_observation_json(sealed.root)},
+            {"root_parent", publisher_handle_observation_json(staging_parent->facts)},
+            {"target_parent", publisher_handle_observation_json(target_parent->facts)},
+            {"root_native_identity", Value(journal_identity(staging->handle.value))},
             {"created_objects", Value(std::move(created))}});
+        require_custody_value_budget(custody, 16u * 1024u * 1024u);
         const auto text = json::canonical(custody) + "\n";
         if (text.size() > 16u * 1024u * 1024u) throw std::runtime_error("native maintenance created closure exceeds its durable bound");
         const auto custody_path = spec.state_root / "transactions" / (spec.transaction_id + ".native-maintenance-created.json");
@@ -1170,6 +1796,15 @@ struct NativeMaintenanceContext::Impl {
         for (const auto& item : files) require_bytes(*item.second);
         require_authority(s);
         publication_confirmed = true;
+        try {
+            base::Sha256 created_hash;
+            created_hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+            persist_native_custody("confirmed_publication", Value(Value::Object{
+                {"created_closure_sha256", Value(created_hash.finish())},
+                {"root", publisher_handle_observation_json(staging->facts)},
+                {"parent", publisher_handle_observation_json(target_parent->facts)},
+                {"publication_transaction_snapshot_sha256", Value(publication_transaction_sha256)}}));
+        } catch (...) { custody_failed = true; throw; }
     }
 };
 NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wstring& root, const std::wstring& service,
@@ -1178,10 +1813,28 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     const RegisteredPublisherAdmission& admission, const PublisherRequestChannel& channel,
     const transaction::TransactionSpec& spec, HANDLE cancel, bool& effects_may_exist)
     : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, lease, admission, channel, spec, cancel)) {
+    bind_owner_backend();
+    effects_may_exist = true;
+    impl_->persist_original_admission();
+    scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
+}
+NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wstring& root, const std::wstring& service,
+    const PublisherInstallOperationGuard& guard, const PublisherMaintenanceStateSnapshot& state,
+    const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
+    const RegisteredPublisherAdmission& admission, const PublisherRequestChannel& channel,
+    const transaction::TransactionSpec& spec, HANDLE cancel, bool& effects_may_exist, RecoveryAdmission) {
+    // This path resumes material from the original operation. Even a refused
+    // restoration must preserve the caller's retained-material status.
+    effects_may_exist = true;
+    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, lease, admission, channel, spec, cancel, true);
+    bind_owner_backend();
+    scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
+}
+void NativeMaintenanceContext::bind_owner_backend() {
     fence_ = std::make_unique<ScopedPublisherEffectFence>(impl_->effect_fence);
-    impl_->metadata = std::make_unique<PublisherMetadataSession>(volume, root,
-        fs::path(root) / fs::u8path(context.record().at("reviewed_snapshot").at("setup_component").as_string()),
-        service, true, Impl::normalized(spec.state_root.parent_path()));
+    impl_->metadata = std::make_unique<PublisherMetadataSession>(impl_->volume, impl_->volume_root,
+        fs::path(impl_->volume_root) / fs::u8path(impl_->original_context.record().at("reviewed_snapshot").at("setup_component").as_string()),
+        impl_->service_name, true, Impl::normalized(impl_->spec.state_root.parent_path()));
     usk::platform::windows::detail::MetadataRecordPublicationHooks hooks;
     hooks.prepare = [this](const auto& p, const auto& text) { impl_->metadata_prepare(p, text); };
     hooks.created = [this](const auto& p, const auto& text, HANDLE file) { return impl_->metadata_created(p, text, file); };
@@ -1189,9 +1842,6 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     hooks.confirm = [this](const auto& p, const auto& text, HANDLE file) { impl_->metadata_confirm(p, text, file); };
     hooks.failed = [this](const auto& p) { impl_->metadata_failed(p); };
     impl_->metadata->bind_native_maintenance_publication(std::move(hooks));
-    effects_may_exist = true;
-    impl_->persist_original_admission();
-    scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
 }
 NativeMaintenanceContext::~NativeMaintenanceContext() {
     scope_.reset();
