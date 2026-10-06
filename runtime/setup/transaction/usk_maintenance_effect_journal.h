@@ -9,8 +9,17 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace usk::transaction {
+
+struct CompletedMaintenanceEffect {
+    std::uint64_t intent_sequence = 0;
+    std::string kind;
+    json::Value details;
+    std::string outcome;
+    std::string result_digest;
+};
 
 struct MaintenanceEffectInspection {
     std::string source_context;
@@ -26,6 +35,9 @@ struct MaintenanceEffectInspection {
     // Inspection never replays it or confers filesystem mutation authority.
     std::string pending_kind;
     json::Value pending_details;
+    // Optional ordered observations for whole-operation continuation. These
+    // remain journal facts, never native custody or evidence of the actor.
+    std::vector<CompletedMaintenanceEffect> completed;
 };
 
 // Internal append-only observations for the original maintenance transaction.
@@ -47,7 +59,7 @@ public:
     // The caller obtains expected_source_digest from the original transaction
     // journal and separately validates the immutable installed-state context.
     static MaintenanceEffectInspection inspect(const TransactionSpec& spec,
-        const std::string& expected_source_digest);
+        const std::string& expected_source_digest, bool retain_completed = false);
     // Metadata continuation only, against an exact inspected snapshot. The
     // caller must separately prove any effect and hold its required authority.
     static std::unique_ptr<MaintenanceEffectJournal> resume(const TransactionSpec& spec,

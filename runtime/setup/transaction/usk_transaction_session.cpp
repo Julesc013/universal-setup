@@ -6,6 +6,7 @@
 #include "usk_sha256.h"
 #include "usk_record_io.h"
 #include "usk_stable_file.h"
+#include "usk_maintenance_effect_journal.h"
 #include "usk_json.h"
 #include "usk_utf8_path.h"
 
@@ -545,7 +546,8 @@ TransactionSession::TransactionSession(
     require_path_capacity(spec_);
     created_at_ = iso8601_now();
 
-    if (resume_mode == ResumeMode::finalization) require_commit_authority(spec_.required_commit_authority);
+    if (resume_mode == ResumeMode::finalization || resume_mode == ResumeMode::maintenance_finalization)
+        require_commit_authority(spec_.required_commit_authority);
     if (resume_mode != ResumeMode::none) {
         require_safe_directory(spec_.staging_parent);
         require_safe_directory(spec_.target_root.parent_path());
@@ -632,7 +634,38 @@ TransactionSession::TransactionSession(
                 staged_files_.push_back(StagedFile{relative, sha256, size_bytes});
             }
         }
-        if (resume_mode == ResumeMode::finalization) {
+        if (resume_mode == ResumeMode::maintenance_finalization) {
+            if ((spec_.operation != "repair" && spec_.operation != "move" && spec_.operation != "uninstall") ||
+                (prior != "committing" && prior != "committed" && prior != "recovery_required" && prior != "completed"))
+                throw std::runtime_error("transaction is not a maintenance finalization candidate");
+            const auto history = MaintenanceEffectJournal::inspect(spec_, stream_journal_.source_digest, true);
+            if (!history.sealed || !history.pending_kind.empty() || history.source_context != stream_journal_.source_context ||
+                history.completed.empty() || stream_journal_.publication_root_identity.empty())
+                throw std::runtime_error("maintenance finalization has no sealed original history");
+            std::error_code stage_error;
+            const auto stage_status = fs::symlink_status(staging_root_, stage_error);
+            if (stage_status.type() != fs::file_type::not_found ||
+                (stage_error && stage_error != std::errc::no_such_file_or_directory))
+                throw std::runtime_error("maintenance finalization staging is not genuinely absent");
+            const auto& last = history.completed.back();
+            if (spec_.operation != "move") {
+                const bool was_committed = std::any_of(transitions_.begin(), transitions_.end(),
+                    [](const auto& transition) { return transition.to == "committed"; });
+                std::error_code target_error;
+                const auto target_status = fs::symlink_status(spec_.target_root, target_error);
+                if (!was_committed || last.kind != "remove_directory" || last.outcome != "applied" ||
+                    last.details.at("root_role").as_string() != "operation_target" ||
+                    !last.details.at("relative_path").as_string().empty() ||
+                    last.details.at("native_identity").as_string() != stream_journal_.publication_root_identity ||
+                    target_status.type() != fs::file_type::not_found ||
+                    (target_error && target_error != std::errc::no_such_file_or_directory))
+                    throw std::runtime_error("maintenance finalization lacks confirmed operation-root removal");
+            } else if (last.kind != "append_audit" || !fs::is_directory(spec_.target_root) ||
+                reparse_or_symlink(spec_.target_root) || directory_identity(spec_.target_root) != stream_journal_.publication_root_identity) {
+                throw std::runtime_error("move finalization lost its published root");
+            }
+            maintenance_finalization_ = true;
+        } else if (resume_mode == ResumeMode::finalization) {
             if ((prior != "committing" && prior != "committed" && prior != "recovery_required") ||
                 fs::exists(staging_root_) || !fs::is_directory(spec_.target_root) ||
                 reparse_or_symlink(spec_.target_root)) {
@@ -1187,8 +1220,8 @@ void TransactionSession::commit_effect()
 void TransactionSession::mark_committed()
 {
     require_commit_authority(spec_.required_commit_authority);
-    if (current_state_ != "committing" || fs::exists(staging_root_) ||
-        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
+    if (current_state_ != "committing" || (!maintenance_finalization_ && (fs::exists(staging_root_) ||
+        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)))) {
         throw std::runtime_error("transaction commit effect is not present and stable");
     }
     persist_transition("committed");
@@ -1214,8 +1247,8 @@ void TransactionSession::mark_recovery_required()
 void TransactionSession::resume_committing()
 {
     require_commit_authority(spec_.required_commit_authority);
-    if (current_state_ != "recovery_required" || fs::exists(staging_root_) ||
-        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
+    if (current_state_ != "recovery_required" || (!maintenance_finalization_ && (fs::exists(staging_root_) ||
+        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)))) {
         throw std::runtime_error("only visible-target recovery can resume finalization");
     }
     persist_transition("committing");
@@ -1393,6 +1426,11 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
             const auto& state = transition.at("to").as_string();
             return state == "committing" || state == "committed" || state == "completed";
         });
+    result.commit_confirmed = std::any_of(document.at("transitions").as_array().begin(),
+        document.at("transitions").as_array().end(), [](const json::Value& transition) {
+            const auto& state = transition.at("to").as_string();
+            return state == "committed" || state == "completed";
+        });
     result.current_state = document.at("current_state").as_string();
     result.journal_digest = document.at("journal_digest").as_string();
     result.recorded_at = document.at("updated_at").as_string();
@@ -1530,6 +1568,54 @@ std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
     // in its first journal, before any new staging directory or payload effect.
     return std::unique_ptr<TransactionSession>(new TransactionSession(
         next, std::move(injector), ResumeMode::none, std::move(lineage)));
+}
+
+StreamJournal TransactionSession::inspect_recovery_stream(const TransactionSpec& spec,
+    const std::string& expected_snapshot_sha256)
+{
+    const auto before = inspect_recovery(spec);
+    if (!valid_sha256(expected_snapshot_sha256) || before.snapshot_sha256 != expected_snapshot_sha256)
+        throw std::runtime_error("recovery stream snapshot changed");
+    const fs::path journal = absolute_normal(spec.state_root) / "transactions" /
+        (spec.transaction_id + ".journal.json");
+    const auto text = read_bounded_text(journal, 4u * 1024u * 1024u);
+    usk::base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    if (hash.finish() != expected_snapshot_sha256)
+        throw std::runtime_error("recovery stream bytes changed");
+    const auto document = json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    auto result = read_stream_journal(document, safe_relative_path);
+    if (inspect_recovery(spec).snapshot_sha256 != expected_snapshot_sha256)
+        throw std::runtime_error("recovery stream changed during inspection");
+    return result;
+}
+
+RecoveryInspection TransactionSession::finalize_maintenance(const TransactionSpec& spec,
+    const std::string& expected_snapshot_sha256, const std::string& expected_history_digest, FaultInjector injector)
+{
+    const auto before = inspect_recovery(spec);
+    if (!valid_sha256(expected_snapshot_sha256) || !valid_sha256(expected_history_digest) ||
+        before.snapshot_sha256 != expected_snapshot_sha256 || !before.commit_started)
+        throw std::runtime_error("maintenance finalization snapshot changed or has no committed effect");
+    TransactionSession session(spec, std::move(injector), ResumeMode::maintenance_finalization);
+    const auto pin = [&] {
+        const auto current = inspect_recovery(spec);
+        const auto history = MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        const auto expected_text = session.render_journal();
+        usk::base::Sha256 expected_hash;
+        expected_hash.update(reinterpret_cast<const unsigned char*>(expected_text.data()), expected_text.size());
+        if (history.journal_digest != expected_history_digest || !history.sealed || !history.pending_kind.empty() ||
+            current.current_state != session.current_state_ || current.snapshot_sha256 != expected_hash.finish())
+            throw std::runtime_error("maintenance finalization changed its sealed history or transaction");
+    };
+    if (inspect_recovery(spec).snapshot_sha256 != expected_snapshot_sha256)
+        throw std::runtime_error("maintenance finalization snapshot changed during reopening");
+    pin();
+    if (session.current_state_ == "recovery_required") { session.resume_committing(); pin(); }
+    if (session.current_state_ == "committing") { session.mark_committed(); pin(); }
+    if (session.current_state_ == "committed") { session.mark_completed(); pin(); }
+    if (session.current_state_ != "completed") throw std::runtime_error("maintenance finalization did not complete");
+    return inspect_recovery(spec);
 }
 
 std::unique_ptr<TransactionSession> TransactionSession::resume_finalization(

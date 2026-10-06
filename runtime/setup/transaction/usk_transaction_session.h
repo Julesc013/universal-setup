@@ -62,6 +62,7 @@ struct RecoveryInspection {
     bool staging_exists = false;
     bool target_exists = false;
     bool commit_started = false;
+    bool commit_confirmed = false;
     std::vector<std::string> available_actions;
 };
 
@@ -109,6 +110,16 @@ public:
         const std::string& source_digest,
         FaultInjector injector = {});
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
+    // Read-only complete stream observations from that exact validated
+    // snapshot, including original creation-handle output identities.
+    static StreamJournal inspect_recovery_stream(const TransactionSpec& spec,
+        const std::string& expected_snapshot_sha256);
+    // Metadata-only finalization after the operation owner has verified and
+    // sealed the complete original maintenance effect history. No payload or
+    // pathname cleanup is performed; the required commit scope still applies.
+    static RecoveryInspection finalize_maintenance(const TransactionSpec& spec,
+        const std::string& expected_snapshot_sha256, const std::string& expected_history_digest,
+        FaultInjector injector = {});
     static std::unique_ptr<TransactionSession> resume_finalization(
         const TransactionSpec& spec,
         FaultInjector injector = {});
@@ -139,7 +150,7 @@ private:
     CommitClosureObservation observe_staged_commit_closure() const;
     void remove_recorded_staging_closure();
     std::string render_journal() const;
-    enum class ResumeMode { none, finalization, rollback };
+    enum class ResumeMode { none, finalization, rollback, maintenance_finalization };
     TransactionSession(TransactionSpec spec, FaultInjector injector, ResumeMode resume_mode,
         StreamJournal stream_journal = {});
 
@@ -152,6 +163,7 @@ private:
     std::string staging_identity_;
     bool retain_stream_cleanup_ = false;
     bool retain_commit_cleanup_ = false;
+    bool maintenance_finalization_ = false;
     CommitClosureObservation verified_closure_;
     StreamJournal stream_journal_;
     std::string staging_parent_identity_;

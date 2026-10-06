@@ -1,6 +1,6 @@
 {
   "schema": "usk.repository.requirement-implementation-inventory/1",
-  "generated_at": "2026-10-06T00:13:28Z",
+  "generated_at": "2026-10-06T00:51:48Z",
   "repository": "Julesc013/universal-setup",
   "repository_base_commit": "9ec6f3688a94261938a6e7969782ab793565c721",
   "repository_base_tree": "0b7d4f18dbbde810a9724f6f041867c33bdb07e0",
@@ -2068,7 +2068,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         }
       ],
       "acceptance_ids": [
@@ -2099,7 +2099,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         }
       ],
       "acceptance_ids": [
@@ -2130,7 +2130,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         }
       ],
       "acceptance_ids": [
@@ -2499,7 +2499,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The restricted-service backend persists original intent before bootstrap, binds native volume/setup/state identities and holder PID/birth, and appends bounded ownership generations. Native effects require the current fences; live or unknown holders refuse automatic transfer. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. Later edb9 CI37389166038 also actually failed Windows target admission. Its diagnostic observes the protected/service-granted locked DACL, then unprotected default DACLs with AU mutation on both the locking and fresh device handles after remount. The5574-byte receiptSHA 71d44f22e19b6697beb733c3df91e923e72b19a911151398cbea8459846874c6 is retained externally. Inheritance protection did not qualify this transition. A new unpublished-target v3 intent now binds the exact mounted device prestate and deterministic owner/ordered-ACE/protection postimage before mutation. Only that retained bootstrap transition admits known-default reduction; v2 receives no new grant. The handle closes before the unchanged final exclusive lock and strict remount/identity/namespace checks. The independent public probe compares actual mounted device policy with the retained intent. The new-version shape decoder refuses null/missing transitions; legacy absence is explicit v2 only. Retained pure oracle positives now supply faithful intent and missing/mismatched controls remain genuine refusals. Runtime effectiveness is unproven; no success or cause is inferred. Ended-worker recovery, generation2/3 completion, nine constructed ordered-prefix cases and six constructed durable states preserve original custody through source-free recovery/replay/verify. Constructed states follow separately observed real worker loss; they do not establish crashes at those offsets, arbitrary issued-call errors, power loss, literal PID reuse or live takeover. Earlier203 sharing/cleanup failure and732 fullCI53/55 security-snapshot refusal remain retained; later success does not identify the earlier changed security field or establish a universal remedy. Wider maintenance and WorkUnit predicates remain unfinished.",
+      "note": "The restricted-service backend persists original intent before bootstrap, binds native volume/setup/state identities and holder PID/birth, and appends bounded ownership generations. Native effects require the current fences; live or unknown holders refuse automatic transfer. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. Later edb9 CI37389166038 also actually failed Windows target admission. Its diagnostic observes the protected/service-granted locked DACL, then unprotected default DACLs with AU mutation on both the locking and fresh device handles after remount. The5574-byte receiptSHA 71d44f22e19b6697beb733c3df91e923e72b19a911151398cbea8459846874c6 is retained externally. Inheritance protection did not qualify this transition. A new unpublished-target v3 intent now binds the exact mounted device prestate and deterministic owner/ordered-ACE/protection postimage before mutation. Only that retained bootstrap transition admits known-default reduction; v2 receives no new grant. The handle closes before the unchanged final exclusive lock and strict remount/identity/namespace checks. The independent public probe compares actual mounted device policy with the retained intent. The new-version shape decoder refuses null/missing transitions; legacy absence is explicit v2 only. Retained pure oracle positives now supply faithful intent and missing/mismatched controls remain genuine refusals. Actual c264 CI37393181929 completed with failure: all6 otherjobs passed and native112042832921 passed53/55 CTests. Its ordinary/standard public install, source-free production loss, prefix/durable and installation-mutex steps succeeded. The mounted-device candidate therefore has selected actual runtime observations, while full publisher qualification remains unavailable. The late machine client refused full frozen worker security after its thread population changed5to2 with unchanged primary fields; the later controller fixture refused the shared input root retained after that primary failure. The raw public-install receipt1101326B/SHAe68f549efdab391d6135521e4ae51e7c40d3da2c669396831882249f2b886e19 and late failed receipts15247B/SHA8d23bdbe0636e99b3ea0a1e6bcba67d91408a117c3c83820bf27359798f6ea91 and 1511B/SHAd86d8244dcb63b29c3b3f24b7320d57e573a2260fc3fe8429d261eda97c51b6b are retained externally. Extra-thread lifecycle and failure checkpoint were not retained, so startup/RPC attribution remains unproven. A new bounded cancellable pre-write startup observation candidate now validates complete worker snapshots before freezing; all post-freeze equality checks remain unchanged. Bounded mismatch diagnostics retain checkpoint, completed-create count, elapsed clock and added/removed TID-birth pairs. Neither the candidate nor these diagnostics establish a runtime remedy. Ended-worker recovery, generation2/3 completion, nine constructed ordered-prefix cases and six constructed durable states preserve original custody through source-free recovery/replay/verify. Constructed states follow separately observed real worker loss; they do not establish crashes at those offsets, arbitrary issued-call errors, power loss, literal PID reuse or live takeover. Earlier203 sharing/cleanup failure and732 fullCI53/55 security-snapshot refusal remain retained; later success does not identify the earlier changed security field or establish a universal remedy. Wider maintenance and WorkUnit predicates remain unfinished.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2587,7 +2587,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
+          "sha256": "bfcbbc3b675adf8bf4849c37ad77c6d3ec04f2cea0b67f7b0a3d218f822d3426"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -2826,7 +2826,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "Native guards have bounded wait/cancellation, owning-thread checks and opaque operation references. Registered endpoint contention separately covers public pre-request-byte conflicts/cancellations; paused-worker tests retain original ownership. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. Later edb9 CI37389166038 also actually failed Windows target admission. Its diagnostic observes the protected/service-granted locked DACL, then unprotected default DACLs with AU mutation on both the locking and fresh device handles after remount. The5574-byte receiptSHA 71d44f22e19b6697beb733c3df91e923e72b19a911151398cbea8459846874c6 is retained externally. Inheritance protection did not qualify this transition. A new unpublished-target v3 intent now binds the exact mounted device prestate and deterministic owner/ordered-ACE/protection postimage before mutation. Only that retained bootstrap transition admits known-default reduction; v2 receives no new grant. The handle closes before the unchanged final exclusive lock and strict remount/identity/namespace checks. The independent public probe compares actual mounted device policy with the retained intent. The new-version shape decoder refuses null/missing transitions; legacy absence is explicit v2 only. Retained pure oracle positives now supply faithful intent and missing/mismatched controls remain genuine refusals. Runtime effectiveness is unproven; no success or cause is inferred. An actual separate native installation-mutex holder now produces operation_conflict and the matching authenticated source-free installed.verify refusal/exit4, with the same inspection reference,43 unchanged native rows and unchanged boundary, followed by normal holder release and successful verification. That verification case does not claim public installation-mutex install wait/cancellation or live-holder transfer. Earlier failed receipts are retained.",
+      "note": "Native guards have bounded wait/cancellation, owning-thread checks and opaque operation references. Registered endpoint contention separately covers public pre-request-byte conflicts/cancellations; paused-worker tests retain original ownership. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. Later edb9 CI37389166038 also actually failed Windows target admission. Its diagnostic observes the protected/service-granted locked DACL, then unprotected default DACLs with AU mutation on both the locking and fresh device handles after remount. The5574-byte receiptSHA 71d44f22e19b6697beb733c3df91e923e72b19a911151398cbea8459846874c6 is retained externally. Inheritance protection did not qualify this transition. A new unpublished-target v3 intent now binds the exact mounted device prestate and deterministic owner/ordered-ACE/protection postimage before mutation. Only that retained bootstrap transition admits known-default reduction; v2 receives no new grant. The handle closes before the unchanged final exclusive lock and strict remount/identity/namespace checks. The independent public probe compares actual mounted device policy with the retained intent. The new-version shape decoder refuses null/missing transitions; legacy absence is explicit v2 only. Retained pure oracle positives now supply faithful intent and missing/mismatched controls remain genuine refusals. Actual c264 CI37393181929 completed with failure: all6 otherjobs passed and native112042832921 passed53/55 CTests. Its ordinary/standard public install, source-free production loss, prefix/durable and installation-mutex steps succeeded. The mounted-device candidate therefore has selected actual runtime observations, while full publisher qualification remains unavailable. The late machine client refused full frozen worker security after its thread population changed5to2 with unchanged primary fields; the later controller fixture refused the shared input root retained after that primary failure. The raw public-install receipt1101326B/SHAe68f549efdab391d6135521e4ae51e7c40d3da2c669396831882249f2b886e19 and late failed receipts15247B/SHA8d23bdbe0636e99b3ea0a1e6bcba67d91408a117c3c83820bf27359798f6ea91 and 1511B/SHAd86d8244dcb63b29c3b3f24b7320d57e573a2260fc3fe8429d261eda97c51b6b are retained externally. Extra-thread lifecycle and failure checkpoint were not retained, so startup/RPC attribution remains unproven. A new bounded cancellable pre-write startup observation candidate now validates complete worker snapshots before freezing; all post-freeze equality checks remain unchanged. Bounded mismatch diagnostics retain checkpoint, completed-create count, elapsed clock and added/removed TID-birth pairs. Neither the candidate nor these diagnostics establish a runtime remedy. An actual separate native installation-mutex holder now produces operation_conflict and the matching authenticated source-free installed.verify refusal/exit4, with the same inspection reference,43 unchanged native rows and unchanged boundary, followed by normal holder release and successful verification. That verification case does not claim public installation-mutex install wait/cancellation or live-holder transfer. Earlier failed receipts are retained.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -2914,7 +2914,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
+          "sha256": "bfcbbc3b675adf8bf4849c37ad77c6d3ec04f2cea0b67f7b0a3d218f822d3426"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -3153,7 +3153,7 @@
       "spec_id": "USK-S-LEASE",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The backend acquires native guards and checks the actual installed revision before operation intent/bootstrap, plan rebuilding and retained replay. Stopped administrative enrollment binds each exact reviewed envelope to actual registration, target and caller; protected files stay held through dispatch. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. Later edb9 CI37389166038 also actually failed Windows target admission. Its diagnostic observes the protected/service-granted locked DACL, then unprotected default DACLs with AU mutation on both the locking and fresh device handles after remount. The5574-byte receiptSHA 71d44f22e19b6697beb733c3df91e923e72b19a911151398cbea8459846874c6 is retained externally. Inheritance protection did not qualify this transition. A new unpublished-target v3 intent now binds the exact mounted device prestate and deterministic owner/ordered-ACE/protection postimage before mutation. Only that retained bootstrap transition admits known-default reduction; v2 receives no new grant. The handle closes before the unchanged final exclusive lock and strict remount/identity/namespace checks. The independent public probe compares actual mounted device policy with the retained intent. The new-version shape decoder refuses null/missing transitions; legacy absence is explicit v2 only. Retained pure oracle positives now supply faithful intent and missing/mismatched controls remain genuine refusals. Runtime effectiveness is unproven; no success or cause is inferred. Actual approved PlanA/commitB/applyA refusals preserve complete native rows and absent A intent. Typed native state_revision_stale stays distinct from stale_plan and unknown effects. The exact pending-fragment parsing exception preserves full native/security closure. Wider maintenance revisions remain unfinished.",
+      "note": "The backend acquires native guards and checks the actual installed revision before operation intent/bootstrap, plan rebuilding and retained replay. Stopped administrative enrollment binds each exact reviewed envelope to actual registration, target and caller; protected files stay held through dispatch. PR236 source c0d68f02ca750d88b9f472fc5e22989cd95d1826/treeb836676ca8f487d48063071733ca5ff5c5c8abab was normally merged as2e64f654b370f500ddbab45ae097df63352c3c25. CI37367627561 terminalattempt3 passed all7 requiredjobs; actualnative producer111956510223/attempt1 passed55CTest and produced24 runtime receipts plus2 lateclients. Copied retry metadata is bound to that physical execution. Independent final26 reviewSHA 9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e and the live merge gate passed. The bounded partial integration is retained in release/evidence/wu007-durable-recovery-partial-integration.v1.json. Later af51 CI37385858450 actually failed Windows target admission before public installation: the fresh remounted device exposed an Authenticated Users mutation grant and the controller retained intent/refused. Its5574-byte public-install receiptSHA e1976cd88a321d97a0a615af0209d5248e9970d2a52eaafa1dfe6bab1bb4f1d2 is retained externally. Later edb9 CI37389166038 also actually failed Windows target admission. Its diagnostic observes the protected/service-granted locked DACL, then unprotected default DACLs with AU mutation on both the locking and fresh device handles after remount. The5574-byte receiptSHA 71d44f22e19b6697beb733c3df91e923e72b19a911151398cbea8459846874c6 is retained externally. Inheritance protection did not qualify this transition. A new unpublished-target v3 intent now binds the exact mounted device prestate and deterministic owner/ordered-ACE/protection postimage before mutation. Only that retained bootstrap transition admits known-default reduction; v2 receives no new grant. The handle closes before the unchanged final exclusive lock and strict remount/identity/namespace checks. The independent public probe compares actual mounted device policy with the retained intent. The new-version shape decoder refuses null/missing transitions; legacy absence is explicit v2 only. Retained pure oracle positives now supply faithful intent and missing/mismatched controls remain genuine refusals. Actual c264 CI37393181929 completed with failure: all6 otherjobs passed and native112042832921 passed53/55 CTests. Its ordinary/standard public install, source-free production loss, prefix/durable and installation-mutex steps succeeded. The mounted-device candidate therefore has selected actual runtime observations, while full publisher qualification remains unavailable. The late machine client refused full frozen worker security after its thread population changed5to2 with unchanged primary fields; the later controller fixture refused the shared input root retained after that primary failure. The raw public-install receipt1101326B/SHAe68f549efdab391d6135521e4ae51e7c40d3da2c669396831882249f2b886e19 and late failed receipts15247B/SHA8d23bdbe0636e99b3ea0a1e6bcba67d91408a117c3c83820bf27359798f6ea91 and 1511B/SHAd86d8244dcb63b29c3b3f24b7320d57e573a2260fc3fe8429d261eda97c51b6b are retained externally. Extra-thread lifecycle and failure checkpoint were not retained, so startup/RPC attribution remains unproven. A new bounded cancellable pre-write startup observation candidate now validates complete worker snapshots before freezing; all post-freeze equality checks remain unchanged. Bounded mismatch diagnostics retain checkpoint, completed-create count, elapsed clock and added/removed TID-birth pairs. Neither the candidate nor these diagnostics establish a runtime remedy. Actual approved PlanA/commitB/applyA refusals preserve complete native rows and absent A intent. Typed native state_revision_stale stays distinct from stale_plan and unknown effects. The exact pending-fragment parsing exception preserves full native/security closure. Wider maintenance revisions remain unfinished.",
       "spec_source": {
         "path": "spec/lifecycle/concurrency.md",
         "sha256": "2725af91f7e2c5405c5e4b1b9803c850462f1930d87f3ec37443d0d58226eceb"
@@ -3241,7 +3241,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
+          "sha256": "bfcbbc3b675adf8bf4849c37ad77c6d3ec04f2cea0b67f7b0a3d218f822d3426"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -3969,7 +3969,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4004,7 +4004,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4039,7 +4039,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4074,7 +4074,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_adversarial_lifecycle_smoke.cpp",
@@ -4967,7 +4967,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -5043,7 +5043,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
+          "sha256": "bfcbbc3b675adf8bf4849c37ad77c6d3ec04f2cea0b67f7b0a3d218f822d3426"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -5147,11 +5147,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_creation_observation.h",
-          "sha256": "fa00a14e4f2ce1a297535d49f595bf36888a809455b2c6f680d4e8bcd572f851"
+          "sha256": "845692919389bde094db2d0d366ab0dc9e7d584cd73cd3973c43606460fac6ca"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_creation_observation.cpp",
-          "sha256": "a00977d671d3f6e395001422b6b43e08e18ac69afaf08f1f02163fd3d7edcce3"
+          "sha256": "ceebf126ad91304b3c87ad838402c2ffaa72600e353f78b30d5a6fed84105071"
         },
         {
           "path": "tests/native/usk_publisher_creation_observation_smoke.cpp",
@@ -5187,11 +5187,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.h",
-          "sha256": "2f5fd80b67b38673aed5e756125e9bd1213f91519828b5732c087c14894ac2d2"
+          "sha256": "4ee9469c7202f5b22101a5dcf2f5e68321fbcb2933ab424e3c0b6ffedca7663c"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "bd07466589d46db82212d6c04b47e6f42f1ef234f847c66028e300d0bc3b5afb"
+          "sha256": "1565100078319d9e9a1fc31a846e440f7abc3ecdb423af089b7c49541c0fd7ae"
         },
         {
           "path": "tests/publisher_worker_security.py",
@@ -5439,7 +5439,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "runtime/setup/lifecycle/usk_public_lifecycle.cpp",
@@ -5515,7 +5515,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "e1231c6b70046b1999f13a12109fa752d8e865cd2c64d50aeaa58c0bac4c7d47"
+          "sha256": "bfcbbc3b675adf8bf4849c37ad77c6d3ec04f2cea0b67f7b0a3d218f822d3426"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -5639,11 +5639,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_creation_observation.h",
-          "sha256": "fa00a14e4f2ce1a297535d49f595bf36888a809455b2c6f680d4e8bcd572f851"
+          "sha256": "845692919389bde094db2d0d366ab0dc9e7d584cd73cd3973c43606460fac6ca"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_creation_observation.cpp",
-          "sha256": "a00977d671d3f6e395001422b6b43e08e18ac69afaf08f1f02163fd3d7edcce3"
+          "sha256": "ceebf126ad91304b3c87ad838402c2ffaa72600e353f78b30d5a6fed84105071"
         },
         {
           "path": "tests/native/usk_publisher_creation_observation_smoke.cpp",
@@ -5679,11 +5679,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.h",
-          "sha256": "2f5fd80b67b38673aed5e756125e9bd1213f91519828b5732c087c14894ac2d2"
+          "sha256": "4ee9469c7202f5b22101a5dcf2f5e68321fbcb2933ab424e3c0b6ffedca7663c"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "bd07466589d46db82212d6c04b47e6f42f1ef234f847c66028e300d0bc3b5afb"
+          "sha256": "1565100078319d9e9a1fc31a846e440f7abc3ecdb423af089b7c49541c0fd7ae"
         },
         {
           "path": "tests/publisher_worker_security.py",
@@ -5763,7 +5763,7 @@
       "spec_id": "USK-S-REC",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. Whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. A new internal whole maintenance continuation now selects only the original ordered completed prefix and reviewed actions, joining retained creation-handle stream output identities and exact metadata postimages. Materialized repair bytes and uninstall markers now persist stream identities too; hash-only legacy output records cannot supply missing replay authority or bytes. The executor retains exact transaction/history pins and the operation-owned backend through every effect, metadata write and seal; operation-root cleanup requires a confirmed committed transition. Full sealed history permits metadata-only transaction finalization after exact operation-root removal, preserving repair verification, move_pending_acceptance with the old root retained, and uninstall retired versus blocked outcomes. Terminal reentry does not repeat effects. The finite ordinary fixture matrix defines whole continuation from29 existing resumable effect boundaries and6 sealed terminal interruptions. These callbacks and observations confer no native mutation grant. Actual registered native maintenance routing and custody remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/journal-recovery.md",
         "sha256": "f737c4f0b8485816262cc3a82fd0549ffa280ad8685b86d95644f0c765a8b179"
@@ -5783,11 +5783,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "84494b9baf836fa91c4450aad4bcb6e8c8b3629f20cf4b05ba88a7fc472db07a"
+          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -5795,15 +5795,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
+          "sha256": "536a3a33b7bad05df2f74c4b9d6069c1aa70ebc6816e6137cb7759c7b5144f14"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "7ff7a764689208fa68686130b64f526fb9ed093231b93c265613359c8603e3d1"
+          "sha256": "7d3fc8d298d48a88d460a094a40b1321da08e5d0e216a408655c7aa035fc57f5"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
-          "sha256": "c906258d5e975969ec210885c54536eb70ae1f6eb0675dd0ad563bbd1bb81078"
+          "sha256": "bbfd0cd80aa9f7ab1959668f11bdebbd56e0bc51c1ea95c9013fa750e7024359"
         }
       ],
       "acceptance_ids": [
@@ -5822,7 +5822,7 @@
       "spec_id": "USK-S-REC",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. Whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. A new internal whole maintenance continuation now selects only the original ordered completed prefix and reviewed actions, joining retained creation-handle stream output identities and exact metadata postimages. Materialized repair bytes and uninstall markers now persist stream identities too; hash-only legacy output records cannot supply missing replay authority or bytes. The executor retains exact transaction/history pins and the operation-owned backend through every effect, metadata write and seal; operation-root cleanup requires a confirmed committed transition. Full sealed history permits metadata-only transaction finalization after exact operation-root removal, preserving repair verification, move_pending_acceptance with the old root retained, and uninstall retired versus blocked outcomes. Terminal reentry does not repeat effects. The finite ordinary fixture matrix defines whole continuation from29 existing resumable effect boundaries and6 sealed terminal interruptions. These callbacks and observations confer no native mutation grant. Actual registered native maintenance routing and custody remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/journal-recovery.md",
         "sha256": "f737c4f0b8485816262cc3a82fd0549ffa280ad8685b86d95644f0c765a8b179"
@@ -5842,11 +5842,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "84494b9baf836fa91c4450aad4bcb6e8c8b3629f20cf4b05ba88a7fc472db07a"
+          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -5854,15 +5854,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
+          "sha256": "536a3a33b7bad05df2f74c4b9d6069c1aa70ebc6816e6137cb7759c7b5144f14"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "7ff7a764689208fa68686130b64f526fb9ed093231b93c265613359c8603e3d1"
+          "sha256": "7d3fc8d298d48a88d460a094a40b1321da08e5d0e216a408655c7aa035fc57f5"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
-          "sha256": "c906258d5e975969ec210885c54536eb70ae1f6eb0675dd0ad563bbd1bb81078"
+          "sha256": "bbfd0cd80aa9f7ab1959668f11bdebbd56e0bc51c1ea95c9013fa750e7024359"
         }
       ],
       "acceptance_ids": [
@@ -6223,11 +6223,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "84494b9baf836fa91c4450aad4bcb6e8c8b3629f20cf4b05ba88a7fc472db07a"
+          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
         },
         {
           "path": "docs/testing/m1_lifecycle_memory_proof.md",
@@ -6790,7 +6790,7 @@
       "spec_id": "USK-S-TXN",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. Whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. A new internal whole maintenance continuation now selects only the original ordered completed prefix and reviewed actions, joining retained creation-handle stream output identities and exact metadata postimages. Materialized repair bytes and uninstall markers now persist stream identities too; hash-only legacy output records cannot supply missing replay authority or bytes. The executor retains exact transaction/history pins and the operation-owned backend through every effect, metadata write and seal; operation-root cleanup requires a confirmed committed transition. Full sealed history permits metadata-only transaction finalization after exact operation-root removal, preserving repair verification, move_pending_acceptance with the old root retained, and uninstall retired versus blocked outcomes. Terminal reentry does not repeat effects. The finite ordinary fixture matrix defines whole continuation from29 existing resumable effect boundaries and6 sealed terminal interruptions. These callbacks and observations confer no native mutation grant. Actual registered native maintenance routing and custody remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/state-machine.md",
         "sha256": "c3a967c94067bf4fcad5c34e85a8a11768e9a9fb6e77d7a6cdd4cf2ff5f87ef5"
@@ -6798,7 +6798,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/transaction/usk_transaction_session.cpp",
-          "sha256": "e45fe5984ce9efaff4452723015f62b4570dff974f4a9cb1039bba98aa54a8ba"
+          "sha256": "ad133a1a99ebbfcdcc3d2eea9caee1a273ecec05d31d7f0892ec544ed422b474"
         },
         {
           "path": "runtime/setup/transaction/usk_replacement_session.cpp",
@@ -6810,11 +6810,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "84494b9baf836fa91c4450aad4bcb6e8c8b3629f20cf4b05ba88a7fc472db07a"
+          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -6822,15 +6822,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
+          "sha256": "536a3a33b7bad05df2f74c4b9d6069c1aa70ebc6816e6137cb7759c7b5144f14"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "7ff7a764689208fa68686130b64f526fb9ed093231b93c265613359c8603e3d1"
+          "sha256": "7d3fc8d298d48a88d460a094a40b1321da08e5d0e216a408655c7aa035fc57f5"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
-          "sha256": "c906258d5e975969ec210885c54536eb70ae1f6eb0675dd0ad563bbd1bb81078"
+          "sha256": "bbfd0cd80aa9f7ab1959668f11bdebbd56e0bc51c1ea95c9013fa750e7024359"
         }
       ],
       "acceptance_ids": [
@@ -6851,7 +6851,7 @@
       "spec_id": "USK-S-TXN",
       "classification": "partial",
       "classification_scope": "source-level implementation inventory; not acceptance or release qualification",
-      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. Whole source-free transaction finalization and registered native maintenance routing remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
+      "note": "The next unfinished maintenance implementation now records the original installed snapshot transaction/digest, ownership, reviewed plan/policy, applied time and native root observations in the first durable journal for repair, move and uninstall, before staging creation. It uses the existing bounded source-context and retained-cleanup journal semantics. No-follow root observations refuse linked, wrong-type and indeterminate states; genuine absence remains an observation only. New interruption, pure status-classification and genuine missing-root checks exercise those boundaries; these source changes are not covered by the prior hosted qualification. The unfinished connected maintenance implementation now also writes bounded create-only context/intent/completion/seal effect chains before and after publication, backup/replacement/removal and ownership/installed/audit metadata writes. Repair retains its recorded backup on uncertain replacement instead of attempting unrecorded compensation. Fourteen actual before/after effect interruptions and four successful sealed histories passed focused local native checks with source-free inspection and original/unknown-byte retention. The 32KiB record/64MiB journal/200002-record decoder bounds and digest chain confer no mutation authority or writable-journal authentication. A later source-free observer now joins original immutable state/context, transaction and effect history to native file/directory or exact ownership/installed/audit observations. Thirty before/after boundaries across all effect kinds and fifteen after-effect record continuations passed focused local checks, retaining unknown bytes and the original transaction snapshot. Safe ancestor checks prevent an indeterminate parent from becoming absence; audit observation admits at most256 events. Record continuation pins the original context, directory, sequence and inspected history digest, and refuses stale or sealed histories. These compatibility observations do not prove the actor, current revision or native custody, or grant replay/completion authority. New bounded installed revision and audit-input postimages bind missing metadata writes to the original immutable state. An internal pending-effect executor requires an operation-owned backend with no pathname fallback, pins exact transaction/history around effects and records, and refuses precommit, rolled-back and terminal transactions. Ordinary fixture backends exercise its orchestration; they confer no native authority. New original contexts also bind a create-only full reviewed-plan record with an8MiB bound and original owned-object observations. The context declares its raw SHA before staging creation; metadata is written before payload staging/effects. Source-free reopening validates exact bytes, reviewed action digest and original immutable installed/ownership basis; missing or legacy records cannot grant replay. A new internal whole maintenance continuation now selects only the original ordered completed prefix and reviewed actions, joining retained creation-handle stream output identities and exact metadata postimages. Materialized repair bytes and uninstall markers now persist stream identities too; hash-only legacy output records cannot supply missing replay authority or bytes. The executor retains exact transaction/history pins and the operation-owned backend through every effect, metadata write and seal; operation-root cleanup requires a confirmed committed transition. Full sealed history permits metadata-only transaction finalization after exact operation-root removal, preserving repair verification, move_pending_acceptance with the old root retained, and uninstall retired versus blocked outcomes. Terminal reentry does not repeat effects. The finite ordinary fixture matrix defines whole continuation from29 existing resumable effect boundaries and6 sealed terminal interruptions. These callbacks and observations confer no native mutation grant. Actual registered native maintenance routing and custody remain incomplete; the new code is not covered by the prior hosted qualification. Whole acceptance remains NOT_RUN.",
       "spec_source": {
         "path": "spec/lifecycle/state-machine.md",
         "sha256": "c3a967c94067bf4fcad5c34e85a8a11768e9a9fb6e77d7a6cdd4cf2ff5f87ef5"
@@ -6859,7 +6859,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/transaction/usk_transaction_session.cpp",
-          "sha256": "e45fe5984ce9efaff4452723015f62b4570dff974f4a9cb1039bba98aa54a8ba"
+          "sha256": "ad133a1a99ebbfcdcc3d2eea9caee1a273ecec05d31d7f0892ec544ed422b474"
         },
         {
           "path": "runtime/setup/transaction/usk_replacement_session.cpp",
@@ -6871,11 +6871,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
-          "sha256": "1590303e1ea404aae0344d27861403b5df7cf5a79fb5532d001d1436bb832d99"
+          "sha256": "5e5699021e3aec9ceddac77fbc21979bf5485e24f77910fe83bfa4278fd2a011"
         },
         {
           "path": "tests/native/usk_lifecycle_smoke.cpp",
-          "sha256": "84494b9baf836fa91c4450aad4bcb6e8c8b3629f20cf4b05ba88a7fc472db07a"
+          "sha256": "863fef731ded68cbaaefdddc4d927def2288d2001b9eb5bfcedc9b16c0c5e74e"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_context_internal.h",
@@ -6883,15 +6883,15 @@
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.h",
-          "sha256": "3cbbd57e402784520c53086c452408af1e06d1193f03f8da2a3c1cf13dbf5f94"
+          "sha256": "536a3a33b7bad05df2f74c4b9d6069c1aa70ebc6816e6137cb7759c7b5144f14"
         },
         {
           "path": "runtime/setup/transaction/usk_maintenance_effect_journal.cpp",
-          "sha256": "7ff7a764689208fa68686130b64f526fb9ed093231b93c265613359c8603e3d1"
+          "sha256": "7d3fc8d298d48a88d460a094a40b1321da08e5d0e216a408655c7aa035fc57f5"
         },
         {
           "path": "runtime/setup/lifecycle/usk_maintenance_recovery_internal.h",
-          "sha256": "c906258d5e975969ec210885c54536eb70ae1f6eb0675dd0ad563bbd1bb81078"
+          "sha256": "bbfd0cd80aa9f7ab1959668f11bdebbd56e0bc51c1ea95c9013fa750e7024359"
         }
       ],
       "acceptance_ids": [
@@ -6920,7 +6920,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/transaction/usk_transaction_session.cpp",
-          "sha256": "e45fe5984ce9efaff4452723015f62b4570dff974f4a9cb1039bba98aa54a8ba"
+          "sha256": "ad133a1a99ebbfcdcc3d2eea9caee1a273ecec05d31d7f0892ec544ed422b474"
         },
         {
           "path": "runtime/setup/transaction/usk_replacement_session.cpp",

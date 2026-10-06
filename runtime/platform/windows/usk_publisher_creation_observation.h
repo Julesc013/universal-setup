@@ -36,7 +36,7 @@ struct PublisherCreationCallObservation {
 // This does not enumerate capabilities outside the service or qualify a profile.
 class PublisherCreationCapture final {
 public:
-    PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name);
+    PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name, HANDLE cancel_event = nullptr);
     ~PublisherCreationCapture();
     PublisherCreationCapture(const PublisherCreationCapture&) = delete;
     PublisherCreationCapture& operator=(const PublisherCreationCapture&) = delete;

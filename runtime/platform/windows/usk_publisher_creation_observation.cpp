@@ -133,15 +133,36 @@ std::string changed_fields(const Value& previous, const Value& current) {
     return names;
 }
 
-std::string worker_security_change_diagnostic(const Value& previous, const Value& current) {
+std::string worker_security_change_diagnostic(const Value& previous, const Value& current,
+    const char* checkpoint, std::size_t creates, LARGE_INTEGER started, LARGE_INTEGER frequency) {
     // Both observations have passed the closed native worker-security policy.
     // Describe the measured mismatch without refreshing any frozen fact or
     // weakening the complete-snapshot equality requirement.
-    return "publisher creation token/default/thread security changed [changed_fields=" +
+    const auto differences = [](const Value& a, const Value& b) {
+        std::set<std::string> left, right;
+        for (const auto& thread : a.at("threads").as_array())
+            left.insert(std::to_string(thread.at("thread_id").as_unsigned()) + ":" + thread.at("creation_time").as_string());
+        for (const auto& thread : b.at("threads").as_array())
+            right.insert(std::to_string(thread.at("thread_id").as_unsigned()) + ":" + thread.at("creation_time").as_string());
+        std::string result;
+        std::size_t count = 0;
+        for (const auto& identity : left) if (!right.count(identity)) {
+            if (++count > 12u) { result += ",..."; break; }
+            if (!result.empty()) result += ',';
+            result += identity;
+        }
+        return result;
+    };
+    LARGE_INTEGER now{};
+    const auto elapsed = QueryPerformanceCounter(&now) && frequency.QuadPart > 0 && now.QuadPart >= started.QuadPart ?
+        std::to_string(static_cast<std::uint64_t>((now.QuadPart - started.QuadPart) * 1000 / frequency.QuadPart)) : "unavailable";
+    return "publisher creation token/default/thread security changed [checkpoint=" + std::string(checkpoint) +
+        "; completed_creates=" + std::to_string(creates) + "; elapsed_ms=" + elapsed + "; changed_fields=" +
         changed_fields(previous, current) + "; primary_fields=" +
         changed_fields(previous.at("primary_token"), current.at("primary_token")) +
         "; threads_before=" + std::to_string(previous.at("threads").as_array().size()) +
-        "; threads_after=" + std::to_string(current.at("threads").as_array().size()) + ']';
+        "; threads_after=" + std::to_string(current.at("threads").as_array().size()) +
+        "; removed_threads=" + differences(previous, current) + "; added_threads=" + differences(current, previous) + ']';
 }
 } // namespace
 
@@ -153,8 +174,9 @@ struct PublisherCreationCapture::Implementation {
     std::vector<unsigned char> descriptor;
     std::map<std::string, Value> entries;
     std::size_t serialized_bytes = 0;
+    LARGE_INTEGER capture_started{}, clock_frequency{};
 
-    void require_worker() const {
+    void require_worker(const char* checkpoint) const {
         const auto token = observe_current_publisher_token();
         require(has_restricted_publisher_token_facts(token, service.service_sid) &&
             GetCurrentProcessId() == service.process_id &&
@@ -171,12 +193,13 @@ struct PublisherCreationCapture::Implementation {
         const auto security_current = observe_current_publisher_worker_security();
         require_publisher_worker_security(security_current, service);
         if (usk::json::canonical(security_current) != usk::json::canonical(worker_security)) {
-            throw std::runtime_error(worker_security_change_diagnostic(worker_security, security_current));
+            throw std::runtime_error(worker_security_change_diagnostic(worker_security, security_current,
+                checkpoint, entries.size(), capture_started, clock_frequency));
         }
     }
 };
 
-PublisherCreationCapture::PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name)
+PublisherCreationCapture::PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name, HANDLE cancel_event)
     : implementation_(std::make_unique<Implementation>()) {
     require(active_capture == nullptr, "publisher creation capture cannot nest");
     auto& state = *implementation_;
@@ -184,9 +207,10 @@ PublisherCreationCapture::PublisherCreationCapture(HANDLE boundary, const std::w
     state.process_boundary = observe_current_publisher_process_boundary();
     require_publisher_process_boundary(state.process_boundary, state.service.process_id,
         state.service.service_sid, state.service.token.process_groups);
-    state.worker_security = observe_current_publisher_worker_security();
-    require_publisher_worker_security(state.worker_security, state.service);
-    state.require_worker();
+    state.worker_security = observe_settled_publisher_worker_security(state.service, cancel_event);
+    require(QueryPerformanceFrequency(&state.clock_frequency) && state.clock_frequency.QuadPart > 0 &&
+        QueryPerformanceCounter(&state.capture_started), "publisher creation observation clock unavailable");
+    state.require_worker("capture_initial");
     state.boundary = observe_publisher_directory_handle(boundary);
     require_publisher_object_security_shape(state.boundary, state.service.service_sid);
     state.descriptor = creation_descriptor(state.service.service_sid);
@@ -201,7 +225,7 @@ std::optional<PublisherCreationParentObservation> prepare_publisher_creation_obs
     HANDLE parent, const std::vector<unsigned char>& descriptor) {
     if (!active_capture) return std::nullopt;
     auto& state = *active_capture->implementation_;
-    state.require_worker();
+    state.require_worker("before_create");
     require(descriptor == state.descriptor, "publisher creation descriptor differs from its exact protected descriptor");
     const auto observed = observe_publisher_directory_handle(parent);
     require_publisher_object_security_shape(observed, state.service.service_sid);
@@ -219,7 +243,7 @@ void finish_publisher_creation_observation(
     require(before.has_value() == (active_capture != nullptr), "publisher creation capture changed across native call");
     if (!before) return;
     auto& state = *active_capture->implementation_;
-    state.require_worker();
+    state.require_worker("after_create");
     const auto profile = call_profile();
     require(call.ntstatus == profile.at("ntstatus").as_unsigned() &&
         call.creation_result == profile.at("creation_result").as_unsigned() &&
@@ -246,7 +270,7 @@ void finish_publisher_creation_observation(
         ((object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) == directory,
         "publisher created object differs from its supplied parent, component or handle flags");
     auto row = graph_row(object.file_id, before->parent.file_id, utf8(name), directory);
-    state.require_worker();
+    state.require_worker("after_create_lineage");
     constexpr std::size_t maximum_objects = 200016;
     constexpr std::size_t maximum_bytes = 64u * 1024u * 1024u;
     const auto size = usk::json::canonical(row).size();
@@ -308,7 +332,7 @@ Value publisher_creation_graph(const Value& anchors, const Value& tree) {
 Value PublisherCreationCapture::certificate(const Value& anchors,
     const Value& sealed_tree, const Value& execution) const {
     const auto& state = *implementation_;
-    state.require_worker();
+    state.require_worker("certificate");
     require(object_id(anchors.at("boundary")) == state.boundary.file_id,
         "publisher creation certificate changed its volume boundary");
     const auto graph = publisher_creation_graph(anchors, sealed_tree);

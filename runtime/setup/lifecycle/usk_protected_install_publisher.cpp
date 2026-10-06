@@ -15,6 +15,7 @@
 #include "usk_record_io.h"
 #include "usk_public_lifecycle.h"
 #include "usk_protected_install_publisher_internal.h"
+#include "usk_publisher_worker_security.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_consumer_access.h"
 #include "usk_publisher_token_observation.h"
@@ -2694,7 +2695,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     const bool authenticated_bound = execution_bound && authenticated_request && !staged_only_reentry;
     std::unique_ptr<PublisherCreationCapture> creation_capture;
     if (execution_bound && !staged_only_reentry) {
-        creation_capture = std::make_unique<PublisherCreationCapture>(volume, service_name);
+        creation_capture = std::make_unique<PublisherCreationCapture>(volume, service_name, stop_event);
     }
     OwnedHandle publication(staged_only_reentry ?
         open_exact_lab_child(volume, L"publication") :
@@ -3658,6 +3659,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
                     volume_root, service_name, *install_guard, reviewed.install_plan.install_id, reviewed.transaction_id);
             operation_context_was_present = operation_context->exists();
+            if (!recovery && !operation_context_was_present)
+                (void)usk::platform::windows::observe_settled_publisher_worker_security(observed, stop_event);
             // Durable original intent precedes even empty setup bootstrap. A
             // restart can recover the exact reviewed policy before active
             // ownership or a public publication snapshot exists.

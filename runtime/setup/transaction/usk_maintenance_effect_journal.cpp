@@ -323,7 +323,7 @@ void MaintenanceEffectJournal::seal()
 }
 
 MaintenanceEffectInspection MaintenanceEffectJournal::inspect(const TransactionSpec& spec,
-    const std::string& expected_source_digest)
+    const std::string& expected_source_digest, bool retain_completed)
 {
     if (!record_io::valid_identifier(spec.transaction_id) || !digest(expected_source_digest))
         throw std::runtime_error("maintenance inspection identity is invalid");
@@ -377,6 +377,8 @@ MaintenanceEffectInspection MaintenanceEffectJournal::inspect(const TransactionS
             const std::string hash = details.at("result_digest").type() == Value::Type::null_value ?
                 std::string{} : details.at("result_digest").as_string();
             validate_completion(result.pending_kind, details.at("outcome").as_string(), hash);
+            if (retain_completed) result.completed.push_back({pending_sequence, result.pending_kind,
+                result.pending_details, details.at("outcome").as_string(), hash});
             result.pending_kind.clear();
             result.pending_details = Value{};
             ++result.completed_effects;

@@ -124,6 +124,27 @@ void stage_payload_file(
     }
 }
 
+void stage_maintenance_payload_file(usk::transaction::TransactionSession& transaction,
+    const fs::path& relative, const usk::lifecycle::PayloadFile& file,
+    const usk::lifecycle::LifecycleCancellation& cancellation)
+{
+    if (file.reader) {
+        stage_payload_file(transaction, relative, file, cancellation);
+        return;
+    }
+    // Even materialized maintenance bytes retain their original creation
+    // handle identity; a hash-only staging record cannot select replay effects.
+    std::size_t offset = 0;
+    transaction.stage_file_stream(relative, file.size_bytes, file.sha256, 65536u,
+        [&](unsigned char* output, std::size_t capacity) {
+            if (cancellation && cancellation()) throw std::runtime_error("maintenance staging cancelled");
+            const auto count = std::min(capacity, file.bytes.size() - offset);
+            if (count != 0u) std::copy_n(file.bytes.data() + offset, count, output);
+            offset += count;
+            return count;
+        });
+}
+
 bool same_resource_observation(
     const usk::base::StableFileIdentity& identity,
     const usk::lifecycle::PreimageResourceObservation& observation)
@@ -1318,7 +1339,8 @@ void remove_empty_owned_tree(const fs::path& root,
         directories.push_back(entry.path());
     }
     std::sort(directories.begin(), directories.end(), [](const fs::path& left, const fs::path& right) {
-        return left.native().size() > right.native().size();
+        const auto a = left.generic_u8string(), b = right.generic_u8string();
+        return a.size() == b.size() ? a < b : a.size() > b.size();
     });
     directories.push_back(root);
     for (const fs::path& directory : directories) {
@@ -2276,7 +2298,7 @@ RepairResult apply_repair(
     std::vector<fs::path> backups;
     try {
         for (const PayloadFile& file : plan.replacement_files) {
-            stage_payload_file(
+            stage_maintenance_payload_file(
                 transaction, fs::path("payload") / file.relative_path, file,
                 cancellation);
         }
@@ -2677,7 +2699,11 @@ UninstallResult apply_uninstall(
     UninstallResult result;
     result.retained_unknown_paths = plan.verification.unknown_paths;
     try {
-        transaction.stage_file("operation.marker", {'u', 'n', 'i', 'n', 's', 't', 'a', 'l', 'l'});
+        PayloadFile marker_payload;
+        marker_payload.bytes = {'u', 'n', 'i', 'n', 's', 't', 'a', 'l', 'l'};
+        marker_payload.size_bytes = marker_payload.bytes.size();
+        marker_payload.sha256 = hash_bytes(marker_payload.bytes);
+        stage_maintenance_payload_file(transaction, "operation.marker", marker_payload, {});
         transaction.mark_staged();
         transaction.mark_verified();
         maintenance_effect(effects, fault_injector, "uninstall", "publish_target", Value(Value::Object{
@@ -2810,7 +2836,7 @@ state::OwnershipManifest maintenance_expected_ownership(const transaction::Trans
         ownership.manifest_id = "ownership." + original.install_id + "." + spec.transaction_id;
         ownership.created_by_transaction_id = spec.transaction_id;
         ownership.manifest_digest.clear();
-        if (spec.operation == "move") ownership.target_root = spec.target_root.string();
+        if (spec.operation == "move") ownership.target_root = fs::absolute(spec.target_root).lexically_normal().string();
     }
     return ownership;
 }
@@ -3001,6 +3027,283 @@ json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& s
     return artifact;
 }
 
+MaintenanceContinuationInspection inspect_maintenance_continuation(const transaction::TransactionSpec& spec)
+{
+    const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
+    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest, true);
+    const auto artifact = read_maintenance_reviewed_plan(spec);
+    const auto context = json::parse(history.source_context);
+    const auto stream = transaction::TransactionSession::inspect_recovery_stream(spec, transaction.snapshot_sha256);
+    if (history.source_context != stream.source_context || stream.publication_root_identity.empty() ||
+        history.completed.size() != history.completed_effects || !stream.origin_transaction_id.empty())
+        throw std::runtime_error("maintenance continuation lost its original stream or effect prefix");
+    const auto& plan = artifact.at("reviewed_plan");
+    const auto& objects = artifact.at("original_owned_objects").as_array();
+    state::StateRepository repository(spec.state_root);
+    const auto original = repository.read_installed_snapshot(context.at("install_id").as_string(),
+        context.at("original_installed_transaction_id").as_string());
+    const auto original_ownership = repository.read_ownership(ownership_id_from_ref(original.ownership_manifest_ref));
+    const fs::path installed_root = fs::u8path(original.target_root);
+    const auto pin = [&] {
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto effects = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        if (current.snapshot_sha256 != transaction.snapshot_sha256 || effects.journal_digest != history.journal_digest)
+            throw std::runtime_error("maintenance continuation changed during selection");
+    };
+    MaintenanceContinuationInspection result;
+    result.transaction_snapshot_sha256 = transaction.snapshot_sha256;
+    result.history_digest = history.journal_digest;
+    result.sealed = history.sealed;
+    std::size_t consumed = 0;
+    const auto select = [&](const std::string& kind, const std::function<Value(const Value*)>& details,
+            const std::function<void(const transaction::CompletedMaintenanceEffect&)>& validate_result = {}) {
+        const auto* completed = consumed < history.completed.size() ? &history.completed[consumed] : nullptr;
+        const Value* retained = completed ? &completed->details :
+            history.pending_kind.empty() ? nullptr : &history.pending_details;
+        const Value expected = details(retained);
+        const auto actual_kind = completed ? completed->kind : history.pending_kind;
+        if (retained && (actual_kind != kind || json::canonical(*retained) != json::canonical(expected))) {
+            std::string field = "kind";
+            if (actual_kind == kind) for (const auto& item : expected.as_object()) {
+                if (!retained->contains(item.first) || json::canonical(retained->at(item.first)) != json::canonical(item.second)) {
+                    field = item.first;
+                    break;
+                }
+            }
+            throw std::runtime_error("maintenance original prefix differs at " + spec.operation + "." +
+                std::to_string(consumed) + "." + kind + "." + field);
+        }
+        if (completed) {
+            if (completed->outcome != "applied" &&
+                (kind != "remove_directory" || expected.at("root_role").as_string() != "installed"))
+                throw std::runtime_error("maintenance cleanup completion did not remove its operation object");
+            if (validate_result) validate_result(*completed);
+            ++consumed;
+            return true;
+        }
+        if (history.sealed) throw std::runtime_error("maintenance history sealed before its original effects completed");
+        result.next_kind = kind;
+        result.next_details = expected;
+        result.pending = retained != nullptr;
+        pin();
+        return false;
+    };
+    const auto fixed = [](Value value) { return [value = std::move(value)](const Value*) { return value; }; };
+    const auto file_details = [](const Value& object, const std::string& relative, const std::string& role = {}) {
+        Value value(Value::Object{{"relative_path", Value(relative)}, {"native_identity", object.at("native_identity")},
+            {"sha256", object.at("sha256")}, {"size_bytes", object.at("size_bytes")}});
+        if (!role.empty()) value.as_object().emplace("root_role", Value(role));
+        return value;
+    };
+    std::map<std::string, Value> outputs;
+    for (const auto& entry : stream.entries) {
+        if (entry.phase != "complete" || !outputs.emplace(entry.relative_path, Value(Value::Object{
+                {"native_identity", Value(entry.output_identity)}, {"sha256", Value(entry.sha256)},
+                {"size_bytes", Value(entry.expected_size)}})).second)
+            throw std::runtime_error("maintenance continuation has an incomplete or duplicate staged output");
+    }
+    std::set<std::string> expected_outputs;
+    if (spec.operation == "uninstall") {
+        const auto found = outputs.find("operation.marker");
+        const std::vector<unsigned char> marker{'u', 'n', 'i', 'n', 's', 't', 'a', 'l', 'l'};
+        if (found == outputs.end() || found->second.at("sha256").as_string() != hash_bytes(marker) ||
+            found->second.at("size_bytes").as_unsigned() != marker.size())
+            throw std::runtime_error("maintenance continuation has no bound uninstall marker");
+        expected_outputs.insert("operation.marker");
+    } else {
+        for (const auto& file : plan.at(spec.operation == "repair" ? "replacement_files" : "complete_files").as_array()) {
+            const auto relative = (spec.operation == "repair" ? "payload/" : "") + file.at("relative_path").as_string();
+            const auto found = outputs.find(relative);
+            if (found == outputs.end() || found->second.at("sha256").as_string() != file.at("sha256").as_string() ||
+                found->second.at("size_bytes").as_unsigned() != file.at("size_bytes").as_unsigned())
+                throw std::runtime_error("maintenance staged output differs from the original reviewed plan");
+            expected_outputs.insert(relative);
+        }
+    }
+    if (expected_outputs.size() != outputs.size() || expected_outputs.empty())
+        throw std::runtime_error("maintenance staged closure has missing or additional outputs");
+    if (!select("publish_target", fixed(Value(Value::Object{{"native_identity", Value(stream.publication_root_identity)}}))))
+        return result;
+    std::vector<std::pair<std::string, Value>> backups;
+    if (spec.operation == "repair") {
+        for (const auto& file : plan.at("replacement_files").as_array()) {
+            const auto relative = file.at("relative_path").as_string();
+            const auto original_file = std::find_if(objects.begin(), objects.end(), [&](const auto& item) {
+                return item.at("type").as_string() == "file" && item.at("relative_path").as_string() == relative;
+            });
+            if (original_file == objects.end()) throw std::runtime_error("repair lost its original owned observation");
+            if (original_file->at("present").as_boolean()) {
+                const auto details = file_details(*original_file, relative);
+                if (!select("backup_file", fixed(details))) return result;
+                backups.emplace_back("backup/" + relative, *original_file);
+            }
+            if (!select("replace_file", fixed(file_details(outputs.at("payload/" + relative), relative)))) return result;
+        }
+    } else if (spec.operation == "uninstall") {
+        for (std::size_t index = 0; index < original_ownership.files.size(); ++index) {
+            const auto& object = objects[index];
+            const auto& owned = original_ownership.files[index];
+            if (object.at("present").as_boolean() && object.at("sha256").as_string() == owned.sha256 &&
+                object.at("size_bytes").as_unsigned() == owned.size_bytes &&
+                !select("remove_file", fixed(file_details(object, owned.relative_path, "installed")))) return result;
+        }
+        auto directories = original_ownership.directories;
+        std::sort(directories.begin(), directories.end(), [](const std::string& a, const std::string& b) {
+            return a.size() > b.size();
+        });
+        for (const auto& relative : directories) {
+            const auto item = std::find_if(objects.begin(), objects.end(), [&](const auto& object) {
+                return object.at("type").as_string() == "directory" && object.at("relative_path").as_string() == relative;
+            });
+            if (item == objects.end()) throw std::runtime_error("uninstall lost its original directory observation");
+            if (item->at("present").as_boolean() && !select("remove_directory", fixed(Value(Value::Object{
+                    {"root_role", Value("installed")}, {"relative_path", Value(relative)},
+                    {"native_identity", item->at("native_identity")}})))) return result;
+        }
+        const auto& identity = context.at("installed_root").at("native_identity");
+        if (identity.type() != Value::Type::null_value && !select("remove_directory", fixed(Value(Value::Object{
+                {"root_role", Value("installed")}, {"relative_path", Value("")}, {"native_identity", identity}})))) return result;
+    }
+    if (spec.operation != "uninstall") {
+        const auto output_root = spec.operation == "move" ? spec.target_root : installed_root;
+        const auto expected_root_identity = spec.operation == "move" ? stream.publication_root_identity :
+            context.at("installed_root").at("native_identity").as_string();
+        if (transaction::observe_directory_identity(output_root) != expected_root_identity)
+            throw std::runtime_error("maintenance resulting root lost its original native binding");
+        for (const auto& output : outputs) {
+            const auto relative = spec.operation == "move" ? output.first : output.first.substr(8u);
+            if (json::canonical(maintenance_file_observation(output_root / fs::u8path(relative), relative)) !=
+                json::canonical(file_details(output.second, relative)))
+                throw std::runtime_error("maintenance resulting file lost its original creation-handle postimage");
+        }
+    }
+    auto expected_ownership = maintenance_expected_ownership(spec, original);
+    if (spec.operation != "uninstall" && !select("write_ownership", fixed(Value(Value::Object{
+            {"manifest_id", Value(expected_ownership.manifest_id)}, {"prior_manifest_digest", Value(original.ownership_manifest_digest)}})),
+            [&](const auto& completed) {
+                const auto actual = repository.read_ownership(expected_ownership.manifest_id);
+                if (!maintenance_same_ownership(actual, expected_ownership) || actual.manifest_digest != completed.result_digest)
+                    throw std::runtime_error("maintenance ownership completion lost its immutable postimage");
+            })) return result;
+    const auto ownership = repository.read_ownership(expected_ownership.manifest_id);
+    if (!maintenance_same_ownership(ownership, expected_ownership))
+        throw std::runtime_error("maintenance continuation ownership differs from its original closure");
+    const auto applied_at = context.at("applied_at").as_string();
+    state::InstalledState installed;
+    VerificationReport verification;
+    if (spec.operation == "uninstall") {
+        const auto& observed = plan.at("verification");
+        verification.report_id = "verify." + spec.transaction_id + ".uninstall";
+        verification.install_id = original.install_id;
+        verification.installed_state_digest = installed_digest(original);
+        verification.ownership_manifest_digest = original.ownership_manifest_digest;
+        verification.verified_at = applied_at;
+        for (const auto& file : observed.at("files").as_array()) {
+            const auto status = file.at("status").as_string();
+            verification.files.push_back({file.at("relative_path").as_string(), status,
+                file.at("expected_sha256").as_string(), file.at("actual_sha256").as_string()});
+            if (status == "missing") ++verification.missing_files;
+            else if (status != "present") ++verification.modified_files;
+        }
+        for (const auto& object : objects) if (object.at("type").as_string() == "directory")
+            verification.directories.push_back({object.at("relative_path").as_string(), object.at("present").as_boolean() ? "present" : "missing"});
+        for (const auto& path : observed.at("unknown_paths").as_array()) verification.unknown_paths.push_back(path.as_string());
+        const auto root = maintenance_object_presence(installed_root);
+        if (root == MaintenanceObjectState::indeterminate) throw std::runtime_error("uninstall retained root is indeterminate");
+        const bool removed = root == MaintenanceObjectState::absent;
+        if (context.at("installed_root").at("native_identity").type() != Value::Type::null_value) {
+            const auto root_effect = std::find_if(history.completed.begin(), history.completed.end(), [](const auto& effect) {
+                return effect.kind == "remove_directory" && effect.details.at("root_role").as_string() == "installed" &&
+                    effect.details.at("relative_path").as_string().empty();
+            });
+            if (root_effect == history.completed.end() || (root_effect->outcome == "applied") != removed)
+                throw std::runtime_error("uninstall root observation differs from its original removal completion");
+        } else if (!removed) throw std::runtime_error("originally absent uninstall root became present");
+        if (!removed && transaction::observe_directory_identity(installed_root) !=
+                context.at("installed_root").at("native_identity").as_string())
+            throw std::runtime_error("uninstall retained root identity changed");
+        verification.status = removed ? "pass" : "warn";
+        verification.report_digest = verification_digest(verification);
+        installed = original;
+        installed.transaction_id = spec.transaction_id;
+        installed.created_at = applied_at;
+        installed.lifecycle_status = removed ? "retired" : "uninstall_blocked";
+        installed.last_verification = {verification.report_id, verification.report_digest, verification.status, applied_at};
+    } else {
+        auto basis = original;
+        if (spec.operation == "move") {
+            basis.target_root = ownership.target_root;
+            basis.transaction_id = spec.transaction_id;
+            basis.created_at = applied_at;
+            basis.ownership_manifest_ref = "ownership/" + ownership.manifest_id + ".json";
+            basis.ownership_manifest_digest = ownership.manifest_digest;
+            basis.lifecycle_status = "move_pending_acceptance";
+        }
+        verification = verify_manifest(basis, spec.operation == "move" ? ownership : original_ownership,
+            "verify." + spec.transaction_id + (spec.operation == "repair" ? ".after" : ".new"), applied_at);
+        if (verification.status == "fail") throw std::runtime_error("maintenance continuation has a damaged resulting owned closure");
+        installed = revised_state(original, ownership, spec.transaction_id, applied_at,
+            spec.operation == "repair" ? "verified" : "move_pending_acceptance", verification);
+    }
+    const auto installed_hash = maintenance_installed_digest(installed);
+    if (!select("write_installed", fixed(Value(Value::Object{{"install_id", Value(installed.install_id)},
+            {"state_digest", Value(installed_hash)}, {"state_revision", maintenance_installed_revision(installed)}})),
+            [&](const auto& completed) {
+                const auto actual = repository.read_installed_snapshot(original.install_id, spec.transaction_id);
+                if (maintenance_installed_digest(actual) != installed_hash || completed.result_digest != installed_hash)
+                    throw std::runtime_error("maintenance installed completion lost its immutable postimage");
+            })) return result;
+    const std::string message = spec.operation == "repair" ? "owned repair effects verified; unknown content retained" :
+        spec.operation == "move" ? "new root verified; old root retained pending acceptance" :
+        "only exact recorded owned state removed; changed and unknown content retained";
+    const auto input = maintenance_audit_binding(audit::AuditInput{applied_at, spec.operation, "completed", verification.status,
+        "installation", original.install_id, verification.report_digest, spec.transaction_id, spec.plan_id, message});
+    if (!select("append_audit", fixed(Value(Value::Object{{"chain_id", Value(original.audit_chain_id)},
+            {"input_digest", Value(json::sha256_canonical(input))}, {"input", input}})), [&](const auto& completed) {
+                std::size_t matches = 0;
+                for (const auto& event : audit::AuditRepository(spec.audit_root).read_and_validate_chain_bounded(original.audit_chain_id, 256u)) {
+                    if (event.transaction_id == spec.transaction_id) {
+                        if (json::canonical(maintenance_audit_binding(event)) != json::canonical(input) ||
+                            event.event_digest != completed.result_digest) throw std::runtime_error("maintenance completed audit differs");
+                        ++matches;
+                    }
+                }
+                if (matches != 1u) throw std::runtime_error("maintenance completion has no unique original audit event");
+            })) return result;
+    if (spec.operation == "repair") {
+        for (const auto& backup : backups)
+            if (!select("remove_file", fixed(file_details(backup.second, backup.first, "operation_target")))) return result;
+    } else if (spec.operation == "uninstall" &&
+        !select("remove_file", fixed(file_details(outputs.at("operation.marker"), "operation.marker", "operation_target")))) return result;
+    if (spec.operation != "move") {
+        std::set<std::string> directory_set;
+        const auto parents = [&](const std::string& relative) {
+            auto path = fs::u8path(relative).parent_path();
+            while (!path.empty()) { directory_set.insert(path.generic_u8string()); path = path.parent_path(); }
+        };
+        for (const auto& output : outputs) parents(output.first);
+        for (const auto& backup : backups) parents(backup.first);
+        std::vector<std::string> directories(directory_set.begin(), directory_set.end());
+        std::sort(directories.begin(), directories.end(), [](const auto& a, const auto& b) {
+            return a.size() == b.size() ? a < b : a.size() > b.size();
+        });
+        directories.emplace_back();
+        for (const auto& relative : directories) {
+            if (!select("remove_directory", [&](const Value* retained) {
+                    const auto identity = relative.empty() ? stream.publication_root_identity : retained ?
+                        retained->at("native_identity").as_string() : transaction::observe_directory_identity(spec.target_root / fs::u8path(relative));
+                    return Value(Value::Object{{"root_role", Value("operation_target")}, {"relative_path", Value(relative)},
+                        {"native_identity", Value(identity)}});
+                })) return result;
+        }
+    }
+    if (consumed != history.completed.size() || !history.pending_kind.empty())
+        throw std::runtime_error("maintenance history contains effects outside its original operation");
+    result.effects_complete = true;
+    pin();
+    return result;
+}
+
 state::OwnershipManifest maintenance_ownership_postimage(const transaction::TransactionSpec& spec,
     const transaction::MaintenanceEffectInspection& history)
 {
@@ -3138,6 +3441,93 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     operations.require_authority(spec, current, completed);
     if (injector) injector("pending_effect", "after_completion");
     return reconcile_maintenance_effect(spec);
+}
+
+transaction::RecoveryInspection recover_maintenance_transaction(const transaction::TransactionSpec& spec,
+    const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
+    const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector)
+{
+    if (!operations.require_authority || !operations.apply_effect || !sha256(expected_transaction_snapshot_sha256) ||
+        !sha256(expected_history_digest)) throw std::runtime_error("maintenance continuation has no operation owner or exact snapshot");
+    const auto initial = transaction::TransactionSession::inspect_recovery(spec);
+    const auto initial_history = transaction::MaintenanceEffectJournal::inspect(spec, initial.stream_source_digest);
+    if (initial.snapshot_sha256 != expected_transaction_snapshot_sha256 || initial_history.journal_digest != expected_history_digest ||
+        !initial.commit_started || (initial.current_state != "committing" && initial.current_state != "committed" &&
+            initial.current_state != "recovery_required" && initial.current_state != "completed"))
+        throw std::runtime_error("maintenance continuation snapshot changed or has not begun committing");
+    const auto require_owner = [&] {
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        if (current.stream_source_context != initial.stream_source_context || history.source_context != initial_history.source_context)
+            throw std::runtime_error("maintenance continuation changed its original context");
+        operations.require_authority(spec, current, history);
+    };
+    require_owner();
+    const auto fenced_injector = [&](const std::string& phase, const std::string& point) {
+        require_owner();
+        if (injector) injector(phase, point);
+        require_owner();
+    };
+    // The existing journal bound admits at most100000 effects. Every pass
+    // must append an intent/completion, commit metadata or finish; no new plan
+    // can extend this operation and uncertain effects are never retried here.
+    for (std::size_t pass = 0; pass < 200004u; ++pass) {
+        auto selected = inspect_maintenance_continuation(spec);
+        require_owner();
+        auto current = transaction::TransactionSession::inspect_recovery(spec);
+        auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        if (current.snapshot_sha256 != selected.transaction_snapshot_sha256 || history.journal_digest != selected.history_digest)
+            throw std::runtime_error("maintenance selected continuation changed before its effect");
+        const bool cleanup = (selected.next_kind == "remove_file" || selected.next_kind == "remove_directory") &&
+            selected.next_details.at("root_role").as_string() == "operation_target";
+        if (selected.pending) {
+            if (cleanup && !current.commit_confirmed)
+                throw std::runtime_error("maintenance cleanup intent predates confirmed transaction commit");
+            (void)recover_pending_maintenance_effect(spec, selected.transaction_snapshot_sha256,
+                selected.history_digest, operations, fenced_injector);
+            continue;
+        }
+        if ((cleanup || (selected.effects_complete && current.target_exists)) && !selected.sealed &&
+            current.current_state != "committed") {
+            // Before removing the operation root, retain the same durable
+            // committed transition used by the original successful operation.
+            auto session = transaction::TransactionSession::resume_finalization(spec, fenced_injector);
+            require_owner();
+            if (session->current_state() == "recovery_required") session->resume_committing();
+            if (session->current_state() == "committing") session->mark_committed();
+            if (session->current_state() != "committed") throw std::runtime_error("maintenance cleanup has no committed transaction");
+            continue;
+        }
+        if (!selected.effects_complete) {
+            auto records = transaction::MaintenanceEffectJournal::resume(spec, current.stream_source_digest,
+                selected.history_digest, fenced_injector);
+            records->begin_effect(selected.next_kind, selected.next_details);
+            require_owner();
+            const auto appended = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+            if (transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != selected.transaction_snapshot_sha256 ||
+                appended.next_sequence != history.next_sequence + 1u || appended.completed_effects != history.completed_effects ||
+                appended.pending_kind != selected.next_kind ||
+                json::canonical(appended.pending_details) != json::canonical(selected.next_details))
+                throw std::runtime_error("maintenance continuation intent did not retain its selected effect");
+            continue;
+        }
+        if (!selected.sealed) {
+            auto records = transaction::MaintenanceEffectJournal::resume(spec, current.stream_source_digest,
+                selected.history_digest, fenced_injector);
+            records->seal();
+            require_owner();
+            continue;
+        }
+        const auto completed = transaction::TransactionSession::finalize_maintenance(spec,
+            selected.transaction_snapshot_sha256, selected.history_digest, fenced_injector);
+        require_owner();
+        const auto final = inspect_maintenance_continuation(spec);
+        if (completed.current_state != "completed" || !final.effects_complete || !final.sealed ||
+            final.history_digest != selected.history_digest || final.transaction_snapshot_sha256 != completed.snapshot_sha256)
+            throw std::runtime_error("maintenance continuation did not seal and complete its original operation");
+        return completed;
+    }
+    throw std::runtime_error("maintenance continuation exceeded its original journal budget");
 }
 
 MaintenanceEffectReconciliation reconcile_maintenance_effect(const transaction::TransactionSpec& spec)

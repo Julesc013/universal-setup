@@ -33,6 +33,23 @@ MaintenanceEffectReconciliation reconcile_maintenance_effect(
 // record confers no native custody, replay or current-revision authority.
 json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& spec);
 
+struct MaintenanceContinuationInspection {
+    std::string transaction_snapshot_sha256;
+    std::string history_digest;
+    std::string next_kind;
+    json::Value next_details;
+    bool pending = false;
+    bool effects_complete = false;
+    bool sealed = false;
+};
+
+// Selects the next original reviewed effect from the exact completed prefix,
+// original owned observations and creation-handle stream identities. Missing
+// sources, skipped effects and conflicting observations refuse. Read-only;
+// the native operation owner must independently retain mutation authority.
+MaintenanceContinuationInspection inspect_maintenance_continuation(
+    const transaction::TransactionSpec& spec);
+
 // Internal operation-local backend, supplied by the owner of the native
 // operation. require_authority must retain and revalidate the original intent,
 // current installed revision, generation/worker fence, record parents and all
@@ -51,6 +68,18 @@ struct MaintenanceRecoveryOperations {
 // inspected transaction and history before/after effects and record writes.
 // An uncertain backend effect leaves the intent unresolved; it is not retried.
 MaintenanceEffectReconciliation recover_pending_maintenance_effect(
+    const transaction::TransactionSpec& spec,
+    const std::string& expected_transaction_snapshot_sha256,
+    const std::string& expected_history_digest,
+    const MaintenanceRecoveryOperations& operations,
+    transaction::FaultInjector injector = {});
+
+// Continues the complete original committed maintenance operation without
+// source readers or replanning. The same operation-owned backend is required
+// throughout every effect, metadata write, seal and transaction transition.
+// Precommit transactions retain their separate refusal and missing staged
+// bytes are never invented. Success requires the sealed complete prefix.
+transaction::RecoveryInspection recover_maintenance_transaction(
     const transaction::TransactionSpec& spec,
     const std::string& expected_transaction_snapshot_sha256,
     const std::string& expected_history_digest,

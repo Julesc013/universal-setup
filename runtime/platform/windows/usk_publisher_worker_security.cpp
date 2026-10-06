@@ -286,6 +286,29 @@ Value observe_current_publisher_worker_security() {
         {"primary_token", Value(std::move(primary))}, {"threads", Value(std::move(threads))}});
 }
 
+Value observe_settled_publisher_worker_security(const PublisherServiceObservation& service, HANDLE cancel_event) {
+    if (cancel_event) require(WaitForSingleObject(cancel_event, 0) == WAIT_TIMEOUT,
+        "publisher startup observation cancelled or unavailable");
+    const auto started = GetTickCount64();
+    auto quiet_since = started;
+    auto previous = observe_current_publisher_worker_security();
+    require_publisher_worker_security(previous, service);
+    while (GetTickCount64() - started < 8000u) {
+        if (cancel_event) {
+            require(WaitForSingleObject(cancel_event, 200u) == WAIT_TIMEOUT,
+                "publisher startup observation cancelled or unavailable");
+        } else Sleep(200u);
+        auto current = observe_current_publisher_worker_security();
+        require_publisher_worker_security(current, service);
+        const auto now = GetTickCount64();
+        if (now - started >= 8000u) break;
+        if (usk::json::canonical(current) != usk::json::canonical(previous)) quiet_since = now;
+        else if (now - quiet_since >= 1200u) return current;
+        previous = std::move(current);
+    }
+    throw std::runtime_error("publisher startup worker population did not settle before effects");
+}
+
 void require_publisher_worker_security(const Value& value, const PublisherServiceObservation& service) {
     require(value.as_object().size() == 6 && value.at("schema").as_string() == "usk.publisher_worker_security.v1" &&
         value.at("scope").as_string() == "stored_primary_token_defaults_and_process_thread_owner_dacls" &&

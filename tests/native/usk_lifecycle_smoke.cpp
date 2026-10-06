@@ -1011,11 +1011,13 @@ int maintenance_effect_interruption_proof()
             // lease or proof of protected payload authority. It exercises the
             // executor with the original source readers already out of scope.
             std::size_t gates = 0, applied_effects = 0;
+            bool whole_continuation = false;
             usk::lifecycle::detail::MaintenanceRecoveryOperations operations;
             operations.require_authority = [&](const auto& actual_spec, const auto& actual_transaction, const auto& actual_history) {
                 ++gates;
                 const auto current = usk::state::StateRepository(spec.state_root).read_installed(install_id);
-                if (actual_spec.transaction_id != transaction_id || actual_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                if (actual_spec.transaction_id != transaction_id ||
+                    (!whole_continuation && actual_transaction.snapshot_sha256 != transaction.snapshot_sha256) ||
                     actual_history.source_context != history.source_context ||
                     (current.transaction_id != original.installed_state.transaction_id && current.transaction_id != transaction_id) ||
                     usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha)
@@ -1024,29 +1026,31 @@ int maintenance_effect_interruption_proof()
             operations.apply_effect = [&](const auto& actual_spec, const auto& actual_history) {
                 ++applied_effects;
                 const auto& effect = actual_history.pending_details;
-                if (kind == "backup_file") {
+                const auto& actual_kind = actual_history.pending_kind;
+                if (actual_kind == "backup_file") {
                     const fs::path relative = fs::u8path(effect.at("relative_path").as_string());
                     const fs::path backup = operation_target / "backup" / relative;
                     fs::create_directories(backup.parent_path());
                     usk::record_io::require_safe_directory(backup.parent_path());
                     usk::record_io::rename_no_replace(target / relative, backup);
-                } else if (kind == "replace_file") {
+                } else if (actual_kind == "replace_file") {
                     const fs::path relative = fs::u8path(effect.at("relative_path").as_string());
                     usk::record_io::rename_no_replace(operation_target / "payload" / relative, target / relative);
-                } else if (kind == "remove_file" || kind == "remove_directory") {
+                } else if (actual_kind == "remove_file" || actual_kind == "remove_directory") {
                     const fs::path root = effect.at("root_role").as_string() == "installed" ? target : operation_target;
                     const fs::path path = root / fs::u8path(effect.at("relative_path").as_string());
-                    if (!fs::remove(path)) {
-                        if (kind == "remove_directory") return std::string("retained");
+                    std::error_code removal_error;
+                    if (!fs::remove(path, removal_error) || removal_error) {
+                        if (actual_kind == "remove_directory") return std::string("retained");
                         throw std::runtime_error("fixture recovery removal did not happen");
                     }
-                } else if (kind == "write_ownership") {
+                } else if (actual_kind == "write_ownership") {
                     (void)usk::state::StateRepository(spec.state_root).write_ownership(
                         usk::lifecycle::detail::maintenance_ownership_postimage(actual_spec, actual_history));
-                } else if (kind == "write_installed") {
+                } else if (actual_kind == "write_installed") {
                     usk::state::StateRepository(spec.state_root).write_installed(
                         usk::lifecycle::detail::maintenance_installed_postimage(actual_spec, actual_history));
-                } else if (kind == "append_audit") {
+                } else if (actual_kind == "append_audit") {
                     (void)usk::audit::AuditRepository(spec.audit_root).append(effect.at("chain_id").as_string(),
                         usk::lifecycle::detail::maintenance_audit_postimage(actual_spec, actual_history));
                 } else {
@@ -1100,6 +1104,26 @@ int maintenance_effect_interruption_proof()
                 usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha ||
                 !refuses([&] { (void)recover(operations, transaction.snapshot_sha256, history.journal_digest); }))
                 throw std::runtime_error("maintenance pending-effect recovery changed context, replayed twice or claimed transaction completion");
+            whole_continuation = true;
+            const auto whole = usk::lifecycle::detail::recover_maintenance_transaction(spec,
+                transaction.snapshot_sha256, resolved.journal_digest, operations);
+            const auto full_history = usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest, true);
+            const auto full = usk::lifecycle::detail::inspect_maintenance_continuation(spec);
+            const auto resulting_state = usk::state::StateRepository(spec.state_root).read_installed(install_id);
+            const auto expected_status = operation == "repair" ? "verified" :
+                operation == "move" ? "move_pending_acceptance" : "uninstall_blocked";
+            if (whole.current_state != "completed" || !full.effects_complete || !full.sealed || !full_history.sealed ||
+                full_history.completed.size() != full_history.completed_effects || resulting_state.transaction_id != transaction_id ||
+                resulting_state.lifecycle_status != expected_status ||
+                usk::base::StableFile(target / "keep.txt").sha256_hex() != unknown_sha ||
+                (operation == "move" ? !fs::is_directory(operation_target) : fs::exists(operation_target)))
+                throw std::runtime_error(operation + "." + kind + "." + side + " did not finish its source-free original maintenance operation");
+            const auto effect_calls = applied_effects;
+            const auto again = usk::lifecycle::detail::recover_maintenance_transaction(spec,
+                whole.snapshot_sha256, full_history.journal_digest, operations);
+            if (again.snapshot_sha256 != whole.snapshot_sha256 || applied_effects != effect_calls ||
+                usk::transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest).journal_digest != full_history.journal_digest)
+                throw std::runtime_error("completed maintenance replayed effects or changed its original terminal records");
         } else if (effect_happened) {
             // This fixture independently observed the after-effect boundary.
             // A production resumer needs its native authority and current
@@ -1120,6 +1144,85 @@ int maintenance_effect_interruption_proof()
                     history.source_digest, history.journal_digest); }))
                 throw std::runtime_error("maintenance continuation accepted a stale history snapshot");
         }
+    }
+    return 0;
+}
+
+int maintenance_whole_terminal_boundary_proof()
+{
+    for (const std::string operation : {"repair", "move", "uninstall"})
+    for (const std::string point : {"transaction.effects.sealed.after_write", "transaction.completed.before_journal"}) {
+        Fixture fixture;
+        const fs::path target = fixture.root / "targets/portable";
+        fs::create_directories(target.parent_path());
+        const std::string install_id = "install.terminal." + operation;
+        const auto install = usk::lifecycle::plan_install("plan.terminal.install", install_id,
+            "2026-10-01T00:00:00Z", target, fixture.roots, recipe(), payload());
+        (void)usk::lifecycle::apply_install(install, install.plan_digest, "tx.terminal.install", "2026-10-01T00:00:01Z");
+        if (operation == "repair") write_text(target / "app/readme.txt", "repair original retained");
+        const std::string transaction_id = "tx.terminal." + operation;
+        const fs::path operation_target = operation == "move" ? fixture.root / "targets/moved" :
+            target.parent_path() / (".usk-" + operation + "-" + transaction_id);
+        const fs::path staging_parent = operation == "move" ? operation_target.parent_path() : fixture.roots.staging_parent;
+        std::string plan_id, plan_digest;
+        bool reached = false;
+        const auto interrupt = [&](const std::string& actual_operation, const std::string& actual_point) {
+            if (actual_operation == operation && actual_point == point) {
+                reached = true;
+                throw std::runtime_error("terminal maintenance boundary interruption");
+            }
+        };
+        if (!refuses([&] {
+            if (operation == "repair") {
+                const auto plan = usk::lifecycle::plan_repair(fixture.roots, install_id,
+                    "plan.terminal.repair", "2026-10-01T00:00:02Z", payload());
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_repair(plan, plan_digest, transaction_id, "2026-10-01T00:00:03Z", interrupt);
+            } else if (operation == "move") {
+                const auto plan = usk::lifecycle::plan_move(fixture.roots, install_id,
+                    "plan.terminal.move", "2026-10-01T00:00:02Z", operation_target);
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_move(plan, plan_digest, transaction_id, "2026-10-01T00:00:03Z", interrupt);
+            } else {
+                const auto plan = usk::lifecycle::plan_uninstall(fixture.roots, install_id,
+                    "plan.terminal.uninstall", "2026-10-01T00:00:02Z");
+                plan_id = plan.plan_id; plan_digest = plan.plan_digest;
+                (void)usk::lifecycle::apply_uninstall(plan, plan_digest, transaction_id, "2026-10-01T00:00:03Z", interrupt);
+            }
+        }) || !reached) throw std::runtime_error("maintenance terminal boundary was not reached");
+        const usk::transaction::TransactionSpec spec{transaction_id, plan_id, plan_digest, operation, staging_parent,
+            operation_target, fixture.roots.state_root, fixture.roots.audit_root};
+        const auto before = usk::transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, before.stream_source_digest);
+        const auto selected = usk::lifecycle::detail::inspect_maintenance_continuation(spec);
+        if (!history.sealed || !selected.effects_complete || selected.pending || before.current_state != "recovery_required" ||
+            (operation == "move" ? !fs::is_directory(operation_target) : fs::exists(operation_target)))
+            throw std::runtime_error("terminal maintenance did not retain its sealed original completion candidate");
+        usk::lifecycle::detail::MaintenanceRecoveryOperations backend;
+        std::size_t gates = 0;
+        backend.require_authority = [&](const auto& actual_spec, const auto& transaction, const auto& effects) {
+            ++gates;
+            if (actual_spec.transaction_id != transaction_id || transaction.stream_source_context != before.stream_source_context ||
+                effects.journal_digest != history.journal_digest || !effects.sealed)
+                throw std::runtime_error("ordinary terminal fixture owner binding changed");
+        };
+        backend.apply_effect = [](const auto&, const auto&) -> std::string {
+            throw std::runtime_error("terminal maintenance must not repeat a payload or metadata effect");
+        };
+        auto denied = backend;
+        denied.require_authority = [](const auto&, const auto&, const auto&) { throw std::runtime_error("terminal fixture fence denied"); };
+        if (!refuses([&] { (void)usk::lifecycle::detail::recover_maintenance_transaction(spec,
+                before.snapshot_sha256, history.journal_digest, denied); }) ||
+            usk::transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != before.snapshot_sha256)
+            throw std::runtime_error("terminal maintenance bypassed its owner fence");
+        const auto completed = usk::lifecycle::detail::recover_maintenance_transaction(spec,
+            before.snapshot_sha256, history.journal_digest, backend);
+        const auto installed = usk::state::StateRepository(spec.state_root).read_installed(install_id);
+        if (completed.current_state != "completed" || gates == 0u ||
+            installed.lifecycle_status != (operation == "repair" ? "verified" : operation == "move" ? "move_pending_acceptance" : "retired") ||
+            usk::transaction::MaintenanceEffectJournal::inspect(spec, before.stream_source_digest).journal_digest != history.journal_digest ||
+            (operation == "uninstall" && fs::exists(target)))
+            throw std::runtime_error("terminal maintenance did not finish its original verified/retained/retired outcome");
     }
     return 0;
 }
@@ -2033,6 +2136,9 @@ int main(int argc, char** argv)
         }
         if (const int effects = maintenance_effect_interruption_proof()) {
             return effects;
+        }
+        if (const int terminal = maintenance_whole_terminal_boundary_proof()) {
+            return terminal;
         }
         if (const int streaming = streaming_install_and_fault_proof()) {
             return streaming;
