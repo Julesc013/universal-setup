@@ -19,6 +19,8 @@
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_registration.h"
+#include "usk_publisher_effect_execution_internal.h"
+#include "usk_publisher_effect_broker_internal.h"
 
 #if defined(USK_PRODUCTION_PUBLISHER) && defined(USK_TEST_REGISTERED_FAULT_GATE)
 #error Production publisher cannot include the registered fault gate
@@ -246,6 +248,166 @@ DWORD WINAPI control_handler(DWORD control, DWORD, LPVOID, LPVOID) {
     return ERROR_CALL_NOT_IMPLEMENTED;
 }
 
+std::string native_operation_error(const std::exception& error) {
+    using namespace usk::platform::windows;
+    using namespace usk::transaction;
+    return dynamic_cast<const PublisherVolumeBusy*>(&error) || dynamic_cast<const PublisherInstallBusy*>(&error) ||
+        dynamic_cast<const InstallLeaseConflict*>(&error) ? "operation_conflict" :
+        dynamic_cast<const PublisherOperationCancelled*>(&error) ? "operation_cancelled" :
+        dynamic_cast<const InstallLeaseStale*>(&error) ? "lease_stale" :
+        dynamic_cast<const InstallStateRevisionStale*>(&error) ||
+            dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error) ? "state_revision_stale" :
+        dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
+            dynamic_cast<const StaleReviewedMaintenanceRequest*>(&error) ? "stale_plan" : "";
+}
+std::string native_operation_inspection(const std::exception& error) {
+    using namespace usk::platform::windows;
+    if (const auto* busy = dynamic_cast<const PublisherVolumeBusy*>(&error)) return busy->inspection_reference();
+    if (const auto* busy = dynamic_cast<const PublisherInstallBusy*>(&error)) return busy->inspection_reference();
+    if (const auto* cancelled = dynamic_cast<const PublisherOperationCancelled*>(&error)) return cancelled->inspection_reference();
+    return {};
+}
+bool native_definite_preflight_refusal(const std::exception& error) {
+    using namespace usk::platform::windows;
+    return dynamic_cast<const StaleReviewedInstallRequest*>(&error) ||
+        dynamic_cast<const StaleReviewedMaintenanceRequest*>(&error) ||
+        dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error);
+}
+int private_effect_worker_main(int argc, wchar_t** argv) {
+    using namespace usk::platform::windows;
+    using usk::json::Value;
+    try {
+        PublisherEffectWorkerPeer peer(argc, argv);
+        // Only a fresh actual-parent readback can supply the service name.
+        PublisherEffectWorkerReadback initial(peer);
+        const auto original = initial.service_admission();
+        const auto name = std::filesystem::u8path(original.at("service").at("service_name").as_string()).wstring();
+        Value terminal;
+        {
+            PublisherEffectExecutionOwner owner(peer, name);
+            const auto profile = owner.service_admission();
+            const auto& arguments = profile.at("service_configuration").at("arguments").as_array();
+            CandidatePublisherConfiguration config;
+            config.effect_execution = &owner;
+            config.service_name = name;
+            config.volume_root = std::filesystem::u8path(arguments.at(4).as_string()).wstring();
+            config.consumer_read_sid = profile.at("authenticated_client").at("user_sid").as_string();
+            const auto request = peer.canonical_request();
+            const auto schema = usk::json::parse(request).at("schema").as_string();
+            if (schema == "usk.publisher_installed_verify_request.v1") {
+                config.verify_installed = true;
+                config.submitted_verify_request = request;
+            } else if (schema == "usk.publisher_recovery_request.v1" || schema == "usk.publisher_maintenance_recovery_request.v1") {
+                config.recover_reviewed = true;
+                config.submitted_recovery_request = request;
+            } else if (schema == "usk.install_local_apply_request.v1" || schema == "usk.repair_apply_request.v1" ||
+                schema == "usk.move_apply_request.v1" || schema == "usk.uninstall_apply_request.v1") {
+                if (arguments.at(5).as_string() != "--reviewed-plan-envelope")
+                    throw std::runtime_error("private apply lacks its original reviewed SCM configuration");
+                config.selected_archive_mode = true;
+                config.reviewed_plan_envelope_path = std::filesystem::u8path(arguments.at(6).as_string()).wstring();
+                config.reviewed_plan_envelope_sha256 = arguments.at(7).as_string();
+                config.submitted_apply_request = request;
+            } else throw std::runtime_error("private effect request schema is unavailable");
+            bool effects = false;
+            terminal = Value(Value::Object{{"schema", Value("usk.publisher_effect_worker_terminal.v1")},
+                {"request_sha256", Value(usk::json::sha256_canonical(usk::json::parse(request)))},
+                {"status", Value("success")}, {"response", Value{}}, {"error", Value("")}, {"error_code", Value("")},
+                {"operation_inspection_ref", Value("")}, {"effects_may_exist", Value(false)},
+                {"definite_preflight_refusal", Value(false)}});
+            try {
+                terminal.as_object().at("response") = usk::json::parse(execute_candidate_restricted_publisher(config, effects));
+            } catch (const std::exception& error) {
+                terminal.as_object().at("status") = Value("failure");
+                terminal.as_object().at("error") = Value(std::string(error.what()).substr(0, 4096));
+                terminal.as_object().at("error_code") = Value(native_operation_error(error));
+                terminal.as_object().at("operation_inspection_ref") = Value(native_operation_inspection(error).substr(0, 1024));
+                terminal.as_object().at("definite_preflight_refusal") = Value(native_definite_preflight_refusal(error));
+            }
+            terminal.as_object().at("effects_may_exist") = Value(effects);
+            // The engine and all its guard/lease/creator/effect scopes have
+            // ended. Failed native observation cannot manufacture a terminal.
+            require_publisher_effect_terminal_record(terminal, owner.service_admission());
+        }
+        peer.send(terminal);
+        // Keep the original peer alive through live validation and explicit
+        // parent job closure. No SCM dispatch, callbacks or extra readback.
+        (void)peer.await_parent_retirement();
+        return 5; // Parent disposal normally terminates this child in its job.
+    } catch (...) { return 5; }
+}
+class BrokerVolumeObserver final {
+public:
+    explicit BrokerVolumeObserver(const std::wstring& root) {
+        handle_ = CreateFileW(root.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle_ == INVALID_HANDLE_VALUE) throw std::runtime_error("cannot open original query-only broker volume");
+    }
+    ~BrokerVolumeObserver() { if (!attempted_) (void)close(); }
+    BrokerVolumeObserver(const BrokerVolumeObserver&) = delete;
+    BrokerVolumeObserver& operator=(const BrokerVolumeObserver&) = delete;
+    HANDLE get() const { return handle_; }
+    bool close() noexcept {
+        if (!attempted_) {
+            attempted_ = true;
+            closed_ = CloseHandle(handle_) != FALSE;
+            if (closed_) handle_ = INVALID_HANDLE_VALUE;
+            else error_ = GetLastError(); // Retain the original numeric handle until process disposal.
+        }
+        return closed_;
+    }
+    DWORD error() const noexcept { return error_; }
+private:
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+    bool attempted_ = false, closed_ = false;
+    DWORD error_ = ERROR_SUCCESS;
+};
+usk::json::Value execute_registered_child(usk::platform::windows::RegisteredPublisherAdmission& admission,
+    usk::platform::windows::PublisherRequestChannel& channel, bool& effects_may_exist) {
+    using namespace usk::platform::windows;
+    using usk::json::Value;
+    BrokerVolumeObserver volume(volume_root);
+    std::unique_ptr<PublisherEffectWorkerCustody> child;
+    Value terminal;
+    try {
+        // Losing the wire can hide effects. Only an actual terminal followed
+        // by confirmed native disposal can narrow this retained classification.
+        effects_may_exist = true;
+        child = admission.launch_effect_worker(channel, stop_event);
+        {
+            PublisherEffectBrokerReadback broker(admission, channel, volume.get(), *child);
+            for (;;) {
+                const auto packet = broker.respond_to_one_packet();
+                if (packet) { terminal = *packet; break; }
+            }
+        }
+    } catch (...) {
+        const auto primary = std::current_exception();
+        if (child) {
+            const auto closure = child->close();
+            if (!closure.confirmed()) throw PublisherEffectWorkerClosureUnknown(closure, primary);
+        }
+        if (!volume.close()) throw PublisherBrokerQueryClosureUnknown(volume.error(), primary);
+        std::rethrow_exception(primary);
+    }
+    const auto closure = child->close();
+    if (!closure.confirmed()) throw PublisherEffectWorkerClosureUnknown(closure, {});
+    if (!volume.close()) throw PublisherBrokerQueryClosureUnknown(volume.error(), {});
+    effects_may_exist = terminal.at("effects_may_exist").as_boolean();
+    if (terminal.at("status").as_string() == "success") return terminal.at("response");
+    service_exit_code = ERROR_SERVICE_SPECIFIC_ERROR;
+    Value result(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")},
+        {"status", Value(terminal.at("definite_preflight_refusal").as_boolean() || !effects_may_exist ? "failed" : "recovery_required")},
+        {"error", terminal.at("error")}});
+    if (!terminal.at("error_code").as_string().empty()) result.as_object().emplace("error_code", terminal.at("error_code"));
+    if (!terminal.at("operation_inspection_ref").as_string().empty())
+        result.as_object().emplace("operation_inspection_ref", terminal.at("operation_inspection_ref"));
+    if (terminal.at("definite_preflight_refusal").as_boolean() && terminal.at("error_code").as_string() == "state_revision_stale" &&
+        admission.has_selected_reviewed_operation())
+        result.as_object().emplace("reviewed_operation_admission", admission.selected_reviewed_operation_observation());
+    return result;
+}
 VOID WINAPI service_main(DWORD, LPWSTR*) {
     status_handle = RegisterServiceCtrlHandlerExW(service_name.c_str(), control_handler, nullptr);
     if (!status_handle) return;
@@ -370,6 +532,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 {"service_name", Value(ascii(service_name))},
                 {"service_sid", registered_admission->evidence().at("service_sid")},
                 {"capability_observation", registered_admission->capability_observation(capability_request_id, scoped_profile_observation)}});
+        } else if (registered_admission) {
+            response = execute_registered_child(*registered_admission, *request_channel, publication_effects_may_exist);
         } else {
             const auto observed=usk::platform::windows::execute_candidate_restricted_publisher(
                 config,publication_effects_may_exist);
@@ -444,6 +608,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+    if (argc > 1 && argv && argv[1] && std::wstring(argv[1]) ==
+            usk::platform::windows::publisher_effect_worker_transport_switch)
+        return private_effect_worker_main(argc, argv);
     grant_client_read = argc > 1 && std::wstring(argv[argc-1]) == L"--grant-client-read";
     if (grant_client_read) --argc;
     const bool external_client = argc >= 3 && std::wstring(argv[argc-2]) == L"--authorized-client-sid";

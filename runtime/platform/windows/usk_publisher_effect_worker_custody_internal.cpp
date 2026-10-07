@@ -578,6 +578,13 @@ const std::string& PublisherEffectWorkerCustody::canonical_request() const {
 }
 
 struct PublisherEffectWorkerPeer::State { Wire wire; };
+bool PublisherEffectWorkerPeer::await_parent_retirement(DWORD timeout) const {
+    require(timeout <= 120000, "effect terminal parent wait exceeds its bound");
+    state_->wire.require_peer();
+    const auto result = WaitForSingleObject(state_->wire.peer.value, timeout);
+    require(result == WAIT_TIMEOUT || result == WAIT_OBJECT_0, "effect terminal original parent wait is unavailable");
+    return result == WAIT_OBJECT_0;
+}
 PublisherEffectWorkerPeer::PublisherEffectWorkerPeer(int argc, wchar_t** argv) : state_(std::make_unique<State>()) {
     try {
     state_->wire.claim();

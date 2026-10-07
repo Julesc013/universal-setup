@@ -165,6 +165,10 @@ int child(int argc, wchar_t** argv) {
             try { (void)peer.receive(10000); }
             catch (const std::exception&) { return 0; }
             throw std::runtime_error("waiting control unexpectedly received another packet");
+        } else if (action == "terminal_wait") {
+            peer.send(Value("terminal_waiting"), 10000);
+            (void)peer.await_parent_retirement(10000);
+            return 2;
         } else if (action == "refuse_child_owner") {
             // Genuine native pipe/process/image custody is necessary but does
             // not admit an ordinary parent as SCM. The parent sends a closed
@@ -287,6 +291,21 @@ void controls(const usk::base::StableFile& image, const std::wstring& sid) {
     Handle ended_child(child_query);
     require(WaitForSingleObject(ended_child.value, 10000) == WAIT_OBJECT_0,
         "closing the sole noninherited job did not end its original child");
+    {
+        ResetEvent(stop.value);
+        PublisherEffectWorkerCustody custody(image, sid, request(), stop.value);
+        const auto original = custody.observation();
+        custody.send(Value(Value::Object{{"action", Value("terminal_wait")}}), 10000);
+        require(custody.receive(10000).as_string() == "terminal_waiting", "native terminal waiter did not send its packet");
+        require(SetEvent(stop.value) != FALSE, "native terminal cancellation signal failed");
+        DWORD code = STILL_ACTIVE;
+        require(!custody.wait_for_exit(100, code) && custody.observation().at("peer_process_id").as_unsigned() ==
+            original.at("peer_process_id").as_unsigned(), "cancellation ended buffered terminal peer before live validation");
+        const auto closure = custody.close(10000);
+        require(closure.confirmed() && closure.child_process_id == original.at("peer_process_id").as_unsigned(),
+            "native terminal child did not end through confirmed original job disposal");
+        ResetEvent(stop.value);
+    }
     {
         ResetEvent(stop.value);
         PublisherEffectWorkerCustody custody(image, sid, request(), stop.value);

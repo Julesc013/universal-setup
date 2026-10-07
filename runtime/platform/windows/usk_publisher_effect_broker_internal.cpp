@@ -12,6 +12,7 @@
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_sha256.h"
+#include "usk_record_io.h"
 #include <atomic>
 #include <algorithm>
 #include <array>
@@ -377,6 +378,22 @@ std::array<std::wstring, 4> original_intent_names(const Value& minimum) {
     return {L"", L"installation-operations", L"install-" + std::wstring(install.begin(), install.end()),
         L"operation-" + std::wstring(operation.begin(), operation.end()) + L".json"};
 }
+Value parse_original_installation_minimum(const std::string& text) {
+    const auto value = usk::json::parse(text);
+    require(value.as_object().size() == 4 && value.at("schema").as_string() == "usk.publisher_recovery_request.v1" &&
+        usk::record_io::valid_identifier(value.at("request_id").as_string()) &&
+        usk::record_io::valid_identifier(value.at("install_id").as_string()) &&
+        usk::record_io::valid_identifier(value.at("transaction_id").as_string()),
+        "broker original installation recovery requires its closed actual minimal request");
+    return value;
+}
+bool is_installation_minimum(const Value& value) {
+    return value.at("schema").as_string() == "usk.publisher_recovery_request.v1";
+}
+Value parse_original_minimum(const std::string& text) {
+    return is_installation_minimum(usk::json::parse(text)) ? parse_original_installation_minimum(text) :
+        parse_publisher_maintenance_recovery_request(text);
+}
 std::string listed_file_id(const PublisherDirectoryEntry& entry, const Value& volume) {
     static constexpr char digits[] = "0123456789abcdef";
     auto id = volume.at("file_id").as_string().substr(0, 17);
@@ -395,7 +412,7 @@ PublisherDirectoryEntry original_intent_child(HANDLE parent, const std::wstring&
     return *found;
 }
 }
-struct PublisherOriginalMaintenanceIntentQuery::State {
+struct PublisherOriginalRecoveryIntentQuery::State {
     const RegisteredPublisherAdmission& admission;
     const PublisherRequestChannel& channel;
     HANDLE volume;
@@ -459,7 +476,8 @@ struct PublisherOriginalMaintenanceIntentQuery::State {
         const auto handle = handles[3];
         LARGE_INTEGER zero{}, size{}, after_size{};
         FILE_BASIC_INFO before{}, after{};
-        require(GetFileSizeEx(handle, &size) && size.QuadPart > 0 && size.QuadPart <= 16u * 1024u * 1024u &&
+        const std::size_t limit = is_installation_minimum(minimum) ? 4u * 1024u * 1024u : 16u * 1024u * 1024u;
+        require(GetFileSizeEx(handle, &size) && size.QuadPart > 0 && static_cast<std::uint64_t>(size.QuadPart) <= limit &&
             GetFileInformationByHandleEx(handle, FileBasicInfo, &before, sizeof(before)) &&
             SetFilePointerEx(handle, zero, nullptr, FILE_BEGIN), "broker original intent read budget/facts unavailable");
         std::string bytes(static_cast<std::size_t>(size.QuadPart), '\0'); DWORD read_bytes = 0;
@@ -490,7 +508,7 @@ struct PublisherOriginalMaintenanceIntentQuery::State {
     }
     void begin() {
         request = channel.authenticated_canonical_request();
-        minimum = parse_publisher_maintenance_recovery_request(request);
+        minimum = parse_original_minimum(request);
         names = original_intent_names(minimum);
         registered = admission.evidence();
         require(registered.at("process_id").as_unsigned() == process_id,
@@ -532,29 +550,58 @@ struct PublisherOriginalMaintenanceIntentQuery::State {
             require_handle(index);
         }
         text = read();
-        usk::json::ParseLimits limits; limits.max_bytes = 16u * 1024u * 1024u; limits.max_values = 2000000u;
+        const bool install = is_installation_minimum(minimum);
+        usk::json::ParseLimits limits;
+        limits.max_bytes = install ? 4u * 1024u * 1024u : 16u * 1024u * 1024u;
+        if (!install) limits.max_values = 2000000u;
         record = usk::json::parse(text, limits);
         const std::set<std::string> fields{"schema", "install_id", "operation", "operation_id",
             "volume_root_identity", "initial_state_revision", "reviewed_snapshot", "context_sha256"};
         require(record.as_object().size() == fields.size(), "broker original intent is not a closed context");
         for (const auto& item : record.as_object()) require(fields.count(item.first) != 0, "broker original intent field is unknown");
         auto unsealed = record; unsealed.as_object().erase("context_sha256");
-        require(record.at("schema").as_string() == "usk.installation_operation_context.v2" &&
+        require(record.at("schema").as_string() == (install ? "usk.installation_operation_context.v1" : "usk.installation_operation_context.v2") &&
             record.at("install_id").as_string() == minimum.at("install_id").as_string() &&
             record.at("operation_id").as_string() == minimum.at("transaction_id").as_string() &&
-            record.at("operation").as_string() == minimum.at("operation").as_string() &&
-            record.at("reviewed_snapshot").at("schema").as_string() == "usk.publisher.maintenance_reviewed_snapshot.v2" &&
+            record.at("operation").as_string() == (install ? "install_local" : minimum.at("operation").as_string()) &&
             record.at("context_sha256").as_string() == usk::json::sha256_canonical(unsealed) &&
             same(record.at("volume_root_identity"), observe_publisher_lease_root_identity(handles[0])) &&
-            same(record.at("volume_root_identity"), record.at("reviewed_snapshot").at("volume_root_identity")) &&
+            (install || same(record.at("volume_root_identity"), record.at("reviewed_snapshot").at("volume_root_identity"))) &&
             usk::json::canonical(record) + "\n" == text, "broker original intent seal/IDs/operation/native volume differ");
-        require_publisher_maintenance_snapshot_binding(record.at("reviewed_snapshot"),
-            maintenance_kind(minimum.at("operation").as_string()), minimum.at("install_id").as_string(),
-            minimum.at("transaction_id").as_string(), record.at("initial_state_revision").as_string());
+        if (install) {
+            const auto& snapshot = record.at("reviewed_snapshot");
+            const auto& apply = snapshot.at("apply_request");
+            const auto snapshot_schema = snapshot.at("schema").as_string();
+            std::set<std::string> snapshot_fields{"schema", "plan_digest", "plan_envelope_sha256", "archive_sha256",
+                "archive_identity_digest", "entry_set_digest", "selected_file_set_digest", "target_root", "setup_root",
+                "transaction_id", "applied_at", "policy_digest", "restart_policy_context", "plan_request", "planned_entries", "apply_request"};
+            if (snapshot_schema == "usk.publisher.lab_reviewed_plan_snapshot.v4") snapshot_fields.insert("consumer_read_sid");
+            require(snapshot.as_object().size() == snapshot_fields.size(), "broker original installation snapshot is not closed");
+            for (const auto& item : snapshot.as_object()) require(snapshot_fields.count(item.first) != 0,
+                "broker original installation snapshot field is unknown");
+            require((snapshot_schema == "usk.publisher.lab_reviewed_plan_snapshot.v3" ||
+                snapshot_schema == "usk.publisher.lab_reviewed_plan_snapshot.v4") &&
+                snapshot.as_object().size() == (snapshot_schema == "usk.publisher.lab_reviewed_plan_snapshot.v4" ? 17u : 16u) &&
+                record.at("initial_state_revision").as_string() == usk::json::sha256_canonical(Value(Value::Array{})) &&
+                apply.as_object().size() == 7 && apply.at("schema").as_string() == "usk.install_local_apply_request.v1" &&
+                apply.at("confirmation").as_string() == "APPLY" &&
+                apply.at("plan_request").at("install_id").as_string() == minimum.at("install_id").as_string() &&
+                apply.at("transaction_id").as_string() == minimum.at("transaction_id").as_string() &&
+                snapshot.at("transaction_id").as_string() == minimum.at("transaction_id").as_string() &&
+                snapshot.at("plan_digest").as_string() == apply.at("reviewed_plan_digest").as_string() &&
+                snapshot.at("applied_at").as_string() == apply.at("applied_at").as_string() &&
+                same(snapshot.at("plan_request"), apply.at("plan_request")), "broker original installation snapshot/apply binding differs");
+        } else {
+            require(record.at("reviewed_snapshot").at("schema").as_string() == "usk.publisher.maintenance_reviewed_snapshot.v2",
+                "broker original maintenance snapshot family differs");
+            require_publisher_maintenance_snapshot_binding(record.at("reviewed_snapshot"),
+                maintenance_kind(minimum.at("operation").as_string()), minimum.at("install_id").as_string(),
+                minimum.at("transaction_id").as_string(), record.at("initial_state_revision").as_string());
+        }
         fence();
     }
 };
-PublisherOriginalMaintenanceIntentQuery::PublisherOriginalMaintenanceIntentQuery(const RegisteredPublisherAdmission& admission,
+PublisherOriginalRecoveryIntentQuery::PublisherOriginalRecoveryIntentQuery(const RegisteredPublisherAdmission& admission,
     const PublisherRequestChannel& channel, HANDLE volume) : state_(std::make_unique<State>(admission, channel, volume)) {
     try {
         void* absent = nullptr;
@@ -570,18 +617,19 @@ PublisherOriginalMaintenanceIntentQuery::PublisherOriginalMaintenanceIntentQuery
         std::rethrow_exception(original);
     }
 }
-PublisherOriginalMaintenanceIntentQuery::~PublisherOriginalMaintenanceIntentQuery() {
+PublisherOriginalRecoveryIntentQuery::~PublisherOriginalRecoveryIntentQuery() {
     if (state_ && !state_->close()) state_.release();
 }
-bool PublisherOriginalMaintenanceIntentQuery::close() noexcept { return state_->close(); }
-DWORD PublisherOriginalMaintenanceIntentQuery::close_error() const noexcept { return state_->error; }
-Value PublisherOriginalMaintenanceIntentQuery::observation() const {
+bool PublisherOriginalRecoveryIntentQuery::close() noexcept { return state_->close(); }
+DWORD PublisherOriginalRecoveryIntentQuery::close_error() const noexcept { return state_->error; }
+Value PublisherOriginalRecoveryIntentQuery::observation() const {
     state_->fence();
     Value::Array chain;
     for (std::size_t index = 0; index < state_->handles.size(); ++index)
         chain.emplace_back(Value::Object{{"role", Value(index == 0 ? "volume" : index == 1 ? "operations" : index == 2 ? "install" : "intent")},
             {"object", state_->facts[index]}, {"granted_access", Value(static_cast<std::uint64_t>(State::read_rights))}});
-    return Value(Value::Object{{"schema", Value("usk.publisher_protected_original_maintenance_intent.v1")},
+    return Value(Value::Object{{"schema", Value(is_installation_minimum(state_->minimum) ?
+        "usk.publisher_protected_original_installation_intent.v1" : "usk.publisher_protected_original_maintenance_intent.v1")},
         {"scope", Value("native_read_only_fixed_original_namespace")},
         {"transport_request_sha256", Value(usk::json::sha256_canonical(state_->minimum))},
         {"intent_context_sha256", state_->record.at("context_sha256")}, {"intent_record_sha256", Value(raw_sha256(state_->text))},
@@ -646,13 +694,16 @@ void require_protected_stored_object(const Value& value, const std::string& sid)
     require_publisher_object_security_shape(observed, sid);
 }
 }
-void require_publisher_effect_original_maintenance_selection(const Value& selected, const Value& minimal, const Value& broker) {
-    const auto minimum = parse_publisher_maintenance_recovery_request(usk::json::canonical(minimal));
+namespace {
+void require_original_selection(const Value& selected, const Value& minimal, const Value& broker, bool install) {
+    const auto minimum = install ? parse_original_installation_minimum(usk::json::canonical(minimal)) :
+        parse_publisher_maintenance_recovery_request(usk::json::canonical(minimal));
     require_publisher_effect_broker_readback_record(broker);
     const bool present = selected.at("present").as_boolean();
     require_closed(selected, present ? std::set<std::string>{"schema", "scope", "present", "intent", "envelope", "observation"} :
         std::set<std::string>{"schema", "scope", "present"});
-    require(selected.at("schema").as_string() == "usk.publisher_effect_original_maintenance_selection.v1" &&
+    require(selected.at("schema").as_string() == (install ? "usk.publisher_effect_original_installation_selection.v1" :
+        "usk.publisher_effect_original_maintenance_selection.v1") &&
         selected.at("scope").as_string() == "actual_minimal_request_to_native_protected_original_and_held_enrollment" &&
         broker.at("request_sha256").as_string() == usk::json::sha256_canonical(minimum),
         "broker original recovery selection has another family or actual transport request");
@@ -662,15 +713,18 @@ void require_publisher_effect_original_maintenance_selection(const Value& select
         "original_apply_request", "native_chain", "volume_root_identity"});
     const auto& request = intent.at("original_apply_request");
     require_closed(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest", "transaction_id", "applied_at", "confirmation"});
-    require(intent.at("schema").as_string() == "usk.publisher_protected_original_maintenance_intent.v1" &&
+    require(intent.at("schema").as_string() == (install ? "usk.publisher_protected_original_installation_intent.v1" :
+        "usk.publisher_protected_original_maintenance_intent.v1") &&
         intent.at("scope").as_string() == "native_read_only_fixed_original_namespace" &&
         intent.at("transport_request_sha256").as_string() == broker.at("request_sha256").as_string() &&
         hex(intent.at("intent_context_sha256").as_string(), 64) && hex(intent.at("intent_record_sha256").as_string(), 64) &&
-        request.at("schema").as_string() == "usk." + minimum.at("operation").as_string() + "_apply_request.v1" &&
+        request.at("schema").as_string() == (install ? "usk.install_local_apply_request.v1" :
+            "usk." + minimum.at("operation").as_string() + "_apply_request.v1") &&
         request.at("transaction_id").as_string() == minimum.at("transaction_id").as_string() &&
         request.at("plan_request").at("install_id").as_string() == minimum.at("install_id").as_string() &&
         request.at("confirmation").as_string() == "APPLY" &&
-        selected.at("envelope").at("schema").as_string() == "usk.publisher.maintenance_reviewed_plan_envelope.v1",
+        selected.at("envelope").at("schema").as_string() == (install ? "usk.publisher.lab_reviewed_plan_envelope.v2" :
+            "usk.publisher.maintenance_reviewed_plan_envelope.v1"),
         "broker original intent differs from the actual minimal recovery relation");
     require_enrollment(selected.at("envelope"), selected.at("observation"), request, broker);
     const auto& root = broker.at("volume_root");
@@ -698,6 +752,13 @@ void require_publisher_effect_original_maintenance_selection(const Value& select
             (index != 0 || same(observed, root)), "broker original intent fixed native chain/query rights differ");
     }
 }
+}
+void require_publisher_effect_original_maintenance_selection(const Value& selected, const Value& minimal, const Value& broker) {
+    require_original_selection(selected, minimal, broker, false);
+}
+void require_publisher_effect_original_installation_selection(const Value& selected, const Value& minimal, const Value& broker) {
+    require_original_selection(selected, minimal, broker, true);
+}
 
 struct PublisherEffectBrokerReadback::State {
     const RegisteredPublisherAdmission& admission;
@@ -710,6 +771,7 @@ struct PublisherEffectBrokerReadback::State {
     Value selected_baseline;
     Value recovery_baseline;
     bool maintenance_recovery = false;
+    bool installation_recovery = false;
     bool failed = false;
     State(const RegisteredPublisherAdmission& a, const PublisherRequestChannel& c, HANDLE v,
         PublisherEffectWorkerCustody& owner) : admission(a), channel(c), volume(v), custody(owner),
@@ -717,16 +779,18 @@ struct PublisherEffectBrokerReadback::State {
         maintenance_recovery = usk::json::parse(request).at("schema").as_string() ==
             "usk.publisher_maintenance_recovery_request.v1";
         if (maintenance_recovery) (void)parse_publisher_maintenance_recovery_request(request);
+        installation_recovery = is_installation_minimum(usk::json::parse(request));
+        if (installation_recovery) (void)parse_original_installation_minimum(request);
     }
     Value selected_current() const {
-        if (maintenance_recovery) return Value(Value::Object{
+        if (maintenance_recovery || installation_recovery) return Value(Value::Object{
             {"schema", Value("usk.publisher_effect_selected_operation_readback.v1")},
             {"scope", Value("original_native_held_exact_request_selection")}, {"present", Value(false)}});
         return selected_operation(admission, request);
     }
     Value recovery_current(bool select_original = false) const {
-        require(maintenance_recovery, "broker original maintenance selection requires its actual minimal request");
-        PublisherOriginalMaintenanceIntentQuery query(admission, channel, volume);
+        require(maintenance_recovery || installation_recovery, "broker original selection requires its actual minimal request");
+        PublisherOriginalRecoveryIntentQuery query(admission, channel, volume);
         Value result(Value::Object{});
         try {
             const auto intent = query.observation();
@@ -735,7 +799,8 @@ struct PublisherEffectBrokerReadback::State {
                 std::wstring path; std::string sha;
                 (void)admission.select_reviewed_operation(original_request, channel, path, sha);
             }
-            result = Value(Value::Object{{"schema", Value("usk.publisher_effect_original_maintenance_selection.v1")},
+            result = Value(Value::Object{{"schema", Value(installation_recovery ? "usk.publisher_effect_original_installation_selection.v1" :
+                "usk.publisher_effect_original_maintenance_selection.v1")},
                 {"scope", Value("actual_minimal_request_to_native_protected_original_and_held_enrollment")},
                 {"present", Value(admission.has_selected_reviewed_operation())}});
             if (admission.has_selected_reviewed_operation()) {
@@ -805,26 +870,79 @@ struct PublisherEffectBrokerReadback::State {
 PublisherEffectBrokerReadback::PublisherEffectBrokerReadback(const RegisteredPublisherAdmission& a,
     const PublisherRequestChannel& c, HANDLE v, PublisherEffectWorkerCustody& owner) : state_(std::make_unique<State>(a, c, v, owner)) {
     state_->baseline = state_->fresh();
-    if (state_->maintenance_recovery) state_->recovery_baseline = state_->recovery_current(true);
+    if (state_->maintenance_recovery || state_->installation_recovery) state_->recovery_baseline = state_->recovery_current(true);
     state_->selected_baseline = state_->selected_current();
     if (state_->maintenance_recovery) require_publisher_effect_original_maintenance_selection(
         state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh());
+    if (state_->installation_recovery) require_publisher_effect_original_installation_selection(
+        state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh());
 }
 PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() = default;
+void require_publisher_effect_terminal_record(const Value& value, const Value& broker) {
+    require_publisher_effect_broker_readback_record(broker);
+    require_closed(value, {"schema", "request_sha256", "status", "response", "error", "error_code",
+        "operation_inspection_ref", "effects_may_exist", "definite_preflight_refusal"});
+    const auto status = value.at("status").as_string();
+    const auto code = value.at("error_code").as_string();
+    const auto error = value.at("error").as_string();
+    const auto inspection = value.at("operation_inspection_ref").as_string();
+    const bool before_effects = value.at("definite_preflight_refusal").as_boolean();
+    (void)value.at("effects_may_exist").as_boolean();
+    require(value.at("schema").as_string() == "usk.publisher_effect_worker_terminal.v1" &&
+        value.at("request_sha256").as_string() == broker.at("request_sha256").as_string() &&
+        error.size() <= 4096 && inspection.size() <= 1024 &&
+        (code.empty() || code == "operation_conflict" || code == "operation_cancelled" || code == "lease_stale" ||
+            code == "state_revision_stale" || code == "stale_plan"), "effect terminal request or finite diagnostic grammar differs");
+    if (status == "success") {
+        const auto& response = value.at("response");
+        require(error.empty() && code.empty() && inspection.empty() && !before_effects &&
+            response.at("schema").as_string() == "usk.publisher_lab_service_observation.v1" &&
+            response.at("status").as_string() == "pass" &&
+            response.at("process_id").as_unsigned() == broker.at("service").at("process_id").as_unsigned() &&
+            response.at("service_name").as_string() == broker.at("service").at("service_name").as_string() &&
+            response.at("service_sid").as_string() == broker.at("service").at("service_sid").as_string(),
+            "effect terminal result differs from the actual SCM/public identity");
+        if (response.contains("request_sha256")) require(response.at("request_sha256").as_string() ==
+            broker.at("request_sha256").as_string(), "effect terminal result has another actual request");
+    } else require(status == "failure" && !error.empty() && value.at("response").type() == Value::Type::null_value &&
+        (!before_effects || code == "stale_plan" || code == "state_revision_stale"), "effect terminal failure projection differs");
+}
 void PublisherEffectBrokerReadback::respond_to_one_readback(DWORD timeout) {
+    if (respond_to_one_packet(timeout)) {
+        state_->failed = true;
+        throw std::runtime_error("broker readback-only entry received a terminal packet");
+    }
+}
+std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD timeout) {
     auto& state = *state_;
     try {
         const auto before = state.fresh();
         require(same(immutable_profile(before), immutable_profile(state.baseline)), "broker original service/target/caller/worker binding changed");
         const auto request = state.custody.receive(timeout);
+        if (request.at("schema").as_string() == "usk.publisher_effect_worker_terminal.v1") {
+            const auto after = state.fresh();
+            require(same(immutable_profile(before), immutable_profile(after)) &&
+                same(state.selected_current(), state.selected_baseline) &&
+                (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
+                "broker original native scope changed across terminal selection");
+            require_publisher_effect_terminal_record(request, after);
+            // No further packet or readback may follow the terminal. Native
+            // custody remains live for the caller's explicit shutdown proof.
+            state.failed = true;
+            return request;
+        }
         const auto kind = request.at("kind").as_string();
         require(request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v1" &&
             (kind == "service_admission" || kind == "selected_operation" || kind == "object_access" ||
-                kind == "original_maintenance_recovery") &&
+                kind == "original_maintenance_recovery" || kind == "original_installation_recovery") &&
             request.as_object().size() == (kind == "object_access" ? 3u : 2u), "broker readback request grammar differs");
         Value result(Value::Object{});
         if (kind == "selected_operation") result = state.selected_current();
-        if (kind == "original_maintenance_recovery") result = state.recovery_current();
+        if (kind == "original_maintenance_recovery" || kind == "original_installation_recovery") {
+            require(kind == (state.installation_recovery ? "original_installation_recovery" : "original_maintenance_recovery"),
+                "broker original recovery query has another request family");
+            result = state.recovery_current();
+        }
         if (kind == "object_access") {
             PublisherBrokerObjectQuery query(state.volume, request.at("native_object"));
             result = query.authenticated_access(state.channel);
@@ -836,12 +954,15 @@ void PublisherEffectBrokerReadback::respond_to_one_readback(DWORD timeout) {
         const auto after = state.fresh();
         if (kind == "original_maintenance_recovery") require_publisher_effect_original_maintenance_selection(
             result, usk::json::parse(state.request), after);
+        if (kind == "original_installation_recovery") require_publisher_effect_original_installation_selection(
+            result, usk::json::parse(state.request), after);
         require(same(immutable_profile(before), immutable_profile(after)) &&
             same(state.selected_current(), state.selected_baseline) &&
-            (!state.maintenance_recovery || same(state.recovery_current(), state.recovery_baseline)),
+            (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
             "broker native scope or original selected operation changed across readback");
         state.custody.send(Value(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_response.v1")},
             {"kind", Value(kind)}, {"profile", after}, {"result", result}}), timeout);
+        return std::nullopt;
     } catch (...) { state.failed = true; throw; }
 }
 
@@ -948,6 +1069,18 @@ Value PublisherEffectWorkerReadback::selected_original_maintenance_recovery(DWOR
         require_publisher_effect_original_maintenance_selection(selected, minimum, reply.at("profile"));
         if (state_->recovery_selection_observed) require(same(selected, state_->recovery_selection),
             "effect original protected maintenance selection changed");
+        else { state_->recovery_selection = selected; state_->recovery_selection_observed = true; }
+        return selected;
+    } catch (...) { state_->failed = true; throw; }
+}
+Value PublisherEffectWorkerReadback::selected_original_installation_recovery(DWORD timeout) {
+    try {
+        const auto minimum = parse_original_installation_minimum(state_->request);
+        const auto reply = state_->read("original_installation_recovery", nullptr, timeout);
+        const auto& selected = reply.at("result");
+        require_publisher_effect_original_installation_selection(selected, minimum, reply.at("profile"));
+        if (state_->recovery_selection_observed) require(same(selected, state_->recovery_selection),
+            "effect original protected installation selection changed");
         else { state_->recovery_selection = selected; state_->recovery_selection_observed = true; }
         return selected;
     } catch (...) { state_->failed = true; throw; }

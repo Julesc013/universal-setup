@@ -7,6 +7,7 @@
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_worker_security.h"
 #include <memory>
+#include <optional>
 
 namespace usk::platform::windows {
 class RegisteredPublisherAdmission;
@@ -20,6 +21,9 @@ PublisherWorkerTokenContext publisher_effect_worker_record_context(const usk::js
 PublisherServiceObservation publisher_effect_broker_service_record(const usk::json::Value&);
 void require_publisher_effect_original_maintenance_selection(const usk::json::Value& selection,
     const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
+void require_publisher_effect_original_installation_selection(const usk::json::Value& selection,
+    const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
+void require_publisher_effect_terminal_record(const usk::json::Value&, const usk::json::Value& broker_record);
 class PublisherBrokerQueryClosureUnknown final : public std::runtime_error {
 public:
     PublisherBrokerQueryClosureUnknown(DWORD error, std::exception_ptr primary);
@@ -59,13 +63,13 @@ private:
 // can select an intent. Owns four read-only native observers under the original
 // query-only volume. No install mutex, pending record, lease or effect exists
 // here. Checked closure shares the broker's one-query/retained-unknown gate.
-class PublisherOriginalMaintenanceIntentQuery final {
+class PublisherOriginalRecoveryIntentQuery final {
 public:
-    PublisherOriginalMaintenanceIntentQuery(const RegisteredPublisherAdmission&,
+    PublisherOriginalRecoveryIntentQuery(const RegisteredPublisherAdmission&,
         const PublisherRequestChannel&, HANDLE original_volume_root);
-    ~PublisherOriginalMaintenanceIntentQuery();
-    PublisherOriginalMaintenanceIntentQuery(const PublisherOriginalMaintenanceIntentQuery&) = delete;
-    PublisherOriginalMaintenanceIntentQuery& operator=(const PublisherOriginalMaintenanceIntentQuery&) = delete;
+    ~PublisherOriginalRecoveryIntentQuery();
+    PublisherOriginalRecoveryIntentQuery(const PublisherOriginalRecoveryIntentQuery&) = delete;
+    PublisherOriginalRecoveryIntentQuery& operator=(const PublisherOriginalRecoveryIntentQuery&) = delete;
     usk::json::Value observation() const;
     bool close() noexcept;
     DWORD close_error() const noexcept;
@@ -90,6 +94,10 @@ public:
     PublisherEffectBrokerReadback(const PublisherEffectBrokerReadback&) = delete;
     PublisherEffectBrokerReadback& operator=(const PublisherEffectBrokerReadback&) = delete;
     void respond_to_one_readback(DWORD timeout_ms = 120000);
+    // Receives one actual private packet. Readbacks are answered here; a
+    // terminal is returned only after live original native custody fences.
+    // The caller must confirm custody shutdown before public delivery.
+    std::optional<usk::json::Value> respond_to_one_packet(DWORD timeout_ms = 120000);
 private:
     struct State;
     std::unique_ptr<State> state_;
@@ -115,6 +123,7 @@ public:
     // A separate finite original-intent/enrollment relation for the actual
     // minimal maintenance recovery request. Never relaxes fresh selection.
     usk::json::Value selected_original_maintenance_recovery(DWORD timeout_ms = 120000);
+    usk::json::Value selected_original_installation_recovery(DWORD timeout_ms = 120000);
     usk::json::Value authenticated_object_access(HANDLE, DWORD timeout_ms = 120000);
 private:
     friend class PublisherEffectWorkerNativeSecurity;

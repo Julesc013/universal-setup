@@ -234,6 +234,32 @@ void effect_execution_record_controls() {
         {"handles", Value(handles)}, {"process_boundary", child_boundary}, {"worker_security", child_security}, {"authenticated_client", client}});
     require_publisher_execution_phase(valid, name, service_sid, "sealed", bindings);
     require_publisher_execution_record_continuity(valid, valid);
+    // Terminal grammar is retained data only. Live native peer/SCM fences
+    // and confirmed job/child/I/O closure remain the broker's separate work.
+    const Value terminal_response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")},
+        {"status", Value("pass")}, {"service_name", service.at("service_name")}, {"service_sid", service.at("service_sid")},
+        {"process_id", service.at("process_id")}, {"request_sha256", broker.at("request_sha256")}});
+    const Value terminal(Value::Object{{"schema", Value("usk.publisher_effect_worker_terminal.v1")},
+        {"request_sha256", broker.at("request_sha256")}, {"status", Value("success")}, {"response", terminal_response},
+        {"error", Value("")}, {"error_code", Value("")}, {"operation_inspection_ref", Value("")},
+        {"effects_may_exist", Value(true)}, {"definite_preflight_refusal", Value(false)}});
+    require_publisher_effect_terminal_record(terminal, broker);
+    const auto refuses_terminal = [&](const std::function<void(Value&)>& mutate) {
+        auto changed = terminal; mutate(changed); bool refused = false;
+        try { require_publisher_effect_terminal_record(changed, broker); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "synthetic terminal grammar accepted contradictory original identity/result");
+    };
+    refuses_terminal([](Value& v) { v.as_object().emplace("supplied_authority", Value(true)); });
+    refuses_terminal([](Value& v) { v.as_object().at("request_sha256") = Value(std::string(64, 'a')); });
+    refuses_terminal([](Value& v) { v.as_object().at("response").as_object().at("process_id") = Value(std::uint64_t{600}); });
+    refuses_terminal([](Value& v) { v.as_object().at("definite_preflight_refusal") = Value(true); });
+    refuses_terminal([](Value& v) { v.as_object().at("effects_may_exist") = Value(std::uint64_t{0}); });
+    auto failure = terminal;
+    failure.as_object().at("status") = Value("failure"); failure.as_object().at("response") = Value{};
+    failure.as_object().at("error") = Value("synthetic stale plan"); failure.as_object().at("error_code") = Value("stale_plan");
+    failure.as_object().at("effects_may_exist") = Value(false); failure.as_object().at("definite_preflight_refusal") = Value(true);
+    require_publisher_effect_terminal_record(failure, broker);
     // The new child creation certificate binds the same actual-worker fields
     // as execution. These graphs/descriptors remain deterministic data only.
     const Value anchors(Value::Object{{"boundary", object(0)},
@@ -332,21 +358,25 @@ void effect_execution_record_controls() {
     check(other_request_refused, "synthetic custody reused another original reviewed request");
     // Distinct minimal-recovery selections: retained data only. The ordinary
     // test process cannot construct the actual SCM/channel original reader.
-    for (const std::string operation : {"repair", "move", "uninstall"}) {
-        const Value minimum(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+    for (const std::string operation : {"repair", "move", "uninstall", "install_local"}) {
+        const bool install = operation == "install_local";
+        Value minimum(Value::Object{{"schema", Value(install ? "usk.publisher_recovery_request.v1" : "usk.publisher_maintenance_recovery_request.v1")},
             {"install_id", Value("org.example.synthetic")}, {"transaction_id", Value("maintenance.synthetic")},
             {"operation", Value(operation)}});
+        if (install) { minimum.as_object().erase("operation"); minimum.as_object().emplace("request_id", Value("recover.synthetic")); }
         auto recovery_broker = phase_broker;
         const auto minimum_sha = usk::json::sha256_canonical(minimum);
         recovery_broker.as_object().at("request_sha256") = Value(minimum_sha);
         recovery_broker.as_object().at("custody").as_object().at("request_sha256") = Value(minimum_sha);
-        const Value plan_request(Value::Object{{"schema", Value("usk." + operation + "_plan_request.v1")},
+        Value plan_request(Value::Object{{"schema", Value("usk." + operation + "_plan_request.v1")},
             {"plan_id", Value("plan.synthetic")}, {"install_id", minimum.at("install_id")}});
+        if (install) plan_request.as_object().emplace("request_id", Value("plan.synthetic"));
         const Value apply(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
             {"plan_request", plan_request}, {"reviewed_plan_id", Value("plan.synthetic")},
             {"reviewed_plan_digest", Value(std::string(64, 'e'))}, {"transaction_id", minimum.at("transaction_id")},
             {"applied_at", Value("2026-10-07T00:00:00Z")}, {"confirmation", Value("APPLY")}});
-        const Value envelope(Value::Object{{"schema", Value("usk.publisher.maintenance_reviewed_plan_envelope.v1")},
+        const Value envelope(Value::Object{{"schema", Value(install ? "usk.publisher.lab_reviewed_plan_envelope.v2" :
+            "usk.publisher.maintenance_reviewed_plan_envelope.v1")},
             {"activation", Value("operator_acceptance_candidate")}, {"state_root", Value("Q:\\setup")},
             {"acceptance_root", Value("Q:\\")}, {"plan_request", plan_request},
             {"reviewed_plan_digest", Value(std::string(64, 'e'))}, {"apply_request", apply}});
@@ -375,17 +405,23 @@ void effect_execution_record_controls() {
             original_chain.emplace_back(Value::Object{{"role", Value(intent_roles[index])}, {"object", facts},
                 {"granted_access", Value(std::uint64_t{READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_READ_DATA | SYNCHRONIZE})}});
         }
-        const Value intent(Value::Object{{"schema", Value("usk.publisher_protected_original_maintenance_intent.v1")},
+        const Value intent(Value::Object{{"schema", Value(install ? "usk.publisher_protected_original_installation_intent.v1" :
+            "usk.publisher_protected_original_maintenance_intent.v1")},
             {"scope", Value("native_read_only_fixed_original_namespace")}, {"transport_request_sha256", Value(minimum_sha)},
             {"intent_context_sha256", Value(std::string(64, 'b'))}, {"intent_record_sha256", Value(std::string(64, 'c'))},
             {"original_apply_request", apply}, {"native_chain", Value(original_chain)}, {"volume_root_identity", lease_root}});
-        const Value selection(Value::Object{{"schema", Value("usk.publisher_effect_original_maintenance_selection.v1")},
+        const Value selection(Value::Object{{"schema", Value(install ? "usk.publisher_effect_original_installation_selection.v1" :
+            "usk.publisher_effect_original_maintenance_selection.v1")},
             {"scope", Value("actual_minimal_request_to_native_protected_original_and_held_enrollment")}, {"present", Value(true)},
             {"intent", intent}, {"envelope", envelope}, {"observation", enrollment}});
-        require_publisher_effect_original_maintenance_selection(selection, minimum, recovery_broker);
+        const auto validate_selection = [&](const Value& v, const Value& min) {
+            if (install) require_publisher_effect_original_installation_selection(v, min, recovery_broker);
+            else require_publisher_effect_original_maintenance_selection(v, min, recovery_broker);
+        };
+        validate_selection(selection, minimum);
         const auto refuses_selection = [&](const std::function<void(Value&)>& mutate) {
             auto changed = selection; mutate(changed); bool refused = false;
-            try { require_publisher_effect_original_maintenance_selection(changed, minimum, recovery_broker); }
+            try { validate_selection(changed, minimum); }
             catch (const std::exception&) { refused = true; }
             check(refused, "synthetic original recovery selection accepted contradictory selection");
         };
@@ -412,11 +448,11 @@ void effect_execution_record_controls() {
         absent.as_object().at("present") = Value(false);
         refuses_selection([](Value& v) { v.as_object().at("present") = Value(false); });
         absent.as_object().erase("intent"); absent.as_object().erase("envelope"); absent.as_object().erase("observation");
-        require_publisher_effect_original_maintenance_selection(absent, minimum, recovery_broker);
+        validate_selection(absent, minimum);
         auto supplied_minimum = minimum;
         supplied_minimum.as_object().emplace("original_apply_request", apply);
         bool supplied_minimum_refused = false;
-        try { require_publisher_effect_original_maintenance_selection(selection, supplied_minimum, recovery_broker); }
+        try { validate_selection(selection, supplied_minimum); }
         catch (const std::exception&) { supplied_minimum_refused = true; }
         check(supplied_minimum_refused, "minimal recovery accepted a supplied original selector");
     }

@@ -157,6 +157,15 @@ Value PublisherEffectExecutionOwner::selected_original_maintenance_recovery() {
         return selected;
     } catch (...) { state_->failed = true; throw; }
 }
+Value PublisherEffectExecutionOwner::selected_original_installation_recovery() {
+    require_current();
+    try {
+        (void)state_->observe();
+        const auto selected = state_->readback.selected_original_installation_recovery();
+        (void)state_->observe();
+        return selected;
+    } catch (...) { state_->failed = true; throw; }
+}
 const std::string& PublisherEffectExecutionOwner::canonical_request() const {
     require_current(); return state_->request;
 }

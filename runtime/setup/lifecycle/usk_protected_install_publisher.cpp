@@ -117,20 +117,24 @@ usk::json::Value registered_native_evidence() {
     if (!registered_admission) throw std::runtime_error("registered native owner is absent");
     return registered_admission->evidence();
 }
+usk::json::Value selected_child_native_operation() {
+    if (submitted_recovery_request) {
+        const auto schema = usk::json::parse(*submitted_recovery_request).at("schema").as_string();
+        if (schema == "usk.publisher_maintenance_recovery_request.v1") return effect_execution->selected_original_maintenance_recovery();
+        if (schema == "usk.publisher_recovery_request.v1") return effect_execution->selected_original_installation_recovery();
+    }
+    return effect_execution->selected_reviewed_operation();
+}
 bool has_selected_native_operation() {
     if (effect_execution) {
-        const auto selected = submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
-            "usk.publisher_maintenance_recovery_request.v1" ? effect_execution->selected_original_maintenance_recovery() :
-            effect_execution->selected_reviewed_operation();
+        const auto selected = selected_child_native_operation();
         return selected.at("present").as_boolean();
     }
     return registered_admission && registered_admission->has_selected_reviewed_operation();
 }
 usk::json::Value selected_native_envelope() {
     if (effect_execution) {
-        const auto selected = submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
-            "usk.publisher_maintenance_recovery_request.v1" ? effect_execution->selected_original_maintenance_recovery() :
-            effect_execution->selected_reviewed_operation();
+        const auto selected = selected_child_native_operation();
         if (!selected.at("present").as_boolean()) throw std::runtime_error("original native reviewed selection is absent");
         return selected.at("envelope");
     }
@@ -3943,13 +3947,12 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration& config, bool& publication_effects_may_exist) {
     PublisherEffectExecutionOwner::require_engine_origin(config.effect_execution, config.service_name);
     ScopedExecution execution(config, config.effect_execution ? config.effect_execution->cancellation_observer() : nullptr);
-        // Maintenance replay uses its distinct, native protected-original
-        // selector before target opening. Installation replay remains gated
-        // until its own finite original-snapshot selector is connected.
+        // Replay uses its operation family's distinct actual native original
+        // selector before opening target or acquiring guards/effect resources.
         if (effect_execution && submitted_recovery_request) {
-            if (usk::json::parse(*submitted_recovery_request).at("schema").as_string() !=
-                    "usk.publisher_maintenance_recovery_request.v1" ||
-                !effect_execution->selected_original_maintenance_recovery().at("present").as_boolean())
+            const auto schema = usk::json::parse(*submitted_recovery_request).at("schema").as_string();
+            if ((schema != "usk.publisher_maintenance_recovery_request.v1" && schema != "usk.publisher_recovery_request.v1") ||
+                !selected_child_native_operation().at("present").as_boolean())
                 throw usk::transaction::CommitAuthorityUnavailable();
         }
         // Includes staged-only/snapshot replay, which can write metadata before
@@ -4010,7 +4013,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 const auto selected = effect_execution->selected_original_maintenance_recovery();
                 if (!selected.at("present").as_boolean())
                     throw std::runtime_error("maintenance recovery original native selection is absent");
-                original_context.require_original_maintenance_intent_observation(selected.at("intent"));
+                original_context.require_original_recovery_intent_observation(selected.at("intent"));
             }
             const auto& snapshot = original_context.record().at("reviewed_snapshot");
             const auto& plan = snapshot.at("reviewed_plan");
@@ -4395,6 +4398,9 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 if (setup_facts.file_id != setup_id || state_facts.file_id != state_id)
                     throw usk::transaction::InstallLeaseStale();
                 operation_context->require_fence();
+                if (effect_execution && submitted_recovery_request &&
+                    usk::json::parse(*submitted_recovery_request).at("schema").as_string() == "usk.publisher_recovery_request.v1")
+                    operation_context->require_original_recovery_intent_observation(selected_child_native_operation().at("intent"));
                 installation_lease->require_fence();
             };
             effect_fence = std::make_unique<usk::platform::windows::ScopedPublisherEffectFence>(lease_fence);
@@ -4511,10 +4517,12 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         request.at("transaction_id").as_string());
                     if (operation_context->exists()) {
                         publication_effects_may_exist=true;
+                        if (effect_execution) operation_context->require_original_recovery_intent_observation(
+                            selected_child_native_operation().at("intent"));
                         (void)restore_reviewed_install_plan(usk::json::canonical(operation_context->record().at("reviewed_snapshot")));
                         if (!has_publication || operation_context->bootstrap_resume_required())
                             throw std::runtime_error("prepublication operation retained; retry exact original install_local.apply with its source");
-                    } else if (!has_publication) {
+                    } else if (effect_execution || !has_publication) {
                         throw std::runtime_error("protected original operation unavailable");
                     }
                     // A complete historical publication retains its existing

@@ -1485,10 +1485,11 @@ std::string PublisherInstallOperationContext::lease_binding_sha256() const {
     return impl_->roots_record.at("roots_sha256").as_string();
 }
 const Value& PublisherInstallOperationContext::record() const { impl_->fence(); return impl_->original; }
-void PublisherInstallOperationContext::require_original_maintenance_intent_observation(const Value& intent) const {
+void PublisherInstallOperationContext::require_original_recovery_intent_observation(const Value& intent) const {
     impl_->fence();
-    if (impl_->kind == PublisherOperationKind::install_local || !impl_->file || !impl_->operations || !impl_->records ||
-        intent.at("schema").as_string() != "usk.publisher_protected_original_maintenance_intent.v1" ||
+    if (!impl_->file || !impl_->operations || !impl_->records ||
+        intent.at("schema").as_string() != (impl_->kind == PublisherOperationKind::install_local ?
+            "usk.publisher_protected_original_installation_intent.v1" : "usk.publisher_protected_original_maintenance_intent.v1") ||
         intent.at("scope").as_string() != "native_read_only_fixed_original_namespace" ||
         intent.at("intent_context_sha256").as_string() != impl_->original.at("context_sha256").as_string() ||
         !equal(intent.at("original_apply_request"), impl_->original.at("reviewed_snapshot").at("apply_request")) ||

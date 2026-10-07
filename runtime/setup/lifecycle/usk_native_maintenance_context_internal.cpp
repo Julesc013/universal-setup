@@ -1063,7 +1063,7 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance original recovery enrollment is absent");
         // Every selected-operation fence independently compares the broker's
         // original proof with this child's actual guarded handles and bytes.
-        original_context.require_original_maintenance_intent_observation(selected.at("intent"));
+        original_context.require_original_recovery_intent_observation(selected.at("intent"));
         return selected;
     }
     Value authenticated_native_access(HANDLE handle) const {

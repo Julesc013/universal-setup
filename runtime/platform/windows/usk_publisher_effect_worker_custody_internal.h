@@ -91,6 +91,11 @@ public:
     usk::json::Value observation() const;
     PublisherTokenObservation peer_primary_token() const;
     const std::string& canonical_request() const;
+    // After terminal send, keep this exact child alive for the parent's live
+    // result fence and explicit job closure. No further readback/I/O or event
+    // mutation occurs; cancellation cannot make a buffered result lose its
+    // live peer before the parent checks it. Job closure normally ends us.
+    bool await_parent_retirement(DWORD timeout_ms = 120000) const;
 private:
     friend class PublisherEffectWorkerReadback;
     friend class PublisherEffectExecutionOwner;
