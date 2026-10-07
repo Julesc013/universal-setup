@@ -517,7 +517,38 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         $launch.Resume()
         if($ActiveInstallContention -and $Command -ceq 'install_local.apply' -and -not $processLoss -and
             -not $receipt.Contains('active_install_contention')) {
-            Invoke-ActiveInstallContention $process
+            try {Invoke-ActiveInstallContention $process}
+            catch {
+                $contentionFailure=$_
+                # Keep the original failure and predicates. A client that has
+                # already ended cannot supply a live contention observation.
+                # Retain only its bounded original outputs as diagnostic data.
+                $ended=[ordered]@{scope='original_client_output_after_failed_active_observation';
+                    qualification_granted=$false;command=$Command;request_id=$requestId;
+                    process_id=$launch.ProcessId;creation_file_time=$launch.CreationFileTime.ToString();
+                    capture_status='unavailable';exit_code=$null;outputs=[ordered]@{}}
+                $receipt['active_installer_exit_diagnostic']=$ended
+                try {
+                    if($process.HasExited) {
+                        $process.WaitForExit();$ended.exit_code=$process.ExitCode
+                        foreach($output in @(
+                            @{role='stdout';path=$stdout;limit=4MB;prefix=8192},
+                            @{role='stderr';path=$stderr;limit=64KB;prefix=4096},
+                            @{role='native_response';path=$nativeOutput;limit=4MB;prefix=16384})) {
+                            if(Test-Path -LiteralPath $output.path) {
+                                $item=Get-Item -LiteralPath $output.path
+                                if($item.Length -gt $output.limit){throw 'Ended client diagnostic exceeds its existing output bound'}
+                                $text=[IO.File]::ReadAllText($output.path)
+                                $ended.outputs[$output.role]=[ordered]@{bytes=$item.Length;
+                                    sha256=(Get-FileHash -LiteralPath $output.path -Algorithm SHA256).Hash.ToLowerInvariant();
+                                    prefix=$text.Substring(0,[Math]::Min($output.prefix,$text.Length))}
+                            }
+                        }
+                        $ended.capture_status='ended_client_outputs_retained'
+                    } else {$ended.capture_status='original_client_still_live'}
+                } catch {$ended['capture_failure']=$_.Exception.Message}
+                throw $contentionFailure
+            }
         }
         if(-not $process.WaitForExit(120000)) {throw 'Standard public client exceeded its deadline'}
         $process.WaitForExit();$exit=$process.ExitCode
