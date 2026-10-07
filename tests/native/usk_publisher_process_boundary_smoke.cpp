@@ -13,9 +13,13 @@
 #include "usk_publisher_security_descriptor.h"
 #include "usk_sha256.h"
 #include <sddl.h>
+#include <cstddef>
+#include <cstring>
+#include <exception>
 #include <functional>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -815,6 +819,85 @@ private:
     HANDLE stop_ = nullptr, thread_ = nullptr;
     DWORD id_ = 0;
 };
+class TestQueryDenialContext {
+public:
+    TestQueryDenialContext() {
+        HANDLE raw = nullptr;
+        check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &raw),
+            "test query-denial process token unavailable");
+        token_.reset(raw);
+        check(LookupPrivilegeValueW(nullptr, L"SeDebugPrivilege", &debug_) != FALSE,
+            "test query-denial debug privilege identity unavailable");
+        original_ = privileges();
+    }
+    ~TestQueryDenialContext() {
+        if (changed_ && !restore()) std::cerr << "test query-denial privilege restoration failed\n";
+    }
+    void disable_checked() {
+        // Only this ordinary test process is changed. An enabled debug
+        // privilege bypasses OpenThread DACL checks; never skip the denial.
+        check(privileges() == original_, "test query-denial privileges changed before setup");
+        const auto found = original_.find(key(debug_));
+        if (found != original_.end() && (found->second & SE_PRIVILEGE_ENABLED)) {
+            TOKEN_PRIVILEGES change{};
+            change.PrivilegeCount = 1; change.Privileges[0].Luid = debug_;
+            DWORD size = 0;
+            SetLastError(ERROR_SUCCESS);
+            const auto adjusted = AdjustTokenPrivileges(token_.get(), FALSE, &change,
+                sizeof(previous_), &previous_, &size);
+            const auto error = GetLastError();
+            changed_ = adjusted && previous_.PrivilegeCount == 1;
+            check(adjusted && error == ERROR_SUCCESS && changed_ && size == sizeof(previous_) &&
+                key(previous_.Privileges[0].Luid) == key(debug_) && previous_.Privileges[0].Attributes == found->second,
+                "test query-denial debug privilege disable unconfirmed");
+        }
+        auto expected = original_;
+        if (expected.count(key(debug_))) expected.at(key(debug_)) &= ~SE_PRIVILEGE_ENABLED;
+        check(privileges() == expected, "test query-denial changed unrelated privileges or retained debug bypass");
+    }
+    void restore_checked() { check(restore(), "test query-denial original privileges not restored"); }
+    bool changed() const { return changed_; }
+private:
+    struct CloseToken { void operator()(HANDLE value) const { if (value) CloseHandle(value); } };
+    static std::uint64_t key(const LUID& value) {
+        return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(value.HighPart)) << 32) | value.LowPart;
+    }
+    std::map<std::uint64_t, DWORD> privileges() const {
+        DWORD size = 0;
+        check(!GetTokenInformation(token_.get(), TokenPrivileges, nullptr, 0, &size) &&
+            GetLastError() == ERROR_INSUFFICIENT_BUFFER && size >= sizeof(DWORD) && size <= 1024u * 1024u,
+            "test query-denial token privileges size unavailable");
+        std::vector<unsigned char> bytes(size);
+        check(GetTokenInformation(token_.get(), TokenPrivileges, bytes.data(), size, &size) && size <= bytes.size(),
+            "test query-denial token privileges unavailable");
+        DWORD count = 0; std::memcpy(&count, bytes.data(), sizeof(count));
+        check(count <= 4096u && size == offsetof(TOKEN_PRIVILEGES, Privileges) + count * sizeof(LUID_AND_ATTRIBUTES),
+            "test query-denial token privileges truncated or exceed bound");
+        std::map<std::uint64_t, DWORD> result;
+        for (DWORD index = 0; index != count; ++index) {
+            LUID_AND_ATTRIBUTES item{};
+            std::memcpy(&item, bytes.data() + offsetof(TOKEN_PRIVILEGES, Privileges) + index * sizeof(item), sizeof(item));
+            check(result.emplace(key(item.Luid), item.Attributes).second, "test query-denial token privileges duplicated");
+        }
+        return result;
+    }
+    bool restore() noexcept {
+        try {
+            if (changed_) {
+                SetLastError(ERROR_SUCCESS);
+                if (!AdjustTokenPrivileges(token_.get(), FALSE, &previous_, 0, nullptr, nullptr) ||
+                    GetLastError() != ERROR_SUCCESS) return false;
+                changed_ = false;
+            }
+            return privileges() == original_;
+        } catch (...) { return false; }
+    }
+    std::unique_ptr<void, CloseToken> token_;
+    LUID debug_{};
+    TOKEN_PRIVILEGES previous_{};
+    std::map<std::uint64_t, DWORD> original_;
+    bool changed_ = false;
+};
 class TestThreadDacl {
 public:
     explicit TestThreadDacl(HANDLE thread, DWORD denied_rights = THREAD_SET_INFORMATION) : thread_(thread) {
@@ -1135,19 +1218,34 @@ void broker_worker_native_acquisition_controls() {
         changed.reset();
     }
     {
+        TestQueryDenialContext query_context;
+        query_context.disable_checked();
         TestThread inaccessible;
         TestThreadDacl denied(inaccessible.handle(), THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION);
-        const auto opened = OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE,
-            FALSE, inaccessible.id());
-        const auto error = opened ? ERROR_SUCCESS : GetLastError();
-        if (opened) CloseHandle(opened);
-        check(!opened && error == ERROR_ACCESS_DENIED, "native broker incomplete-census control did not deny actual query access");
-        std::string diagnostic;
-        try { (void)capture([](const char*) {}); }
-        catch (const std::exception& failure) { diagnostic = failure.what(); }
-        check(diagnostic.find("independent complete census") != std::string::npos ||
-            diagnostic.find("native thread enumeration failed") != std::string::npos,
-            "native broker acquisition accepted incomplete access-filtered coverage");
+        std::exception_ptr control_error;
+        try {
+            const auto opened = OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE,
+                FALSE, inaccessible.id());
+            const auto error = opened ? ERROR_SUCCESS : GetLastError();
+            if (opened) CloseHandle(opened);
+            if (opened || error != ERROR_ACCESS_DENIED)
+                std::cerr << "native broker query-denial setup: opened=" << (opened != nullptr) << " error=" << error
+                    << " debug_privilege_disabled=" << query_context.changed() << '\n';
+            check(!opened && error == ERROR_ACCESS_DENIED, "native broker incomplete-census control did not deny actual query access");
+            std::string diagnostic;
+            try { (void)capture([](const char*) {}); }
+            catch (const std::exception& failure) { diagnostic = failure.what(); }
+            check(diagnostic.find("independent complete census") != std::string::npos ||
+                diagnostic.find("native thread enumeration failed") != std::string::npos,
+                "native broker acquisition accepted incomplete access-filtered coverage");
+        } catch (...) { control_error = std::current_exception(); }
+        bool acl_restored = false, privileges_restored = false;
+        try { denied.restore_checked(); acl_restored = true; }
+        catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; }
+        try { query_context.restore_checked(); privileges_restored = true; }
+        catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; }
+        check(acl_restored && privileges_restored, "native broker query-denial control restoration unconfirmed");
+        if (control_error) std::rethrow_exception(control_error);
     }
     {
         std::vector<std::unique_ptr<TestThread>> added;

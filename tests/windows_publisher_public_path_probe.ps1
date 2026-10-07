@@ -558,7 +558,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $executionReport=($executionResult -join "`n")|ConvertFrom-Json
     $childEvidence=$record.schema -cin @('usk.publisher.lab_phase_evidence.v10','usk.publisher.lab_phase_evidence.v11')
     $reportSchema=if($childEvidence){'usk.publisher_execution_reconciliation.v5'}else{'usk.publisher_execution_reconciliation.v4'}
-    $creatorSchema=if($childEvidence){'usk.publisher_creation_reconciliation.v4'}else{'usk.publisher_creation_reconciliation.v3'}
+    $creatorSchema=if($record.schema -ceq 'usk.publisher.lab_phase_evidence.v11'){'usk.publisher_creation_reconciliation.v5'}elseif($childEvidence){'usk.publisher_creation_reconciliation.v4'}else{'usk.publisher_creation_reconciliation.v3'}
     if($executionReport.schema -cne $reportSchema -or
         $executionReport.status -cne 'bindings_consistent' -or $executionReport.profile_qualified -ne $false -or
         $executionReport.held_roles_per_phase -ne 7 -or
