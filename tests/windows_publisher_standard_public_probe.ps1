@@ -391,6 +391,64 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
                 service_state=$(if($registration){[string]$registration.State}else{$null});
                 service_process_id=$(if($registration){$registration.ProcessId}else{$null})}}
             catch {} # Optional cue fields cannot replace the original refusal.
+            # These failure-only queries do not enter the ownership, pause or
+            # readback flow. A later service/process sample cannot prove what
+            # ran during the cue interval or authorize a replacement worker.
+            $launchFailure=$null
+            try {
+                $launchFailure=[ordered]@{scope='original_active_launch_after_failed_wake';
+                    qualification_granted=$false;atomic_snapshot=$false;
+                    observation_source='Win32_Service and Win32_Process';
+                    capture_status='in_progress';query_phase='service';
+                    query_timeout_seconds=5;started_utc=[DateTime]::UtcNow.ToString('o');
+                    service_name=$service;expected_image=$installedBinary;
+                    cue_paths=$cuePaths;original_operation_prefix=$originalPrefix;
+                    service_row_count=$null;service_row=$null;scm_process=$null;children=$null}
+                $receipt['active_launch_failure_diagnostic']=$launchFailure
+                $launchServiceRows=@(Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'") `
+                    -OperationTimeoutSec 5 -ErrorAction Stop)
+                $launchFailure.service_row_count=$launchServiceRows.Count
+                if($launchServiceRows.Count -eq 1) {
+                    $launchService=$launchServiceRows[0];$launchCommand=[string]$launchService.PathName
+                    $launchFailure.service_row=[ordered]@{name=[string]$launchService.Name;
+                        state=[string]$launchService.State;process_id=$launchService.ProcessId;
+                        command_present=[bool]$launchService.PathName;
+                        command_matches=$launchCommand -ceq $registeredCommand;
+                        command_length=$launchCommand.Length;
+                        command_prefix=$launchCommand.Substring(0,[Math]::Min(4096,$launchCommand.Length))}
+                    if($launchService.ProcessId -gt 0) {
+                        foreach($launchQuery in @(
+                            @{role='scm_process';filter=('ProcessId='+$launchService.ProcessId);limit=1},
+                            @{role='children';filter=('ParentProcessId='+$launchService.ProcessId);limit=8})) {
+                            $launchFailure.query_phase=$launchQuery.role
+                            $launchRows=@(Get-CimInstance Win32_Process -Filter $launchQuery.filter `
+                                -OperationTimeoutSec 5 -ErrorAction Stop)
+                            $launchFailure[$launchQuery.role]=[ordered]@{observed_count=$launchRows.Count;
+                                row_limit=$launchQuery.limit;rows=@()}
+                            $launchFailure[$launchQuery.role].rows=@(foreach($launchRow in ($launchRows|Select-Object -First $launchQuery.limit)) {
+                                $launchImage=[string]$launchRow.ExecutablePath;$launchArguments=[string]$launchRow.CommandLine
+                                [ordered]@{process_id=$launchRow.ProcessId;parent_process_id=$launchRow.ParentProcessId;
+                                    creation_utc=$(if($launchRow.CreationDate){$launchRow.CreationDate.ToUniversalTime().ToString('o')}else{$null});
+                                    image_present=[bool]$launchRow.ExecutablePath;image_matches=$launchImage -ceq $installedBinary;
+                                    image_length=$launchImage.Length;image_prefix=$launchImage.Substring(0,[Math]::Min(4096,$launchImage.Length));
+                                    command_present=[bool]$launchRow.CommandLine;command_length=$launchArguments.Length;
+                                    command_prefix=$launchArguments.Substring(0,[Math]::Min(4096,$launchArguments.Length))}
+                            })
+                        }
+                    }
+                }
+                $launchFailure.capture_status='queries_completed'
+                $launchFailure['ended_utc']=[DateTime]::UtcNow.ToString('o')
+            } catch {
+                # Missing/failed queries remain unknown, rather than empty
+                # child sets. Preserve the original cue timeout in every case.
+                try {
+                    if($launchFailure) {
+                        $launchFailure.capture_status='query_or_capture_failed'
+                        $launchFailure['capture_failure']=$_.Exception.Message.Substring(0,[Math]::Min(4096,$_.Exception.Message.Length))
+                    }
+                } catch {}
+            }
             throw 'Original active ownership cue was not observed before its deadline'
         }
         $pauseAttempted=$true
