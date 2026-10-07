@@ -64,6 +64,21 @@ def child_fixture():
 
 
 class ActiveInstallContentionEvidenceTests(unittest.TestCase):
+    def test_current_phase_families_require_original_live_child_contention(self):
+        for phase in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
+            marker = {'path': DRIVE+'publication\\lab-prepared-evidence.json',
+                      'content_json': '{"schema":"'+phase+'"}'}
+            with self.subTest(phase=phase):
+                observation, client = fixture()
+                observation['readbacks'][0]['independent']['rows'].append(copy.deepcopy(marker))
+                with self.assertRaisesRegex(StandardEvidenceError, 'downgraded its live-pair'):
+                    reconcile_active_install_contention(observation, client)
+                observation, client = child_fixture()
+                observation['readbacks'][0]['independent']['rows'].append(copy.deepcopy(marker))
+                result = reconcile_active_install_contention(observation, client)
+                self.assertEqual(result['cases_checked'], 4)
+                self.assertFalse(result['profile_qualified'])
+
     def test_current_child_lease_is_distinct_from_actual_scm_pause_and_endpoint(self):
         observation, client = child_fixture()
         result = reconcile_active_install_contention(observation, client)

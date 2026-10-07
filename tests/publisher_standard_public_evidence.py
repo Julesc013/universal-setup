@@ -289,7 +289,8 @@ def _reconcile_contention(observation, client, *, active_holder):
             'active contention actual SCM pause/endpoint identity or restoration differs')
         current_phases = [json.loads(row['content_json'])['schema'] for row in baseline['rows']
                           if row['path'].endswith('\\lab-prepared-evidence.json')]
-        require(not ({'usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'} & current_phases) or child_bound,
+        require(not any(phase in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11')
+                        for phase in current_phases) or child_bound,
                 'current child installation downgraded its live-pair contention family')
         if child_bound:
             from publisher_process_pair_evidence import validate_live_process_pair
