@@ -454,7 +454,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
         $pauseAttempted=$true
         $pause=Start-OwnedPublisherWorkerPause -Process $worker -Service $service -VhdPath $VhdPath `
             -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
-            -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256
+            -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256 -AcquireParentThreads
         # The native endpoint and pause remain the actual SCM parent. Open a
         # separate query-only original child from native ancestry and image.
         $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$worker.Id) -ErrorAction Stop)
@@ -495,6 +495,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             -Service $service -VhdPath $VhdPath -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
             -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256
         $script:activeRetainedChildPause=$childPause
+        Complete-OwnedPublisherParentPause -ParentPause $pause -ChildPause $childPause -EffectPair $effectPair
         $pause.RequirePaused();$childPause.RequirePaused();$null=$effectPair.ObserveOriginalLivePair()
         if(-not $observersClosed -or (Get-FileHash -LiteralPath $priorCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorCaptureSha256) {
             throw 'Original active installer capture is not stable and closed'

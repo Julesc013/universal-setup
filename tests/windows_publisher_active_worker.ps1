@@ -21,6 +21,7 @@ public sealed class UskPublisherPausedWorker : IDisposable {
     [DllImport("kernel32.dll",SetLastError=true)] static extern IntPtr OpenThread(uint access,bool inherit,uint id);
     [DllImport("kernel32.dll",SetLastError=true)] static extern uint GetProcessIdOfThread(IntPtr thread);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool GetProcessTimes(IntPtr process,out Times birth,out Times exit,out Times kernel,out Times user);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool GetThreadTimes(IntPtr thread,out Times birth,out Times exit,out Times kernel,out Times user);
     [DllImport("kernel32.dll",SetLastError=true,CharSet=CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr process,uint flags,System.Text.StringBuilder image,ref uint length);
     [DllImport("kernel32.dll",SetLastError=true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags,uint process);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool Thread32First(IntPtr snapshot,ref ThreadEntry entry);
@@ -29,12 +30,14 @@ public sealed class UskPublisherPausedWorker : IDisposable {
     [DllImport("kernel32.dll",SetLastError=true)] static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll",SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle,uint milliseconds);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
-    sealed class HeldThread { public uint id,prior; public IntPtr handle; public bool paused; }
+    sealed class HeldThread { public uint id,prior; public IntPtr handle; public bool paused; public ulong birth; }
     IntPtr process;
     readonly uint processId;
     readonly ulong creationTime;
     readonly List<HeldThread> threads=new List<HeldThread>();
     bool closed;
+    bool parentAcquisition,parentSealed,acquisitionFailed;
+    int parentCaptures;
     static void Require(bool condition,string message) { if(!condition) throw new InvalidOperationException(message); }
     public UskPublisherPausedWorker(uint id,ulong birth,string expectedImage) {
         processId=id;creationTime=birth;
@@ -60,6 +63,92 @@ public sealed class UskPublisherPausedWorker : IDisposable {
             Require(threads.Count>0,"Owned pause found no worker threads");
             RequirePaused();
         } catch { Dispose();throw; }
+    }
+    // Only the original SCM fixture parent opts in. The three-argument child
+    // and ordinary pause retain their original immediate strict behavior.
+    public UskPublisherPausedWorker(uint id,ulong birth,string expectedImage,bool acquireParent)
+        : this(id,birth,expectedImage) {
+        if(!acquireParent)return;
+        parentAcquisition=true;
+        try {
+            foreach(var held in threads) held.birth=ReadLiveThreadBirth(held);
+            RequireHeldParentThreads();
+        } catch { acquisitionFailed=true;Dispose();throw; }
+    }
+    public bool ParentAcquisitionEnabled { get { return parentAcquisition; } }
+    ulong ReadLiveThreadBirth(HeldThread held) {
+        RequireBoundLiveWorker();
+        Times birth=new Times(),exit,kernel,user;
+        Require(held.handle!=IntPtr.Zero && GetProcessIdOfThread(held.handle)==processId &&
+            WaitForSingleObject(held.handle,0)==258 &&
+            GetThreadTimes(held.handle,out birth,out exit,out kernel,out user),
+            "Owned parent thread identity ended or query failed");
+        // The exit-time output is undefined for a live thread; liveness comes
+        // from the original synchronized handle, never that output field.
+        ulong value=((ulong)birth.high<<32)|birth.low;
+        Require(value!=0,"Owned parent thread birth is unavailable");
+        return value;
+    }
+    void RequireHeldParentThreads() {
+        RequireBoundLiveWorker();
+        Require(threads.Count>0 && threads.Count<=128,"Owned parent retained thread set exceeds bound");
+        var ids=new HashSet<uint>();
+        foreach(var held in threads) {
+            Require(ids.Add(held.id) && held.paused && held.prior==0 && held.birth!=0 &&
+                ReadLiveThreadBirth(held)==held.birth,"Owned parent retained thread identity differs");
+        }
+    }
+    void RequireAcquiringParent() {
+        Require(parentAcquisition && !parentSealed && !acquisitionFailed && !closed,
+            "Owned parent acquisition is unavailable or already sealed");
+        RequireHeldParentThreads();
+    }
+    void RequireParentMembership(List<uint> observed,bool exact) {
+        RequireHeldParentThreads();
+        foreach(var held in threads)
+            Require(observed.Contains(held.id),"Owned parent lost a retained thread");
+        if(exact)Require(observed.Count==threads.Count,"Owned worker acquired an unpaused thread");
+    }
+    public Dictionary<string,object> ParentAcquisitionIdentity() {
+        try {
+            RequireAcquiringParent();
+            // This binding is explicitly not an observation of a ready pause.
+            return new Dictionary<string,object> {{"process_id",processId},
+                {"process_creation_file_time",creationTime.ToString()}, {"acquisition_ready",false}};
+        } catch { acquisitionFailed=true;throw; }
+    }
+    public void CaptureParentThreads(int checkpoint) {
+        try {
+            RequireAcquiringParent();
+            Require(checkpoint>=1 && checkpoint<=3 && checkpoint==parentCaptures+1,
+                "Owned parent acquisition checkpoint differs");
+            var observed=ObserveThreads();RequireParentMembership(observed,false);
+            foreach(uint id in observed) {
+                if(threads.Exists(retained=>retained.id==id))continue;
+                Require(threads.Count<128,"Owned parent cumulative thread custody exceeds bound");
+                RequireBoundLiveWorker();
+                // Allocate and retain custody before opening a raw handle.
+                // An allocation failure must not leave an untracked handle.
+                var held=new HeldThread {id=id};threads.Add(held);
+                held.handle=OpenThread(0x100802,false,id);
+                Require(held.handle!=IntPtr.Zero,"Owned parent new thread query failed");
+                held.birth=ReadLiveThreadBirth(held);
+                uint prior=SuspendThread(held.handle);
+                Require(prior!=0xffffffff,"Owned parent new thread suspension failed");
+                held.prior=prior;held.paused=true;
+                Require(prior==0,"Owned parent new thread was already suspended");
+            }
+            RequireParentMembership(observed,true);parentCaptures++;
+        } catch { acquisitionFailed=true;throw; }
+    }
+    public void SealParentThreads() {
+        try {
+            RequireAcquiringParent();
+            Require(parentCaptures==3,"Owned parent acquisition is incomplete");
+            // A separate final census admits nothing. Later observations never
+            // capture, refresh original handles or reopen this acquisition.
+            RequireParentMembership(ObserveThreads(),true);parentSealed=true;
+        } catch { acquisitionFailed=true;throw; }
     }
     void RequireBoundLiveWorker() {
         Times birth,exit,kernel,user;
@@ -87,6 +176,10 @@ public sealed class UskPublisherPausedWorker : IDisposable {
     }
     public void RequirePaused() {
         RequireBoundLiveWorker();
+        if(parentAcquisition) {
+            Require(parentSealed && !acquisitionFailed,"Owned parent pause is not sealed");
+            RequireParentMembership(ObserveThreads(),true);return;
+        }
         var held=new HashSet<uint>();foreach(var thread in threads) if(thread.paused) held.Add(thread.id);
         foreach(uint id in ObserveThreads()) Require(held.Contains(id),"Owned worker acquired an unpaused thread");
     }
@@ -128,7 +221,8 @@ function Start-OwnedPublisherWorkerPause {
         [Parameter(Mandatory=$true)][string]$VolumeRoot,
         [Parameter(Mandatory=$true)][string]$ExpectedServiceCommand,
         [Parameter(Mandatory=$true)][string]$ExpectedImagePath,
-        [Parameter(Mandatory=$true)][string]$ExpectedImageSha256)
+        [Parameter(Mandatory=$true)][string]$ExpectedImageSha256,
+        [switch]$AcquireParentThreads)
     if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
         [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
         throw 'Owned worker pause requires the hosted SYSTEM fixture context'
@@ -169,6 +263,9 @@ function Start-OwnedPublisherWorkerPause {
     if($Process.HasExited){throw 'Owned worker exited before pause'}
     $creation=$Process.StartTime.ToUniversalTime().ToFileTimeUtc()
     Initialize-OwnedPublisherWorkerPause
+    if($AcquireParentThreads) {
+        return [UskPublisherPausedWorker]::new([uint32]$Process.Id,[uint64]$creation,$privateImage,$true)
+    }
     return [UskPublisherPausedWorker]::new([uint32]$Process.Id,[uint64]$creation,$privateImage)
 }
 
@@ -185,8 +282,13 @@ function Start-OwnedPublisherEffectChildPause {
     if($ParentPause -isnot [UskPublisherPausedWorker] -or $EffectPair -isnot [UskOwnedEffectChildObserver]) {
         throw 'Owned child pause lacks the held original parent pause/query pair'
     }
-    $ParentPause.RequirePaused();$pair=$EffectPair.ObserveOriginalLivePair()
-    $parentObservation=$ParentPause.Observation()
+    if($ParentPause.ParentAcquisitionEnabled) {
+        $ParentPause.CaptureParentThreads(1)
+        $parentObservation=$ParentPause.ParentAcquisitionIdentity()
+    } else {
+        $ParentPause.RequirePaused();$parentObservation=$ParentPause.Observation()
+    }
+    $pair=$EffectPair.ObserveOriginalLivePair()
     if($pair.parent_process_id -ne $ParentWorker.Id -or
         $pair.parent_process_birth -cne $ParentWorker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16') -or
         $parentObservation.process_id -ne $ParentWorker.Id -or
@@ -219,9 +321,34 @@ function Start-OwnedPublisherEffectChildPause {
         $registration.StartName -cne 'LocalSystem' -or $registration.PathName -cne $ExpectedServiceCommand -or
         -not $ExpectedServiceCommand.StartsWith(('"'+$privateImage+'" --service '+$Service+' --no-receipt '+$VolumeRoot+' '),
             [StringComparison]::Ordinal)) {throw 'Owned child pause original private SCM registration differs'}
-    $ParentPause.RequirePaused();$null=$EffectPair.ObserveOriginalLivePair()
+    if($ParentPause.ParentAcquisitionEnabled) {$ParentPause.CaptureParentThreads(2)}
+    else {$ParentPause.RequirePaused()}
+    $null=$EffectPair.ObserveOriginalLivePair()
     # Separate suspend custody; the original child observer remains query-only.
     # This sampled pause does not imply that outstanding kernel I/O has retired.
     return [UskPublisherPausedWorker]::new([uint32]$pair.effect_process_id,
         [Convert]::ToUInt64($pair.effect_process_birth,16),$privateImage)
+}
+
+function Complete-OwnedPublisherParentPause {
+    param([Parameter(Mandatory=$true)]$ParentPause,[Parameter(Mandatory=$true)]$ChildPause,
+        [Parameter(Mandatory=$true)]$EffectPair)
+    if($ParentPause -isnot [UskPublisherPausedWorker] -or $ChildPause -isnot [UskPublisherPausedWorker] -or
+        $EffectPair -isnot [UskOwnedEffectChildObserver] -or -not $ParentPause.ParentAcquisitionEnabled -or
+        $ChildPause.ParentAcquisitionEnabled -or [object]::ReferenceEquals($ParentPause,$ChildPause)) {
+        throw 'Owned parent completion lacks separate original parent/child custody'
+    }
+    $ParentPause.CaptureParentThreads(3)
+    $parent=$ParentPause.ParentAcquisitionIdentity();$child=$ChildPause.Observation()
+    $pair=$EffectPair.ObserveOriginalLivePair()
+    if(-not $pair.both_live -or -not $child.identity_live_while_paused -or
+        $parent.process_id -ne $pair.parent_process_id -or $child.process_id -ne $pair.effect_process_id -or
+        $parent.process_id -eq $child.process_id -or
+        ([Convert]::ToUInt64($parent.process_creation_file_time)).ToString('x16') -cne $pair.parent_process_birth -or
+        ([Convert]::ToUInt64($child.process_creation_file_time)).ToString('x16') -cne $pair.effect_process_birth) {
+        throw 'Owned parent completion original native pair differs'
+    }
+    $ChildPause.RequirePaused()
+    $ParentPause.SealParentThreads()
+    $ParentPause.RequirePaused();$ChildPause.RequirePaused();$null=$EffectPair.ObserveOriginalLivePair()
 }
