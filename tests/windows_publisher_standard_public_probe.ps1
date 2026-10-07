@@ -475,6 +475,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
     }
     $launch=$null;$process=$null;$bootstrapObserver=$null;$launchAttempted=$false;$script:clientsClosed=$false
+    $requestFailure=$null;$diagnosticObserverClosed=$true
     try {
         $launchAttempted=$true
         $launch=[UskPublisherPausedClient]::CreateOwnedStandard($MachineBinary,('--machine --publisher '+$service+
@@ -659,14 +660,58 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             } else {$receipt.native_observations.Add($nativeCapture)}
         }
         return $result
+    } catch {
+        $requestFailure=$_
+        # Preserve the original request failure before observer/client cleanup.
+        # This readback is diagnostic data and cannot confirm an operation.
+        $failureText=$requestFailure.Exception.Message
+        $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
+            command=$Command;request_id=$requestId;failure=$failureText.Substring(0,[Math]::Min(4096,$failureText.Length));
+            failure_truncated=($failureText.Length -gt 4096);
+            client_process_id=$null;client_creation_file_time=$null;original_client_has_exited=$null;
+            client_exit_code=$null;output_files=[ordered]@{};readback=$null}
+        $receipt['request_execution_failure']=$failed
+        try {
+            if($launch){$failed.client_process_id=$launch.ProcessId;
+                $failed.client_creation_file_time=$launch.CreationFileTime.ToString()}
+            if($process){$failed.original_client_has_exited=$process.HasExited;
+                if($process.HasExited){$process.WaitForExit();$failed.client_exit_code=$process.ExitCode}}
+            foreach($output in @(@{role='stdout';path=$stdout;limit=4MB},
+                @{role='stderr';path=$stderr;limit=64KB},@{role='native_response';path=$nativeOutput;limit=4MB})) {
+                $exists=Test-Path -LiteralPath $output.path
+                $length=if($exists){(Get-Item -LiteralPath $output.path).Length}else{$null}
+                $failed.output_files[$output.role]=[ordered]@{exists=$exists;observed_bytes=$length;limit_bytes=$output.limit}
+            }
+        } catch {$failed['capture_failure']=$_.Exception.Message}
+        $priorObserverClosure=$script:observersClosed
+        $script:observersClosed=$false
+        try {$failed.readback=Read-NativeSnapshot -IncludeMovedMaintenanceRoot:$MaintenanceQualification}
+        catch {$failed['readback_failure']=$_.Exception.Message}
+        finally {
+            # Closing this reader cannot close an already outstanding observer.
+            $diagnosticObserverClosed=$script:observersClosed
+            $script:observersClosed=$priorObserverClosure -and $diagnosticObserverClosed
+        }
+        throw $requestFailure
     } finally {
         try {
-            if($bootstrapObserver -and -not $bootstrapObserver.removed) {
-                Remove-OwnedProductionBoundaryObserver $bootstrapObserver
-                $script:observersClosed=$true
+            try {
+                if($bootstrapObserver -and -not $bootstrapObserver.removed) {
+                    Remove-OwnedProductionBoundaryObserver $bootstrapObserver
+                    $script:observersClosed=$true
+                }
+            } finally {
+                Close-StandardPublisherClient $process $launch $launchAttempted
             }
+        } catch {
+            if($requestFailure) {
+                $receipt.request_execution_failure['cleanup_failure']=$_.Exception.Message
+                throw $requestFailure
+            }
+            throw
         } finally {
-            Close-StandardPublisherClient $process $launch $launchAttempted
+            # Bootstrap cleanup cannot confirm this independent reader's closure.
+            $script:observersClosed=$script:observersClosed -and $diagnosticObserverClosed
         }
     }
 }
