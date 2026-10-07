@@ -50,11 +50,12 @@ function Start-OwnedProductionBoundaryObserver {
     $taskName='USK_RENAME_OBSERVER_'+$Service.Substring(8)
     $scriptPath=Join-Path $observerRoot 'production-rename-observer.ps1'
     $ownedProcessPath=Join-Path $observerRoot 'owned-process.ps1'
+    $childObserverPath=Join-Path $observerRoot 'owned-effect-child.ps1'
     $configPath=Join-Path $observerRoot 'production-rename-config.json'
     $readyPath=Join-Path $observerRoot 'production-rename-ready.txt'
     $outputPath=Join-Path $observerRoot 'production-rename-observation.json'
     if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $ownedProcessPath) -or (Test-Path -LiteralPath $configPath) -or
+        (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $ownedProcessPath) -or (Test-Path -LiteralPath $childObserverPath) -or (Test-Path -LiteralPath $configPath) -or
         (Test-Path -LiteralPath $readyPath) -or (Test-Path -LiteralPath $outputPath)) {
         throw 'Owned production rename observer collision'
     }
@@ -72,7 +73,9 @@ function Start-OwnedProductionBoundaryObserver {
         -Destination $scriptPath -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1') `
         -Destination $ownedProcessPath -ErrorAction Stop
-    $config=[ordered]@{schema='usk.publisher.production_rename_observer_config.v1';phase=$Phase;
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_effect_child.ps1') `
+        -Destination $childObserverPath -ErrorAction Stop
+    $config=[ordered]@{schema='usk.publisher.production_rename_observer_config.v2';phase=$Phase;
         service_name=$service;service_command=$serviceRow.PathName;
         process_id=$serviceRow.ProcessId;process_command=$processRow.CommandLine;
         process_executable=$processRow.ExecutablePath;
@@ -98,8 +101,8 @@ function Start-OwnedProductionBoundaryObserver {
         $config['maintenance_plan_digest']=$MaintenancePlanDigest
     }
     [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
-    # The shared owned-process helper needs PowerShell 7's .NET Kill(true)
-    # overload to terminate the exact held process tree.
+    # Use the held native SCM parent and query-only child observer.
+    # The child must end without a separate child/tree termination.
     $action=New-ScheduledTaskAction -Execute (Get-Command pwsh -ErrorAction Stop).Source -Argument (
         '-NoProfile -NonInteractive -File "'+$scriptPath+'" -ConfigPath "'+$configPath+'"')
     $registered=$false
@@ -122,7 +125,7 @@ function Start-OwnedProductionBoundaryObserver {
         return [pscustomobject]@{task=$taskName;output=$outputPath;ready=$readyPath;
             config=$configPath;executable=$action.Execute;arguments=$action.Arguments;removed=$false;
             maintenance_transaction_id=$MaintenanceTransactionId;maintenance_plan_digest=$MaintenancePlanDigest;
-            process_id=$config.process_id;
+            process_id=$config.process_id;process_executable=$config.process_executable;
             process_creation_file_time=$(if($Phase -ceq 'maintenance_published'){$config.process_creation_file_time}else{''})}
     } catch {
         if($registered) {
@@ -151,7 +154,28 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
         'terminated_prepared_prerename'
     }elseif($Phase -ceq 'maintenance_published'){'terminated_confirmed_maintenance_publication'}
     else{'terminated_postrename_prejournal'}
-    if($result.schema -cne 'usk.publisher.production_rename_observer.v1' -or
+    if($result.schema -cne 'usk.publisher.production_rename_observer.v2' -or
+        $result.service_pid -ne $Observer.process_id -or
+        $result.original_pair_closure_confirmed -ne $true -or
+        $result.native_process_pair.schema -cne 'usk.publisher_owned_native_process_pair.v1' -or
+        $result.native_process_pair.scope -cne 'held_scm_parent_termination_and_original_effect_child_end' -or
+        $result.native_process_pair.parent_process_id -ne $result.service_pid -or
+        $result.native_process_pair.native_parent_process_id -ne $result.service_pid -or
+        $result.native_process_pair.parent_process_birth -cne $result.process_creation_file_time -or
+        $result.native_process_pair.effect_process_id -ne $result.effect_holder.process_id -or
+        $result.native_process_pair.effect_process_birth -cne $result.effect_holder.process_creation_time -or
+        $result.native_process_pair.original_image_path -cne $Observer.process_executable -or
+        $result.service_executable -cne $Observer.process_executable -or
+        $result.effect_holder.process_id -le 0 -or $result.effect_holder.process_id -eq $result.service_pid -or
+        $result.effect_holder.process_creation_time -cnotmatch '^[0-9a-f]{16}$' -or
+        $result.native_process_pair.both_live_before_termination -ne $true -or
+        $result.native_process_pair.parent_termination_invoked -ne $true -or
+        $result.native_process_pair.child_termination_invoked -ne $false -or
+        $result.native_process_pair.parent_native_wait_result -ne 0 -or
+        $result.native_process_pair.child_native_wait_result -ne 0 -or
+        $result.native_process_pair.child_observer_access -ne 0x101400 -or
+        $result.native_process_pair.child_observer_handle_flags -ne 0 -or
+        $result.native_process_pair.child_observer_close_confirmed -ne $true -or
         $result.identity -cne 'S-1-5-18' -or
         $result.phase -cne $Phase -or $result.status -cne $expectedStatus -or
         -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
@@ -166,9 +190,9 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
                 $result.maintenance_writer_lease_ownership.status -cne 'active' -or
                 $result.maintenance_writer_lease_ownership.operation -cne 'repair' -or
                 $result.maintenance_writer_lease_ownership.operation_id -cne $Observer.maintenance_transaction_id -or
-                $result.maintenance_writer_lease_ownership.holder.process_id -ne $Observer.process_id -or
+                $result.maintenance_writer_lease_ownership.holder.process_id -ne $result.effect_holder.process_id -or
                 $result.maintenance_writer_lease_ownership.holder.process_creation_time -cne
-                    $Observer.process_creation_file_time)) -or
+                    $result.effect_holder.process_creation_time)) -or
         ($Phase -ceq 'bootstrap' -and
             (-not $result.publication_before_kill -or -not $result.publication_after_kill -or
                 $result.candidate_before_kill -or $result.candidate_after_kill -or
@@ -176,7 +200,6 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
                 $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$')) -or
         ($Phase -ceq 'bootstrap_preserved' -and
             ($result.publication_before_kill -or $result.publication_after_kill -or
-                $result.single_worker_closure_confirmed -ne $true -or
                 $result.termination.method -cne 'TerminateProcess_owned_held_root' -or
                 $result.termination.process_id -ne $result.service_pid -or
                 $result.termination.process_creation_file_time -cne $result.process_creation_file_time -or

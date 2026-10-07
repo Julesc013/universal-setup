@@ -199,10 +199,10 @@ function Close-StandardPublisherClient($Process,$Launch,[bool]$LaunchAttempted=$
         }
     }
 }
-function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$null,$WorkerPause=$null) {
+function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$null,$WorkerPause=$null,$EffectPair=$null) {
     $activeHolder=$null -ne $HeldWorker
     if($activeHolder) {
-        if(-not $WorkerPause -or $HeldWorker.HasExited -or (Get-Service $service).Status -ne 'Running') {
+        if(-not $WorkerPause -or -not $EffectPair -or $HeldWorker.HasExited -or (Get-Service $service).Status -ne 'Running') {
             throw 'Active contention fixture lacks a held live worker'
         }
         $WorkerPause.RequirePaused()
@@ -213,13 +213,13 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
     $requestId='contention.'+[guid]::NewGuid().ToString('N')
     $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
     Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command='install_local.apply';payload=$apply;dry_run=$false}
-    $record=[ordered]@{schema='usk.publisher_registered_contention_probe.v1';scope=$(if($activeHolder){
+    $record=[ordered]@{schema=$(if($activeHolder){'usk.publisher_active_install_contention_probe.v2'}else{'usk.publisher_registered_contention_probe.v1'});scope=$(if($activeHolder){
             'active_install_holder_endpoint_before_effect_request_bytes'
         }else{'registered_endpoint_before_effect_request_bytes'});
         profile_qualified=$false;producer_sha256=$probeHash;request_sha256=(Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant();
         client_capture=$null;native_observation=$null;before=$null;after=$null;worker_stopped=$false}
     $receipt[$(if($activeHolder){'active_install_contention'}else{'registered_contention'})]=$record
-    if($activeHolder){$record['paused_worker']=$WorkerPause.Observation()}
+    if($activeHolder){$record['paused_worker']=$WorkerPause.Observation();$record['child_observer_close_confirmed']=$false}
     $launch=$null;$process=$null;$launchAttempted=$false;$script:clientsClosed=$false
     try {
         $probeAcl=Get-Acl -LiteralPath $probeBinary
@@ -260,11 +260,12 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
             $record['lease_before']=($decoded -join "`n")|ConvertFrom-Json
             $history=@($record.lease_before.coordination.history)
             if($history.Count -ne 1 -or $history[0].status -cne 'active' -or $history[0].generation -ne 1 -or
-                $history[0].holder.process_id -ne $HeldWorker.Id -or
-                $history[0].holder.process_creation_time -cne $HeldWorker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16')) {
-                throw 'Active contention native generation/holder differs'
+                $history[0].holder.process_id -ne $EffectPair.ChildProcessId -or
+                $history[0].holder.process_creation_time -cne $EffectPair.ChildProcessBirth) {
+                throw 'Active contention native generation/effect-child holder differs'
             }
             $WorkerPause.RequirePaused()
+            $record['live_pair_before']=$EffectPair.ObserveOriginalLivePair()
         } else {
             Start-Service -Name $service -ErrorAction Stop
             (Get-Service $service).WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
@@ -305,6 +306,7 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
             $record.worker_stopped=$true
         }
         $record.after=Read-NativeSnapshot
+        if($activeHolder){$WorkerPause.RequirePaused();$record['live_pair_after']=$EffectPair.ObserveOriginalLivePair()}
         if(($record.before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
             ($record.after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
             ($record.before.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress) -cne
@@ -317,7 +319,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     $script:activeContenderClosed=$false;$script:activeWorkerRestored=$false
     $deadline=[DateTime]::UtcNow.AddSeconds(30)
     $candidate=$drive+'publication\staging\candidate'
-    $worker=$null;$pause=$null;$pauseAttempted=$false
+    $worker=$null;$pause=$null;$pauseAttempted=$false;$effectPair=$null
     $priorToken=$clientTokenLease;$priorCaptureFile=$clientCaptureFile;$priorCaptureSha256=$clientCaptureSha256
     $script:activeRetainedOriginalTokenLease=$priorToken
     $retainedCapture=Join-Path $lab ('active-retained-installer-'+[guid]::NewGuid().ToString('N')+'.json')
@@ -341,13 +343,26 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
         $pause=Start-OwnedPublisherWorkerPause -Process $worker -Service $service -VhdPath $VhdPath `
             -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
             -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256
+        # The native endpoint and pause remain the actual SCM parent. Open a
+        # separate query-only original child from native ancestry and image.
+        if(-not ('UskOwnedEffectChildObserver' -as [type])) {
+            . (Join-Path $PSScriptRoot 'windows_publisher_owned_effect_child.ps1')
+        }
+        $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$worker.Id) -ErrorAction Stop)
+        if($children.Count -ne 1 -or -not $children[0].CreationDate -or
+            $children[0].ExecutablePath -cne $installedBinary -or -not $children[0].CommandLine) {
+            throw 'Active installer lacks one original native effect child'
+        }
+        $effectPair=[UskOwnedEffectChildObserver]::new($worker,[uint32]$worker.Id,
+            $worker.StartTime.ToUniversalTime().ToFileTimeUtc(),[uint32]$children[0].ProcessId,
+            $children[0].CreationDate.ToUniversalTime().Ticks,$installedBinary,$children[0].CommandLine)
         if(-not $observersClosed -or (Get-FileHash -LiteralPath $priorCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorCaptureSha256) {
             throw 'Original active installer capture is not stable and closed'
         }
         [IO.File]::Move($priorCaptureFile,$retainedCapture);$captureMoved=$true
         $script:clientTokenLease=$null
         $script:clientCaptureSha256=''
-        Invoke-RegisteredEndpointContention -HeldWorker $worker -WorkerPause $pause
+        Invoke-RegisteredEndpointContention -HeldWorker $worker -WorkerPause $pause -EffectPair $effectPair
         if(-not $script:clientsClosed){throw 'Active contender cleanup remains unconfirmed'}
         $script:activeContenderClosed=$true
         $pause.RequirePaused()
@@ -404,7 +419,17 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
                     $receipt.active_install_contention['worker_pause_restored']=$activeWorkerRestored -and $captureRestored
                     if(-not $captureRestored){$script:activeWorkerRestored=$false}
                 }
-            } finally {if($worker){$worker.Dispose()}}
+            } finally {
+                try {
+                    if($effectPair) {
+                        $effectPair.Dispose()
+                        if(-not $effectPair.ObserverCloseConfirmed){throw 'Active original child observer close unconfirmed'}
+                        if($receipt.Contains('active_install_contention')) {
+                            $receipt.active_install_contention['child_observer_close_confirmed']=$true
+                        }
+                    }
+                } finally {if($worker){$worker.Dispose()}}
+            }
         }
     }
 }
@@ -465,10 +490,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
         if($processLoss) {
             $receipt[$lossKey]=[ordered]@{schema=$(if($MaintenanceProcessLoss){
-                    'usk.publisher_registered_maintenance_process_loss.v1'
+                    'usk.publisher_registered_maintenance_process_loss.v2'
                 }elseif($PreservationLoss){
-                    'usk.publisher_registered_bootstrap_preservation_loss.v1'
-                }else{'usk.publisher_registered_bootstrap_loss.v1'});
+                    'usk.publisher_registered_bootstrap_preservation_loss.v2'
+                }else{'usk.publisher_registered_bootstrap_loss.v2'});
                 client_capture=$clientCapture;response=$null;boundary=$null;readback=$null;reconciliation=$null}
             # The production worker waits for authenticated RPC. Start only the
             # exact owned fixture service while this ordinary client is paused.
@@ -799,7 +824,7 @@ try {
         $loss=$receipt.bootstrap_loss
         $bootstrapRequest=@{mode='bootstrap_takeover';before=$loss.readback.independent.rows;after=$before.independent.rows;
             drive=$drive;installed=$installed;volume_root_id=$before.independent.volume_boundary.root.file_id;
-            terminated_holder=@{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time}}
+            terminated_holder=@{process_id=[int]$loss.boundary.effect_holder.process_id;process_creation_time=$loss.boundary.effect_holder.process_creation_time}}
         if($ConstructedBootstrapPrefix -cne 'none') {
             $bootstrapRequest.mode='constructed_prefix_takeover'
             $bootstrapRequest.before=$receipt.constructed_bootstrap_prefix.readback.independent.rows
@@ -812,8 +837,8 @@ try {
             $bootstrapRequest.Remove('terminated_holder')
             $bootstrapRequest.preserved=$preserved.readback.independent.rows
             $bootstrapRequest.terminated_holders=@(
-                @{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time},
-                @{process_id=[int]$preserved.boundary.service_pid;process_creation_time=$preserved.boundary.process_creation_file_time})
+                @{process_id=[int]$loss.boundary.effect_holder.process_id;process_creation_time=$loss.boundary.effect_holder.process_creation_time},
+                @{process_id=[int]$preserved.boundary.effect_holder.process_id;process_creation_time=$preserved.boundary.effect_holder.process_creation_time})
         }
         $bootstrapModule='publisher_installation_lease_evidence.py'
         if($ConstructedBootstrapDurableState -cne 'none') {
@@ -824,10 +849,10 @@ try {
                 volume_root_id=$before.independent.volume_boundary.root.file_id;
                 pending_name=$receipt.constructed_bootstrap_durable_state.pending_name;
                 original_empty=$(if($BootstrapPreservationProcessLoss){$loss.readback.independent.rows}else{$null});
-                terminated_holders=@(@{process_id=[int]$loss.boundary.service_pid;process_creation_time=$loss.boundary.process_creation_file_time})}
+                terminated_holders=@(@{process_id=[int]$loss.boundary.effect_holder.process_id;process_creation_time=$loss.boundary.effect_holder.process_creation_time})}
             if($BootstrapPreservationProcessLoss) {
-                $bootstrapRequest.terminated_holders+=@{process_id=[int]$preserved.boundary.service_pid;
-                    process_creation_time=$preserved.boundary.process_creation_file_time}
+                $bootstrapRequest.terminated_holders+=@{process_id=[int]$preserved.boundary.effect_holder.process_id;
+                    process_creation_time=$preserved.boundary.effect_holder.process_creation_time}
             }
         }
         $decoded=$bootstrapRequest|ConvertTo-Json -Depth 64 -Compress|

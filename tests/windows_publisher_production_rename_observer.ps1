@@ -3,127 +3,42 @@
 param([Parameter(Mandatory=$true)][string]$ConfigPath)
 
 $ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot 'owned-process.ps1')
+. (Join-Path $PSScriptRoot 'owned-effect-child.ps1')
+$effectPair=$null
+$held=$null
 $config=Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop|ConvertFrom-Json
-if($config.phase -ceq 'bootstrap_preserved') {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Threading;
 
-public sealed class UskOwnedPreservationBoundary {
-    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-    static extern uint GetFileAttributes(string path);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    static extern uint GetProcessId(IntPtr process);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    static extern bool GetProcessTimes(IntPtr process, out long birth, out long exit, out long kernel, out long user);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
-    [DllImport("kernel32.dll", SetLastError=true)]
-    static extern bool TerminateProcess(IntPtr process, uint exitCode);
-    readonly Process ownedProcess;
-    readonly IntPtr handle;
-    readonly uint processId;
-    readonly long creationTime;
-    readonly string publication, retained, preservation, reservation, candidate, journal, visible;
-    public UskOwnedPreservationBoundary(Process owned, uint expectedProcessId, long expectedCreationTime,
-        string publicationPath, string operationPrefix) {
-        if(owned == null || expectedProcessId == (uint)Process.GetCurrentProcess().Id)
-            throw new InvalidOperationException("Owned boundary requires a separate held worker");
-        ownedProcess=owned;
-        handle=owned.Handle;
-        processId=expectedProcessId;
-        creationTime=expectedCreationTime;
-        publication=publicationPath;
-        retained=operationPrefix+"-retained-g00000000000000000001";
-        preservation=operationPrefix+"-preserve-g00000000000000000001.json";
-        reservation=operationPrefix+"-bootstrap-g00000000000000000002.json";
-        candidate=publication+"\\staging\\candidate";
-        journal=publication+"\\journal\\lab-prepared-evidence.json";
-        visible=publication+"\\destination\\visible";
-        RequireBoundLiveWorker();
-    }
-    void RequireBoundLiveWorker() {
-        long birth, exit, kernel, user;
-        if(GetProcessId(handle)!=processId || !GetProcessTimes(handle,out birth,out exit,out kernel,out user) ||
-            birth!=creationTime || WaitForSingleObject(handle,0)!=258)
-            throw new InvalidOperationException("Owned boundary held PID/birth/liveness differs");
-        GC.KeepAlive(ownedProcess);
-    }
-    static bool Present(string path, bool directory, bool parentMayBeAbsent) {
-        uint attributes=GetFileAttributes(path);
-        if(attributes==0xffffffff) {
-            int error=Marshal.GetLastWin32Error();
-            if(error==2 || (parentMayBeAbsent && error==3)) return false;
-            throw new Win32Exception(error,"Owned boundary path observation failed");
-        }
-        if((attributes&1024)!=0 || ((attributes&16)!=0)!=directory)
-            throw new InvalidOperationException("Owned boundary object type or reparse differs");
-        return true;
-    }
-    public Dictionary<string,object> ObserveAndTerminate() {
-        var timer=Stopwatch.StartNew();
-        while(timer.ElapsedMilliseconds<120000) {
-            RequireBoundLiveWorker();
-            if(!Present(retained,true,false)) { Thread.SpinWait(128); continue; }
-            var result=new Dictionary<string,object>();
-            result["boundary_seen_utc"]=DateTime.UtcNow.ToString("o");
-            result["retained_before_kill"]=true;
-            result["preservation_before_kill"]=Present(preservation,false,false);
-            result["publication_before_kill"]=Present(publication,true,false);
-            result["replacement_reservation_before_kill"]=Present(reservation,false,false);
-            result["candidate_before_kill"]=Present(candidate,true,true);
-            result["journal_before_kill"]=Present(journal,false,true);
-            if(!(bool)result["preservation_before_kill"] || (bool)result["publication_before_kill"] ||
-                (bool)result["replacement_reservation_before_kill"] || (bool)result["candidate_before_kill"] ||
-                (bool)result["journal_before_kill"]) {
-                result["status"]="window_missed_preservation_already_passed";
-                return result;
-            }
-            RequireBoundLiveWorker();
-            if(!TerminateProcess(handle,1))
-                throw new Win32Exception(Marshal.GetLastWin32Error(),"Owned bound worker termination failed");
-            uint wait=WaitForSingleObject(handle,5000);
-            if(wait!=0) throw new InvalidOperationException("Owned bound worker termination is unconfirmed");
-            result["termination"]=new Dictionary<string,object> {
-                {"confirmed",true},{"terminated",1},{"kill_invoked",true},
-                {"method","TerminateProcess_owned_held_root"},
-                {"process_id",processId},{"process_creation_file_time",creationTime.ToString("x16")},
-                {"native_wait_result",wait}};
-            result["retained_after_kill"]=Present(retained,true,false);
-            result["preservation_after_kill"]=Present(preservation,false,false);
-            result["publication_after_kill"]=Present(publication,true,false);
-            result["replacement_reservation_after_kill"]=Present(reservation,false,false);
-            result["candidate_after_kill"]=Present(candidate,true,true);
-            result["journal_after_kill"]=Present(journal,false,true);
-            result["visible_after_kill"]=Present(visible,true,true);
-            result["status"]=(bool)result["retained_after_kill"] && (bool)result["preservation_after_kill"] &&
-                !(bool)result["publication_after_kill"] && !(bool)result["replacement_reservation_after_kill"] &&
-                !(bool)result["candidate_after_kill"] && !(bool)result["journal_after_kill"] &&
-                !(bool)result["visible_after_kill"] ? "terminated_publication_preserved" :
-                    "window_missed_preservation_raced_kill";
-            GC.KeepAlive(ownedProcess);
-            return result;
-        }
-        throw new TimeoutException("Owned preservation boundary deadline expired");
-    }
+function New-OriginalScmTermination($pair) {
+    return @{confirmed=$true;terminated=1;kill_invoked=$true;method='TerminateProcess_owned_held_root';
+        process_id=$pair.parent_process_id;process_creation_file_time=$pair.parent_process_birth;native_wait_result=$pair.parent_native_wait_result}
 }
-'@
+function Confirm-OriginalPairClosure($record) {
+    $pair=$record.native_process_pair
+    if(-not $pair -or $pair.parent_native_wait_result -ne 0 -or $pair.child_native_wait_result -ne 0 -or
+        -not $pair.child_observer_close_confirmed -or $pair.child_termination_invoked -or
+        $pair.parent_process_id -ne $record.service_pid -or
+        $pair.parent_process_birth -cne $record.process_creation_file_time -or
+        $pair.effect_process_id -ne $record.effect_holder.process_id -or
+        $pair.effect_process_birth -cne $record.effect_holder.process_creation_time){throw 'Original native pair closure differs'}
+    $census=@(Get-CimInstance Win32_Process -ErrorAction Stop)
+    if($census.Count -gt 4096){throw 'Owned post-termination process census exceeds its bound'}
+    $descendants=@($census|Where-Object {
+        $_.ParentProcessId -in @($pair.parent_process_id,$pair.effect_process_id) -and
+        (-not $_.CreationDate -or $_.CreationDate.ToUniversalTime().Ticks -ge [long]$config.process_creation_ticks)
+    })
+    if($descendants.Count){throw 'Original SCM/effect pair has unresolved descendants; retain lab material'}
+    $record['original_pair_closure_confirmed']=$true
 }
-$result=[ordered]@{schema='usk.publisher.production_rename_observer.v1';status='not_run';
+$result=[ordered]@{schema='usk.publisher.production_rename_observer.v2';status='not_run';
     identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;
     service_name=$config.service_name;service_pid=$config.process_id;
-    service_binary_sha256=$null;volume_guid_root=$config.volume_guid_root;
+    service_binary_sha256=$null;service_executable=$config.process_executable;volume_guid_root=$config.volume_guid_root;
     phase=$config.phase;boundary_seen_utc=$null;journal_before_kill=$null;
     journal_after_kill=$null;visible_after_kill=$null;
     prepared_exclusive_observed=$false;prepared_record_sha256=$null;
     termination=$null;failure=$null}
 try {
-    if($config.schema -cne 'usk.publisher.production_rename_observer_config.v1' -or
+    if($config.schema -cne 'usk.publisher.production_rename_observer_config.v2' -or
         $config.phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published') -or
         $result.identity -cne 'S-1-5-18' -or
         $config.service_name -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
@@ -207,14 +122,33 @@ try {
             $result[$name+'_before_kill']=$false;$result[$name+'_after_kill']=$false
         }
         $result['bootstrap_operation_prefix']=$config.bootstrap_operation_prefix
-        $fastBoundary=[UskOwnedPreservationBoundary]::new($held,[uint32]$config.process_id,
-            $held.StartTime.ToUniversalTime().ToFileTimeUtc(),$publication,$config.bootstrap_operation_prefix)
+        $fastBoundary=$null
     }
     [IO.File]::WriteAllText($config.ready_path,
         "usk.publisher.production_rename_observer_ready.v1`n",[Text.UTF8Encoding]::new($false))
     $deadline=[DateTime]::UtcNow.AddSeconds(120)
     while([DateTime]::UtcNow -lt $deadline) {
         if($held.HasExited){throw 'Production service exited before visible rename'}
+        if(-not $effectPair) {
+            $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$config.process_id) -ErrorAction Stop)
+            if($children.Count -gt 1){throw 'Owned SCM has an ambiguous native effect-child population'}
+            if(-not $children.Count){Start-Sleep -Milliseconds 1;continue}
+            $child=$children[0]
+            if(-not $child.CreationDate -or $child.ExecutablePath -cne $config.process_executable -or
+                -not $child.CommandLine -or $child.ProcessId -le 0 -or $child.ProcessId -eq $held.Id) {
+                throw 'Owned effect-child candidate image/command/birth differs'
+            }
+            $effectPair=[UskOwnedEffectChildObserver]::new($held,[uint32]$config.process_id,
+                $held.StartTime.ToUniversalTime().ToFileTimeUtc(),[uint32]$child.ProcessId,
+                $child.CreationDate.ToUniversalTime().Ticks,$config.process_executable,$child.CommandLine)
+            $result['effect_holder']=@{process_id=[int]$effectPair.ChildProcessId;
+                process_creation_time=$effectPair.ChildProcessBirth}
+            if($config.phase -ceq 'bootstrap_preserved') {
+                $fastBoundary=[UskOwnedPreservationBoundary]::new($held,$effectPair,[uint32]$config.process_id,
+                    $held.StartTime.ToUniversalTime().ToFileTimeUtc(),$publication,$config.bootstrap_operation_prefix)
+            }
+        }
+        $effectPair.RequireOriginalLivePair()
         if($config.phase -ceq 'maintenance_published') {
             if(-not (Test-Path -LiteralPath $config.journal_path)){Start-Sleep -Milliseconds 1;continue}
             if(((Get-Item -LiteralPath $config.journal_path).Attributes -band
@@ -245,15 +179,16 @@ try {
                     $writer.operation_id -cne $config.maintenance_transaction_id -or
                     $record.original_context_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
                     $writer.operation_context_sha256 -cne $record.original_context_sha256 -or
-                    $writer.holder.process_id -ne $held.Id -or
-                    $writer.holder.process_creation_time -cne $result.process_creation_file_time -or
+                    $writer.holder.process_id -ne $effectPair.ChildProcessId -or
+                    $writer.holder.process_creation_time -cne $effectPair.ChildProcessBirth -or
                     $record.sequence -ne 0 -or $record.kind -cne 'confirmed_publication' -or
                     $record.details.publication_transaction_snapshot_sha256 -cne $record.transaction_snapshot_sha256) {
                     throw 'Maintenance confirmation is outside the exact original publication'
                 }
                 $result.boundary_seen_utc=[DateTime]::UtcNow.ToString('o')
                 $result.journal_before_kill=$true
-                $result.termination=Stop-OwnedPublisherProcessTree $held -RequireLiveKill
+                $result.native_process_pair=$effectPair.TerminateOriginalScmOwner()
+                $result.termination=New-OriginalScmTermination $result.native_process_pair
                 $result.journal_after_kill=Test-Path -LiteralPath $config.journal_path
                 $result['maintenance_transaction_id']=$record.transaction_id
                 $result['maintenance_plan_digest']=$record.plan_digest
@@ -270,17 +205,7 @@ try {
             $native=$fastBoundary.ObserveAndTerminate()
             foreach($key in $native.Keys){$result[$key]=$native[$key]}
             if($result.status -cne 'terminated_publication_preserved'){break}
-            # This selected publisher route executes one worker. Confirm the
-            # exact recorded process and refuse unresolved descendants; the
-            # fast native termination never kills a process opened by PID.
-            $closure=Stop-OwnedPublisherProcessTree $held
-            if(-not $closure.confirmed -or $closure.terminated -ne 1){throw 'Native held-worker closure differs'}
-            $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$config.process_id) -ErrorAction Stop|
-                Where-Object {-not $_.CreationDate -or
-                    ($_.CreationDate.ToUniversalTime().Ticks -ge [long]$config.process_creation_ticks -and
-                     $_.CreationDate.ToUniversalTime() -le [DateTime]::Parse($result.boundary_seen_utc).ToUniversalTime().AddSeconds(5))})
-            if($children.Count){throw 'Owned worker has unresolved descendants; retain lab material'}
-            $result['single_worker_closure_confirmed']=$true
+            Confirm-OriginalPairClosure $result
             if((Get-Volume -DriveLetter $config.drive_letter -ErrorAction Stop).UniqueId -cne $config.volume_guid_root) {
                 throw 'Preservation observer volume changed during termination'
             }
@@ -295,7 +220,8 @@ try {
             if($result.candidate_before_kill -or $result.journal_before_kill) {
                 $result.status='window_missed_bootstrap_already_passed';break
             }
-            $result.termination=Stop-OwnedPublisherProcessTree $held -RequireLiveKill
+            $result.native_process_pair=$effectPair.TerminateOriginalScmOwner()
+                $result.termination=New-OriginalScmTermination $result.native_process_pair
             $result.publication_after_kill=Test-Path -LiteralPath $publication
             $result.candidate_after_kill=Test-Path -LiteralPath $candidate
             $result.journal_after_kill=Test-Path -LiteralPath $config.journal_path
@@ -346,7 +272,8 @@ try {
             }
             # The held process handle is bound to the checked creation time.
             # Avoid CIM and volume queries inside the short rename window.
-            $result.termination=Stop-OwnedPublisherProcessTree $held -RequireLiveKill
+            $result.native_process_pair=$effectPair.TerminateOriginalScmOwner()
+                $result.termination=New-OriginalScmTermination $result.native_process_pair
             $result.journal_after_kill=Test-Path -LiteralPath $config.journal_path
             $result.visible_after_kill=Test-Path -LiteralPath $config.visible_path
             if($config.phase -ceq 'prepublish' -and $result.journal_after_kill) {
@@ -377,10 +304,15 @@ try {
         Start-Sleep -Milliseconds 1
     }
     if($result.status -eq 'not_run'){$result.status='window_missed_timeout'}
+    if($result.native_process_pair){Confirm-OriginalPairClosure $result}
 } catch {
     $result.status='failed'
     $result.failure=$_.Exception.Message
 } finally {
+    try {if($effectPair){$effectPair.Dispose()}} catch {
+        $result.status='failed';$result.failure='Original child observer close unconfirmed: '+$_.Exception.Message
+    }
+    if($held){$held.Dispose()}
     $result.observed_utc=[DateTime]::UtcNow.ToString('o')
     $outputTemp=$config.output_path+'.tmp'
     [IO.File]::WriteAllText($outputTemp,

@@ -173,6 +173,7 @@ def _reconcile_contention(observation, client, *, active_holder):
     record = observation.get('active_install_contention' if active_holder else 'registered_contention')
     if record is None:
         return None
+    child_bound = active_holder and record.get('schema') == 'usk.publisher_active_install_contention_probe.v2'
     scope = ('active_install_holder_endpoint_before_effect_request_bytes' if active_holder else
              'registered_endpoint_before_effect_request_bytes')
     fields = {'schema', 'scope', 'profile_qualified',
@@ -180,8 +181,11 @@ def _reconcile_contention(observation, client, *, active_holder):
         'worker_stopped'}
     if active_holder:
         fields |= {'paused_worker', 'lease_before', 'installer_live_before_resume', 'worker_pause_restored'}
+        if child_bound:
+            fields |= {'live_pair_before', 'live_pair_after', 'child_observer_close_confirmed'}
     require(isinstance(record, dict) and record.keys() == fields and
-        record['schema'] == 'usk.publisher_registered_contention_probe.v1' and record['scope'] == scope and
+        record['schema'] == ('usk.publisher_active_install_contention_probe.v2' if child_bound else
+            'usk.publisher_registered_contention_probe.v1') and record['scope'] == scope and
         record['profile_qualified'] is False and record['worker_stopped'] is (not active_holder),
         'registered contention scope or fixture closure differs')
     for name in ('producer_sha256', 'request_sha256'):
@@ -281,10 +285,26 @@ def _reconcile_contention(observation, client, *, active_holder):
             isinstance(pause['process_creation_file_time'], str) and
             pause['process_creation_file_time'] == str(native['worker_process_creation_time']) and
             pause['process_id'] == native['worker_process_id'] and
-            history[0]['holder'] == {'process_id': pause['process_id'],
-                'process_creation_time': f"{native['worker_process_creation_time']:016x}"} and
             record['installer_live_before_resume'] is True and record['worker_pause_restored'] is True,
-            'active contention pause/native holder identity or restoration differs')
+            'active contention actual SCM pause/endpoint identity or restoration differs')
+        current_phases = [json.loads(row['content_json'])['schema'] for row in baseline['rows']
+                          if row['path'].endswith('\\lab-prepared-evidence.json')]
+        require('usk.publisher.lab_phase_evidence.v10' not in current_phases or child_bound,
+                'current child installation downgraded its live-pair contention family')
+        if child_bound:
+            from publisher_process_pair_evidence import validate_live_process_pair
+            try:
+                holder = validate_live_process_pair(record['live_pair_before'], native['worker_process_id'],
+                    native['worker_process_creation_time'], expected_image)
+                after_holder = validate_live_process_pair(record['live_pair_after'], native['worker_process_id'],
+                    native['worker_process_creation_time'], expected_image)
+            except (ValueError, KeyError, TypeError) as error:
+                raise StandardEvidenceError('active contention original live child differs: ' + str(error)) from error
+            require(record['live_pair_before'] == record['live_pair_after'] and holder == after_holder and
+                record['child_observer_close_confirmed'] is True, 'active contention lost original child observer custody')
+        else:
+            holder = {'process_id': pause['process_id'], 'process_creation_time': f"{native['worker_process_creation_time']:016x}"}
+        require(history[0]['holder'] == holder, 'active contention native lease does not name its actual effect holder')
         require(record['lease_before'] == {'status': 'bindings_consistent', 'coordination': coordination,
             'profile_qualified': False, 'publication_authority_granted': False},
             'active contention recorded reconciliation differs from independent native rows')
@@ -649,9 +669,14 @@ def preservation_absence(independent, drive, prefix, volume_root_id):
 
 
 def _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, phase):
+    prepared_rows = [row['content_json'] for row in completed_readback['independent']['rows']
+                     if row['path'] == drive + 'publication\\journal\\lab-prepared-evidence.json']
+    require(len(prepared_rows) == 1, 'bootstrap loss lacks its independently retained completed phase family')
+    child_bound = json.loads(prepared_rows[0])['schema'] == 'usk.publisher.lab_phase_evidence.v10'
+    version = '.v2' if child_bound else '.v1'
     require(isinstance(loss, dict) and loss.keys() == {'schema', 'client_capture', 'response', 'boundary', 'readback', 'reconciliation'} and
-        loss['schema'] == ('usk.publisher_registered_bootstrap_loss.v1' if phase == 'bootstrap' else
-            'usk.publisher_registered_bootstrap_preservation_loss.v1'), 'registered bootstrap loss is not closed')
+        loss['schema'] == ('usk.publisher_registered_bootstrap_loss' if phase == 'bootstrap' else
+            'usk.publisher_registered_bootstrap_preservation_loss') + version, 'registered bootstrap loss is not closed for its actual phase family')
     capture = loss['client_capture']
     standard_capture(capture, observation['account_sid'], observation['machine_sha256'])
     require(capture['command'] == 'install_local.apply' and capture['request_id'] not in {x['request_id'] for x in captures} and
@@ -663,7 +688,7 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
         response['status'] == 'unknown' and response['result'] is None and
         response['error'] == {'code': 'publisher_outcome_unknown'}, 'bootstrap transport loss fabricated a successful native reply')
     boundary = loss['boundary']
-    require(boundary['schema'] == 'usk.publisher.production_rename_observer.v1' and
+    require(boundary['schema'] == 'usk.publisher.production_rename_observer' + version and
         boundary['identity'] == 'S-1-5-18' and boundary['phase'] == phase and
         boundary['status'] == ('terminated_publication_bootstrap' if phase == 'bootstrap' else
             'terminated_publication_preserved') and boundary['service_name'] == observation['service'] and
@@ -674,11 +699,16 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
             'journal_after_kill', 'visible_after_kill')) and boundary['failure'] is None and
         boundary['termination']['confirmed'] is True and boundary['termination']['kill_invoked'] is True and
         integer(boundary['termination']['terminated'], 1, 1024), 'registered bootstrap native process/window proof differs')
+    if child_bound:
+        from publisher_process_pair_evidence import validate_ended_process_pair
+        holder = validate_ended_process_pair(boundary)
+    else:
+        holder = {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']}
     if phase == 'bootstrap_preserved':
         from publisher_installation_lease_evidence import digest
         expected_prefix = drive + 'installation-operations\\install-' + digest(installed['install_id']) + '\\operation-' + digest(installed['transaction_id'])
         require(boundary['bootstrap_operation_prefix'] == expected_prefix and
-            boundary['single_worker_closure_confirmed'] is True and
+            (boundary['original_pair_closure_confirmed'] if child_bound else boundary['single_worker_closure_confirmed']) is True and
             boundary['termination']['method'] == 'TerminateProcess_owned_held_root' and
             integer(boundary['termination']['process_id'], 1) and
             boundary['termination']['process_id'] == boundary['service_pid'] and
@@ -699,7 +729,7 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
         preservation_absence(readback['independent'], drive, expected_prefix, volume_root_id)
     else:
         require('publication_absence' not in readback['independent'], 'ordinary bootstrap readback admitted absence mode')
-    return rows, {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']}
+    return rows, holder
 
 
 def _durable_bootstrap_binding(observation, captures, installed, completed_readback, drive):

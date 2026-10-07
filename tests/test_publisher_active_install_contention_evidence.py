@@ -45,7 +45,56 @@ def fixture():
     return observation, client
 
 
+def child_fixture():
+    observation, client = fixture()
+    record = observation['active_install_contention']
+    record['schema'] = 'usk.publisher_active_install_contention_probe.v2'
+    # Original sealed native lease remains child101; SCM is deliberately102.
+    record['native_observation']['worker_process_id'] = record['paused_worker']['process_id'] = 102
+    pair = {'schema': 'usk.publisher_owned_live_process_pair.v1',
+        'scope': 'held_scm_parent_and_original_live_effect_child',
+        'parent_process_id': 102, 'parent_process_birth': '0000000000000001',
+        'effect_process_id': 101, 'effect_process_birth': '0000000000000001',
+        'native_parent_process_id': 102, 'original_image_path': observation['installed_binary'],
+        'both_live': True, 'child_observer_access': 0x101400, 'child_observer_handle_flags': 0}
+    record['live_pair_before'] = copy.deepcopy(pair)
+    record['live_pair_after'] = copy.deepcopy(pair)
+    record['child_observer_close_confirmed'] = True
+    return observation, client
+
+
 class ActiveInstallContentionEvidenceTests(unittest.TestCase):
+    def test_current_child_lease_is_distinct_from_actual_scm_pause_and_endpoint(self):
+        observation, client = child_fixture()
+        result = reconcile_active_install_contention(observation, client)
+        self.assertEqual(result['cases_checked'], 4)
+        self.assertFalse(result['profile_qualified'])
+        record = observation['active_install_contention']
+        self.assertNotEqual(record['paused_worker']['process_id'], record['lease_before']['coordination']['history'][0]['holder']['process_id'])
+
+    def test_current_live_child_custody_and_scm_roles_cannot_be_substituted(self):
+        for mutate in (
+            lambda r: r['paused_worker'].update(process_id=101),
+            lambda r: r['native_observation'].update(worker_process_id=101),
+            lambda r: r['live_pair_after'].update(effect_process_birth='0000000000000002'),
+            lambda r: r.update(child_observer_close_confirmed=False),
+            lambda r: r['live_pair_before'].update(both_live=False),
+            lambda r: r['live_pair_before'].update(child_observer_access=0x101401),
+            lambda r: r['live_pair_before'].update(child_observer_handle_flags=False),
+            lambda r: r.update(worker_pause_restored=False),
+        ):
+            observation, client = child_fixture()
+            mutate(observation['active_install_contention'])
+            with self.subTest(mutation=mutate), self.assertRaises(StandardEvidenceError):
+                reconcile_active_install_contention(observation, client)
+        observation, client = child_fixture()
+        record = observation['active_install_contention']
+        for key in ('live_pair_before', 'live_pair_after'):
+            record[key]['effect_process_id'] = 103
+        # Consistent native pair copies still contradict the sealed original lease.
+        with self.assertRaises(StandardEvidenceError):
+            reconcile_active_install_contention(observation, client)
+
     def test_requires_real_planning_envelope_and_matching_reviewed_targets(self):
         observation, client = fixture()
         for mutate in (

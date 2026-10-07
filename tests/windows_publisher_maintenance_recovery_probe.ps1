@@ -3,7 +3,7 @@
 
 # Called only from the existing hosted, owned Standard maintenance fixture.
 function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
-    $case=[ordered]@{schema='usk.publisher_ended_repair_recovery_probe.v1';
+    $case=[ordered]@{schema='usk.publisher_ended_repair_recovery_probe.v2';
         profile_qualified=$false;recovery_qualified=$false;status='running';
         before=$null;interrupted=$null;after=$null;response=$null}
     $receipt['maintenance_recovery']=$case
@@ -69,6 +69,22 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
         $_.path -ceq ($drive+'setup-state\state\transactions\'+$apply.transaction_id+'.native-maintenance-created.json')})
     $confirm=@($interrupted.independent.rows|Where-Object {
         $_.path -ceq ($drive+'setup-state\state\transactions\'+$apply.transaction_id+'.native-maintenance-custody\00000000000000000000.json')})
+    $originalCustody=@($interrupted.independent.rows|Where-Object {
+        $_.path -ceq ($drive+'setup-state\state\transactions\'+$apply.transaction_id+'.native-maintenance-original.json')})
+    if($originalCustody.Count -ne 1 -or -not $originalCustody[0].content_json -or
+        $originalCustody[0].sha256 -cnotmatch '^[0-9a-f]{64}$') {
+        throw 'Ended repair lacks independently retained original child provenance'
+    }
+    $provenanceInput=@{mode='original_maintenance_provenance';
+        original=($originalCustody[0].content_json|ConvertFrom-Json);request=$apply;service_name=$service;boundary=$boundary}
+    $provenance=$provenanceInput|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_process_pair_evidence.py') --input -
+    if($LASTEXITCODE -ne 0){throw 'Actual ended original child/native broker provenance differs'}
+    $case['original_provenance']=($provenance -join "`n")|ConvertFrom-Json
+    if($case.original_provenance.original_pair_closure_checked -ne $true -or
+        $case.original_provenance.native_restoration_qualified -ne $false) {
+        throw 'Retained original child provenance fabricated restoration qualification'
+    }
     $oldLease=$boundary.maintenance_writer_lease_ownership
     $completedBefore=@($documents|Where-Object {$_.schema -ceq 'usk.installation_lease_ownership.v1' -and
         $_.operation_id -ceq $apply.transaction_id -and $_.status -ceq 'completed'})
@@ -77,8 +93,11 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
         $completedBefore.Count -ne 0 -or
         $original.Count -ne 1 -or $confirm.Count -ne 1 -or
         $confirm[0].sha256 -cne $boundary.maintenance_confirmation_sha256 -or
-        $oldLease.holder.process_id -ne $boundary.service_pid -or
-        $oldLease.holder.process_creation_time -cne $boundary.process_creation_file_time -or
+        $oldLease.holder.process_id -ne $boundary.effect_holder.process_id -or
+        $oldLease.holder.process_creation_time -cne $boundary.effect_holder.process_creation_time -or
+        $boundary.schema -cne 'usk.publisher.production_rename_observer.v2' -or
+        $boundary.original_pair_closure_confirmed -ne $true -or
+        $boundary.native_process_pair.child_native_wait_result -ne 0 -or
         (Get-Service $service).Status -ne 'Stopped') {
         throw 'Ended repair lacks the actual incomplete original worker custody'
     }
