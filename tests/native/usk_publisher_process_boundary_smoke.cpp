@@ -1198,16 +1198,64 @@ void broker_worker_native_acquisition_controls() {
             WaitForSingleObject(live.handle(), 0) == WAIT_TIMEOUT,
             "native broker acquisition omitted or rebound an actual owned live thread");
     }
+    for (const auto window : {"broker_native_threads_pinned", "broker_native_before_thread_readback",
+            "broker_native_initial_times_read", "broker_native_repeated_times_read"}) {
+        TestThread original;
+        const bool inter_call = std::string(window).find("times_read") != std::string::npos;
+        const bool initial = std::string(window) == "broker_native_threads_pinned" ||
+            std::string(window) == "broker_native_initial_times_read";
+        const auto target_checkpoint = std::string(window) + (inter_call ? "." + std::to_string(original.id()) : "");
+        bool live_after_timing = false;
+        std::string diagnostic;
+        try {
+            (void)capture([&](const char* checkpoint) {
+                if (std::string(checkpoint) == target_checkpoint) {
+                    if (inter_call) {
+                        check(WaitForSingleObject(original.handle(), 0) == WAIT_TIMEOUT,
+                            "inter-call retirement control was not live after the original timing read");
+                        live_after_timing = true;
+                    }
+                    original.retire();
+                }
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(!inter_call || live_after_timing, "native broker control missed the between-timing-and-wait retirement window");
+        check(diagnostic.find(initial ? "observed thread is unavailable or exited" :
+                "held thread exited or changed identity") != std::string::npos,
+            "native broker acquisition silently omitted a pinned thread retirement");
+        FILETIME birth{}, exit{}, kernel{}, user{};
+        check(GetThreadTimes(original.handle(), &birth, &exit, &kernel, &user) &&
+            (birth.dwHighDateTime || birth.dwLowDateTime) && (exit.dwHighDateTime || exit.dwLowDateTime) &&
+            WaitForSingleObject(original.handle(), 0) == WAIT_OBJECT_0,
+            "native broker retirement diagnostic lacks actual original-held exit facts");
+        const auto birth_value = (static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime;
+        const auto exit_value = (static_cast<std::uint64_t>(exit.dwHighDateTime) << 32) | exit.dwLowDateTime;
+        check(diagnostic.find("; held_process_id=" + std::to_string(GetCurrentProcessId()) + ";") != std::string::npos &&
+            diagnostic.find("; held_thread_id=" + std::to_string(original.id()) + ";") != std::string::npos &&
+            diagnostic.find(std::string("; checkpoint=") + (initial ? "initial_held_thread_read" :
+                "repeated_held_thread_read") + ";") != std::string::npos &&
+            diagnostic.find("; get_thread_times=true; get_thread_times_error=0;") != std::string::npos &&
+            diagnostic.find("; creation_filetime=" + std::to_string(birth_value) + ";") != std::string::npos &&
+            diagnostic.find("; confirmed_exit_filetime=" + std::to_string(exit_value) + ";") != std::string::npos &&
+            diagnostic.find("; exit_filetime=") == std::string::npos &&
+            diagnostic.find("; wait_result=0; wait_error=0;") != std::string::npos,
+            "native broker retirement diagnostic replaced the actual held identity, birth, exit or wait result");
+    }
     {
         TestThread original;
+        bool optional_failure = false;
         std::string diagnostic;
         try {
             (void)capture([&](const char* checkpoint) {
                 if (std::string(checkpoint) == "broker_native_threads_pinned") original.retire();
+                if (std::string(checkpoint) == "broker_native_before_refusal_diagnostic") {
+                    optional_failure = true;
+                    throw std::runtime_error("synthetic optional refusal diagnostic failure");
+                }
             });
         } catch (const std::exception& error) { diagnostic = error.what(); }
-        check(diagnostic.find("observed thread is unavailable or exited") != std::string::npos,
-            "native broker acquisition silently omitted a pinned thread retirement");
+        check(optional_failure && diagnostic == "publisher worker observed thread is unavailable or exited",
+            "optional native broker diagnostic failure replaced the original held-thread refusal");
     }
     {
         TestThread surviving;

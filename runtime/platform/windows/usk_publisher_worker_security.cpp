@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
@@ -266,6 +267,47 @@ void require_primary_unchanged(HANDLE token, const TOKEN_STATISTICS& before, con
 } // namespace
 
 namespace {
+[[noreturn]] void refuse_thread_observation(const char* reason, HANDLE original_thread, DWORD original_thread_id,
+    unsigned round, const char* checkpoint, bool times_read, DWORD times_error,
+    const FILETIME& creation, const std::optional<DWORD>& wait_result, DWORD wait_error,
+    const Value* recorded_thread, const std::function<void(const char*)>* control)
+{
+    // Capture the refusal before optional formatting. These are facts from the
+    // original held object; the diagnostic cannot refresh or replace it.
+    const auto original = std::make_exception_ptr(std::runtime_error(reason));
+    auto reported = original;
+    try {
+        const auto time_value = [](const FILETIME& value) {
+            return (static_cast<std::uint64_t>(value.dwHighDateTime) << 32) | value.dwLowDateTime;
+        };
+        if (control) (*control)("broker_native_before_refusal_diagnostic");
+        std::optional<std::uint64_t> confirmed_exit;
+        if (times_read && time_value(creation) && wait_result == static_cast<DWORD>(WAIT_OBJECT_0)) {
+            // The original pre-wait exit output may be undefined. Only this
+            // separate post-signal read can observe a defined exit timestamp.
+            FILETIME later_creation{}, later_exit{}, kernel{}, user{};
+            if (GetThreadTimes(original_thread, &later_creation, &later_exit, &kernel, &user) &&
+                GetProcessIdOfThread(original_thread) == GetCurrentProcessId() &&
+                GetThreadId(original_thread) == original_thread_id &&
+                time_value(later_creation) == time_value(creation) &&
+                (!recorded_thread || recorded_thread->at("creation_time").as_string() == hex64(time_value(later_creation))) &&
+                time_value(later_exit) && time_value(later_exit) >= time_value(later_creation) &&
+                WaitForSingleObject(original_thread, 0) == WAIT_OBJECT_0)
+                confirmed_exit = time_value(later_exit);
+        }
+        const std::string detail = std::string(reason) + "; held_process_id=" + std::to_string(GetCurrentProcessId()) +
+            "; held_thread_id=" + std::to_string(original_thread_id) + "; round=" + std::to_string(round) +
+            "; checkpoint=" + checkpoint + "; get_thread_times=" + (times_read ? "true" : "false") +
+            "; get_thread_times_error=" + std::to_string(times_error) +
+            "; creation_filetime=" + (times_read ? std::to_string(time_value(creation)) : "unobserved") +
+            "; confirmed_exit_filetime=" + (confirmed_exit ? std::to_string(*confirmed_exit) : "unobserved") +
+            "; wait_result=" + (wait_result ? std::to_string(*wait_result) : "unobserved") +
+            "; wait_error=" + std::to_string(wait_error) + ";";
+        try { throw std::runtime_error(detail); }
+        catch (const std::runtime_error&) { reported = std::current_exception(); }
+    } catch (...) {} // Preserve the already captured refusal if formatting fails.
+    std::rethrow_exception(reported);
+}
 Value observe_worker_security(bool native_broker, const std::function<void(const char*)>* checkpoint = nullptr) {
     HANDLE raw = nullptr;
     require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL, &raw),
@@ -292,9 +334,22 @@ Value observe_worker_security(bool native_broker, const std::function<void(const
                 "publisher worker thread is not owned by this process");
             require_no_thread_token(thread);
             FILETIME creation{}, exit{}, kernel{}, user{};
-            require(GetThreadTimes(thread, &creation, &exit, &kernel, &user) &&
-                (creation.dwHighDateTime || creation.dwLowDateTime) && WaitForSingleObject(thread, 0) == WAIT_TIMEOUT,
-                "publisher worker observed thread is unavailable or exited");
+            const bool times_read = GetThreadTimes(thread, &creation, &exit, &kernel, &user) != FALSE;
+            const DWORD times_error = times_read ? ERROR_SUCCESS : GetLastError();
+            if (checkpoint && times_read) {
+                const auto point = "broker_native_initial_times_read." + std::to_string(id);
+                (*checkpoint)(point.c_str());
+            }
+            std::optional<DWORD> wait_result;
+            DWORD wait_error = ERROR_SUCCESS;
+            if (times_read && (creation.dwHighDateTime || creation.dwLowDateTime)) {
+                wait_result = WaitForSingleObject(thread, 0);
+                if (*wait_result == WAIT_FAILED) wait_error = GetLastError();
+            }
+            if (!times_read || !(creation.dwHighDateTime || creation.dwLowDateTime) ||
+                wait_result != static_cast<DWORD>(WAIT_TIMEOUT))
+                refuse_thread_observation("publisher worker observed thread is unavailable or exited", thread, id, round,
+                    "initial_held_thread_read", times_read, times_error, creation, wait_result, wait_error, nullptr, checkpoint);
             auto facts = object_security(thread);
             require(usk::json::canonical(Value(facts)) == usk::json::canonical(Value(object_security(thread))),
                 "publisher worker thread security changed during readback");
@@ -310,12 +365,25 @@ Value observe_worker_security(bool native_broker, const std::function<void(const
             FILETIME creation{}, exit{}, kernel{}, user{};
             const auto& recorded = recorded_threads.at(item.first);
             const auto thread = item.second->get();
-            require(GetThreadTimes(thread, &creation, &exit, &kernel, &user) &&
+            const bool times_read = GetThreadTimes(thread, &creation, &exit, &kernel, &user) != FALSE;
+            const DWORD times_error = times_read ? ERROR_SUCCESS : GetLastError();
+            if (checkpoint && times_read) {
+                const auto point = "broker_native_repeated_times_read." + std::to_string(item.first);
+                (*checkpoint)(point.c_str());
+            }
+            const bool identity_matches = times_read &&
                 GetProcessIdOfThread(thread) == GetCurrentProcessId() &&
-                GetThreadId(thread) == recorded.at("thread_id").as_unsigned() &&
-                WaitForSingleObject(thread, 0) == WAIT_TIMEOUT && recorded.at("creation_time").as_string() ==
-                    hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime),
-                "publisher worker held thread exited or changed identity");
+                GetThreadId(thread) == recorded.at("thread_id").as_unsigned();
+            std::optional<DWORD> wait_result;
+            DWORD wait_error = ERROR_SUCCESS;
+            if (identity_matches) {
+                wait_result = WaitForSingleObject(thread, 0);
+                if (*wait_result == WAIT_FAILED) wait_error = GetLastError();
+            }
+            if (!identity_matches || wait_result != static_cast<DWORD>(WAIT_TIMEOUT) || recorded.at("creation_time").as_string() !=
+                    hex64((static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime))
+                refuse_thread_observation("publisher worker held thread exited or changed identity", thread, item.first, round,
+                    "repeated_held_thread_read", times_read, times_error, creation, wait_result, wait_error, &recorded, checkpoint);
             auto repeated = object_security(thread);
             require_no_thread_token(thread);
             repeated.emplace("thread_id", recorded.at("thread_id"));
