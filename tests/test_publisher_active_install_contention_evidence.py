@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: MIT
 """Synthetic contradictions only; these tests do not qualify an active installer."""
 import copy
+import json
 import unittest
 from publisher_installation_lease_evidence import LeaseEvidenceError, snapshot
 from publisher_standard_public_evidence import StandardEvidenceError, reconcile_active_install_contention
 from test_publisher_registered_contention_evidence import fixture as endpoint_fixture
 from test_publisher_installation_lease_evidence import fixture as lease_fixture, DRIVE, ROOT, INSTALLED
+from test_publisher_installation_lease_evidence import active_fixture, record as lease_record
+from publisher_installation_lease_evidence import active_ownership, digest
 
 
 def fixture():
@@ -63,7 +66,75 @@ def child_fixture():
     return observation, client
 
 
+def ownership_fixture(published=False):
+    observation, client = child_fixture()
+    record = observation['active_install_contention']
+    rows, request, response, apply, consumer, holder = active_fixture(published)
+    assert client == consumer
+    observation.update(plan_request=request, plan_response=response, plan=response['result']['payload'], apply_request=apply)
+    record['schema'] = 'usk.publisher_active_install_contention_probe.v3'
+    record['paused_effect_child'] = {'process_id': holder['process_id'], 'process_creation_file_time': '1',
+                                    'paused_threads': 1, 'identity_live_while_paused': True}
+    record['effect_child_pause_restored'] = True
+    for name in ('before', 'after'):
+        record[name]['independent']['rows'] = copy.deepcopy(rows)
+    record['lease_before']['coordination'] = active_ownership(rows, DRIVE, INSTALLED, ROOT,
+        request, response, apply, consumer, holder)
+    completed = copy.deepcopy(rows)
+    active = next(row for row in rows if row['path'].endswith('-active.json'))
+    terminal = dict(json.loads(active['content_json']), status='completed',
+        result_state_revision=digest([{'record': INSTALLED['install_id']+'.'+INSTALLED['transaction_id']+'.json',
+                                      'sha256': digest(INSTALLED)}]))
+    terminal['ownership_sha256'] = digest({k: v for k, v in terminal.items() if k != 'ownership_sha256'})
+    completed += [lease_record(active['path'].replace('-active.json', '-terminal.json'), terminal),
+                  lease_record(DRIVE+'setup-state\\state\\installed\\'+INSTALLED['install_id']+'.'+INSTALLED['transaction_id']+'.json', INSTALLED)]
+    if not published:
+        context = json.loads(next(row['content_json'] for row in rows if row['path'].endswith('.json') and
+            'reviewed_snapshot' in json.loads(row['content_json'])))
+        completed.append(lease_record(DRIVE+'publication\\journal\\lab-reviewed-plan.json', context['reviewed_snapshot']))
+    observation['readbacks'][0]['independent']['rows'] = completed
+    return observation, client
+
+
 class ActiveInstallContentionEvidenceTests(unittest.TestCase):
+    def test_v3_original_early_and_published_ownership_reconcile_with_checked_child_pause(self):
+        for published in (False, True):
+            observation, client = ownership_fixture(published)
+            result = reconcile_active_install_contention(observation, client)
+            self.assertEqual(result['cases_checked'], 4)
+            self.assertFalse(result['profile_qualified'])
+
+    def test_v3_child_suspend_custody_cannot_replace_query_pair_or_skip_restoration(self):
+        for mutate in (
+            lambda r: r['paused_effect_child'].update(process_id=102),
+            lambda r: r['paused_effect_child'].update(process_creation_file_time='2'),
+            lambda r: r['paused_effect_child'].update(paused_threads=0),
+            lambda r: r['paused_effect_child'].update(identity_live_while_paused=False),
+            lambda r: r.update(effect_child_pause_restored=False),
+            lambda r: r.pop('paused_effect_child'),
+            lambda r: r['live_pair_after'].update(effect_process_birth='0000000000000002'),
+            lambda r: r['live_pair_before'].update(child_observer_access=0x101401),
+        ):
+            observation, client = ownership_fixture()
+            mutate(observation['active_install_contention'])
+            with self.subTest(mutation=mutate), self.assertRaises((StandardEvidenceError, LeaseEvidenceError)):
+                reconcile_active_install_contention(observation, client)
+
+    def test_v3_actual_response_and_phase_cannot_be_substituted_or_downgraded(self):
+        observation, client = ownership_fixture()
+        observation['plan_response']['request_id'] = 'different.original.request'
+        with self.assertRaises(LeaseEvidenceError):
+            reconcile_active_install_contention(observation, client)
+        observation, client = ownership_fixture()
+        observation['active_install_contention']['lease_before']['coordination']['active_ownership_phase'] = 'published_reviewed_plan'
+        with self.assertRaises(StandardEvidenceError):
+            reconcile_active_install_contention(observation, client)
+        observation, client = ownership_fixture()
+        r = observation['active_install_contention'];r['schema'] = 'usk.publisher_active_install_contention_probe.v2'
+        r.pop('paused_effect_child');r.pop('effect_child_pause_restored')
+        with self.assertRaises(KeyError):
+            reconcile_active_install_contention(observation, client)
+
     def test_current_phase_families_require_original_live_child_contention(self):
         for phase in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
             marker = {'path': DRIVE+'publication\\lab-prepared-evidence.json',

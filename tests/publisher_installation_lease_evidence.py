@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from pathlib import Path
 import re
 import sys
 
@@ -175,6 +176,13 @@ def bootstrap_history(by_path, drive, context_directory, context_path, context, 
 
 def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allow_legacy_missing=False,
              allow_legacy_missing_bootstrap=False, allow_initial_empty_state=False):
+    return _snapshot(rows, drive, installed, volume_root_id, allow_active=allow_active,
+        allow_legacy_missing=allow_legacy_missing, allow_legacy_missing_bootstrap=allow_legacy_missing_bootstrap,
+        allow_initial_empty_state=allow_initial_empty_state)
+
+
+def _snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allow_legacy_missing=False,
+              allow_legacy_missing_bootstrap=False, allow_initial_empty_state=False, early_reviewed=None):
     require(isinstance(rows, list) and 0 < len(rows) <= 10000, 'coordination row budget exceeded')
     require(all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in rows), 'coordination row missing path')
     by_path = {row['path']: row for row in rows}
@@ -208,11 +216,14 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allo
             'initial_state_revision', 'reviewed_snapshot', 'context_sha256'}, 'operation context is not closed')
     unsealed = {key: value for key, value in context.items() if key != 'context_sha256'}
     reviewed_path = drive + 'publication\\journal\\lab-reviewed-plan.json'
+    reviewed = document(by_path[reviewed_path]) if early_reviewed is None else early_reviewed
+    require(early_reviewed is None or reviewed_path not in by_path,
+            'early ownership cannot replace a published reviewed plan')
     require(context['schema'] == 'usk.installation_operation_context.v1' and context['install_id'] == install and
             context['operation'] == 'install_local' and context['operation_id'] == operation and
             context['volume_root_identity'] == root(volume_root_id) and context['context_sha256'] == digest(unsealed) and
             context['initial_state_revision'] == digest([]) and
-            context['reviewed_snapshot'] == document(by_path[reviewed_path]), 'original reviewed operation binding differs')
+            context['reviewed_snapshot'] == reviewed, 'original reviewed operation binding differs')
     state_identity = root(by_path[state]['file_id'])
     roots = document(by_path[roots_path])
     require(roots.keys() == {'schema', 'install_id', 'operation_id', 'context_sha256',
@@ -304,6 +315,110 @@ def snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, allo
             'files': [context_path, roots_path] + sorted(bootstrap_files) + [row['path'] for row in lease_files]}
     if allow_initial_empty_state:
         result['initial_empty_state_observed'] = True
+    return result
+
+
+def active_ownership(rows, drive, installed, volume_root_id, request, response, apply, consumer, held_holder):
+    """Original g1 ownership only; never publication, completion or native authority.
+
+    The v3 fixture can stop at complete empty publication anchors. Ordinary
+    snapshots and the historical v2 fixture still require the published plan.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+    from usk_bundle_apply_binding import BindingError, compose_binding, _bytes
+    require(isinstance(rows, list) and 0 < len(rows) <= 10000 and
+            all(isinstance(row, dict) and isinstance(row.get('path'), str) for row in rows),
+            'active ownership row budget or path differs')
+    by_path = {row['path']: row for row in rows}
+    require(len(by_path) == len(rows) and isinstance(apply, dict) and isinstance(installed, dict) and
+            installed.get('install_id') == apply['plan_request']['install_id'] and
+            installed.get('transaction_id') == apply['transaction_id'],
+            'active ownership original apply identity differs')
+    require(isinstance(request, dict) and request.keys() == {'schema', 'request_id', 'command', 'payload', 'dry_run'} and
+            isinstance(response, dict) and response.get('request_id') == request.get('request_id') and
+            response.get('error') is None and response.get('result', {}).get('error') is None and
+            isinstance(consumer, str) and re.fullmatch(r'S-1-5-21-(?:[0-9]+-){3}[0-9]+', consumer),
+            'active ownership actual planning response or consumer differs')
+    try:
+        rebuilt_apply, envelope = compose_binding(request, response, acceptance_root=drive,
+            state_root=drive + 'setup-state', transaction_id=apply['transaction_id'], applied_at=apply['applied_at'])
+    except (BindingError, KeyError, TypeError) as error:
+        raise LeaseEvidenceError('active ownership actual planning binding differs: ' + str(error)) from error
+    require(rebuilt_apply == apply, 'active ownership actual apply was substituted')
+    plan = response['result']['payload']
+    context_path = (drive + 'installation-operations\\install-' + digest(installed['install_id']) +
+                    '\\operation-' + digest(installed['transaction_id']) + '.json')
+    require(context_path in by_path, 'active ownership protected original context absent')
+    reviewed = document(by_path[context_path]).get('reviewed_snapshot')
+    fields = {'schema', 'plan_digest', 'plan_envelope_sha256', 'archive_sha256', 'archive_identity_digest',
+        'entry_set_digest', 'selected_file_set_digest', 'target_root', 'setup_root', 'transaction_id', 'applied_at',
+        'policy_digest', 'restart_policy_context', 'plan_request', 'planned_entries', 'consumer_read_sid', 'apply_request'}
+    require(isinstance(reviewed, dict) and reviewed.keys() == fields and
+            reviewed['schema'] == 'usk.publisher.lab_reviewed_plan_snapshot.v4',
+            'active ownership lost its closed current consumer-bound snapshot')
+    expected = {'plan_digest': plan['plan_digest'], 'plan_envelope_sha256': hashlib.sha256(_bytes(envelope)).hexdigest(),
+        'archive_sha256': plan['source']['sha256'], 'archive_identity_digest': plan['source']['filesystem_identity_digest'],
+        'target_root': plan['target']['root'], 'setup_root': drive + 'setup-state',
+        'transaction_id': apply['transaction_id'], 'applied_at': apply['applied_at'],
+        'policy_digest': plan['input_identity']['policy_digest'], 'plan_request': request['payload'],
+        'planned_entries': plan['planned_entries'], 'consumer_read_sid': consumer, 'apply_request': apply}
+    require(all(reviewed[key] == value for key, value in expected.items()),
+            'active ownership protected snapshot differs from actual plan/apply/source/consumer')
+    require(isinstance(reviewed['entry_set_digest'], str) and re.fullmatch('[0-9a-f]{64}', reviewed['entry_set_digest']),
+            'active ownership opaque native entry-set digest absent')
+    files = []
+    for entry in plan['planned_entries']:
+        require(entry.get('entry_type') in ('file', 'directory') and isinstance(entry.get('relative_path'), str) and
+                re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', entry['relative_path']),
+                'active fixture selected path is outside its bounded ASCII profile')
+        if entry['entry_type'] == 'file':
+            require(type(entry.get('size_bytes')) is int and 0 <= entry['size_bytes'] <= 0xffffffffffffffff and
+                    isinstance(entry.get('sha256'), str) and re.fullmatch('[0-9a-f]{64}', entry['sha256']),
+                    'active fixture selected file facts differ')
+            files.append({'relative_path': entry['relative_path'], 'size': entry['size_bytes'], 'sha256': entry['sha256']})
+    require(0 < len(files) <= 4096 and len({f['relative_path'].upper() for f in files}) == len(files),
+            'active fixture selected file count or alias differs')
+    files.sort(key=lambda f: f['relative_path'].upper())
+    selected = canonical({'schema': 'usk.publisher.lab_selected_file_set.v1', 'files': files}) + '\n'
+    require(reviewed['selected_file_set_digest'] == hashlib.sha256(selected.encode('utf-8')).hexdigest(),
+            'active ownership selected files differ from actual planning output')
+    policy_text = reviewed['restart_policy_context']
+    require(isinstance(policy_text, str) and 0 < len(policy_text.encode('utf-8')) <= 65536,
+            'active ownership restart policy exceeds its bounded context')
+    policy = json.loads(policy_text)
+    target = policy.get('target_evidence', {})
+    target_fields = {'capacity_satisfied', 'excluded_roots_absent', 'filesystem_identity_digest', 'filesystem_kind',
+        'local_filesystem', 'mount_redirection_absent', 'path_components_stable', 'schema', 'source_target_distinct',
+        'target_identity_digest', 'target_state'}
+    flags = ('capacity_satisfied', 'excluded_roots_absent', 'local_filesystem', 'mount_redirection_absent',
+             'path_components_stable', 'source_target_distinct')
+    require(canonical(policy) == policy_text and policy.keys() == {'schema', 'policy', 'setup_initial_state', 'target_evidence'} and
+            policy['schema'] == 'usk.install_restart_policy_context.v1' and policy['setup_initial_state'] == 'absent' and
+            isinstance(policy['policy'], dict) and policy['policy'].keys() == {'activation', 'setup_binding_digest', 'target_binding_digest'} and
+            policy['policy'].get('activation') == 'operator_acceptance_candidate' and
+            all(isinstance(policy['policy'][key], str) and re.fullmatch('[0-9a-f]{64}', policy['policy'][key])
+                for key in ('setup_binding_digest', 'target_binding_digest')) and
+            digest(policy['policy']) == reviewed['policy_digest'] and
+            isinstance(target, dict) and target.keys() == target_fields and all(target[key] is True for key in flags) and
+            target.get('schema') == 'usk.install_target_recovery_evidence.v1' and
+            target.get('filesystem_kind') == plan['target']['filesystem']['kind'] and
+            target.get('filesystem_identity_digest') == plan['target']['filesystem']['identity_digest'] and
+            target.get('target_identity_digest') == plan['target']['identity_digest'] and target.get('target_state') == 'nonexistent',
+            'active ownership original restart/target policy differs')
+    reviewed_path = drive + 'publication\\journal\\lab-reviewed-plan.json'
+    early = reviewed_path not in by_path
+    if early:
+        publication = drive + 'publication'
+        expected_paths = {publication} | {publication + '\\' + name for name in ('staging', 'destination', 'state', 'journal')}
+        actual_paths = {path for path in by_path if path == publication or path.startswith(publication + '\\')}
+        require(actual_paths == expected_paths and all(by_path[path].get('directory') is True for path in expected_paths),
+                'early active ownership lacks exactly complete empty publication anchors')
+    result = _snapshot(rows, drive, installed, volume_root_id, allow_active=True, allow_initial_empty_state=True,
+                       early_reviewed=reviewed if early else None)
+    require(result['history'][0]['holder'] == held_holder,
+            'active ownership generation does not name the held original native child')
+    require(result['bootstrap_protocol'] == 'reserved_creation', 'active ownership lacks its original bootstrap reservation')
+    result['active_ownership_phase'] = 'prepublication_empty_anchors' if early else 'published_reviewed_plan'
     return result
 
 
@@ -456,6 +571,9 @@ def main():
         result = snapshot(value['rows'], value['drive'], value['installed'], value['volume_root_id'],
                           allow_active=value.get('allow_active') is True, allow_legacy_missing=value.get('allow_legacy_missing') is True,
                           allow_initial_empty_state=value.get('allow_initial_empty_state') is True)
+    elif value['mode'] == 'active_ownership':
+        result = active_ownership(value['rows'], value['drive'], value['installed'], value['volume_root_id'],
+            value['request'], value['response'], value['apply'], value['consumer'], value['held_holder'])
     elif value['mode'] == 'bootstrap_takeover':
         result = bootstrap_takeover(value['before'], value['after'], value['drive'], value['installed'],
                                     value['volume_root_id'], value['terminated_holder'])

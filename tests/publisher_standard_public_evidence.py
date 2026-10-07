@@ -173,7 +173,8 @@ def _reconcile_contention(observation, client, *, active_holder):
     record = observation.get('active_install_contention' if active_holder else 'registered_contention')
     if record is None:
         return None
-    child_bound = active_holder and record.get('schema') == 'usk.publisher_active_install_contention_probe.v2'
+    ownership_bound = active_holder and record.get('schema') == 'usk.publisher_active_install_contention_probe.v3'
+    child_bound = active_holder and (ownership_bound or record.get('schema') == 'usk.publisher_active_install_contention_probe.v2')
     scope = ('active_install_holder_endpoint_before_effect_request_bytes' if active_holder else
              'registered_endpoint_before_effect_request_bytes')
     fields = {'schema', 'scope', 'profile_qualified',
@@ -183,8 +184,11 @@ def _reconcile_contention(observation, client, *, active_holder):
         fields |= {'paused_worker', 'lease_before', 'installer_live_before_resume', 'worker_pause_restored'}
         if child_bound:
             fields |= {'live_pair_before', 'live_pair_after', 'child_observer_close_confirmed'}
+        if ownership_bound:
+            fields |= {'paused_effect_child', 'effect_child_pause_restored'}
     require(isinstance(record, dict) and record.keys() == fields and
-        record['schema'] == ('usk.publisher_active_install_contention_probe.v2' if child_bound else
+        record['schema'] == ('usk.publisher_active_install_contention_probe.v3' if ownership_bound else
+            'usk.publisher_active_install_contention_probe.v2' if child_bound else
             'usk.publisher_registered_contention_probe.v1') and record['scope'] == scope and
         record['profile_qualified'] is False and record['worker_stopped'] is (not active_holder),
         'registered contention scope or fixture closure differs')
@@ -273,8 +277,22 @@ def _reconcile_contention(observation, client, *, active_holder):
         require(roots[0] == roots[1] == roots[2] and re.fullmatch(r'[A-Z]:\\', roots[0][:3]),
             'active contention reviewed targets or drive prefix differ')
         drive = roots[0][:3]
-        coordination = lease_snapshot(before, drive, installed, volume_root_id,
-                                      allow_active=True, allow_initial_empty_state=True)
+        if ownership_bound:
+            from publisher_installation_lease_evidence import active_ownership
+            from publisher_process_pair_evidence import validate_live_process_pair
+            response = observation.get('plan_response')
+            require(isinstance(response, dict) and response.get('result', {}).get('payload') == plan,
+                    'active ownership actual planning response differs from retained plan')
+            try:
+                original_holder = validate_live_process_pair(record['live_pair_before'], native['worker_process_id'],
+                    native['worker_process_creation_time'], expected_image)
+            except (ValueError, KeyError, TypeError) as error:
+                raise StandardEvidenceError('active ownership original live child differs: ' + str(error)) from error
+            coordination = active_ownership(before, drive, installed, volume_root_id,
+                                            envelope, response, apply_request, client, original_holder)
+        else:
+            coordination = lease_snapshot(before, drive, installed, volume_root_id,
+                                          allow_active=True, allow_initial_empty_state=True)
         history = coordination['history']
         require(len(history) == 1 and history[0]['status'] == 'active' and history[0]['generation'] == 1,
                 'active contention lacks the original active native generation')
@@ -306,6 +324,14 @@ def _reconcile_contention(observation, client, *, active_holder):
         else:
             holder = {'process_id': pause['process_id'], 'process_creation_time': f"{native['worker_process_creation_time']:016x}"}
         require(history[0]['holder'] == holder, 'active contention native lease does not name its actual effect holder')
+        if ownership_bound:
+            child_pause = record['paused_effect_child']
+            require(isinstance(child_pause, dict) and child_pause.keys() == {'process_id', 'process_creation_file_time',
+                    'paused_threads', 'identity_live_while_paused'} and child_pause['identity_live_while_paused'] is True and
+                    child_pause['process_id'] == holder['process_id'] and
+                    child_pause['process_creation_file_time'] == str(int(holder['process_creation_time'], 16)) and
+                    integer(child_pause['paused_threads'], 1, 128) and record['effect_child_pause_restored'] is True,
+                    'active ownership original child suspend custody or restoration differs')
         require(record['lease_before'] == {'status': 'bindings_consistent', 'coordination': coordination,
             'profile_qualified': False, 'publication_authority_granted': False},
             'active contention recorded reconciliation differs from independent native rows')

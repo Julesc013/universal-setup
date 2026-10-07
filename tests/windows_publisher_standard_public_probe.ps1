@@ -81,6 +81,7 @@ $accountSid='';$accountCreated=$false;$clientsClosed=$true;$registered=$false;$s
 $observersClosed=$true;$clientTokenLease=$null;$clientCaptureFile=Join-Path $lab 'public-client-token.json';$clientCaptureSha256=''
 $installGuardHolderClosed=$true
 $activeContenderClosed=$true;$activeWorkerRestored=$true;$activeRetainedTokenLease=$null;$activeRetainedOriginalTokenLease=$null
+$activeEffectChildRestored=$true;$activeRetainedChildPause=$null;$activeChildObserverClosed=$true
 $ownerCreation=(Get-Process -Id $PID).StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
 $publisherBuild=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($ServiceBinary)))
 $publisherProjectPath=Join-Path $publisherBuild 'usk_publisher_windows_static.vcxproj'
@@ -207,13 +208,14 @@ function Close-StandardPublisherClient($Process,$Launch,[bool]$LaunchAttempted=$
         }
     }
 }
-function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$null,$WorkerPause=$null,$EffectPair=$null) {
+function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$null,$WorkerPause=$null,$EffectPair=$null,$ChildPause=$null) {
     $activeHolder=$null -ne $HeldWorker
     if($activeHolder) {
-        if(-not $WorkerPause -or -not $EffectPair -or $HeldWorker.HasExited -or (Get-Service $service).Status -ne 'Running') {
+        if(-not $WorkerPause -or -not $EffectPair -or -not $ChildPause -or $HeldWorker.HasExited -or (Get-Service $service).Status -ne 'Running') {
             throw 'Active contention fixture lacks a held live worker'
         }
         $WorkerPause.RequirePaused()
+        $ChildPause.RequirePaused()
     } elseif((Get-Service $service).Status -ne 'Stopped'){throw 'Contention fixture did not begin at a stopped service'}
     $probeBinary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_registered_contention_probe.exe'
     if(-not (Test-Path -LiteralPath $probeBinary)){throw 'Registered contention producer is unavailable'}
@@ -221,13 +223,13 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
     $requestId='contention.'+[guid]::NewGuid().ToString('N')
     $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
     Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command='install_local.apply';payload=$apply;dry_run=$false}
-    $record=[ordered]@{schema=$(if($activeHolder){'usk.publisher_active_install_contention_probe.v2'}else{'usk.publisher_registered_contention_probe.v1'});scope=$(if($activeHolder){
+    $record=[ordered]@{schema=$(if($activeHolder){'usk.publisher_active_install_contention_probe.v3'}else{'usk.publisher_registered_contention_probe.v1'});scope=$(if($activeHolder){
             'active_install_holder_endpoint_before_effect_request_bytes'
         }else{'registered_endpoint_before_effect_request_bytes'});
         profile_qualified=$false;producer_sha256=$probeHash;request_sha256=(Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant();
         client_capture=$null;native_observation=$null;before=$null;after=$null;worker_stopped=$false}
     $receipt[$(if($activeHolder){'active_install_contention'}else{'registered_contention'})]=$record
-    if($activeHolder){$record['paused_worker']=$WorkerPause.Observation();$record['child_observer_close_confirmed']=$false}
+    if($activeHolder){$record['paused_worker']=$WorkerPause.Observation();$record['paused_effect_child']=$ChildPause.Observation();$record['child_observer_close_confirmed']=$false}
     $launch=$null;$process=$null;$launchAttempted=$false;$script:clientsClosed=$false
     try {
         $probeAcl=Get-Acl -LiteralPath $probeBinary
@@ -258,9 +260,11 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
             capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
         $record.before=Read-NativeSnapshot
         if($activeHolder) {
-            $leaseRequest=@{mode='snapshot';rows=$record.before.independent.rows;drive=$drive;
+            $WorkerPause.RequirePaused();$ChildPause.RequirePaused()
+            $leaseRequest=@{mode='active_ownership';rows=$record.before.independent.rows;drive=$drive;
                 installed=@{install_id=$apply.plan_request.install_id;transaction_id=$apply.transaction_id};
-                allow_active=$true;allow_initial_empty_state=$true;
+                request=$receipt.plan_request;response=$receipt.plan_response;apply=$apply;consumer=$accountSid;
+                held_holder=@{process_id=$EffectPair.ChildProcessId;process_creation_time=$EffectPair.ChildProcessBirth};
                 volume_root_id=$record.before.independent.volume_boundary.root.file_id}
             $decoded=$leaseRequest|ConvertTo-Json -Depth 64 -Compress|
                 & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
@@ -273,6 +277,7 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
                 throw 'Active contention native generation/effect-child holder differs'
             }
             $WorkerPause.RequirePaused()
+            $ChildPause.RequirePaused()
             $record['live_pair_before']=$EffectPair.ObserveOriginalLivePair()
         } else {
             Start-Service -Name $service -ErrorAction Stop
@@ -303,6 +308,7 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
         }
         if($activeHolder) {
             $WorkerPause.RequirePaused()
+            $ChildPause.RequirePaused()
             if($native.worker_process_id -ne $HeldWorker.Id -or
                 [string]$native.worker_process_creation_time -cne $HeldWorker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()) {
                 throw 'Active contention producer observed a different worker'
@@ -314,7 +320,7 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
             $record.worker_stopped=$true
         }
         $record.after=Read-NativeSnapshot
-        if($activeHolder){$WorkerPause.RequirePaused();$record['live_pair_after']=$EffectPair.ObserveOriginalLivePair()}
+        if($activeHolder){$WorkerPause.RequirePaused();$ChildPause.RequirePaused();$record['live_pair_after']=$EffectPair.ObserveOriginalLivePair()}
         if(($record.before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
             ($record.after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
             ($record.before.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress) -cne
@@ -324,10 +330,27 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
     } finally {Close-StandardPublisherClient $process $launch $launchAttempted}
 }
 function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
-    $script:activeContenderClosed=$false;$script:activeWorkerRestored=$false
+    $script:activeContenderClosed=$false;$script:activeWorkerRestored=$false;$script:activeEffectChildRestored=$false
+    $script:activeChildObserverClosed=$false
     $deadline=[DateTime]::UtcNow.AddSeconds(30)
-    $candidate=$drive+'publication\staging\candidate'
+    # These exact paths only wake the original SCM/pair/readback checks. They
+    # grant no readiness or ownership; the paused native reader validates the
+    # complete original lease/context/roots/reservation and publication phase.
+    $ids=@($apply.plan_request.install_id,$apply.transaction_id);$hashes=@()
+    foreach($value in $ids) {
+        if($value -cnotmatch '^[A-Za-z0-9_.-]{1,128}$'){throw 'Active ownership cue identity differs'}
+        $hasher=[Security.Cryptography.SHA256]::Create()
+        try {$hashes+=([BitConverter]::ToString($hasher.ComputeHash($utf8.GetBytes(($value|ConvertTo-Json -Compress))))).Replace('-','').ToLowerInvariant()}
+        finally {$hasher.Dispose()}
+    }
+    $originalPrefix=$drive+'installation-operations\install-'+$hashes[0]+'\operation-'+$hashes[1]
+    $cuePaths=@(($drive+'setup-state\state\leases\install-'+$hashes[0]+'\g00000000000000000001-active.json'),
+        ($originalPrefix+'.json'),($originalPrefix+'-roots.json'),($originalPrefix+'-bootstrap-g00000000000000000001.json'),
+        ($drive+'publication\staging'),($drive+'publication\destination'),($drive+'publication\state'),($drive+'publication\journal'))
+    $lastCue=$null;$cueSamples=0;$registration=$null
     $worker=$null;$pause=$null;$pauseAttempted=$false;$effectPair=$null
+    $childPause=$null;$childPauseAttempted=$false;$activeFailure=$null
+    $effectPairAttempted=$false
     $priorToken=$clientTokenLease;$priorCaptureFile=$clientCaptureFile;$priorCaptureSha256=$clientCaptureSha256
     $script:activeRetainedOriginalTokenLease=$priorToken
     $retainedCapture=Join-Path $lab ('active-retained-installer-'+[guid]::NewGuid().ToString('N')+'.json')
@@ -337,7 +360,9 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
         # authority transfer is introduced; its held lease remains active.
         while([DateTime]::UtcNow -lt $deadline) {
             if($Installer.HasExited){throw 'Active installer observation window already passed'}
-            if(Test-Path -LiteralPath $candidate) {
+            $present=@(foreach($path in $cuePaths){[bool](Test-Path -LiteralPath $path)})
+            $cueSamples++;$lastCue=$present
+            if(@($present|Where-Object {-not $_}).Count -eq 0) {
                 $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'") -ErrorAction Stop
                 if($registration.State -ceq 'Running' -and $registration.ProcessId -gt 0) {
                     $worker=Get-Process -Id $registration.ProcessId -ErrorAction Stop;$null=$worker.Handle
@@ -346,7 +371,15 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             }
             Start-Sleep -Milliseconds 1
         }
-        if(-not $worker){throw 'Active installer native candidate was not observed before its deadline'}
+        if(-not $worker){
+            try {$receipt['active_ownership_cue_failure']=[ordered]@{scope='original_active_ownership_wake_cue';
+                qualification_granted=$false;samples=$cueSamples;path_count=$cuePaths.Count;
+                last_present=$lastCue;service_query_observed=[bool]$registration;
+                service_state=$(if($registration){[string]$registration.State}else{$null});
+                service_process_id=$(if($registration){$registration.ProcessId}else{$null})}}
+            catch {} # Optional cue fields cannot replace the original refusal.
+            throw 'Original active ownership cue was not observed before its deadline'
+        }
         $pauseAttempted=$true
         $pause=Start-OwnedPublisherWorkerPause -Process $worker -Service $service -VhdPath $VhdPath `
             -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
@@ -382,22 +415,31 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             }
             throw 'Active installer lacks one original native effect child'
         }
+        $effectPairAttempted=$true
         $effectPair=[UskOwnedEffectChildObserver]::new($worker,[uint32]$worker.Id,
             $worker.StartTime.ToUniversalTime().ToFileTimeUtc(),[uint32]$children[0].ProcessId,
             $children[0].CreationDate.ToUniversalTime().Ticks,$installedBinary,$children[0].CommandLine)
+        $childPauseAttempted=$true
+        $childPause=Start-OwnedPublisherEffectChildPause -ParentWorker $worker -ParentPause $pause -EffectPair $effectPair `
+            -Service $service -VhdPath $VhdPath -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
+            -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256
+        $script:activeRetainedChildPause=$childPause
+        $pause.RequirePaused();$childPause.RequirePaused();$null=$effectPair.ObserveOriginalLivePair()
         if(-not $observersClosed -or (Get-FileHash -LiteralPath $priorCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $priorCaptureSha256) {
             throw 'Original active installer capture is not stable and closed'
         }
         [IO.File]::Move($priorCaptureFile,$retainedCapture);$captureMoved=$true
         $script:clientTokenLease=$null
         $script:clientCaptureSha256=''
-        Invoke-RegisteredEndpointContention -HeldWorker $worker -WorkerPause $pause -EffectPair $effectPair
+        Invoke-RegisteredEndpointContention -HeldWorker $worker -WorkerPause $pause -EffectPair $effectPair -ChildPause $childPause
         if(-not $script:clientsClosed){throw 'Active contender cleanup remains unconfirmed'}
         $script:activeContenderClosed=$true
         $pause.RequirePaused()
+        $childPause.RequirePaused()
         $receipt.active_install_contention['installer_live_before_resume']=-not $Installer.HasExited
         if($Installer.HasExited){throw 'First installer ended during active contention'}
-    } finally {
+    } catch {$activeFailure=$_;throw} finally {
+      try {
         try {
             if($clientTokenLease -and $clientTokenLease -ne $priorToken) {
                 $script:activeRetainedTokenLease=$clientTokenLease
@@ -423,11 +465,18 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             $script:clientsClosed=$false # The first installer still needs checked closure.
             try {
                 $pauseFailure=$null
+                $childPauseFailure=$null
+                try {
+                    if($childPause){$childPause.Dispose();$script:activeEffectChildRestored=$true;$script:activeRetainedChildPause=$null}
+                    elseif($childPauseAttempted){throw 'Child pause attempted without returned custody'}
+                    else {$script:activeEffectChildRestored=$true}
+                } catch {$childPauseFailure=$_.Exception}
                 try {
                     if($pause){$pause.Dispose();$script:activeWorkerRestored=$true}
                     elseif($pauseAttempted){throw 'Worker pause attempted without returned custody'}
                 } catch {$pauseFailure=$_.Exception}
                 if($pauseFailure) {
+                    if(-not $activeEffectChildRestored){throw 'Child and SCM pause restoration remain unconfirmed; retain the lab'}
                     # A failed constructor/restoration must not strand this
                     # owned worker. Recheck the same private registration and
                     # retained process before bounded failure-only termination.
@@ -444,8 +493,10 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
                     }
                     throw $pauseFailure
                 }
+                if($childPauseFailure){throw $childPauseFailure}
                 if($receipt.Contains('active_install_contention')) {
                     $receipt.active_install_contention['worker_pause_restored']=$activeWorkerRestored -and $captureRestored
+                    $receipt.active_install_contention['effect_child_pause_restored']=$activeEffectChildRestored
                     if(-not $captureRestored){$script:activeWorkerRestored=$false}
                 }
             } finally {
@@ -453,13 +504,21 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
                     if($effectPair) {
                         $effectPair.Dispose()
                         if(-not $effectPair.ObserverCloseConfirmed){throw 'Active original child observer close unconfirmed'}
+                        $script:activeChildObserverClosed=$true
                         if($receipt.Contains('active_install_contention')) {
                             $receipt.active_install_contention['child_observer_close_confirmed']=$true
                         }
-                    }
+                    } elseif(-not $effectPairAttempted){$script:activeChildObserverClosed=$true}
                 } finally {if($worker){$worker.Dispose()}}
             }
         }
+      } catch {
+        if(-not $activeFailure){throw}
+        try {$receipt['active_cleanup_failure']=[ordered]@{scope='cleanup_after_original_active_failure';
+            qualification_granted=$false;message=$_.Exception.Message.Substring(0,[Math]::Min(4096,$_.Exception.Message.Length));
+            scm_restored=$activeWorkerRestored;effect_child_restored=$activeEffectChildRestored;capture_restored=$captureRestored}}
+        catch {} # The original active refusal survives optional cleanup diagnostics.
+      }
     }
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
@@ -834,7 +893,7 @@ try {
     if($LASTEXITCODE -ne 0){throw 'Standard reviewed binding failed'}
     $binding=($bound -join "`n")|ConvertFrom-Json;$apply=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
     $receipt['plan_request']=Get-Content -LiteralPath $inputs.request_file -Raw|ConvertFrom-Json
-    $receipt['plan']=$planned.result.payload;$receipt['apply_request']=$apply
+    $receipt['plan']=$planned.result.payload;$receipt['plan_response']=$planned;$receipt['apply_request']=$apply
     if($StalePlanQualification) {
         # Plan A is independently produced by the real machine planner while
         # the target is still empty. Only its authored request identity differs
@@ -1022,7 +1081,8 @@ finally {
     }
     $receipt.client_cleanup_confirmed=$clientsClosed -and $observersClosed -and $installGuardHolderClosed -and $null -eq $clientTokenLease -and
         $activeContenderClosed -and $activeWorkerRestored -and $null -eq $activeRetainedTokenLease -and
-        $null -eq $activeRetainedOriginalTokenLease
+        $null -eq $activeRetainedOriginalTokenLease -and $activeEffectChildRestored -and $null -eq $activeRetainedChildPause -and
+        $activeChildObserverClosed
     if($accountCreated -and $receipt.client_cleanup_confirmed) {
         try {
             $remaining=Get-LocalUser -Name $accountName -ErrorAction Stop

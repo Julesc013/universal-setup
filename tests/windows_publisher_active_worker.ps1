@@ -171,3 +171,57 @@ function Start-OwnedPublisherWorkerPause {
     Initialize-OwnedPublisherWorkerPause
     return [UskPublisherPausedWorker]::new([uint32]$Process.Id,[uint64]$creation,$privateImage)
 }
+
+function Start-OwnedPublisherEffectChildPause {
+    param([Parameter(Mandatory=$true)][Diagnostics.Process]$ParentWorker,
+        [Parameter(Mandatory=$true)]$ParentPause,[Parameter(Mandatory=$true)]$EffectPair,
+        [Parameter(Mandatory=$true)][string]$Service,[Parameter(Mandatory=$true)][string]$VhdPath,
+        [Parameter(Mandatory=$true)][string]$VolumeRoot,[Parameter(Mandatory=$true)][string]$ExpectedServiceCommand,
+        [Parameter(Mandatory=$true)][string]$ExpectedImagePath,[Parameter(Mandatory=$true)][string]$ExpectedImageSha256)
+    if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
+        throw 'Owned child pause requires the hosted SYSTEM fixture context'
+    }
+    if($ParentPause -isnot [UskPublisherPausedWorker] -or $EffectPair -isnot [UskOwnedEffectChildObserver]) {
+        throw 'Owned child pause lacks the held original parent pause/query pair'
+    }
+    $ParentPause.RequirePaused();$pair=$EffectPair.ObserveOriginalLivePair()
+    $parentObservation=$ParentPause.Observation()
+    if($pair.parent_process_id -ne $ParentWorker.Id -or
+        $pair.parent_process_birth -cne $ParentWorker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16') -or
+        $parentObservation.process_id -ne $ParentWorker.Id -or
+        $parentObservation.process_creation_file_time -cne $ParentWorker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -or
+        $pair.effect_process_id -ne $EffectPair.ChildProcessId -or $pair.effect_process_birth -cne $EffectPair.ChildProcessBirth -or
+        $pair.effect_process_id -eq $ParentWorker.Id -or $pair.effect_process_id -eq $PID -or
+        $pair.effect_process_birth -cnotmatch '^[0-9a-f]{16}$' -or -not $pair.both_live) {
+        throw 'Owned child pause original native pair differs'
+    }
+    $lab=[IO.Path]::GetFullPath((Split-Path -Parent $VhdPath))
+    $runner=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+    if(-not $lab.StartsWith($runner,[StringComparison]::OrdinalIgnoreCase) -or
+        (Split-Path -Leaf $lab) -cnotmatch '^usk-wu006-[0-9a-f]{32}$' -or $Service -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
+        $ExpectedImageSha256 -cnotmatch '^[0-9a-f]{64}$') {throw 'Owned child pause target differs'}
+    $image=Get-DiskImage -ImagePath $VhdPath -ErrorAction Stop;$disk=$image|Get-Disk -ErrorAction Stop
+    $parts=@($disk|Get-Partition|Where-Object DriveLetter)
+    if(-not $image.Attached -or $disk.IsBoot -or $disk.IsSystem -or $parts.Count -ne 1) {
+        throw 'Owned child pause target is not a disposable mounted volume'
+    }
+    $volume=$parts[0]|Get-Volume
+    if($volume.UniqueId -cne $VolumeRoot -or $volume.FileSystem -cne 'NTFS') {throw 'Owned child pause volume identity differs'}
+    $privateImage=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$Service+'.exe')
+    if(-not [string]::Equals([IO.Path]::GetFullPath($ExpectedImagePath),$privateImage,[StringComparison]::OrdinalIgnoreCase) -or
+        -not [string]::Equals($pair.original_image_path,$privateImage,[StringComparison]::OrdinalIgnoreCase) -or
+        (Get-FileHash -LiteralPath $privateImage -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedImageSha256) {
+        throw 'Owned child pause private executable differs'
+    }
+    $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$Service+"'") -ErrorAction Stop
+    if(-not $registration -or $registration.State -cne 'Running' -or $registration.ProcessId -ne $ParentWorker.Id -or
+        $registration.StartName -cne 'LocalSystem' -or $registration.PathName -cne $ExpectedServiceCommand -or
+        -not $ExpectedServiceCommand.StartsWith(('"'+$privateImage+'" --service '+$Service+' --no-receipt '+$VolumeRoot+' '),
+            [StringComparison]::Ordinal)) {throw 'Owned child pause original private SCM registration differs'}
+    $ParentPause.RequirePaused();$null=$EffectPair.ObserveOriginalLivePair()
+    # Separate suspend custody; the original child observer remains query-only.
+    # This sampled pause does not imply that outstanding kernel I/O has retired.
+    return [UskPublisherPausedWorker]::new([uint32]$pair.effect_process_id,
+        [Convert]::ToUInt64($pair.effect_process_birth,16),$privateImage)
+}

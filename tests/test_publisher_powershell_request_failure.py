@@ -149,8 +149,134 @@ ConvertTo-Json -InputObject @($rows) -Depth 10 -Compress
 '''
 
 
+ACTIVE_CLEANUP_SCRIPT = r'''
+param([string]$Root)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_standard_public_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Actual active fixture syntax differs'}
+$active=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -ceq 'Invoke-ActiveInstallContention'},$true))
+$original=@($active[0].Body.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.TryStatementAst]})
+if($original.Count -ne 1 -or -not $original[0].Finally){throw 'Original active cleanup flow is ambiguous'}
+$flow=[scriptblock]::Create("try {if(`$primary){throw 'Original active failure'}} catch {`$activeFailure=`$_;throw} finally "+
+    $original[0].Finally.Extent.Text)
+$results=@()
+foreach($primary in @($false,$true)) {foreach($childFails in @($false,$true)) {
+ foreach($parentFails in @($false,$true)) {foreach($queryFails in @($false,$true)) {
+  $script:events=[Collections.Generic.List[string]]::new()
+  $script:childFails=$childFails;$script:parentFails=$parentFails;$script:queryFails=$queryFails
+  $script:activeWorkerRestored=$false;$script:activeEffectChildRestored=$false;$script:activeChildObserverClosed=$false
+  $receipt=[ordered]@{active_install_contention=[ordered]@{}}
+  $activeFailure=$null;$worker=$null;$pauseAttempted=$true;$childPauseAttempted=$true;$effectPairAttempted=$true
+  $childPause=[pscustomobject]@{name='synthetic child suspend custody'}
+  $childPause|Add-Member ScriptMethod Dispose {
+    $script:events.Add('child_restore');if($script:childFails){throw 'Synthetic child restoration failure'}
+  }
+  $pause=[pscustomobject]@{name='synthetic SCM suspend custody'}
+  $pause|Add-Member ScriptMethod Dispose {
+    $script:events.Add('scm_restore');if($script:parentFails){throw 'Synthetic SCM restoration failure'}
+  }
+  $effectPair=[pscustomobject]@{ObserverCloseConfirmed=$false}
+  $effectPair|Add-Member ScriptMethod Dispose {
+    $script:events.Add('query_close');if($script:queryFails){throw 'Synthetic query closure failure'}
+    $this.ObserverCloseConfirmed=$true
+  }
+  $script:activeRetainedChildPause=$childPause
+  $clientTokenLease=$null;$priorToken=$null;$priorCaptureFile='unused';$priorCaptureSha256='unused'
+  $captureMoved=$false;$captureRestored=$false;$observersClosed=$true;$errorMessage=$null
+  try {$null=& $flow} catch {$errorMessage=$_.Exception.Message}
+  $results+=@{primary=$primary;child=$childFails;scm=$parentFails;query=$queryFails;error=$errorMessage;
+    events=@($script:events);scm_restored=$script:activeWorkerRestored;child_restored=$script:activeEffectChildRestored;
+    query_closed=$script:activeChildObserverClosed;child_custody_retained=$null -ne $script:activeRetainedChildPause;
+    diagnostic=$receipt.active_cleanup_failure;native_actors_invoked=$false}
+ }}}
+}
+ConvertTo-Json -InputObject @($results) -Depth 8 -Compress
+'''
+
+
+CUE_SCRIPT = r'''
+param([string]$Root,[string]$Scratch)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_standard_public_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw ('Standard fixture syntax differs: '+$errors[0].Message)}
+$active=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -ceq 'Invoke-ActiveInstallContention'},$true))
+if($active.Count -ne 1){throw 'Original active fixture is ambiguous'}
+$stop=@($active[0].Body.EndBlock.Statements|Where-Object {$_.Extent.Text -ceq '$worker=$null'})
+if($stop.Count -ne 1){throw 'Pure original cue prelude is ambiguous'}
+$start=$active[0].Body.Extent.StartOffset+1
+$source=[IO.File]::ReadAllText((Join-Path $Root 'tests/windows_publisher_standard_public_probe.ps1'))
+$flow=[scriptblock]::Create($source.Substring($start,$stop[0].Extent.StartOffset-$start))
+$utf8=[Text.UTF8Encoding]::new($false);$drive=$Scratch.TrimEnd('\')+'\'
+$apply=@{plan_request=@{install_id='org.example.setup'};transaction_id='operation.1'}
+. $flow
+$original=@($cuePaths);$presentBefore=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
+foreach($p in ($original|Select-Object -First 4)) {
+    New-Item -ItemType Directory -Path (Split-Path -Parent $p) -Force|Out-Null
+    [IO.File]::WriteAllText($p,'synthetic wake-only cue',$utf8)
+}
+foreach($p in ($original|Select-Object -Skip 4)){New-Item -ItemType Directory -Path $p -Force|Out-Null}
+$presentAll=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
+$apply.transaction_id='operation.foreign';. $flow
+$foreign=@($cuePaths);$foreignPresent=@(foreach($p in $foreign){[bool](Test-Path -LiteralPath $p)})
+$apply.transaction_id='operation/invalid';$invalid=$null
+try {. $flow} catch {$invalid=$_.Exception.Message}
+@{original=$original;foreign=$foreign;before=$presentBefore;all=$presentAll;foreign_present=$foreignPresent;
+  invalid=$invalid;native_activation_invoked=$false}|ConvertTo-Json -Depth 8 -Compress
+'''
+
+
 @unittest.skipUnless(POWERSHELL, 'PowerShell unavailable on this platform')
 class PublisherPowerShellRequestFailureTests(unittest.TestCase):
+    def test_original_active_cleanup_restores_child_then_scm_preserving_failure_and_unknown_custody(self):
+        # Execute the actual finally block with fake owners only, never pauses.
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'active-cleanup.ps1';script.write_text(ACTIVE_CLEANUP_SCRIPT, encoding='utf-8')
+            result = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script),
+                '-Root', str(ROOT)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = json.loads(result.stdout)
+        self.assertEqual(len(rows), 16)
+        for row in rows:
+            with self.subTest(primary=row['primary'], child=row['child'], scm=row['scm'], query=row['query']):
+                self.assertEqual(row['events'], ['child_restore', 'scm_restore', 'query_close'])
+                self.assertEqual(row['child_restored'], not row['child'])
+                self.assertEqual(row['scm_restored'], not row['scm'])
+                self.assertEqual(row['query_closed'], not row['query'])
+                self.assertEqual(row['child_custody_retained'], row['child'])
+                self.assertFalse(row['native_actors_invoked'])
+                if row['primary']:
+                    self.assertEqual(row['error'], 'Original active failure')
+                elif any(row[k] for k in ('child', 'scm', 'query')):
+                    self.assertIsNotNone(row['error'])
+                else:
+                    self.assertIsNone(row['error'])
+
+    def test_original_ownership_cue_is_exact_transaction_namespace_without_native_activation(self):
+        # Actual AST and caller-owned ordinary files only; no service or pause.
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'cue.ps1';script.write_text(CUE_SCRIPT, encoding='utf-8')
+            scratch = Path(directory) / 'owned-cue'
+            result = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script),
+                '-Root', str(ROOT), '-Scratch', str(scratch)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        row = json.loads(result.stdout)
+        self.assertEqual(len(row['original']), 8)
+        self.assertEqual(len(set(row['original'])), 8)
+        self.assertEqual(row['before'], [False]*8)
+        self.assertEqual(row['all'], [True]*8)
+        self.assertEqual(row['foreign_present'], [True, False, False, False, True, True, True, True])
+        self.assertEqual(row['invalid'], 'Active ownership cue identity differs')
+        self.assertFalse(row['native_activation_invoked'])
+        import hashlib
+        install_hash = hashlib.sha256(b'"org.example.setup"').hexdigest()
+        transaction_hash = hashlib.sha256(b'"operation.1"').hexdigest()
+        self.assertTrue(row['original'][0].endswith('install-'+install_hash+'\\g00000000000000000001-active.json'))
+        self.assertTrue(row['original'][1].endswith('operation-'+transaction_hash+'.json'))
+
     def test_primary_failure_survives_diagnostic_and_cleanup_failures(self):
         # No client, native reader, process cancellation or target is invoked.
         with tempfile.TemporaryDirectory() as directory:
