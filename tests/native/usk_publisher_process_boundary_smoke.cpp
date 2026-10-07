@@ -228,12 +228,28 @@ void effect_execution_record_controls() {
             {"granted_access_api", Value("NtQueryObject:ObjectBasicInformation")}, {"object_observation", facts}, {"authenticated_access", access}});
         bindings.emplace_back(roles[index], object_id(index));
     }
+    // Every identity in this fixture is synthetic. Its supported x64 platform
+    // is data too; the test executable's bitness cannot qualify this record.
+    const Value synthetic_platform(Value::Object{{"os_family", Value("Windows NT")},
+        {"native_arch", Value("x64")}, {"process_arch", Value("x64")},
+        {"major_version", Value(std::uint64_t{10})}, {"minor_version", Value(std::uint64_t{0})},
+        {"windows_build", Value(std::uint64_t{20348})}, {"minimum_windows_build", Value(std::uint64_t{17763})},
+        {"sdk_version", Value("10.0.26100.0")}});
     const Value valid(Value::Object{{"schema", Value("usk.publisher_execution_observation.v7")},
         {"scope", Value("supplied_held_child_handles_authenticated_broker_access_and_pinned_worker_security")}, {"phase", Value("sealed")},
-        {"platform", observe_publisher_execution_platform()}, {"service", service}, {"broker_readback", broker}, {"effect_worker", worker},
+        {"platform", synthetic_platform}, {"service", service}, {"broker_readback", broker}, {"effect_worker", worker},
         {"handles", Value(handles)}, {"process_boundary", child_boundary}, {"worker_security", child_security}, {"authenticated_client", client}});
     require_publisher_execution_phase(valid, name, service_sid, "sealed", bindings);
     require_publisher_execution_record_continuity(valid, valid);
+    auto unsupported = valid;
+    unsupported.as_object().at("platform").as_object().at("process_arch") = Value("x86");
+    bool unsupported_refused = false;
+    try { require_publisher_execution_phase(unsupported, name, service_sid, "sealed", bindings); }
+    catch (const std::exception&) { unsupported_refused = true; }
+    check(unsupported_refused, "synthetic child record promoted unsupported x86 execution");
+    const auto actual_platform = observe_publisher_execution_platform();
+    check(actual_platform.at("process_arch").as_string() == (sizeof(void*) == 8 ? "x64" : "x86"),
+        "actual test process architecture differs from native platform observation");
     // Terminal grammar is retained data only. Live native peer/SCM fences
     // and confirmed job/child/I/O closure remain the broker's separate work.
     const Value terminal_response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")},

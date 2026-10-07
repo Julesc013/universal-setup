@@ -396,7 +396,7 @@ function Start-ProductionRenameObserver([string]$Phase='postrename') {
     Assert-OwnedVolume
     Start-OwnedProductionBoundaryObserver -Phase $Phase -Service $service -ObserverRoot $observerRoot `
         -VhdPath $vhd -VolumeRoot $VolumeRoot -DriveRoot $drive -VisibleRoot $visibleRoot `
-        -ServiceCommand $expectedRegisteredCommand -ServiceBinarySha256 $sourceServiceHash
+        -ServiceCommand $expectedRegisteredCommand -ServiceBinarySha256 $sourceServiceHash -ObserverFamily legacy_scm_v1
 }
 function Complete-ProductionRenameObserver($Observer,[string]$Phase='postrename') {
     Complete-OwnedProductionBoundaryObserver $Observer $Phase

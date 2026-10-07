@@ -1,12 +1,31 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
+function Resolve-OwnedProductionObserverFamily {
+    param([string]$ServiceCommand,
+        [ValidateSet('legacy_scm_v1','owned_effect_child_v1')][string]$ExpectedFamily,
+        [string]$Phase)
+    # Native daemon parsing removes the optional final read grant, then the
+    # authorized-client SID pair and optional observer flag before child mode.
+    # This selects a test observer only. Start separately checks actual SCM text.
+    $sid='S-1-5-21-(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*)){3}'
+    $childCommand=$ServiceCommand -cmatch (' --service-admitted-client --authorized-client-sid '+$sid+'$')
+    $legacyCommand=$ServiceCommand -cmatch (' --authorized-client-sid '+$sid+'(?: --grant-client-read)?$') -and
+        -not $ServiceCommand.Contains('--service-admitted-client') -and
+        -not ($ServiceCommand.EndsWith(' --grant-client-read',[StringComparison]::Ordinal) -and
+            $ServiceCommand.Contains('--admit-client-observer'))
+    if($ExpectedFamily -ceq 'owned_effect_child_v1' -and $childCommand){return 2}
+    if($ExpectedFamily -ceq 'legacy_scm_v1' -and $legacyCommand -and $Phase -cin @('prepublish','postrename')){return 1}
+    throw 'Production observer family differs from the checked native command or phase'
+}
+
 function Start-OwnedProductionBoundaryObserver {
     param([ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published')][string]$Phase,
         [string]$Service,[string]$ObserverRoot,[string]$VhdPath,[string]$VolumeRoot,
         [string]$DriveRoot,[string]$VisibleRoot,[string]$ServiceCommand,[string]$ServiceBinarySha256,
         [string]$BootstrapOperationPrefix='',
-        [string]$MaintenanceTransactionId='', [string]$MaintenancePlanDigest='')
+        [string]$MaintenanceTransactionId='', [string]$MaintenancePlanDigest='',
+        [ValidateSet('legacy_scm_v1','owned_effect_child_v1')][string]$ObserverFamily='owned_effect_child_v1')
     $utf8=[Text.UTF8Encoding]::new($false)
     if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
         $Service -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or $DriveRoot -cnotmatch '^[A-Z]:\\$' -or
@@ -69,13 +88,16 @@ function Start-OwnedProductionBoundaryObserver {
             $ServiceBinarySha256) {
         throw 'Production rename observer service identity differs before request'
     }
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_production_rename_observer.ps1') `
+    $familyVersion=Resolve-OwnedProductionObserverFamily $serviceRow.PathName $ObserverFamily $Phase
+    $sourceScript=if($familyVersion -eq 1){'windows_publisher_legacy_rename_observer.ps1'}else{'windows_publisher_production_rename_observer.ps1'}
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $sourceScript) `
         -Destination $scriptPath -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1') `
         -Destination $ownedProcessPath -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_effect_child.ps1') `
         -Destination $childObserverPath -ErrorAction Stop
-    $config=[ordered]@{schema='usk.publisher.production_rename_observer_config.v2';phase=$Phase;
+    $config=[ordered]@{schema=('usk.publisher.production_rename_observer_config.v'+$familyVersion);phase=$Phase;
+        observer_family=$ObserverFamily;
         service_name=$service;service_command=$serviceRow.PathName;
         process_id=$serviceRow.ProcessId;process_command=$processRow.CommandLine;
         process_executable=$processRow.ExecutablePath;
@@ -126,6 +148,7 @@ function Start-OwnedProductionBoundaryObserver {
             config=$configPath;executable=$action.Execute;arguments=$action.Arguments;removed=$false;
             maintenance_transaction_id=$MaintenanceTransactionId;maintenance_plan_digest=$MaintenancePlanDigest;
             process_id=$config.process_id;process_executable=$config.process_executable;
+            observer_family=$ObserverFamily;
             process_creation_file_time=$(if($Phase -ceq 'maintenance_published'){$config.process_creation_file_time}else{''})}
     } catch {
         if($registered) {
@@ -136,6 +159,10 @@ function Start-OwnedProductionBoundaryObserver {
     }
 }
 function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published')][string]$Phase) {
+    if($Observer.observer_family -ceq 'legacy_scm_v1') {
+        return Complete-OwnedLegacyProductionBoundaryObserver $Observer $Phase
+    }
+    if($Observer.observer_family -cne 'owned_effect_child_v1'){throw 'Unknown production observer family'}
     $deadline=[DateTime]::UtcNow.AddSeconds(150)
     while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Milliseconds 25
@@ -244,4 +271,76 @@ function Remove-OwnedProductionBoundaryObserver($Observer) {
         throw 'Owned production boundary observer task remains registered'
     }
     $Observer.removed=$true
+}
+
+function Complete-OwnedLegacyProductionBoundaryObserver($Observer,[ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published')][string]$Phase) {
+    if($Observer.observer_family -cne 'legacy_scm_v1' -or $Phase -cnotin @('prepublish','postrename')) {
+        throw 'Legacy observer cannot qualify current child or bootstrap/maintenance loss'
+    }
+    $deadline=[DateTime]::UtcNow.AddSeconds(150)
+    while(-not (Test-Path -LiteralPath $Observer.output) -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 25
+    }
+    if(-not (Test-Path -LiteralPath $Observer.output) -or
+        (Get-Item -LiteralPath $Observer.output).Length -gt 16KB) {
+        throw 'Production rename observer did not produce bounded output'
+    }
+    $result=Get-Content -LiteralPath $Observer.output -Raw|ConvertFrom-Json
+    Remove-OwnedProductionBoundaryObserver $Observer
+    $expectedStatus=if($Phase -ceq 'bootstrap'){
+        'terminated_publication_bootstrap'
+    }elseif($Phase -ceq 'bootstrap_preserved'){
+        'terminated_publication_preserved'
+    }elseif($Phase -ceq 'prepublish'){
+        'terminated_prepared_prerename'
+    }elseif($Phase -ceq 'maintenance_published'){'terminated_confirmed_maintenance_publication'}
+    else{'terminated_postrename_prejournal'}
+    if($result.schema -cne 'usk.publisher.production_rename_observer.v1' -or
+        $result.identity -cne 'S-1-5-18' -or
+        $result.phase -cne $Phase -or $result.status -cne $expectedStatus -or
+        -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
+        ($Phase -ceq 'maintenance_published' -and
+            (-not $result.journal_before_kill -or -not $result.journal_after_kill -or
+                $result.maintenance_confirmation_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$' -or
+                $result.process_creation_file_time -cne $Observer.process_creation_file_time -or
+                $result.maintenance_transaction_id -cne $Observer.maintenance_transaction_id -or
+                $result.maintenance_plan_digest -cne $Observer.maintenance_plan_digest -or
+                $result.maintenance_writer_lease_ownership.schema -cne 'usk.installation_lease_ownership.v1' -or
+                $result.maintenance_writer_lease_ownership.status -cne 'active' -or
+                $result.maintenance_writer_lease_ownership.operation -cne 'repair' -or
+                $result.maintenance_writer_lease_ownership.operation_id -cne $Observer.maintenance_transaction_id -or
+                $result.maintenance_writer_lease_ownership.holder.process_id -ne $Observer.process_id -or
+                $result.maintenance_writer_lease_ownership.holder.process_creation_time -cne
+                    $Observer.process_creation_file_time)) -or
+        ($Phase -ceq 'bootstrap' -and
+            (-not $result.publication_before_kill -or -not $result.publication_after_kill -or
+                $result.candidate_before_kill -or $result.candidate_after_kill -or
+                $result.journal_before_kill -or $result.journal_after_kill -or $result.visible_after_kill -or
+                $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$')) -or
+        ($Phase -ceq 'bootstrap_preserved' -and
+            ($result.publication_before_kill -or $result.publication_after_kill -or
+                $result.single_worker_closure_confirmed -ne $true -or
+                $result.termination.method -cne 'TerminateProcess_owned_held_root' -or
+                $result.termination.process_id -ne $result.service_pid -or
+                $result.termination.process_creation_file_time -cne $result.process_creation_file_time -or
+                $result.termination.native_wait_result -ne 0 -or
+                -not $result.retained_before_kill -or -not $result.retained_after_kill -or
+                -not $result.preservation_before_kill -or -not $result.preservation_after_kill -or
+                $result.replacement_reservation_before_kill -or $result.replacement_reservation_after_kill -or
+                $result.candidate_before_kill -or $result.candidate_after_kill -or
+                $result.journal_before_kill -or $result.journal_after_kill -or $result.visible_after_kill -or
+                $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$')) -or
+        ($Phase -ceq 'prepublish' -and
+            (-not $result.prepared_exclusive_observed -or
+                -not $result.journal_before_kill -or -not $result.journal_after_kill -or
+                $result.visible_after_kill -or
+                $result.prepared_record_sha256 -cnotmatch '^[0-9a-f]{64}$')) -or
+        ($Phase -ceq 'postrename' -and
+            ($result.journal_before_kill -or $result.journal_after_kill -or
+                -not $result.visible_after_kill))) {
+        throw ('Production rename observer did not capture the required window: '+
+            ($result|ConvertTo-Json -Depth 5 -Compress))
+    }
+    return $result
 }

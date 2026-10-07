@@ -749,7 +749,7 @@ try {
         $boundaryObserver=Start-OwnedProductionBoundaryObserver -Phase $PublicationLoss -Service $service `
             -ObserverRoot $observerRoot -VhdPath $VhdPath -VolumeRoot $VolumeRoot -DriveRoot $drive `
             -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $command `
-            -ServiceBinarySha256 $receipt.service_sha256
+            -ServiceBinarySha256 $receipt.service_sha256 -ObserverFamily legacy_scm_v1
         $receipt['interrupted_apply']=Invoke-PublicRequest 'install_local.apply' $apply 5
         if($receipt.interrupted_apply.status -cne 'unknown' -or
             $receipt.interrupted_apply.error.code -cne 'publisher_outcome_unknown' -or
