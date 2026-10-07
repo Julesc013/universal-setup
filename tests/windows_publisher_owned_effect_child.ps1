@@ -40,6 +40,8 @@ public sealed class UskOwnedEffectChildObserver : IDisposable {
     [DllImport("kernel32.dll", SetLastError=true)]
     static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
     [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+    [DllImport("kernel32.dll", SetLastError=true)]
     static extern bool GetHandleInformation(IntPtr handle, out uint flags);
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder name, ref uint size);
@@ -170,6 +172,44 @@ public sealed class UskOwnedEffectChildObserver : IDisposable {
             {"effect_process_id",childId},{"effect_process_birth",childBirth.ToString("x16")},
             {"native_parent_process_id",parentId},{"original_image_path",originalImage},{"both_live",true},
             {"child_observer_access",objectBasic.GrantedAccess},{"child_observer_handle_flags",flags}};
+    }
+    // Failure-only, non-atomic samples of the existing original handles. These
+    // facts do not replace the failed predicate, authorize a pause or adopt IDs.
+    static Dictionary<string,object> FailureRole(IntPtr handle,uint id,long birth) {
+        var result=new Dictionary<string,object> {
+            {"expected_process_id",id},{"expected_process_birth",birth.ToString("x16")},
+            {"handle_retained",handle!=IntPtr.Zero},{"process_id",null},{"process_id_error",null},
+            {"birth_query_succeeded",null},{"process_birth",null},{"birth_query_error",null},
+            {"wait_result",null},{"wait_error",null},{"exit_code_query_succeeded",null},
+            {"exit_code",null},{"exit_code_query_error",null}};
+        if(handle==IntPtr.Zero)return result;
+        uint observedId=GetProcessId(handle);
+        int idError=observedId==0?Marshal.GetLastWin32Error():0;
+        long observedBirth,exit,kernel,user;
+        bool birthOk=GetProcessTimes(handle,out observedBirth,out exit,out kernel,out user);
+        int birthError=birthOk?0:Marshal.GetLastWin32Error();
+        uint wait=WaitForSingleObject(handle,0);
+        int waitError=wait==UInt32.MaxValue?Marshal.GetLastWin32Error():0;
+        uint exitCode;
+        bool exitOk=GetExitCodeProcess(handle,out exitCode);
+        int exitError=exitOk?0:Marshal.GetLastWin32Error();
+        result["process_id"]=observedId;result["process_id_error"]=idError;
+        result["birth_query_succeeded"]=birthOk;result["birth_query_error"]=birthError;
+        result["process_birth"]=birthOk?(object)observedBirth.ToString("x16"):null;
+        result["wait_result"]=wait;result["wait_error"]=waitError;
+        result["exit_code_query_succeeded"]=exitOk;result["exit_code_query_error"]=exitError;
+        result["exit_code"]=exitOk?(object)exitCode:null;
+        return result;
+    }
+    public Dictionary<string,object> ObserveOriginalPairFailure() {
+        var result=new Dictionary<string,object> {
+            {"schema","usk.publisher_original_pair_failure.v1"},
+            {"qualification_granted",false},{"atomic_snapshot",false},
+            {"observer_close_attempted",closeAttempted},
+            {"parent",FailureRole(parentHandle,parentId,parentBirth)},
+            {"effect_child",FailureRole(childHandle,childId,childBirth)}};
+        GC.KeepAlive(parentOwner);
+        return result;
     }
     public Dictionary<string,object> TerminateOriginalScmOwner() {
         RequireOriginalLivePair();

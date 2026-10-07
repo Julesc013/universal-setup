@@ -324,10 +324,14 @@ class PublisherParentPauseAcquisitionTests(unittest.TestCase):
 param([string]$Root)
 $ErrorActionPreference='Stop'
 . (Join-Path $Root 'tests/windows_publisher_active_worker.ps1')
+. (Join-Path $Root 'tests/windows_publisher_owned_effect_child.ps1')
 Initialize-OwnedPublisherWorkerPause
 Initialize-OwnedPublisherWorkerPause
 if([UskPublisherPausedWorker].GetConstructors().Count -ne 2) {
     throw 'Actual inert fixture constructors differ'
+}
+if(-not [UskOwnedEffectChildObserver].GetMethod('ObserveOriginalPairFailure')) {
+    throw 'Actual inert original pair failure observer is absent'
 }
 'compiled; no native constructor or actor invoked'
 '''

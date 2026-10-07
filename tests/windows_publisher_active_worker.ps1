@@ -330,6 +330,123 @@ function Start-OwnedPublisherEffectChildPause {
         [Convert]::ToUInt64($pair.effect_process_birth,16),$privateImage)
 }
 
+function Start-OwnedPublisherOriginalPairPause {
+    param([Parameter(Mandatory=$true)][Diagnostics.Process]$ParentWorker,
+        [Parameter(Mandatory=$true)]$EffectPair,
+        [Parameter(Mandatory=$true)][string]$Service,[Parameter(Mandatory=$true)][string]$VhdPath,
+        [Parameter(Mandatory=$true)][string]$VolumeRoot,[Parameter(Mandatory=$true)][string]$ExpectedServiceCommand,
+        [Parameter(Mandatory=$true)][string]$ExpectedImagePath,[Parameter(Mandatory=$true)][string]$ExpectedImageSha256,
+        [Parameter(Mandatory=$true)][ref]$ParentPause,[Parameter(Mandatory=$true)][ref]$ChildPause,
+        [Parameter(Mandatory=$true)][ref]$ParentPauseAttempted,[Parameter(Mandatory=$true)][ref]$ChildPauseAttempted,
+        [Parameter(Mandatory=$true)][ref]$FailureDiagnostic)
+    $timer=[Diagnostics.Stopwatch]::StartNew();$phase='host_context'
+    try {
+        if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+            [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
+            throw 'Owned original pair pause requires the hosted SYSTEM fixture context'
+        }
+        if($EffectPair -isnot [UskOwnedEffectChildObserver] -or $ParentPause.Value -or $ChildPause.Value -or
+            $ParentPauseAttempted.Value -or $ChildPauseAttempted.Value) {
+            throw 'Owned original pair pause lacks untouched separate native custody'
+        }
+        $phase='original_pair_before_target'
+        $pair=$EffectPair.ObserveOriginalLivePair()
+        $creation=$ParentWorker.StartTime.ToUniversalTime().ToFileTimeUtc()
+        if($ParentWorker.HasExited -or $pair.parent_process_id -ne $ParentWorker.Id -or
+            $pair.parent_process_birth -cne $creation.ToString('x16') -or
+            $pair.effect_process_id -ne $EffectPair.ChildProcessId -or
+            $pair.effect_process_birth -cne $EffectPair.ChildProcessBirth -or
+            $pair.effect_process_id -eq $ParentWorker.Id -or $pair.effect_process_id -eq $PID -or
+            $pair.effect_process_birth -cnotmatch '^[0-9a-f]{16}$' -or -not $pair.both_live) {
+            throw 'Owned original pair pause native process instances differ'
+        }
+        # Check the complete parent/child owned-target predicate union while
+        # both processes can still service their existing bounded transports.
+        # No serialized readiness object can bypass any of these checks.
+        $phase='owned_target'
+        $lab=[IO.Path]::GetFullPath((Split-Path -Parent $VhdPath))
+        $runner=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+        if(-not $lab.StartsWith($runner,[StringComparison]::OrdinalIgnoreCase) -or
+            (Split-Path -Leaf $lab) -cnotmatch '^usk-wu006-[0-9a-f]{32}$' -or
+            $Service -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
+            $ExpectedImageSha256 -cnotmatch '^[0-9a-f]{64}$') {
+            throw 'Owned original pair pause target differs'
+        }
+        $image=Get-DiskImage -ImagePath $VhdPath -ErrorAction Stop
+        $disk=$image|Get-Disk -ErrorAction Stop
+        $parts=@($disk|Get-Partition|Where-Object DriveLetter)
+        if(-not $image.Attached -or $disk.IsBoot -or $disk.IsSystem -or $parts.Count -ne 1) {
+            throw 'Owned original pair pause target is not a disposable mounted volume'
+        }
+        $volume=$parts[0]|Get-Volume
+        if($volume.UniqueId -cne $VolumeRoot -or $volume.FileSystem -cne 'NTFS') {
+            throw 'Owned original pair pause volume identity differs'
+        }
+        $phase='private_image_and_scm'
+        $privateImage=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$Service+'.exe')
+        if(-not [string]::Equals([IO.Path]::GetFullPath($ExpectedImagePath),$privateImage,[StringComparison]::OrdinalIgnoreCase) -or
+            -not [string]::Equals($pair.original_image_path,$privateImage,[StringComparison]::OrdinalIgnoreCase) -or
+            (Get-FileHash -LiteralPath $privateImage -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedImageSha256) {
+            throw 'Owned original pair pause private executable differs'
+        }
+        $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$Service+"'") -ErrorAction Stop
+        $commandPrefix='"'+$privateImage+'" --service '+$Service+' --no-receipt '+$VolumeRoot+' '
+        if(-not $registration -or $registration.State -cne 'Running' -or
+            $registration.ProcessId -ne $ParentWorker.Id -or $registration.StartName -cne 'LocalSystem' -or
+            $registration.PathName -cne $ExpectedServiceCommand -or
+            -not $ExpectedServiceCommand.StartsWith($commandPrefix,[StringComparison]::Ordinal)) {
+            throw 'Owned original pair pause is not the retained running fixture service'
+        }
+        Initialize-OwnedPublisherWorkerPause
+        $phase='original_pair_before_child'
+        $pair=$EffectPair.ObserveOriginalLivePair()
+        # Pause the effect child first, leaving its original broker running.
+        # Retain returned custody before attempting the parent, so every later
+        # failure reaches checked restoration of the actual original child.
+        $phase='child_constructor';$ChildPauseAttempted.Value=$true
+        $ChildPause.Value=[UskPublisherPausedWorker]::new([uint32]$pair.effect_process_id,
+            [Convert]::ToUInt64($pair.effect_process_birth,16),$privateImage)
+        $script:activeRetainedChildPause=$ChildPause.Value
+        $phase='child_paused_before_parent'
+        $ChildPause.Value.RequirePaused();$null=$EffectPair.ObserveOriginalLivePair()
+        $phase='parent_constructor';$ParentPauseAttempted.Value=$true
+        $ParentPause.Value=[UskPublisherPausedWorker]::new([uint32]$ParentWorker.Id,[uint64]$creation,$privateImage,$true)
+        $phase='parent_capture1'
+        $ParentPause.Value.CaptureParentThreads(1)
+        $parent=$ParentPause.Value.ParentAcquisitionIdentity()
+        $pair=$EffectPair.ObserveOriginalLivePair()
+        if($parent.process_id -ne $pair.parent_process_id -or
+            ([Convert]::ToUInt64($parent.process_creation_file_time)).ToString('x16') -cne $pair.parent_process_birth) {
+            throw 'Owned original pair pause parent acquisition identity differs'
+        }
+        $phase='child_paused_after_parent'
+        $ChildPause.Value.RequirePaused();$null=$EffectPair.ObserveOriginalLivePair()
+        $phase='parent_capture2'
+        $ParentPause.Value.CaptureParentThreads(2)
+        # The caller still performs capture3, a separate no-admission seal,
+        # strict native pair checks and all unchanged whole-state frame checks.
+        # Suspension does not prove retired kernel I/O or continuous exclusion.
+    } catch {
+        $originalFailure=$_
+        try {
+            $FailureDiagnostic.Value=[ordered]@{scope='original_pair_pause_acquisition_failure';
+                qualification_granted=$false;atomic_snapshot=$false;phase=$phase;
+                elapsed_milliseconds=$timer.ElapsedMilliseconds;
+                parent_pause_attempted=[bool]$ParentPauseAttempted.Value;child_pause_attempted=[bool]$ChildPauseAttempted.Value;
+                parent_custody_returned=[bool]$ParentPause.Value;child_custody_returned=[bool]$ChildPause.Value;
+                original_pair=$null;pair_capture_status='unavailable'}
+            if($EffectPair -is [UskOwnedEffectChildObserver]) {
+                $FailureDiagnostic.Value.original_pair=$EffectPair.ObserveOriginalPairFailure()
+                $FailureDiagnostic.Value.pair_capture_status='original_handles_sampled_after_failure'
+            }
+        } catch {
+            try {if($FailureDiagnostic.Value){$FailureDiagnostic.Value.pair_capture_status='capture_failed'}}
+            catch {} # Optional later samples cannot replace the primary failure.
+        }
+        throw $originalFailure
+    } finally {$timer.Stop()}
+}
+
 function Complete-OwnedPublisherParentPause {
     param([Parameter(Mandatory=$true)]$ParentPause,[Parameter(Mandatory=$true)]$ChildPause,
         [Parameter(Mandatory=$true)]$EffectPair)

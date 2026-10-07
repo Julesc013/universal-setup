@@ -362,7 +362,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
         ($drive+'publication\staging'),($drive+'publication\destination'),($drive+'publication\state'),($drive+'publication\journal'))
     $lastCue=$null;$cueSamples=0;$registration=$null
     $worker=$null;$pause=$null;$pauseAttempted=$false;$effectPair=$null
-    $childPause=$null;$childPauseAttempted=$false;$activeFailure=$null
+    $childPause=$null;$childPauseAttempted=$false;$activeFailure=$null;$pairPauseFailure=$null
     $effectPairAttempted=$false
     $priorToken=$clientTokenLease;$priorCaptureFile=$clientCaptureFile;$priorCaptureSha256=$clientCaptureSha256
     $script:activeRetainedOriginalTokenLease=$priorToken
@@ -451,11 +451,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             }
             throw 'Original active ownership cue was not observed before its deadline'
         }
-        $pauseAttempted=$true
-        $pause=Start-OwnedPublisherWorkerPause -Process $worker -Service $service -VhdPath $VhdPath `
-            -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
-            -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256 -AcquireParentThreads
-        # The native endpoint and pause remain the actual SCM parent. Open a
+        # Retain the original SCM parent and child before either pause. Open a
         # separate query-only original child from native ancestry and image.
         $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$worker.Id) -ErrorAction Stop)
         if($children.Count -ne 1 -or -not $children[0].CreationDate -or
@@ -490,10 +486,12 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
         $effectPair=[UskOwnedEffectChildObserver]::new($worker,[uint32]$worker.Id,
             $worker.StartTime.ToUniversalTime().ToFileTimeUtc(),[uint32]$children[0].ProcessId,
             $children[0].CreationDate.ToUniversalTime().Ticks,$installedBinary,$children[0].CommandLine)
-        $childPauseAttempted=$true
-        $childPause=Start-OwnedPublisherEffectChildPause -ParentWorker $worker -ParentPause $pause -EffectPair $effectPair `
+        Start-OwnedPublisherOriginalPairPause -ParentWorker $worker -EffectPair $effectPair `
             -Service $service -VhdPath $VhdPath -VolumeRoot $VolumeRoot -ExpectedServiceCommand $registeredCommand `
-            -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256
+            -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256 `
+            -ParentPause ([ref]$pause) -ChildPause ([ref]$childPause) `
+            -ParentPauseAttempted ([ref]$pauseAttempted) -ChildPauseAttempted ([ref]$childPauseAttempted) `
+            -FailureDiagnostic ([ref]$pairPauseFailure)
         $script:activeRetainedChildPause=$childPause
         Complete-OwnedPublisherParentPause -ParentPause $pause -ChildPause $childPause -EffectPair $effectPair
         $pause.RequirePaused();$childPause.RequirePaused();$null=$effectPair.ObserveOriginalLivePair()
@@ -511,7 +509,12 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
         $childPause.RequirePaused()
         $receipt.active_install_contention['installer_live_before_resume']=-not $Installer.HasExited
         if($Installer.HasExited){throw 'First installer ended during active contention'}
-    } catch {$activeFailure=$_;throw} finally {
+    } catch {
+        $activeFailure=$_
+        try {if($pairPauseFailure){$receipt['active_pair_acquisition_failure']=$pairPauseFailure}}
+        catch {} # Failure diagnostics never replace the original refusal.
+        throw $activeFailure
+    } finally {
       try {
         try {
             if($clientTokenLease -and $clientTokenLease -ne $priorToken) {
@@ -547,6 +550,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
                 try {
                     if($pause){$pause.Dispose();$script:activeWorkerRestored=$true}
                     elseif($pauseAttempted){throw 'Worker pause attempted without returned custody'}
+                    else {$script:activeWorkerRestored=$true}
                 } catch {$pauseFailure=$_.Exception}
                 if($pauseFailure) {
                     if(-not $activeEffectChildRestored){throw 'Child and SCM pause restoration remain unconfirmed; retain the lab'}
