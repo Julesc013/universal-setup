@@ -66,10 +66,14 @@ def child_fixture():
     return observation, client
 
 
-def ownership_fixture(published=False):
+def ownership_fixture(published=False, absent=False):
     observation, client = child_fixture()
     record = observation['active_install_contention']
     rows, request, response, apply, consumer, holder = active_fixture(published)
+    absence = None
+    if absent:
+        from test_publisher_installation_lease_evidence import active_absence_fixture
+        rows, request, response, apply, consumer, holder, absence = active_absence_fixture()
     assert client == consumer
     observation.update(plan_request=request, plan_response=response, plan=response['result']['payload'], apply_request=apply)
     record['schema'] = 'usk.publisher_active_install_contention_probe.v3'
@@ -78,9 +82,15 @@ def ownership_fixture(published=False):
     record['effect_child_pause_restored'] = True
     for name in ('before', 'after'):
         record[name]['independent']['rows'] = copy.deepcopy(rows)
+        if absent:
+            record[name]['independent']['publication_absence'] = copy.deepcopy(absence)
     record['lease_before']['coordination'] = active_ownership(rows, DRIVE, INSTALLED, ROOT,
-        request, response, apply, consumer, holder)
+        request, response, apply, consumer, holder, publication_absence=absence)
     completed = copy.deepcopy(rows)
+    if absent:
+        present = active_fixture()[0]
+        completed += [copy.deepcopy(row) for row in present if row['path'] == DRIVE+'publication' or
+                      row['path'].startswith(DRIVE+'publication\\')]
     active = next(row for row in rows if row['path'].endswith('-active.json'))
     terminal = dict(json.loads(active['content_json']), status='completed',
         result_state_revision=digest([{'record': INSTALLED['install_id']+'.'+INSTALLED['transaction_id']+'.json',
@@ -97,6 +107,34 @@ def ownership_fixture(published=False):
 
 
 class ActiveInstallContentionEvidenceTests(unittest.TestCase):
+    def test_original_reserved_absence_reconciles_both_native_reads_and_completed_same_holder(self):
+        observation, client = ownership_fixture(absent=True)
+        result = reconcile_active_install_contention(observation, client)
+        self.assertEqual(result['cases_checked'], 4)
+        self.assertFalse(result['profile_qualified'])
+
+    def test_original_reserved_absence_cannot_be_omitted_changed_or_selected_by_historical_family(self):
+        for mutate in (
+            lambda r: r['before']['independent'].pop('publication_absence'),
+            lambda r: r['after']['independent'].pop('publication_absence'),
+            lambda r: r['before']['independent']['publication_absence'].update(win32_error_before=3),
+            lambda r: r['after']['independent']['publication_absence'].update(win32_error_after=3),
+            lambda r: r['after']['independent']['publication_absence'].update(generation=True),
+            lambda r: r['after']['independent']['publication_absence'].update(generation=1.0),
+            lambda r: r['after']['independent']['publication_absence'].update(win32_error_after=2.0),
+            lambda r: r['after']['independent']['publication_absence'].update(parent_root_identity='other'),
+            lambda r: r['after']['independent'].update(publication_absence=None),
+        ):
+            observation, client = ownership_fixture(absent=True)
+            mutate(observation['active_install_contention'])
+            with self.subTest(mutation=mutate), self.assertRaises((StandardEvidenceError, LeaseEvidenceError)):
+                reconcile_active_install_contention(observation, client)
+        observation, client = ownership_fixture(absent=True)
+        record = observation['active_install_contention'];record['schema'] = 'usk.publisher_active_install_contention_probe.v2'
+        record.pop('paused_effect_child');record.pop('effect_child_pause_restored')
+        with self.assertRaises(StandardEvidenceError):
+            reconcile_active_install_contention(observation, client)
+
     def test_v3_original_early_and_published_ownership_reconcile_with_checked_child_pause(self):
         for published in (False, True):
             observation, client = ownership_fixture(published)

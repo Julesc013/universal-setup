@@ -289,8 +289,24 @@ def _reconcile_contention(observation, client, *, active_holder):
             except (ValueError, KeyError, TypeError) as error:
                 raise StandardEvidenceError('active ownership original live child differs: ' + str(error)) from error
             coordination = active_ownership(before, drive, installed, volume_root_id,
-                                            envelope, response, apply_request, client, original_holder)
+                envelope, response, apply_request, client, original_holder,
+                publication_absence=record['before']['independent'].get('publication_absence'))
+            for readback in (record['before'], record['after']):
+                independent = readback['independent']
+                require('publication_absence' not in independent or isinstance(independent['publication_absence'], dict),
+                        'active ownership native absence receipt is not an actual closed record')
+            require(record['before']['independent'].get('publication_absence') ==
+                    record['after']['independent'].get('publication_absence'),
+                    'active ownership native publication absence changed during contention')
+            after_coordination = active_ownership(after, drive, installed,
+                record['after']['independent']['volume_boundary']['root']['file_id'],
+                envelope, response, apply_request, client, original_holder,
+                publication_absence=record['after']['independent'].get('publication_absence'))
+            require(coordination == after_coordination,
+                    'active ownership independently validated coordination changed during contention')
         else:
+            require(all('publication_absence' not in record[name]['independent'] for name in ('before', 'after')),
+                    'historical active contention cannot select reserved absence')
             coordination = lease_snapshot(before, drive, installed, volume_root_id,
                                           allow_active=True, allow_initial_empty_state=True)
         history = coordination['history']

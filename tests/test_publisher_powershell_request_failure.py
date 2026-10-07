@@ -210,21 +210,34 @@ if($stop.Count -ne 1){throw 'Pure original cue prelude is ambiguous'}
 $start=$active[0].Body.Extent.StartOffset+1
 $source=[IO.File]::ReadAllText((Join-Path $Root 'tests/windows_publisher_standard_public_probe.ps1'))
 $flow=[scriptblock]::Create($source.Substring($start,$stop[0].Extent.StartOffset-$start))
+$wakeIf=@($active[0].Body.FindAll({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and
+    $n.Clauses[0].Item1.Extent.Text.Contains('$present')},$true))
+if($wakeIf.Count -ne 1){throw 'Original ownership wake condition is ambiguous'}
+$wake=[scriptblock]::Create($wakeIf[0].Clauses[0].Item1.Extent.Text)
 $utf8=[Text.UTF8Encoding]::new($false);$drive=$Scratch.TrimEnd('\')+'\'
 $apply=@{plan_request=@{install_id='org.example.setup'};transaction_id='operation.1'}
 . $flow
 $original=@($cuePaths);$presentBefore=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
+$present=$presentBefore;$wakeBefore=& $wake
 foreach($p in ($original|Select-Object -First 4)) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $p) -Force|Out-Null
-    [IO.File]::WriteAllText($p,'synthetic wake-only cue',$utf8)
+    $nativePath=$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p)
+    [IO.File]::WriteAllText($nativePath,'synthetic wake-only cue',$utf8)
 }
+$presentCoordination=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
+$present=$presentCoordination;$wakeCoordination=& $wake
 foreach($p in ($original|Select-Object -Skip 4)){New-Item -ItemType Directory -Path $p -Force|Out-Null}
 $presentAll=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
+$present=$presentAll;$wakeAll=& $wake
 $apply.transaction_id='operation.foreign';. $flow
 $foreign=@($cuePaths);$foreignPresent=@(foreach($p in $foreign){[bool](Test-Path -LiteralPath $p)})
+$present=$foreignPresent;$wakeForeign=& $wake
+$present=@($presentAll);$present[0]=$false;$wakeMissingOriginal=& $wake
 $apply.transaction_id='operation/invalid';$invalid=$null
 try {. $flow} catch {$invalid=$_.Exception.Message}
 @{original=$original;foreign=$foreign;before=$presentBefore;all=$presentAll;foreign_present=$foreignPresent;
+  coordination_only=$presentCoordination;wake_before=$wakeBefore;wake_coordination=$wakeCoordination;
+  wake_all=$wakeAll;wake_foreign=$wakeForeign;wake_missing_original=$wakeMissingOriginal;
   invalid=$invalid;native_activation_invoked=$false}|ConvertTo-Json -Depth 8 -Compress
 '''
 
@@ -268,6 +281,12 @@ class PublisherPowerShellRequestFailureTests(unittest.TestCase):
         self.assertEqual(len(set(row['original'])), 8)
         self.assertEqual(row['before'], [False]*8)
         self.assertEqual(row['all'], [True]*8)
+        self.assertEqual(row['coordination_only'], [True]*4+[False]*4)
+        self.assertFalse(row['wake_before'])
+        self.assertTrue(row['wake_coordination'])
+        self.assertTrue(row['wake_all'])
+        self.assertFalse(row['wake_foreign'])
+        self.assertFalse(row['wake_missing_original'])
         self.assertEqual(row['foreign_present'], [True, False, False, False, True, True, True, True])
         self.assertEqual(row['invalid'], 'Active ownership cue identity differs')
         self.assertFalse(row['native_activation_invoked'])

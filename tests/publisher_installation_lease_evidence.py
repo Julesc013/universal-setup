@@ -318,10 +318,11 @@ def _snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, all
     return result
 
 
-def active_ownership(rows, drive, installed, volume_root_id, request, response, apply, consumer, held_holder):
+def active_ownership(rows, drive, installed, volume_root_id, request, response, apply, consumer, held_holder,
+                     *, publication_absence=None):
     """Original g1 ownership only; never publication, completion or native authority.
 
-    The v3 fixture can stop at complete empty publication anchors. Ordinary
+    The v3 fixture can stop at native reserved absence or complete empty anchors. Ordinary
     snapshots and the historical v2 fixture still require the published plan.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
@@ -407,18 +408,31 @@ def active_ownership(rows, drive, installed, volume_root_id, request, response, 
             'active ownership original restart/target policy differs')
     reviewed_path = drive + 'publication\\journal\\lab-reviewed-plan.json'
     early = reviewed_path not in by_path
+    absence = None
     if early:
         publication = drive + 'publication'
         expected_paths = {publication} | {publication + '\\' + name for name in ('staging', 'destination', 'state', 'journal')}
         actual_paths = {path for path in by_path if path == publication or path.startswith(publication + '\\')}
-        require(actual_paths == expected_paths and all(by_path[path].get('directory') is True for path in expected_paths),
-                'early active ownership lacks exactly complete empty publication anchors')
+        if not actual_paths:
+            # Reuse the closed native absence codec; missing rows alone prove nothing.
+            from publisher_bootstrap_durable_state_evidence import reserved_absence
+            absence = reserved_absence({'rows': rows, 'volume_boundary': {'root': {'file_id': volume_root_id}},
+                                        'publication_absence': publication_absence}, drive, installed, 1)
+        else:
+            require(publication_absence is None and actual_paths == expected_paths and
+                    all(by_path[path].get('directory') is True for path in expected_paths),
+                    'early active ownership lacks exactly complete empty publication anchors')
+    else:
+        require(publication_absence is None, 'published active ownership contradicts native publication absence')
     result = _snapshot(rows, drive, installed, volume_root_id, allow_active=True, allow_initial_empty_state=True,
                        early_reviewed=reviewed if early else None)
     require(result['history'][0]['holder'] == held_holder,
             'active ownership generation does not name the held original native child')
     require(result['bootstrap_protocol'] == 'reserved_creation', 'active ownership lacks its original bootstrap reservation')
-    result['active_ownership_phase'] = 'prepublication_empty_anchors' if early else 'published_reviewed_plan'
+    result['active_ownership_phase'] = ('prepublication_reserved_absence' if absence is not None else
+                                       'prepublication_empty_anchors' if early else 'published_reviewed_plan')
+    if absence is not None:
+        result['publication_absence'] = absence
     return result
 
 
@@ -573,7 +587,8 @@ def main():
                           allow_initial_empty_state=value.get('allow_initial_empty_state') is True)
     elif value['mode'] == 'active_ownership':
         result = active_ownership(value['rows'], value['drive'], value['installed'], value['volume_root_id'],
-            value['request'], value['response'], value['apply'], value['consumer'], value['held_holder'])
+            value['request'], value['response'], value['apply'], value['consumer'], value['held_holder'],
+            publication_absence=value.get('publication_absence'))
     elif value['mode'] == 'bootstrap_takeover':
         result = bootstrap_takeover(value['before'], value['after'], value['drive'], value['installed'],
                                     value['volume_root_id'], value['terminated_holder'])

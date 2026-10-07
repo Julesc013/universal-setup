@@ -150,6 +150,19 @@ def active_fixture(published=False):
     return rows, request, response, apply, consumer, holder
 
 
+def active_absence_fixture():
+    rows, request, response, apply, consumer, holder = active_fixture()
+    rows = [row for row in rows if row['path'] != DRIVE+'publication' and
+            not row['path'].startswith(DRIVE+'publication\\')]
+    prefix = CONTEXTS+'\\operation-'+digest(INSTALLED['transaction_id'])
+    absence = {'schema': 'usk.publisher_reserved_publication_absence.v1', 'path': DRIVE+'publication',
+        'parent_root_identity': ROOT, 'win32_error_before': 2, 'win32_error_after': 2, 'generation': 1,
+        'reservation_record_path': prefix+'-bootstrap-g00000000000000000001.json',
+        'ownership_record_path': LEASES+'\\g00000000000000000001-active.json',
+        'previous_preservation_record_path': None, 'previous_retained_root_path': None}
+    return rows, request, response, apply, consumer, holder, absence
+
+
 def preserved_fixture(anchor_count=4, snapshot_bytes=None):
     rows = fixture(2)
     first_active = json.loads(next(row for row in rows if row['path'] == LEASES + '\\g00000000000000000001-active.json')['content_json'])
@@ -264,6 +277,56 @@ def preservation_takeover_fixture():
 
 
 class LeaseRecordReconciliationTests(unittest.TestCase):
+    def test_active_reserved_absence_requires_explicit_native_proof_and_keeps_default_plan_floor(self):
+        rows, request, response, apply, consumer, holder, absence = active_absence_fixture()
+        result = active_ownership(rows, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,
+                                  publication_absence=absence)
+        self.assertEqual(result['active_ownership_phase'], 'prepublication_reserved_absence')
+        self.assertEqual(result['history'][0]['holder'], holder)
+        self.assertFalse(result['publication_absence']['profile_qualified'])
+        with self.assertRaises(LeaseEvidenceError):
+            active_ownership(rows, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder)
+        with self.assertRaises(KeyError):
+            snapshot(rows, DRIVE, INSTALLED, ROOT, allow_active=True, allow_initial_empty_state=True)
+
+    def test_active_reserved_absence_refuses_wrong_native_binding_or_any_publication_material(self):
+        rows, request, response, apply, consumer, holder, absence = active_absence_fixture()
+        for field, value in (('schema', 'different'), ('path', DRIVE+'other'), ('parent_root_identity', 'other'),
+                ('win32_error_before', 3), ('win32_error_after', True), ('generation', 2), ('generation', True),
+                ('reservation_record_path', absence['reservation_record_path']+'.foreign'),
+                ('ownership_record_path', absence['ownership_record_path']+'.foreign'),
+                ('previous_preservation_record_path', 'invented'), ('previous_retained_root_path', 'invented')):
+            changed = dict(absence);changed[field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(LeaseEvidenceError):
+                active_ownership(rows, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,
+                                 publication_absence=changed)
+        for changed in ({k: v for k, v in absence.items() if k != 'win32_error_before'}, dict(absence, extra=True)):
+            with self.assertRaises(LeaseEvidenceError):
+                active_ownership(rows, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,
+                                 publication_absence=changed)
+        for path in (DRIVE+'publication', DRIVE+'publication\\staging', DRIVE+'publication\\foreign'):
+            changed = rows+[{'path': path, 'directory': True, 'file_id': ROOT}]
+            with self.subTest(path=path), self.assertRaises(LeaseEvidenceError):
+                active_ownership(changed, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,
+                                 publication_absence=absence)
+        for published in (False, True):
+            present, request, response, apply, consumer, holder = active_fixture(published)
+            with self.subTest(published=published), self.assertRaises(LeaseEvidenceError):
+                active_ownership(present, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,
+                                 publication_absence=absence)
+
+    def test_active_reserved_absence_cannot_bypass_original_context_records_or_held_child(self):
+        rows, request, response, apply, consumer, holder, absence = active_absence_fixture()
+        for suffix in ('-roots.json', '-bootstrap-g00000000000000000001.json', '-active.json'):
+            changed = [row for row in rows if not row['path'].endswith(suffix)]
+            with self.subTest(missing=suffix), self.assertRaises((LeaseEvidenceError, KeyError)):
+                active_ownership(changed, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,
+                                 publication_absence=absence)
+        changed = relink_active_rows(rows, holder=dict(holder, process_creation_time='0000000000000002'))
+        with self.assertRaises(LeaseEvidenceError):
+            active_ownership(changed, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,
+                             publication_absence=absence)
+
     def test_v3_active_ownership_accepts_only_explicit_original_early_or_published_phase(self):
         for published in (False, True):
             rows, request, response, apply, consumer, holder = active_fixture(published)

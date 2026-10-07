@@ -135,15 +135,18 @@ function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
     Invoke-StandardLeaseEvidence $leaseRequest|Out-Null
 }
 function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][int]$PublicationReservedAbsentGeneration=0,
-    [switch]$IncludeMovedMaintenanceRoot) {
+    [switch]$IncludeMovedMaintenanceRoot,[string]$ActiveReservationPrefix='') {
     if($IncludeMovedMaintenanceRoot -and -not $MaintenanceQualification){throw 'Maintenance readback scope is unavailable'}
+    if($ActiveReservationPrefix -and ($PublicationReservedAbsentGeneration -ne 1 -or
+        $PublicationPreserved -or $IncludeMovedMaintenanceRoot)){throw 'Original active reservation readback scope differs'}
     $script:observersClosed=$false
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
         -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
         -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
         -ExpectedVolumeRoot $VolumeRoot -ExpectedDiskNumber $disk.Number `
         -AbsentPublicationPreservationPrefix $(if($PublicationPreserved){$script:bootstrapOperationPrefix}else{''}) `
-        -AbsentPublicationReservationPrefix $(if($PublicationReservedAbsentGeneration){$script:bootstrapOperationPrefix}else{''}) `
+        -AbsentPublicationReservationPrefix $(if($ActiveReservationPrefix){$ActiveReservationPrefix}
+            elseif($PublicationReservedAbsentGeneration){$script:bootstrapOperationPrefix}else{''}) `
         -AbsentPublicationReservationGeneration $PublicationReservedAbsentGeneration
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18' -or
         $readback.independent.observer_token_handles_closed -ne $true){throw 'Standard independent reader cleanup differs'}
@@ -208,8 +211,10 @@ function Close-StandardPublisherClient($Process,$Launch,[bool]$LaunchAttempted=$
         }
     }
 }
-function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$null,$WorkerPause=$null,$EffectPair=$null,$ChildPause=$null) {
+function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$null,$WorkerPause=$null,$EffectPair=$null,$ChildPause=$null,
+    [string]$OriginalReservationPrefix='') {
     $activeHolder=$null -ne $HeldWorker
+    if($activeHolder -ne ($OriginalReservationPrefix -ne '')){throw 'Original active contention reservation scope differs'}
     if($activeHolder) {
         if(-not $WorkerPause -or -not $EffectPair -or -not $ChildPause -or $HeldWorker.HasExited -or (Get-Service $service).Status -ne 'Running') {
             throw 'Active contention fixture lacks a held live worker'
@@ -258,7 +263,11 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
             creation_file_time=$launch.CreationFileTime.ToString();captured_before_primary_thread_resume=$true;
             primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$probeHash;
             capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
-        $record.before=Read-NativeSnapshot
+        # The path only selects a reader. Native before/after leaf checks and
+        # the exact original context/reservation/holder establish absence.
+        $reservedAbsent=if($activeHolder -and -not (Test-Path -LiteralPath ($drive+'publication'))){1}else{0}
+        $activePrefix=if($reservedAbsent){$OriginalReservationPrefix}else{''}
+        $record.before=Read-NativeSnapshot -PublicationReservedAbsentGeneration $reservedAbsent -ActiveReservationPrefix $activePrefix
         if($activeHolder) {
             $WorkerPause.RequirePaused();$ChildPause.RequirePaused()
             $leaseRequest=@{mode='active_ownership';rows=$record.before.independent.rows;drive=$drive;
@@ -266,6 +275,7 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
                 request=$receipt.plan_request;response=$receipt.plan_response;apply=$apply;consumer=$accountSid;
                 held_holder=@{process_id=$EffectPair.ChildProcessId;process_creation_time=$EffectPair.ChildProcessBirth};
                 volume_root_id=$record.before.independent.volume_boundary.root.file_id}
+            if($reservedAbsent){$leaseRequest['publication_absence']=$record.before.independent.publication_absence}
             $decoded=$leaseRequest|ConvertTo-Json -Depth 64 -Compress|
                 & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
             if($LASTEXITCODE -ne 0){throw 'Active contention lacks independently reconciled native ownership'}
@@ -319,12 +329,14 @@ function Invoke-RegisteredEndpointContention([Diagnostics.Process]$HeldWorker=$n
             if((Get-Service $service).Status -ne 'Stopped'){throw 'Registered contention worker did not stop after endpoint release'}
             $record.worker_stopped=$true
         }
-        $record.after=Read-NativeSnapshot
+        $record.after=Read-NativeSnapshot -PublicationReservedAbsentGeneration $reservedAbsent -ActiveReservationPrefix $activePrefix
         if($activeHolder){$WorkerPause.RequirePaused();$ChildPause.RequirePaused();$record['live_pair_after']=$EffectPair.ObserveOriginalLivePair()}
         if(($record.before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
             ($record.after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
             ($record.before.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress) -cne
-            ($record.after.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress)){
+            ($record.after.independent.volume_boundary|ConvertTo-Json -Depth 64 -Compress) -or
+            ($record.before.independent.publication_absence|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($record.after.independent.publication_absence|ConvertTo-Json -Depth 64 -Compress)){
             throw 'Registered pre-dispatch contention changed the independently observed target'
         }
     } finally {Close-StandardPublisherClient $process $launch $launchAttempted}
@@ -336,6 +348,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     # These exact paths only wake the original SCM/pair/readback checks. They
     # grant no readiness or ownership; the paused native reader validates the
     # complete original lease/context/roots/reservation and publication phase.
+    # Publication creation is later than ownership and is not a wake prerequisite.
     $ids=@($apply.plan_request.install_id,$apply.transaction_id);$hashes=@()
     foreach($value in $ids) {
         if($value -cnotmatch '^[A-Za-z0-9_.-]{1,128}$'){throw 'Active ownership cue identity differs'}
@@ -362,7 +375,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             if($Installer.HasExited){throw 'Active installer observation window already passed'}
             $present=@(foreach($path in $cuePaths){[bool](Test-Path -LiteralPath $path)})
             $cueSamples++;$lastCue=$present
-            if(@($present|Where-Object {-not $_}).Count -eq 0) {
+            if(@($present|Select-Object -First 4|Where-Object {-not $_}).Count -eq 0) {
                 $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'") -ErrorAction Stop
                 if($registration.State -ceq 'Running' -and $registration.ProcessId -gt 0) {
                     $worker=Get-Process -Id $registration.ProcessId -ErrorAction Stop;$null=$worker.Handle
@@ -431,7 +444,8 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
         [IO.File]::Move($priorCaptureFile,$retainedCapture);$captureMoved=$true
         $script:clientTokenLease=$null
         $script:clientCaptureSha256=''
-        Invoke-RegisteredEndpointContention -HeldWorker $worker -WorkerPause $pause -EffectPair $effectPair -ChildPause $childPause
+        Invoke-RegisteredEndpointContention -HeldWorker $worker -WorkerPause $pause -EffectPair $effectPair -ChildPause $childPause `
+            -OriginalReservationPrefix $originalPrefix
         if(-not $script:clientsClosed){throw 'Active contender cleanup remains unconfirmed'}
         $script:activeContenderClosed=$true
         $pause.RequirePaused()
