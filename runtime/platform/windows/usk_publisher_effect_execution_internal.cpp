@@ -198,11 +198,16 @@ void require_publisher_effect_maintenance_original_record(const Value& original,
     require(original.as_object().size() == fields.size(), "child maintenance original custody is not closed");
     for (const auto& item : original.as_object())
         require(fields.count(item.first) != 0, "child maintenance original custody has an unknown field");
-    require(original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3",
+    require(original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3" ||
+        original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v4",
         "child maintenance original custody has another provenance family");
     const auto& broker = original.at("broker_readback");
     const auto worker = publisher_effect_worker_record_context(broker);
     const auto service = publisher_effect_broker_service_record(broker);
+    require(original.at("worker_security").at("schema").as_string() ==
+        (original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v4" ?
+            "usk.publisher_worker_security.v2" : "usk.publisher_worker_security.v1"),
+        "original custody reinterpreted worker-security provenance");
     require_publisher_worker_security(original.at("worker_security"), worker);
     require_publisher_process_boundary(original.at("process_boundary"), worker.process_id,
         worker.service_sid, worker.token.process_groups);

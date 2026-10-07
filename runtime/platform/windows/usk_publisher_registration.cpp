@@ -2880,7 +2880,7 @@ usk::json::Value RegisteredPublisherAdmission::selected_reviewed_operation_obser
 
 usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id, unsigned protocol_version) const {
     using usk::json::Value;
-    if (protocol_version != 2 && protocol_version != 4)
+    if (protocol_version != 2 && protocol_version != 5)
         throw std::runtime_error("current publisher capability protocol is unavailable");
     const auto admitted = evidence();
     const auto observed = observe_current_restricted_publisher_service(state_->name);
@@ -2920,23 +2920,24 @@ usk::json::Value RegisteredPublisherAdmission::capability_observation(const std:
             {"volume_guid_root", volume.at("volume_root")},
             {"root_file_id", volume.at("root_file_id")},
             {"volume_serial", volume.at("volume_serial")}})}});
-    if (protocol_version == 4) {
+    if (protocol_version == 5) {
         // Compatibility makes this candidate available for genuine qualification.
         // It does not qualify the new child path or grant effects or restoration.
         const auto actual = observe_publisher_execution_platform();
         const bool compatible = publisher_registered_execution_platform_qualified(actual);
         auto& fields = result.as_object();
-        fields.at("schema") = Value("usk.publisher_capability.v4");
+        fields.at("schema") = Value("usk.publisher_capability.v5");
         fields.at("availability") = Value(compatible);
         fields.at("support") = Value(compatible ? "candidate_for_scope" : "unsupported");
-        fields.at("qualification_scope") = Value("registered_public_apply_v10_owned_child_process_restart_replay_verify");
-        fields.at("recovery_ceiling") = Value("candidate_source_free_process_restart_v10");
+        fields.at("qualification_scope") = Value("registered_public_apply_v11_owned_child_native_retirement_process_restart_replay_verify");
+        fields.at("recovery_ceiling") = Value("candidate_source_free_process_restart_v11");
         fields.at("platform").as_object().emplace("sdk_version", actual.at("sdk_version"));
         fields.emplace("qualification_bounds", Value(Value::Object{
-            {"phase_schema", Value("usk.publisher.lab_phase_evidence.v10")},
-            {"execution_schema", Value("usk.publisher_execution_observation.v7")},
-            {"creation_schema", Value("usk.publisher.creation_observation.v4")},
-            {"original_custody_schema", Value("usk.publisher.maintenance_original_custody.v3")},
+            {"phase_schema", Value("usk.publisher.lab_phase_evidence.v11")},
+            {"execution_schema", Value("usk.publisher_execution_observation.v8")},
+            {"creation_schema", Value("usk.publisher.creation_observation.v5")},
+            {"worker_security_schema", Value("usk.publisher_worker_security.v2")},
+            {"original_custody_schema", Value("usk.publisher.maintenance_original_custody.v4")},
             {"process_loss_schema", Value("usk.publisher.production_rename_observer.v2")},
             {"active_contention_schema", Value("usk.publisher_active_install_contention_probe.v2")},
             {"sdk_version", Value("10.0.26100.0")},
@@ -2964,7 +2965,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         schema = submitted.at("schema").as_string();
         if (schema == "usk.publisher_capability_request.v1" ||
             schema == "usk.publisher_capability_request.v2" ||
-            schema == "usk.publisher_capability_request.v4") {
+            schema == "usk.publisher_capability_request.v5") {
             service_observation = schema != "usk.publisher_capability_request.v1";
             inspection_id = submitted.at("request_id").as_string();
             if (submitted.as_object().size() != 2 || inspection_id.empty() || inspection_id.size() > 128 ||

@@ -136,25 +136,30 @@ CERTIFICATE_KEYS = frozenset({"schema", "scope", "creator", "native_call", "hand
 
 
 def reconcile_creation(certificate, anchors, tree, execution):
-    effect_bound = isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v4"
-    effect_execution = execution['schema'] == 'usk.publisher_execution_observation.v7'
+    retirement_bound = isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v5"
+    effect_bound = retirement_bound or isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v4"
+    retirement_execution = execution['schema'] == 'usk.publisher_execution_observation.v8'
+    effect_execution = retirement_execution or execution['schema'] == 'usk.publisher_execution_observation.v7'
+    require(retirement_bound == retirement_execution, 'creation retirement proof family differs')
     require(effect_bound == effect_execution, 'creation certificate reinterpreted its child execution family')
     worker_bound = effect_bound or isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v3"
     process_bound = worker_bound or isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v2"
     closed(certificate, CERTIFICATE_KEYS | (frozenset({"process_boundary"}) if process_bound else frozenset()) |
            (frozenset({"worker_security"}) if worker_bound else frozenset()) |
-           (frozenset({'broker_readback'}) if effect_bound else frozenset()),
+           (frozenset({'broker_readback'}) if effect_bound else frozenset()) |
+           (frozenset({'completed_worker_security'}) if retirement_bound else frozenset()),
            "creation certificate keys differ")
     require(execution["schema"] in ("usk.publisher_execution_observation.v1", "usk.publisher_execution_observation.v2",
-            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6", "usk.publisher_execution_observation.v7") and
+            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6", "usk.publisher_execution_observation.v7", "usk.publisher_execution_observation.v8") and
             worker_bound == (execution["schema"] in ("usk.publisher_execution_observation.v3",
-                                                    "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6", "usk.publisher_execution_observation.v7")) and
+                                                    "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6", "usk.publisher_execution_observation.v7", "usk.publisher_execution_observation.v8")) and
             process_bound == (execution["schema"] != "usk.publisher_execution_observation.v1") and
             process_bound == ("process_boundary" in execution) and worker_bound == ("worker_security" in execution),
             "creation certificate downgraded its original execution boundary")
     require(certificate["schema"] in ("usk.publisher.creation_observation.v1", "usk.publisher.creation_observation.v2",
-            "usk.publisher.creation_observation.v3", "usk.publisher.creation_observation.v4") and
-            certificate["scope"] == ("successful_child_file_create_calls_and_pinned_worker_security_to_bound_graph" if effect_bound else
+            "usk.publisher.creation_observation.v3", "usk.publisher.creation_observation.v4", "usk.publisher.creation_observation.v5") and
+            certificate["scope"] == ("successful_child_file_create_calls_and_original_native_retirement_partition_to_bound_graph" if retirement_bound else
+                                     "successful_child_file_create_calls_and_pinned_worker_security_to_bound_graph" if effect_bound else
                                      "successful_service_file_create_calls_and_worker_security_to_bound_graph" if worker_bound else
                                      "successful_service_file_create_calls_and_process_boundary_to_bound_graph" if
                                      process_bound else "successful_service_file_create_calls_to_bound_graph"),
@@ -184,10 +189,19 @@ def reconcile_creation(certificate, anchors, tree, execution):
         validate_process_boundary(certificate["process_boundary"], context["process_id"],
                                   context["service_sid"], context["process_groups"])
     if worker_bound:
-        require(certificate["worker_security"] == execution["worker_security"],
-                "creation worker security differs from original prepared worker")
-        from publisher_worker_security import validate_worker_security
+        from publisher_worker_security import validate_worker_security, validate_worker_continuity
+        require(certificate["worker_security"]["schema"] == ("usk.publisher_worker_security.v2" if retirement_bound else "usk.publisher_worker_security.v1"),
+                "creation reinterpreted worker-security provenance")
         validate_worker_security(certificate["worker_security"], context)
+        if retirement_bound:
+            require(certificate["completed_worker_security"]["schema"] == "usk.publisher_worker_security.v2",
+                    "creation completion lacks original retirement evidence")
+            validate_worker_security(certificate["completed_worker_security"], context)
+            validate_worker_continuity(certificate["worker_security"], execution["worker_security"])
+            validate_worker_continuity(execution["worker_security"], certificate["completed_worker_security"])
+        else:
+            require(certificate["worker_security"] == execution["worker_security"],
+                    "creation worker security differs from original prepared worker")
     closed(certificate["native_call"], CALL_PROFILE, "creation call profile keys differ")
     require(all(type(certificate["native_call"][key]) is type(expected) and
                 certificate["native_call"][key] == expected for key, expected in CALL_PROFILE.items()),
@@ -201,7 +215,7 @@ def reconcile_creation(certificate, anchors, tree, execution):
     graph_sha = canonical_sha(graph)
     require(type(certificate["created_object_count"]) is int and certificate["created_object_count"] == len(graph) and
             certificate["created_graph_sha256"] == graph_sha, "creation certificate differs from sealed graph")
-    report = {"schema": "usk.publisher_creation_reconciliation.v4" if effect_bound else
+    report = {"schema": "usk.publisher_creation_reconciliation.v5" if retirement_bound else "usk.publisher_creation_reconciliation.v4" if effect_bound else
                         "usk.publisher_creation_reconciliation.v3" if worker_bound else
                         "usk.publisher_creation_reconciliation.v2" if process_bound else
                         "usk.publisher_creation_reconciliation.v1", "status": "bindings_consistent",

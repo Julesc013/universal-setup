@@ -468,7 +468,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
     $record=$prepared[0].content_json|ConvertFrom-Json
-    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8','usk.publisher.lab_phase_evidence.v9','usk.publisher.lab_phase_evidence.v10') -or
+    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8','usk.publisher.lab_phase_evidence.v9','usk.publisher.lab_phase_evidence.v10','usk.publisher.lab_phase_evidence.v11') -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
         $receipt['native_execution_diagnostic']=@{schema=$record.schema;phase=$record.phase;
@@ -556,7 +556,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $executionResult=& python -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $executionInput
     if($LASTEXITCODE -ne 0){throw 'Independent native execution record reconciliation failed'}
     $executionReport=($executionResult -join "`n")|ConvertFrom-Json
-    $childEvidence=$record.schema -ceq 'usk.publisher.lab_phase_evidence.v10'
+    $childEvidence=$record.schema -cin @('usk.publisher.lab_phase_evidence.v10','usk.publisher.lab_phase_evidence.v11')
     $reportSchema=if($childEvidence){'usk.publisher_execution_reconciliation.v5'}else{'usk.publisher_execution_reconciliation.v4'}
     $creatorSchema=if($childEvidence){'usk.publisher_creation_reconciliation.v4'}else{'usk.publisher_creation_reconciliation.v3'}
     if($executionReport.schema -cne $reportSchema -or

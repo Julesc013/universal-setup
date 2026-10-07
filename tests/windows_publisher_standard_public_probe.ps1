@@ -161,7 +161,7 @@ function Read-InstalledSnapshot {
     $decoded=& $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $input
     if($LASTEXITCODE -ne 0){throw 'Standard native execution reconciliation failed'}
     $report=($decoded -join "`n")|ConvertFrom-Json
-    $childEvidence=($prepared[0].content_json|ConvertFrom-Json).schema -ceq 'usk.publisher.lab_phase_evidence.v10'
+    $childEvidence=($prepared[0].content_json|ConvertFrom-Json).schema -cin @('usk.publisher.lab_phase_evidence.v10','usk.publisher.lab_phase_evidence.v11')
     $reportSchema=if($childEvidence){'usk.publisher_execution_reconciliation.v5'}else{'usk.publisher_execution_reconciliation.v4'}
     if($report.schema -cne $reportSchema -or $report.profile_qualified -ne $false -or
         $report.worker_security_phase_count -le 0 -or $report.creation_observation.worker_security_checked -ne $true) {
@@ -564,7 +564,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             stdout_prefix=$responseText.Substring(0,[Math]::Min(8192,$responseText.Length))}
         $result=$responseText|ConvertFrom-Json
         $payloadMatches=if($Command -ceq 'publisher.observe') {
-            $result.result.schema -ceq 'usk.publisher_capability.v4' -and
+            $result.result.schema -ceq 'usk.publisher_capability.v5' -and
                 $result.result.request_id -ceq $requestId -and
                 $result.result.availability -eq $true -and $result.result.qualification -ceq 'incomplete' -and
                 $result.result.support -ceq 'candidate_for_scope' -and $result.result.execution_lease_held -eq $false
@@ -816,9 +816,9 @@ try {
     $receipt['service_policy']=Read-ServicePolicy
     $receipt['discovery']=Invoke-StandardRequest 'publisher.inspect' @{schema='usk.publisher_capability_request.v1';request_id='inspect.'+$id} 2
     if($receipt.discovery.status -cne 'refused' -or $receipt.discovery.error.code -cne 'publisher_capability_unavailable'){throw 'Unqualified standard discovery did not refuse explicitly'}
-    $receipt['capability_protocol']='usk.publisher_capability.v4'
-    $receipt['service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v4';request_id='observe.'+$id}
-    if($receipt.service_discovery.result.schema -cne 'usk.publisher_capability.v4' -or
+    $receipt['capability_protocol']='usk.publisher_capability.v5'
+    $receipt['service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v5';request_id='observe.'+$id}
+    if($receipt.service_discovery.result.schema -cne 'usk.publisher_capability.v5' -or
         $receipt.service_discovery.result.availability -ne $true -or
         $receipt.service_discovery.result.qualification -cne 'incomplete' -or
         $receipt.service_discovery.result.support -cne 'candidate_for_scope' -or
@@ -926,7 +926,7 @@ try {
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
     if(($after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verified.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard verification changed target snapshot'}
     Assert-LeaseTransition $after $verified $true
-    $receipt['source_free_service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v4';request_id='observe-source-free.'+$id}
+    $receipt['source_free_service_discovery']=Invoke-StandardRequest 'publisher.observe' @{schema='usk.publisher_capability_request.v5';request_id='observe-source-free.'+$id}
     if(($receipt.service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress) -cne
         ($receipt.source_free_service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress)) {
         throw 'Source-free service observation changed retained admission bindings'

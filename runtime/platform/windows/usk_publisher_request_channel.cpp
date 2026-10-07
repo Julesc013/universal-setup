@@ -553,7 +553,7 @@ void require_publisher_response_binding(const std::wstring& service_name,
         expected_service.push_back(static_cast<char>(ch));
     }
     if (schema == "usk.publisher_capability_request.v2" || schema == "usk.publisher_capability_request.v3" ||
-        schema == "usk.publisher_capability_request.v4") {
+        schema == "usk.publisher_capability_request.v4" || schema == "usk.publisher_capability_request.v5") {
         const auto& request_id = submitted.at("request_id").as_string();
         if (submitted.as_object().size() != 2 || request_id.empty() || request_id.size() > 128 ||
             request_id.find_first_not_of(
@@ -570,7 +570,8 @@ void require_publisher_response_binding(const std::wstring& service_name,
             observed.at("registered_admission").type() != usk::json::Value::Type::object ||
             observed.at("capability_observation").type() != usk::json::Value::Type::object ||
             observed.at("capability_observation").at("schema").as_string() !=
-                (schema == "usk.publisher_capability_request.v4" ? "usk.publisher_capability.v4" :
+                (schema == "usk.publisher_capability_request.v5" ? "usk.publisher_capability.v5" :
+                 schema == "usk.publisher_capability_request.v4" ? "usk.publisher_capability.v4" :
                  schema == "usk.publisher_capability_request.v3" ? "usk.publisher_capability.v3" : "usk.publisher_capability.v2")) {
             throw std::runtime_error("publisher service observation differs from request or live server");
         }

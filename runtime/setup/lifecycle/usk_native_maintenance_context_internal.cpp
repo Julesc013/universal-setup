@@ -278,8 +278,9 @@ struct NativeMaintenanceContext::Impl {
         const auto transactions = spec.state_root / "transactions";
         saved.original_text = read_restoration_record(transactions /
             (spec.transaction_id + ".native-maintenance-original.json"), 16u * 1024u * 1024u);
-        const bool child_original = json::parse(saved.original_text, custody_parse_limits(16u * 1024u * 1024u))
-            .at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3";
+        const auto original_schema = json::parse(saved.original_text, custody_parse_limits(16u * 1024u * 1024u)).at("schema").as_string();
+        const bool child_original = original_schema == "usk.publisher.maintenance_original_custody.v3" ||
+            original_schema == "usk.publisher.maintenance_original_custody.v4";
         std::set<std::string> original_fields{"schema", "transaction_id", "operation", "plan_digest",
             "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
             "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root", "installed_root_journal_identity", "original_objects"};
@@ -1742,7 +1743,7 @@ struct NativeMaintenanceContext::Impl {
         base::require_native_path_capacity(original_admission_path, base::NativePathKind::file,
             "native maintenance original custody");
         Value document(Value::Object{{"schema", Value(original_child ?
-                "usk.publisher.maintenance_original_custody.v3" : "usk.publisher.maintenance_original_custody.v2")},
+                "usk.publisher.maintenance_original_custody.v4" : "usk.publisher.maintenance_original_custody.v2")},
             {"transaction_id", Value(spec.transaction_id)}, {"operation", Value(spec.operation)},
             {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},

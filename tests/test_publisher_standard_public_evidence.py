@@ -172,6 +172,36 @@ class StandardPublicPolicyTests(unittest.TestCase):
         with self.assertRaises(StandardEvidenceError):
             service_capability(native, 'observed-1', 20348, protocol='usk.publisher_capability.v3', sdk_version='10.0.26100.0')
 
+    def test_current_native_retirement_capability_binds_all_nine_source_bounds(self):
+        cap, native = self.service_fixture()
+        protocol = "usk.publisher_capability.v5"
+        schema = json.loads((Path(__file__).resolve().parents[1] /
+            "contracts/schema/setup/publisher_capability.v5.schema.json").read_bytes())
+        cap.update({key: copy.deepcopy(value["const"]) for key, value in schema["properties"].items() if "const" in value})
+        cap.update(availability=True, support="candidate_for_scope", qualification_bounds={
+            key: value["const"] for key, value in schema["properties"]["qualification_bounds"]["properties"].items()})
+        cap["platform"]["sdk_version"] = "10.0.26100.0"
+        self.assertEqual(service_capability(native, "observed-1", 20348, protocol=protocol, sdk_version="10.0.26100.0"), cap)
+        self.assertEqual(len(cap["qualification_bounds"]), 9)
+        for key in cap["qualification_bounds"]:
+            for mode in ("absent", "changed"):
+                bad = copy.deepcopy(native)
+                if mode == "absent":
+                    del bad["capability_observation"]["qualification_bounds"][key]
+                else:
+                    bad["capability_observation"]["qualification_bounds"][key] = "unbound"
+                with self.subTest(key=key, mode=mode), self.assertRaises((ValueError, KeyError)):
+                    service_capability(bad, "observed-1", 20348, protocol=protocol, sdk_version="10.0.26100.0")
+        for old in ("usk.publisher_capability.v2", "usk.publisher_capability.v3", "usk.publisher_capability.v4"):
+            with self.subTest(old=old), self.assertRaises(StandardEvidenceError):
+                service_capability(native, "observed-1", 20348, protocol=old, sdk_version="10.0.26100.0")
+        require_capability_phase(protocol, "usk.publisher.lab_phase_evidence.v11")
+        for version in range(1, 11):
+            with self.subTest(version=version), self.assertRaises(StandardEvidenceError):
+                require_capability_phase(protocol, "usk.publisher.lab_phase_evidence.v" + str(version))
+        with self.assertRaises(StandardEvidenceError):
+            require_capability_phase("usk.publisher_capability.v4", "usk.publisher.lab_phase_evidence.v11")
+
     def test_current_child_family_cannot_downgrade_independent_phase(self):
         require_capability_phase('usk.publisher_capability.v4', 'usk.publisher.lab_phase_evidence.v10')
         for old in (None, 'usk.publisher_capability.v2', 'usk.publisher_capability.v3'):

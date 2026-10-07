@@ -325,6 +325,40 @@ bool service_capability_checks()
         if (mode==1) fields.at("platform").as_object().at("windows_build")=Value(std::uint64_t{22621});
         if (child_run(unavailable).exit_code != 0) return false;
     }
+    auto retirement_request = child_request;
+    retirement_request.as_object().at("payload").as_object().at("schema") = Value("usk.publisher_capability_request.v5");
+    const auto retirement_input = usk::json::canonical(retirement_request);
+    auto retirement_response = child_response;
+    auto& retirement = retirement_response.as_object().at("capability_observation").as_object();
+    retirement.at("schema") = Value("usk.publisher_capability.v5");
+    retirement.at("qualification_scope") = Value("registered_public_apply_v11_owned_child_native_retirement_process_restart_replay_verify");
+    retirement.at("recovery_ceiling") = Value("candidate_source_free_process_restart_v11");
+    auto& retirement_bounds = retirement.at("qualification_bounds").as_object();
+    retirement_bounds.at("phase_schema") = Value("usk.publisher.lab_phase_evidence.v11");
+    retirement_bounds.at("execution_schema") = Value("usk.publisher_execution_observation.v8");
+    retirement_bounds.at("creation_schema") = Value("usk.publisher.creation_observation.v5");
+    retirement_bounds.at("original_custody_schema") = Value("usk.publisher.maintenance_original_custody.v4");
+    retirement_bounds.emplace("worker_security_schema", Value("usk.publisher_worker_security.v2"));
+    const auto retirement_run = [&](const Value& observation) {
+        return usk::command::run_publisher_one_shot(retirement_input, [&](const std::string&) {
+            return usk::json::canonical(observation);});
+    };
+    if (retirement_run(retirement_response).exit_code != 0 || retirement_run(child_response).exit_code != 5 ||
+        child_run(retirement_response).exit_code != 5) return false;
+    for (const char* key : {"phase_schema", "execution_schema", "creation_schema", "original_custody_schema", "worker_security_schema",
+            "process_loss_schema", "active_contention_schema", "sdk_version", "candidate_windows_build"}) {
+        auto invalid = retirement_response;
+        invalid.as_object().at("capability_observation").as_object().at("qualification_bounds").as_object().erase(key);
+        if (retirement_run(invalid).exit_code != 5) return false;
+        invalid = retirement_response;
+        invalid.as_object().at("capability_observation").as_object().at("qualification_bounds").as_object().at(key) = Value("unbound");
+        if (retirement_run(invalid).exit_code != 5) return false;
+    }
+    for (const char* key : {"qualification", "authority", "support"}) {
+        auto invalid = retirement_response;
+        invalid.as_object().at("capability_observation").as_object().at(key) = Value("granted");
+        if (retirement_run(invalid).exit_code != 5) return false;
+    }
     const auto lost=usk::command::run_publisher_one_shot(request,
         [](const std::string&) -> std::string {throw std::runtime_error("lost service observation reply");});
     return lost.exit_code==5 && usk::json::parse(lost.document).at("error").at("code").as_string()==

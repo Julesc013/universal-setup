@@ -144,7 +144,7 @@ def project(prepared_json, visible_json, snapshot, service_name, context, source
         source_provenance['route'] == ROUTE and
         source_provenance['no_export_basis'] == 'reviewed_selected_route_source_argument', 'native source review/image binding differs')
     prepared, visible = load_json(prepared_json), load_json(visible_json) if visible_json is not None else None
-    require(prepared['schema'] in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10'),
+    require(prepared['schema'] in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'),
             'native profile projection requires current same-handle metadata')
     first_execution = prepared['execution_phases'][0]['execution']
     execution_report = reconcile(prepared_json, visible_json, service_name, context.service_sid,

@@ -95,9 +95,9 @@ def bootstrap_history(by_path, drive, context_directory, context_path, context, 
                 require(isinstance(prepared.get('execution_phases'), list) and prepared['execution_phases'],
                         'live publication creation phases absent')
                 execution = prepared['execution_phases'][0]['execution']
-                if prepared.get('schema') == 'usk.publisher.lab_phase_evidence.v10':
+                if prepared.get('schema') in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
                     from publisher_effect_broker_evidence import validate_active_child_lease, validate_effect_execution_identity
-                    require(execution['schema'] == 'usk.publisher_execution_observation.v7',
+                    require(execution['schema'] == ('usk.publisher_execution_observation.v8' if prepared['schema'] == 'usk.publisher.lab_phase_evidence.v11' else 'usk.publisher_execution_observation.v7'),
                             'child reservation lost its child execution family')
                     require(prepared['protected_anchors']['boundary']['file_id'] == volume_root_id,
                             'child reservation changed its independently bound native volume')

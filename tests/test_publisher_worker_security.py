@@ -153,5 +153,144 @@ class WorkerSecurityTests(unittest.TestCase):
         self.assertEqual(report["creation_observation"]["creator_process_id"], 500)
 
 
+
+def retirement_security(baseline, retired_ids=()):
+    original = deepcopy(baseline)
+    result = deepcopy(original)
+    result.update(schema="usk.publisher_worker_security.v2",
+        scope="original_pinned_token_defaults_and_native_thread_retirement_partition",
+        original_baseline=original, retired_threads=[])
+    result["threads"] = [thread for thread in result["threads"] if thread["thread_id"] not in retired_ids]
+    for thread in original["threads"]:
+        if thread["thread_id"] in retired_ids:
+            result["retired_threads"].append({"thread_id": thread["thread_id"],
+                "creation_time": thread["creation_time"], "exit_time": f'{thread["thread_id"] + 256:016x}'})
+    return result
+
+
+def retirement_fixture():
+    # Constructed native-record data, never an actual restricted child launch.
+    from test_publisher_effect_broker_evidence import effect_fixture
+    prepared, visible = effect_fixture()
+    prepared["schema"] = visible["schema"] = "usk.publisher.lab_phase_evidence.v11"
+    baseline = deepcopy(prepared["execution_phases"][0]["execution"]["worker_security"])
+    for identity in (701, 702):
+        thread = deepcopy(baseline["threads"][0])
+        thread.update(thread_id=identity, creation_time=f"{identity:016x}")
+        baseline["threads"].append(thread)
+    retirements = ((), (701,), (701, 702), (701, 702), (701, 702))
+    for phase, retired in zip(prepared["execution_phases"] + visible["execution_phases"], retirements):
+        phase["execution"].update(schema="usk.publisher_execution_observation.v8",
+            scope="supplied_held_child_handles_authenticated_broker_access_and_native_retirement_partition",
+            worker_security=retirement_security(baseline, retired))
+    prepared["creation_evidence"].update(schema="usk.publisher.creation_observation.v5",
+        scope="successful_child_file_create_calls_and_original_native_retirement_partition_to_bound_graph",
+        worker_security=retirement_security(baseline),
+        completed_worker_security=retirement_security(baseline, (701,)))
+    return prepared, visible
+
+
+class NativeRetirementEvidenceTests(unittest.TestCase):
+    def context(self, execution):
+        from publisher_effect_broker_evidence import worker_security_context
+        return worker_security_context(execution["effect_worker"]["process_id"], SID,
+                                       execution["effect_worker"]["primary_token"])
+
+    def check_records(self, prepared, visible):
+        visible["prepared_record_sha256"] = hashlib.sha256(encode(prepared).encode()).hexdigest()
+        return reconcile(encode(prepared), encode(visible), SERVICE, SID, BUILD, SDK)
+
+    def test_full_original_partition_and_monotonic_creation_publication_join(self):
+        prepared, visible = retirement_fixture()
+        report = self.check_records(prepared, visible)
+        self.assertEqual(report["effect_worker_phase_count"], 5)
+        self.assertEqual(report["creation_observation"]["schema"], "usk.publisher_creation_reconciliation.v5")
+        self.assertFalse(report["profile_qualified"])
+        original = prepared["creation_evidence"]["worker_security"]
+        self.assertEqual(len(original["original_baseline"]["threads"]), 3)
+        self.assertEqual(len(visible["execution_phases"][-1]["execution"]["worker_security"]["retired_threads"]), 2)
+
+    def test_missing_forged_or_contradictory_retirement_never_substitutes_for_native_proof(self):
+        prepared, _ = retirement_fixture()
+        execution = prepared["execution_phases"][1]["execution"]
+        context = self.context(execution)
+        proof = execution["worker_security"]
+        def alter(field, value):
+            return lambda changed: changed.__setitem__(field, value)
+        changes = [
+            lambda v: v.pop("original_baseline"),
+            lambda v: v.pop("retired_threads"),
+            alter("retired_threads", []),
+            lambda v: v["retired_threads"].append(deepcopy(v["retired_threads"][0])),
+            lambda v: v["retired_threads"][0].__setitem__("thread_id", True),
+            lambda v: v["retired_threads"][0].__setitem__("thread_id", 999),
+            lambda v: v["retired_threads"][0].__setitem__("creation_time", "0000000000000001"),
+            lambda v: v["retired_threads"][0].__setitem__("exit_time", "0000000000000000"),
+            lambda v: v["retired_threads"][0].__setitem__("exit_time", "0000000000000001"),
+            lambda v: v["retired_threads"][0].__setitem__("exit_time", "A"*16),
+            lambda v: v["retired_threads"][0].__setitem__("authority", "granted"),
+            lambda v: v["threads"][0].__setitem__("owner_sid", "S-1-5-32-544"),
+            lambda v: v["threads"][0].__setitem__("thread_impersonating", True),
+            lambda v: v["original_baseline"].__setitem__("schema", "usk.publisher_worker_security.v2"),
+            lambda v: v["original_baseline"]["threads"].pop(),
+            lambda v: v["threads"].append(deepcopy(v["original_baseline"]["threads"][1])),
+            lambda v: v.__setitem__("threads", v["threads"][1:]),
+        ]
+        for index, change in enumerate(changes):
+            changed = deepcopy(proof)
+            change(changed)
+            with self.subTest(index=index), self.assertRaises((ValueError, KeyError, TypeError)):
+                validate_worker_security(changed, context)
+
+    def test_valid_current_snapshots_cannot_revive_or_rewrite_original_exit_or_baseline(self):
+        from publisher_worker_security import validate_worker_continuity
+        prepared, _ = retirement_fixture()
+        baseline = prepared["execution_phases"][0]["execution"]["worker_security"]["original_baseline"]
+        earlier = retirement_security(baseline, (701,))
+        later = retirement_security(baseline, (701, 702))
+        context = self.context(prepared["execution_phases"][0]["execution"])
+        validate_worker_continuity(earlier, later)
+        revived = retirement_security(baseline)
+        changed_exit = deepcopy(later)
+        changed_exit["retired_threads"][0]["exit_time"] = "0000000000009999"
+        changed_baseline = deepcopy(later)
+        changed_baseline["original_baseline"]["threads"][1]["dacl_protected"] = True
+        for invalid in (revived, changed_exit, changed_baseline):
+            validate_worker_security(invalid, context)
+            with self.assertRaises(ValueError):
+                validate_worker_continuity(earlier, invalid)
+
+    def test_certificate_and_phase_cannot_drop_or_downgrade_retirement_family(self):
+        for mode in ("old_phase", "old_execution", "old_creation", "old_worker",
+                     "missing_completion", "completion_ahead", "changed_exit"):
+            prepared, visible = retirement_fixture()
+            if mode == "old_phase":
+                prepared["schema"] = visible["schema"] = "usk.publisher.lab_phase_evidence.v10"
+            elif mode == "old_execution":
+                prepared["execution_phases"][0]["execution"]["schema"] = "usk.publisher_execution_observation.v7"
+            elif mode == "old_creation":
+                prepared["creation_evidence"]["schema"] = "usk.publisher.creation_observation.v4"
+            elif mode == "old_worker":
+                proof = prepared["execution_phases"][1]["execution"]["worker_security"]
+                prepared["execution_phases"][1]["execution"]["worker_security"] = deepcopy(proof["original_baseline"])
+            elif mode == "missing_completion":
+                prepared["creation_evidence"].pop("completed_worker_security")
+            elif mode == "completion_ahead":
+                prepared["creation_evidence"]["completed_worker_security"] = deepcopy(prepared["execution_phases"][-1]["execution"]["worker_security"])
+                prepared["execution_phases"][-1]["execution"]["worker_security"] = deepcopy(
+                    prepared["execution_phases"][1]["execution"]["worker_security"])
+            else:
+                visible["execution_phases"][0]["execution"]["worker_security"]["retired_threads"][0]["exit_time"] = "0000000000009999"
+            with self.subTest(mode=mode), self.assertRaises((ValueError, KeyError, TypeError)):
+                self.check_records(prepared, visible)
+
+    def test_legacy_child_floors_keep_complete_security_equality(self):
+        from test_publisher_effect_broker_evidence import effect_fixture
+        prepared, visible = effect_fixture()
+        execution = visible["execution_phases"][-1]["execution"]
+        execution["worker_security"] = retirement_security(execution["worker_security"])
+        with self.assertRaises(ValueError):
+            self.check_records(prepared, visible)
+
 if __name__ == "__main__":
     unittest.main()

@@ -486,8 +486,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             config.authenticated_request=request_channel.get();
             const auto submitted=usk::json::parse(request);
             const auto schema=submitted.at("schema").as_string();
-            if (schema == "usk.publisher_capability_request.v2" || schema == "usk.publisher_capability_request.v4") {
-                capability_protocol_version = schema == "usk.publisher_capability_request.v4" ? 4u : 2u;
+            if (schema == "usk.publisher_capability_request.v2" || schema == "usk.publisher_capability_request.v5") {
+                capability_protocol_version = schema == "usk.publisher_capability_request.v5" ? 5u : 2u;
                 if (!registered_admission || submitted.as_object().size() != 2)
                     throw std::runtime_error("service capability request lacks registered admission");
                 capability_request_id=submitted.at("request_id").as_string();

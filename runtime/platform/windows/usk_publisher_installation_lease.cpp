@@ -313,7 +313,8 @@ static Value observe_original_maintenance_custody(HANDLE state_root,
     usk::json::ParseLimits limits;
     limits.max_bytes = maximum; limits.max_values = 2000000u;
     const auto original = usk::json::parse(text, limits);
-    const bool child_original = original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3";
+    const bool child_original = original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3" ||
+        original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v4";
     std::set<std::string> fields{"schema", "transaction_id", "operation", "plan_digest",
         "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
         "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root",

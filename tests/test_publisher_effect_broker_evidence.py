@@ -236,6 +236,22 @@ class EffectBrokerEvidenceTests(unittest.TestCase):
             'original_objects': [], 'broker_readback': broker}
         return original, request
 
+    def test_original_v4_requires_positive_retirement_family_without_downgrading_v3(self):
+        from test_publisher_worker_security import retirement_security
+        original, request = self.original_fixture()
+        current = copy.deepcopy(original)
+        current.update(schema="usk.publisher.maintenance_original_custody.v4",
+                       worker_security=retirement_security(original["worker_security"]))
+        result = validate_original_maintenance_provenance(current, request, SERVICE)
+        self.assertEqual(result["holder"]["process_id"], 600)
+        self.assertFalse(result["native_restoration_qualified"])
+        for invalid in (dict(current, schema="usk.publisher.maintenance_original_custody.v3"),
+                        dict(current, worker_security=original["worker_security"])):
+            with self.assertRaises(ValueError):
+                validate_original_maintenance_provenance(invalid, request, SERVICE)
+        with self.assertRaises(ValueError):
+            validate_original_maintenance_provenance(current, dict(request, confirmation="CANCEL"), SERVICE)
+
     def test_original_v3_provenance_requires_sealed_child_lease_and_exact_original_apply(self):
         original, request = self.original_fixture()
         result = validate_original_maintenance_provenance(original, request, SERVICE)

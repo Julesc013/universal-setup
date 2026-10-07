@@ -46,6 +46,8 @@ def validate_object(value, trusted, query_rights):
 
 
 def validate_worker_security(value, service):
+    if isinstance(value, dict) and value.get("schema") == "usk.publisher_worker_security.v2":
+        return validate_retirement_security(value, service)
     require(isinstance(value, dict) and set(value) == {"schema", "scope", "process_id", "current_thread_id",
             "primary_token", "threads"} and value["schema"] == "usk.publisher_worker_security.v1" and
             value["scope"] == "stored_primary_token_defaults_and_process_thread_owner_dacls" and
@@ -93,3 +95,57 @@ def validate_worker_security(value, service):
         found |= previous == value["current_thread_id"]
     require(found, "current worker thread missing from closure")
     return value
+
+
+def validate_retirement_security(value, service):
+    require(set(value) == {"schema", "scope", "process_id", "current_thread_id", "primary_token",
+            "threads", "original_baseline", "retired_threads"} and
+            value["scope"] == "original_pinned_token_defaults_and_native_thread_retirement_partition",
+            "native retirement closed schema differs")
+    baseline = value["original_baseline"]
+    require(isinstance(baseline, dict) and baseline.get("schema") == "usk.publisher_worker_security.v1",
+            "retirement baseline is not the original closed snapshot")
+    validate_worker_security(baseline, service)
+    live = {key: value[key] for key in ("process_id", "current_thread_id", "primary_token", "threads")}
+    live.update(schema=baseline["schema"], scope=baseline["scope"])
+    validate_worker_security(live, service)
+    require(all(live[key] == baseline[key] for key in ("process_id", "current_thread_id", "primary_token")),
+            "retirement changed original non-thread security")
+    originals = {thread["thread_id"]: thread for thread in baseline["threads"]}
+    partition = set()
+    for thread in live["threads"]:
+        identity = thread["thread_id"]
+        require(identity in originals and identity not in partition and thread == originals[identity],
+                "live partition added or changed an original thread")
+        partition.add(identity)
+    retired = value["retired_threads"]
+    require(isinstance(retired, list) and len(retired) <= len(originals), "retirement evidence exceeds original population")
+    previous = 0
+    for thread in retired:
+        require(isinstance(thread, dict) and set(thread) == {"thread_id", "creation_time", "exit_time"},
+                "retirement evidence closed keys differ")
+        identity, birth, exit_time = thread["thread_id"], thread["creation_time"], thread["exit_time"]
+        require(integer(identity, 1) and identity > previous and identity in originals and identity not in partition and
+                identity != live["current_thread_id"] and birth == originals[identity]["creation_time"] and
+                isinstance(exit_time, str) and re.fullmatch(r"[0-9a-f]{16}", exit_time) is not None and
+                exit_time != "0000000000000000" and exit_time >= birth,
+                "original retirement identity, native exit or partition differs")
+        partition.add(identity)
+        previous = identity
+    require(partition == set(originals), "original thread partition is incomplete")
+    return value
+
+
+def validate_worker_continuity(earlier, later):
+    """Both records must first pass independently bound native-policy checks."""
+    if earlier["schema"] != "usk.publisher_worker_security.v2":
+        require(earlier == later, "legacy token/default/thread security changed")
+        return
+    require(later["schema"] == "usk.publisher_worker_security.v2" and
+            all(earlier[key] == later[key] for key in
+                ("schema", "scope", "process_id", "current_thread_id", "primary_token", "original_baseline")),
+            "frozen original security binding changed")
+    retired = {thread["thread_id"]: thread for thread in later["retired_threads"]}
+    require(len(retired) == len(later["retired_threads"]) and
+            all(retired.get(thread["thread_id"]) == thread for thread in earlier["retired_threads"]),
+            "original retirement disappeared, revived or changed exit")

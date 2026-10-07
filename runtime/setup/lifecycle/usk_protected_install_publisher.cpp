@@ -55,10 +55,10 @@
 namespace {
 bool is_authenticated_record_schema(const std::string& schema) {
     return schema == "usk.publisher.lab_phase_evidence.v8" || schema == "usk.publisher.lab_phase_evidence.v9" ||
-        schema == "usk.publisher.lab_phase_evidence.v10";
+        schema == "usk.publisher.lab_phase_evidence.v10" || schema == "usk.publisher.lab_phase_evidence.v11";
 }
 bool is_descendant_record_schema(const std::string& schema) {
-    return schema == "usk.publisher.lab_phase_evidence.v9" || schema == "usk.publisher.lab_phase_evidence.v10";
+    return schema == "usk.publisher.lab_phase_evidence.v9" || schema == "usk.publisher.lab_phase_evidence.v10" || schema == "usk.publisher.lab_phase_evidence.v11";
 }
 
 struct OwnedHandle {
@@ -656,7 +656,8 @@ void require_same_handle_phase_objects(const usk::json::Value& execution,
     const usk::json::Value& anchors, const usk::json::Value& tree) {
     if (execution.at("schema").as_string() != "usk.publisher_execution_observation.v5" &&
         execution.at("schema").as_string() != "usk.publisher_execution_observation.v6" &&
-        execution.at("schema").as_string() != "usk.publisher_execution_observation.v7") return;
+        execution.at("schema").as_string() != "usk.publisher_execution_observation.v7" &&
+        execution.at("schema").as_string() != "usk.publisher_execution_observation.v8") return;
     const std::vector<const usk::json::Value*> expected{
         &anchors.at("boundary"), &anchors.at("chain").as_array().at(0).at("object"),
         &anchors.at("staging"), &anchors.at("destination_parent"),
@@ -712,14 +713,16 @@ usk::json::Value capture_native_execution_phase(const std::string& phase,
         require_publisher_execution_worker_match(execution, after);
         auto first = execution, last = after;
         if (effect_execution) {
-            // Only fully validated parent thread populations may differ; the
-            // child's complete original security and every other fact remain
-            // exact, as required by the native worker-match validator above.
+            // Native worker-match already validated the closed original-held
+            // retirement partition. Compare all other facts exactly; publish
+            // the actual final observation rather than relabel an old snapshot.
+            first.as_object().at("worker_security") = last.at("worker_security");
             first.as_object().at("broker_readback") = publisher_effect_broker_immutable_record(first.at("broker_readback"));
             last.as_object().at("broker_readback") = publisher_effect_broker_immutable_record(last.at("broker_readback"));
         }
         if (usk::json::canonical(first) != usk::json::canonical(last))
             throw std::runtime_error("authenticated phase bindings changed during descendant access observation");
+        if (effect_execution) result.as_object().at("execution") = after;
         result.as_object().emplace("authenticated_descendants", std::move(access));
     }
     return result;
@@ -772,8 +775,10 @@ void require_native_descendant_continuity(const usk::json::Value& earlier, const
     if (first.size() != second.size()) throw std::runtime_error("authenticated descendant phase closure changed");
     const auto& old_service = earlier.at("execution").at("service");
     const auto& new_service = later.at("execution").at("service");
-    const bool old_child = earlier.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v7";
-    const bool new_child = later.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v7";
+    const bool old_child = earlier.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v7" ||
+        earlier.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v8";
+    const bool new_child = later.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v7" ||
+        later.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v8";
     const bool same_worker = old_child && new_child ?
         earlier.at("execution").at("effect_worker").at("process_id").as_unsigned() ==
             later.at("execution").at("effect_worker").at("process_id").as_unsigned() &&
@@ -931,7 +936,8 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
     if (schema == "usk.publisher.lab_phase_evidence.v6" || (schema == "usk.publisher.lab_phase_evidence.v7" || is_authenticated_record_schema(schema))) {
         for (const auto& phase : phases) {
             const auto& execution_schema = phase.at("execution").at("schema").as_string();
-            if (schema == "usk.publisher.lab_phase_evidence.v10" ? execution_schema != "usk.publisher_execution_observation.v7" :
+            if (schema == "usk.publisher.lab_phase_evidence.v11" ? execution_schema != "usk.publisher_execution_observation.v8" :
+                schema == "usk.publisher.lab_phase_evidence.v10" ? execution_schema != "usk.publisher_execution_observation.v7" :
                 ((execution_schema != "usk.publisher_execution_observation.v4" &&
                  execution_schema != "usk.publisher_execution_observation.v5" &&
                  execution_schema != "usk.publisher_execution_observation.v6") ||
@@ -965,6 +971,10 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
         if (!fresh) throw std::runtime_error("reopened staging cannot claim current-worker creation evidence");
         usk::platform::windows::require_publisher_creation_certificate(prepared.at("creation_evidence"),
             prepared.at("protected_anchors"), prepared.at("sealed_tree"), phases.front().at("execution"));
+        if (schema == "usk.publisher.lab_phase_evidence.v11")
+            usk::platform::windows::require_publisher_worker_security_continuity(
+                prepared.at("creation_evidence").at("completed_worker_security"),
+                phases.back().at("execution").at("worker_security"));
     }
     if (authenticated_bound) require_registered_operation_record(prepared);
 }
@@ -985,7 +995,9 @@ void require_visible_execution_phase(const usk::json::Value& bound,
         if (rights_bound) {
             for (const auto& phase : phases) {
                 const auto& execution_schema = phase.at("execution").at("schema").as_string();
-                if (bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v10" ?
+                if (bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v11" ?
+                    execution_schema != "usk.publisher_execution_observation.v8" :
+                    bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v10" ?
                     execution_schema != "usk.publisher_execution_observation.v7" :
                     ((execution_schema != "usk.publisher_execution_observation.v4" &&
                      execution_schema != "usk.publisher_execution_observation.v5" &&
@@ -1817,7 +1829,7 @@ std::string lab_visible_record(
     }
     return canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
-        (!execution_phases.empty() ? (descendants_bound ? (effect_execution ? "v10" : "v9") : authenticated_bound ? "v8" : metadata_bound ? "v7" : rights_bound ? "v6" : rename_bound ? "v5" : creation_bound ? "v4" : "v3") : selected_digest.empty() ? "v1" : "v2") +
+        (!execution_phases.empty() ? (descendants_bound ? (effect_execution ? "v11" : "v9") : authenticated_bound ? "v8" : metadata_bound ? "v7" : rights_bound ? "v6" : rename_bound ? "v5" : creation_bound ? "v4" : "v3") : selected_digest.empty() ? "v1" : "v2") +
         "\",\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
         json_quote(source_file_id) +
         ",\"destination_parent_file_id\":" +
@@ -1983,7 +1995,7 @@ std::string observe_prepared_recovery(HANDLE volume,
     }
     const auto prepared = usk::json::parse(stored);
     const std::string prepared_schema = prepared.at("schema").as_string();
-    if (effect_execution && prepared_schema != "usk.publisher.lab_phase_evidence.v10")
+    if (effect_execution && prepared_schema != "usk.publisher.lab_phase_evidence.v11")
         throw usk::transaction::CommitAuthorityUnavailable();
     const bool execution_bound = is_execution_record_schema(prepared_schema);
     const bool selected_v2 = execution_bound || prepared_schema == "usk.publisher.lab_phase_evidence.v2";
@@ -3030,7 +3042,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         "publish_prepared", phase_handles, third, observe_publisher_tree(candidate.get()), authenticated_bound, authenticated_bound));
     const std::string prepared = canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
-        (execution_bound ? (creation_evidence ? (authenticated_bound ? (effect_execution ? "v10" : "v9") : "v7") : "v3") : selected_v2 ? "v2" : "v1") + "\","
+        (execution_bound ? (creation_evidence ? (authenticated_bound ? (effect_execution ? "v11" : "v9") : "v7") : "v3") : selected_v2 ? "v2" : "v1") + "\","
         "\"phase\":\"lab_prepared_evidence\",\"service_sid\":" +
         json_quote(service_sid) +
         ",\"volume_serial\":" +

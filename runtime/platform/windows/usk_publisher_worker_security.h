@@ -34,6 +34,11 @@ void require_publisher_worker_security(const usk::json::Value& value,
 // The complete stored token/default/process-thread policy stays identical.
 void require_publisher_worker_security(const usk::json::Value& value,
     const PublisherWorkerTokenContext& worker);
+// Both records must already pass their bound native policy. Version1 retains
+// complete equality. Version2 additionally requires the same frozen original
+// baseline and monotonic, immutable positive retirement evidence.
+void require_publisher_worker_security_continuity(const usk::json::Value& earlier,
+    const usk::json::Value& later);
 // Read-only startup ordering, before freezing a creation baseline or starting
 // durable operation effects. Every observation must pass the complete native
 // policy; no expected thread count, thread control or post-effect refresh.
@@ -69,6 +74,10 @@ public:
     // Optional bounded failure context supplies diagnostics only. It cannot
     // change the native baseline, observations or refusal predicates.
     usk::json::Value observe_current(const std::string& failure_context = {}) const;
+    // Version2 reports the actual live partition and original-held native exit
+    // facts separately from the immutable baseline. Omission proves nothing.
+    // It grants no effect authority and does not alter the version1 API.
+    usk::json::Value observe_current_with_retirement(const std::string& failure_context = {}) const;
 private:
     friend usk::json::Value detail::observe_publisher_worker_continuity_for_test(
         const PublisherWorkerSecurityContinuity&, const std::function<void(const char*)>&);

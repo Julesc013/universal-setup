@@ -95,7 +95,7 @@ def validate_operation_admission(prepared):
     """Retained bindings only; a null private legacy record has no route admission."""
     admission = prepared['operation_admission']
     if admission is None:
-        require(prepared['schema'] != 'usk.publisher.lab_phase_evidence.v10',
+        require(prepared['schema'] not in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'),
                 'child evidence requires its original registered operation admission')
         return False
     closed(admission, OPERATION_KEYS, 'registered operation admission keys differ')
@@ -123,7 +123,7 @@ def validate_operation_admission(prepared):
         isinstance(admission['volume_guid_root'], str) and re.fullmatch(
             r'\\\\\?\\Volume\{[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\}\\', admission['volume_guid_root']),
         'registered operation admission provenance or volume GUID differs')
-    if prepared['schema'] == 'usk.publisher.lab_phase_evidence.v10':
+    if prepared['schema'] in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
         broker = execution['broker_readback']
         from publisher_effect_broker_evidence import validate_broker_record
         validate_broker_record(broker)

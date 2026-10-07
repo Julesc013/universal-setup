@@ -216,6 +216,7 @@ def validate_broker_record(broker):
     closed(security, frozenset({'process_boundary', 'worker_security'}), 'broker native security keys differ')
     context = worker_security_context(service['process_id'], service_sid, parent_token)
     validate_process_boundary(security['process_boundary'], context['process_id'], service_sid, context['process_groups'])
+    require(security['worker_security']['schema'] == 'usk.publisher_worker_security.v1', 'SCM broker reinterpreted retirement provenance')
     validate_worker_security(security['worker_security'], context)
     return worker_security_context(custody['peer_process_id'], service_sid, child_token)
 
@@ -248,7 +249,7 @@ def validate_effect_execution_identity(execution, service_name, service_sid, vol
 
 def execution_worker_identity(execution):
     """Select a distinct retained-data family; never infer a live native owner."""
-    if execution['schema'] == 'usk.publisher_execution_observation.v7':
+    if execution['schema'] in ('usk.publisher_execution_observation.v7', 'usk.publisher_execution_observation.v8'):
         worker = execution['effect_worker']
         return worker['process_id'], worker['primary_token']['token_id'], worker['process_birth']
     service = execution['service']
@@ -294,11 +295,13 @@ def validate_original_maintenance_provenance(original, request, service_name):
         'child maintenance original custody keys differ')
     closed(request, frozenset({'schema', 'plan_request', 'reviewed_plan_id', 'reviewed_plan_digest',
                               'transaction_id', 'applied_at', 'confirmation'}), 'original maintenance apply keys differ')
-    require(original['schema'] == 'usk.publisher.maintenance_original_custody.v3',
+    require(original['schema'] in ('usk.publisher.maintenance_original_custody.v3', 'usk.publisher.maintenance_original_custody.v4'),
             'child maintenance original custody has another provenance family')
     broker = original['broker_readback']
     context = validate_broker_record(broker)
     validate_process_boundary(original['process_boundary'], context['process_id'], context['service_sid'], context['process_groups'])
+    require(original['worker_security']['schema'] == ('usk.publisher_worker_security.v2' if original['schema'] == 'usk.publisher.maintenance_original_custody.v4' else 'usk.publisher_worker_security.v1'),
+            'original custody reinterpreted worker-security provenance')
     validate_worker_security(original['worker_security'], context)
     lease = original['original_lease_ownership']
     validate_active_child_lease(lease, broker)

@@ -69,6 +69,63 @@ Value worker_security() {
         {"process_id", Value(std::uint64_t{500})}, {"current_thread_id", Value(std::uint64_t{700})},
         {"primary_token", Value(std::move(primary))}, {"threads", Value(Value::Array{Value(std::move(thread))})}});
 }
+Value retirement_security(const Value& baseline, const std::vector<std::uint64_t>& retired_ids = {}) {
+    auto result = baseline;
+    result.as_object().at("schema") = Value("usk.publisher_worker_security.v2");
+    result.as_object().at("scope") = Value("original_pinned_token_defaults_and_native_thread_retirement_partition");
+    result.as_object().emplace("original_baseline", baseline);
+    Value::Array live, retired;
+    for (const auto& thread : baseline.at("threads").as_array()) {
+        const auto id = thread.at("thread_id").as_unsigned();
+        if (std::find(retired_ids.begin(), retired_ids.end(), id) == retired_ids.end()) live.push_back(thread);
+        else retired.emplace_back(Value::Object{{"thread_id", thread.at("thread_id")},
+            {"creation_time", thread.at("creation_time")}, {"exit_time", Value("0000000000009999")}});
+    }
+    result.as_object().at("threads") = Value(std::move(live));
+    result.as_object().emplace("retired_threads", Value(std::move(retired)));
+    return result;
+}
+void worker_retirement_data_controls() {
+    auto baseline = worker_security();
+    auto helper = baseline.at("threads").as_array().front();
+    helper.as_object().at("thread_id") = Value(std::uint64_t{701});
+    helper.as_object().at("creation_time") = Value("0000000000000701");
+    baseline.as_object().at("threads").as_array().push_back(helper);
+    PublisherServiceObservation service{};
+    service.process_id = 500; service.service_sid = service_sid; service.token.process_groups = groups;
+    service.token.identity = {0x500, 0x900, 0x501, TokenPrimary};
+    const auto before = retirement_security(baseline), after = retirement_security(baseline, {701});
+    require_publisher_worker_security(before, service);
+    require_publisher_worker_security(after, service);
+    require_publisher_worker_security_continuity(before, after);
+    require_publisher_worker_security_continuity(after, after);
+    const auto refuses = [&](const std::function<void(Value&)>& change) {
+        auto value = after; change(value); bool refused = false;
+        try { require_publisher_worker_security(value, service); } catch (const std::exception&) { refused = true; }
+        check(refused, "retirement data admitted an incomplete or contradictory original partition");
+    };
+    refuses([](Value& v) { v.as_object().erase("original_baseline"); });
+    refuses([](Value& v) { v.as_object().erase("retired_threads"); });
+    refuses([](Value& v) { v.as_object().at("retired_threads") = Value(Value::Array{}); });
+    refuses([](Value& v) { v.as_object().at("retired_threads").as_array().push_back(v.at("retired_threads").as_array().front()); });
+    for (const char* key : {"creation_time", "exit_time"})
+        refuses([&](Value& v) { v.as_object().at("retired_threads").as_array().front().as_object().at(key) = Value("0000000000000001"); });
+    refuses([](Value& v) { v.as_object().at("retired_threads").as_array().front().as_object().at("thread_id") = Value(true); });
+    refuses([](Value& v) { v.as_object().at("retired_threads").as_array().front().as_object().emplace("authority", Value("granted")); });
+    refuses([](Value& v) { v.as_object().at("threads").as_array().front().as_object().at("dacl_protected") = Value(true); });
+    refuses([](Value& v) { v.as_object().at("threads").as_array().push_back(v.at("original_baseline").at("threads").as_array().back()); });
+    bool refused = false;
+    try { require_publisher_worker_security_continuity(after, before); } catch (const std::exception&) { refused = true; }
+    check(refused, "original retirement was revived");
+    auto changed_exit = after;
+    changed_exit.as_object().at("retired_threads").as_array().front().as_object().at("exit_time") = Value("0000000000009998");
+    require_publisher_worker_security(changed_exit, service); refused = false;
+    try { require_publisher_worker_security_continuity(after, changed_exit); } catch (const std::exception&) { refused = true; }
+    check(refused, "original exit time was refreshed");
+    auto omitted = baseline; omitted.as_object().at("threads").as_array().pop_back(); refused = false;
+    try { require_publisher_worker_security_continuity(baseline, omitted); } catch (const std::exception&) { refused = true; }
+    check(refused, "legacy omission was promoted into retirement proof");
+}
 void worker_security_controls() {
     const auto observed = observe_current_publisher_worker_security();
     check(observed.as_object().size() == 6 && observed.at("process_id").as_unsigned() == GetCurrentProcessId() &&
@@ -373,6 +430,19 @@ void effect_execution_record_controls() {
         {"installed_root_journal_identity", Value("synthetic")}, {"original_objects", Value(Value::Array{})},
         {"broker_readback", maintenance_broker}});
     require_publisher_effect_maintenance_original_record(maintenance_original, maintenance_request, name);
+    auto current_original = maintenance_original;
+    current_original.as_object().at("schema") = Value("usk.publisher.maintenance_original_custody.v4");
+    current_original.as_object().at("worker_security") = retirement_security(child_security);
+    require_publisher_effect_maintenance_original_record(current_original, maintenance_request, name);
+    for (bool downgrade : {false, true}) {
+        auto invalid = current_original;
+        if (downgrade) invalid.as_object().at("schema") = Value("usk.publisher.maintenance_original_custody.v3");
+        else invalid.as_object().at("worker_security") = child_security;
+        bool refused = false;
+        try { require_publisher_effect_maintenance_original_record(invalid, maintenance_request, name); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "maintenance original custody reinterpreted its retirement provenance family");
+    }
     const auto refuses_maintenance = [&](const std::function<void(Value&)>& mutate) {
         auto changed = maintenance_original; mutate(changed); bool refused = false;
         try { require_publisher_effect_maintenance_original_record(changed, maintenance_request, name); }
@@ -605,6 +675,43 @@ void effect_execution_record_controls() {
         {"protected_anchors", anchors}, {"visible_tree", visible_tree}, {"execution_transition", Value("renamed_by_current_worker")},
         {"rename_call", rename}, {"execution_phases", Value(Value::Array{phase("before_rename", tree), phase("visible_bound", visible_tree)})}});
     require_candidate_publisher_execution_records(prepared, visible, name, service_sid);
+    // New family carries explicit original-held retirement partitions. These
+    // synthetic records qualify only the reader joins, never actual creation.
+    auto current_prepared = prepared, current_visible = visible;
+    current_prepared.as_object().at("schema") = Value("usk.publisher.lab_phase_evidence.v11");
+    current_visible.as_object().at("schema") = Value("usk.publisher.lab_phase_evidence.v11");
+    auto original_child_security = child_security;
+    auto original_helper = original_child_security.at("threads").as_array().front();
+    original_helper.as_object().at("thread_id") = Value(std::uint64_t{701});
+    original_helper.as_object().at("creation_time") = Value("0000000000000701");
+    original_child_security.as_object().at("threads").as_array().push_back(original_helper);
+    const auto initial_security = retirement_security(original_child_security);
+    const auto completed_security = retirement_security(original_child_security, {701});
+    for (auto* record : {&current_prepared, &current_visible})
+        for (auto& item : record->as_object().at("execution_phases").as_array()) {
+            auto& execution = item.as_object().at("execution").as_object();
+            execution.at("schema") = Value("usk.publisher_execution_observation.v8");
+            execution.at("scope") = Value("supplied_held_child_handles_authenticated_broker_access_and_native_retirement_partition");
+            execution.at("worker_security") = item.at("execution").at("phase").as_string() == "protected_empty" ?
+                initial_security : completed_security;
+        }
+    auto& current_certificate = current_prepared.as_object().at("creation_evidence").as_object();
+    current_certificate.at("schema") = Value("usk.publisher.creation_observation.v5");
+    current_certificate.at("scope") = Value("successful_child_file_create_calls_and_original_native_retirement_partition_to_bound_graph");
+    current_certificate.at("worker_security") = initial_security;
+    current_certificate.emplace("completed_worker_security", completed_security);
+    require_candidate_publisher_execution_records(current_prepared, current_visible, name, service_sid);
+    const auto refuses_current = [&](const std::function<void(Value&, Value&)>& change) {
+        auto p = current_prepared, v = current_visible; change(p, v); bool refused = false;
+        try { require_candidate_publisher_execution_records(p, v, name, service_sid); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "current native phase/certificate admitted missing or downgraded original retirement proof");
+    };
+    refuses_current([](Value& p, Value&) { p.as_object().at("creation_evidence").as_object().erase("completed_worker_security"); });
+    refuses_current([](Value& p, Value&) { p.as_object().at("creation_evidence").as_object().at("schema") = Value("usk.publisher.creation_observation.v4"); });
+    refuses_current([](Value& p, Value&) { p.as_object().at("execution_phases").as_array().back().as_object().at("execution").as_object().at("worker_security") =
+        p.at("execution_phases").as_array().front().at("execution").at("worker_security"); });
+    refuses_current([](Value& p, Value& v) { p.as_object().at("schema") = Value("usk.publisher.lab_phase_evidence.v10"); v.as_object().at("schema") = p.at("schema"); });
     const auto refuses_phases = [&](const std::function<void(Value&, Value&)>& change) {
         auto changed_prepared = prepared, changed_visible = visible;
         change(changed_prepared, changed_visible); bool refused = false;
@@ -883,12 +990,33 @@ void worker_lifetime_controls() {
             "changed actual surviving thread security was admitted or refused for an unrelated reason");
     }
     (void)continuity.observe_current();
+    const auto original_partition = continuity.observe_current_with_retirement();
+    check(original_partition.at("schema").as_string() == "usk.publisher_worker_security.v2" &&
+        usk::json::canonical(original_partition.at("original_baseline")) == frozen,
+        "actual original retirement provenance baseline differs");
     original.retire();
     for (unsigned repeat = 0; repeat != 2; ++repeat) {
         const auto current = continuity.observe_current();
         for (const auto& thread : current.at("threads").as_array())
             check(thread.at("thread_id").as_unsigned() != original.id(), "ended original test thread still reported live");
         check(usk::json::canonical(baseline) == frozen, "original worker baseline was refreshed");
+        const auto proof = continuity.observe_current_with_retirement();
+        require_publisher_worker_security_continuity(original_partition, proof);
+        FILETIME birth{}, exit{}, kernel{}, user{};
+        check(GetThreadTimes(original.handle(), &birth, &exit, &kernel, &user) &&
+            WaitForSingleObject(original.handle(), 0) == WAIT_OBJECT_0, "actual owned thread retirement unavailable");
+        bool found = false;
+        for (const auto& retired : proof.at("retired_threads").as_array())
+            if (retired.at("thread_id").as_unsigned() == original.id()) {
+                found = true;
+                check(std::stoull(retired.at("exit_time").as_string(), nullptr, 16) ==
+                    ((static_cast<std::uint64_t>(exit.dwHighDateTime) << 32) | exit.dwLowDateTime) &&
+                    std::stoull(retired.at("creation_time").as_string(), nullptr, 16) ==
+                    ((static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime),
+                    "native retirement proof differs from actual original-held birth/exit");
+            }
+        check(found && usk::json::canonical(proof.at("original_baseline")) == frozen,
+            "actual retired original is absent from its immutable partition");
     }
     std::cout << "actual retained-thread retirement and addition/security/execution/forgery controls passed\n";
 }
@@ -969,6 +1097,7 @@ int main() {
             actual.at("dacl_present").as_boolean() && !actual.at("owner_sid").as_string().empty(),
             "current process owner/DACL facts were not observed");
         worker_security_controls();
+        worker_retirement_data_controls();
         effect_execution_record_controls();
         worker_lifetime_controls();
         worker_retirement_readback_controls();

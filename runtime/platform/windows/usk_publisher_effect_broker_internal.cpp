@@ -242,6 +242,8 @@ void require_projection(const Value& profile, const Value& custody, const Publis
     require(security.as_object().size() == 2, "broker native security projection is not closed");
     const auto parent_pid = static_cast<std::uint32_t>(original.at("process_id").as_unsigned());
     require_publisher_process_boundary(security.at("process_boundary"), parent_pid, sid, parent.process_groups);
+    require(security.at("worker_security").at("schema").as_string() == "usk.publisher_worker_security.v1",
+        "SCM broker reinterpreted original retirement provenance");
     require_publisher_worker_security(security.at("worker_security"), PublisherWorkerTokenContext{parent_pid, sid, parent});
 }
 Value immutable_profile(Value profile) {
@@ -1164,15 +1166,15 @@ struct PublisherEffectWorkerNativeSecurity::State {
             const auto current_process = observe_current_publisher_process_boundary();
             require_publisher_process_boundary(current_process, current.process_id, current.service_sid, current.token.process_groups);
             require(same(current_process, process), "effect security original process owner/DACL changed");
-            const auto security = continuity->observe_current(failure_context);
+            const auto security = continuity->observe_current_with_retirement(failure_context);
             require_publisher_worker_security(security, current);
             require(same(token(observe_current_publisher_token()), token(original.token)) &&
                 same(observe_current_publisher_process_boundary(), process) &&
                 same(worker_context(readback.worker_token_context()), worker_context(original)),
                 "effect security native token/process/broker changed across original-thread readback");
-            return Value(Value::Object{{"schema", Value("usk.publisher_effect_worker_native_security.v1")},
+            return Value(Value::Object{{"schema", Value("usk.publisher_effect_worker_native_security.v2")},
                 {"authority", Value("read_only_observation")},
-                {"scope", Value("actual_current_child_with_original_pinned_threads")},
+                {"scope", Value("actual_current_child_with_original_native_retirement_partition")},
                 {"worker", worker_context(current)}, {"process_boundary", current_process}, {"worker_security", security}});
         } catch (...) { failed = true; throw; }
     }
