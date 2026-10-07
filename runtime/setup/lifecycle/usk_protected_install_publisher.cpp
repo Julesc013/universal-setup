@@ -859,7 +859,9 @@ void require_registered_operation_record(const usk::json::Value& prepared) {
     const auto& admission = prepared.at("operation_admission");
     // Private legacy transports can retain authenticated phase observations;
     // null explicitly retains that narrower scope and cannot qualify a route.
-    const bool child = prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v10";
+    const auto& schema = prepared.at("schema").as_string();
+    const bool child = schema == "usk.publisher.lab_phase_evidence.v10" ||
+        schema == "usk.publisher.lab_phase_evidence.v11";
     if (usk::json::canonical(admission) == "null") {
         if (child) throw std::runtime_error("native child evidence requires its actual registered operation admission");
         return;

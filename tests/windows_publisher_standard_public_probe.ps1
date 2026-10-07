@@ -802,17 +802,23 @@ try {
     Set-Acl -LiteralPath $fixture -AclObject $inputAcl
     & $ServiceControlBinary --provision-target $service --confirm-empty-volume|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Standard target admission failed'}
-    if($StalePlanQualification) {
-        foreach($approved in @($bindingA,$binding)) {
-            $enrollment=& $ServiceControlBinary --enroll-reviewed-operation $service $approved.envelope_file `
-                $approved.envelope_sha256 $approved.apply_file
-            if($LASTEXITCODE -ne 0){throw 'Administrative reviewed-operation enrollment failed'}
-            $observedEnrollment=($enrollment -join "`n")|ConvertFrom-Json
-            if($observedEnrollment.status -cne 'reviewed_operation_enrolled' -or $observedEnrollment.service -cne $service){
-                throw 'Reviewed operation enrollment response differs'
-            }
-            $receipt.changed_state_revision.enrollments.Add($observedEnrollment)
+    # Source-free recovery selects the original administrator-enrolled request.
+    # Retain B in every fixture, including fresh maintenance and process loss;
+    # the stale-plan fixture additionally enrolls its independently planned A.
+    $approvedOperations=@($binding)
+    if($StalePlanQualification){$approvedOperations=@($bindingA,$binding)}
+    foreach($approved in $approvedOperations) {
+        $enrollment=& $ServiceControlBinary --enroll-reviewed-operation $service $approved.envelope_file `
+            $approved.envelope_sha256 $approved.apply_file
+        if($LASTEXITCODE -ne 0){throw 'Administrative reviewed-operation enrollment failed'}
+        $observedEnrollment=($enrollment -join "`n")|ConvertFrom-Json
+        if($observedEnrollment.status -cne 'reviewed_operation_enrolled' -or $observedEnrollment.service -cne $service){
+            throw 'Reviewed operation enrollment response differs'
         }
+        if($StalePlanQualification){$receipt.changed_state_revision.enrollments.Add($observedEnrollment)}
+    }
+    $receipt['original_installation_enrollment']=$observedEnrollment
+    if($StalePlanQualification) {
         $receipt.changed_state_revision.enrolled_at_file_time=[DateTime]::UtcNow.ToFileTimeUtc().ToString()
     }
     $receipt['service_policy']=Read-ServicePolicy

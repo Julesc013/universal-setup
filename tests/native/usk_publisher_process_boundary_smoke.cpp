@@ -709,13 +709,19 @@ void effect_execution_record_controls() {
         auto p = current_prepared, v = current_visible; change(p, v); bool refused = false;
         try { require_candidate_publisher_execution_records(p, v, name, service_sid); }
         catch (const std::exception&) { refused = true; }
-        check(refused, "current native phase/certificate admitted missing or downgraded original retirement proof");
+        check(refused, "current native phase/certificate admitted missing retirement proof or original broker joins");
     };
     refuses_current([](Value& p, Value&) { p.as_object().at("creation_evidence").as_object().erase("completed_worker_security"); });
     refuses_current([](Value& p, Value&) { p.as_object().at("creation_evidence").as_object().at("schema") = Value("usk.publisher.creation_observation.v4"); });
     refuses_current([](Value& p, Value&) { p.as_object().at("execution_phases").as_array().back().as_object().at("execution").as_object().at("worker_security") =
         p.at("execution_phases").as_array().front().at("execution").at("worker_security"); });
     refuses_current([](Value& p, Value& v) { p.as_object().at("schema") = Value("usk.publisher.lab_phase_evidence.v10"); v.as_object().at("schema") = p.at("schema"); });
+    // Retirement evidence keeps the v10 registration/image/target/envelope
+    // joins. These forged admissions must fail against the original broker.
+    refuses_current([](Value& p, Value&) { p.as_object().at("operation_admission") = Value{}; });
+    for (const char* key : {"registration_sha256", "target_admitted_sha256", "publisher_image_sha256"})
+        refuses_current([&](Value& p, Value&) { p.as_object().at("operation_admission").as_object().at(key) = Value(std::string(64, '1')); });
+    refuses_current([](Value& p, Value&) { p.as_object().at("source_binding").as_object().at("plan_envelope_sha256") = Value(std::string(64, '1')); });
     const auto refuses_phases = [&](const std::function<void(Value&, Value&)>& change) {
         auto changed_prepared = prepared, changed_visible = visible;
         change(changed_prepared, changed_visible); bool refused = false;
