@@ -122,6 +122,23 @@ int main() {
         check(ordinary.identity.token_id != 0 && ordinary.identity.authentication_id != 0 &&
             ordinary.identity.modified_id != 0 && ordinary.identity.token_type == TokenPrimary,
             "actual process token statistics identity was not observed");
+        HANDLE held_process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, GetCurrentProcessId());
+        check(held_process != nullptr, "query-only held process token control is unavailable");
+        const auto held_token = usk::platform::windows::observe_held_publisher_process_token(held_process);
+        CloseHandle(held_process);
+        check(held_token.process_user_sid == ordinary.process_user_sid &&
+            held_token.identity.token_id == ordinary.identity.token_id &&
+            held_token.identity.authentication_id == ordinary.identity.authentication_id &&
+            held_token.identity.modified_id == ordinary.identity.modified_id &&
+            held_token.identity.token_type == ordinary.identity.token_type && !held_token.current_thread_impersonating,
+            "actual held-process token differs from the current primary token");
+        HANDLE synchronization_only = OpenProcess(SYNCHRONIZE, FALSE, GetCurrentProcessId());
+        check(synchronization_only != nullptr, "synchronize-only process control is unavailable");
+        bool missing_query_refused = false;
+        try { (void)usk::platform::windows::observe_held_publisher_process_token(synchronization_only); }
+        catch (const std::runtime_error&) { missing_query_refused = true; }
+        CloseHandle(synchronization_only);
+        check(missing_query_refused, "primary-token observation accepted a process handle without query rights");
         const auto platform = usk::platform::windows::observe_publisher_execution_platform();
         check(platform.at("windows_build").as_unsigned() >= 17763 &&
             platform.at("sdk_version").as_string().compare(0, 5, "10.0.") == 0,

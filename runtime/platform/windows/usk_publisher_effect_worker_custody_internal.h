@@ -9,6 +9,7 @@
 #include <windows.h>
 #include "usk_json.h"
 #include "usk_stable_file.h"
+#include "usk_publisher_token_observation.h"
 #include <memory>
 #include <string>
 #include <exception>
@@ -60,6 +61,10 @@ public:
     usk::json::Value receive(DWORD timeout_ms = 120000);
     // Fresh held native process/job/image observations, not admission evidence.
     usk::json::Value observation() const;
+    // Actual remote primary-token facts, bracketed by the held native peer
+    // identity. The impersonation field describes this observing thread.
+    PublisherTokenObservation peer_primary_token() const;
+    const std::string& canonical_request() const;
     bool wait_for_exit(DWORD timeout_ms, DWORD& exit_code) const;
     // One bounded shutdown attempt. Unknown results permanently retain the
     // child/job/image/pending-I/O state until process exit and refuse another
@@ -84,6 +89,8 @@ public:
     void send(const usk::json::Value& body, DWORD timeout_ms = 120000);
     usk::json::Value receive(DWORD timeout_ms = 120000);
     usk::json::Value observation() const;
+    PublisherTokenObservation peer_primary_token() const;
+    const std::string& canonical_request() const;
 private:
     struct State;
     std::unique_ptr<State> state_;

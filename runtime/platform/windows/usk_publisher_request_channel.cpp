@@ -337,6 +337,7 @@ struct PublisherRequestChannel::State {
     Handle client_token{nullptr};
     ULONG client_process_id = 0;
     usk::json::Value client_facts;
+    std::string received_request;
     std::wstring caller_sid;
     HANDLE stop;
     ULONGLONG until;
@@ -383,9 +384,18 @@ std::string PublisherRequestChannel::receive() {
     if (!GetNamedPipeClientProcessId(state.pipe.value, &state.client_process_id) || !state.client_process_id)
         throw std::runtime_error("authenticated pipe client process is unavailable");
     state.client_facts = client_token_facts(state.client_token.value, state.client_process_id);
+    state.received_request = request;
     if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
     state.received = true;
     return request;
+}
+std::string PublisherRequestChannel::authenticated_canonical_request() const {
+    const auto& state = *state_;
+    if (!state.received || state.replied || !state.client_token.value || state.received_request.empty() ||
+        usk::json::canonical(client_token_facts(state.client_token.value, state.client_process_id)) !=
+            usk::json::canonical(state.client_facts))
+        throw std::runtime_error("authenticated request binding is unavailable or changed");
+    return usk::json::canonical(usk::json::parse(state.received_request));
 }
 usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HANDLE object) const {
     using usk::json::Value;

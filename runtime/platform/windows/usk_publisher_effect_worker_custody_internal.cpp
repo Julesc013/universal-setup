@@ -311,6 +311,13 @@ struct Wire {
             {"peer_process_birth", Value(hex64(peer_birth))}, {"image", image_value(*image)},
             {"request_sha256", Value(binding)}});
     }
+    std::string canonical_request;
+    PublisherTokenObservation peer_primary_token() const {
+        require_peer();
+        auto token = observe_held_publisher_process_token(peer.value);
+        require_peer();
+        return token;
+    }
 };
 struct AttributeList {
     std::vector<unsigned char> storage;
@@ -497,6 +504,7 @@ PublisherEffectWorkerCustody::PublisherEffectWorkerCustody(const usk::base::Stab
         child_pipe.reset();
         parent_query.reset();
         child_cancel.reset();
+        state.wire.canonical_request = request;
         state.wire.send(Value(Value::Object{{"schema", Value("usk.publisher_effect_transport_start.v1")},
             {"parent_process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
             {"parent_process_birth", Value(hex64(birth(GetCurrentProcess())))},
@@ -549,6 +557,12 @@ Value PublisherEffectWorkerCustody::observation() const {
     result.as_object().emplace("owned_job_kill_on_close", Value(true));
     return result;
 }
+PublisherTokenObservation PublisherEffectWorkerCustody::peer_primary_token() const {
+    state_->require_job();
+    auto token = state_->wire.peer_primary_token();
+    state_->require_job();
+    return token;
+}
 bool PublisherEffectWorkerCustody::wait_for_exit(DWORD timeout, DWORD& code) const {
     require(timeout <= 120000, "effect transport exit wait exceeds its bound");
     const auto result = WaitForSingleObject(state_->wire.peer.value, timeout);
@@ -556,6 +570,11 @@ bool PublisherEffectWorkerCustody::wait_for_exit(DWORD timeout, DWORD& code) con
     require(result == WAIT_OBJECT_0 && GetExitCodeProcess(state_->wire.peer.value, &code),
         "effect transport original child exit is unavailable");
     return true;
+}
+const std::string& PublisherEffectWorkerCustody::canonical_request() const {
+    state_->require_job();
+    state_->wire.require_peer();
+    return state_->wire.canonical_request;
 }
 
 struct PublisherEffectWorkerPeer::State { Wire wire; };
@@ -616,6 +635,7 @@ PublisherEffectWorkerPeer::PublisherEffectWorkerPeer(int argc, wchar_t** argv) :
         usk::json::canonical(usk::json::parse(request)) == request,
         "effect transport initial request is not bounded canonical bytes");
     wire.binding = request_digest(request);
+    wire.canonical_request = request;
     require(packet.at("binding_sha256").as_string() == wire.binding,
         "effect transport initial exact request digest differs");
     wire.received = 1;
@@ -647,6 +667,11 @@ PublisherEffectWorkerPeer::~PublisherEffectWorkerPeer() {
 void PublisherEffectWorkerPeer::send(const Value& body, DWORD timeout) { state_->wire.send(body, timeout); }
 Value PublisherEffectWorkerPeer::receive(DWORD timeout) { return state_->wire.receive(timeout); }
 Value PublisherEffectWorkerPeer::observation() const { return state_->wire.observation(); }
+PublisherTokenObservation PublisherEffectWorkerPeer::peer_primary_token() const { return state_->wire.peer_primary_token(); }
+const std::string& PublisherEffectWorkerPeer::canonical_request() const {
+    state_->wire.require_peer();
+    return state_->wire.canonical_request;
+}
 namespace {
 std::string closure_failure_text(const std::exception_ptr& primary) {
     std::string message = "effect transport closure unknown; original failure: ";

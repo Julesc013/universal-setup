@@ -150,6 +150,9 @@ void owner_death_control(const usk::base::StableFile& image) {
 }
 int child(int argc, wchar_t** argv) {
     PublisherEffectWorkerPeer peer(argc, argv);
+    require(peer.canonical_request() == request() &&
+        peer.peer_primary_token().identity.authentication_id == observe_current_publisher_token().identity.authentication_id,
+        "ordinary private peer did not retain its actual parent primary-token/request binding");
     for (;;) {
         const auto body = peer.receive(10000);
         const auto action = body.at("action").as_string();
@@ -197,6 +200,14 @@ void controls(const usk::base::StableFile& image, const std::wstring& sid) {
         child_query = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
             static_cast<DWORD>(observed.at("peer_process_id").as_unsigned()));
         require(child_query != nullptr, "independent query-only original child unavailable");
+        const auto child_token = custody.peer_primary_token();
+        const auto independent_token = observe_held_publisher_process_token(child_query);
+        require(child_token.process_user_sid == independent_token.process_user_sid &&
+            child_token.identity.token_id == independent_token.identity.token_id &&
+            child_token.identity.authentication_id == independent_token.identity.authentication_id &&
+            child_token.identity.modified_id == independent_token.identity.modified_id &&
+            child_token.identity.token_type == TokenPrimary && !child_token.current_thread_impersonating,
+            "private custody did not observe the actual independently held child token");
         refuses([&] { PublisherEffectWorkerCustody second(image, sid, request()); });
         require(custody.observation().at("peer_process_id").as_unsigned() == observed.at("peer_process_id").as_unsigned(),
             "refused second launch released the original process-wide custody owner");

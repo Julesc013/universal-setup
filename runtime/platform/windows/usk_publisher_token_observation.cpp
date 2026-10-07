@@ -324,9 +324,13 @@ std::vector<unsigned char> derive_ascii_publisher_service_sid(const std::wstring
 }
 
 PublisherTokenObservation observe_current_publisher_token() {
+    return observe_held_publisher_process_token(GetCurrentProcess());
+}
+
+PublisherTokenObservation observe_held_publisher_process_token(void* process_handle) {
     const bool impersonating = current_thread_impersonating();
     HANDLE raw = nullptr;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw)) {
+    if (!process_handle || !OpenProcessToken(process_handle, TOKEN_QUERY, &raw)) {
         throw std::runtime_error("publisher token cannot open the process token");
     }
     TokenHandle token(raw);

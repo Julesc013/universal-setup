@@ -88,6 +88,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_service_access.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
     runtime/platform/windows/usk_publisher_effect_worker_custody_internal.cpp
+    runtime/platform/windows/usk_publisher_effect_broker_internal.cpp
     runtime/platform/windows/usk_publisher_registration.cpp
     runtime/platform/windows/usk_publisher_data_partition.cpp
     runtime/platform/windows/usk_publisher_volume_stream_observation.cpp
@@ -829,6 +830,12 @@ if(USK_BUILD_TESTS)
     usk_enable_strict_warnings(usk_publisher_effect_worker_custody_smoke)
     add_test(NAME usk_publisher_effect_worker_custody_smoke COMMAND usk_publisher_effect_worker_custody_smoke)
     set_tests_properties(usk_publisher_effect_worker_custody_smoke PROPERTIES TIMEOUT 60)
+    add_executable(usk_publisher_broker_object_query_smoke tests/native/usk_publisher_broker_object_query_smoke.cpp)
+    target_compile_features(usk_publisher_broker_object_query_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_broker_object_query_smoke PRIVATE usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_broker_object_query_smoke)
+    add_test(NAME usk_publisher_broker_object_query_smoke COMMAND usk_publisher_broker_object_query_smoke)
+    set_tests_properties(usk_publisher_broker_object_query_smoke PROPERTIES TIMEOUT 30)
 
     add_executable(usk_publisher_service_access_smoke
       tests/native/usk_publisher_service_access_smoke.cpp)

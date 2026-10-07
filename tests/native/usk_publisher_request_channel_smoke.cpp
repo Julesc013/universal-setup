@@ -431,6 +431,8 @@ int main(int argc, char** argv) {
         auto client=raw_client(name,"{\"reviewed\":true}",response,client_failure,true);
         try {
             require(channel->receive()=="{\"reviewed\":true}","request bytes changed");
+            require(channel->authenticated_canonical_request() == "{\"reviewed\":true}",
+                "actual authenticated canonical request binding differs");
             HANDLE token=nullptr;
             require(!OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&token) &&
                 GetLastError()==ERROR_NO_TOKEN,"caller impersonation retained");
@@ -495,6 +497,7 @@ int main(int argc, char** argv) {
             refuses([&] { (void)channel->observe_authenticated_object_access(INVALID_HANDLE_VALUE); });
             refuses([&] { channel->receive(); });
             channel->reply("completed");
+            refuses([&] { (void)channel->authenticated_canonical_request(); });
             refuses([&] { (void)observe_publisher_authenticated_descendant_access(
                 writable.get(), file_tree, *channel, client_facts); });
             refuses([&] { (void)channel->observe_authenticated_object_access(directory.get()); });
