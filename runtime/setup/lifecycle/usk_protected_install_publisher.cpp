@@ -3718,10 +3718,11 @@ CompletedVerificationBoundary observe_completed_verification_boundary(
 }
 
 std::string verify_completed_install_in_service(HANDLE volume,
-    const std::string& service_sid,
+    const usk::platform::windows::PublisherServiceObservation& original_service,
     const usk::platform::windows::PublisherInstallOperationGuard& guard) {
     using namespace usk::platform::windows;
     using usk::json::Value;
+    const auto& service_sid = original_service.service_sid;
     if (!submitted_verify_request) throw std::runtime_error("authenticated verify request is absent");
     const auto request = usk::json::parse(*submitted_verify_request);
     if (request.as_object().size() != 6 ||
@@ -3910,6 +3911,10 @@ std::string verify_completed_install_in_service(HANDLE volume,
     }
     return "{\"schema\":\"usk.publisher_lab_service_observation.v1\",\"status\":" +
         json_quote(status == "pass" ? "pass" : "failed") +
+        ",\"service_name\":" + json_quote(ascii(original_service.service_name)) +
+        ",\"service_sid\":" + json_quote(service_sid) +
+        ",\"process_id\":" + std::to_string(original_service.process_id) +
+        ",\"request_sha256\":" + json_quote(usk::json::sha256_canonical(request)) +
         ",\"transaction_id\":" + json_quote(operation_id) +
         ",\"bound_report_digest\":" + json_quote(bound_report.report_digest) +
         ",\"verify_response\":" + response + "}\n";
@@ -4567,7 +4572,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             }
             if (verify_installed_request) {
                 if (!install_guard) throw std::runtime_error("installed verification guard is absent");
-                return verify_completed_install_in_service(volume, observed.service_sid, *install_guard);
+                return verify_completed_install_in_service(volume, observed, *install_guard);
             }
             if (recover_prepared) {
                 anchors = observe_prepared_recovery(volume, observed.service_sid,
