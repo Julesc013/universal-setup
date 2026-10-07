@@ -7,6 +7,7 @@
 #include "usk_publisher_worker_security.h"
 #include "usk_publisher_effect_broker_internal.h"
 #include "usk_publisher_effect_execution_internal.h"
+#include "usk_publisher_handle_observation.h"
 #include "usk_install_lease.h"
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_security_descriptor.h"
@@ -426,12 +427,26 @@ void effect_execution_record_controls() {
             {"target_admitted_sha256", recovery_broker.at("registered_admission").at("target_admitted_sha256")},
             {"caller_sid", Value(consumer_sid)}, {"envelope_sha256", Value(std::string(64, 'a'))},
             {"envelope_size_bytes", Value(static_cast<std::uint64_t>(usk::json::canonical(envelope).size()))}});
-        auto enrollment_file = object(6);
-        enrollment_file.as_object().at("attributes") = Value(std::uint64_t{FILE_ATTRIBUTE_NORMAL});
+        // Use the actual native serializer and the controller-store policy,
+        // rather than relabel SYSTEM/service target facts as enrollment files.
+        const auto enrollment_file = [&](bool envelope_role) {
+            PublisherHandleObservation facts{};
+            facts.file_id = object_id(envelope_role ? 7 : 6);
+            const auto digest = approval.at("request_sha256").as_string();
+            facts.native_name = L"\\Program Files\\Universal Setup\\Publisher\\" + name + L".operation-" +
+                std::wstring(digest.begin(), digest.end()) + (envelope_role ? L".envelope.json" : L".approval.json");
+            facts.attributes = FILE_ATTRIBUTE_NORMAL;
+            facts.link_count = 1;
+            facts.owner_sid = "S-1-5-32-544";
+            facts.dacl_protected = true;
+            facts.dacl_aces = {{ACCESS_ALLOWED_ACE_TYPE, 0, FILE_ALL_ACCESS, "S-1-5-18"},
+                {ACCESS_ALLOWED_ACE_TYPE, 0, FILE_ALL_ACCESS, "S-1-5-32-544"}};
+            return publisher_handle_observation_json(facts);
+        };
         const Value enrollment(Value::Object{{"schema", Value("usk.publisher_selected_reviewed_operation_observation.v1")},
             {"scope", Value("authenticated_exact_request_and_held_protected_enrollment_files")}, {"approval", approval},
             {"approval_sha256", Value(usk::json::sha256_canonical(approval))}, {"envelope_sha256", approval.at("envelope_sha256")},
-            {"approval_file", enrollment_file}, {"envelope_file", enrollment_file}});
+            {"approval_file", enrollment_file(false)}, {"envelope_file", enrollment_file(true)}});
         const auto install_name = "install-" + usk::json::sha256_canonical(minimum.at("install_id"));
         const auto intent_name = "operation-" + usk::json::sha256_canonical(minimum.at("transaction_id")) + ".json";
         const std::string native_names[]{"\\", "\\installation-operations", "\\installation-operations\\" + install_name,
@@ -459,6 +474,12 @@ void effect_execution_record_controls() {
             else require_publisher_effect_original_maintenance_selection(v, min, recovery_broker);
         };
         validate_selection(selection, minimum);
+        auto reordered = selection;
+        for (const auto role : {"approval_file", "envelope_file"}) {
+            auto& aces = reordered.as_object().at("observation").as_object().at(role).as_object().at("dacl_aces").as_array();
+            const auto first = aces.at(0); aces.at(0) = aces.at(1); aces.at(1) = first;
+        }
+        validate_selection(reordered, minimum); // Both orders satisfy the original controller policy.
         const auto refuses_selection = [&](const std::function<void(Value&)>& mutate) {
             auto changed = selection; mutate(changed); bool refused = false;
             try { validate_selection(changed, minimum); }
@@ -484,6 +505,35 @@ void effect_execution_record_controls() {
             .at("caller_sid") = Value("S-1-5-21-1-2-3-1002"); });
         refuses_selection([](Value& v) { v.as_object().at("envelope").as_object().at("apply_request").as_object()
             .at("transaction_id") = Value("other.enrollment"); });
+        for (const auto role : {"approval_file", "envelope_file"}) {
+            const auto refuses_enrollment = [&](const std::function<void(Value&)>& mutate) {
+                refuses_selection([&](Value& v) { mutate(v.as_object().at("observation").as_object().at(role)); });
+            };
+            refuses_enrollment([](Value& f) { f.as_object().at("owner_sid") = Value("S-1-5-18"); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_protected") = Value(false); });
+            refuses_enrollment([](Value& f) { f.as_object().at("attributes") = Value(std::uint64_t{FILE_ATTRIBUTE_DIRECTORY}); });
+            refuses_enrollment([](Value& f) { f.as_object().at("attributes") = Value(std::uint64_t{0x100000000ull}); });
+            refuses_enrollment([](Value& f) { f.as_object().at("reparse_tag") = Value(std::uint64_t{1}); });
+            refuses_enrollment([](Value& f) { f.as_object().at("link_count") = Value(std::uint64_t{2}); });
+            refuses_enrollment([](Value& f) { f.as_object().at("case_sensitive") = Value(true); });
+            refuses_enrollment([](Value& f) { f.as_object().at("file_id") = Value(std::string(49, 'z')); });
+            refuses_enrollment([](Value& f) { f.as_object().at("native_name") = Value("\\Program Files\\Universal Setup\\Publisher\\other.approval.json"); });
+            refuses_enrollment([](Value& f) { f.as_object().at("native_name") = Value(std::string("Q:\\..\\") + f.at("native_name").as_string()); });
+            refuses_enrollment([](Value& f) { f.as_object().at("native_name") = Value(std::string("\\..") + f.at("native_name").as_string()); });
+            refuses_enrollment([](Value& f) { auto n = f.at("native_name").as_string(); n.insert(1, 1, '\0'); f.as_object().at("native_name") = Value(n); });
+            refuses_enrollment([](Value& f) { f.as_object().emplace("authority", Value("native")); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_aces").as_array().push_back(f.at("dacl_aces").as_array().front()); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_aces").as_array().front().as_object().at("type") = Value(std::uint64_t{ACCESS_DENIED_ACE_TYPE}); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_aces").as_array().front().as_object().at("flags") = Value(std::uint64_t{INHERITED_ACE}); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_aces").as_array().front().as_object().at("access_mask") = Value(std::uint64_t{FILE_GENERIC_READ}); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_aces").as_array().front().as_object().at("sid") = Value(service_sid); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_aces").as_array().front() = f.at("dacl_aces").as_array().back(); });
+            refuses_enrollment([](Value& f) { f.as_object().at("dacl_aces").as_array().front().as_object().emplace("extra", Value(true)); });
+        }
+        refuses_selection([](Value& v) { v.as_object().at("observation").as_object().at("envelope_file").as_object().at("file_id") =
+            v.at("observation").at("approval_file").at("file_id"); });
+        refuses_selection([](Value& v) { v.as_object().at("observation").as_object().at("approval_file").as_object().at("native_name") =
+            v.at("observation").at("envelope_file").at("native_name"); });
         auto absent = selection;
         absent.as_object().at("present") = Value(false);
         refuses_selection([](Value& v) { v.as_object().at("present") = Value(false); });

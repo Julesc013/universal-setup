@@ -642,6 +642,43 @@ void require_closed(const Value& value, const std::set<std::string>& fields) {
     require(value.as_object().size() == fields.size(), "broker original selection record is not closed");
     for (const auto& item : value.as_object()) require(fields.count(item.first) != 0, "broker original selection field is unknown");
 }
+// These are administrative controller-store files, distinct from the
+// SYSTEM/service-owned target and original custody. This is data validation;
+// only the original held broker selection can supply native authority.
+void require_administrative_enrollment_file(const Value& facts, const std::string& expected_suffix) {
+    require_closed(facts, {"file_id", "native_name", "owner_sid", "dacl_protected", "attributes",
+        "reparse_tag", "link_count", "case_sensitive", "dacl_aces"});
+    const auto& id = facts.at("file_id").as_string();
+    const auto& name = facts.at("native_name").as_string();
+    require(id.size() == 49 && id[16] == ':' && hex(id.substr(0, 16), 16) && hex(id.substr(17), 32) &&
+        !name.empty() && name.front() == '\\' && name.find('\0') == std::string::npos &&
+        name.find('/') == std::string::npos && name.find(':') == std::string::npos &&
+        name.find("\\\\") == std::string::npos && name.find("\\.\\") == std::string::npos &&
+        name.find("\\..\\") == std::string::npos &&
+        name.size() >= expected_suffix.size() &&
+        name.compare(name.size() - expected_suffix.size(), expected_suffix.size(), expected_suffix) == 0 &&
+        facts.at("owner_sid").as_string() == "S-1-5-32-544" && facts.at("dacl_protected").as_boolean() &&
+        facts.at("attributes").as_unsigned() <= 0xffffffffu &&
+        !(facts.at("attributes").as_unsigned() & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
+        facts.at("reparse_tag").as_unsigned() == 0 && facts.at("link_count").as_unsigned() == 1 &&
+        !facts.at("case_sensitive").as_boolean(),
+        "effect administrative enrollment file identity or stored policy differs");
+    const auto& aces = facts.at("dacl_aces").as_array();
+    require(aces.size() == 2, "effect administrative enrollment ACL is not closed");
+    bool system = false, administrators = false;
+    for (const auto& ace : aces) {
+        require_closed(ace, {"type", "flags", "access_mask", "sid"});
+        require(ace.at("type").as_unsigned() == ACCESS_ALLOWED_ACE_TYPE &&
+            ace.at("flags").as_unsigned() == 0 && ace.at("access_mask").as_unsigned() == FILE_ALL_ACCESS,
+            "effect administrative enrollment ACE differs");
+        const auto& sid = ace.at("sid").as_string();
+        if (sid == "S-1-5-18") { require(!system, "effect administrative enrollment SYSTEM ACE repeats"); system = true; }
+        else if (sid == "S-1-5-32-544") {
+            require(!administrators, "effect administrative enrollment administrator ACE repeats"); administrators = true;
+        } else throw std::runtime_error("effect administrative enrollment grants another principal");
+    }
+    require(system && administrators, "effect administrative enrollment ACL membership differs");
+}
 void require_enrollment(const Value& envelope, const Value& observation, const Value& request, const Value& profile) {
     (void)parse_publisher_reviewed_operation_envelope(usk::json::canonical(envelope), usk::json::canonical(request));
     const auto& approval = observation.at("approval");
@@ -659,11 +696,12 @@ void require_enrollment(const Value& envelope, const Value& observation, const V
         hex(approval.at("envelope_sha256").as_string(), 64) &&
         observation.at("envelope_sha256").as_string() == approval.at("envelope_sha256").as_string(),
         "effect original reviewed enrollment/request/caller binding differs");
-    for (const auto field : {"approval_file", "envelope_file"})
-        require(observation.at(field).as_object().size() == 9 && observation.at(field).at("owner_sid").as_string() == "S-1-5-18" &&
-            !(observation.at(field).at("attributes").as_unsigned() & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
-            observation.at(field).at("reparse_tag").as_unsigned() == 0 && observation.at(field).at("link_count").as_unsigned() == 1 &&
-            !observation.at(field).at("case_sensitive").as_boolean(), "effect native enrollment file observation differs");
+    const auto stem = "\\Universal Setup\\Publisher\\" + admitted.at("service_name").as_string() +
+        ".operation-" + usk::json::sha256_canonical(request);
+    require_administrative_enrollment_file(observation.at("approval_file"), stem + ".approval.json");
+    require_administrative_enrollment_file(observation.at("envelope_file"), stem + ".envelope.json");
+    require(observation.at("approval_file").at("file_id").as_string() !=
+        observation.at("envelope_file").at("file_id").as_string(), "effect administrative enrollment files alias");
 }
 void require_protected_stored_object(const Value& value, const std::string& sid) {
     require_closed(value, {"file_id", "native_name", "owner_sid", "dacl_protected", "attributes", "reparse_tag",
@@ -1047,31 +1085,8 @@ Value PublisherEffectWorkerReadback::selected_reviewed_operation(DWORD timeout) 
             selection.at("scope").as_string() == "original_native_held_exact_request_selection",
             "effect selected operation observation is not closed");
         if (present) {
-            (void)parse_publisher_reviewed_operation_envelope(usk::json::canonical(selection.at("envelope")), state_->request);
-            const auto& observation = selection.at("observation");
-            const auto& approval = observation.at("approval");
-            const auto& admitted = reply.at("profile").at("registered_admission");
-            require(observation.as_object().size() == 7 && observation.at("schema").as_string() ==
-                "usk.publisher_selected_reviewed_operation_observation.v1" && observation.at("scope").as_string() ==
-                "authenticated_exact_request_and_held_protected_enrollment_files" &&
-                approval.as_object().size() == 7 && approval.at("schema").as_string() ==
-                "usk.publisher_reviewed_operation_approval.v1" &&
-                approval.at("request_sha256").as_string() == usk::json::sha256_canonical(usk::json::parse(state_->request)) &&
-                approval.at("registration_sha256").as_string() == admitted.at("registration_sha256").as_string() &&
-                approval.at("target_admitted_sha256").as_string() == admitted.at("target_admitted_sha256").as_string() &&
-                approval.at("caller_sid").as_string() == reply.at("profile").at("authenticated_client").at("user_sid").as_string() &&
-                approval.at("envelope_size_bytes").as_unsigned() > 0 && approval.at("envelope_size_bytes").as_unsigned() <= 1024u * 1024u &&
-                observation.at("approval_sha256").as_string() == usk::json::sha256_canonical(approval) &&
-                observation.at("envelope_sha256").as_string() == approval.at("envelope_sha256").as_string(),
-                "effect original reviewed enrollment/request/caller binding differs");
-            for (const auto field : {"approval_file", "envelope_file"})
-                require(observation.at(field).as_object().size() == 9 &&
-                    observation.at(field).at("owner_sid").as_string() == "S-1-5-18" &&
-                    !(observation.at(field).at("attributes").as_unsigned() & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
-                    observation.at(field).at("reparse_tag").as_unsigned() == 0 &&
-                    observation.at(field).at("link_count").as_unsigned() == 1 &&
-                    !observation.at(field).at("case_sensitive").as_boolean(),
-                    "effect native enrollment file observation differs");
+            require_enrollment(selection.at("envelope"), selection.at("observation"),
+                usk::json::parse(state_->request), reply.at("profile"));
         }
         return selection;
     } catch (...) { state_->failed = true; throw; }
