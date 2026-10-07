@@ -3,53 +3,9 @@
 
 # Defines checked custody for an already launched, owned hosted fixture worker.
 # Importing this file does not pause or launch a process.
-function Start-OwnedPublisherWorkerPause {
-    param([Parameter(Mandatory=$true)][Diagnostics.Process]$Process,
-        [Parameter(Mandatory=$true)][string]$Service,
-        [Parameter(Mandatory=$true)][string]$VhdPath,
-        [Parameter(Mandatory=$true)][string]$VolumeRoot,
-        [Parameter(Mandatory=$true)][string]$ExpectedServiceCommand,
-        [Parameter(Mandatory=$true)][string]$ExpectedImagePath,
-        [Parameter(Mandatory=$true)][string]$ExpectedImageSha256)
-    if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
-        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
-        throw 'Owned worker pause requires the hosted SYSTEM fixture context'
-    }
-    $lab=[IO.Path]::GetFullPath((Split-Path -Parent $VhdPath))
-    $runner=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
-    if(-not $lab.StartsWith($runner,[StringComparison]::OrdinalIgnoreCase) -or
-        (Split-Path -Leaf $lab) -cnotmatch '^usk-wu006-[0-9a-f]{32}$' -or
-        $Service -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
-        $ExpectedImageSha256 -cnotmatch '^[0-9a-f]{64}$') {
-        throw 'Owned worker pause target differs'
-    }
-    $image=Get-DiskImage -ImagePath $VhdPath -ErrorAction Stop
-    $disk=$image|Get-Disk -ErrorAction Stop
-    $parts=@($disk|Get-Partition|Where-Object DriveLetter)
-    if(-not $image.Attached -or $disk.IsBoot -or $disk.IsSystem -or $parts.Count -ne 1) {
-        throw 'Owned worker pause target is not a disposable mounted volume'
-    }
-    $volume=$parts[0]|Get-Volume
-    if($volume.UniqueId -cne $VolumeRoot -or $volume.FileSystem -cne 'NTFS') {
-        throw 'Owned worker pause volume identity differs'
-    }
-    $privateImage=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$Service+'.exe')
-    if(-not [string]::Equals([IO.Path]::GetFullPath($ExpectedImagePath),$privateImage,
-        [StringComparison]::OrdinalIgnoreCase) -or
-        (Get-FileHash -LiteralPath $privateImage -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedImageSha256) {
-        throw 'Owned worker pause private executable differs'
-    }
-    $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$Service+"'") -ErrorAction Stop
-    $commandPrefix='"'+$privateImage+'" --service '+$Service+' --no-receipt '+$VolumeRoot+' '
-    if(-not $registration -or $registration.State -cne 'Running' -or
-        $registration.ProcessId -ne $Process.Id -or $registration.StartName -cne 'LocalSystem' -or
-        $registration.PathName -cne $ExpectedServiceCommand -or
-        -not $ExpectedServiceCommand.StartsWith($commandPrefix,[StringComparison]::Ordinal)) {
-        throw 'Owned worker pause is not the retained running fixture service'
-    }
-    $null=$Process.Handle
-    if($Process.HasExited){throw 'Owned worker exited before pause'}
-    $creation=$Process.StartTime.ToUniversalTime().ToFileTimeUtc()
+# Compile the inert custody type before a live observation window.
+# This initializer creates no process, handle, pause or native actor.
+function Initialize-OwnedPublisherWorkerPause {
     if(-not ('UskPublisherPausedWorker' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
@@ -164,5 +120,54 @@ public sealed class UskPublisherPausedWorker : IDisposable {
 }
 '@
     }
+}
+function Start-OwnedPublisherWorkerPause {
+    param([Parameter(Mandatory=$true)][Diagnostics.Process]$Process,
+        [Parameter(Mandatory=$true)][string]$Service,
+        [Parameter(Mandatory=$true)][string]$VhdPath,
+        [Parameter(Mandatory=$true)][string]$VolumeRoot,
+        [Parameter(Mandatory=$true)][string]$ExpectedServiceCommand,
+        [Parameter(Mandatory=$true)][string]$ExpectedImagePath,
+        [Parameter(Mandatory=$true)][string]$ExpectedImageSha256)
+    if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
+        throw 'Owned worker pause requires the hosted SYSTEM fixture context'
+    }
+    $lab=[IO.Path]::GetFullPath((Split-Path -Parent $VhdPath))
+    $runner=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+    if(-not $lab.StartsWith($runner,[StringComparison]::OrdinalIgnoreCase) -or
+        (Split-Path -Leaf $lab) -cnotmatch '^usk-wu006-[0-9a-f]{32}$' -or
+        $Service -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
+        $ExpectedImageSha256 -cnotmatch '^[0-9a-f]{64}$') {
+        throw 'Owned worker pause target differs'
+    }
+    $image=Get-DiskImage -ImagePath $VhdPath -ErrorAction Stop
+    $disk=$image|Get-Disk -ErrorAction Stop
+    $parts=@($disk|Get-Partition|Where-Object DriveLetter)
+    if(-not $image.Attached -or $disk.IsBoot -or $disk.IsSystem -or $parts.Count -ne 1) {
+        throw 'Owned worker pause target is not a disposable mounted volume'
+    }
+    $volume=$parts[0]|Get-Volume
+    if($volume.UniqueId -cne $VolumeRoot -or $volume.FileSystem -cne 'NTFS') {
+        throw 'Owned worker pause volume identity differs'
+    }
+    $privateImage=Join-Path $env:ProgramW6432 ('Universal Setup\Publisher\'+$Service+'.exe')
+    if(-not [string]::Equals([IO.Path]::GetFullPath($ExpectedImagePath),$privateImage,
+        [StringComparison]::OrdinalIgnoreCase) -or
+        (Get-FileHash -LiteralPath $privateImage -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ExpectedImageSha256) {
+        throw 'Owned worker pause private executable differs'
+    }
+    $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$Service+"'") -ErrorAction Stop
+    $commandPrefix='"'+$privateImage+'" --service '+$Service+' --no-receipt '+$VolumeRoot+' '
+    if(-not $registration -or $registration.State -cne 'Running' -or
+        $registration.ProcessId -ne $Process.Id -or $registration.StartName -cne 'LocalSystem' -or
+        $registration.PathName -cne $ExpectedServiceCommand -or
+        -not $ExpectedServiceCommand.StartsWith($commandPrefix,[StringComparison]::Ordinal)) {
+        throw 'Owned worker pause is not the retained running fixture service'
+    }
+    $null=$Process.Handle
+    if($Process.HasExited){throw 'Owned worker exited before pause'}
+    $creation=$Process.StartTime.ToUniversalTime().ToFileTimeUtc()
+    Initialize-OwnedPublisherWorkerPause
     return [UskPublisherPausedWorker]::new([uint32]$Process.Id,[uint64]$creation,$privateImage)
 }

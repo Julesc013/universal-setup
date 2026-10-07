@@ -70,6 +70,12 @@ if(-not $image.Attached -or $disk.IsBoot -or $disk.IsSystem -or $parts.Count -ne
 $volume=$parts[0]|Get-Volume
 if($volume.UniqueId -cne $VolumeRoot -or $volume.FileSystem -cne 'NTFS') {throw 'Standard target identity differs'}
 $drive=[string]$volume.DriveLetter+':\'
+if($ActiveInstallContention) {
+    # Compile query/pause helpers before launching the original installer.
+    # Loading these definitions creates no observer, native actor or pause.
+    Initialize-OwnedPublisherWorkerPause
+    . (Join-Path $PSScriptRoot 'windows_publisher_owned_effect_child.ps1')
+}
 $id=[guid]::NewGuid().ToString('N');$service='USK_PUB_'+$id;$accountName='USKCLI_'+$id.Substring(0,13)
 $accountSid='';$accountCreated=$false;$clientsClosed=$true;$registered=$false;$secret=$null
 $observersClosed=$true;$clientTokenLease=$null;$clientCaptureFile=Join-Path $lab 'public-client-token.json';$clientCaptureSha256=''
@@ -347,12 +353,33 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             -ExpectedImagePath $installedBinary -ExpectedImageSha256 $receipt.service_sha256
         # The native endpoint and pause remain the actual SCM parent. Open a
         # separate query-only original child from native ancestry and image.
-        if(-not ('UskOwnedEffectChildObserver' -as [type])) {
-            . (Join-Path $PSScriptRoot 'windows_publisher_owned_effect_child.ps1')
-        }
         $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$worker.Id) -ErrorAction Stop)
         if($children.Count -ne 1 -or -not $children[0].CreationDate -or
             $children[0].ExecutablePath -cne $installedBinary -or -not $children[0].CommandLine) {
+            # Retain only the failed original query. This is diagnostic data;
+            # neither it nor a later query can replace the original predicate.
+            $childFailure=$null
+            try {
+                $childFailure=[ordered]@{scope='original_active_effect_child_query';qualification_granted=$false;
+                    query_source='Win32_Process';parent_process_id=$worker.Id;
+                    parent_creation_file_time=$worker.StartTime.ToUniversalTime().ToFileTimeUtc().ToString();
+                    observed_count=$children.Count;row_limit=8;rows=@();capture_status='unavailable'}
+                $receipt['active_effect_child_query_failure']=$childFailure
+                $childFailure.rows=@(foreach($child in ($children|Select-Object -First 8)) {
+                    $observedImage=[string]$child.ExecutablePath;$observedCommand=[string]$child.CommandLine
+                    [ordered]@{process_id=$child.ProcessId;parent_process_id=$child.ParentProcessId;
+                        creation_utc=$(if($child.CreationDate){$child.CreationDate.ToUniversalTime().ToString('o')}else{$null});
+                        image_present=[bool]$child.ExecutablePath;image_matches=$child.ExecutablePath -ceq $installedBinary;
+                        image_length=$observedImage.Length;image_prefix=$observedImage.Substring(0,[Math]::Min(4096,$observedImage.Length));
+                        command_present=[bool]$child.CommandLine;command_length=$observedCommand.Length;
+                        command_prefix=$observedCommand.Substring(0,[Math]::Min(4096,$observedCommand.Length))}
+                })
+                $childFailure.capture_status='original_query_retained'
+            } catch {
+                try {
+                    if($childFailure){$childFailure['capture_failure']=$_.Exception.Message.Substring(0,[Math]::Min(4096,$_.Exception.Message.Length))}
+                } catch {} # Optional diagnostics cannot replace the refusal.
+            }
             throw 'Active installer lacks one original native effect child'
         }
         $effectPair=[UskOwnedEffectChildObserver]::new($worker,[uint32]$worker.Id,

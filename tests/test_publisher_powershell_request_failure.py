@@ -86,6 +86,69 @@ ConvertTo-Json -InputObject @($results) -Depth 10 -Compress
 '''
 
 
+ACTIVE_WINDOW_SCRIPT = r'''
+param([string]$Root)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_standard_public_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Standard fixture parse failed'}
+$active=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Invoke-ActiveInstallContention'
+},$true))
+if($active.Count -ne 1){throw 'Active fixture is ambiguous'}
+$gate=@($active[0].Body.FindAll({param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Extent.Text.Contains("throw 'Active installer lacks one original native effect child'")
+},$true))
+if($gate.Count -ne 1){throw 'Original child predicate is ambiguous'}
+$flow=[scriptblock]::Create($gate[0].Extent.Text)
+$installedBinary='C:\fixture\original.exe'
+$worker=[pscustomobject]@{Id=123;StartTime=[datetime]'2026-10-07T00:00:00Z'}
+$rows=@()
+foreach($case in @('valid','empty','multiple','missing_birth','wrong_image','missing_command','long_command','diagnostic_failure')) {
+    $receipt=[ordered]@{}
+    $child=[pscustomobject]@{ProcessId=456;ParentProcessId=123;CreationDate=[datetime]'2026-10-07T00:00:01Z';
+        ExecutablePath=$installedBinary;CommandLine='original.private.command'}
+    $children=@($child)
+    switch($case) {
+        'empty' {$children=@()}
+        'multiple' {$children=@($child,$child)}
+        'missing_birth' {$child.CreationDate=$null}
+        'wrong_image' {$child.ExecutablePath='C:\fixture\replacement.exe'}
+        'missing_command' {$child.CommandLine=$null}
+        'long_command' {$child.ExecutablePath='x'*8192;$child.CommandLine='y'*8192}
+        'diagnostic_failure' {$child.ExecutablePath='C:\fixture\replacement.exe';$child.CreationDate='invalid timestamp'}
+    }
+    $failure=$null
+    try {$null=& $flow} catch {$failure=$_.Exception.Message}
+    $rows+=@{case=$case;failure=$failure;diagnostic=$receipt.active_effect_child_query_failure}
+}
+# Exercise actual inert initialization, without invoking any native constructor.
+. (Join-Path $Root 'tests/windows_publisher_active_worker.ps1')
+Initialize-OwnedPublisherWorkerPause
+Initialize-OwnedPublisherWorkerPause
+. (Join-Path $Root 'tests/windows_publisher_owned_effect_child.ps1')
+if(-not ('UskPublisherPausedWorker' -as [type]) -or -not ('UskOwnedEffectChildObserver' -as [type])) {
+    throw 'Inert fixture types were not prepared'
+}
+# The actual preparation block must run before fixture-owned account/process work.
+$preparation=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Extent.Text.Contains('Initialize-OwnedPublisherWorkerPause')
+})
+$ownerInitialization=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] -and $_.Left.Extent.Text -ceq '$id'
+})
+if($preparation.Count -ne 1 -or $ownerInitialization.Count -ne 1 -or
+    $preparation[0].Extent.EndOffset -ge $ownerInitialization[0].Extent.StartOffset -or
+    -not $preparation[0].Extent.Text.Contains('windows_publisher_owned_effect_child.ps1')) {
+    throw 'Inert preparation was not before the original owned fixture'
+}
+ConvertTo-Json -InputObject @($rows) -Depth 10 -Compress
+'''
+
+
 @unittest.skipUnless(POWERSHELL, 'PowerShell unavailable on this platform')
 class PublisherPowerShellRequestFailureTests(unittest.TestCase):
     def test_primary_failure_survives_diagnostic_and_cleanup_failures(self):
@@ -131,6 +194,42 @@ class PublisherPowerShellRequestFailureTests(unittest.TestCase):
                     self.assertIsNone(row['failure'])
                     if not row['cleanup'] and not bootstrap_failed:
                         self.assertEqual(row['body_output'], 'synthetic successful body')
+
+
+    def test_active_window_preparation_and_original_child_refusals(self):
+        # Parse actual production fixture control flow; native types are compiled
+        # but no process, observer, pause or native constructor is invoked.
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'active-window.ps1'
+            script.write_text(ACTIVE_WINDOW_SCRIPT, encoding='utf-8')
+            result = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', str(script), '-Root', str(ROOT)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = json.loads(result.stdout)
+        self.assertEqual(len(rows), 8)
+        for row in rows:
+            with self.subTest(case=row['case']):
+                if row['case'] == 'valid':
+                    self.assertIsNone(row['failure'])
+                    self.assertIsNone(row['diagnostic'])
+                    continue
+                self.assertEqual(row['failure'], 'Active installer lacks one original native effect child')
+                diagnostic = row['diagnostic']
+                self.assertFalse(diagnostic['qualification_granted'])
+                self.assertEqual(diagnostic['parent_process_id'], 123)
+                self.assertEqual(diagnostic['observed_count'],
+                    0 if row['case'] == 'empty' else 2 if row['case'] == 'multiple' else 1)
+                self.assertLessEqual(len(diagnostic['rows']), 8)
+                for observed in diagnostic['rows']:
+                    self.assertLessEqual(len(observed['image_prefix']), 4096)
+                    self.assertLessEqual(len(observed['command_prefix']), 4096)
+                self.assertEqual('capture_failure' in diagnostic, row['case'] == 'diagnostic_failure')
+                if row['case'] == 'long_command':
+                    observed = diagnostic['rows'][0]
+                    self.assertEqual(observed['image_length'], 8192)
+                    self.assertEqual(observed['command_length'], 8192)
+                    self.assertFalse(observed['image_matches'])
+
 
 
 if __name__ == '__main__':
