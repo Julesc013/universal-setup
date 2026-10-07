@@ -92,9 +92,21 @@ def bootstrap_history(by_path, drive, context_directory, context_path, context, 
             require(origin in ('created_empty_in_current_worker', 'reopened_staged_tree'),
                     'live publication has unknown native execution origin')
             if origin == 'created_empty_in_current_worker':
-                require(isinstance(prepared.get('execution_phases'), list) and prepared['execution_phases'] and
-                        prepared['execution_phases'][0]['execution']['service']['process_id'] == ownership['holder']['process_id'],
-                        'live publication creation worker differs from its reserved native ownership')
+                require(isinstance(prepared.get('execution_phases'), list) and prepared['execution_phases'],
+                        'live publication creation phases absent')
+                execution = prepared['execution_phases'][0]['execution']
+                if prepared.get('schema') == 'usk.publisher.lab_phase_evidence.v10':
+                    from publisher_effect_broker_evidence import validate_active_child_lease, validate_effect_execution_identity
+                    require(execution['schema'] == 'usk.publisher_execution_observation.v7',
+                            'child reservation lost its child execution family')
+                    require(prepared['protected_anchors']['boundary']['file_id'] == volume_root_id,
+                            'child reservation changed its independently bound native volume')
+                    validate_effect_execution_identity(execution, execution['service']['service_name'],
+                        prepared['service_sid'], prepared['protected_anchors']['boundary'])
+                    validate_active_child_lease(ownership, execution['broker_readback'])
+                else:
+                    require(execution['service']['process_id'] == ownership['holder']['process_id'],
+                            'live publication creation worker differs from its reserved native ownership')
         if move_path not in by_path:
             require(index == len(reservation_rows) - 1, 'earlier bootstrap reservation lacks a durable disposition')
             continue

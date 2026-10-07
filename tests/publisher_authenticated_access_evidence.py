@@ -95,6 +95,8 @@ def validate_operation_admission(prepared):
     """Retained bindings only; a null private legacy record has no route admission."""
     admission = prepared['operation_admission']
     if admission is None:
+        require(prepared['schema'] != 'usk.publisher.lab_phase_evidence.v10',
+                'child evidence requires its original registered operation admission')
         return False
     closed(admission, OPERATION_KEYS, 'registered operation admission keys differ')
     execution = prepared['execution_phases'][0]['execution']
@@ -121,6 +123,15 @@ def validate_operation_admission(prepared):
         isinstance(admission['volume_guid_root'], str) and re.fullmatch(
             r'\\\\\?\\Volume\{[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\}\\', admission['volume_guid_root']),
         'registered operation admission provenance or volume GUID differs')
+    if prepared['schema'] == 'usk.publisher.lab_phase_evidence.v10':
+        broker = execution['broker_readback']
+        from publisher_effect_broker_evidence import validate_broker_record
+        validate_broker_record(broker)
+        reconcile_registered_operation_binding(admission, broker['registered_admission'])
+        args = broker['service_configuration']['arguments']
+        require(client == broker['authenticated_client'] and len(args) == 11 and
+            args[5] == '--reviewed-plan-envelope' and source['plan_envelope_sha256'] == args[7],
+            'child original operation differs from its broker caller/reviewed envelope')
     return True
 
 
@@ -145,7 +156,12 @@ def validate_descendant_access(value, client, tree):
 
 def reconcile_registered_operation(prepared, native_registration):
     require(validate_operation_admission(prepared), 'registered public path cannot promote null private admission')
-    admission, target = prepared['operation_admission'], native_registration['target_identity']['volume_identity']
+    return reconcile_registered_operation_binding(prepared['operation_admission'], native_registration)
+
+
+def reconcile_registered_operation_binding(admission, native_registration):
+    """Join an already decoded operation to the separately retained registration."""
+    target = native_registration['target_identity']['volume_identity']
     retained_serial = target['volume_serial']
     require(isinstance(retained_serial, str) and re.fullmatch(r'(?:0|[1-9][0-9]{0,19})', retained_serial) and
             str(admission['volume_serial']) == retained_serial,

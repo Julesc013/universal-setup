@@ -161,9 +161,17 @@ function Read-InstalledSnapshot {
     $decoded=& $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $input
     if($LASTEXITCODE -ne 0){throw 'Standard native execution reconciliation failed'}
     $report=($decoded -join "`n")|ConvertFrom-Json
-    if($report.schema -cne 'usk.publisher_execution_reconciliation.v4' -or $report.profile_qualified -ne $false -or
+    $childEvidence=($prepared[0].content_json|ConvertFrom-Json).schema -ceq 'usk.publisher.lab_phase_evidence.v10'
+    $reportSchema=if($childEvidence){'usk.publisher_execution_reconciliation.v5'}else{'usk.publisher_execution_reconciliation.v4'}
+    if($report.schema -cne $reportSchema -or $report.profile_qualified -ne $false -or
         $report.worker_security_phase_count -le 0 -or $report.creation_observation.worker_security_checked -ne $true) {
         throw 'Standard native creation/worker evidence is incomplete'
+    }
+    if($childEvidence -and ($report.effect_worker_phase_count -ne $report.phase_count -or
+        $report.creation_observation.schema -cne 'usk.publisher_creation_reconciliation.v4' -or
+        $report.creation_observation.original_broker_checked -ne $true -or
+        @($report.broker_process_ids).Count -le 0 -or @($report.worker_process_ids).Count -le 0)) {
+        throw 'Standard native child evidence lacks separate original broker/creator bindings'
     }
     $readback|Add-Member -NotePropertyName execution_reconciliation -NotePropertyValue $report
     return $readback

@@ -468,7 +468,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
     $record=$prepared[0].content_json|ConvertFrom-Json
-    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8','usk.publisher.lab_phase_evidence.v9') -or
+    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8','usk.publisher.lab_phase_evidence.v9','usk.publisher.lab_phase_evidence.v10') -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
         $receipt['native_execution_diagnostic']=@{schema=$record.schema;phase=$record.phase;
@@ -556,18 +556,26 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $executionResult=& python -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $executionInput
     if($LASTEXITCODE -ne 0){throw 'Independent native execution record reconciliation failed'}
     $executionReport=($executionResult -join "`n")|ConvertFrom-Json
-    if($executionReport.schema -cne 'usk.publisher_execution_reconciliation.v4' -or
+    $childEvidence=$record.schema -ceq 'usk.publisher.lab_phase_evidence.v10'
+    $reportSchema=if($childEvidence){'usk.publisher_execution_reconciliation.v5'}else{'usk.publisher_execution_reconciliation.v4'}
+    $creatorSchema=if($childEvidence){'usk.publisher_creation_reconciliation.v4'}else{'usk.publisher_creation_reconciliation.v3'}
+    if($executionReport.schema -cne $reportSchema -or
         $executionReport.status -cne 'bindings_consistent' -or $executionReport.profile_qualified -ne $false -or
         $executionReport.held_roles_per_phase -ne 7 -or
         $executionReport.process_bound_phase_count -ne $executionReport.phase_count -or
         $executionReport.worker_security_phase_count -ne $executionReport.phase_count -or
-        $executionReport.creation_observation.schema -cne 'usk.publisher_creation_reconciliation.v3' -or
+        $executionReport.creation_observation.schema -cne $creatorSchema -or
         $executionReport.creation_observation.process_boundary_checked -ne $true -or
         $executionReport.creation_observation.worker_security_checked -ne $true -or
         $executionReport.creation_observation.status -cne 'bindings_consistent' -or
         $executionReport.creation_observation.profile_qualified -ne $false -or
         $executionReport.creation_observation.created_object_count -lt 6) {
         throw 'Independent execution reconciliation result differs'
+    }
+    if($childEvidence -and ($executionReport.effect_worker_phase_count -ne $executionReport.phase_count -or
+        $executionReport.creation_observation.original_broker_checked -ne $true -or
+        @($executionReport.broker_process_ids).Count -le 0 -or @($executionReport.worker_process_ids).Count -le 0)) {
+        throw 'Independent native child evidence lacks separate original broker/creator bindings'
     }
     $receipt.execution_readback_reconciliations.Add(@{result=$executionReport;
         input_sha256=(Get-FileHash -LiteralPath $executionInput -Algorithm SHA256).Hash.ToLowerInvariant();

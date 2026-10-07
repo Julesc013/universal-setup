@@ -531,16 +531,16 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
             report.get("creation_observation", {}).get("worker_security_checked") is True and
             report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
         prepared_schema = json.loads(prepared[0])['schema']
-        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
+        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10'):
             require_native_capture_set(native_captures, captures, commands)
         if native_captures is not None:
-            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9') and
+            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10') and
                 report.get('held_access_phase_count') == 5 and report.get('native_rename_calls_checked') == 1,
                 'current standard producer requires complete v6 access and actual rename bindings')
-            if prepared_schema in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10'):
                 require(report.get('same_handle_objects_checked') == 35,
                     'current standard producer requires all seven same-handle security objects per phase')
-            if prepared_schema in ('usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10'):
                 from publisher_authenticated_access_evidence import reconcile_client_capture, reconcile_registered_operation
                 require(report.get('authenticated_access_objects_checked') == 35,
                         'current standard producer requires authenticated access for every held phase role')
@@ -568,6 +568,13 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
                             'registered operation transaction differs from native public completion')
                 except (ValueError, KeyError, TypeError) as error:
                     raise StandardEvidenceError('registered public operation admission differs: ' + str(error)) from error
+            if prepared_schema == 'usk.publisher.lab_phase_evidence.v10':
+                require(report.get('effect_worker_phase_count') == 5 and
+                    report.get('creation_observation', {}).get('schema') == 'usk.publisher_creation_reconciliation.v4' and
+                    report['creation_observation'].get('original_broker_checked') is True and
+                    report.get('descendant_access_scope') == 'fresh_descriptor_and_request_token_no_content_rehash' and
+                    report.get('authenticated_descendant_objects_checked', 0) > 0,
+                    'current child producer lacks its full original broker/creator/descendant joins')
         require(report == readback["execution_reconciliation"], "standard embedded native reconciliation differs")
         reports.append(report)
     if native_captures is not None:
