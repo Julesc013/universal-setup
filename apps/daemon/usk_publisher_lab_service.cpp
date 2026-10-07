@@ -40,6 +40,7 @@
 #include <filesystem>
 #include <functional>
 #include <iterator>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <set>
@@ -332,19 +333,28 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
                 {"status", Value("success")}, {"response", Value{}}, {"error", Value("")}, {"error_code", Value("")},
                 {"operation_inspection_ref", Value("")}, {"effects_may_exist", Value(false)},
                 {"definite_preflight_refusal", Value(false)}});
+            std::exception_ptr original_execution_failure;
             try {
-                terminal.as_object().at("response") = usk::json::parse(execute_candidate_restricted_publisher(config, effects));
-            } catch (const std::exception& error) {
-                terminal.as_object().at("status") = Value("failure");
-                terminal.as_object().at("error") = Value(std::string(error.what()).substr(0, 4096));
-                terminal.as_object().at("error_code") = Value(native_operation_error(error));
-                terminal.as_object().at("operation_inspection_ref") = Value(native_operation_inspection(error).substr(0, 1024));
-                terminal.as_object().at("definite_preflight_refusal") = Value(native_definite_preflight_refusal(error));
+                try {
+                    terminal.as_object().at("response") = usk::json::parse(execute_candidate_restricted_publisher(config, effects));
+                } catch (const std::exception& error) {
+                    original_execution_failure = std::current_exception();
+                    terminal.as_object().at("status") = Value("failure");
+                    terminal.as_object().at("error") = Value(std::string(error.what()).substr(0, 4096));
+                    terminal.as_object().at("error_code") = Value(native_operation_error(error));
+                    terminal.as_object().at("operation_inspection_ref") = Value(native_operation_inspection(error).substr(0, 1024));
+                    terminal.as_object().at("definite_preflight_refusal") = Value(native_definite_preflight_refusal(error));
+                }
+                terminal.as_object().at("effects_may_exist") = Value(effects);
+                // The engine and all its guard/lease/creator/effect scopes have
+                // ended. Failed native observation cannot manufacture a terminal.
+                require_publisher_effect_terminal_record(terminal, owner.service_admission());
+            } catch (...) {
+                // An invalid terminal is never sent. Preserve the first actual
+                // engine failure for the error-only conservative reporting path.
+                if (original_execution_failure) std::rethrow_exception(original_execution_failure);
+                throw;
             }
-            terminal.as_object().at("effects_may_exist") = Value(effects);
-            // The engine and all its guard/lease/creator/effect scopes have
-            // ended. Failed native observation cannot manufacture a terminal.
-            require_publisher_effect_terminal_record(terminal, owner.service_admission());
         }
         terminal_attempted = true; // No diagnostic or other packet after this attempt.
         peer.send(terminal);
