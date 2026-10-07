@@ -1485,6 +1485,28 @@ std::string PublisherInstallOperationContext::lease_binding_sha256() const {
     return impl_->roots_record.at("roots_sha256").as_string();
 }
 const Value& PublisherInstallOperationContext::record() const { impl_->fence(); return impl_->original; }
+void PublisherInstallOperationContext::require_original_maintenance_intent_observation(const Value& intent) const {
+    impl_->fence();
+    if (impl_->kind == PublisherOperationKind::install_local || !impl_->file || !impl_->operations || !impl_->records ||
+        intent.at("schema").as_string() != "usk.publisher_protected_original_maintenance_intent.v1" ||
+        intent.at("scope").as_string() != "native_read_only_fixed_original_namespace" ||
+        intent.at("intent_context_sha256").as_string() != impl_->original.at("context_sha256").as_string() ||
+        !equal(intent.at("original_apply_request"), impl_->original.at("reviewed_snapshot").at("apply_request")) ||
+        !equal(intent.at("volume_root_identity"), impl_->volume_identity))
+        throw std::runtime_error("original maintenance broker intent differs from guarded native context");
+    const auto text = usk::json::canonical(impl_->original) + "\n";
+    usk::base::Sha256 hash;
+    hash.update(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+    if (intent.at("intent_record_sha256").as_string() != hash.finish() || intent.at("native_chain").as_array().size() != 4)
+        throw std::runtime_error("original maintenance broker bytes or ancestry differ");
+    const HANDLE handles[]{impl_->volume, impl_->operations->get(), impl_->records->get(), impl_->file->get()};
+    for (std::size_t i = 0; i != 4; ++i) {
+        const auto actual = i == 3 ? observe_publisher_file_handle(handles[i]) : observe_publisher_directory_handle(handles[i]);
+        if (!equal(intent.at("native_chain").as_array()[i].at("object"), publisher_handle_observation_json(actual)))
+            throw std::runtime_error("original maintenance broker ancestry lost its guarded native identity");
+    }
+    impl_->fence();
+}
 bool PublisherInstallOperationContext::bootstrap_resume_required() const { return impl_->bootstrap_resume_required(); }
 void PublisherInstallOperationContext::prepare_publication(const PublisherInstallationLease& lease) {
     impl_->prepare_publication(lease);

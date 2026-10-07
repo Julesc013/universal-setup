@@ -18,6 +18,8 @@ void require_publisher_effect_broker_readback_record(const usk::json::Value&);
 usk::json::Value publisher_effect_broker_immutable_record(const usk::json::Value&);
 PublisherWorkerTokenContext publisher_effect_worker_record_context(const usk::json::Value&);
 PublisherServiceObservation publisher_effect_broker_service_record(const usk::json::Value&);
+void require_publisher_effect_original_maintenance_selection(const usk::json::Value& selection,
+    const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
 class PublisherBrokerQueryClosureUnknown final : public std::runtime_error {
 public:
     PublisherBrokerQueryClosureUnknown(DWORD error, std::exception_ptr primary);
@@ -48,6 +50,26 @@ public:
 private:
     friend class PublisherEffectBrokerReadback;
     usk::json::Value authenticated_access(const PublisherRequestChannel&) const;
+    struct State;
+    std::unique_ptr<State> state_;
+};
+
+// Finite protected-original lookup. IDs and operation come only from the
+// actual authenticated minimal request; no caller-supplied path/apply/record
+// can select an intent. Owns four read-only native observers under the original
+// query-only volume. No install mutex, pending record, lease or effect exists
+// here. Checked closure shares the broker's one-query/retained-unknown gate.
+class PublisherOriginalMaintenanceIntentQuery final {
+public:
+    PublisherOriginalMaintenanceIntentQuery(const RegisteredPublisherAdmission&,
+        const PublisherRequestChannel&, HANDLE original_volume_root);
+    ~PublisherOriginalMaintenanceIntentQuery();
+    PublisherOriginalMaintenanceIntentQuery(const PublisherOriginalMaintenanceIntentQuery&) = delete;
+    PublisherOriginalMaintenanceIntentQuery& operator=(const PublisherOriginalMaintenanceIntentQuery&) = delete;
+    usk::json::Value observation() const;
+    bool close() noexcept;
+    DWORD close_error() const noexcept;
+private:
     struct State;
     std::unique_ptr<State> state_;
 };
@@ -90,6 +112,9 @@ public:
     // Read only the parent's original native-held exact-request selection.
     // Absence is explicit; this cannot select a request or authorize replay.
     usk::json::Value selected_reviewed_operation(DWORD timeout_ms = 120000);
+    // A separate finite original-intent/enrollment relation for the actual
+    // minimal maintenance recovery request. Never relaxes fresh selection.
+    usk::json::Value selected_original_maintenance_recovery(DWORD timeout_ms = 120000);
     usk::json::Value authenticated_object_access(HANDLE, DWORD timeout_ms = 120000);
 private:
     friend class PublisherEffectWorkerNativeSecurity;

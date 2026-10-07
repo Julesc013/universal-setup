@@ -873,7 +873,7 @@ struct NativeMaintenanceContext::Impl {
         : volume(boundary), volume_root(root), service_name(service_label), guard(installation_guard),
           original_state(state), original_context(context), lease(active_lease), admission(registered),
           channel(authenticated), original_child(child_owner), spec(transaction_spec), cancel_event(cancel) {
-        if (original_child ? (admission || channel || restore) : (!admission || !channel))
+        if (original_child ? (admission || channel) : (!admission || !channel))
             throw std::runtime_error("native maintenance requires one concrete original execution owner");
         restored_owner = restore;
         const auto& snapshot = original_context.record().at("reviewed_snapshot");
@@ -1038,7 +1038,7 @@ struct NativeMaintenanceContext::Impl {
     }
     Value selected_native_envelope() const {
         if (original_child) {
-            const auto selected = original_child->selected_reviewed_operation();
+            const auto selected = child_native_selection();
             if (!selected.at("present").as_boolean())
                 throw std::runtime_error("native maintenance original child reviewed selection is absent");
             return selected.at("envelope");
@@ -1049,12 +1049,22 @@ struct NativeMaintenanceContext::Impl {
     }
     Value selected_native_observation() const {
         if (original_child) {
-            const auto selected = original_child->selected_reviewed_operation();
+            const auto selected = child_native_selection();
             if (!selected.at("present").as_boolean())
                 throw std::runtime_error("native maintenance original child reviewed selection is absent");
             return selected.at("observation");
         }
         return admission->selected_reviewed_operation_observation();
+    }
+    Value child_native_selection() const {
+        if (!restored_owner) return original_child->selected_reviewed_operation();
+        const auto selected = original_child->selected_original_maintenance_recovery();
+        if (!selected.at("present").as_boolean())
+            throw std::runtime_error("native maintenance original recovery enrollment is absent");
+        // Every selected-operation fence independently compares the broker's
+        // original proof with this child's actual guarded handles and bytes.
+        original_context.require_original_maintenance_intent_observation(selected.at("intent"));
+        return selected;
     }
     Value authenticated_native_access(HANDLE handle) const {
         return original_child ? original_child->authenticated_object_access(handle) :
@@ -2495,6 +2505,17 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     // restoration must preserve the caller's retained-material status.
     effects_may_exist = true;
     impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, lease, &admission, &channel, nullptr, spec, cancel, true);
+    bind_owner_backend();
+    scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
+}
+NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wstring& root, const std::wstring& service,
+    const PublisherInstallOperationGuard& guard, const PublisherMaintenanceStateSnapshot& state,
+    const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
+    PublisherEffectExecutionOwner& original_child, const transaction::TransactionSpec& spec, HANDLE cancel,
+    bool& effects_may_exist, RecoveryAdmission) {
+    effects_may_exist = true;
+    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, lease, nullptr, nullptr,
+        &original_child, spec, cancel, true);
     bind_owner_backend();
     scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
 }

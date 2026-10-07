@@ -118,12 +118,19 @@ usk::json::Value registered_native_evidence() {
     return registered_admission->evidence();
 }
 bool has_selected_native_operation() {
-    if (effect_execution) return effect_execution->selected_reviewed_operation().at("present").as_boolean();
+    if (effect_execution) {
+        const auto selected = submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
+            "usk.publisher_maintenance_recovery_request.v1" ? effect_execution->selected_original_maintenance_recovery() :
+            effect_execution->selected_reviewed_operation();
+        return selected.at("present").as_boolean();
+    }
     return registered_admission && registered_admission->has_selected_reviewed_operation();
 }
 usk::json::Value selected_native_envelope() {
     if (effect_execution) {
-        const auto selected = effect_execution->selected_reviewed_operation();
+        const auto selected = submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
+            "usk.publisher_maintenance_recovery_request.v1" ? effect_execution->selected_original_maintenance_recovery() :
+            effect_execution->selected_reviewed_operation();
         if (!selected.at("present").as_boolean()) throw std::runtime_error("original native reviewed selection is absent");
         return selected.at("envelope");
     }
@@ -3936,12 +3943,15 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration& config, bool& publication_effects_may_exist) {
     PublisherEffectExecutionOwner::require_engine_origin(config.effect_execution, config.service_name);
     ScopedExecution execution(config, config.effect_execution ? config.effect_execution->cancellation_observer() : nullptr);
-        // Source-free replay still requires the finite original protected
-        // intent/enrollment selector; the read-only exact-request observation
-        // cannot authorize a different original apply request. Refuse before
-        // target opening, intent, lease or any filesystem effect.
-        if (effect_execution && submitted_recovery_request)
-            throw usk::transaction::CommitAuthorityUnavailable();
+        // Maintenance replay uses its distinct, native protected-original
+        // selector before target opening. Installation replay remains gated
+        // until its own finite original-snapshot selector is connected.
+        if (effect_execution && submitted_recovery_request) {
+            if (usk::json::parse(*submitted_recovery_request).at("schema").as_string() !=
+                    "usk.publisher_maintenance_recovery_request.v1" ||
+                !effect_execution->selected_original_maintenance_recovery().at("present").as_boolean())
+                throw usk::transaction::CommitAuthorityUnavailable();
+        }
         // Includes staged-only/snapshot replay, which can write metadata before
         // a rename gate. Read-only verification keeps its historical ceiling.
         if (has_registered_native_owner() && !verify_installed_request &&
@@ -3996,6 +4006,12 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 install_id, operation_id, kind);
             if (!original_context.exists()) throw std::runtime_error("maintenance recovery original intent is absent");
             publication_effects_may_exist = true;
+            if (effect_execution) {
+                const auto selected = effect_execution->selected_original_maintenance_recovery();
+                if (!selected.at("present").as_boolean())
+                    throw std::runtime_error("maintenance recovery original native selection is absent");
+                original_context.require_original_maintenance_intent_observation(selected.at("intent"));
+            }
             const auto& snapshot = original_context.record().at("reviewed_snapshot");
             const auto& plan = snapshot.at("reviewed_plan");
             auto original_state = original_context.restore_maintenance_state();
@@ -4003,7 +4019,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             std::wstring envelope_path;
             std::string envelope_sha256;
             const auto original_request = usk::json::canonical(snapshot.at("apply_request"));
-            if (!registered_admission->select_reviewed_operation(original_request, *authenticated_request,
+            if (!effect_execution && !registered_admission->select_reviewed_operation(original_request, *authenticated_request,
                     envelope_path, envelope_sha256))
                 throw std::runtime_error("maintenance recovery lacks its original administrator-enrolled request");
             const auto envelope = parse_publisher_reviewed_operation_envelope(
@@ -4113,8 +4129,12 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             lease.require_start();
             // The private constructor independently proves original native
             // custody and an ended original holder. No new source is opened.
-            std::unique_ptr<usk::lifecycle::detail::NativeMaintenanceContext> owner(
-                new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root, service_name, *install_guard,
+            std::unique_ptr<usk::lifecycle::detail::NativeMaintenanceContext> owner;
+            if (effect_execution) owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(
+                    volume, volume_root, service_name, *install_guard, *original_state, original_context, lease,
+                    *effect_execution, spec, stop_event, publication_effects_may_exist,
+                    usk::lifecycle::detail::NativeMaintenanceContext::RecoveryAdmission::ended_original_holder));
+            else owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root, service_name, *install_guard,
                     *original_state, original_context, lease, *registered_admission, *authenticated_request, spec,
                     stop_event, publication_effects_may_exist,
                     usk::lifecycle::detail::NativeMaintenanceContext::RecoveryAdmission::ended_original_holder));

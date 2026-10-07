@@ -149,6 +149,9 @@ public:
     void require_bound_state_roots(HANDLE setup_root, HANDLE state_root) const;
     std::string lease_binding_sha256() const;
     const usk::json::Value& record() const;
+    // Compare the finite broker observation with this independently opened,
+    // guarded original intent. Supplied observations confer no effect rights.
+    void require_original_maintenance_intent_observation(const usk::json::Value&) const;
     void require_fence() const;
     // Read-only inspection of this operation's reserved, pre-candidate
     // bootstrap. Only an exact original sourceful apply may preserve it.

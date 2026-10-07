@@ -330,6 +330,96 @@ void effect_execution_record_controls() {
     try { require_publisher_effect_maintenance_original_record(maintenance_original, other_request, name); }
     catch (const std::exception&) { other_request_refused = true; }
     check(other_request_refused, "synthetic custody reused another original reviewed request");
+    // Distinct minimal-recovery selections: retained data only. The ordinary
+    // test process cannot construct the actual SCM/channel original reader.
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const Value minimum(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"install_id", Value("org.example.synthetic")}, {"transaction_id", Value("maintenance.synthetic")},
+            {"operation", Value(operation)}});
+        auto recovery_broker = phase_broker;
+        const auto minimum_sha = usk::json::sha256_canonical(minimum);
+        recovery_broker.as_object().at("request_sha256") = Value(minimum_sha);
+        recovery_broker.as_object().at("custody").as_object().at("request_sha256") = Value(minimum_sha);
+        const Value plan_request(Value::Object{{"schema", Value("usk." + operation + "_plan_request.v1")},
+            {"plan_id", Value("plan.synthetic")}, {"install_id", minimum.at("install_id")}});
+        const Value apply(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"plan_request", plan_request}, {"reviewed_plan_id", Value("plan.synthetic")},
+            {"reviewed_plan_digest", Value(std::string(64, 'e'))}, {"transaction_id", minimum.at("transaction_id")},
+            {"applied_at", Value("2026-10-07T00:00:00Z")}, {"confirmation", Value("APPLY")}});
+        const Value envelope(Value::Object{{"schema", Value("usk.publisher.maintenance_reviewed_plan_envelope.v1")},
+            {"activation", Value("operator_acceptance_candidate")}, {"state_root", Value("Q:\\setup")},
+            {"acceptance_root", Value("Q:\\")}, {"plan_request", plan_request},
+            {"reviewed_plan_digest", Value(std::string(64, 'e'))}, {"apply_request", apply}});
+        const Value approval(Value::Object{{"schema", Value("usk.publisher_reviewed_operation_approval.v1")},
+            {"request_sha256", Value(usk::json::sha256_canonical(apply))},
+            {"registration_sha256", recovery_broker.at("registered_admission").at("registration_sha256")},
+            {"target_admitted_sha256", recovery_broker.at("registered_admission").at("target_admitted_sha256")},
+            {"caller_sid", Value(consumer_sid)}, {"envelope_sha256", Value(std::string(64, 'a'))},
+            {"envelope_size_bytes", Value(static_cast<std::uint64_t>(usk::json::canonical(envelope).size()))}});
+        auto enrollment_file = object(6);
+        enrollment_file.as_object().at("attributes") = Value(std::uint64_t{FILE_ATTRIBUTE_NORMAL});
+        const Value enrollment(Value::Object{{"schema", Value("usk.publisher_selected_reviewed_operation_observation.v1")},
+            {"scope", Value("authenticated_exact_request_and_held_protected_enrollment_files")}, {"approval", approval},
+            {"approval_sha256", Value(usk::json::sha256_canonical(approval))}, {"envelope_sha256", approval.at("envelope_sha256")},
+            {"approval_file", enrollment_file}, {"envelope_file", enrollment_file}});
+        const auto install_name = "install-" + usk::json::sha256_canonical(minimum.at("install_id"));
+        const auto intent_name = "operation-" + usk::json::sha256_canonical(minimum.at("transaction_id")) + ".json";
+        const std::string native_names[]{"\\", "\\installation-operations", "\\installation-operations\\" + install_name,
+            "\\installation-operations\\" + install_name + "\\" + intent_name};
+        const char* intent_roles[]{"volume", "operations", "install", "intent"};
+        Value::Array original_chain;
+        for (std::size_t index = 0; index != 4; ++index) {
+            auto facts = object(index);
+            facts.as_object().at("native_name") = Value(native_names[index]);
+            if (index == 3) facts.as_object().at("attributes") = Value(std::uint64_t{FILE_ATTRIBUTE_NORMAL});
+            original_chain.emplace_back(Value::Object{{"role", Value(intent_roles[index])}, {"object", facts},
+                {"granted_access", Value(std::uint64_t{READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_READ_DATA | SYNCHRONIZE})}});
+        }
+        const Value intent(Value::Object{{"schema", Value("usk.publisher_protected_original_maintenance_intent.v1")},
+            {"scope", Value("native_read_only_fixed_original_namespace")}, {"transport_request_sha256", Value(minimum_sha)},
+            {"intent_context_sha256", Value(std::string(64, 'b'))}, {"intent_record_sha256", Value(std::string(64, 'c'))},
+            {"original_apply_request", apply}, {"native_chain", Value(original_chain)}, {"volume_root_identity", lease_root}});
+        const Value selection(Value::Object{{"schema", Value("usk.publisher_effect_original_maintenance_selection.v1")},
+            {"scope", Value("actual_minimal_request_to_native_protected_original_and_held_enrollment")}, {"present", Value(true)},
+            {"intent", intent}, {"envelope", envelope}, {"observation", enrollment}});
+        require_publisher_effect_original_maintenance_selection(selection, minimum, recovery_broker);
+        const auto refuses_selection = [&](const std::function<void(Value&)>& mutate) {
+            auto changed = selection; mutate(changed); bool refused = false;
+            try { require_publisher_effect_original_maintenance_selection(changed, minimum, recovery_broker); }
+            catch (const std::exception&) { refused = true; }
+            check(refused, "synthetic original recovery selection accepted contradictory selection");
+        };
+        refuses_selection([](Value& v) { v.as_object().at("schema") = Value("usk.publisher_effect_selected_operation_readback.v1"); });
+        refuses_selection([](Value& v) { v.as_object().emplace("selector", Value("caller-controlled")); });
+        refuses_selection([](Value& v) { v.as_object().at("intent").as_object().at("transport_request_sha256") = Value(std::string(64, 'a')); });
+        refuses_selection([](Value& v) { v.as_object().at("intent").as_object().at("original_apply_request").as_object()
+            .at("transaction_id") = Value("other.original"); });
+        refuses_selection([](Value& v) { v.as_object().at("intent").as_object().at("original_apply_request").as_object()
+            .at("plan_request").as_object().at("install_id") = Value("other.install"); });
+        refuses_selection([](Value& v) { v.as_object().at("intent").as_object().at("native_chain").as_array().at(2)
+            .as_object().at("object").as_object().at("native_name") = Value("\\installation-operations\\install-other"); });
+        refuses_selection([](Value& v) { v.as_object().at("intent").as_object().at("native_chain").as_array().at(3)
+            .as_object().at("granted_access") = Value(std::uint64_t{FILE_ALL_ACCESS}); });
+        refuses_selection([](Value& v) { v.as_object().at("intent").as_object().at("native_chain").as_array().at(3)
+            .as_object().at("object").as_object().at("owner_sid") = Value(consumer_sid); });
+        refuses_selection([](Value& v) { v.as_object().at("intent").as_object().at("native_chain").as_array().at(3)
+            .as_object().at("object").as_object().at("file_id") = Value("0000000000001234:" + std::string(31, '0') + "3"); });
+        refuses_selection([](Value& v) { v.as_object().at("observation").as_object().at("approval").as_object()
+            .at("caller_sid") = Value("S-1-5-21-1-2-3-1002"); });
+        refuses_selection([](Value& v) { v.as_object().at("envelope").as_object().at("apply_request").as_object()
+            .at("transaction_id") = Value("other.enrollment"); });
+        auto absent = selection;
+        absent.as_object().at("present") = Value(false);
+        refuses_selection([](Value& v) { v.as_object().at("present") = Value(false); });
+        absent.as_object().erase("intent"); absent.as_object().erase("envelope"); absent.as_object().erase("observation");
+        require_publisher_effect_original_maintenance_selection(absent, minimum, recovery_broker);
+        auto supplied_minimum = minimum;
+        supplied_minimum.as_object().emplace("original_apply_request", apply);
+        bool supplied_minimum_refused = false;
+        try { require_publisher_effect_original_maintenance_selection(selection, supplied_minimum, recovery_broker); }
+        catch (const std::exception&) { supplied_minimum_refused = true; }
+        check(supplied_minimum_refused, "minimal recovery accepted a supplied original selector");
+    }
     auto phase_execution = valid;
     phase_execution.as_object().at("broker_readback") = phase_broker;
     phase_execution.as_object().at("handles").as_array().at(3).as_object().at("granted_access") =

@@ -46,6 +46,7 @@ public:
     PublisherNativeExecutionObservation observe_current();
     usk::json::Value service_admission();
     usk::json::Value selected_reviewed_operation();
+    usk::json::Value selected_original_maintenance_recovery();
     usk::json::Value authenticated_object_access(HANDLE original_child_handle);
     const std::string& canonical_request() const;
     // Borrowed concrete owners for the native v7/v4 observers. Their lifetime
