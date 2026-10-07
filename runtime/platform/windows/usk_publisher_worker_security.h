@@ -14,6 +14,14 @@
 #include "usk_publisher_token_observation.h"
 
 namespace usk::platform::windows {
+// The actual effect process and its primary token are a distinct context
+// from the original SCM broker. This read-only policy binding supplies no
+// service status, effect admission, frozen-thread or creator provenance.
+struct PublisherWorkerTokenContext {
+    std::uint32_t process_id;
+    std::string service_sid;
+    PublisherTokenObservation token;
+};
 // Reads only this process's primary token and its observed thread population.
 // Handles are non-inheritable, retained during readback, and never exported.
 // This is a bracketed observation, not an atomic population or handle census.
@@ -21,12 +29,19 @@ usk::json::Value observe_current_publisher_worker_security();
 // The SCM/process/primary-token context must already have been validated.
 void require_publisher_worker_security(const usk::json::Value& value,
     const PublisherServiceObservation& service);
+// Use this distinct binding for a child only after the genuine broker/child
+// relationship and the child's actual primary token have been established.
+// The complete stored token/default/process-thread policy stays identical.
+void require_publisher_worker_security(const usk::json::Value& value,
+    const PublisherWorkerTokenContext& worker);
 // Read-only startup ordering, before freezing a creation baseline or starting
 // durable operation effects. Every observation must pass the complete native
 // policy; no expected thread count, thread control or post-effect refresh.
 // Refuses cancellation, observation failure or an8s unsettled deadline.
 usk::json::Value observe_settled_publisher_worker_security(
     const PublisherServiceObservation& service, HANDLE cancel_event = nullptr);
+usk::json::Value observe_settled_publisher_worker_security(
+    const PublisherWorkerTokenContext& worker, HANDLE cancel_event = nullptr);
 // Read-only lifetime proof, established before this owner's maintenance effects.
 // The supplied baseline must equal actual native observations around pinning
 // all original query-only thread handles. It grants no effect authority.

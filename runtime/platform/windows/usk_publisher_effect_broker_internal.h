@@ -5,6 +5,7 @@
 #if defined(_WIN32)
 #include "usk_publisher_effect_worker_custody_internal.h"
 #include "usk_publisher_handle_observation.h"
+#include "usk_publisher_worker_security.h"
 #include <memory>
 
 namespace usk::platform::windows {
@@ -77,7 +78,29 @@ public:
     PublisherEffectWorkerReadback(const PublisherEffectWorkerReadback&) = delete;
     PublisherEffectWorkerReadback& operator=(const PublisherEffectWorkerReadback&) = delete;
     usk::json::Value service_admission(DWORD timeout_ms = 120000);
+    // Separate actual local effect PID/token; the original SCM PID is never
+    // rewritten into this context. The result remains a read-only binding.
+    PublisherWorkerTokenContext worker_token_context(DWORD timeout_ms = 120000);
     usk::json::Value authenticated_object_access(HANDLE, DWORD timeout_ms = 120000);
+private:
+    friend class PublisherEffectWorkerNativeSecurity;
+    usk::json::Value settled_worker_security(const PublisherWorkerTokenContext&);
+    struct State;
+    std::unique_ptr<State> state_;
+};
+// Read-only native child-security owner established before effects. It keeps
+// the child's actual token/process boundary and original query-only threads
+// pinned; the broker retains its separate SCM identity. New/changed/unknown
+// threads refuse under the unchanged continuity policy, with no refresh.
+// The borrowed readback must outlive this owner on its original execution
+// thread. This installs no execution scope and grants no effect authority.
+class PublisherEffectWorkerNativeSecurity final {
+public:
+    explicit PublisherEffectWorkerNativeSecurity(PublisherEffectWorkerReadback&);
+    ~PublisherEffectWorkerNativeSecurity();
+    PublisherEffectWorkerNativeSecurity(const PublisherEffectWorkerNativeSecurity&) = delete;
+    PublisherEffectWorkerNativeSecurity& operator=(const PublisherEffectWorkerNativeSecurity&) = delete;
+    usk::json::Value observe_current();
 private:
     struct State;
     std::unique_ptr<State> state_;

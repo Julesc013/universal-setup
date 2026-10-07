@@ -295,11 +295,15 @@ Value observe_current_publisher_worker_security() {
 }
 
 Value observe_settled_publisher_worker_security(const PublisherServiceObservation& service, HANDLE cancel_event) {
+    return observe_settled_publisher_worker_security(
+        PublisherWorkerTokenContext{service.process_id, service.service_sid, service.token}, cancel_event);
+}
+Value observe_settled_publisher_worker_security(const PublisherWorkerTokenContext& worker, HANDLE cancel_event) {
     if (cancel_event) require(WaitForSingleObject(cancel_event, 0) == WAIT_TIMEOUT,
         "publisher startup observation cancelled or unavailable");
     const auto started = GetTickCount64();
     auto previous = observe_current_publisher_worker_security();
-    require_publisher_worker_security(previous, service);
+    require_publisher_worker_security(previous, worker);
     auto quiet_since = GetTickCount64();
     while (GetTickCount64() - started < 8000u) {
         if (cancel_event) {
@@ -307,7 +311,7 @@ Value observe_settled_publisher_worker_security(const PublisherServiceObservatio
                 "publisher startup observation cancelled or unavailable");
         } else Sleep(200u);
         auto current = observe_current_publisher_worker_security();
-        require_publisher_worker_security(current, service);
+        require_publisher_worker_security(current, worker);
         const auto now = GetTickCount64();
         if (now - started >= 8000u) break;
         if (usk::json::canonical(current) != usk::json::canonical(previous)) quiet_since = now;
@@ -605,14 +609,18 @@ Value detail::observe_publisher_worker_continuity_for_test(const PublisherWorker
 }
 
 void require_publisher_worker_security(const Value& value, const PublisherServiceObservation& service) {
+    require_publisher_worker_security(value,
+        PublisherWorkerTokenContext{service.process_id, service.service_sid, service.token});
+}
+void require_publisher_worker_security(const Value& value, const PublisherWorkerTokenContext& worker) {
     require(value.as_object().size() == 6 && value.at("schema").as_string() == "usk.publisher_worker_security.v1" &&
         value.at("scope").as_string() == "stored_primary_token_defaults_and_process_thread_owner_dacls" &&
-        service.process_id && value.at("process_id").as_unsigned() == service.process_id &&
-        canonical_sid(service.service_sid) && service.token.process_groups.size() <= 4096,
+        worker.process_id && value.at("process_id").as_unsigned() == worker.process_id &&
+        canonical_sid(worker.service_sid) && worker.token.process_groups.size() <= 4096,
         "publisher worker security context or closed schema differs");
-    std::set<std::string> trusted{"S-1-5-18", "S-1-5-32-544", service.service_sid};
+    std::set<std::string> trusted{"S-1-5-18", "S-1-5-32-544", worker.service_sid};
     std::size_t logons = 0;
-    for (const auto& group : service.token.process_groups) {
+    for (const auto& group : worker.token.process_groups) {
         require(canonical_sid(group.sid), "publisher worker token group SID invalid");
         if ((group.attributes & SE_GROUP_LOGON_ID) != SE_GROUP_LOGON_ID) continue;
         PSID raw_sid = nullptr;
@@ -627,11 +635,11 @@ void require_publisher_worker_security(const Value& value, const PublisherServic
         trusted.insert(group.sid);
     }
     const auto& primary = value.at("primary_token");
-    require(primary.as_object().size() == 9 && service.token.identity.token_type == TokenPrimary &&
-        service.token.identity.token_id && service.token.identity.authentication_id && service.token.identity.modified_id &&
-        primary.at("token_id").as_string() == hex64(service.token.identity.token_id) &&
-        primary.at("authentication_id").as_string() == hex64(service.token.identity.authentication_id) &&
-        primary.at("modified_id").as_string() == hex64(service.token.identity.modified_id),
+    require(primary.as_object().size() == 9 && worker.token.identity.token_type == TokenPrimary &&
+        worker.token.identity.token_id && worker.token.identity.authentication_id && worker.token.identity.modified_id &&
+        primary.at("token_id").as_string() == hex64(worker.token.identity.token_id) &&
+        primary.at("authentication_id").as_string() == hex64(worker.token.identity.authentication_id) &&
+        primary.at("modified_id").as_string() == hex64(worker.token.identity.modified_id),
         "publisher worker primary-token security identity differs");
     require_object(primary, trusted, TOKEN_QUERY | TOKEN_QUERY_SOURCE | READ_CONTROL);
     require(canonical_sid(primary.at("default_owner_sid").as_string()) &&

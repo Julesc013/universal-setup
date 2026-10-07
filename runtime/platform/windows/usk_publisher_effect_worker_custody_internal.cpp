@@ -672,6 +672,10 @@ const std::string& PublisherEffectWorkerPeer::canonical_request() const {
     state_->wire.require_peer();
     return state_->wire.canonical_request;
 }
+HANDLE PublisherEffectWorkerPeer::cancellation_observer() const {
+    state_->wire.require_peer();
+    return state_->wire.cancel.value;
+}
 namespace {
 std::string closure_failure_text(const std::exception_ptr& primary) {
     std::string message = "effect transport closure unknown; original failure: ";

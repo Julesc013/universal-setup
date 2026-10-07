@@ -70,12 +70,18 @@ void worker_security_controls() {
     service.process_id = 500; service.service_sid = service_sid; service.token.process_groups = groups;
     service.token.identity = {0x500, 0x900, 0x501, TokenPrimary};
     require_publisher_worker_security(worker_security(), service);
+    const PublisherWorkerTokenContext same_worker{service.process_id, service.service_sid, service.token};
+    require_publisher_worker_security(worker_security(), same_worker);
     const auto refuses = [&](const std::function<void(Value&)>& change) {
         auto value = worker_security(); change(value);
         bool refused = false;
         try { require_publisher_worker_security(value, service); }
         catch (const std::exception&) { refused = true; }
         check(refused, "worker security admitted an outside capability or contradictory record");
+        refused = false;
+        try { require_publisher_worker_security(value, same_worker); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "distinct worker context weakened the stored security policy");
     };
     const std::uint32_t rights[] = {TOKEN_QUERY | TOKEN_QUERY_SOURCE | READ_CONTROL, READ_CONTROL,
         SYNCHRONIZE | READ_CONTROL | THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION};
@@ -97,6 +103,21 @@ void worker_security_controls() {
     refuses([](Value& value) { value.as_object().at("threads").as_array().push_back(value.at("threads").as_array().front()); });
     refuses([](Value& value) { value.as_object().at("primary_token").as_object().at("token_id") = Value("0000000000000502"); });
     refuses([](Value& value) { value.as_object().at("threads").as_array().front().as_object().at("thread_impersonating") = Value(true); });
+    // Separate deterministic child token/PID policy projection, not an actual
+    // SCM/child launch or effect admission. Original service facts stay500.
+    auto child = worker_security();
+    child.as_object().at("process_id") = Value(std::uint64_t{600});
+    child.as_object().at("primary_token").as_object().at("token_id") = Value("0000000000000600");
+    child.as_object().at("primary_token").as_object().at("modified_id") = Value("0000000000000601");
+    auto child_token = service.token;
+    child_token.identity = {0x600, 0x900, 0x601, TokenPrimary};
+    const PublisherWorkerTokenContext child_context{600, service_sid, child_token};
+    require_publisher_worker_security(child, child_context);
+    bool original_refused = false;
+    try { require_publisher_worker_security(child, service); }
+    catch (const std::exception&) { original_refused = true; }
+    check(original_refused && service.process_id == 500 && service.token.identity.token_id == 0x500,
+        "child policy projection reinterpreted or rewrote the original SCM identity");
 }
 class TestThread {
 public:
