@@ -276,6 +276,30 @@ void effect_execution_record_controls() {
     failure.as_object().at("error") = Value("synthetic stale plan"); failure.as_object().at("error_code") = Value("stale_plan");
     failure.as_object().at("effects_may_exist") = Value(false); failure.as_object().at("definite_preflight_refusal") = Value(true);
     require_publisher_effect_terminal_record(failure, broker);
+    // An original-peer diagnostic is error data, never an assertion about
+    // terminal effects, preflight, closure or authority. These are data only.
+    const Value diagnostic(Value::Object{{"schema", Value("usk.publisher_effect_worker_failure_diagnostic.v1")},
+        {"message", Value("synthetic original child failure")}});
+    require_publisher_effect_failure_diagnostic(diagnostic);
+    bool diagnostic_not_terminal = false;
+    try { require_publisher_effect_terminal_record(diagnostic, broker); }
+    catch (const std::exception&) { diagnostic_not_terminal = true; }
+    check(diagnostic_not_terminal, "child diagnostic promoted to confirmed terminal");
+    const auto refuses_diagnostic = [&](const std::function<void(Value&)>& mutate) {
+        auto changed = diagnostic; mutate(changed); bool refused = false;
+        try { require_publisher_effect_failure_diagnostic(changed); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "child diagnostic accepted an authority/result field or unbounded error");
+    };
+    refuses_diagnostic([](Value& v) { v.as_object().emplace("effects_may_exist", Value(false)); });
+    refuses_diagnostic([](Value& v) { v.as_object().emplace("definite_preflight_refusal", Value(true)); });
+    refuses_diagnostic([](Value& v) { v.as_object().emplace("status", Value("success")); });
+    refuses_diagnostic([](Value& v) { v.as_object().emplace("error_code", Value("stale_plan")); });
+    refuses_diagnostic([](Value& v) { v.as_object().at("message") = Value(std::string(4097, 'a')); });
+    refuses_diagnostic([](Value& v) { v.as_object().at("message") = Value(""); });
+    refuses_diagnostic([](Value& v) { v.as_object().at("message") = Value(std::string("a\0b", 3)); });
+    refuses_diagnostic([](Value& v) { v.as_object().at("message") = Value(std::uint64_t{1}); });
+    refuses_diagnostic([](Value& v) { v.as_object().at("schema") = Value("usk.publisher_effect_worker_terminal.v1"); });
     // The new child creation certificate binds the same actual-worker fields
     // as execution. These graphs/descriptors remain deterministic data only.
     const Value anchors(Value::Object{{"boundary", object(0)},

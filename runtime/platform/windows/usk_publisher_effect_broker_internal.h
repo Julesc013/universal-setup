@@ -24,6 +24,9 @@ void require_publisher_effect_original_maintenance_selection(const usk::json::Va
 void require_publisher_effect_original_installation_selection(const usk::json::Value& selection,
     const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
 void require_publisher_effect_terminal_record(const usk::json::Value&, const usk::json::Value& broker_record);
+// Bounded original-peer error data, never a terminal or definite preflight
+// result. It cannot narrow retained effects or grant an execution scope.
+void require_publisher_effect_failure_diagnostic(const usk::json::Value&);
 class PublisherBrokerQueryClosureUnknown final : public std::runtime_error {
 public:
     PublisherBrokerQueryClosureUnknown(DWORD error, std::exception_ptr primary);

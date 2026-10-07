@@ -276,8 +276,25 @@ bool native_definite_preflight_refusal(const std::exception& error) {
 int private_effect_worker_main(int argc, wchar_t** argv) {
     using namespace usk::platform::windows;
     using usk::json::Value;
+    std::unique_ptr<PublisherEffectWorkerPeer> original_peer;
+    bool terminal_attempted = false;
+    const auto report_failure = [&original_peer, &terminal_attempted](const char* message) noexcept {
+        if (original_peer && !terminal_attempted) {
+            try {
+                Value diagnostic(Value::Object{{"schema", Value("usk.publisher_effect_worker_failure_diagnostic.v1")},
+                    {"message", Value(std::string(message).substr(0, 4096))}});
+                require_publisher_effect_failure_diagnostic(diagnostic);
+                original_peer->send(diagnostic);
+                // Preserve this actual peer for conservative failure and
+                // checked parent disposal. No effects, scope or retry.
+                (void)original_peer->await_parent_retirement();
+            } catch (...) {} // Unavailable original transport stays unknown.
+        }
+        return 5;
+    };
     try {
-        PublisherEffectWorkerPeer peer(argc, argv);
+        original_peer = std::make_unique<PublisherEffectWorkerPeer>(argc, argv);
+        auto& peer = *original_peer;
         // Only a fresh actual-parent readback can supply the service name.
         PublisherEffectWorkerReadback initial(peer);
         const auto original = initial.service_admission();
@@ -329,12 +346,14 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
             // ended. Failed native observation cannot manufacture a terminal.
             require_publisher_effect_terminal_record(terminal, owner.service_admission());
         }
+        terminal_attempted = true; // No diagnostic or other packet after this attempt.
         peer.send(terminal);
         // Keep the original peer alive through live validation and explicit
         // parent job closure. No SCM dispatch, callbacks or extra readback.
         (void)peer.await_parent_retirement();
         return 5; // Parent disposal normally terminates this child in its job.
-    } catch (...) { return 5; }
+    } catch (const std::exception& error) { return report_failure(error.what()); }
+    catch (...) { return report_failure("non-standard failure before confirmed terminal"); }
 }
 class BrokerVolumeObserver final {
 public:

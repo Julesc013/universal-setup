@@ -878,6 +878,14 @@ PublisherEffectBrokerReadback::PublisherEffectBrokerReadback(const RegisteredPub
         state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh());
 }
 PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() = default;
+void require_publisher_effect_failure_diagnostic(const Value& diagnostic) {
+    require(diagnostic.as_object().size() == 2 &&
+        diagnostic.at("schema").as_string() == "usk.publisher_effect_worker_failure_diagnostic.v1" &&
+        !diagnostic.at("message").as_string().empty() &&
+        diagnostic.at("message").as_string().size() <= 4096 &&
+        diagnostic.at("message").as_string().find('\0') == std::string::npos,
+        "effect worker failure diagnostic is not closed bounded error data");
+}
 void require_publisher_effect_terminal_record(const Value& value, const Value& broker) {
     require_publisher_effect_broker_readback_record(broker);
     require_closed(value, {"schema", "request_sha256", "status", "response", "error", "error_code",
@@ -919,6 +927,13 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         const auto before = state.fresh();
         require(same(immutable_profile(before), immutable_profile(state.baseline)), "broker original service/target/caller/worker binding changed");
         const auto request = state.custody.receive(timeout);
+        if (request.at("schema").as_string() == "usk.publisher_effect_worker_failure_diagnostic.v1") {
+            require_publisher_effect_failure_diagnostic(request);
+            // Supply a cause only through conservative failure and checked
+            // original closure. Never return it as terminal or narrow effects.
+            throw std::runtime_error("private effect worker failed before confirmed terminal: " +
+                request.at("message").as_string());
+        }
         if (request.at("schema").as_string() == "usk.publisher_effect_worker_terminal.v1") {
             const auto after = state.fresh();
             require(same(immutable_profile(before), immutable_profile(after)) &&
