@@ -29,10 +29,13 @@ usk::json::Value observe_current_publisher_worker_security();
 // The read-only SCM broker permits a changing current population, separately
 // from the child's immutable original-held continuity. Acquire native thread
 // objects before reading their facts, bracket acquisition with independent
-// BEFORE/AFTER censuses, and require complete native coverage before admission.
-// Every BEFORE ID and all prior AFTER IDs stay mandatory; native-only losses
-// or filtered coverage refuse. AFTER-only additions require another existing
-// read round, retaining all first handles/facts within the same four-round bound,
+// complete independent censuses, and require complete coverage before admission.
+// The FIRST acquisition retains native objects before its first independent
+// census; every acquired ID must survive that census and every census ID stays
+// mandatory. It does not claim an earlier pre-handle snapshot. Subsequent walks
+// retain prior mandatory AFTER subset BEFORE subset native subset AFTER.
+// Census-only additions require another existing full-policy read round,
+// retaining all first handles/facts within the same four-round bound,
 // and bind the same full v1 policy to the actual restricted service. Retirement
 // during sampling still refuses; no original baseline is installed/refreshed.
 usk::json::Value observe_current_publisher_broker_worker_security(const PublisherServiceObservation& service);

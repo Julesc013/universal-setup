@@ -170,7 +170,7 @@ std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
 }
 [[noreturn]] void refuse_broker_census(const std::vector<DWORD>& mandatory, const std::vector<DWORD>& before,
     const std::vector<DWORD>& native, const std::vector<DWORD>& after, unsigned round, const char* phase,
-    const std::function<void(const char*)>* checkpoint, bool native_after_observed) {
+    const std::function<void(const char*)>* checkpoint, bool native_after_observed, bool before_observed = true) {
     const auto original = std::make_exception_ptr(std::runtime_error(
         "SCM broker native thread enumeration differs from independent complete census"));
     auto reported = original;
@@ -183,7 +183,8 @@ std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
             {"observer_process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
             {"observer_thread_id", Value(static_cast<std::uint64_t>(GetCurrentThreadId()))},
             {"mandatory_count", Value(static_cast<std::uint64_t>(mandatory.size()))},
-            {"before_count", Value(static_cast<std::uint64_t>(before.size()))},
+            {"before_census_observed", Value(before_observed)},
+            {"before_count", before_observed ? Value(static_cast<std::uint64_t>(before.size())) : Value()},
             {"native_walk_completed", Value(native_after_observed)},
             {"after_census_observed", Value(native_after_observed)}};
         const auto difference = [&](const char* label, const std::vector<DWORD>& left,
@@ -196,13 +197,13 @@ std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
             diagnostic.emplace(std::string(label) + "_count", Value(static_cast<std::uint64_t>(missing.size())));
             diagnostic.emplace(std::string(label) + "_prefix", Value(std::move(prefix)));
         };
-        difference("mandatory_missing_before", mandatory, before);
+        if (before_observed) difference("mandatory_missing_before", mandatory, before);
         if (native_after_observed) {
             diagnostic.emplace("current_thread_in_native", Value(std::binary_search(
                 native.begin(), native.end(), GetCurrentThreadId())));
             diagnostic.emplace("native_count", Value(static_cast<std::uint64_t>(native.size())));
             diagnostic.emplace("after_count", Value(static_cast<std::uint64_t>(after.size())));
-            difference("before_missing_native", before, native);
+            if (before_observed) difference("before_missing_native", before, native);
             difference("native_missing_after", native, after);
             difference("after_missing_native", after, native);
         }
@@ -226,14 +227,22 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
     require(next != nullptr, "SCM broker native thread enumeration export unavailable");
     constexpr DWORD rights = THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE;
     constexpr std::uint32_t no_more_entries = 0x8000001au;
-    // An independent BEFORE census makes every observed object mandatory.
-    // AFTER-only additions remain pending until another existing read round
-    // acquires and validates them. Never restart or drop a prior observation.
-    if (checkpoint) (*checkpoint)("broker_native_before_independent_before");
-    const auto before = thread_ids();
-    if (!std::includes(before.begin(), before.end(), mandatory.begin(), mandatory.end()))
+    // Only the first acquisition has no earlier complete census obligation:
+    // retain native objects before the FIRST independent census. Every first-
+    // census ID then stays mandatory, including pending native coverage. This
+    // does not claim an earlier numeric snapshot or continuous population.
+    const bool first = std::strcmp(phase, "initial_acquisition") == 0;
+    require(!first || (round == 0 && mandatory.empty()), "SCM broker initial acquisition has prior obligations");
+    std::vector<DWORD> before;
+    if (!first) {
+        if (checkpoint) (*checkpoint)("broker_native_before_independent_before");
+        before = thread_ids();
+    } else if (checkpoint) (*checkpoint)("broker_native_before_initial_native_walk");
+    // Subsequent walks keep every prior census ID mandatory in BEFORE, native
+    // and AFTER. Never restart a failed read or drop a prior observation.
+    if (!first && !std::includes(before.begin(), before.end(), mandatory.begin(), mandatory.end()))
         refuse_broker_census(mandatory, before, {}, {}, round, phase, checkpoint, false);
-    if (checkpoint) (*checkpoint)("broker_native_after_independent_before");
+    if (!first && checkpoint) (*checkpoint)("broker_native_after_independent_before");
     ThreadHandles result;
     HANDLE cursor = nullptr;
     for (;;) {
@@ -257,11 +266,13 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
     }
     const auto ids = handle_ids(result);
     if (checkpoint) (*checkpoint)("broker_native_after_native_walk");
+    if (first && checkpoint) (*checkpoint)("broker_native_before_first_independent_census");
     const auto after = thread_ids();
+    if (first && checkpoint) (*checkpoint)("broker_native_after_first_independent_census");
     if (ids.empty() || !std::binary_search(ids.begin(), ids.end(), GetCurrentThreadId()) ||
-            !std::includes(ids.begin(), ids.end(), before.begin(), before.end()) ||
+            (!first && !std::includes(ids.begin(), ids.end(), before.begin(), before.end())) ||
             !std::includes(after.begin(), after.end(), ids.begin(), ids.end()))
-        refuse_broker_census(mandatory, before, ids, after, round, phase, checkpoint, true);
+        refuse_broker_census(mandatory, before, ids, after, round, phase, checkpoint, true, !first);
     return {std::move(result), after};
 }
 void require_no_thread_token(HANDLE thread) {

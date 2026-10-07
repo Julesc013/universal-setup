@@ -1184,7 +1184,14 @@ void broker_worker_native_acquisition_controls() {
     {
         TestThread live;
         const auto legacy = observe_current_publisher_worker_security();
-        const auto native = capture([](const char*) {});
+        std::vector<std::string> first_acquisition;
+        const auto native = capture([&](const char* checkpoint) {
+            if (first_acquisition.size() < 4) first_acquisition.emplace_back(checkpoint);
+        });
+        check(first_acquisition == std::vector<std::string>{
+                "broker_native_before_initial_native_walk", "broker_native_after_native_walk",
+                "broker_native_before_first_independent_census", "broker_native_after_first_independent_census"},
+            "first broker acquisition sampled a numeric population before holding original native objects");
         check(usk::json::canonical(native) == usk::json::canonical(legacy),
             "native broker acquisition changed complete stable v1 worker facts");
         const auto& rows = native.at("threads").as_array();
@@ -1223,7 +1230,7 @@ void broker_worker_native_acquisition_controls() {
             std::stoull(found->at("creation_time").as_string(), nullptr, 16) ==
                 ((static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime) &&
             WaitForSingleObject(added->handle(), 0) == WAIT_TIMEOUT &&
-            read_rounds == (std::string(window) == "broker_native_after_native_walk" ? 2u : 1u),
+            read_rounds == 2u,
             "native acquisition admitted an addition without its original native facts and complete read rounds");
     }
     {
@@ -1239,7 +1246,11 @@ void broker_worker_native_acquisition_controls() {
         } catch (const std::exception& error) { diagnostic = error.what(); }
         const auto facts = census_diagnostic(diagnostic);
         const auto& missing = facts.at("native_missing_after_prefix").as_array();
-        check(retired && facts.at("native_walk_completed").as_boolean() &&
+        check(retired && !facts.at("before_census_observed").as_boolean() &&
+            facts.at("before_count").type() == Value::Type::null_value &&
+            !facts.as_object().count("before_missing_native_count") &&
+            !facts.as_object().count("mandatory_missing_before_count") &&
+            facts.at("native_walk_completed").as_boolean() &&
             facts.at("native_missing_after_count").as_unsigned() != 0 &&
             std::any_of(missing.begin(), missing.end(), [&](const Value& id) { return id.as_unsigned() == original.id(); }),
             "native acquisition silently omitted an originally held thread lost before AFTER");
