@@ -9,9 +9,13 @@
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_process_boundary.h"
 #include <atomic>
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <set>
+#include <sddl.h>
+#include <shellapi.h>
 #include <stdexcept>
 
 namespace usk::platform::windows {
@@ -22,6 +26,43 @@ constexpr DWORD query_rights = FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE
 void require(bool okay, const char* reason) { if (!okay) throw std::runtime_error(reason); }
 bool same(const Value& left, const Value& right) {
     return usk::json::canonical(left) == usk::json::canonical(right);
+}
+bool canonical_sid(const std::string& text) {
+    if (text.empty() || text.size() > 184) return false;
+    PSID sid = nullptr;
+    if (!ConvertStringSidToSidA(text.c_str(), &sid)) return false;
+    LPSTR canonical = nullptr;
+    const bool valid = IsValidSid(sid) && ConvertSidToStringSidA(sid, &canonical);
+    const bool equal = valid && text == canonical;
+    if (canonical) LocalFree(canonical);
+    LocalFree(sid);
+    return equal;
+}
+bool hex(const std::string& text, std::size_t size) {
+    return text.size() == size && std::all_of(text.begin(), text.end(), [](char ch) {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'); });
+}
+std::vector<ObservedTokenGroup> record_groups(const Value& input) {
+    require(input.as_array().size() <= 4096, "broker retained group bound exceeded");
+    std::vector<ObservedTokenGroup> output;
+    std::set<std::string> seen;
+    for (const auto& item : input.as_array()) {
+        const auto& sid = item.at("sid").as_string();
+        const auto attributes = item.at("attributes").as_unsigned();
+        require(item.as_object().size() == 2 && canonical_sid(sid) && seen.insert(sid).second && attributes <= 0xffffffffu,
+            "broker retained token group differs from the closed grammar");
+        output.push_back({sid, static_cast<std::uint32_t>(attributes)});
+    }
+    return output;
+}
+PublisherTokenObservation record_token(const Value& input) {
+    require(input.as_object().size() == 8 && canonical_sid(input.at("user_sid").as_string()) &&
+        input.at("token_id").as_unsigned() && input.at("authentication_id").as_unsigned() &&
+        input.at("modified_id").as_unsigned() && input.at("token_type").as_unsigned() == TokenPrimary,
+        "broker retained primary token differs from the closed grammar");
+    return {input.at("user_sid").as_string(), record_groups(input.at("groups")), record_groups(input.at("restricted_sids")),
+        input.at("observing_thread_impersonating").as_boolean(), {input.at("token_id").as_unsigned(),
+        input.at("authentication_id").as_unsigned(), input.at("modified_id").as_unsigned(), TokenPrimary}};
 }
 Value groups(const std::vector<ObservedTokenGroup>& input) {
     Value::Array output;
@@ -96,8 +137,8 @@ void require_ntfs_root(HANDLE root, const Value& facts) {
 }
 void require_projection(const Value& profile, const Value& custody, const PublisherTokenObservation& parent,
     const PublisherTokenObservation& child, bool child_view) {
-    require(profile.as_object().size() == 9 && profile.at("schema").as_string() ==
-        "usk.publisher_effect_broker_native_readback.v1" &&
+    require(profile.as_object().size() == 12 && profile.at("schema").as_string() ==
+        "usk.publisher_effect_broker_native_readback.v2" &&
         profile.at("authority").as_string() == "read_only_observation" &&
         profile.at("request_sha256").as_string() == custody.at("request_sha256").as_string(),
         "broker native readback schema or request differs");
@@ -115,6 +156,18 @@ void require_projection(const Value& profile, const Value& custody, const Publis
     const auto& original = profile.at("service");
     const auto& admitted = profile.at("registered_admission");
     const auto& sid = original.at("service_sid").as_string();
+    require(custody.as_object().size() == (child_view ? 8u : 10u) &&
+        custody.at("schema").as_string() == "usk.publisher_effect_transport_custody.v1" &&
+        custody.at("authority").as_string() == "none" &&
+        custody.at("current_process_id").as_unsigned() > 0 && custody.at("current_process_id").as_unsigned() <= 0xffffffffu &&
+        custody.at("peer_process_id").as_unsigned() > 0 && custody.at("peer_process_id").as_unsigned() <= 0xffffffffu &&
+        custody.at("peer_process_id").as_unsigned() != custody.at("current_process_id").as_unsigned() &&
+        hex(custody.at("current_process_birth").as_string(), 16) && custody.at("current_process_birth").as_string() != "0000000000000000" &&
+        hex(custody.at("peer_process_birth").as_string(), 16) && custody.at("peer_process_birth").as_string() != "0000000000000000" &&
+        hex(custody.at("request_sha256").as_string(), 64) && canonical_sid(sid) &&
+        profile.at("custody").at("owned_job_active_process_limit").as_unsigned() == 1 &&
+        profile.at("custody").at("owned_job_kill_on_close").as_boolean(),
+        "broker native custody is not the closed process/birth/image/job binding");
     require(original.as_object().size() == 7 && original.at("service_sid_type").as_unsigned() == SERVICE_SID_TYPE_RESTRICTED &&
         original.at("service_type").as_unsigned() == SERVICE_WIN32_OWN_PROCESS &&
         original.at("service_state").as_unsigned() == SERVICE_RUNNING &&
@@ -130,13 +183,103 @@ void require_projection(const Value& profile, const Value& custody, const Publis
         "broker actual service and separate effect primary-token binding differs");
     const auto& image = profile.at("custody").at("image");
     const auto& admitted_image = admitted.at("publisher_image");
+    require(image.as_object().size() == 4 && admitted.as_object().size() == 10 &&
+        admitted.at("scope").as_string() == "held_registered_service_image_and_controller_target_admission" &&
+        admitted_image.as_object().size() == 5 && hex(image.at("sha256").as_string(), 64) &&
+        image.at("size_bytes").as_unsigned() > 0 && !image.at("volume_id").as_string().empty() &&
+        !image.at("file_id").as_string().empty() && !admitted_image.at("path").as_string().empty() &&
+        hex(admitted.at("registration_sha256").as_string(), 64) && hex(admitted.at("target_admitted_sha256").as_string(), 64),
+        "broker held image/registration projection differs from its closed grammar");
     for (const auto field : {"volume_id", "file_id", "size_bytes", "sha256"})
         require(same(image.at(field), admitted_image.at(field)), "broker held original executable differs from registration");
     const auto& target = admitted.at("target_identity").at("volume_identity");
     require(profile.at("volume_root").at("file_id").as_string() == target.at("root_file_id").as_string() &&
+        profile.at("broker_volume_granted_access").as_unsigned() == query_rights &&
         profile.at("authenticated_client").at("user_sid").as_string() == admitted.at("configured_caller_sid").as_string(),
         "broker original target or authenticated caller differs from registration");
+    const auto& configuration = profile.at("service_configuration");
+    const auto& arguments = configuration.at("arguments").as_array();
+    require(configuration.as_object().size() == 9 && configuration.at("schema").as_string() ==
+        "usk.publisher_registered_execution_configuration.v1" &&
+        configuration.at("scope").as_string() == "original_held_scm_configuration" &&
+        configuration.at("service_type").as_unsigned() == SERVICE_WIN32_OWN_PROCESS &&
+        configuration.at("start_type").as_unsigned() == SERVICE_DEMAND_START &&
+        configuration.at("service_sid_type").as_unsigned() == SERVICE_SID_TYPE_RESTRICTED &&
+        !configuration.at("command").as_string().empty() && !configuration.at("account").as_string().empty() &&
+        !configuration.at("display_name").as_string().empty() && arguments.size() >= 8 && arguments.size() <= 16 &&
+        arguments.at(0).as_string() == admitted_image.at("path").as_string() &&
+        arguments.at(1).as_string() == "--service" && arguments.at(2).as_string() == original.at("service_name").as_string() &&
+        arguments.at(3).as_string() == "--no-receipt" && arguments.at(4).as_string() == target.at("volume_root").as_string() &&
+        arguments.at(arguments.size() - 3).as_string() == "--service-admitted-client" &&
+        arguments.at(arguments.size() - 2).as_string() == "--authorized-client-sid" &&
+        arguments.back().as_string() == admitted.at("configured_caller_sid").as_string(),
+        "broker original registered execution configuration differs");
+    const auto command = std::filesystem::u8path(configuration.at("command").as_string()).wstring();
+    int count = 0;
+    LPWSTR* parsed = CommandLineToArgvW(command.c_str(), &count);
+    require(parsed != nullptr, "broker original service command cannot be parsed");
+    bool command_matches = count >= 0 && static_cast<std::size_t>(count) == arguments.size();
+    try {
+        for (int index = 0; command_matches && index < count; ++index)
+            command_matches = std::filesystem::path(parsed[index]).u8string() == arguments.at(static_cast<std::size_t>(index)).as_string();
+    } catch (...) { LocalFree(parsed); throw; }
+    LocalFree(parsed);
+    const auto& mode = arguments.at(5).as_string();
+    const auto account = std::filesystem::u8path(configuration.at("account").as_string()).wstring();
+    require(command_matches && CompareStringOrdinal(account.c_str(), -1, L"LocalSystem", -1, TRUE) == CSTR_EQUAL &&
+        ((arguments.size() == 9 && (mode == "--recover-reviewed" || mode == "--verify-installed")) ||
+            (arguments.size() == 11 && mode == "--reviewed-plan-envelope" &&
+                !arguments.at(6).as_string().empty() && hex(arguments.at(7).as_string(), 64))),
+        "broker original service command/account is outside the closed registered grammar");
+    const auto& security = profile.at("broker_security");
+    require(security.as_object().size() == 2, "broker native security projection is not closed");
+    const auto parent_pid = static_cast<std::uint32_t>(original.at("process_id").as_unsigned());
+    require_publisher_process_boundary(security.at("process_boundary"), parent_pid, sid, parent.process_groups);
+    require_publisher_worker_security(security.at("worker_security"), PublisherWorkerTokenContext{parent_pid, sid, parent});
 }
+Value immutable_profile(Value profile) {
+    // The SCM broker owns no product creator/effect handles. Its current
+    // population may change; every fresh snapshot still passes the complete
+    // stored policy above. Its process/token/default facts stay frozen. The
+    // child's original pinned-thread policy remains unchanged.
+    profile.as_object().at("broker_security").as_object().at("worker_security").as_object().erase("threads");
+    return profile;
+}
+Value selected_operation(const RegisteredPublisherAdmission& admission, const std::string& request) {
+    Value result(Value::Object{{"schema", Value("usk.publisher_effect_selected_operation_readback.v1")},
+        {"scope", Value("original_native_held_exact_request_selection")},
+        {"present", Value(admission.has_selected_reviewed_operation())}});
+    if (admission.has_selected_reviewed_operation()) {
+        const auto envelope = admission.selected_reviewed_envelope();
+        const auto observation = admission.selected_reviewed_operation_observation();
+        require(same(envelope.at("apply_request"), usk::json::parse(request)) &&
+            observation.at("approval").at("request_sha256").as_string() == usk::json::sha256_canonical(usk::json::parse(request)),
+            "broker selected operation is not the actual received exact request");
+        result.as_object().emplace("envelope", envelope);
+        result.as_object().emplace("observation", observation);
+    }
+    return result;
+}
+}
+void require_publisher_effect_broker_readback_record(const Value& profile) {
+    require_projection(profile, profile.at("custody"), record_token(profile.at("service").at("primary_token")),
+        record_token(profile.at("effect_primary_token")), false);
+}
+Value publisher_effect_broker_immutable_record(const Value& profile) {
+    require_publisher_effect_broker_readback_record(profile);
+    return immutable_profile(profile);
+}
+PublisherWorkerTokenContext publisher_effect_worker_record_context(const Value& profile) {
+    require_publisher_effect_broker_readback_record(profile);
+    return {static_cast<std::uint32_t>(profile.at("custody").at("peer_process_id").as_unsigned()),
+        profile.at("service").at("service_sid").as_string(), record_token(profile.at("effect_primary_token"))};
+}
+PublisherServiceObservation publisher_effect_broker_service_record(const Value& profile) {
+    require_publisher_effect_broker_readback_record(profile);
+    const auto& original = profile.at("service");
+    return {std::filesystem::u8path(original.at("service_name").as_string()).wstring(), original.at("service_sid").as_string(),
+        SERVICE_SID_TYPE_RESTRICTED, SERVICE_WIN32_OWN_PROCESS, SERVICE_RUNNING,
+        static_cast<std::uint32_t>(original.at("process_id").as_unsigned()), record_token(original.at("primary_token"))};
 }
 
 struct PublisherBrokerObjectQuery::State {
@@ -218,6 +361,7 @@ struct PublisherEffectBrokerReadback::State {
     DWORD process_id = GetCurrentProcessId(), thread_id = GetCurrentThreadId();
     std::string request;
     Value baseline;
+    Value selected_baseline;
     bool failed = false;
     State(const RegisteredPublisherAdmission& a, const PublisherRequestChannel& c, HANDLE v,
         PublisherEffectWorkerCustody& owner) : admission(a), channel(c), volume(v), custody(owner),
@@ -229,46 +373,64 @@ struct PublisherEffectBrokerReadback::State {
         const auto admitted = admission.evidence();
         const auto name = std::filesystem::u8path(admitted.at("service_name").as_string()).wstring();
         const auto actual_service = observe_current_restricted_publisher_service(name);
+        const auto process = observe_current_publisher_process_boundary();
+        require_publisher_process_boundary(process, actual_service.process_id, actual_service.service_sid,
+            actual_service.token.process_groups);
+        const auto security = observe_current_publisher_worker_security();
+        require_publisher_worker_security(security, actual_service);
+        const auto configuration = admission.execution_configuration_observation();
         const auto actual_custody = custody.observation();
         const auto child = custody.peer_primary_token();
         const auto volume_facts = observe_publisher_directory_handle(volume);
         require_ntfs_root(volume, publisher_handle_observation_json(volume_facts));
+        require(observe_publisher_handle_granted_access(volume) == query_rights,
+            "broker original volume handle has authority beyond its read-only query profile");
         require_publisher_object_security_shape(volume_facts, actual_service.service_sid);
         const auto access = channel.observe_authenticated_object_access(volume);
         require(same(access.at("native_object"), publisher_handle_observation_json(volume_facts)),
             "broker authenticated original volume changed");
-        auto result = Value(Value::Object{{"schema", Value("usk.publisher_effect_broker_native_readback.v1")},
+        auto result = Value(Value::Object{{"schema", Value("usk.publisher_effect_broker_native_readback.v2")},
             {"authority", Value("read_only_observation")}, {"request_sha256", actual_custody.at("request_sha256")},
             {"service", service(actual_service)}, {"effect_primary_token", token(child)},
             {"registered_admission", admitted}, {"custody", actual_custody},
-            {"volume_root", publisher_handle_observation_json(volume_facts)}});
-        // Nine fields: the original authenticated caller is an independently
+            {"volume_root", publisher_handle_observation_json(volume_facts)}, {"service_configuration", configuration},
+            {"broker_volume_granted_access", Value(static_cast<std::uint64_t>(observe_publisher_handle_granted_access(volume)))},
+            {"broker_security", Value(Value::Object{{"process_boundary", process}, {"worker_security", security}})}});
+        // The original authenticated caller is an independently
         // observed native fact, never the child's supplied SID.
         result.as_object().emplace("authenticated_client", access.at("client"));
         require_projection(result, actual_custody, actual_service.token, child, false);
-        require(same(admission.evidence(), admitted) &&
+        const auto final_security = observe_current_publisher_worker_security();
+        require_publisher_worker_security(final_security, actual_service);
+        require(same(observe_current_publisher_process_boundary(), process) &&
+            same(final_security.at("primary_token"), security.at("primary_token")) &&
+            same(admission.execution_configuration_observation(), configuration) && same(admission.evidence(), admitted) &&
             same(service(observe_current_restricted_publisher_service(name)), service(actual_service)) &&
             same(custody.observation(), actual_custody) && same(token(custody.peer_primary_token()), token(child)) &&
-            same(object(volume), result.at("volume_root")), "broker native facts changed during collection");
+            same(object(volume), result.at("volume_root")) && observe_publisher_handle_granted_access(volume) == query_rights,
+            "broker native facts changed during collection");
+        result.as_object().at("broker_security").as_object().at("worker_security") = final_security;
         return result;
     }
 };
 PublisherEffectBrokerReadback::PublisherEffectBrokerReadback(const RegisteredPublisherAdmission& a,
     const PublisherRequestChannel& c, HANDLE v, PublisherEffectWorkerCustody& owner) : state_(std::make_unique<State>(a, c, v, owner)) {
     state_->baseline = state_->fresh();
+    state_->selected_baseline = selected_operation(a, state_->request);
 }
 PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() = default;
 void PublisherEffectBrokerReadback::respond_to_one_readback(DWORD timeout) {
     auto& state = *state_;
     try {
         const auto before = state.fresh();
-        require(same(before, state.baseline), "broker original service/target/caller/worker binding changed");
+        require(same(immutable_profile(before), immutable_profile(state.baseline)), "broker original service/target/caller/worker binding changed");
         const auto request = state.custody.receive(timeout);
         const auto kind = request.at("kind").as_string();
         require(request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v1" &&
-            (kind == "service_admission" || kind == "object_access") &&
-            request.as_object().size() == (kind == "service_admission" ? 2u : 3u), "broker readback request grammar differs");
+            (kind == "service_admission" || kind == "selected_operation" || kind == "object_access") &&
+            request.as_object().size() == (kind == "object_access" ? 3u : 2u), "broker readback request grammar differs");
         Value result(Value::Object{});
+        if (kind == "selected_operation") result = selected_operation(state.admission, state.request);
         if (kind == "object_access") {
             PublisherBrokerObjectQuery query(state.volume, request.at("native_object"));
             result = query.authenticated_access(state.channel);
@@ -278,7 +440,9 @@ void PublisherEffectBrokerReadback::respond_to_one_readback(DWORD timeout) {
             require(query.close(), "broker original native query handle closure is unknown");
         }
         const auto after = state.fresh();
-        require(same(before, after), "broker native scope changed across readback");
+        require(same(immutable_profile(before), immutable_profile(after)) &&
+            same(selected_operation(state.admission, state.request), state.selected_baseline),
+            "broker native scope or original selected operation changed across readback");
         state.custody.send(Value(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_response.v1")},
             {"kind", Value(kind)}, {"profile", after}, {"result", result}}), timeout);
     } catch (...) { state.failed = true; throw; }
@@ -306,10 +470,10 @@ struct PublisherEffectWorkerReadback::State {
             same(peer.observation(), before) && same(token(peer.peer_primary_token()), token(parent)) &&
             same(token(observe_current_publisher_token()), token(child)), "effect fresh readback reply or actual native token/custody changed");
         require_projection(reply.at("profile"), before, parent, child, true);
-        if (initialized) require(same(reply.at("profile"), baseline), "effect original broker/worker binding changed");
+        if (initialized) require(same(immutable_profile(reply.at("profile")), immutable_profile(baseline)), "effect original broker/worker binding changed");
         else { baseline = reply.at("profile"); initialized = true; }
-        if (!native_object) require(reply.at("result").as_object().empty(), "effect service readback has an unexpected result");
-        else require(same(reply.at("result").at("native_object"), *native_object) &&
+        if (kind == "service_admission") require(reply.at("result").as_object().empty(), "effect service readback has an unexpected result");
+        else if (kind == "object_access") require(same(reply.at("result").at("native_object"), *native_object) &&
             same(reply.at("result").at("client"), baseline.at("authenticated_client")), "effect broker access belongs to another object/caller");
         return reply;
     }
@@ -336,6 +500,45 @@ Value PublisherEffectWorkerReadback::settled_worker_security(const PublisherWork
         require(!state_->failed && worker.process_id == GetCurrentProcessId(),
             "effect startup requires its active readback and actual current process");
         return observe_settled_publisher_worker_security(worker, state_->peer.cancellation_observer());
+    } catch (...) { state_->failed = true; throw; }
+}
+Value PublisherEffectWorkerReadback::selected_reviewed_operation(DWORD timeout) {
+    try {
+        const auto reply = state_->read("selected_operation", nullptr, timeout);
+        const auto& selection = reply.at("result");
+        const bool present = selection.at("present").as_boolean();
+        require(selection.as_object().size() == (present ? 5u : 3u) &&
+            selection.at("schema").as_string() == "usk.publisher_effect_selected_operation_readback.v1" &&
+            selection.at("scope").as_string() == "original_native_held_exact_request_selection",
+            "effect selected operation observation is not closed");
+        if (present) {
+            (void)parse_publisher_reviewed_operation_envelope(usk::json::canonical(selection.at("envelope")), state_->request);
+            const auto& observation = selection.at("observation");
+            const auto& approval = observation.at("approval");
+            const auto& admitted = reply.at("profile").at("registered_admission");
+            require(observation.as_object().size() == 7 && observation.at("schema").as_string() ==
+                "usk.publisher_selected_reviewed_operation_observation.v1" && observation.at("scope").as_string() ==
+                "authenticated_exact_request_and_held_protected_enrollment_files" &&
+                approval.as_object().size() == 7 && approval.at("schema").as_string() ==
+                "usk.publisher_reviewed_operation_approval.v1" &&
+                approval.at("request_sha256").as_string() == usk::json::sha256_canonical(usk::json::parse(state_->request)) &&
+                approval.at("registration_sha256").as_string() == admitted.at("registration_sha256").as_string() &&
+                approval.at("target_admitted_sha256").as_string() == admitted.at("target_admitted_sha256").as_string() &&
+                approval.at("caller_sid").as_string() == reply.at("profile").at("authenticated_client").at("user_sid").as_string() &&
+                approval.at("envelope_size_bytes").as_unsigned() > 0 && approval.at("envelope_size_bytes").as_unsigned() <= 1024u * 1024u &&
+                observation.at("approval_sha256").as_string() == usk::json::sha256_canonical(approval) &&
+                observation.at("envelope_sha256").as_string() == approval.at("envelope_sha256").as_string(),
+                "effect original reviewed enrollment/request/caller binding differs");
+            for (const auto field : {"approval_file", "envelope_file"})
+                require(observation.at(field).as_object().size() == 9 &&
+                    observation.at(field).at("owner_sid").as_string() == "S-1-5-18" &&
+                    !(observation.at(field).at("attributes").as_unsigned() & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
+                    observation.at(field).at("reparse_tag").as_unsigned() == 0 &&
+                    observation.at(field).at("link_count").as_unsigned() == 1 &&
+                    !observation.at(field).at("case_sensitive").as_boolean(),
+                    "effect native enrollment file observation differs");
+        }
+        return selection;
     } catch (...) { state_->failed = true; throw; }
 }
 Value PublisherEffectWorkerReadback::authenticated_object_access(HANDLE held, DWORD timeout) {

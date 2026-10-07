@@ -8,6 +8,7 @@
 #include "usk_json.h"
 #include "usk_publisher_request_channel.h"
 namespace usk::platform::windows {
+class PublisherEffectWorkerCustody;
 // Internal controller entry point; the packaged CLI and machine client share
 // the same SCM, protected-binary and dedicated-volume admission implementation.
 int publisher_service_control_main(int argc, wchar_t** argv);
@@ -31,6 +32,13 @@ public:
     // while the guard and executable remain held. This is observed provenance,
     // not source qualification, an export-history assertion or a new grant.
     usk::json::Value evidence() const;
+    // Fresh original SCM configuration, bracketed by the held native facts.
+    // Supplied text cannot replace the original configuration or authority.
+    usk::json::Value execution_configuration_observation() const;
+    // Launch the original held registered image and actual channel request.
+    // This creates private transport custody only, never effect admission.
+    std::unique_ptr<PublisherEffectWorkerCustody> launch_effect_worker(
+        const PublisherRequestChannel&, HANDLE cancel_event = nullptr) const;
     // Service-mediated observation may activate SCM and acquire the controller
     // guard. It reads admission facts without dispatching installation effects.
     usk::json::Value capability_observation(const std::string& request_id, bool scoped_profile = false) const;

@@ -12,6 +12,12 @@ namespace usk::platform::windows {
 class RegisteredPublisherAdmission;
 class PublisherRequestChannel;
 class PublisherEffectBrokerReadback;
+// Closed retained-record parsing only. These functions do not authenticate
+// transport, corroborate live SCM, activate a scope or grant effect authority.
+void require_publisher_effect_broker_readback_record(const usk::json::Value&);
+usk::json::Value publisher_effect_broker_immutable_record(const usk::json::Value&);
+PublisherWorkerTokenContext publisher_effect_worker_record_context(const usk::json::Value&);
+PublisherServiceObservation publisher_effect_broker_service_record(const usk::json::Value&);
 class PublisherBrokerQueryClosureUnknown final : public std::runtime_error {
 public:
     PublisherBrokerQueryClosureUnknown(DWORD error, std::exception_ptr primary);
@@ -81,6 +87,9 @@ public:
     // Separate actual local effect PID/token; the original SCM PID is never
     // rewritten into this context. The result remains a read-only binding.
     PublisherWorkerTokenContext worker_token_context(DWORD timeout_ms = 120000);
+    // Read only the parent's original native-held exact-request selection.
+    // Absence is explicit; this cannot select a request or authorize replay.
+    usk::json::Value selected_reviewed_operation(DWORD timeout_ms = 120000);
     usk::json::Value authenticated_object_access(HANDLE, DWORD timeout_ms = 120000);
 private:
     friend class PublisherEffectWorkerNativeSecurity;

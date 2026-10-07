@@ -13,6 +13,8 @@
 
 namespace usk::platform::windows {
 class PublisherRequestChannel;
+class PublisherEffectWorkerReadback;
+class PublisherEffectWorkerNativeSecurity;
 struct PublisherPhaseHandle {
     std::string role;
     HANDLE handle;
@@ -34,6 +36,13 @@ usk::json::Value observe_publisher_execution_phase(
     const std::wstring& service_name, const std::string& phase,
     const std::vector<PublisherPhaseHandle>& handles,
     const PublisherRequestChannel* authenticated_request = nullptr);
+// Native child observation through the original finite broker and pinned
+// child-security owner. SCM parent and actual child identities are retained
+// separately in v7; supplied records cannot activate this observation route.
+usk::json::Value observe_publisher_effect_execution_phase(
+    const std::wstring& service_name, const std::string& phase,
+    const std::vector<PublisherPhaseHandle>& handles,
+    PublisherEffectWorkerReadback&, PublisherEffectWorkerNativeSecurity&);
 
 // Closed retained evidence, bound to the shared client and stored object facts.
 // Descriptor bytes are the GetSecurityInfo representation, not an assertion

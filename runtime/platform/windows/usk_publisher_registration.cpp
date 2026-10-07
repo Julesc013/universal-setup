@@ -14,6 +14,7 @@
 
 #include "usk_publisher_registration.h"
 #include "usk_publisher_service_readback_internal.h"
+#include "usk_publisher_effect_worker_custody_internal.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_data_partition.h"
 #include "usk_publisher_handle_observation.h"
@@ -2807,6 +2808,52 @@ bool RegisteredPublisherAdmission::select_reviewed_operation(const std::string& 
 
 bool RegisteredPublisherAdmission::has_selected_reviewed_operation() const noexcept {
     return state_->selected_envelope_source != nullptr;
+}
+
+usk::json::Value RegisteredPublisherAdmission::execution_configuration_observation() const {
+    const auto before = evidence();
+    const auto current = query_configuration(state_->service->get());
+    if (!same_configuration(current, state_->configuration))
+        throw std::runtime_error("registered original native execution configuration changed");
+    const auto args = command_arguments(current.binary_path);
+    const auto& caller = before.at("configured_caller_sid").as_string();
+    require_existing_command(current.binary_path, state_->name, args.at(0), args.at(4),
+        std::wstring(caller.begin(), caller.end()), L"--service-admitted-client");
+    using usk::json::Value;
+    Value::Array arguments;
+    for (const auto& argument : args) arguments.emplace_back(utf8(argument));
+    Value result(Value::Object{
+        {"schema", Value("usk.publisher_registered_execution_configuration.v1")},
+        {"scope", Value("original_held_scm_configuration")},
+        {"command", Value(utf8(current.binary_path))}, {"arguments", Value(std::move(arguments))},
+        {"account", Value(utf8(current.account))}, {"display_name", Value(utf8(current.display_name))},
+        {"service_type", Value(static_cast<std::uint64_t>(current.type))},
+        {"start_type", Value(static_cast<std::uint64_t>(current.start))},
+        {"service_sid_type", Value(static_cast<std::uint64_t>(current.sid_type))}});
+    if (usk::json::canonical(evidence()) != usk::json::canonical(before) ||
+        !same_configuration(query_configuration(state_->service->get()), current))
+        throw std::runtime_error("registered execution configuration changed during observation");
+    return result;
+}
+
+std::unique_ptr<PublisherEffectWorkerCustody> RegisteredPublisherAdmission::launch_effect_worker(
+    const PublisherRequestChannel& channel, HANDLE cancel_event) const {
+    const auto before = evidence();
+    const auto request = channel.authenticated_canonical_request();
+    const auto& sid = before.at("service_sid").as_string();
+    auto result = std::make_unique<PublisherEffectWorkerCustody>(*state_->binary,
+        std::wstring(sid.begin(), sid.end()), request, cancel_event);
+    try {
+        if (usk::json::canonical(evidence()) != usk::json::canonical(before) ||
+            channel.authenticated_canonical_request() != request)
+            throw std::runtime_error("original registered request/image changed during private worker launch");
+    } catch (...) {
+        const auto original = std::current_exception();
+        const auto closure = result->close();
+        if (!closure.confirmed()) throw PublisherEffectWorkerClosureUnknown(closure, original);
+        std::rethrow_exception(original);
+    }
+    return result;
 }
 
 usk::json::Value RegisteredPublisherAdmission::selected_reviewed_envelope() const {

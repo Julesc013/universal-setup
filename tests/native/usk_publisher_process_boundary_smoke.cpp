@@ -4,6 +4,11 @@
 #include "usk_publisher_process_boundary.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_worker_security.h"
+#include "usk_publisher_effect_broker_internal.h"
+#include "usk_publisher_creation_observation.h"
+#include "usk_publisher_security_descriptor.h"
+#include "usk_sha256.h"
+#include <sddl.h>
 #include <functional>
 #include <cstdlib>
 #include <iostream>
@@ -118,6 +123,197 @@ void worker_security_controls() {
     catch (const std::exception&) { original_refused = true; }
     check(original_refused && service.process_id == 500 && service.token.identity.token_id == 0x500,
         "child policy projection reinterpreted or rewrote the original SCM identity");
+}
+void effect_execution_record_controls() {
+    // Pure retained-record controls. No SCM/child process, native creator,
+    // authenticated token, activation or runtime qualification is claimed.
+    const std::wstring name = L"USK_Record_Child_Broker";
+    const auto token = [](bool child) {
+        Value::Array observed_groups;
+        for (const auto& group : groups) observed_groups.emplace_back(Value::Object{
+            {"sid", Value(group.sid)}, {"attributes", Value(static_cast<std::uint64_t>(group.attributes))}});
+        return Value(Value::Object{{"user_sid", Value("S-1-5-18")}, {"groups", Value(observed_groups)},
+            {"restricted_sids", Value(Value::Array{Value(Value::Object{{"sid", Value(service_sid)}, {"attributes", Value(std::uint64_t{0})}})})},
+            {"observing_thread_impersonating", Value(false)}, {"token_id", Value(std::uint64_t{child ? 0x600u : 0x500u})},
+            {"authentication_id", Value(std::uint64_t{0x900})}, {"modified_id", Value(std::uint64_t{child ? 0x601u : 0x501u})},
+            {"token_type", Value(std::uint64_t{TokenPrimary})}});
+    };
+    const Value client(Value::Object{{"schema", Value("usk.publisher_authenticated_client_observation.v1")},
+        {"scope", Value("held_authenticated_identification_token")}, {"captured_process_id", Value(std::uint64_t{800})},
+        {"token_id", Value(std::uint64_t{800})}, {"authentication_id", Value(std::uint64_t{801})},
+        {"modified_id", Value(std::uint64_t{802})}, {"user_sid", Value(consumer_sid)},
+        {"token_type", Value(std::uint64_t{TokenImpersonation})}, {"impersonation_level", Value(std::uint64_t{SecurityIdentification})},
+        {"groups", Value(Value::Array{})}, {"restricted_sids", Value(Value::Array{})}, {"privileges", Value(Value::Array{})}});
+    const auto object_id = [](std::size_t index) { return "0000000000001234:" + std::string(31, '0') + static_cast<char>('1' + index); };
+    const auto object = [&](std::size_t index) {
+        return Value(Value::Object{{"file_id", Value(object_id(index))}, {"native_name", Value(index ? "\\publication\\role" + std::to_string(index) : "\\")},
+            {"owner_sid", Value("S-1-5-18")}, {"dacl_protected", Value(true)},
+            {"dacl_aces", Value(Value::Array{ace("S-1-5-18", FILE_ALL_ACCESS), ace(service_sid, FILE_ALL_ACCESS)})},
+            {"attributes", Value(std::uint64_t{FILE_ATTRIBUTE_DIRECTORY})}, {"reparse_tag", Value(std::uint64_t{0})},
+            {"link_count", Value(std::uint64_t{1})}, {"case_sensitive", Value(false)}});
+    };
+    const Value image(Value::Object{{"volume_id", Value("volume")}, {"file_id", Value("image")},
+        {"size_bytes", Value(std::uint64_t{1})}, {"sha256", Value(std::string(64, 'a'))}});
+    auto admitted_image = image;
+    admitted_image.as_object().emplace("path", Value("C:\\publisher.exe"));
+    const Value admitted(Value::Object{{"schema", Value("usk.publisher_registered_admission_observation.v1")},
+        {"scope", Value("held_registered_service_image_and_controller_target_admission")},
+        {"service_name", Value("USK_Record_Child_Broker")}, {"service_sid", Value(service_sid)},
+        {"process_id", Value(std::uint64_t{500})}, {"configured_caller_sid", Value(consumer_sid)}, {"publisher_image", admitted_image},
+        {"registration_sha256", Value(std::string(64, 'b'))}, {"target_admitted_sha256", Value(std::string(64, 'c'))},
+        {"target_identity", Value(Value::Object{{"volume_identity", Value(Value::Object{
+            {"root_file_id", Value(object_id(0))}, {"volume_root", Value("C:\\")}})}})}});
+    const Value custody(Value::Object{{"schema", Value("usk.publisher_effect_transport_custody.v1")}, {"authority", Value("none")},
+        {"current_process_id", Value(std::uint64_t{500})}, {"current_process_birth", Value("0000000000000500")},
+        {"peer_process_id", Value(std::uint64_t{600})}, {"peer_process_birth", Value("0000000000000600")}, {"image", image},
+        {"request_sha256", Value(std::string(64, 'd'))}, {"owned_job_active_process_limit", Value(std::uint64_t{1})},
+        {"owned_job_kill_on_close", Value(true)}});
+    const std::string command = "C:\\publisher.exe --service USK_Record_Child_Broker --no-receipt C:\\ --recover-reviewed --service-admitted-client --authorized-client-sid " + consumer_sid;
+    const Value configuration(Value::Object{{"schema", Value("usk.publisher_registered_execution_configuration.v1")},
+        {"scope", Value("original_held_scm_configuration")}, {"command", Value(command)},
+        {"arguments", Value(Value::Array{Value("C:\\publisher.exe"), Value("--service"), Value("USK_Record_Child_Broker"),
+            Value("--no-receipt"), Value("C:\\"), Value("--recover-reviewed"), Value("--service-admitted-client"),
+            Value("--authorized-client-sid"), Value(consumer_sid)})},
+        {"account", Value("LocalSystem")}, {"display_name", Value("USK_Record_Child_Broker")},
+        {"service_type", Value(std::uint64_t{SERVICE_WIN32_OWN_PROCESS})}, {"start_type", Value(std::uint64_t{SERVICE_DEMAND_START})},
+        {"service_sid_type", Value(std::uint64_t{SERVICE_SID_TYPE_RESTRICTED})}});
+    const Value service(Value::Object{{"service_name", Value("USK_Record_Child_Broker")}, {"service_sid", Value(service_sid)},
+        {"service_sid_type", Value(std::uint64_t{SERVICE_SID_TYPE_RESTRICTED})}, {"service_type", Value(std::uint64_t{SERVICE_WIN32_OWN_PROCESS})},
+        {"service_state", Value(std::uint64_t{SERVICE_RUNNING})}, {"process_id", Value(std::uint64_t{500})}, {"primary_token", token(false)}});
+    const Value broker(Value::Object{{"schema", Value("usk.publisher_effect_broker_native_readback.v2")}, {"authority", Value("read_only_observation")},
+        {"request_sha256", Value(std::string(64, 'd'))}, {"service", service}, {"effect_primary_token", token(true)},
+        {"registered_admission", admitted}, {"custody", custody}, {"volume_root", object(0)}, {"authenticated_client", client},
+        {"broker_volume_granted_access", Value(std::uint64_t{READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE})},
+        {"service_configuration", configuration}, {"broker_security", Value(Value::Object{{"process_boundary", boundary()}, {"worker_security", worker_security()}})}});
+    auto child_boundary = boundary();
+    child_boundary.as_object().at("process_id") = Value(std::uint64_t{600});
+    auto child_security = worker_security();
+    child_security.as_object().at("process_id") = Value(std::uint64_t{600});
+    child_security.as_object().at("primary_token").as_object().at("token_id") = Value("0000000000000600");
+    child_security.as_object().at("primary_token").as_object().at("modified_id") = Value("0000000000000601");
+    const Value worker(Value::Object{{"process_id", Value(std::uint64_t{600})}, {"process_birth", Value("0000000000000600")},
+        {"service_sid", Value(service_sid)}, {"primary_token", token(true)}});
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    ULONG descriptor_size = 0;
+    const std::string sddl = "O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;" + service_sid + ")";
+    check(ConvertStringSecurityDescriptorToSecurityDescriptorA(sddl.c_str(), SDDL_REVISION_1, &descriptor, &descriptor_size) != FALSE,
+        "synthetic descriptor construction failed");
+    std::string descriptor_hex;
+    const auto bytes = static_cast<const unsigned char*>(descriptor);
+    constexpr char digits[] = "0123456789abcdef";
+    for (ULONG index = 0; index < descriptor_size; ++index) {
+        descriptor_hex.push_back(digits[bytes[index] >> 4]); descriptor_hex.push_back(digits[bytes[index] & 15u]);
+    }
+    LocalFree(descriptor);
+    const std::pair<const char*, DWORD> rights[] = {{"write_or_add_file", FILE_WRITE_DATA}, {"append_or_add_directory", FILE_APPEND_DATA},
+        {"write_ea", FILE_WRITE_EA}, {"delete_child", FILE_DELETE_CHILD}, {"write_attributes", FILE_WRITE_ATTRIBUTES},
+        {"delete", DELETE}, {"write_dac", WRITE_DAC}, {"write_owner", WRITE_OWNER}, {"maximum_allowed", MAXIMUM_ALLOWED}};
+    Value::Object checks;
+    for (const auto& [key, requested] : rights) checks.emplace(key, Value(Value::Object{{"requested", Value(static_cast<std::uint64_t>(requested))},
+        {"granted", Value(std::uint64_t{0})}, {"allowed", Value(false)}}));
+    const char* roles[] = {"volume_root", "publication_root", "staging_anchor", "destination_parent", "state_anchor", "journal_anchor", "payload_root"};
+    Value::Array handles;
+    std::vector<std::pair<std::string, std::string>> bindings;
+    for (std::size_t index = 0; index < 7; ++index) {
+        const auto facts = object(index);
+        const Value access(Value::Object{{"schema", Value("usk.publisher_authenticated_object_access.v1")},
+            {"scope", Value("fresh_held_authenticated_token_and_file_descriptor")}, {"client_sha256", Value(usk::json::sha256_canonical(client))},
+            {"native_object_sha256", Value(usk::json::sha256_canonical(facts))}, {"descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL")},
+            {"observed_group_sid", Value("S-1-5-18")}, {"descriptor_hex", Value(descriptor_hex)}, {"checks", Value(checks)}});
+        handles.emplace_back(Value::Object{{"role", Value(roles[index])}, {"file_id", Value(object_id(index))},
+            {"handle_flags", Value(std::uint64_t{0})}, {"granted_access", Value(std::uint64_t{READ_CONTROL | FILE_READ_ATTRIBUTES})},
+            {"granted_access_api", Value("NtQueryObject:ObjectBasicInformation")}, {"object_observation", facts}, {"authenticated_access", access}});
+        bindings.emplace_back(roles[index], object_id(index));
+    }
+    const Value valid(Value::Object{{"schema", Value("usk.publisher_execution_observation.v7")},
+        {"scope", Value("supplied_held_child_handles_authenticated_broker_access_and_pinned_worker_security")}, {"phase", Value("sealed")},
+        {"platform", observe_publisher_execution_platform()}, {"service", service}, {"broker_readback", broker}, {"effect_worker", worker},
+        {"handles", Value(handles)}, {"process_boundary", child_boundary}, {"worker_security", child_security}, {"authenticated_client", client}});
+    require_publisher_execution_phase(valid, name, service_sid, "sealed", bindings);
+    require_publisher_execution_record_continuity(valid, valid);
+    // The new child creation certificate binds the same actual-worker fields
+    // as execution. These graphs/descriptors remain deterministic data only.
+    const Value anchors(Value::Object{{"boundary", object(0)},
+        {"chain", Value(Value::Array{Value(Value::Object{{"component", Value("publication")}, {"object", object(1)}})})},
+        {"staging", object(2)}, {"destination_parent", object(3)}, {"state", object(4)}, {"journal", object(5)}});
+    const Value tree(Value::Object{{"root", object(6)}, {"descendants", Value(Value::Array{})}});
+    const auto graph = publisher_creation_graph(anchors, tree);
+    const auto creation_bytes = make_publisher_directory_security_descriptor(std::wstring(service_sid.begin(), service_sid.end()));
+    std::string creation_hex;
+    for (const auto byte : creation_bytes) { creation_hex.push_back(digits[byte >> 4]); creation_hex.push_back(digits[byte & 15u]); }
+    usk::base::Sha256 descriptor_digest;
+    descriptor_digest.update(creation_bytes.data(), creation_bytes.size());
+    const Value native_call(Value::Object{{"api", Value("NtCreateFile")}, {"create_disposition", Value(std::uint64_t{2})},
+        {"creation_result", Value(std::uint64_t{2})}, {"ntstatus", Value(std::uint64_t{0})}, {"object_attribute_flags", Value(std::uint64_t{0x40})},
+        {"share_access", Value(std::uint64_t{7})}, {"directory_create_options", Value(std::uint64_t{0x00200021})},
+        {"file_create_options", Value(std::uint64_t{0x00200062})}, {"directory_file_attributes", Value(std::uint64_t{FILE_ATTRIBUTE_DIRECTORY})},
+        {"file_file_attributes", Value(std::uint64_t{FILE_ATTRIBUTE_NORMAL})},
+        {"directory_access_mask", Value(std::uint64_t{FILE_READ_ATTRIBUTES | FILE_TRAVERSE | FILE_LIST_DIRECTORY | FILE_ADD_FILE |
+            FILE_ADD_SUBDIRECTORY | DELETE | READ_CONTROL | SYNCHRONIZE})},
+        {"file_access_mask", Value(std::uint64_t{FILE_READ_DATA | FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES |
+            DELETE | READ_CONTROL | SYNCHRONIZE})}});
+    const Value certificate(Value::Object{{"schema", Value("usk.publisher.creation_observation.v4")},
+        {"scope", Value("successful_child_file_create_calls_and_pinned_worker_security_to_bound_graph")},
+        {"creator", Value(Value::Object{{"service_name", service.at("service_name")}, {"service_sid", Value(service_sid)},
+            {"broker_process_id", Value(std::uint64_t{500})}, {"effect_worker", worker}})},
+        {"native_call", native_call}, {"process_boundary", child_boundary}, {"worker_security", child_security},
+        {"broker_readback", broker}, {"handle_flags", Value(std::uint64_t{0})}, {"volume_boundary_file_id", Value(object_id(0))},
+        {"creation_descriptor_sha256", Value(descriptor_digest.finish())}, {"creation_descriptor_hex", Value(creation_hex)},
+        {"created_object_count", Value(static_cast<std::uint64_t>(graph.as_array().size()))},
+        {"created_graph_sha256", Value(usk::json::sha256_canonical(graph))}});
+    require_publisher_creation_certificate(certificate, anchors, tree, valid);
+    const auto refuses_certificate = [&](const std::function<void(Value&)>& change) {
+        auto invalid = certificate; change(invalid); bool refused = false;
+        try { require_publisher_creation_certificate(invalid, anchors, tree, valid); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "child creation certificate admitted changed native creator/broker/graph facts");
+    };
+    refuses_certificate([](Value& v) { v.as_object().at("creator").as_object().at("effect_worker").as_object().at("process_id") = Value(std::uint64_t{500}); });
+    refuses_certificate([](Value& v) { v.as_object().at("creator").as_object().at("broker_process_id") = Value(std::uint64_t{600}); });
+    refuses_certificate([](Value& v) { v.as_object().at("worker_security") = worker_security(); });
+    refuses_certificate([](Value& v) { v.as_object().at("schema") = Value("usk.publisher.creation_observation.v3"); });
+    refuses_certificate([](Value& v) { v.as_object().at("native_call").as_object().at("creation_result") = Value(std::uint64_t{1}); });
+    refuses_certificate([](Value& v) { v.as_object().at("broker_readback").as_object().at("request_sha256") = Value(std::string(64, 'e')); });
+    const auto refuses = [&](const std::function<void(Value&)>& change) {
+        auto invalid = valid; change(invalid); bool refused = false;
+        try { require_publisher_execution_phase(invalid, name, service_sid, "sealed", bindings); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "compound execution parser accepted a contradictory child/broker binding");
+    };
+    refuses([](Value& v) { v.as_object().at("process_boundary") = boundary(); });
+    refuses([](Value& v) { v.as_object().at("worker_security") = worker_security(); });
+    refuses([](Value& v) { v.as_object().at("effect_worker").as_object().at("process_id") = Value(std::uint64_t{500}); });
+    refuses([](Value& v) { v.as_object().at("effect_worker").as_object().at("process_birth") = Value("0000000000000601"); });
+    refuses([](Value& v) { v.as_object().at("service").as_object().at("process_id") = Value(std::uint64_t{600}); });
+    refuses([](Value& v) { v.as_object().at("broker_readback").as_object().at("authority") = Value("effect_admission"); });
+    refuses([](Value& v) { v.as_object().at("broker_readback").as_object().at("broker_volume_granted_access") = Value(std::uint64_t{FILE_ALL_ACCESS}); });
+    refuses([](Value& v) { v.as_object().at("broker_readback").as_object().at("service_configuration").as_object().at("command") = Value("forged"); });
+    refuses([](Value& v) { v.as_object().at("broker_readback").as_object().at("broker_security").as_object().at("worker_security")
+        .as_object().at("threads").as_array().front().as_object().at("dacl_aces").as_array().back().as_object().at("access_mask") = Value(std::uint64_t{THREAD_SET_CONTEXT}); });
+    refuses([](Value& v) { v.as_object().at("handles").as_array().back().as_object().at("authenticated_access")
+        .as_object().at("checks").as_object().at("write_dac").as_object().at("allowed") = Value(true); });
+    // A separately validated current broker thread population is allowed;
+    // the child's original frozen continuity is never replaced by this data.
+    auto later = valid;
+    auto& parent_threads = later.as_object().at("broker_readback").as_object().at("broker_security").as_object()
+        .at("worker_security").as_object().at("threads").as_array();
+    auto parent_thread = parent_threads.front();
+    parent_thread.as_object().at("thread_id") = Value(std::uint64_t{701});
+    parent_thread.as_object().at("creation_time") = Value("0000000000000701");
+    parent_threads.push_back(parent_thread);
+    require_publisher_execution_phase(later, name, service_sid, "sealed", bindings);
+    require_publisher_execution_worker_match(valid, later);
+    later = valid;
+    later.as_object().at("worker_security").as_object().at("threads").as_array().push_back(parent_thread);
+    require_publisher_execution_phase(later, name, service_sid, "sealed", bindings);
+    bool refused = false;
+    try { require_publisher_execution_worker_match(valid, later); } catch (const std::exception&) { refused = true; }
+    check(refused, "same child record refreshed its original frozen thread population");
+    later = valid;
+    later.as_object().at("effect_worker").as_object().at("primary_token").as_object().at("token_id") = Value(std::uint64_t{0x602});
+    refused = false;
+    try { require_publisher_execution_record_continuity(valid, later); } catch (const std::exception&) { refused = true; }
+    check(refused, "same native child PID/birth evaded continuity with a changed token");
 }
 class TestThread {
 public:
@@ -414,6 +610,7 @@ int main() {
             actual.at("dacl_present").as_boolean() && !actual.at("owner_sid").as_string().empty(),
             "current process owner/DACL facts were not observed");
         worker_security_controls();
+        effect_execution_record_controls();
         worker_lifetime_controls();
         worker_retirement_readback_controls();
 
