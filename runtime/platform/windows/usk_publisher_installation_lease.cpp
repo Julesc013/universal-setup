@@ -313,20 +313,24 @@ static Value observe_original_maintenance_custody(HANDLE state_root,
     usk::json::ParseLimits limits;
     limits.max_bytes = maximum; limits.max_values = 2000000u;
     const auto original = usk::json::parse(text, limits);
-    const std::set<std::string> fields{"schema", "transaction_id", "operation", "plan_digest",
+    const bool child_original = original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3";
+    std::set<std::string> fields{"schema", "transaction_id", "operation", "plan_digest",
         "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
         "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root",
         "installed_root_journal_identity", "original_objects"};
+    if (child_original) fields.insert("broker_readback");
     if (original.as_object().size() != fields.size()) throw InstallLeaseStale();
     for (const auto& item : original.as_object()) if (!fields.count(item.first)) throw InstallLeaseStale();
     if (usk::json::canonical(original) + "\n" != text ||
-        original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v2" ||
+        (!child_original && original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v2") ||
         original.at("transaction_id").as_string() != operation_id ||
         original.at("operation").as_string() != intent.at("operation").as_string() ||
         original.at("plan_digest").as_string() != usk::json::sha256_canonical(snapshot.at("reviewed_plan")) ||
         original.at("original_context_sha256").as_string() != context.lease_binding_sha256() ||
         original.at("authenticated_client").at("user_sid").as_string() != authenticated_user_sid)
         throw InstallLeaseStale();
+    if (child_original) require_publisher_effect_maintenance_original_record(original,
+        snapshot.at("apply_request"), service_name);
     const auto lease = original.at("original_lease_ownership");
     require_install_lease_record(lease);
     if (lease.at("status").as_string() != "active" || lease.at("install_id").as_string() != install_id ||

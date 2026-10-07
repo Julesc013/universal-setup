@@ -38,6 +38,18 @@ private:
         const usk::platform::windows::PublisherRequestChannel& channel,
         const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
         bool& effects_may_exist);
+    // Fresh child operation only: borrow the already active original concrete
+    // owner, including its existing pinned security lifetime. It supplies no
+    // SCM admission/channel handle and cannot select another original request.
+    NativeMaintenanceContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name,
+        const usk::platform::windows::PublisherInstallOperationGuard& guard,
+        const usk::platform::windows::PublisherMaintenanceStateSnapshot& original_state,
+        const usk::platform::windows::PublisherInstallOperationContext& original_context,
+        const usk::platform::windows::PublisherInstallationLease& lease,
+        usk::platform::windows::PublisherEffectExecutionOwner& original_child,
+        const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
+        bool& effects_may_exist);
     enum class RecoveryAdmission { ended_original_holder };
     NativeMaintenanceContext(HANDLE volume, const std::wstring& volume_root,
         const std::wstring& service_name,

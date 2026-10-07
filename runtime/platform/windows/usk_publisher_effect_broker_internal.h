@@ -109,7 +109,9 @@ public:
     ~PublisherEffectWorkerNativeSecurity();
     PublisherEffectWorkerNativeSecurity(const PublisherEffectWorkerNativeSecurity&) = delete;
     PublisherEffectWorkerNativeSecurity& operator=(const PublisherEffectWorkerNativeSecurity&) = delete;
-    usk::json::Value observe_current();
+    // Bounded diagnostics are forwarded to the original continuity owner;
+    // they cannot admit threads or replace its frozen native baseline.
+    usk::json::Value observe_current(const std::string& failure_context = {});
 private:
     struct State;
     std::unique_ptr<State> state_;

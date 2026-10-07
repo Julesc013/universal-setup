@@ -20,6 +20,11 @@ struct PublisherNativeExecutionObservation {
 };
 PublisherNativeExecutionObservation observe_current_publisher_native_execution_owner(
     const std::wstring& service_name);
+// Retained-data validation only. A closed child original-custody record must
+// join its actual worker/birth/token to the original lease, request, caller
+// and distinct SCM broker. Parsing this record cannot install a native route.
+void require_publisher_effect_maintenance_original_record(const usk::json::Value&,
+    const usk::json::Value& original_apply_request, const std::wstring& original_service_name);
 
 // Private actual-child observation owner. Only the original connected native
 // peer can construct it. It owns fresh broker readback and the original pinned

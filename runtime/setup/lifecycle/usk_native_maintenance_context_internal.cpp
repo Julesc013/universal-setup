@@ -7,6 +7,7 @@
 #include "usk_publisher_consumer_access.h"
 #include "usk_publisher_directory_entries.h"
 #include "usk_publisher_execution_observation.h"
+#include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_metadata.h"
 #include "usk_publisher_maintenance_mutation.h"
@@ -158,12 +159,14 @@ struct NativeMaintenanceContext::Impl {
     const PublisherMaintenanceStateSnapshot& original_state;
     const PublisherInstallOperationContext& original_context;
     const PublisherInstallationLease& lease;
-    const RegisteredPublisherAdmission& admission;
-    const PublisherRequestChannel& channel;
+    const RegisteredPublisherAdmission* const admission;
+    const PublisherRequestChannel* const channel;
+    PublisherEffectExecutionOwner* const original_child;
     const transaction::TransactionSpec spec;
     HANDLE cancel_event;
     PublisherServiceObservation service;
-    Value worker, process_boundary, registration, selection, client;
+    PublisherWorkerTokenContext worker_context{};
+    Value worker, process_boundary, registration, selection, client, original_broker;
     std::unique_ptr<PublisherWorkerSecurityContinuity> worker_continuity;
     Value original_consumer_completion;
     std::string original_consumer_sid;
@@ -275,11 +278,15 @@ struct NativeMaintenanceContext::Impl {
         const auto transactions = spec.state_root / "transactions";
         saved.original_text = read_restoration_record(transactions /
             (spec.transaction_id + ".native-maintenance-original.json"), 16u * 1024u * 1024u);
-        saved.original = closed_record(saved.original_text, {"schema", "transaction_id", "operation", "plan_digest",
+        const bool child_original = json::parse(saved.original_text, custody_parse_limits(16u * 1024u * 1024u))
+            .at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3";
+        std::set<std::string> original_fields{"schema", "transaction_id", "operation", "plan_digest",
             "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
-            "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root", "installed_root_journal_identity", "original_objects"}, 16u * 1024u * 1024u);
+            "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root", "installed_root_journal_identity", "original_objects"};
+        if (child_original) original_fields.insert("broker_readback");
+        saved.original = closed_record(saved.original_text, original_fields, 16u * 1024u * 1024u);
         const auto& original = saved.original;
-        if (original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v2" ||
+        if ((!child_original && original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v2") ||
             original.at("transaction_id").as_string() != spec.transaction_id ||
             original.at("operation").as_string() != spec.operation || original.at("plan_digest").as_string() != spec.plan_digest ||
             original.at("original_context_sha256").as_string() != original_context.lease_binding_sha256() ||
@@ -287,6 +294,8 @@ struct NativeMaintenanceContext::Impl {
             !digest(original.at("registration_sha256").as_string()) ||
             !equal(original.at("original_consumer_completion"), original_consumer_completion))
             throw std::runtime_error("native maintenance original custody differs from its protected intent/caller");
+        if (child_original) require_publisher_effect_maintenance_original_record(original,
+            snapshot.at("apply_request"), service_name);
         const auto& old_lease = original.at("original_lease_ownership");
         // The actual journal, actual current native generation and an ended
         // PID+birth holder are proved before consuming any creator/outcome.
@@ -858,16 +867,18 @@ struct NativeMaintenanceContext::Impl {
         const PublisherInstallOperationGuard& installation_guard,
         const PublisherMaintenanceStateSnapshot& state,
         const PublisherInstallOperationContext& context, const PublisherInstallationLease& active_lease,
-        const RegisteredPublisherAdmission& registered, const PublisherRequestChannel& authenticated,
+        const RegisteredPublisherAdmission* registered, const PublisherRequestChannel* authenticated,
+        PublisherEffectExecutionOwner* child_owner,
         const transaction::TransactionSpec& transaction_spec, HANDLE cancel, bool restore = false)
         : volume(boundary), volume_root(root), service_name(service_label), guard(installation_guard),
           original_state(state), original_context(context), lease(active_lease), admission(registered),
-          channel(authenticated), spec(transaction_spec), cancel_event(cancel) {
+          channel(authenticated), original_child(child_owner), spec(transaction_spec), cancel_event(cancel) {
+        if (original_child ? (admission || channel || restore) : (!admission || !channel))
+            throw std::runtime_error("native maintenance requires one concrete original execution owner");
         restored_owner = restore;
         const auto& snapshot = original_context.record().at("reviewed_snapshot");
         if (snapshot.at("schema").as_string() != "usk.publisher.maintenance_reviewed_snapshot.v2" ||
-            !admission.has_selected_reviewed_operation() ||
-            !equal(admission.selected_reviewed_envelope().at("apply_request"), snapshot.at("apply_request")))
+            !equal(selected_native_envelope().at("apply_request"), snapshot.at("apply_request")))
             throw std::runtime_error("native maintenance lacks its exact original reviewed request");
         const auto& plan = snapshot.at("reviewed_plan");
         if (spec.operation != snapshot.at("operation").as_string() ||
@@ -896,12 +907,17 @@ struct NativeMaintenanceContext::Impl {
             !equal(observe_publisher_lease_root_identity(original_state.setup_root()), snapshot.at("setup_root_identity")) ||
             !equal(observe_publisher_lease_root_identity(original_state.state_root()), snapshot.at("state_root_identity")))
             throw std::runtime_error("native maintenance borrowed state differs from its original native intent");
-        service = observe_current_restricted_publisher_service(service_name);
+        const auto native_owner = original_child ? original_child->observe_current() :
+            observe_current_publisher_native_execution_owner(service_name);
+        service = native_owner.service;
+        worker_context = native_owner.worker;
+        if (service.service_name != service_name)
+            throw std::runtime_error("native maintenance original service name changed");
         volume_facts = observe_publisher_directory_handle(volume);
         require_publisher_object_security_shape(volume_facts, service.service_sid);
         volume_observation = observe_local_ntfs_volume_handle(volume);
-        registration = admission.evidence();
-        selection = admission.selected_reviewed_operation_observation();
+        registration = registered_native_evidence();
+        selection = selected_native_observation();
         const auto& target = registration.at("target_identity").at("volume_identity");
         if (registration.at("service_name").as_string() != fs::path(service_name).u8string() ||
             registration.at("service_sid").as_string() != service.service_sid ||
@@ -910,13 +926,26 @@ struct NativeMaintenanceContext::Impl {
             target.at("root_file_id").as_string() != volume_facts.file_id ||
             target.at("volume_serial").as_string() != std::to_string(volume_observation.file_id_volume_serial))
             throw std::runtime_error("native maintenance registration differs from its held volume/service");
-        client = channel.observe_authenticated_object_access(volume).at("client");
+        client = authenticated_native_access(volume).at("client");
         if (client.at("user_sid").as_string() != registration.at("configured_caller_sid").as_string())
             throw std::runtime_error("native maintenance authenticated caller differs from registration");
-        process_boundary = observe_current_publisher_process_boundary();
-        require_publisher_process_boundary(process_boundary, service.process_id, service.service_sid, service.token.process_groups);
-        worker = observe_settled_publisher_worker_security(service, cancel_event);
-        worker_continuity = std::make_unique<PublisherWorkerSecurityContinuity>(worker);
+        if (original_child) {
+            // Reuse the owner's original pinned native lifetime. Never settle
+            // or construct a second baseline after intent/lease effects.
+            original_broker = original_child->service_admission();
+            const auto security = original_child->security().observe_current();
+            process_boundary = security.at("process_boundary");
+            worker = security.at("worker_security");
+            if (!equal(lease.ownership().at("holder"), observe_publisher_lease_holder()))
+                throw std::runtime_error("native maintenance lease does not belong to its actual child");
+        } else {
+            process_boundary = observe_current_publisher_process_boundary();
+            worker = observe_settled_publisher_worker_security(service, cancel_event);
+            worker_continuity = std::make_unique<PublisherWorkerSecurityContinuity>(worker);
+        }
+        require_publisher_process_boundary(process_boundary, worker_context.process_id,
+            worker_context.service_sid, worker_context.token.process_groups);
+        require_publisher_worker_security(worker, worker_context);
         descriptor = make_publisher_directory_security_descriptor(std::wstring(service.service_sid.begin(), service.service_sid.end()));
         // These are already admitted canonical protected parents. Bind only
         // this original operation's generated staging and repair/uninstall
@@ -1004,8 +1033,35 @@ struct NativeMaintenanceContext::Impl {
         }
         return absolute.relative_path();
     }
+    Value registered_native_evidence() const {
+        return original_child ? original_child->service_admission().at("registered_admission") : admission->evidence();
+    }
+    Value selected_native_envelope() const {
+        if (original_child) {
+            const auto selected = original_child->selected_reviewed_operation();
+            if (!selected.at("present").as_boolean())
+                throw std::runtime_error("native maintenance original child reviewed selection is absent");
+            return selected.at("envelope");
+        }
+        if (!admission->has_selected_reviewed_operation())
+            throw std::runtime_error("native maintenance original SCM reviewed selection is absent");
+        return admission->selected_reviewed_envelope();
+    }
+    Value selected_native_observation() const {
+        if (original_child) {
+            const auto selected = original_child->selected_reviewed_operation();
+            if (!selected.at("present").as_boolean())
+                throw std::runtime_error("native maintenance original child reviewed selection is absent");
+            return selected.at("observation");
+        }
+        return admission->selected_reviewed_operation_observation();
+    }
+    Value authenticated_native_access(HANDLE handle) const {
+        return original_child ? original_child->authenticated_object_access(handle) :
+            channel->observe_authenticated_object_access(handle);
+    }
     void require_client_read_only(HANDLE handle, const PublisherHandleObservation& facts) const {
-        auto access = channel.observe_authenticated_object_access(handle);
+        auto access = authenticated_native_access(handle);
         if (!equal(access.at("client"), client) || !equal(access.at("native_object"), publisher_handle_observation_json(facts)))
             throw std::runtime_error("native maintenance authenticated object binding changed");
         access.as_object().erase("client"); access.as_object().erase("native_object");
@@ -1080,7 +1136,7 @@ struct NativeMaintenanceContext::Impl {
             normalized(supplied.target_root) != normalized(spec.target_root) || normalized(supplied.state_root) != normalized(spec.state_root) ||
             normalized(supplied.audit_root) != normalized(spec.audit_root) || supplied.required_commit_authority != spec.required_commit_authority)
             throw std::runtime_error("native maintenance callback received a different transaction");
-        if (GetCurrentProcessId() != service.process_id || (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
+        if (GetCurrentProcessId() != worker_context.process_id || (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
             throw std::runtime_error("native maintenance worker stopped or changed");
         guard.require_owned(volume_root, original_context.record().at("install_id").as_string());
         original_context.require_fence(); original_state.require_custody(); lease.require_fence();
@@ -1102,11 +1158,11 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance removed original root was replaced");
         }
         if (!same(observe_publisher_directory_handle(volume), volume_facts) ||
-            !equal(admission.evidence(), registration) || !equal(admission.selected_reviewed_operation_observation(), selection))
+            !equal(registered_native_evidence(), registration) || !equal(selected_native_observation(), selection))
             throw std::runtime_error("native maintenance held registration or boundary changed");
         // This is bounded failure context from the already existing owner;
         // none of these values admits a thread or authorizes another effect.
-        const auto current_worker = worker_continuity->observe_current(json::canonical(Value(Value::Object{
+        const auto failure_context = json::canonical(Value(Value::Object{
             {"schema", Value("usk.native_maintenance_security_failure_context.v1")},
             {"checkpoint", Value("require_authority")},
             {"operation", Value(spec.operation)}, {"transaction_id", Value(spec.transaction_id)},
@@ -1116,10 +1172,23 @@ struct NativeMaintenanceContext::Impl {
             {"active_payload_history_sha256", Value(active_payload_history)},
             {"installed_prepared", Value(installed_prepared)},
             {"installed_issue_active", Value(installed_issue_active)},
-            {"installed_confirmed", Value(installed_confirmed)}})));
-        require_publisher_worker_security(current_worker, service);
-        const auto current_process = observe_current_publisher_process_boundary();
-        require_publisher_process_boundary(current_process, service.process_id, service.service_sid, service.token.process_groups);
+            {"installed_confirmed", Value(installed_confirmed)}}));
+        Value current_worker, current_process;
+        if (original_child) {
+            const auto current_broker = original_child->service_admission();
+            if (!equal(publisher_effect_broker_immutable_record(current_broker),
+                publisher_effect_broker_immutable_record(original_broker)))
+                throw std::runtime_error("native maintenance original child broker changed");
+            const auto security = original_child->security().observe_current(failure_context);
+            current_worker = security.at("worker_security");
+            current_process = security.at("process_boundary");
+        } else {
+            current_worker = worker_continuity->observe_current(failure_context);
+            current_process = observe_current_publisher_process_boundary();
+        }
+        require_publisher_worker_security(current_worker, worker_context);
+        require_publisher_process_boundary(current_process, worker_context.process_id,
+            worker_context.service_sid, worker_context.token.process_groups);
         if (!equal(current_process, process_boundary))
             throw std::runtime_error("native maintenance frozen process boundary changed");
         if (installed_uncertain || payload_failed || custody_failed)
@@ -1662,7 +1731,8 @@ struct NativeMaintenanceContext::Impl {
             (spec.transaction_id + ".native-maintenance-original.json");
         base::require_native_path_capacity(original_admission_path, base::NativePathKind::file,
             "native maintenance original custody");
-        Value document(Value::Object{{"schema", Value("usk.publisher.maintenance_original_custody.v2")},
+        Value document(Value::Object{{"schema", Value(original_child ?
+                "usk.publisher.maintenance_original_custody.v3" : "usk.publisher.maintenance_original_custody.v2")},
             {"transaction_id", Value(spec.transaction_id)}, {"operation", Value(spec.operation)},
             {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
@@ -1671,6 +1741,7 @@ struct NativeMaintenanceContext::Impl {
             {"authenticated_client", client}, {"original_consumer_completion", original_consumer_completion},
             {"installed_root", publisher_handle_observation_json(installed_root->facts)},
             {"installed_root_journal_identity", Value(original_root_identity)}});
+        if (original_child) document.as_object().emplace("broker_readback", original_broker);
         std::size_t charged = json::canonical(document).size() + 128u;
         Value::Array objects;
         const auto append = [&](Value object) {
@@ -1708,6 +1779,8 @@ struct NativeMaintenanceContext::Impl {
                 {"type", Value("directory")}, {"present", Value(false)}, {"object", Value{}},
                 {"parent", Value{}}, {"native_identity", Value{}}}));
         document.as_object().emplace("original_objects", Value(std::move(objects)));
+        if (original_child) require_publisher_effect_maintenance_original_record(document,
+            original_context.record().at("reviewed_snapshot").at("apply_request"), service_name);
         require_custody_value_budget(document, maximum);
         original_admission_text = json::canonical(document) + "\n";
         if (original_admission_text.size() > maximum)
@@ -2395,7 +2468,19 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
     const RegisteredPublisherAdmission& admission, const PublisherRequestChannel& channel,
     const transaction::TransactionSpec& spec, HANDLE cancel, bool& effects_may_exist)
-    : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, lease, admission, channel, spec, cancel)) {
+    : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, lease, &admission, &channel, nullptr, spec, cancel)) {
+    bind_owner_backend();
+    effects_may_exist = true;
+    impl_->persist_original_admission();
+    scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
+}
+NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wstring& root, const std::wstring& service,
+    const PublisherInstallOperationGuard& guard, const PublisherMaintenanceStateSnapshot& state,
+    const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
+    PublisherEffectExecutionOwner& original_child, const transaction::TransactionSpec& spec, HANDLE cancel,
+    bool& effects_may_exist)
+    : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, lease, nullptr, nullptr,
+        &original_child, spec, cancel)) {
     bind_owner_backend();
     effects_may_exist = true;
     impl_->persist_original_admission();
@@ -2409,7 +2494,7 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     // This path resumes material from the original operation. Even a refused
     // restoration must preserve the caller's retained-material status.
     effects_may_exist = true;
-    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, lease, admission, channel, spec, cancel, true);
+    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, lease, &admission, &channel, nullptr, spec, cancel, true);
     bind_owner_backend();
     scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
 }

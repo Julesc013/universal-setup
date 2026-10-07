@@ -3938,12 +3938,9 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
     ScopedExecution execution(config, config.effect_execution ? config.effect_execution->cancellation_observer() : nullptr);
         // Source-free replay still requires the finite original protected
         // intent/enrollment selector; the read-only exact-request observation
-        // cannot authorize a different original apply request. Maintenance
-        // still needs its concrete child native owner. Refuse both before
+        // cannot authorize a different original apply request. Refuse before
         // target opening, intent, lease or any filesystem effect.
-        if (effect_execution && (submitted_recovery_request ||
-            (submitted_apply_request && usk::json::parse(*submitted_apply_request).at("schema").as_string() !=
-                "usk.install_local_apply_request.v1")))
+        if (effect_execution && submitted_recovery_request)
             throw usk::transaction::CommitAuthorityUnavailable();
         // Includes staged-only/snapshot replay, which can write metadata before
         // a rename gate. Read-only verification keeps its historical ceiling.
@@ -4215,9 +4212,15 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     maintenance_lease = std::make_unique<PublisherInstallationLease>(original_state->state_root(),
                         volume_root, service_name, *install_guard, lease_request, revision);
                     maintenance_lease->require_start();
-                    maintenance_owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root,
-                        service_name, *install_guard, *original_state, *original_context, *maintenance_lease,
-                        *registered_admission, *authenticated_request, spec, stop_event, publication_effects_may_exist));
+                    if (effect_execution) {
+                        maintenance_owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root,
+                            service_name, *install_guard, *original_state, *original_context, *maintenance_lease,
+                            *effect_execution, spec, stop_event, publication_effects_may_exist));
+                    } else {
+                        maintenance_owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root,
+                            service_name, *install_guard, *original_state, *original_context, *maintenance_lease,
+                            *registered_admission, *authenticated_request, spec, stop_event, publication_effects_may_exist));
+                    }
                 };
                 CandidateMaintenanceContext maintenance_call{prepare, {}, {}};
                 ScopedCandidateMaintenance selected(maintenance_call);

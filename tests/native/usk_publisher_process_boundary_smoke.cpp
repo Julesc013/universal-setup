@@ -6,6 +6,8 @@
 #include "usk_protected_install_publisher_internal.h"
 #include "usk_publisher_worker_security.h"
 #include "usk_publisher_effect_broker_internal.h"
+#include "usk_publisher_effect_execution_internal.h"
+#include "usk_install_lease.h"
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_sha256.h"
@@ -279,6 +281,55 @@ void effect_execution_record_controls() {
     phase_configuration.at("command") = Value("C:\\publisher.exe --service USK_Record_Child_Broker --no-receipt " +
         volume_guid + " --reviewed-plan-envelope C:\\envelope.json " + std::string(64, 'a') +
         " --service-admitted-client --authorized-client-sid " + consumer_sid);
+    // Closed child original-custody controls are synthetic retained data.
+    // They install no route and do not execute maintenance or recovery.
+    const Value maintenance_request(Value::Object{{"schema", Value("usk.repair_apply_request.v1")},
+        {"transaction_id", Value("repair.synthetic")}, {"reviewed_plan_digest", Value(std::string(64, 'e'))},
+        {"plan_request", Value(Value::Object{{"install_id", Value("org.example.synthetic")}})}});
+    auto maintenance_broker = phase_broker;
+    const auto maintenance_request_sha = usk::json::sha256_canonical(maintenance_request);
+    maintenance_broker.as_object().at("request_sha256") = Value(maintenance_request_sha);
+    maintenance_broker.as_object().at("custody").as_object().at("request_sha256") = Value(maintenance_request_sha);
+    const Value lease_root(Value::Object{{"file_id", Value(std::string(31, '0') + "1")}, {"volume_serial", Value("4660")}});
+    const Value lease_holder(Value::Object{{"process_id", Value(std::uint64_t{600})},
+        {"process_creation_time", Value("0000000000000600")}});
+    const usk::transaction::InstallLeaseRequest lease_request{"org.example.synthetic", "repair", "repair.synthetic",
+        "attempt.synthetic", std::string(64, 'b'), false, std::string(64, 'f')};
+    const auto maintenance_lease = usk::transaction::derive_install_lease_ownership({}, lease_request,
+        lease_root, lease_holder, std::string(64, 'b'));
+    const Value maintenance_original(Value::Object{{"schema", Value("usk.publisher.maintenance_original_custody.v3")},
+        {"transaction_id", Value("repair.synthetic")}, {"operation", Value("repair")}, {"plan_digest", Value(std::string(64, 'e'))},
+        {"original_context_sha256", Value(std::string(64, 'f'))}, {"original_lease_ownership", maintenance_lease},
+        {"worker_security", child_security}, {"process_boundary", child_boundary},
+        {"registration_sha256", Value(usk::json::sha256_canonical(maintenance_broker.at("registered_admission")))},
+        {"authenticated_client", client}, {"original_consumer_completion", Value{}}, {"installed_root", object(6)},
+        {"installed_root_journal_identity", Value("synthetic")}, {"original_objects", Value(Value::Array{})},
+        {"broker_readback", maintenance_broker}});
+    require_publisher_effect_maintenance_original_record(maintenance_original, maintenance_request, name);
+    const auto refuses_maintenance = [&](const std::function<void(Value&)>& mutate) {
+        auto changed = maintenance_original; mutate(changed); bool refused = false;
+        try { require_publisher_effect_maintenance_original_record(changed, maintenance_request, name); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "synthetic child maintenance original custody accepted contradictory provenance");
+    };
+    refuses_maintenance([](Value& v) { v.as_object().at("schema") = Value("usk.publisher.maintenance_original_custody.v2"); });
+    refuses_maintenance([](Value& v) { v.as_object().erase("broker_readback"); });
+    refuses_maintenance([](Value& v) { v.as_object().emplace("supplied_authority", Value(true)); });
+    refuses_maintenance([](Value& v) { v.as_object().at("worker_security").as_object().at("process_id") = Value(std::uint64_t{500}); });
+    refuses_maintenance([](Value& v) { v.as_object().at("process_boundary").as_object().at("process_id") = Value(std::uint64_t{500}); });
+    refuses_maintenance([](Value& v) { v.as_object().at("broker_readback").as_object().at("custody").as_object()
+        .at("peer_process_birth") = Value("0000000000000601"); });
+    refuses_maintenance([](Value& v) { v.as_object().at("broker_readback").as_object().at("request_sha256") = Value(std::string(64, 'a'));
+        v.as_object().at("broker_readback").as_object().at("custody").as_object().at("request_sha256") = Value(std::string(64, 'a')); });
+    refuses_maintenance([](Value& v) { v.as_object().at("registration_sha256") = Value(std::string(64, 'a')); });
+    refuses_maintenance([](Value& v) { v.as_object().at("authenticated_client").as_object().at("token_id") = Value(std::uint64_t{803}); });
+    refuses_maintenance([](Value& v) { v.as_object().at("plan_digest") = Value(std::string(64, 'a')); });
+    auto other_request = maintenance_request;
+    other_request.as_object().at("transaction_id") = Value("repair.another");
+    bool other_request_refused = false;
+    try { require_publisher_effect_maintenance_original_record(maintenance_original, other_request, name); }
+    catch (const std::exception&) { other_request_refused = true; }
+    check(other_request_refused, "synthetic custody reused another original reviewed request");
     auto phase_execution = valid;
     phase_execution.as_object().at("broker_readback") = phase_broker;
     phase_execution.as_object().at("handles").as_array().at(3).as_object().at("granted_access") =

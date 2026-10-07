@@ -3,8 +3,11 @@
 #include "usk_publisher_effect_execution_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_process_boundary.h"
+#include "usk_install_lease.h"
 #include <atomic>
 #include <limits>
+#include <filesystem>
+#include <set>
 #include <stdexcept>
 
 namespace usk::platform::windows {
@@ -167,6 +170,48 @@ PublisherNativeExecutionObservation observe_current_publisher_native_execution_o
     // The legacy route still corroborates this actual current SCM process.
     const auto service = observe_current_restricted_publisher_service(name);
     return {service, PublisherWorkerTokenContext{service.process_id, service.service_sid, service.token}};
+}
+void require_publisher_effect_maintenance_original_record(const Value& original,
+    const Value& request, const std::wstring& service_name) {
+    const std::set<std::string> fields{"schema", "transaction_id", "operation", "plan_digest",
+        "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
+        "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root",
+        "installed_root_journal_identity", "original_objects", "broker_readback"};
+    require(original.as_object().size() == fields.size(), "child maintenance original custody is not closed");
+    for (const auto& item : original.as_object())
+        require(fields.count(item.first) != 0, "child maintenance original custody has an unknown field");
+    require(original.at("schema").as_string() == "usk.publisher.maintenance_original_custody.v3",
+        "child maintenance original custody has another provenance family");
+    const auto& broker = original.at("broker_readback");
+    const auto worker = publisher_effect_worker_record_context(broker);
+    const auto service = publisher_effect_broker_service_record(broker);
+    require_publisher_worker_security(original.at("worker_security"), worker);
+    require_publisher_process_boundary(original.at("process_boundary"), worker.process_id,
+        worker.service_sid, worker.token.process_groups);
+    const auto& lease = original.at("original_lease_ownership");
+    usk::transaction::require_install_lease_record(lease);
+    const auto& operation = original.at("operation").as_string();
+    const auto& arguments = broker.at("service_configuration").at("arguments").as_array();
+    const auto schema = operation == "repair" ? "usk.repair_apply_request.v1" :
+        operation == "move" ? "usk.move_apply_request.v1" :
+        operation == "uninstall" ? "usk.uninstall_apply_request.v1" : "";
+    require(schema[0] != '\0' && request.at("schema").as_string() == schema &&
+        arguments.size() == 11 && arguments.at(5).as_string() == "--reviewed-plan-envelope" &&
+        service.service_name == service_name && service.process_id != worker.process_id &&
+        broker.at("request_sha256").as_string() == usk::json::sha256_canonical(request) &&
+        original.at("registration_sha256").as_string() == usk::json::sha256_canonical(broker.at("registered_admission")) &&
+        original.at("plan_digest").as_string() == request.at("reviewed_plan_digest").as_string() &&
+        same(original.at("authenticated_client"), broker.at("authenticated_client")) &&
+        lease.at("status").as_string() == "active" && lease.at("operation").as_string() == operation &&
+        lease.at("operation_id").as_string() == original.at("transaction_id").as_string() &&
+        lease.at("operation_id").as_string() == request.at("transaction_id").as_string() &&
+        lease.at("install_id").as_string() == request.at("plan_request").at("install_id").as_string() &&
+        lease.at("operation_context_sha256").as_string() == original.at("original_context_sha256").as_string() &&
+        lease.at("state_root_identity").at("volume_serial").as_string() ==
+            broker.at("registered_admission").at("target_identity").at("volume_identity").at("volume_serial").as_string() &&
+        lease.at("holder").at("process_id").as_unsigned() == worker.process_id &&
+        lease.at("holder").at("process_creation_time").as_string() == broker.at("custody").at("peer_process_birth").as_string(),
+        "child maintenance original custody lost its actual broker/worker/lease/request/caller provenance");
 }
 }
 #endif

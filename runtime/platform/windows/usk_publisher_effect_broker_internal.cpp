@@ -581,7 +581,7 @@ struct PublisherEffectWorkerNativeSecurity::State {
         continuity = std::make_unique<PublisherWorkerSecurityContinuity>(settled);
         (void)observe();
     }
-    Value observe() {
+    Value observe(const std::string& failure_context = {}) {
         try {
             require(!failed && thread_id == GetCurrentThreadId() && GetCurrentProcessId() == original.process_id,
                 "effect security original execution process/thread changed");
@@ -590,7 +590,7 @@ struct PublisherEffectWorkerNativeSecurity::State {
             const auto current_process = observe_current_publisher_process_boundary();
             require_publisher_process_boundary(current_process, current.process_id, current.service_sid, current.token.process_groups);
             require(same(current_process, process), "effect security original process owner/DACL changed");
-            const auto security = continuity->observe_current();
+            const auto security = continuity->observe_current(failure_context);
             require_publisher_worker_security(security, current);
             require(same(token(observe_current_publisher_token()), token(original.token)) &&
                 same(observe_current_publisher_process_boundary(), process) &&
@@ -606,6 +606,6 @@ struct PublisherEffectWorkerNativeSecurity::State {
 PublisherEffectWorkerNativeSecurity::PublisherEffectWorkerNativeSecurity(PublisherEffectWorkerReadback& r) :
     state_(std::make_unique<State>(r)) {}
 PublisherEffectWorkerNativeSecurity::~PublisherEffectWorkerNativeSecurity() = default;
-Value PublisherEffectWorkerNativeSecurity::observe_current() { return state_->observe(); }
+Value PublisherEffectWorkerNativeSecurity::observe_current(const std::string& context) { return state_->observe(context); }
 }
 #endif
