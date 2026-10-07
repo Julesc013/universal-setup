@@ -3770,20 +3770,20 @@
       "source_digest": "e2150edcb2730b4e8305dc428ff532580bfbb46c302ebc0b48c5708ce00fbb9c"
     },
     ".aide/policies/commit-message-dispositions.yaml": {
-      "installed_digest": "8d8b00e406860ea17ee1ce127a11dbe4ceb987f411c692cd6c55b62274637315",
+      "installed_digest": "d41ea7ce2d269cbb97a855bb348f6e445ceee1a424c4557d83ac754befc7ef22",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/commit-message-dispositions.yaml",
-      "source_digest": "8d8b00e406860ea17ee1ce127a11dbe4ceb987f411c692cd6c55b62274637315"
+      "source_digest": "d41ea7ce2d269cbb97a855bb348f6e445ceee1a424c4557d83ac754befc7ef22"
     },
     ".aide/policies/commit-messages.yaml": {
-      "installed_digest": "85fa6e874adf83d41779a40a0c2a8fecad2e80240bfba1aad10bd0eec7929390",
+      "installed_digest": "3aa06da9ebd802637ce9ba28bd7a7901eb2ce2aceffccbe3e27698fbf09e1898",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/commit-messages.yaml",
-      "source_digest": "85fa6e874adf83d41779a40a0c2a8fecad2e80240bfba1aad10bd0eec7929390"
+      "source_digest": "3aa06da9ebd802637ce9ba28bd7a7901eb2ce2aceffccbe3e27698fbf09e1898"
     },
     ".aide/policies/controller.yaml": {
       "installed_digest": "72c34303d80c66ac4e18ac7b2fcce7c5a12e24a5155f5ebc2d78c690919f56c4",
@@ -5370,12 +5370,12 @@
       "source_digest": "da42bfdea1680445c6d272cbd1d3f09b394a5c8b670b15fbd014aa93520d45ea"
     },
     ".aide/scripts/aide_lite.py": {
-      "installed_digest": "7a75c172d1dfb76946d39087d9f034cdeec2c892cbf2ee2453663c06f01dbf1c",
+      "installed_digest": "bd66068522077f0bc30031c2de15a7c9f73aa5e35e7f19e11cb4719b28dcbde7",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/aide_lite.py",
-      "source_digest": "7a75c172d1dfb76946d39087d9f034cdeec2c892cbf2ee2453663c06f01dbf1c"
+      "source_digest": "bd66068522077f0bc30031c2de15a7c9f73aa5e35e7f19e11cb4719b28dcbde7"
     },
     ".aide/scripts/tests/test_adapter_compiler.py": {
       "installed_digest": "ca38e9df4799cb125da26b55e21d031ee7367998a096ad91aba2094783189ed2",
@@ -5482,12 +5482,12 @@
       "source_digest": "c149841374744abbd649ec92f649347959c657b43a61173f259cec08683dca65"
     },
     ".aide/scripts/tests/test_q27_commit_recovery.py": {
-      "installed_digest": "c557d944693bd6be4ebeadbe08d813e6731b2f665b4295093677fa2f9e590176",
+      "installed_digest": "3ef26e1d1acc58734a85fe23e77a78ea2fc7a79c3f882d06ff7d29ad18a2b90b",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_q27_commit_recovery.py",
-      "source_digest": "c557d944693bd6be4ebeadbe08d813e6731b2f665b4295093677fa2f9e590176"
+      "source_digest": "3ef26e1d1acc58734a85fe23e77a78ea2fc7a79c3f882d06ff7d29ad18a2b90b"
     },
     ".aide/scripts/tests/test_q28_git_workflow.py": {
       "installed_digest": "a236211910a30da4e747401aa2695cd58a90724ddce7f5184c14803604b291ce",
@@ -6202,12 +6202,12 @@
       "source_digest": "c4797c496859e63fae83a4a29a20401aeaf2e02f26513a1daa07019dd1b8ae11"
     },
     "docs/reference/aide-lite-test-runner.md": {
-      "installed_digest": "8ef11d64dd800552b20732b947a0f4eefd222e4f8c2570949cbe0d41a7b32c1b",
+      "installed_digest": "2626d82572e894b0ccbb55fed54a1474e6b7d9506f80185e59f90445442c9f19",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/aide-lite-test-runner.md",
-      "source_digest": "8ef11d64dd800552b20732b947a0f4eefd222e4f8c2570949cbe0d41a7b32c1b"
+      "source_digest": "2626d82572e894b0ccbb55fed54a1474e6b7d9506f80185e59f90445442c9f19"
     },
     "docs/reference/aide-lite.md": {
       "installed_digest": "f88e5c4344054f91f7eb88c9107dfc5562a8af084565ebbf02cff116addca7b5",
@@ -6290,12 +6290,12 @@
       "source_digest": "ed9e5bcc9854d92996bdbba96f88289f7b0b964cf3b3d67f4fc3fe2b67fd1d87"
     },
     "docs/reference/commit-discipline.md": {
-      "installed_digest": "62200b41dfb82a0a075463ea11f09ab7ff70b46530ac7c02782671e4c6c20eab",
+      "installed_digest": "624bc9971ef74c0f0e2ca94dfad02a939c5261e7ca18f3c8f92a99a03a07639d",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/commit-discipline.md",
-      "source_digest": "62200b41dfb82a0a075463ea11f09ab7ff70b46530ac7c02782671e4c6c20eab"
+      "source_digest": "624bc9971ef74c0f0e2ca94dfad02a939c5261e7ca18f3c8f92a99a03a07639d"
     },
     "docs/reference/cross-repo-pack-export-import.md": {
       "installed_digest": "33609c73ec98953286f551fbd71cc2a3ea21cd8cb33fd8a0d0a94b4f62bad54a",
@@ -6557,16 +6557,21 @@
   "mode": "safe",
   "network_calls": false,
   "pack": {
+    "checksums_digest": "7354fa79e8c83e5813fbb699f8284bd03c12b6c2a3c5b2e9935d10c3c7ebd90f",
+    "manifest_digest": "71f7a6fe8c598aae09e0e89014707132b890650d1f2cdfd58f0d0362c6d957e3",
+    "pack_id": "aide-lite-pack-v0",
+    "source_commit": "6c37af95393dade9092dbfc788f466be34ff2c7c"
+  },
+  "pack_id": "aide-lite-pack-v0",
+  "plan_digest": "0319815994876d5094971e785f625f7518b46a97b9bfae05b2e7642e040220bf",
+  "predecessor_pack": {
     "checksums_digest": "dd564384415f06165d53f4de492840131dfd74f230485c2326fba8e44df10a2d",
     "manifest_digest": "81c215bdf9f21ccda65f06a848cca0c1d1101d8f54e1b5b06aff8544b1398ec9",
     "pack_id": "aide-lite-pack-v0",
     "source_commit": "27338811d14b3314a98434a68be4a7d7d56b6667"
   },
-  "pack_id": "aide-lite-pack-v0",
-  "plan_digest": "3de5a4b134e491290bb2b3bca2e933563894a8e5174ab086a6545800a442b741",
-  "predecessor_pack": null,
   "project_controls_digest": "missing",
   "provider_or_model_calls": false,
-  "receipt_digest": "458f50aa9fe468894a769f27d02d0a4b5e4fd8494cebda68e2dbbabf943433c5",
+  "receipt_digest": "a92903de50cadaadeb0eac85b0122f9677bf7473621254ed482ebe4ef8921758",
   "schema_version": "aide.portable-import-receipt.v2"
 }

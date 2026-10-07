@@ -331,3 +331,22 @@ creates other private output can still cause a monitored job to stop and require
 owned recovery. Whole-client containment and a hard filesystem quota remain
 unqualified. Native measurement, affected checks and retirement evidence must
 be recorded before calling this repair qualified.
+# Owner-directed testing allowance
+
+Necessary campaign tests are authorized through existing machine resources
+and signed-in OpenAI/ChatGPT/Codex access, within the admitted WorkUnit's finite
+attempt and resource limits. Record the campaign-local `codex_exec` allowance
+once; a routine test within it does not require another owner response.
+This is not permission for purchases, API billing fallback, new provider
+subscriptions or rented infrastructure. The managed adapter requires
+`account: chatgpt`, an exact admitted model/effort and finite turn count; other
+accounts and provider/billing override fields refuse before host dispatch.
+
+An unavailable service leaves its exact capability unqualified. Use an
+adequate authorized alternative when available and continue independent work.
+Never report a mock as live service evidence or replay an uncertain request.
+The existing observer and request-identity guard own unchanged waiting; an
+unchanged blocker neither submits work nor needs another model recheck.
+These rules preserve approved storage, cleanup, reserves and the separately
+qualified execution scope; they do not constrain this unrestricted outer
+client or imply a hard disk quota.

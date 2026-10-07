@@ -4526,6 +4526,89 @@ def commit_message_result(checks: Iterable[Check]) -> str:
     return result_from_checks(checks)
 
 
+def normalize_commit_draft(message: str) -> str:
+    """Mechanical layout only; never invent headings, claims or trailers."""
+    lines = message.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    headings = {heading.lower(): heading for heading in COMMIT_REQUIRED_BODY_HEADINGS}
+    fence = ""
+    for index, line in enumerate(lines):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if marker:
+            token = marker.group(1)
+            if not fence and not (token[0] == "`" and "`" in marker.group(2)):
+                fence = token
+            elif (fence and token[0] == fence[0] and len(token) >= len(fence)
+                  and not marker.group(2).strip()):
+                fence = ""
+            continue
+        if (not fence and re.match(r"^ {0,3}##[ \t]", line)
+                and line.strip().lower() in headings):
+            lines[index] = headings[line.strip().lower()]
+    if len(lines) > 1 and lines[0] and lines[1].strip():
+        lines.insert(1, "")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def historical_message_is_presentation_only(message: str, checks: Iterable[Check]) -> bool:
+    """Classify syntax only; this never certifies descriptions or test evidence."""
+    presentation = {
+        "commit subject is 72 characters or fewer",
+        "commit subject has no trailing period",
+        "blank line separates subject and Markdown body",
+        "validation section records PASS/WARN/FAIL/NOT RUN outcome",
+        "changelog section uses a machine-readable category prefix",
+        *(f"commit body heading has bullet content: {h}" for h in COMMIT_REQUIRED_BODY_HEADINGS),
+        *(f"commit trailer present: {t}" for t in COMMIT_TRAILERS),
+    }
+    failures = [check.message for check in checks if check.severity == "FAIL"]
+    if not failures or any(failure not in presentation for failure in failures):
+        return False
+    body = strip_commit_message_comments(message)
+    for heading in COMMIT_REQUIRED_BODY_HEADINGS:
+        section = re.sub(r"^AIDE-[A-Za-z-]+:.*$", "", markdown_heading_body(body, heading), flags=re.MULTILINE)
+        if len(re.findall(r"[A-Za-z]", section)) < 8:
+            return False
+        words = re.sub(r"[^a-z]+", " ", section.lower()).strip()
+        if re.fullmatch(r"(?:todo|tbd|pending|unknown|placeholder|not provided|see elsewhere)(?:\s+(?:todo|tbd|pending|unknown|placeholder))*", words):
+            return False
+    validation = markdown_heading_body(body, "## Validation")
+    if re.search(r"\b(?:unknown|uncertain|undetermined|ambiguous|will|would|should|might)\b|\bpass\s+or\s+fail\b",
+                 validation, re.IGNORECASE):
+        return False
+    # Preserve lower-case prose and explicitly unrun checks; never invent PASS.
+    return bool(re.search(r"\b(?:PASS|WARN|FAIL|NOT RUN)\b", validation)
+                or re.search(r"\b(?:passed|failed|not run|not rerun|unrun)\b", validation, re.IGNORECASE))
+
+
+def historical_presentation_boundary(repo_root: Path) -> str:
+    """An explicitly adopted, local immutable cutoff; absence stays strict."""
+    path = repo_root / COMMIT_MESSAGE_POLICY_PATH
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+        return ""
+    policy = read_text(path)
+    entries = re.findall(r"^historical_presentation_advisory_through:[ \t]*([0-9a-f]{40}|[0-9a-f]{64})[ \t]*$",
+                         policy, re.MULTILINE)
+    declarations = re.findall(r"^historical_presentation_advisory_through:", policy, re.MULTILINE)
+    if len(entries) != 1 or len(declarations) != 1:
+        return ""
+    try:
+        git_commit_object_facts(repo_root, entries[0])
+    except ValueError:
+        return ""
+    return entries[0]
+
+
+def commit_is_within_historical_boundary(repo_root: Path, commit_hash: str, boundary: str) -> bool:
+    if not boundary:
+        return False
+    env = dict(os.environ)
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    result = subprocess.run(["git", "merge-base", "--is-ancestor", commit_hash, boundary],
+                            cwd=repo_root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            check=False, timeout=10)
+    return result.returncode == 0
+
+
 def git_latest_commit_message(repo_root: Path) -> str:
     env = dict(os.environ)
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
@@ -23668,7 +23751,7 @@ def run_golden_commit_message_standard(repo_root: Path) -> GoldenTaskResult:
         for marker in [
             "range_checks_only: true",
             "exact_commit_object_required: true",
-            "accepted_human_review_required: true",
+            "exact_exception_human_review_required: true",
             "raw_mode_flag: --no-dispositions",
         ]:
             check_pass(checks, marker in policy, f"historical disposition policy contains {marker}")
@@ -33621,6 +33704,9 @@ def command_eval_report(args: argparse.Namespace) -> int:
 
 
 def command_commit_check(args: argparse.Namespace) -> int:
+    normalize_draft = getattr(args, "normalize_draft", False)
+    if normalize_draft and (args.range or args.latest or not (args.message_file or args.message)):
+        raise ValueError("draft normalization requires an explicit new message, never history")
     sources = [bool(args.message_file), bool(args.message), bool(args.latest), bool(args.range)]
     if sum(sources) != 1:
         raise ValueError("use exactly one of --message-file, --message, --latest, or --range")
@@ -33629,9 +33715,13 @@ def command_commit_check(args: argparse.Namespace) -> int:
     if args.range:
         commits = git_commit_messages_for_range(args.repo_root, args.range, max_count=args.max_count)
         registry, registry_present = load_commit_message_dispositions(args.repo_root)
+        raw_mode = getattr(args, "no_dispositions", False)
+        boundary = "" if raw_mode else historical_presentation_boundary(args.repo_root)
+        registry_errors = validate_historical_disposition_registry(args.repo_root, registry)
         results: list[tuple[str, str, str, list[Check], dict[str, object] | None]] = []
         any_unresolved_fail = False
         any_disposition = False
+        any_presentation_advisory = False
         for commit_hash, subject, message in commits:
             checks = validate_commit_message_text(message)
             result = commit_message_result(checks)
@@ -33648,13 +33738,21 @@ def command_commit_check(args: argparse.Namespace) -> int:
                 if disposition and disposition.get("effective") is True:
                     result = "DISPOSITIONED"
                     any_disposition = True
+                elif (not raw_mode and not registry_errors
+                      and not any(isinstance(record, dict) and record.get("commit") == commit_hash
+                                  for record in registry.get("records", []))
+                      and historical_message_is_presentation_only(message, checks)
+                      and commit_is_within_historical_boundary(args.repo_root, commit_hash, boundary)):
+                    result = "PRESENTATION_ADVISORY"
+                    any_presentation_advisory = True
                 else:
                     any_unresolved_fail = True
             results.append((commit_hash, subject, result, checks, disposition))
         range_result = (
             "FAIL"
             if any_unresolved_fail
-            else ("PASS_WITH_DISPOSITIONS" if any_disposition else ("PASS" if commits else "WARN"))
+            else ("PASS_WITH_WARNINGS" if any_presentation_advisory else
+                  ("PASS_WITH_DISPOSITIONS" if any_disposition else ("PASS" if commits else "WARN")))
         )
         print("AIDE Lite commit range check")
         print(f"result: {range_result}")
@@ -33663,13 +33761,16 @@ def command_commit_check(args: argparse.Namespace) -> int:
         print(f"policy: {COMMIT_MESSAGE_POLICY_PATH}")
         print(f"disposition_policy: {COMMIT_MESSAGE_DISPOSITION_POLICY_PATH}")
         print(f"dispositions: {'disabled' if getattr(args, 'no_dispositions', False) else ('loaded' if registry_present else 'absent')}")
+        print(f"historical_presentation_boundary: {boundary or 'disabled_or_absent'}")
         for commit_hash, subject, result, checks, disposition in results:
             print(f"- {commit_hash[:7]} {result} {subject}")
             for check in checks:
                 if check.severity != "PASS":
-                    prefix = "original_failure" if result == "DISPOSITIONED" and check.severity == "FAIL" else check.severity
+                    prefix = "original_failure" if result in ("DISPOSITIONED", "PRESENTATION_ADVISORY") and check.severity == "FAIL" else check.severity
                     print(f"  - {prefix}: {check.message}")
-            if disposition and (registry_present or disposition.get("effective") is True):
+            if result == "PRESENTATION_ADVISORY":
+                print("  - warning: syntax only; descriptions, changelog accuracy and evidence remain independently required")
+            elif disposition and (registry_present or disposition.get("effective") is True):
                 print(f"  - disposition_id: {disposition.get('disposition_id', '') or '<none>'}")
                 print(f"  - disposition_status: {disposition.get('status', 'missing')}")
                 for error in disposition.get("errors", []):
@@ -33685,12 +33786,19 @@ def command_commit_check(args: argparse.Namespace) -> int:
     else:
         text = git_latest_commit_message(args.repo_root)
         source = "git log -1 --pretty=%B"
+    if normalize_draft:
+        if len(text.encode("utf-8")) > 128 * 1024:
+            raise ValueError("draft exceeds 128 KiB")
+        text = normalize_commit_draft(text)
     checks = validate_commit_message_text(text)
     result = commit_message_result(checks)
     print("AIDE Lite commit check")
     print(f"result: {result}")
     print(f"source: {source}")
     print(f"policy: {COMMIT_MESSAGE_POLICY_PATH}")
+    if normalize_draft and result == "PASS":
+        print("normalized_message_json: " + json.dumps(text))
+        print("normalized_message_sha256: " + hashlib.sha256(text.encode("utf-8")).hexdigest())
     print(f"standard: {COMMIT_MESSAGE_STANDARD_PATH}")
     for check in checks:
         print(f"- {check.severity} {check.message}")
@@ -45857,6 +45965,7 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     commit_check_parser.add_argument("--range", help="Validate all commits in a Git revision range, such as BASE..HEAD.")
     commit_check_parser.add_argument("--max-count", type=int, help="Limit range validation to the latest N commits in the range.")
     commit_check_parser.add_argument("--no-dispositions", action="store_true", help="Report raw range-policy results without historical dispositions.")
+    commit_check_parser.add_argument("--normalize-draft", action="store_true", help="Preview mechanical layout normalization for an explicit draft; emit it only after strict validation, never modify files/history.")
     commit_check_parser.set_defaults(handler=command_commit_check)
     commit_create_parser = commit_subparsers.add_parser("create", help="Guard one normal local commit; dry-run by default.")
     commit_create_parser.add_argument("--message-file", required=True, help="Exact bounded checkout-relative UTF-8 LF message.")

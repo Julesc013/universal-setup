@@ -115,6 +115,7 @@ trailers:
     - AIDE-Branch-Role
     - AIDE-Integration-Target
 automation:
+  normalize_new_draft: "py -3 .aide/scripts/aide_lite.py commit check --message-file <path> --normalize-draft"
   checker_command: "py -3 .aide/scripts/aide_lite.py commit check --message-file <path>"
   latest_commit_check: "py -3 .aide/scripts/aide_lite.py commit check --latest"
   range_check: "py -3 .aide/scripts/aide_lite.py commit check --range <base>..HEAD"
@@ -127,10 +128,15 @@ automation:
 enforcement:
   existing_history: report_malformed_do_not_rewrite
   latest_commit: fail_for_new_q27_and_later_commits
-  range_check: fail_if_any_in_scope_commit_fails
+  range_check: fail_for_substantive_or_unclassified_faults_advisory_for_adopted_cosmetic_history
   hook_installation: opt_in
 non_goals:
   - no network calls
   - no provider calls
   - no automatic release publishing
   - no rewriting published history
+
+# Owner-directed 2026-10-07 adoption. Only ancestors of this immutable local
+# checkpoint qualify. Future commits and repositories without this object stay
+# strict. Targets must adopt their own boundary; this is not target authority.
+historical_presentation_advisory_through: 143ed76134c7fa19b8954e6061df3c1799206403

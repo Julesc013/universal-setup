@@ -1,16 +1,18 @@
 schema_version: aide.commit-message-disposition-policy.v1
 policy_id: aide-exact-historical-commit-message-dispositions-v1
-status: proposed_for_review
+status: adopted_with_presentation_advisories
 purpose: >
-  Permit a separately reviewed, exact-record disposition for an immutable
-  historical commit-message failure without changing the original message or
-  weakening the active standard for new commits.
+  Retain separately reviewed exact-record dispositions for immutable historical
+  failures. Owner-adopted presentation-only history is advisory within the
+  frozen commit-messages.yaml boundary, without individual acceptance records.
+  Neither path changes original messages or the active standard for new commits.
 applicability:
   range_checks_only: true
   latest_checks_remain_strict: true
   message_file_checks_remain_strict: true
   exact_commit_object_required: true
-  accepted_human_review_required: true
+  exact_exception_human_review_required: true
+  presentation_advisory_individual_review_required: false
 identity:
   required:
     - full_commit_object_id

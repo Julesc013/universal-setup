@@ -23,7 +23,7 @@ provenance_file = "external/zlib/provenance.v1.toml"
 # Optional development tooling; not linked or included in runtime packages.
 [[third_party_development_dependency]]
 id = "aide-lite"
-version = "1402003782ee9e23d3892065f3b4e4dc329ccbfe"
+version = "581acb8443b43ef8167630d676c33c2cc4373892"
 spdx_license_expression = "Apache-2.0"
 license_file = "external/aide/LICENSE"
 notice_file = "external/aide/NOTICE"

@@ -11,9 +11,9 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ".aide/install/aide-lite-pack-v0.receipt.json"
-RECEIPT_SHA256 = "acfb447755fd49d059d3275a2cc66c65f0fed00821d50996ae3b006ec57523a2"
-SOURCE_MAIN = "1402003782ee9e23d3892065f3b4e4dc329ccbfe"
-EXPORT_SOURCE = "27338811d14b3314a98434a68be4a7d7d56b6667"
+RECEIPT_SHA256 = "a31c4863195e17ea50d9a7079d281b2632c5ce95be03c797d709ebc55116988a"
+SOURCE_MAIN = "581acb8443b43ef8167630d676c33c2cc4373892"
+EXPORT_SOURCE = "6c37af95393dade9092dbfc788f466be34ff2c7c"
 LICENSES = {
     "LICENSE": "4dc06d89797867a708e238be9df8c67f9c6395a29f783b00b009cdf80a0bf9c5",
     "NOTICE": "2246ed3f6738e9a9175648ecb6fdc6fc0423b96e4a2db7e6a8c70727c4ca9950",
@@ -79,8 +79,8 @@ def validate(root: Path = ROOT) -> tuple[list[str], set[Path]]:
                 or receipt.get("network_calls") is not False
                 or receipt.get("provider_or_model_calls") is not False
                 or receipt.get("pack") != {
-                    "checksums_digest": "dd564384415f06165d53f4de492840131dfd74f230485c2326fba8e44df10a2d",
-                    "manifest_digest": "81c215bdf9f21ccda65f06a848cca0c1d1101d8f54e1b5b06aff8544b1398ec9",
+                    "checksums_digest": "7354fa79e8c83e5813fbb699f8284bd03c12b6c2a3c5b2e9935d10c3c7ebd90f",
+                    "manifest_digest": "71f7a6fe8c598aae09e0e89014707132b890650d1f2cdfd58f0d0362c6d957e3",
                     "pack_id": "aide-lite-pack-v0",
                     "source_commit": EXPORT_SOURCE,
                 }):

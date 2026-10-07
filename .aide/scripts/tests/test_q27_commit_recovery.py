@@ -22,6 +22,57 @@ SPEC.loader.exec_module(aide_lite)
 
 
 class Q27CommitRecoveryTests(unittest.TestCase):
+    def test_draft_normalization_preserves_content_and_strictly_validates(self) -> None:
+        good = aide_lite.COMMIT_GOOD_EXAMPLE
+        draft = good.replace("\n\n## Summary", "\n## summary", 1).replace("## Validation", "## validation").replace("\n", "\r\n")
+        normalized = aide_lite.normalize_commit_draft(draft)
+        self.assertEqual(normalized, good.rstrip("\n") + "\n")
+        self.assertEqual(self.result_for(normalized), "PASS")
+        self.assertEqual(aide_lite.normalize_commit_draft(normalized), normalized)
+
+    def test_draft_normalization_preserves_fenced_examples(self) -> None:
+        draft = "fix(aide): preserve example content\n```text\n## summary\n  literal  \n```\n## summary\n"
+        normalized = aide_lite.normalize_commit_draft(draft)
+        self.assertIn("```text\n## summary\n  literal  \n```", normalized)
+        self.assertTrue(normalized.endswith("## Summary\n"))
+
+    def test_draft_preview_emits_exact_valid_message_and_digest(self) -> None:
+        import hashlib
+        draft = aide_lite.COMMIT_GOOD_EXAMPLE.replace("## Summary", "## summary")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = aide_lite.main(["commit", "check", "--message", draft, "--normalize-draft"])
+        self.assertEqual(code, 0)
+        fields = dict(line.split(": ", 1) for line in buffer.getvalue().splitlines() if ": " in line and not line.startswith("-"))
+        message = json.loads(fields["normalized_message_json"])
+        self.assertEqual(message, aide_lite.COMMIT_GOOD_EXAMPLE.rstrip("\n") + "\n")
+        self.assertEqual(fields["normalized_message_sha256"], hashlib.sha256(message.encode()).hexdigest())
+
+    def test_draft_normalization_preserves_nonclosing_markers_and_indented_examples(self) -> None:
+        draft = "fix(aide): preserve code examples\n\n```text\n```not-a-close\n## summary\n    ```\n## risks\n```\n    ## validation\n## summary\n"
+        normalized = aide_lite.normalize_commit_draft(draft)
+        self.assertIn("```not-a-close\n## summary\n    ```\n## risks\n```", normalized)
+        self.assertIn("    ## validation\n", normalized)
+        self.assertTrue(normalized.endswith("## Summary\n"))
+
+    def test_draft_preview_does_not_invent_missing_content_or_emit_failed_message(self) -> None:
+        for draft in (aide_lite.COMMIT_GOOD_EXAMPLE.replace("## Validation", "## Other"),
+                      aide_lite.COMMIT_GOOD_EXAMPLE.replace("AIDE-Result:", "Other-Result:")):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = aide_lite.main(["commit", "check", "--message", draft, "--normalize-draft"])
+            self.assertEqual(code, 1)
+            self.assertNotIn("normalized_message_json:", buffer.getvalue())
+            self.assertEqual(aide_lite.normalize_commit_draft(draft), draft.rstrip("\n") + "\n")
+
+    def test_draft_preview_never_operates_on_history(self) -> None:
+        for arguments in (["--latest"], ["--range", "HEAD~1..HEAD"], []):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+                code = aide_lite.main(["commit", "check", "--normalize-draft", *arguments])
+            self.assertNotEqual(code, 0)
+            self.assertNotIn("normalized_message_json:", buffer.getvalue())
+
     def test_review_date_allows_ahead_of_utc_civil_timezones(self) -> None:
         self.assertEqual(
             aide_lite.latest_possible_local_review_date(datetime(2026, 9, 24, 22, 0, tzinfo=timezone.utc)).isoformat(),
@@ -506,6 +557,100 @@ class Q27CommitRecoveryTests(unittest.TestCase):
 
     def test_source_disposition_registry_is_not_exportable(self) -> None:
         self.assertTrue(aide_lite.is_forbidden_export_path(aide_lite.COMMIT_MESSAGE_DISPOSITIONS_PATH))
+
+    def presentation_fixture(self):
+        temp, root, _oid, _message, _checks = self.make_commit_fixture()
+        self.addCleanup(temp.cleanup)
+        message = aide_lite.COMMIT_GOOD_EXAMPLE.replace(
+            "- `py -3 .aide/scripts/aide_lite.py commit check --message-file fixture`: PASS.",
+            "Local checks passed; native tests remain unrun.",
+        ).replace("- Added:", "Reproducible changes:")
+        message = "\n".join(line for line in message.splitlines() if not line.startswith("AIDE-")) + "\n"
+        subprocess.run(["git", "-C", str(root), "commit", "--quiet", "--allow-empty", "-F", "-"],
+                       input=message, text=True, encoding="utf-8", check=True)
+        oid, _subject, actual = aide_lite.git_commit_messages_for_range(root, "HEAD^..HEAD")[0]
+        return root, oid, actual
+
+    def adopt_boundary(self, root, oid):
+        path = root / aide_lite.COMMIT_MESSAGE_POLICY_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"historical_presentation_advisory_through: {oid}\n", encoding="utf-8")
+
+    def range_output(self, root, *options):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = aide_lite.main(["--repo-root", str(root), "commit", "check",
+                                  "--range", "HEAD^..HEAD", *options])
+        return code, output.getvalue()
+
+    def test_adopted_cosmetic_history_warns_preserves_objects_and_raw_failure(self):
+        root, oid, message = self.presentation_fixture()
+        self.assertEqual(self.range_output(root)[0], 1)  # No adopted rule.
+        self.adopt_boundary(root, oid)
+        before = aide_lite.git_commit_object_facts(root, oid)
+        code, output = self.range_output(root)
+        self.assertEqual(code, 0, output)
+        self.assertIn("result: PASS_WITH_WARNINGS", output)
+        self.assertIn("PRESENTATION_ADVISORY", output)
+        self.assertIn("original_failure:", output)
+        self.assertEqual(aide_lite.git_commit_object_facts(root, oid), before)
+        self.assertEqual(aide_lite.git_latest_commit_message(root).rstrip(), message.rstrip())
+        self.assertEqual(self.range_output(root, "--no-dispositions")[0], 1)
+        latest = io.StringIO()
+        with contextlib.redirect_stdout(latest):
+            self.assertEqual(aide_lite.main(["--repo-root", str(root), "commit", "check", "--latest"]), 1)
+        self.assertEqual(self.result_for(message), "FAIL")
+
+    def test_future_commits_and_invalid_boundary_remain_strict(self):
+        root, oid, message = self.presentation_fixture()
+        self.adopt_boundary(root, oid)
+        subprocess.run(["git", "-C", str(root), "commit", "--quiet", "--allow-empty", "-F", "-"],
+                       input=message, text=True, encoding="utf-8", check=True)
+        self.assertEqual(self.range_output(root)[0], 1)
+        for value in ("*", "0" * 40, oid + "\nhistorical_presentation_advisory_through: " + oid):
+            with self.subTest(boundary=value):
+                self.adopt_boundary(root, value)
+                self.assertEqual(self.range_output(root)[0], 1)
+
+    def test_cosmetic_classifier_refuses_substance_secrets_and_unknown_checks(self):
+        _root, _oid, message = self.presentation_fixture()
+        baseline = aide_lite.validate_commit_message_text(message)
+        self.assertTrue(aide_lite.historical_message_is_presentation_only(message, baseline))
+        mutations = [
+            message.replace("## Validation", "## Checks"),
+            message.replace("Local checks passed; native tests remain unrun.", "Recorded elsewhere without any outcome."),
+            message.replace("Local checks passed; native tests remain unrun.", "-"),
+            message.replace("Local checks passed; native tests remain unrun.", "PASS or FAIL unknown."),
+            message.replace("Local checks passed; native tests remain unrun.", "TODO placeholder"),
+            message.replace("Local checks passed; native tests remain unrun.", "Validation will pass after future work."),
+            message.replace("Reproducible changes:", "OPENAI_API_KEY:"),
+            message.replace("policy(aide): define structured commit recovery", "policy(aide): update"),
+        ]
+        for changed in mutations:
+            with self.subTest(message=changed[:80]):
+                self.assertFalse(aide_lite.historical_message_is_presentation_only(
+                    changed, aide_lite.validate_commit_message_text(changed)))
+        unknown = list(baseline)
+        aide_lite.check_pass(unknown, False, "material provenance check unavailable")
+        self.assertFalse(aide_lite.historical_message_is_presentation_only(message, unknown))
+        placeholder_with_trailers = message.split("## Follow-up")[0] + "## Follow-up\n- TODO TODO\n\nAIDE-Task: fixture\nAIDE-Result: PASS\n"
+        self.assertFalse(aide_lite.historical_message_is_presentation_only(
+            placeholder_with_trailers, aide_lite.validate_commit_message_text(placeholder_with_trailers)))
+
+    def test_cosmetic_advisory_cannot_override_rejected_or_invalid_registry(self):
+        root, oid, message = self.presentation_fixture()
+        checks = aide_lite.validate_commit_message_text(message)
+        record = self.accepted_disposition(root, oid, message, checks)
+        self.adopt_boundary(root, oid)
+        path = root / aide_lite.COMMIT_MESSAGE_DISPOSITIONS_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record["status"] = "rejected"
+        record["record_digest"] = aide_lite.historical_disposition_record_digest(record)
+        path.write_text(aide_lite.stable_json_text({"schema_version": "aide.commit-message-dispositions.v1",
+                                                  "records": [record]}), encoding="utf-8")
+        self.assertEqual(self.range_output(root)[0], 1)
+        path.write_text('{"records":"broken"}', encoding="utf-8")
+        self.assertEqual(self.range_output(root)[0], 1)
 
 
 if __name__ == "__main__":

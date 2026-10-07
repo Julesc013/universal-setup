@@ -27,6 +27,14 @@ py -3 .aide/scripts/aide_lite.py commit check --range HEAD~5..HEAD --no-disposit
 py -3 .aide/scripts/aide_lite.py commit template
 ```
 
+Prepare a new draft with `commit check --message-file <path> --normalize-draft`.
+This in-memory preview normalizes line endings, the subject/body blank line and
+known heading casing outside fences. It preserves wording, code examples,
+outcomes and trailers. Only a strict PASS emits the JSON draft and exact SHA256
+for the existing guarded creation path. Missing content or facts stay failures;
+no file, branch or historical object is modified. The campaign may consume this
+mechanical preview without another owner question. Raw checks remain strict.
+
 The optional hook is installed only when explicitly requested:
 
 ```powershell
@@ -38,9 +46,36 @@ the structured body categories and AIDE trailers through `changelog preview`,
 `changelog validate`, and `changelog status` to produce preview-only release
 drafts.
 
+## Proportionate Historical Checks
+
+The owner adopted presentation-only history as advisory on 2026-10-07.
+`commit check --range` applies that rule only to commits proven ancestral to
+the full immutable `historical_presentation_advisory_through` object in
+`commit-messages.yaml`. Missing, malformed or unavailable boundaries stay
+strict. Target repositories must adopt their own local boundary; AIDE's
+source checkpoint is not a target decision.
+
+The conservative syntax classifier permits missing bullets/trailers,
+category formatting, outcome-label casing, subject length/trailing period
+and separating whitespace only when all substantive sections contain text
+and Validation states an outcome. Missing sections or outcomes, placeholders,
+secret findings and unknown checks remain failures. Invalid registries and
+explicit matching dispositions cannot be bypassed. This classification does
+not establish that a description, changelog claim or test result is true;
+their independent evidence and release checks remain required.
+
+Qualifying entries report `PRESENTATION_ADVISORY`, the range reports
+`PASS_WITH_WARNINGS`, and original strict failures remain visible. Raw mode
+`--no-dispositions` disables both advisories and exact dispositions. No Git
+object, parent, tree, message, release note or test result is rewritten.
+Future commits, latest checks, message files and managed commit creation
+remain strict. Correct a new draft's formatting before guarded creation when
+its meaning is known; do not invent task ids, categories or PASS results to
+satisfy the template. Harmless published presentation need not be repaired.
+
 ## Exact Historical Dispositions
 
-An immutable historical failure may be dispositioned only during a range
+Beyond presentation advisories, an immutable historical failure may be dispositioned only during a range
 check and only through `.aide/git/commit-message-dispositions.json`. An
 accepted record is bound to the full commit and tree object ids, ordered
 parents, canonical message digest, exact checker failures, fixed narrow scope,
