@@ -415,7 +415,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
     std::unique_ptr<usk::platform::windows::PublisherRequestChannel> request_channel;
     std::unique_ptr<usk::platform::windows::RegisteredPublisherAdmission> registered_admission;
     std::string capability_request_id;
-        bool scoped_profile_observation = false;
+        unsigned capability_protocol_version = 2;
     try {
         report_status(SERVICE_START_PENDING);
         stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -457,8 +457,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             config.authenticated_request=request_channel.get();
             const auto submitted=usk::json::parse(request);
             const auto schema=submitted.at("schema").as_string();
-            if (schema == "usk.publisher_capability_request.v2" || schema == "usk.publisher_capability_request.v3") {
-                scoped_profile_observation = schema == "usk.publisher_capability_request.v3";
+            if (schema == "usk.publisher_capability_request.v2" || schema == "usk.publisher_capability_request.v4") {
+                capability_protocol_version = schema == "usk.publisher_capability_request.v4" ? 4u : 2u;
                 if (!registered_admission || submitted.as_object().size() != 2)
                     throw std::runtime_error("service capability request lacks registered admission");
                 capability_request_id=submitted.at("request_id").as_string();
@@ -531,7 +531,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 {"status", Value("observed")}, {"request_id", Value(capability_request_id)},
                 {"service_name", Value(ascii(service_name))},
                 {"service_sid", registered_admission->evidence().at("service_sid")},
-                {"capability_observation", registered_admission->capability_observation(capability_request_id, scoped_profile_observation)}});
+                {"capability_observation", registered_admission->capability_observation(capability_request_id, capability_protocol_version)}});
         } else if (registered_admission) {
             response = execute_registered_child(*registered_admission, *request_channel, publication_effects_may_exist);
         } else {

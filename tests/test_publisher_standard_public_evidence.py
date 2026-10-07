@@ -6,7 +6,7 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
-from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set, service_capability, reconcile_bootstrap_loss, preservation_absence
+from publisher_standard_public_evidence import StandardEvidenceError, client_token, service_policy, deny_mutation, native_boundary, MUTATION_RIGHTS, registered_admission, canonical, require_native_capture_set, service_capability, require_capability_phase, reconcile_bootstrap_loss, preservation_absence
 
 CLIENT = "S-1-5-21-1-2-3-1001"
 UNRELATED = "S-1-5-21-1-2-3-1002"
@@ -135,6 +135,52 @@ class StandardPublicPolicyTests(unittest.TestCase):
             changed['capability_observation']['qualification_bounds'][field] = wrong
             with self.subTest(field=field), self.assertRaises(StandardEvidenceError):
                 service_capability(changed, 'observed-1', 20348, protocol=protocol, sdk_version='10.0.26100.0')
+
+    def test_current_child_availability_cannot_promote_qualification(self):
+        cap, native = self.service_fixture()
+        protocol = 'usk.publisher_capability.v4'
+        schema = json.loads((Path(__file__).resolve().parents[1] /
+            'contracts/schema/setup/publisher_capability.v4.schema.json').read_bytes())
+        cap.update({key: copy.deepcopy(value['const']) for key, value in schema['properties'].items()
+            if 'const' in value})
+        cap.update(availability=True, support='candidate_for_scope', qualification_bounds={
+            key: value['const'] for key, value in schema['properties']['qualification_bounds']['properties'].items()})
+        cap['platform']['sdk_version'] = '10.0.26100.0'
+        self.assertEqual(service_capability(native, 'observed-1', 20348, protocol=protocol,
+            sdk_version='10.0.26100.0'), cap)
+        contradictions = [('qualification', 'qualified_for_scope'), ('support', 'supported_for_scope'),
+            ('authority', 'granted'), ('execution_lease_held', True), ('power_loss_qualified', True)]
+        for key, claimed in contradictions:
+            bad = copy.deepcopy(native)
+            bad['capability_observation'][key] = claimed
+            with self.subTest(key=key), self.assertRaises(StandardEvidenceError):
+                service_capability(bad, 'observed-1', 20348, protocol=protocol, sdk_version='10.0.26100.0')
+        for key, original in cap['qualification_bounds'].items():
+            bad = copy.deepcopy(native)
+            bad['capability_observation']['qualification_bounds'][key] = (
+                20348.0 if isinstance(original, int) else original + '.unbound')
+            with self.subTest(bound=key), self.assertRaises(StandardEvidenceError):
+                service_capability(bad, 'observed-1', 20348, protocol=protocol, sdk_version='10.0.26100.0')
+        for build, sdk in ((22621, '10.0.26100.0'), (20348, '10.0.22621.0'), (20348, '')):
+            bad = copy.deepcopy(native)
+            value = bad['capability_observation']
+            value['platform'].update(windows_build=build, sdk_version=sdk)
+            with self.subTest(build=build, sdk=sdk), self.assertRaises(StandardEvidenceError):
+                service_capability(bad, 'observed-1', build, protocol=protocol, sdk_version=sdk)
+            value.update(availability=False, support='unsupported')
+            self.assertEqual(service_capability(bad, 'observed-1', build, protocol=protocol, sdk_version=sdk), value)
+        with self.assertRaises(StandardEvidenceError):
+            service_capability(native, 'observed-1', 20348, protocol='usk.publisher_capability.v3', sdk_version='10.0.26100.0')
+
+    def test_current_child_family_cannot_downgrade_independent_phase(self):
+        require_capability_phase('usk.publisher_capability.v4', 'usk.publisher.lab_phase_evidence.v10')
+        for old in (None, 'usk.publisher_capability.v2', 'usk.publisher_capability.v3'):
+            require_capability_phase(old, 'usk.publisher.lab_phase_evidence.v9')
+            with self.subTest(protocol=old), self.assertRaises(StandardEvidenceError):
+                require_capability_phase(old, 'usk.publisher.lab_phase_evidence.v10')
+        for version in range(1, 10):
+            with self.subTest(phase=version), self.assertRaises(StandardEvidenceError):
+                require_capability_phase('usk.publisher_capability.v4', 'usk.publisher.lab_phase_evidence.v' + str(version))
 
     def test_current_capture_set_requires_every_bound_public_request(self):
         commands = ['publisher.inspect', 'install_local.apply', 'install_local.recover', 'install_local.apply', 'installed.verify']

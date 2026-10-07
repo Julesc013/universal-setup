@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/publisher_capability_request.v4.schema.json",
+  "title": "Owned Child Registered Publisher Capability Request, Version 4",
+  "description": "publisher.observe with dry_run=false observes current owned-child source bounds and actual compatible build/SDK. Startup and controller guard acquisition may occur. Compatibility does not qualify the path. No target, source qualification, authority or lease is accepted. Retained v3 describes the older single-worker family and is not dispatched by the current producer.",
+  "type": "object",
+  "required": [
+    "schema",
+    "request_id"
+  ],
+  "properties": {
+    "schema": {
+      "const": "usk.publisher_capability_request.v4"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    }
+  },
+  "additionalProperties": false
+}

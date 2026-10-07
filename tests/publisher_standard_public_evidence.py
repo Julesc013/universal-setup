@@ -368,13 +368,15 @@ def service_capability(native, request_id, windows_build, *, protocol="usk.publi
         native['schema'] == 'usk.publisher_service_capability_observation.v1' and native['status'] == 'observed' and
         native['request_id'] == request_id, 'service observation envelope differs')
     value = native['capability_observation']
-    require(protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3'), 'unknown service capability protocol')
-    scoped = protocol == 'usk.publisher_capability.v3'
+    require(protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3', 'usk.publisher_capability.v4'), 'unknown service capability protocol')
+    scoped = protocol != 'usk.publisher_capability.v2'
+    child_bound = protocol == 'usk.publisher_capability.v4'
     if scoped:
         require(isinstance(sdk_version, str) and len(sdk_version) <= 32 and
             (not sdk_version or re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', sdk_version)),
             'scoped capability compiled SDK differs')
-    qualified = scoped and windows_build == 20348 and sdk_version == '10.0.26100.0'
+    available = scoped and windows_build == 20348 and sdk_version == '10.0.26100.0'
+    qualified = available and not child_bound
 
     constants = {'schema': 'usk.publisher_capability.v2', 'request_id': request_id,
         'provider_id': 'windows_nt_x64_local_ntfs_service_sid_noreplace_v1',
@@ -389,17 +391,28 @@ def service_capability(native, request_id, windows_build, *, protocol="usk.publi
         'effects': ['service_start_may_occur', 'controller_guard_held_during_observation']}
 
     if scoped:
-        constants.update(schema=protocol, availability=qualified,
+        constants.update(schema=protocol, availability=available,
             qualification='qualified_for_scope' if qualified else 'incomplete',
-            support='supported_for_scope' if qualified else 'unsupported',
-            qualification_scope='registered_public_apply_v9_process_restart_replay_verify',
-            recovery_ceiling='source_free_process_restart_v9')
+            support='candidate_for_scope' if child_bound and available else 'supported_for_scope' if qualified else 'unsupported',
+            qualification_scope='registered_public_apply_v10_owned_child_process_restart_replay_verify' if child_bound else 'registered_public_apply_v9_process_restart_replay_verify',
+            recovery_ceiling='candidate_source_free_process_restart_v10' if child_bound else 'source_free_process_restart_v9')
         bounds = value['qualification_bounds']
-        require(isinstance(bounds, dict) and bounds == {
+        expected_bounds = {
             'phase_schema': 'usk.publisher.lab_phase_evidence.v9',
             'execution_schema': 'usk.publisher_execution_observation.v6',
-            'sdk_version': '10.0.26100.0', 'qualified_windows_build': 20348} and
-            integer(bounds['qualified_windows_build'], 20348, 20348), 'scoped qualification bounds differ')
+            'sdk_version': '10.0.26100.0', 'qualified_windows_build': 20348}
+        if child_bound:
+            expected_bounds = {
+                'phase_schema': 'usk.publisher.lab_phase_evidence.v10',
+                'execution_schema': 'usk.publisher_execution_observation.v7',
+                'creation_schema': 'usk.publisher.creation_observation.v4',
+                'original_custody_schema': 'usk.publisher.maintenance_original_custody.v3',
+                'process_loss_schema': 'usk.publisher.production_rename_observer.v2',
+                'active_contention_schema': 'usk.publisher_active_install_contention_probe.v2',
+                'sdk_version': '10.0.26100.0', 'candidate_windows_build': 20348}
+        require(isinstance(bounds, dict) and bounds == expected_bounds and
+            integer(bounds['candidate_windows_build' if child_bound else 'qualified_windows_build'], 20348, 20348),
+            'scoped qualification bounds differ')
     require(isinstance(value, dict) and value.keys() == constants.keys() | {'platform', 'binding'} |
         ({'qualification_bounds'} if scoped else set()) and
         all(type(value[key]) is type(expected) and value[key] == expected for key, expected in constants.items()),
@@ -424,6 +437,12 @@ def service_capability(native, request_id, windows_build, *, protocol="usk.publi
         all(native[key] == admitted[key] for key in ('service_name', 'service_sid', 'process_id')),
         'service capability differs from independently reconciled admission')
     return value
+
+
+def require_capability_phase(protocol, phase_schema):
+    require((protocol == 'usk.publisher_capability.v4') ==
+        (phase_schema == 'usk.publisher.lab_phase_evidence.v10'),
+        'current capability and independently retained child phase family differ')
 
 
 def require_native_capture_set(native_captures, captures, commands, *, allow_legacy_missing=False):
@@ -488,7 +507,7 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
         re.fullmatch(r"[0-9a-f]{64}", build["publisher_project_sha256"]), "standard native build targets differ")
     captures = observation["client_captures"]
     service_protocol = observation.get('capability_protocol')
-    require(service_protocol is None or service_protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3'),
+    require(service_protocol is None or service_protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3', 'usk.publisher_capability.v4'),
         'standard capability protocol is unknown')
     mediated = service_protocol is not None
     commands = ["publisher.inspect"] + (["publisher.observe"] if mediated else []) + [
@@ -551,6 +570,7 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
             report.get("creation_observation", {}).get("worker_security_checked") is True and
             report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
         prepared_schema = json.loads(prepared[0])['schema']
+        require_capability_phase(service_protocol, prepared_schema)
         if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10'):
             require_native_capture_set(native_captures, captures, commands)
         if native_captures is not None:

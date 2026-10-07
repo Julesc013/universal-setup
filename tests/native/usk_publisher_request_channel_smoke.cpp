@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_registration.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_effect_dispatch.h"
@@ -166,10 +167,24 @@ void test_service_observation_transport_binding() {
     require_publisher_response_binding(service, request, response);
     require_publisher_response_binding(service, request, response, 123);
     const auto v3_request = replaced(request, "request.v2", "request.v3");
+    // The current registered producer rejects the historical worker family
+    // during parsing, before SCM connection/start or request dispatch.
+    bool historical_not_dispatched = false;
+    try { (void)usk::platform::windows::submit_registered_publisher_request(service, v3_request); }
+    catch (const usk::base::EffectRequestNotDispatched&) { historical_not_dispatched = true; }
+    require(historical_not_dispatched, "current producer dispatched the historical scoped capability");
     const auto v3_response = replaced(response, "capability.v2", "capability.v3");
     require_publisher_response_binding(service, v3_request, v3_response, 123);
     refuses([&] { require_publisher_response_binding(service, v3_request, response, 123); });
     refuses([&] { require_publisher_response_binding(service, request, v3_response, 123); });
+    const auto v4_request = replaced(request, "request.v2", "request.v4");
+    const auto v4_response = replaced(response, "capability.v2", "capability.v4");
+    require_publisher_response_binding(service, v4_request, v4_response, 123);
+    for (const auto& old_response : {response, v3_response})
+        refuses([&] { require_publisher_response_binding(service, v4_request, old_response, 123); });
+    for (const auto& old_request : {request, v3_request})
+        refuses([&] { require_publisher_response_binding(service, old_request, v4_response, 123); });
+    refuses([&] { require_publisher_response_binding(service, v4_request, v4_response, 124); });
     refuses([&] { require_publisher_response_binding(service, request, response, 124); });
     refuses([&] { require_publisher_response_binding(service, request,
         replaced(response, "observe.one", "observe.stale")); });

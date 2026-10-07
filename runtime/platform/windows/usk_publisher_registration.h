@@ -41,7 +41,9 @@ public:
         const PublisherRequestChannel&, HANDLE cancel_event = nullptr) const;
     // Service-mediated observation may activate SCM and acquire the controller
     // guard. It reads admission facts without dispatching installation effects.
-    usk::json::Value capability_observation(const std::string& request_id, bool scoped_profile = false) const;
+    // V4 reports current owned-child compatibility with qualification incomplete.
+    // Retained V3 describes the older worker and is not produced by this binary.
+    usk::json::Value capability_observation(const std::string& request_id, unsigned protocol_version = 2) const;
     // Select only an administrator-enrolled exact request under this held
     // registration and the channel's actual authenticated caller. Both native
     // approval/envelope files remain held against mutation through dispatch.

@@ -265,6 +265,66 @@ bool service_capability_checks()
         if (usk::command::run_publisher_one_shot(profile_input,[&](const std::string&) {
             return usk::json::canonical(unavailable);}).exit_code != 0) return false;
     }
+    auto child_request=profile_request;
+    child_request.as_object().at("payload").as_object().at("schema")=Value("usk.publisher_capability_request.v4");
+    const auto child_input=usk::json::canonical(child_request);
+    auto child_response=profile_response;
+    auto& child=child_response.as_object().at("capability_observation").as_object();
+    child.at("schema")=Value("usk.publisher_capability.v4");
+    child.at("qualification")=Value("incomplete");
+    child.at("support")=Value("candidate_for_scope");
+    child.at("qualification_scope")=Value("registered_public_apply_v10_owned_child_process_restart_replay_verify");
+    child.at("recovery_ceiling")=Value("candidate_source_free_process_restart_v10");
+    child.at("qualification_bounds")=Value(Value::Object{
+        {"phase_schema",Value("usk.publisher.lab_phase_evidence.v10")},
+        {"execution_schema",Value("usk.publisher_execution_observation.v7")},
+        {"creation_schema",Value("usk.publisher.creation_observation.v4")},
+        {"original_custody_schema",Value("usk.publisher.maintenance_original_custody.v3")},
+        {"process_loss_schema",Value("usk.publisher.production_rename_observer.v2")},
+        {"active_contention_schema",Value("usk.publisher_active_install_contention_probe.v2")},
+        {"sdk_version",Value("10.0.26100.0")},{"candidate_windows_build",Value(std::uint64_t{20348})}});
+    const auto child_run=[&](const Value& observation) {
+        return usk::command::run_publisher_one_shot(child_input,[&](const std::string&) {
+            return usk::json::canonical(observation);});
+    };
+    if (child_run(child_response).exit_code != 0 ||
+        usk::command::run_candidate_one_shot(child_input,[&](const std::string&) {
+            return usk::json::canonical(child_response);}).exit_code != 0) return false;
+    for (const auto& old : {response, profile_response})
+        if (child_run(old).exit_code != 5) return false;
+    for (const auto& old : {request, profile_input})
+        if (usk::command::run_publisher_one_shot(old,[&](const std::string&) {
+            return usk::json::canonical(child_response);}).exit_code != 5) return false;
+    for (const char* key : {"phase_schema", "execution_schema", "creation_schema", "original_custody_schema",
+            "process_loss_schema", "active_contention_schema", "sdk_version", "candidate_windows_build"}) {
+        auto invalid=child_response;
+        invalid.as_object().at("capability_observation").as_object().at("qualification_bounds").as_object().at(key)=Value("unbound");
+        if (child_run(invalid).exit_code != 5) return false;
+    }
+    for (int mode=0; mode<10; ++mode) {
+        auto invalid=child_response;
+        auto& fields=invalid.as_object().at("capability_observation").as_object();
+        if (mode==0) fields.at("qualification")=Value("qualified_for_scope");
+        if (mode==1) fields.at("support")=Value("supported_for_scope");
+        if (mode==2) fields.at("authority")=Value("granted");
+        if (mode==3) fields.at("power_loss_qualified")=Value(true);
+        if (mode==4) fields.at("execution_lease_held")=Value(true);
+        if (mode==5) fields.at("qualification_bounds").as_object().emplace("unbound",Value(true));
+        if (mode==6) fields.at("platform").as_object().at("windows_build")=Value(std::uint64_t{22621});
+        if (mode==7) fields.at("platform").as_object().at("sdk_version")=Value("10.0.22621.0");
+        if (mode==8) fields.at("binding").as_object().at("process_id")=Value(std::uint64_t{100});
+        if (mode==9) fields.at("availability")=Value(std::uint64_t{1});
+        if (child_run(invalid).exit_code != 5) return false;
+    }
+    for (int mode=0; mode<2; ++mode) {
+        auto unavailable=child_response;
+        auto& fields=unavailable.as_object().at("capability_observation").as_object();
+        fields.at("availability")=Value(false);
+        fields.at("support")=Value("unsupported");
+        if (mode==0) fields.at("platform").as_object().at("sdk_version")=Value("10.0.22621.0");
+        if (mode==1) fields.at("platform").as_object().at("windows_build")=Value(std::uint64_t{22621});
+        if (child_run(unavailable).exit_code != 0) return false;
+    }
     const auto lost=usk::command::run_publisher_one_shot(request,
         [](const std::string&) -> std::string {throw std::runtime_error("lost service observation reply");});
     return lost.exit_code==5 && usk::json::parse(lost.document).at("error").at("code").as_string()==
