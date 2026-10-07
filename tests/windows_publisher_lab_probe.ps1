@@ -207,6 +207,15 @@ public sealed class UskOwnedVhdImage {
     static extern bool GetFileId(SafeFileHandle file,int kind,out FileId id,uint size);
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     static extern uint GetFinalPathNameByHandleW(SafeFileHandle file,StringBuilder path,uint size,uint flags);
+    [DllImport("advapi32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetKernelObjectSecurity(SafeFileHandle file,uint information,byte[] data,uint size,out uint needed);
+    [DllImport("advapi32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetSecurityDescriptorOwner(IntPtr descriptor,out IntPtr owner,out bool defaulted);
+    [DllImport("advapi32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetSecurityDescriptorDacl(IntPtr descriptor,out bool present,out IntPtr dacl,out bool defaulted);
+    [DllImport("advapi32.dll")]
+    static extern uint SetSecurityInfo(SafeFileHandle file,int type,uint information,
+        IntPtr owner,IntPtr group,IntPtr dacl,IntPtr sacl);
     static Exception Failure(string operation) {return new Win32Exception(Marshal.GetLastWin32Error(),operation);}
     static Tuple<bool,int> NativeClose(IntPtr file) {
         bool closed=CloseHandle(file);int error=closed ? 0 : Marshal.GetLastWin32Error();
@@ -277,11 +286,44 @@ public sealed class UskOwnedVhdImage {
             BitConverter.ToString(BitConverter.GetBytes(id.High)).Replace("-","").ToLowerInvariant();
         return new object[]{identity,size,actual};
     }
+    public static byte[] ReadOwnerDacl(FileStream stream) {
+        // Read the actual stored descriptor. FileSecurity/CommonAcl normalizes
+        // ACE order, so its projection cannot prove this ordered native policy.
+        uint needed;
+        bool queried=GetKernelObjectSecurity(stream.SafeFileHandle,5,null,0,out needed);
+        int error=queried ? 0 : Marshal.GetLastWin32Error();
+        if(queried)throw new InvalidOperationException("Held VHD image descriptor size query unexpectedly succeeded");
+        if(error!=122)throw new Win32Exception(error,"Size held VHD image owner/DACL");
+        if(needed<20 || needed>65536)throw new InvalidOperationException("Held VHD image descriptor is unbounded");
+        byte[] bytes=new byte[needed];uint returned;
+        if(!GetKernelObjectSecurity(stream.SafeFileHandle,5,bytes,needed,out returned))
+            throw Failure("Read held VHD image owner/DACL");
+        if(returned!=needed)throw new InvalidOperationException("Held VHD image descriptor size changed");
+        return bytes;
+    }
+    public static void SetOwnerDacl(FileStream stream,byte[] descriptor) {
+        if(descriptor==null || descriptor.Length<20 || descriptor.Length>65536)
+            throw new ArgumentException("Owned VHD image descriptor is unbounded");
+        GCHandle pin=GCHandle.Alloc(descriptor,GCHandleType.Pinned);
+        try {
+            IntPtr owner,dacl;bool present,defaulted;
+            if(!GetSecurityDescriptorOwner(pin.AddrOfPinnedObject(),out owner,out defaulted))
+                throw Failure("Locate owned VHD image owner");
+            if(!GetSecurityDescriptorDacl(pin.AddrOfPinnedObject(),out present,out dacl,out defaulted))
+                throw Failure("Locate owned VHD image DACL");
+            if(owner==IntPtr.Zero || !present || dacl==IntPtr.Zero)
+                throw new ArgumentException("Owned VHD image owner or DACL is absent");
+            // SE_FILE_OBJECT; owner + DACL + protection. No name reopen, group,
+            // SACL, inheritance, policy reduction or automatic retry is involved.
+            uint status=SetSecurityInfo(stream.SafeFileHandle,1,0x80000005,owner,IntPtr.Zero,dacl,IntPtr.Zero);
+            if(status!=0)throw new Win32Exception(unchecked((int)status),"Set held VHD image owner/DACL");
+        } finally {pin.Free();}
+    }
 }
 '@
 }
-function Assert-OwnedVhdImageSecurity($Security) {
-    $raw=[Security.AccessControl.RawSecurityDescriptor]::new($Security.GetSecurityDescriptorBinaryForm(),0)
+function Assert-OwnedVhdImageSecurity([byte[]]$Descriptor) {
+    $raw=[Security.AccessControl.RawSecurityDescriptor]::new($Descriptor,0)
     if($null -eq $raw.Owner -or $raw.Owner.Value -cne 'S-1-5-32-544' -or $null -eq $raw.DiscretionaryAcl -or
         -not ($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -or
         -not ($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or
@@ -315,22 +357,26 @@ function Protect-NewOwnedVhdImage([string]$ImagePath,[Collections.IDictionary]$R
         $beforeHash=[Convert]::ToHexString($sha.ComputeHash($image)).ToLowerInvariant()
         $sections=[Security.AccessControl.AccessControlSections]::Owner -bor
             [Security.AccessControl.AccessControlSections]::Access
-        $original=[IO.FileSystemAclExtensions]::GetAccessControl($image).GetSecurityDescriptorSddlForm($sections)
-        $policy=[Security.AccessControl.FileSecurity]::new()
-        $policy.SetSecurityDescriptorSddlForm('O:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)',$sections)
-        [IO.FileSystemAclExtensions]::SetAccessControl($image,$policy)
-        $actual=Assert-OwnedVhdImageSecurity ([IO.FileSystemAclExtensions]::GetAccessControl($image))
+        $original=[Security.AccessControl.RawSecurityDescriptor]::new([UskOwnedVhdImage]::ReadOwnerDacl($image),0)
+        $observation['file_identity']=$before[0];$observation['size_bytes']=$before[1];$observation['sha256']=$beforeHash
+        $observation['original_owner_dacl']=$original.GetSddlForm($sections)
+        $policy=[Security.AccessControl.RawSecurityDescriptor]::new('O:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)')
+        $planned=[byte[]]::new($policy.BinaryLength);$policy.GetBinaryForm($planned,0)
+        $observation['intended_owner_dacl']=Assert-OwnedVhdImageSecurity $planned
+        [UskOwnedVhdImage]::SetOwnerDacl($image,$planned)
+        $readback=[UskOwnedVhdImage]::ReadOwnerDacl($image)
+        $observation['readback_owner_dacl']=[Security.AccessControl.RawSecurityDescriptor]::new($readback,0).GetSddlForm($sections)
+        $actual=Assert-OwnedVhdImageSecurity $readback
         $image.Position=0
         $afterHash=[Convert]::ToHexString($sha.ComputeHash($image)).ToLowerInvariant()
         $after=[UskOwnedVhdImage]::Observe($image,$ImagePath)
         if($before[0] -cne $after[0] -or $before[1] -ne $after[1] -or $before[2] -cne $after[2] -or
             $beforeHash -cne $afterHash){throw 'Owned VHD image changed while provisioning its attachment policy'}
         # Refresh security after byte/identity observations on the SAME handle.
-        if((Assert-OwnedVhdImageSecurity ([IO.FileSystemAclExtensions]::GetAccessControl($image))) -cne $actual) {
+        if((Assert-OwnedVhdImageSecurity ([UskOwnedVhdImage]::ReadOwnerDacl($image))) -cne $actual) {
             throw 'Owned VHD image policy changed before attachment'
         }
-        $observation['file_identity']=$before[0];$observation['size_bytes']=$before[1];$observation['sha256']=$beforeHash
-        $observation['original_owner_dacl']=$original;$observation['provisioned_owner_dacl']=$actual
+        $observation['provisioned_owner_dacl']=$actual
         $observation['unchanged_bytes']=$true
     } catch {
         $primaryFailure=$_

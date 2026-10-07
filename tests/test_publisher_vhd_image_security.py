@@ -36,6 +36,7 @@ $cases=[ordered]@{
     unprotected=$valid.Replace('D:P','D:')
     missing_ace=$valid.Replace('(A;;FA;;;SY)','')
     extra_ace=$valid+'(A;;0x1200a9;;;AU)'
+    duplicate_ace=$valid+'(A;;0x1200a9;;;BA)'
     wrong_order='O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)'
     denied=$valid.Replace('(A;;FA;;;BA)','(D;;FA;;;BA)')
     inherited=$valid.Replace('(A;;FA;;;BA)','(A;ID;FA;;;BA)')
@@ -54,14 +55,13 @@ foreach($case in $cases.Keys) {
             0x1f01ff,[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'),$true,[byte[]]@())
     }
     $bytes=[byte[]]::new($raw.BinaryLength);$raw.GetBinaryForm($bytes,0)
-    $security=[pscustomobject]@{Bytes=$bytes}
-    $security|Add-Member -MemberType ScriptMethod -Name GetSecurityDescriptorBinaryForm -Value {return ,$this.Bytes}
     $accepted=$false;$message=$null
-    try {$actual=Assert-OwnedVhdImageSecurity $security;$accepted=$true} catch {$message=$_.Exception.Message}
+    try {$actual=Assert-OwnedVhdImageSecurity $bytes;$accepted=$true} catch {$message=$_.Exception.Message}
     $rows+=@{case=$case;accepted=$accepted;failure=$message}
 }
-# Only this test's new ordinary file is opened; no ACL setter, VHD, disk,
-# service, client or publisher constructor runs on the local workstation.
+# Only this test's new ordinary file is opened. Its caller-owned policy tests
+# the raw native setter/readback; no BA-owner profile setter, VHD, disk, service,
+# client or publisher constructor runs on the local workstation.
 $temp=Join-Path ([IO.Path]::GetTempPath()) ('usk-image-control-'+[guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($temp)|Out-Null
 $path=Join-Path $temp 'publisher.vhdx';$stream=$null;$owner=$null;$sha=$null
@@ -79,12 +79,41 @@ try {
     $before=[UskOwnedVhdImage]::Observe($stream,$path)
     $sha=[Security.Cryptography.SHA256]::Create()
     $first=[Convert]::ToHexString($sha.ComputeHash($stream))
-    $security=[IO.FileSystemAclExtensions]::GetAccessControl($stream)
-    if($null -eq $security.GetOwner([Security.Principal.SecurityIdentifier])){throw 'Actual held owner is unavailable'}
+    $security=[Security.AccessControl.RawSecurityDescriptor]::new([UskOwnedVhdImage]::ReadOwnerDacl($stream),0)
+    if($security.Owner.Value -cne $caller){throw 'Actual held caller-owner differs'}
     $sharingRefused=$false;$other=$null
     try {$other=[IO.File]::OpenRead($path)} catch {$sharingRefused=$true} finally {if($null -ne $other){$other.Dispose()}}
     $wrongPathRefused=$false
     try {[UskOwnedVhdImage]::Observe($stream,(Join-Path $temp 'replacement.vhdx'))|Out-Null} catch {$wrongPathRefused=$true}
+    # Native SetSecurityInfo preserves the explicit BA/SY/BU order. Keep the
+    # caller as owner and grant it full rights only on this new controlled file.
+    $controlPolicy=[Security.AccessControl.RawSecurityDescriptor]::new(
+        'O:'+$caller+'D:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)(A;;FA;;;'+$caller+')')
+    $planned=[byte[]]::new($controlPolicy.BinaryLength);$controlPolicy.GetBinaryForm($planned,0)
+    [UskOwnedVhdImage]::SetOwnerDacl($stream,$planned)
+    $rawReadback=[UskOwnedVhdImage]::ReadOwnerDacl($stream)
+    $stored=[Security.AccessControl.RawSecurityDescriptor]::new($rawReadback,0)
+    $expectedAcl=[byte[]]::new($controlPolicy.DiscretionaryAcl.BinaryLength)
+    $controlPolicy.DiscretionaryAcl.GetBinaryForm($expectedAcl,0)
+    $actualAcl=[byte[]]::new($stored.DiscretionaryAcl.BinaryLength)
+    $stored.DiscretionaryAcl.GetBinaryForm($actualAcl,0)
+    # FileSecurity canonicalizes the same input, demonstrating why an actual
+    # stored descriptor must not pass through its managed ACL projection.
+    $projection=[Security.AccessControl.FileSecurity]::new()
+    $projection.SetSecurityDescriptorBinaryForm($rawReadback)
+    $projected=[Security.AccessControl.RawSecurityDescriptor]::new($projection.GetSecurityDescriptorBinaryForm(),0)
+    $projectedAcl=[byte[]]::new($projected.DiscretionaryAcl.BinaryLength)
+    $projected.DiscretionaryAcl.GetBinaryForm($projectedAcl,0)
+    $nativePolicy=@{owner=$stored.Owner.Value;caller=$caller;acl_bytes_exact=
+        [Convert]::ToHexString($expectedAcl) -ceq [Convert]::ToHexString($actualAcl);
+        protected=[bool]($stored.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected);
+        first_sid=$stored.DiscretionaryAcl[0].SecurityIdentifier.Value;second_sid=$stored.DiscretionaryAcl[1].SecurityIdentifier.Value;
+        managed_projection_differs=[Convert]::ToHexString($projectedAcl) -cne [Convert]::ToHexString($actualAcl)}
+    # The original strict BA-owner contract still refuses this caller-owned
+    # control. The real profile's setter remains a hosted-only future operation.
+    $wrongOwnerRefused=$false
+    try {Assert-OwnedVhdImageSecurity $rawReadback|Out-Null} catch {$wrongOwnerRefused=$true}
+    $nativePolicy.profile_refused_wrong_owner=$wrongOwnerRefused
     $stream.Position=0;$second=[Convert]::ToHexString($sha.ComputeHash($stream))
     $after=[UskOwnedVhdImage]::Observe($stream,$path)
     if(-not $owner.Close()){throw 'Native ordinary control close unconfirmed'};$stream=$null
@@ -199,8 +228,8 @@ foreach($custody in @('unknown','released','not_acquired')) {
     try {& $retentionFlow} catch {$refused=$true}
     $retentionRows+=@{custody=$custody;refused=$refused}
 }
-@{policy_cases=$rows;ordinary=$ordinary;close_controls=$closeRows;flow_controls=$flowRows;
-    retention_controls=$retentionRows;before_attachment=$true;acl_setter_executed=$false}|ConvertTo-Json -Depth 8 -Compress
+@{policy_cases=$rows;ordinary=$ordinary;native_policy=$nativePolicy;close_controls=$closeRows;flow_controls=$flowRows;
+    retention_controls=$retentionRows;before_attachment=$true;profile_ba_setter_executed=$false}|ConvertTo-Json -Depth 8 -Compress
 '''
 
 
@@ -221,7 +250,7 @@ class PublisherVhdImageSecurityTests(unittest.TestCase):
 
     def test_exact_policy_and_mutation_refusals(self):
         rows = self.observation['policy_cases']
-        self.assertEqual(len(rows), 15)
+        self.assertEqual(len(rows), 16)
         for row in rows:
             self.assertEqual(row['accepted'], row['case'] == 'valid', row)
             if row['case'] != 'valid':
@@ -237,7 +266,15 @@ class PublisherVhdImageSecurityTests(unittest.TestCase):
         self.assertEqual(row['size_bytes'], 256)
         self.assertEqual(row['reopened_size'], 256)
         self.assertTrue(self.observation['before_attachment'])
-        self.assertFalse(self.observation['acl_setter_executed'])
+        self.assertFalse(self.observation['profile_ba_setter_executed'])
+
+    def test_raw_native_policy_preserves_actual_order(self):
+        row = self.observation['native_policy']
+        self.assertEqual(row['owner'], row['caller'])
+        for key in ('acl_bytes_exact', 'protected', 'managed_projection_differs', 'profile_refused_wrong_owner'):
+            self.assertTrue(row[key], key)
+        self.assertEqual(row['first_sid'], 'S-1-5-32-544')
+        self.assertEqual(row['second_sid'], 'S-1-5-18')
 
     def test_one_attempt_unknown_close_and_original_failure(self):
         rows = self.observation['close_controls']
