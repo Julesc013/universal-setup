@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstring>
 #include <exception>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -167,7 +168,56 @@ std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
     for (const auto& item : handles) result.push_back(item.first);
     return result;
 }
-ThreadHandles native_broker_threads() {
+[[noreturn]] void refuse_broker_census(const std::vector<DWORD>& mandatory, const std::vector<DWORD>& before,
+    const std::vector<DWORD>& native, const std::vector<DWORD>& after, unsigned round, const char* phase,
+    const std::function<void(const char*)>* checkpoint, bool native_after_observed) {
+    const auto original = std::make_exception_ptr(std::runtime_error(
+        "SCM broker native thread enumeration differs from independent complete census"));
+    auto reported = original;
+    try {
+        if (checkpoint) (*checkpoint)("broker_native_before_census_refusal_diagnostic");
+        Value::Object diagnostic{{"scope", Value("bounded_original_census_refusal_no_authority")},
+            {"phase", Value(phase)}, {"round", Value(static_cast<std::uint64_t>(round))},
+            {"acquisition_ordinal", Value(static_cast<std::uint64_t>(
+                std::strcmp(phase, "initial_acquisition") == 0 ? 0u : round + 1u))},
+            {"observer_process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
+            {"observer_thread_id", Value(static_cast<std::uint64_t>(GetCurrentThreadId()))},
+            {"mandatory_count", Value(static_cast<std::uint64_t>(mandatory.size()))},
+            {"before_count", Value(static_cast<std::uint64_t>(before.size()))},
+            {"native_walk_completed", Value(native_after_observed)},
+            {"after_census_observed", Value(native_after_observed)}};
+        const auto difference = [&](const char* label, const std::vector<DWORD>& left,
+                const std::vector<DWORD>& right) {
+            std::vector<DWORD> missing;
+            std::set_difference(left.begin(), left.end(), right.begin(), right.end(), std::back_inserter(missing));
+            Value::Array prefix;
+            for (std::size_t index = 0; index < missing.size() && index < 8; ++index)
+                prefix.emplace_back(Value(static_cast<std::uint64_t>(missing[index])));
+            diagnostic.emplace(std::string(label) + "_count", Value(static_cast<std::uint64_t>(missing.size())));
+            diagnostic.emplace(std::string(label) + "_prefix", Value(std::move(prefix)));
+        };
+        difference("mandatory_missing_before", mandatory, before);
+        if (native_after_observed) {
+            diagnostic.emplace("current_thread_in_native", Value(std::binary_search(
+                native.begin(), native.end(), GetCurrentThreadId())));
+            diagnostic.emplace("native_count", Value(static_cast<std::uint64_t>(native.size())));
+            diagnostic.emplace("after_count", Value(static_cast<std::uint64_t>(after.size())));
+            difference("before_missing_native", before, native);
+            difference("native_missing_after", native, after);
+            difference("after_missing_native", after, native);
+        }
+        const auto text = usk::json::canonical(Value(std::move(diagnostic)));
+        if (text.size() <= 3072) reported = std::make_exception_ptr(std::runtime_error(
+            "SCM broker native thread enumeration differs from independent complete census; census=" + text));
+    } catch (...) {} // Optional diagnostics cannot replace the first refusal.
+    std::rethrow_exception(reported);
+}
+struct NativeBrokerThreads {
+    ThreadHandles handles;
+    std::vector<DWORD> independent_after;
+};
+NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, unsigned round, const char* phase,
+    const std::function<void(const char*)>* checkpoint) {
     // Acquire current-process objects directly. A numeric snapshot followed by
     // OpenThread can lose an SDK helper before acquiring any original handle.
     // Independent Toolhelp coverage below also rejects native access filtering.
@@ -176,6 +226,14 @@ ThreadHandles native_broker_threads() {
     require(next != nullptr, "SCM broker native thread enumeration export unavailable");
     constexpr DWORD rights = THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE;
     constexpr std::uint32_t no_more_entries = 0x8000001au;
+    // An independent BEFORE census makes every observed object mandatory.
+    // AFTER-only additions remain pending until another existing read round
+    // acquires and validates them. Never restart or drop a prior observation.
+    if (checkpoint) (*checkpoint)("broker_native_before_independent_before");
+    const auto before = thread_ids();
+    if (!std::includes(before.begin(), before.end(), mandatory.begin(), mandatory.end()))
+        refuse_broker_census(mandatory, before, {}, {}, round, phase, checkpoint, false);
+    if (checkpoint) (*checkpoint)("broker_native_after_independent_before");
     ThreadHandles result;
     HANDLE cursor = nullptr;
     for (;;) {
@@ -198,9 +256,13 @@ ThreadHandles native_broker_threads() {
         result.emplace(id, std::move(held)); // Retain the cursor through the next call.
     }
     const auto ids = handle_ids(result);
-    require(!ids.empty() && std::binary_search(ids.begin(), ids.end(), GetCurrentThreadId()) && ids == thread_ids(),
-        "SCM broker native thread enumeration differs from independent complete census");
-    return result;
+    if (checkpoint) (*checkpoint)("broker_native_after_native_walk");
+    const auto after = thread_ids();
+    if (ids.empty() || !std::binary_search(ids.begin(), ids.end(), GetCurrentThreadId()) ||
+            !std::includes(ids.begin(), ids.end(), before.begin(), before.end()) ||
+            !std::includes(after.begin(), after.end(), ids.begin(), ids.end()))
+        refuse_broker_census(mandatory, before, ids, after, round, phase, checkpoint, true);
+    return {std::move(result), after};
 }
 void require_no_thread_token(HANDLE thread) {
     HANDLE raw = nullptr;
@@ -315,7 +377,9 @@ Value observe_worker_security(bool native_broker, const std::function<void(const
     Handle token(raw);
     const auto before = statistics(token.get());
     auto primary = read_primary_security(token.get(), before);
-    auto acquired = native_broker ? native_broker_threads() : ThreadHandles{};
+    auto acquisition = native_broker ? native_broker_threads({}, 0, "initial_acquisition", checkpoint) : NativeBrokerThreads{};
+    auto acquired = std::move(acquisition.handles);
+    auto mandatory = std::move(acquisition.independent_after);
     auto ids = native_broker ? handle_ids(acquired) : thread_ids();
     if (checkpoint) (*checkpoint)("broker_native_threads_pinned");
     std::map<DWORD, std::unique_ptr<Handle>> held_threads;
@@ -393,9 +457,13 @@ Value observe_worker_security(bool native_broker, const std::function<void(const
                 "publisher worker held thread security changed across population readback");
         }
         if (checkpoint) (*checkpoint)("broker_native_before_final_census");
-        if (native_broker) acquired = native_broker_threads();
+        if (native_broker) {
+            acquisition = native_broker_threads(mandatory, round, "final_population_census", checkpoint);
+            acquired = std::move(acquisition.handles);
+            mandatory = std::move(acquisition.independent_after);
+        }
         const auto final_ids = native_broker ? handle_ids(acquired) : thread_ids();
-        if (final_ids == ids) { population_complete = true; break; }
+        if (final_ids == ids && (!native_broker || mandatory == final_ids)) { population_complete = true; break; }
         require(std::includes(final_ids.begin(), final_ids.end(), ids.begin(), ids.end()),
             "publisher worker lost an observed thread during population readback");
         ids = final_ids;

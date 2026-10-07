@@ -1198,6 +1198,84 @@ void broker_worker_native_acquisition_controls() {
             WaitForSingleObject(live.handle(), 0) == WAIT_TIMEOUT,
             "native broker acquisition omitted or rebound an actual owned live thread");
     }
+    const auto census_diagnostic = [](const std::string& diagnostic) {
+        const auto marker = diagnostic.find("; census=");
+        check(marker != std::string::npos, "native acquisition census refusal lacked its actual bounded sets");
+        const auto value = usk::json::parse(diagnostic.substr(marker + 9));
+        check(value.at("scope").as_string() == "bounded_original_census_refusal_no_authority",
+            "native acquisition census diagnostic claimed authority");
+        return value;
+    };
+    for (const auto window : {"broker_native_after_independent_before", "broker_native_after_native_walk"}) {
+        std::unique_ptr<TestThread> added;
+        unsigned read_rounds = 0;
+        const auto native = capture([&](const char* checkpoint) {
+            if (std::string(checkpoint) == window && !added) added = std::make_unique<TestThread>();
+            if (std::string(checkpoint) == "broker_native_before_thread_readback") ++read_rounds;
+        });
+        check(added != nullptr, "native acquisition addition control did not create its actual owned thread");
+        const auto& rows = native.at("threads").as_array();
+        const auto found = std::find_if(rows.begin(), rows.end(), [&](const Value& row) {
+            return row.at("thread_id").as_unsigned() == added->id();
+        });
+        FILETIME birth{}, exit{}, kernel{}, user{};
+        check(found != rows.end() && GetThreadTimes(added->handle(), &birth, &exit, &kernel, &user) &&
+            std::stoull(found->at("creation_time").as_string(), nullptr, 16) ==
+                ((static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime) &&
+            WaitForSingleObject(added->handle(), 0) == WAIT_TIMEOUT &&
+            read_rounds == (std::string(window) == "broker_native_after_native_walk" ? 2u : 1u),
+            "native acquisition admitted an addition without its original native facts and complete read rounds");
+    }
+    {
+        TestThread original;
+        std::string diagnostic;
+        bool retired = false;
+        try {
+            (void)capture([&](const char* checkpoint) {
+                if (std::string(checkpoint) == "broker_native_after_native_walk" && !retired) {
+                    original.retire(); retired = true;
+                }
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        const auto facts = census_diagnostic(diagnostic);
+        const auto& missing = facts.at("native_missing_after_prefix").as_array();
+        check(retired && facts.at("native_walk_completed").as_boolean() &&
+            facts.at("native_missing_after_count").as_unsigned() != 0 &&
+            std::any_of(missing.begin(), missing.end(), [&](const Value& id) { return id.as_unsigned() == original.id(); }),
+            "native acquisition silently omitted an originally held thread lost before AFTER");
+    }
+    for (const bool fail_optional_diagnostic : {false, true}) {
+        std::unique_ptr<TestThread> pending;
+        bool retired = false, optional_failure = false;
+        std::string diagnostic;
+        try {
+            (void)capture([&](const char* checkpoint) {
+                if (std::string(checkpoint) == "broker_native_after_native_walk" && !pending)
+                    pending = std::make_unique<TestThread>();
+                if (std::string(checkpoint) == "broker_native_before_final_census" && pending && !retired) {
+                    pending->retire(); retired = true;
+                }
+                if (std::string(checkpoint) == "broker_native_before_census_refusal_diagnostic" && fail_optional_diagnostic) {
+                    optional_failure = true;
+                    throw std::runtime_error("synthetic optional census diagnostic failure");
+                }
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(pending && retired, "pending native coverage loss control did not retire its actual observed thread");
+        if (fail_optional_diagnostic) {
+            check(optional_failure && diagnostic ==
+                "SCM broker native thread enumeration differs from independent complete census",
+                "optional census formatting failure replaced the original refusal");
+        } else {
+            const auto facts = census_diagnostic(diagnostic);
+            const auto& missing = facts.at("mandatory_missing_before_prefix").as_array();
+            check(!facts.at("native_walk_completed").as_boolean() && !facts.at("after_census_observed").as_boolean() &&
+                facts.at("mandatory_missing_before_count").as_unsigned() != 0 &&
+                !facts.as_object().count("native_count") && !facts.as_object().count("after_count") &&
+                std::any_of(missing.begin(), missing.end(), [&](const Value& id) { return id.as_unsigned() == pending->id(); }),
+                "native acquisition dropped a pending observation or fabricated later census evidence");
+        }
+    }
     for (const auto window : {"broker_native_threads_pinned", "broker_native_before_thread_readback",
             "broker_native_initial_times_read", "broker_native_repeated_times_read"}) {
         TestThread original;
@@ -1300,6 +1378,71 @@ void broker_worker_native_acquisition_controls() {
         catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; }
         check(acl_restored && privileges_restored, "native broker query-denial control restoration unconfirmed");
         if (control_error) std::rethrow_exception(control_error);
+    }
+    {
+        TestQueryDenialContext query_context;
+        query_context.disable_checked();
+        std::unique_ptr<TestThread> pending;
+        std::unique_ptr<TestThreadDacl> denied;
+        bool actual_denial = false;
+        std::exception_ptr control_error;
+        try {
+            std::string diagnostic;
+            try {
+                (void)capture([&](const char* checkpoint) {
+                    if (std::string(checkpoint) == "broker_native_after_native_walk" && !pending) {
+                        pending = std::make_unique<TestThread>();
+                        denied = std::make_unique<TestThreadDacl>(pending->handle(),
+                            THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION);
+                        const auto opened = OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION |
+                            READ_CONTROL | SYNCHRONIZE, FALSE, pending->id());
+                        const auto error = opened ? ERROR_SUCCESS : GetLastError();
+                        if (opened) CloseHandle(opened);
+                        check(!opened && error == ERROR_ACCESS_DENIED,
+                            "late native coverage control did not deny actual query access");
+                        actual_denial = true;
+                    }
+                });
+            } catch (const std::exception& error) { diagnostic = error.what(); }
+            check(pending && denied && actual_denial, "late native query-denial control missed its actual acquisition window");
+            if (diagnostic.find("; census=") != std::string::npos) {
+                const auto facts = census_diagnostic(diagnostic);
+                const auto& missing = facts.at("before_missing_native_prefix").as_array();
+                check(facts.at("before_missing_native_count").as_unsigned() != 0 &&
+                    std::any_of(missing.begin(), missing.end(), [&](const Value& id) { return id.as_unsigned() == pending->id(); }),
+                    "native acquisition treated an access-filtered pending object as an optional addition");
+            } else check(diagnostic.find("native thread enumeration failed") != std::string::npos,
+                "native acquisition admitted late access-filtered coverage");
+        } catch (...) { control_error = std::current_exception(); }
+        bool acl_restored = !denied, privileges_restored = false;
+        if (denied) try { denied->restore_checked(); acl_restored = true; }
+        catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; }
+        try { query_context.restore_checked(); privileges_restored = true; }
+        catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; }
+        check(acl_restored && privileges_restored, "late native query-denial restoration unconfirmed");
+        if (control_error) std::rethrow_exception(control_error);
+    }
+    {
+        std::vector<std::unique_ptr<TestThread>> pending;
+        bool retired = false;
+        std::string diagnostic;
+        try {
+            (void)capture([&](const char* checkpoint) {
+                if (std::string(checkpoint) == "broker_native_after_native_walk" && pending.empty())
+                    for (unsigned index = 0; index != 12; ++index) pending.push_back(std::make_unique<TestThread>());
+                if (std::string(checkpoint) == "broker_native_before_final_census" && !retired) {
+                    for (auto& thread : pending) thread->retire();
+                    retired = true;
+                }
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        const auto facts = census_diagnostic(diagnostic);
+        const auto& missing = facts.at("mandatory_missing_before_prefix").as_array();
+        check(pending.size() == 12 && retired && facts.at("mandatory_missing_before_count").as_unsigned() == 12 &&
+            missing.size() == 8 && diagnostic.size() <= 4096 &&
+            std::all_of(missing.begin(), missing.end(), [&](const Value& id) {
+                return std::any_of(pending.begin(), pending.end(), [&](const auto& thread) { return thread->id() == id.as_unsigned(); });
+            }), "native census refusal lost actual difference counts or exceeded its bounded prefix");
     }
     {
         std::vector<std::unique_ptr<TestThread>> added;
