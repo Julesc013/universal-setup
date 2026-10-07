@@ -25,6 +25,7 @@
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_registration.h"
+#include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
@@ -53,7 +54,11 @@
 
 namespace {
 bool is_authenticated_record_schema(const std::string& schema) {
-    return schema == "usk.publisher.lab_phase_evidence.v8" || schema == "usk.publisher.lab_phase_evidence.v9";
+    return schema == "usk.publisher.lab_phase_evidence.v8" || schema == "usk.publisher.lab_phase_evidence.v9" ||
+        schema == "usk.publisher.lab_phase_evidence.v10";
+}
+bool is_descendant_record_schema(const std::string& schema) {
+    return schema == "usk.publisher.lab_phase_evidence.v9" || schema == "usk.publisher.lab_phase_evidence.v10";
 }
 
 struct OwnedHandle {
@@ -103,7 +108,33 @@ thread_local std::optional<std::string> submitted_verify_request;
 thread_local std::string consumer_read_sid;
 thread_local const usk::platform::windows::PublisherRequestChannel* authenticated_request = nullptr;
 thread_local const usk::platform::windows::RegisteredPublisherAdmission* registered_admission = nullptr;
+thread_local usk::platform::windows::PublisherEffectExecutionOwner* effect_execution = nullptr;
 thread_local std::optional<usk::json::Value> registered_operation_admission;
+bool has_registered_native_owner() { return registered_admission || effect_execution; }
+bool has_authenticated_native_owner() { return authenticated_request || effect_execution; }
+usk::json::Value registered_native_evidence() {
+    if (effect_execution) return effect_execution->service_admission().at("registered_admission");
+    if (!registered_admission) throw std::runtime_error("registered native owner is absent");
+    return registered_admission->evidence();
+}
+bool has_selected_native_operation() {
+    if (effect_execution) return effect_execution->selected_reviewed_operation().at("present").as_boolean();
+    return registered_admission && registered_admission->has_selected_reviewed_operation();
+}
+usk::json::Value selected_native_envelope() {
+    if (effect_execution) {
+        const auto selected = effect_execution->selected_reviewed_operation();
+        if (!selected.at("present").as_boolean()) throw std::runtime_error("original native reviewed selection is absent");
+        return selected.at("envelope");
+    }
+    if (!registered_admission) throw std::runtime_error("registered native owner is absent");
+    return registered_admission->selected_reviewed_envelope();
+}
+usk::json::Value authenticated_native_access(HANDLE handle) {
+    if (effect_execution) return effect_execution->authenticated_object_access(handle);
+    if (!authenticated_request) throw std::runtime_error("authenticated native request owner is absent");
+    return authenticated_request->observe_authenticated_object_access(handle);
+}
 thread_local bool interrupt_consumer_grant = false;
 struct ReviewedPlanBinding {
     std::string plan_digest;
@@ -613,7 +644,8 @@ std::vector<std::pair<std::string, std::string>> phase_object_bindings(
 void require_same_handle_phase_objects(const usk::json::Value& execution,
     const usk::json::Value& anchors, const usk::json::Value& tree) {
     if (execution.at("schema").as_string() != "usk.publisher_execution_observation.v5" &&
-        execution.at("schema").as_string() != "usk.publisher_execution_observation.v6") return;
+        execution.at("schema").as_string() != "usk.publisher_execution_observation.v6" &&
+        execution.at("schema").as_string() != "usk.publisher_execution_observation.v7") return;
     const std::vector<const usk::json::Value*> expected{
         &anchors.at("boundary"), &anchors.at("chain").as_array().at(0).at("object"),
         &anchors.at("staging"), &anchors.at("destination_parent"),
@@ -642,10 +674,17 @@ usk::json::Value capture_native_execution_phase(const std::string& phase,
     for (std::size_t index = 0; index < handles.size(); ++index) {
         phase_handles.push_back({bindings[index].first, handles[index], bindings[index].second});
     }
-    if (authenticated_bound && !authenticated_request)
+    if (authenticated_bound && !has_authenticated_native_owner())
         throw std::runtime_error("authenticated phase requires the live private request channel");
-    const auto execution = observe_publisher_execution_phase(service_name, phase, phase_handles,
-        authenticated_bound ? authenticated_request : nullptr);
+    if (effect_execution && (!authenticated_bound || !descendants_bound))
+        throw std::runtime_error("native child phase requires its complete authenticated closure");
+    const auto observe_execution = [&] {
+        return effect_execution ? observe_publisher_effect_execution_phase(service_name, phase, phase_handles,
+            effect_execution->readback(), effect_execution->security()) :
+            observe_publisher_execution_phase(service_name, phase, phase_handles,
+                authenticated_bound ? authenticated_request : nullptr);
+    };
+    const auto execution = observe_execution();
     require_same_handle_phase_objects(execution, anchor_value, tree_value);
     usk::json::Value result(usk::json::Value::Object{
         {"execution", execution},
@@ -653,11 +692,22 @@ usk::json::Value capture_native_execution_phase(const std::string& phase,
         {"tree_sha256", usk::json::Value(usk::json::sha256_canonical(tree_value))}});
     if (descendants_bound) {
         if (!authenticated_bound) throw std::runtime_error("descendant access requires authenticated phase evidence");
-        auto access = observe_publisher_authenticated_descendant_access(handles.back(), tree,
-            *authenticated_request, execution.at("authenticated_client"));
+        auto access = effect_execution ? observe_publisher_authenticated_descendant_access(handles.back(), tree,
+            *effect_execution, execution.at("authenticated_client")) :
+            observe_publisher_authenticated_descendant_access(handles.back(), tree,
+                *authenticated_request, execution.at("authenticated_client"));
         require_publisher_authenticated_descendant_access(access, execution.at("authenticated_client"), tree_value);
-        const auto after = observe_publisher_execution_phase(service_name, phase, phase_handles, authenticated_request);
-        if (usk::json::canonical(execution) != usk::json::canonical(after))
+        const auto after = observe_execution();
+        require_publisher_execution_worker_match(execution, after);
+        auto first = execution, last = after;
+        if (effect_execution) {
+            // Only fully validated parent thread populations may differ; the
+            // child's complete original security and every other fact remain
+            // exact, as required by the native worker-match validator above.
+            first.as_object().at("broker_readback") = publisher_effect_broker_immutable_record(first.at("broker_readback"));
+            last.as_object().at("broker_readback") = publisher_effect_broker_immutable_record(last.at("broker_readback"));
+        }
+        if (usk::json::canonical(first) != usk::json::canonical(last))
             throw std::runtime_error("authenticated phase bindings changed during descendant access observation");
         result.as_object().emplace("authenticated_descendants", std::move(access));
     }
@@ -711,8 +761,15 @@ void require_native_descendant_continuity(const usk::json::Value& earlier, const
     if (first.size() != second.size()) throw std::runtime_error("authenticated descendant phase closure changed");
     const auto& old_service = earlier.at("execution").at("service");
     const auto& new_service = later.at("execution").at("service");
-    const bool same_worker = old_service.at("process_id").as_unsigned() == new_service.at("process_id").as_unsigned() &&
-        usk::json::canonical(old_service.at("token_id")) == usk::json::canonical(new_service.at("token_id"));
+    const bool old_child = earlier.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v7";
+    const bool new_child = later.at("execution").at("schema").as_string() == "usk.publisher_execution_observation.v7";
+    const bool same_worker = old_child && new_child ?
+        earlier.at("execution").at("effect_worker").at("process_id").as_unsigned() ==
+            later.at("execution").at("effect_worker").at("process_id").as_unsigned() &&
+        earlier.at("execution").at("effect_worker").at("process_birth").as_string() ==
+            later.at("execution").at("effect_worker").at("process_birth").as_string() :
+        !old_child && !new_child && old_service.at("process_id").as_unsigned() == new_service.at("process_id").as_unsigned() &&
+            usk::json::canonical(old_service.at("token_id")) == usk::json::canonical(new_service.at("token_id"));
     for (std::size_t index = 0; index < first.size(); ++index) {
         if (first[index].at("relative_path").as_string() != second[index].at("relative_path").as_string())
             throw std::runtime_error("authenticated descendant phase path changed");
@@ -786,10 +843,31 @@ void require_registered_operation_record(const usk::json::Value& prepared) {
     const auto& admission = prepared.at("operation_admission");
     // Private legacy transports can retain authenticated phase observations;
     // null explicitly retains that narrower scope and cannot qualify a route.
-    if (usk::json::canonical(admission) == "null") return;
+    const bool child = prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v10";
+    if (usk::json::canonical(admission) == "null") {
+        if (child) throw std::runtime_error("native child evidence requires its actual registered operation admission");
+        return;
+    }
     const auto& execution = prepared.at("execution_phases").as_array().at(0).at("execution");
     const auto& client = execution.at("authenticated_client");
     const auto& source = prepared.at("source_binding");
+    if (child) {
+        const auto& broker = execution.at("broker_readback");
+        usk::platform::windows::require_publisher_effect_broker_readback_record(broker);
+        const auto& registered = broker.at("registered_admission");
+        const auto& target = registered.at("target_identity").at("volume_identity");
+        const auto& arguments = broker.at("service_configuration").at("arguments").as_array();
+        if (admission.at("registration_sha256").as_string() != registered.at("registration_sha256").as_string() ||
+            admission.at("target_admitted_sha256").as_string() != registered.at("target_admitted_sha256").as_string() ||
+            admission.at("publisher_image_sha256").as_string() != registered.at("publisher_image").at("sha256").as_string() ||
+            admission.at("volume_guid_root").as_string() != target.at("volume_root").as_string() ||
+            admission.at("root_file_id").as_string() != target.at("root_file_id").as_string() ||
+            std::to_string(admission.at("volume_serial").as_unsigned()) != target.at("volume_serial").as_string() ||
+            usk::json::canonical(client) != usk::json::canonical(broker.at("authenticated_client")) ||
+            arguments.size() != 11 || arguments.at(5).as_string() != "--reviewed-plan-envelope" ||
+            source.at("plan_envelope_sha256").as_string() != arguments.at(7).as_string())
+            throw std::runtime_error("native child operation admission differs from its original broker registration/image/target/caller");
+    }
     if (admission.as_object().size() != 18 ||
         admission.at("schema").as_string() != "usk.publisher_operation_admission.v1" ||
         admission.at("scope").as_string() != "live_registered_request_and_held_volume_before_effects" ||
@@ -842,12 +920,13 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
     if (schema == "usk.publisher.lab_phase_evidence.v6" || (schema == "usk.publisher.lab_phase_evidence.v7" || is_authenticated_record_schema(schema))) {
         for (const auto& phase : phases) {
             const auto& execution_schema = phase.at("execution").at("schema").as_string();
-            if ((execution_schema != "usk.publisher_execution_observation.v4" &&
+            if (schema == "usk.publisher.lab_phase_evidence.v10" ? execution_schema != "usk.publisher_execution_observation.v7" :
+                ((execution_schema != "usk.publisher_execution_observation.v4" &&
                  execution_schema != "usk.publisher_execution_observation.v5" &&
                  execution_schema != "usk.publisher_execution_observation.v6") ||
                 (schema == "usk.publisher.lab_phase_evidence.v7" && execution_schema != "usk.publisher_execution_observation.v5") ||
                 (authenticated_bound && execution_schema != "usk.publisher_execution_observation.v6") ||
-                (!authenticated_bound && execution_schema == "usk.publisher_execution_observation.v6"))
+                (!authenticated_bound && execution_schema == "usk.publisher_execution_observation.v6")))
                 throw std::runtime_error("current native prepared evidence requires held-handle rights");
         }
     }
@@ -859,16 +938,16 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
     auto empty_tree = prepared.at("sealed_tree");
     empty_tree.as_object().at("descendants") = usk::json::Value(usk::json::Value::Array{});
     if (fresh) require_native_execution_phase(phases[0], "protected_empty", service_sid,
-        prepared.at("protected_anchors"), empty_tree, expected_service_name, schema == "usk.publisher.lab_phase_evidence.v9");
+        prepared.at("protected_anchors"), empty_tree, expected_service_name, is_descendant_record_schema(schema));
     const std::size_t sealed_index = fresh ? 1u : 0u;
     require_native_execution_phase(phases[sealed_index], "sealed", service_sid,
-        prepared.at("protected_anchors"), prepared.at("sealed_tree"), expected_service_name, schema == "usk.publisher.lab_phase_evidence.v9");
+        prepared.at("protected_anchors"), prepared.at("sealed_tree"), expected_service_name, is_descendant_record_schema(schema));
     require_native_execution_phase(phases[sealed_index + 1], "publish_prepared", service_sid,
-        prepared.at("protected_anchors"), prepared.at("sealed_tree"), expected_service_name, schema == "usk.publisher.lab_phase_evidence.v9");
+        prepared.at("protected_anchors"), prepared.at("sealed_tree"), expected_service_name, is_descendant_record_schema(schema));
     for (std::size_t index = 1; index < phases.size(); ++index) {
         usk::platform::windows::require_publisher_execution_worker_match(
             phases[index - 1].at("execution"), phases[index].at("execution"));
-        if (schema == "usk.publisher.lab_phase_evidence.v9")
+        if (is_descendant_record_schema(schema))
             require_native_descendant_continuity(phases[index - 1], phases[index]);
     }
     if (creation_bound) {
@@ -895,12 +974,14 @@ void require_visible_execution_phase(const usk::json::Value& bound,
         if (rights_bound) {
             for (const auto& phase : phases) {
                 const auto& execution_schema = phase.at("execution").at("schema").as_string();
-                if ((execution_schema != "usk.publisher_execution_observation.v4" &&
+                if (bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v10" ?
+                    execution_schema != "usk.publisher_execution_observation.v7" :
+                    ((execution_schema != "usk.publisher_execution_observation.v4" &&
                      execution_schema != "usk.publisher_execution_observation.v5" &&
                      execution_schema != "usk.publisher_execution_observation.v6") ||
                     (metadata_bound && !authenticated_bound && execution_schema != "usk.publisher_execution_observation.v5") ||
                     (authenticated_bound && execution_schema != "usk.publisher_execution_observation.v6") ||
-                    (!authenticated_bound && execution_schema == "usk.publisher_execution_observation.v6"))
+                    (!authenticated_bound && execution_schema == "usk.publisher_execution_observation.v6")))
                     throw std::runtime_error("current native visible evidence requires held-handle rights");
             }
         }
@@ -919,19 +1000,19 @@ void require_visible_execution_phase(const usk::json::Value& bound,
             // The retained pre-rename tree keeps its original native names.
             // It is checked against the prepared seal by the surrounding reader.
             require_native_execution_phase(phases[0], "before_rename", service_sid,
-                bound.at("protected_anchors"), prepared.at("sealed_tree"), expected_service_name, bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9");
+                bound.at("protected_anchors"), prepared.at("sealed_tree"), expected_service_name, is_descendant_record_schema(bound.at("schema").as_string()));
             usk::platform::windows::require_publisher_execution_worker_match(
                 phases[0].at("execution"), phases[1].at("execution"));
-            if (bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9")
+            if (is_descendant_record_schema(bound.at("schema").as_string()))
                 require_native_descendant_continuity(phases[0], phases[1]);
         }
         require_native_execution_phase(phases.back(), "visible_bound", service_sid,
-            bound.at("protected_anchors"), bound.at("visible_tree"), expected_service_name, bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9");
+            bound.at("protected_anchors"), bound.at("visible_tree"), expected_service_name, is_descendant_record_schema(bound.at("schema").as_string()));
         const auto& prepared_phases = prepared.at("execution_phases").as_array();
         if (prepared_phases.empty()) throw std::runtime_error("prepared native execution record is empty");
         usk::platform::windows::require_publisher_execution_record_continuity(
             prepared_phases.back().at("execution"), phases.front().at("execution"));
-        if (bound.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9")
+        if (is_descendant_record_schema(bound.at("schema").as_string()))
             require_native_descendant_continuity(prepared_phases.back(), phases.front());
     } else if (bound.contains("execution_phases") || bound.contains("execution_transition") || bound.contains("rename_call")) {
         throw std::runtime_error("legacy visible record cannot claim a native execution phase");
@@ -1427,12 +1508,12 @@ usk::json::Value admit_current_registered_operation(HANDLE volume, const std::st
     const std::string& durable_snapshot, const std::string& transaction_id) {
     using namespace usk::platform::windows;
     using usk::json::Value;
-    if (!registered_admission || !authenticated_request)
+    if (!has_registered_native_owner() || !has_authenticated_native_owner())
         throw std::runtime_error("registered operation requires the held host admission and authenticated channel");
     if (!publisher_registered_execution_platform_qualified(observe_publisher_execution_platform()))
         throw usk::transaction::CommitAuthorityUnavailable();
-    const auto registration = registered_admission->evidence();
-    const auto observed = observe_current_restricted_publisher_service(service_name);
+    const auto registration = registered_native_evidence();
+    const auto observed = observe_current_publisher_native_execution_owner(service_name).service;
     const auto volume_facts = observe_local_ntfs_volume_handle(volume);
     const auto root = observe_publisher_directory_handle(volume);
     require_publisher_object_security_shape(root, service_sid);
@@ -1444,7 +1525,7 @@ usk::json::Value admit_current_registered_operation(HANDLE volume, const std::st
         target.at("root_file_id").as_string() != root.file_id ||
         target.at("volume_serial").as_string() != std::to_string(volume_facts.file_id_volume_serial))
         throw std::runtime_error("registered operation lost its live service or held target identity");
-    auto access = authenticated_request->observe_authenticated_object_access(volume);
+    auto access = authenticated_native_access(volume);
     const auto client = access.at("client");
     if (client.at("user_sid").as_string() != registration.at("configured_caller_sid").as_string() ||
         usk::json::canonical(access.at("native_object")) != usk::json::canonical(publisher_handle_observation_json(root)))
@@ -1503,7 +1584,7 @@ void require_registered_recovery_binding(const usk::json::Value& prepared,
 void require_current_registered_publication_admission(const usk::json::Value& prepared,
     const usk::json::Value& before, const ReviewedPlanBinding& reviewed, HANDLE volume,
     const std::string& service_sid) {
-    if (!registered_admission) return;
+    if (!has_registered_native_owner()) return;
     if (!is_authenticated_record_schema(prepared.at("schema").as_string()) ||
         !registered_operation_admission ||
         usk::json::canonical(prepared.at("operation_admission")) != usk::json::canonical(*registered_operation_admission) ||
@@ -1513,7 +1594,7 @@ void require_current_registered_publication_admission(const usk::json::Value& pr
     require_prepared_execution_phases(prepared, service_sid);
     require_native_execution_phase(before, "before_rename", service_sid,
         prepared.at("protected_anchors"), prepared.at("sealed_tree"), service_name,
-        prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9");
+        is_descendant_record_schema(prepared.at("schema").as_string()));
     usk::platform::windows::require_publisher_execution_worker_match(prepared.at("execution_phases").as_array().back().at("execution"),
         before.at("execution"));
 }
@@ -1725,7 +1806,7 @@ std::string lab_visible_record(
     }
     return canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
-        (!execution_phases.empty() ? (descendants_bound ? "v9" : authenticated_bound ? "v8" : metadata_bound ? "v7" : rights_bound ? "v6" : rename_bound ? "v5" : creation_bound ? "v4" : "v3") : selected_digest.empty() ? "v1" : "v2") +
+        (!execution_phases.empty() ? (descendants_bound ? (effect_execution ? "v10" : "v9") : authenticated_bound ? "v8" : metadata_bound ? "v7" : rights_bound ? "v6" : rename_bound ? "v5" : creation_bound ? "v4" : "v3") : selected_digest.empty() ? "v1" : "v2") +
         "\",\"phase\":\"lab_visible_evidence\",\"source_file_id\":" +
         json_quote(source_file_id) +
         ",\"destination_parent_file_id\":" +
@@ -1891,6 +1972,8 @@ std::string observe_prepared_recovery(HANDLE volume,
     }
     const auto prepared = usk::json::parse(stored);
     const std::string prepared_schema = prepared.at("schema").as_string();
+    if (effect_execution && prepared_schema != "usk.publisher.lab_phase_evidence.v10")
+        throw usk::transaction::CommitAuthorityUnavailable();
     const bool execution_bound = is_execution_record_schema(prepared_schema);
     const bool selected_v2 = execution_bound || prepared_schema == "usk.publisher.lab_phase_evidence.v2";
     if (has_reviewed_snapshot) {
@@ -1956,7 +2039,7 @@ std::string observe_prepared_recovery(HANDLE volume,
             (void)restore_reviewed_install_plan(stored_snapshot);
         }
     }
-    if (registered_admission) {
+    if (has_registered_native_owner()) {
         if (!has_reviewed_snapshot)
             throw std::runtime_error("registered recovery requires the durable reviewed snapshot");
         const auto snapshot = usk::json::parse(stored_snapshot);
@@ -2124,11 +2207,11 @@ std::string observe_prepared_recovery(HANDLE volume,
                 observe_publisher_tree(root.get()));
             if (execution_bound) forward_execution_phases.push_back(capture_native_execution_phase(
                 "before_rename", forward_handles, anchors, actual_tree,
-                is_authenticated_record_schema(prepared_schema), prepared_schema == "usk.publisher.lab_phase_evidence.v9"));
-            if (execution_bound && prepared_schema == "usk.publisher.lab_phase_evidence.v9")
+                is_authenticated_record_schema(prepared_schema), is_descendant_record_schema(prepared_schema)));
+            if (execution_bound && is_descendant_record_schema(prepared_schema))
                 require_native_descendant_continuity(prepared.at("execution_phases").as_array().back(),
                     forward_execution_phases.back());
-            if (registered_admission && is_authenticated_record_schema(prepared_schema)) {
+            if (has_registered_native_owner() && is_authenticated_record_schema(prepared_schema)) {
                 require_registered_recovery_binding(prepared, *registered_operation_admission);
                 const auto& current = forward_execution_phases.back().at("execution");
                 if (usk::json::sha256_canonical(current.at("authenticated_client")) !=
@@ -2138,7 +2221,7 @@ std::string observe_prepared_recovery(HANDLE volume,
                     throw std::runtime_error("registered recovery phase lost its current authenticated worker binding");
                 require_native_execution_phase(forward_execution_phases.back(), "before_rename", service_sid,
                     prepared.at("protected_anchors"), prepared.at("sealed_tree"), service_name,
-                    prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9");
+                    is_descendant_record_schema(prepared.at("schema").as_string()));
             }
             forward_rename_call = probe_publisher_bound_rename_no_replace(root.get(),
                 destination.get(), visible_component, observed_tree.root,
@@ -2158,7 +2241,7 @@ std::string observe_prepared_recovery(HANDLE volume,
             std::wstring(service_sid.begin(), service_sid.end()));
         if (execution_bound) forward_execution_phases.push_back(capture_native_execution_phase(
             "visible_bound", forward_handles, anchors, forward_visible,
-            is_authenticated_record_schema(prepared_schema), prepared_schema == "usk.publisher.lab_phase_evidence.v9"));
+            is_authenticated_record_schema(prepared_schema), is_descendant_record_schema(prepared_schema)));
         const std::string forward_record = lab_visible_record(
             forward_visible.root.file_id,
             anchors.destination_parent.object.file_id, prepared_digest,
@@ -2172,7 +2255,7 @@ std::string observe_prepared_recovery(HANDLE volume,
             forward_rename_call ? &*forward_rename_call : nullptr,
             prepared_schema == "usk.publisher.lab_phase_evidence.v6" || prepared_schema == "usk.publisher.lab_phase_evidence.v7" || is_authenticated_record_schema(prepared_schema),
             prepared_schema == "usk.publisher.lab_phase_evidence.v7" || is_authenticated_record_schema(prepared_schema),
-            is_authenticated_record_schema(prepared_schema), prepared_schema == "usk.publisher.lab_phase_evidence.v9");
+            is_authenticated_record_schema(prepared_schema), is_descendant_record_schema(prepared_schema));
         require_visible_execution_phase(usk::json::parse(forward_record), service_sid, prepared);
         write_journal_phase(journal.get(), L"lab-visible-evidence.json",
             descriptor, forward_record);
@@ -2731,10 +2814,12 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
     }
     const bool execution_bound = reviewed_plan.has_value() &&
         (submitted_apply_request.has_value() || submitted_recovery_request.has_value());
-    const bool authenticated_bound = execution_bound && authenticated_request && !staged_only_reentry;
+    const bool authenticated_bound = execution_bound && has_authenticated_native_owner() && !staged_only_reentry;
     std::unique_ptr<PublisherCreationCapture> creation_capture;
     if (execution_bound && !staged_only_reentry) {
-        creation_capture = std::make_unique<PublisherCreationCapture>(volume, service_name, stop_event);
+        creation_capture = effect_execution ? std::make_unique<PublisherCreationCapture>(volume, service_name,
+            effect_execution->readback(), effect_execution->security()) :
+            std::make_unique<PublisherCreationCapture>(volume, service_name, stop_event);
     }
     OwnedHandle publication(staged_only_reentry ?
         open_exact_lab_child(volume, L"publication") :
@@ -2934,7 +3019,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
         "publish_prepared", phase_handles, third, observe_publisher_tree(candidate.get()), authenticated_bound, authenticated_bound));
     const std::string prepared = canonical_record(
         std::string("{\"schema\":\"usk.publisher.lab_phase_evidence.") +
-        (execution_bound ? (creation_evidence ? (authenticated_bound ? "v9" : "v7") : "v3") : selected_v2 ? "v2" : "v1") + "\","
+        (execution_bound ? (creation_evidence ? (authenticated_bound ? (effect_execution ? "v10" : "v9") : "v7") : "v3") : selected_v2 ? "v2" : "v1") + "\","
         "\"phase\":\"lab_prepared_evidence\",\"service_sid\":" +
         json_quote(service_sid) +
         ",\"volume_serial\":" +
@@ -2999,7 +3084,7 @@ std::string observe_protected_anchors(HANDLE volume, const std::string& service_
                 visible_execution_phases.front());
     }
     PublisherBoundRenameObservation renamed;
-    if (registered_admission) {
+    if (has_registered_native_owner()) {
         if (!reviewed_plan || visible_execution_phases.empty())
             throw std::runtime_error("registered publication requires the reviewed native phase closure");
         require_current_registered_publication_admission(usk::json::parse(prepared),
@@ -3197,18 +3282,56 @@ public:
 };
 thread_local bool execution_active=false;
 void require_original_consumer_snapshot_scope() {
-    if (!execution_active || !registered_admission || !authenticated_request ||
-        !registered_admission->has_selected_reviewed_operation())
+    if (!execution_active || !has_registered_native_owner() || !has_authenticated_native_owner() ||
+        !has_selected_native_operation())
         throw std::runtime_error("original consumer snapshot requires the selected registered native operation");
 }
 struct ScopedExecution {
-    explicit ScopedExecution(const usk::platform::windows::CandidatePublisherConfiguration& config) {
+    explicit ScopedExecution(const usk::platform::windows::CandidatePublisherConfiguration& config,
+        HANDLE original_child_cancel = nullptr) {
         if (execution_active) throw std::runtime_error("nested publisher execution");
         if (config.authenticated_request && !config.submitted_apply_request &&
             !config.submitted_recovery_request && !config.submitted_verify_request)
             throw std::runtime_error("authenticated channel lacks an operation request");
         if (config.registered_admission && (!config.authenticated_request || config.prepare_disposable_boundary))
             throw std::runtime_error("registered operation requires its channel and an already protected target");
+        if (config.effect_execution) {
+            if (config.registered_admission || config.authenticated_request || config.prepare_disposable_boundary ||
+                config.stop_event || !original_child_cancel || config.prepublish_gate || config.poststage_gate ||
+                config.postrename_gate || config.postjournal_gate || config.recover_prepared ||
+                config.recover_snapshot_only || config.recover_sealed_journal || config.recover_visible_bound ||
+                config.interrupt_consumer_grant || !config.receipt_path.empty() ||
+                !config.selected_archive_path.empty() || !config.selected_archive_sha256.empty())
+                throw std::runtime_error("native child configuration cannot borrow SCM/channel or disposable laboratory authority");
+            const auto profile = config.effect_execution->service_admission();
+            const auto& arguments = profile.at("service_configuration").at("arguments").as_array();
+            const auto& mode = arguments.at(5).as_string();
+            const bool reviewed_mode = mode == "--reviewed-plan-envelope";
+            const bool reviewed = config.submitted_apply_request.has_value();
+            const bool recovery = config.submitted_recovery_request.has_value();
+            const bool verify = config.submitted_verify_request.has_value();
+            const unsigned requests = static_cast<unsigned>(config.submitted_apply_request.has_value()) +
+                static_cast<unsigned>(config.submitted_recovery_request.has_value()) +
+                static_cast<unsigned>(config.submitted_verify_request.has_value());
+            const auto* submitted = config.submitted_apply_request ? &*config.submitted_apply_request :
+                config.submitted_recovery_request ? &*config.submitted_recovery_request :
+                config.submitted_verify_request ? &*config.submitted_verify_request : nullptr;
+            if (requests != 1 || !submitted || usk::json::canonical(usk::json::parse(*submitted)) !=
+                    config.effect_execution->canonical_request() ||
+                ascii(config.service_name) != arguments.at(2).as_string() ||
+                ascii(config.volume_root) != arguments.at(4).as_string() ||
+                config.consumer_read_sid != profile.at("authenticated_client").at("user_sid").as_string() ||
+                (!reviewed_mode && ((mode == "--recover-reviewed" && !recovery) ||
+                    (mode == "--verify-installed" && !verify))) ||
+                config.selected_archive_mode != reviewed || config.recover_reviewed != recovery ||
+                config.verify_installed != verify ||
+                (reviewed && (!reviewed_mode ||
+                    std::filesystem::path(config.reviewed_plan_envelope_path).u8string() != arguments.at(6).as_string() ||
+                    config.reviewed_plan_envelope_sha256 != arguments.at(7).as_string())) ||
+                (!reviewed && (!config.reviewed_plan_envelope_path.empty() || !config.reviewed_plan_envelope_sha256.empty())) ||
+                (recovery && !config.submitted_recovery_request) || (verify && !config.submitted_verify_request))
+                throw std::runtime_error("native child configuration differs from its actual original broker request/configuration/caller");
+        } else if (original_child_cancel) throw std::runtime_error("child cancellation observer lacks its native owner");
         service_name=config.service_name;
         receipt_path=config.receipt_path;
         volume_root=config.volume_root;
@@ -3256,9 +3379,10 @@ struct ScopedExecution {
                 throw std::runtime_error("consumer policy requires an authenticated operation");
             }
         } else if (interrupt_consumer_grant) throw std::runtime_error("consumer fault requires admitted consumer policy");
-        stop_event=config.stop_event;
+        stop_event=config.effect_execution ? original_child_cancel : config.stop_event;
         authenticated_request=config.authenticated_request;
         registered_admission=config.registered_admission;
+        effect_execution=config.effect_execution;
         registered_operation_admission.reset();
         reviewed_install_reentry=false;
         execution_active=true;
@@ -3267,6 +3391,8 @@ struct ScopedExecution {
         submitted_verify_request.reset();
         authenticated_request=nullptr;
         registered_admission=nullptr;
+        effect_execution=nullptr;
+        stop_event=nullptr;
         registered_operation_admission.reset();
         consumer_read_sid.clear(); visible_component=L"visible"; execution_active=false; }
 };
@@ -3304,7 +3430,7 @@ void usk::lifecycle::retain_candidate_publisher_preflight_stale_plan(std::except
 std::optional<usk::json::Value> usk::lifecycle::candidate_publisher_plan_replay(
     const usk::json::Value& plan_request) {
     if (!original_operation_context) return std::nullopt;
-    if (!execution_active || !registered_admission || !authenticated_request || !submitted_apply_request)
+    if (!execution_active || !has_registered_native_owner() || !has_authenticated_native_owner() || !submitted_apply_request)
         throw std::runtime_error("original operation replay lacks the live authenticated engine");
     const auto& snapshot=original_operation_context->record().at("reviewed_snapshot");
     require_candidate_snapshot_apply_binding(snapshot);
@@ -3332,7 +3458,7 @@ void usk::lifecycle::prepare_in_candidate_maintenance_context(
     const usk::transaction::TransactionSpec& spec, const usk::state::InstalledState& installed,
     const usk::json::Value& reviewed_plan) {
     if (!candidate_maintenance) return;
-    if (!execution_active || !registered_admission || !authenticated_request || candidate_apply)
+    if (!execution_active || !has_registered_native_owner() || !has_authenticated_native_owner() || candidate_apply)
         throw std::runtime_error("maintenance preparation lacks its active registered engine");
     candidate_maintenance->preflight = false;
     candidate_maintenance->prepare(spec, installed, reviewed_plan);
@@ -3353,19 +3479,19 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
         transaction_id != bound.transaction_id || applied_at != bound.applied_at) {
         throw std::runtime_error("protected apply differs from its operation-bound context");
     }
-    const auto service=usk::platform::windows::observe_current_restricted_publisher_service(service_name);
+    const auto service=usk::platform::windows::observe_current_publisher_native_execution_owner(service_name).service;
     if (service.service_sid != context.service_sid) throw std::runtime_error("publisher service identity changed");
     require_install_execution_identity(plan,bound.plan_digest,transaction_id,applied_at);
     require_install_path_capacity(plan,transaction_id);
     require_public_mount_mapping(context.volume,bound.setup_root,plan.target_root.u8string());
     usk::platform::windows::require_publisher_object_security_shape(
         usk::platform::windows::observe_publisher_directory_handle(context.volume),context.service_sid);
-    if (registered_admission && (!registered_operation_admission ||
+    if (has_registered_native_owner() && (!registered_operation_admission ||
         usk::json::canonical(admit_current_registered_operation(context.volume, context.service_sid, bound)) !=
             usk::json::canonical(*registered_operation_admission)))
         throw std::runtime_error("public protected apply lacks the current native registered operation admission");
     plan.validate_source();
-    if (registered_admission && !context.require_initial_state_revision)
+    if (has_registered_native_owner() && !context.require_initial_state_revision)
         throw std::runtime_error("registered apply lacks its native revision preflight");
     if (context.require_initial_state_revision) {
         try { context.require_initial_state_revision(); }
@@ -3396,7 +3522,7 @@ std::optional<usk::lifecycle::InstallResult> usk::lifecycle::apply_in_candidate_
         // The public dispatcher has already rebuilt and matched the reviewed
         // plan before entering this context. Bootstrap can legitimately change
         // its owned setup-root identity only after that stale-plan check.
-        if (registered_admission && !context.start_installation_lease)
+        if (has_registered_native_owner() && !context.start_installation_lease)
             throw std::runtime_error("registered apply lacks its native ownership initializer");
         if (context.start_installation_lease) context.start_installation_lease();
         context.anchors=observe_protected_anchors(context.volume,context.service_sid,selected,false,&completed);
@@ -3622,7 +3748,7 @@ std::string verify_completed_install_in_service(HANDLE volume,
             original_transaction, snapshot.at("applied_at").as_string(),
             boundary.completion_digest, volume_root, volume, service_name);
     } else {
-        if (!registered_admission || !authenticated_request || consumer_read_sid.empty())
+        if (!has_registered_native_owner() || !has_authenticated_native_owner() || consumer_read_sid.empty())
             throw std::runtime_error("maintained verification requires the authenticated registered consumer");
         usk::lifecycle::require_original_completed_consumer_install(original_plan,
             original_transaction, snapshot.at("applied_at").as_string(),
@@ -3648,7 +3774,7 @@ std::string verify_completed_install_in_service(HANDLE volume,
             throw std::runtime_error("current verification roots differ from completed maintenance intent");
         usk::transaction::require_path_capacity(*spec);
         context->require_bound_state_roots(current.setup_root(), current.state_root());
-        const auto user_sid = authenticated_request->observe_authenticated_object_access(volume)
+        const auto user_sid = authenticated_native_access(volume)
             .at("client").at("user_sid").as_string();
         if (user_sid != consumer_read_sid) throw std::runtime_error("current verification consumer changed");
         const auto active = observe_publisher_original_maintenance_lease(current.state_root(), volume_root,
@@ -3777,10 +3903,10 @@ void usk::platform::windows::require_candidate_publisher_execution_records(
 usk::json::Value usk::platform::windows::observe_candidate_original_consumer_install(
     HANDLE volume, const std::wstring& root, const std::wstring& service_label,
     const PublisherMaintenanceNames& maintenance_names) {
-    if (!execution_active || !registered_admission || !authenticated_request ||
+    if (!execution_active || !has_registered_native_owner() || !has_authenticated_native_owner() ||
         root != volume_root || service_label != service_name)
         throw std::runtime_error("original consumer completion requires the live registered engine");
-    const auto service = observe_current_restricted_publisher_service(service_label);
+    const auto service = observe_current_publisher_native_execution_owner(service_label).service;
     const auto before = observe_completed_verification_boundary(volume, service.service_sid, false,
         ReviewedInstallSnapshotPurpose::original_consumer_completion, &maintenance_names);
     const auto snapshot = usk::json::parse(before.snapshot_record);
@@ -3808,10 +3934,20 @@ usk::json::Value usk::platform::windows::observe_candidate_original_consumer_ins
 
 std::string usk::platform::windows::execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration& config, bool& publication_effects_may_exist) {
-    ScopedExecution execution(config);
+    PublisherEffectExecutionOwner::require_engine_origin(config.effect_execution, config.service_name);
+    ScopedExecution execution(config, config.effect_execution ? config.effect_execution->cancellation_observer() : nullptr);
+        // Source-free replay still requires the finite original protected
+        // intent/enrollment selector; the read-only exact-request observation
+        // cannot authorize a different original apply request. Maintenance
+        // still needs its concrete child native owner. Refuse both before
+        // target opening, intent, lease or any filesystem effect.
+        if (effect_execution && (submitted_recovery_request ||
+            (submitted_apply_request && usk::json::parse(*submitted_apply_request).at("schema").as_string() !=
+                "usk.install_local_apply_request.v1")))
+            throw usk::transaction::CommitAuthorityUnavailable();
         // Includes staged-only/snapshot replay, which can write metadata before
         // a rename gate. Read-only verification keeps its historical ceiling.
-        if (registered_admission && !verify_installed_request &&
+        if (has_registered_native_owner() && !verify_installed_request &&
             !publisher_registered_execution_platform_qualified(observe_publisher_execution_platform()))
             throw usk::transaction::CommitAuthorityUnavailable();
         if (submitted_apply_request || submitted_recovery_request || submitted_verify_request) {
@@ -3819,7 +3955,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 usk::platform::windows::observe_publisher_execution_platform());
         }
         const auto observed =
-            usk::platform::windows::observe_current_restricted_publisher_service(service_name);
+            usk::platform::windows::observe_current_publisher_native_execution_owner(service_name).service;
         const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root, stop_event);
         std::optional<usk::platform::windows::PublisherInstallOperationGuard> install_guard;
         if (submitted_apply_request) {
@@ -3836,7 +3972,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         }
         // Both guards are held before source/installed-state revalidation and
         // before effects. Source-free legacy replay retains the volume guard.
-        const DWORD root_access = (recover_prepared && !registered_admission) || verify_installed_request ?
+        const DWORD root_access = (recover_prepared && !has_registered_native_owner()) || verify_installed_request ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
                 READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE);
@@ -3852,7 +3988,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             using namespace usk::platform::windows;
             using usk::json::Value;
             const auto request = parse_publisher_maintenance_recovery_request(*submitted_recovery_request);
-            if (!registered_admission || !authenticated_request || !install_guard)
+            if (!has_registered_native_owner() || !has_authenticated_native_owner() || !install_guard)
                 throw std::runtime_error("maintenance recovery requires the original registered native route");
             const auto operation = request.at("operation").as_string();
             const auto install_id = request.at("install_id").as_string();
@@ -3874,7 +4010,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     envelope_path, envelope_sha256))
                 throw std::runtime_error("maintenance recovery lacks its original administrator-enrolled request");
             const auto envelope = parse_publisher_reviewed_operation_envelope(
-                usk::json::canonical(registered_admission->selected_reviewed_envelope()), original_request);
+                usk::json::canonical(selected_native_envelope()), original_request);
             const auto setup = std::filesystem::u8path(envelope.at("state_root").as_string());
             const auto acceptance = std::filesystem::u8path(envelope.at("acceptance_root").as_string());
             if (envelope.at("schema").as_string() != "usk.publisher.maintenance_reviewed_plan_envelope.v1" ||
@@ -3900,7 +4036,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             // before constructing any writer or appending a recovery generation.
             const auto original_active = observe_publisher_original_maintenance_lease(
                 original_state->state_root(), volume_root, service_name, *install_guard, original_context,
-                authenticated_request->observe_authenticated_object_access(volume).at("client").at("user_sid").as_string());
+                authenticated_native_access(volume).at("client").at("user_sid").as_string());
             const auto old_completion = observe_publisher_completed_installation_lease(
                 original_state->state_root(), volume_root, service_name, *install_guard, original_active);
             if (old_completion) {
@@ -4019,11 +4155,11 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 schema == "usk.move_apply_request.v1" ? "move" :
                 schema == "usk.uninstall_apply_request.v1" ? "uninstall" : std::string{};
             if (!operation.empty()) {
-                if (!registered_admission || !authenticated_request || !install_guard ||
-                    !registered_admission->has_selected_reviewed_operation())
+                if (!has_registered_native_owner() || !has_authenticated_native_owner() || !install_guard ||
+                    !has_selected_native_operation())
                     throw std::runtime_error("maintenance lacks its independently enrolled registered request");
                 const auto envelope = parse_publisher_reviewed_operation_envelope(
-                    usk::json::canonical(registered_admission->selected_reviewed_envelope()),
+                    usk::json::canonical(selected_native_envelope()),
                     usk::json::canonical(request));
                 if (envelope.at("schema").as_string() != "usk.publisher.maintenance_reviewed_plan_envelope.v1")
                     throw std::runtime_error("maintenance cannot inherit an install approval");
@@ -4138,8 +4274,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         std::function<void()> lease_fence;
         std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> effect_fence;
         const auto require_initial_state_revision = [&](const ReviewedPlanBinding& reviewed) {
-            if (!registered_admission) return;
-            if (!install_guard || !authenticated_request)
+            if (!has_registered_native_owner()) return;
+            if (!install_guard || !has_authenticated_native_owner())
                 throw std::runtime_error("registered revision preflight lacks installation ownership");
             require_public_mount_mapping(volume, reviewed.setup_root, reviewed.install_plan.target_root.u8string());
             const bool existing_layout = usk::platform::windows::require_publisher_initial_install_state_revision(volume,
@@ -4156,8 +4292,8 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             }
         };
         const auto start_installation_lease = [&](const ReviewedPlanBinding& reviewed, bool recovery) {
-            if (!registered_admission) return;
-            if (!install_guard || !authenticated_request)
+            if (!has_registered_native_owner()) return;
+            if (!install_guard || !has_authenticated_native_owner())
                 throw std::runtime_error("registered effect lacks exclusive installation ownership");
             if (installation_lease) {
                 if (recovery || !operation_context ||
@@ -4176,8 +4312,10 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
                     volume_root, service_name, *install_guard, reviewed.install_plan.install_id, reviewed.transaction_id);
             operation_context_was_present = operation_context->exists();
-            if (!recovery && !operation_context_was_present)
-                (void)usk::platform::windows::observe_settled_publisher_worker_security(observed, stop_event);
+            if (!recovery && !operation_context_was_present) {
+                if (effect_execution) (void)effect_execution->security().observe_current();
+                else (void)usk::platform::windows::observe_settled_publisher_worker_security(observed, stop_event);
+            }
             // Durable original intent precedes even empty setup bootstrap. A
             // restart can recover the exact reviewed policy before active
             // ownership or a public publication snapshot exists.
@@ -4246,7 +4384,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         bool snapshot_only_replay = false;
         try {
             volume_observation = usk::platform::windows::observe_local_ntfs_volume_handle(volume);
-            if (registered_admission && !verify_installed_request) {
+            if (has_registered_native_owner() && !verify_installed_request) {
                 // Existing durable coordination or publication remains an
                 // effect even if a subsequent read-only admission check fails.
                 for (const auto& entry : observe_publisher_directory_entries(volume)) {
@@ -4255,18 +4393,18 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                         publication_effects_may_exist=true;
                 }
             }
-            if (registered_admission && submitted_apply_request) {
+            if (has_registered_native_owner() && submitted_apply_request) {
                 const auto apply=usk::json::parse(*submitted_apply_request);
                 operation_context=std::make_unique<usk::platform::windows::PublisherInstallOperationContext>(volume,
                     volume_root, service_name, *install_guard, apply.at("plan_request").at("install_id").as_string(),
                     apply.at("transaction_id").as_string());
-                if (!operation_context->exists() && registered_admission->has_selected_reviewed_operation()) {
+                if (!operation_context->exists() && has_selected_native_operation()) {
                     // A genuinely approved fresh initial install must compare
                     // the current native installed revision before rebuilding a
                     // plan or entering another operation's retained replay path.
                     // The envelope comes from held protected enrollment files,
                     // not a submitted pathname, activation field or JSON grant.
-                    const auto enrolled = registered_admission->selected_reviewed_envelope();
+                    const auto enrolled = selected_native_envelope();
                     const auto acceptance = std::filesystem::u8path(enrolled.at("acceptance_root").as_string());
                     const auto setup = std::filesystem::u8path(enrolled.at("state_root").as_string());
                     const auto target = std::filesystem::u8path(enrolled.at("plan_request").at("target").at("root").as_string());
@@ -4338,7 +4476,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 bool has_publication=false;
                 for (const auto& entry : observe_publisher_directory_entries(volume))
                     if (entry.name==L"publication") has_publication=true;
-                if (registered_admission && submitted_recovery_request) {
+                if (has_registered_native_owner() && submitted_recovery_request) {
                     const auto request=usk::json::parse(*submitted_recovery_request);
                     if (request.as_object().size()!=4 ||
                         request.at("schema").as_string()!="usk.publisher_recovery_request.v1" ||
@@ -4408,7 +4546,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     selected_archive_mode && selected_archive_path.empty() &&
                     !reviewed_plan_envelope_path.empty() && submitted_apply_request;
                 if (reviewed_source_reentry) reviewed_install_reentry = true;
-                if (registered_admission && publication_present && !installation_lease &&
+                if (has_registered_native_owner() && publication_present && !installation_lease &&
                     (recover_snapshot_only || recover_reviewed || !reviewed_plan_envelope_path.empty())) {
                     start_installation_lease(reviewed_plan_from_protected_snapshot(volume,
                         observed.service_sid, !reviewed_source_reentry && !submitted_recovery_request ? true : false,
@@ -4472,7 +4610,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     }
                     require_publisher_object_security_shape(observe_publisher_directory_handle(volume),observed.service_sid);
                     if (reviewed_plan && !reviewed_plan->apply_request.empty()) {
-                        if (registered_admission) registered_operation_admission =
+                        if (has_registered_native_owner()) registered_operation_admission =
                             admit_current_registered_operation(volume, observed.service_sid, *reviewed_plan);
                         CandidateApplyContext context{volume,observed.service_sid,*reviewed_plan,publication_effects_may_exist,{}};
                         context.refusal_before_effects = !operation_effects_started;

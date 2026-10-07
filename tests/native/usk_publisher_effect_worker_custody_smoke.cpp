@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_effect_worker_custody_internal.h"
+#include "usk_publisher_effect_execution_internal.h"
+#include "usk_protected_install_publisher_internal.h"
 #include "usk_publisher_token_observation.h"
 #include <chrono>
 #include <array>
@@ -163,6 +165,45 @@ int child(int argc, wchar_t** argv) {
             try { (void)peer.receive(10000); }
             catch (const std::exception&) { return 0; }
             throw std::runtime_error("waiting control unexpectedly received another packet");
+        } else if (action == "refuse_child_owner") {
+            // Genuine native pipe/process/image custody is necessary but does
+            // not admit an ordinary parent as SCM. The parent sends a closed
+            // wire response with no native broker proof. It must fail before
+            // any observation route or publisher effects can be installed.
+            bool refused = false;
+            try { PublisherEffectExecutionOwner owner(peer, L"USK_PUB_UNADMITTED_CONTROL"); }
+            catch (const std::exception& error) {
+                refused = std::string(error.what()) == "broker native readback schema or request differs";
+            }
+            require(refused, "ordinary native custody installed a child observation owner without broker proof");
+            bool retry_refused = false, fallback_refused = false, engine_refused = false;
+            try { PublisherEffectExecutionOwner retry(peer, L"USK_PUB_UNADMITTED_CONTROL"); }
+            catch (const std::exception& error) {
+                retry_refused = std::string(error.what()) ==
+                    "publisher original child observation route is already used or expired";
+            }
+            require(retry_refused, "failed child construction restarted native proof or its pinned security baseline");
+            try { (void)observe_current_publisher_native_execution_owner(L"USK_PUB_UNADMITTED_CONTROL"); }
+            catch (const std::exception& error) {
+                fallback_refused = std::string(error.what()) ==
+                    "publisher child observation requires its original active execution owner";
+            }
+            require(fallback_refused, "failed child construction allowed ordinary SCM fallback");
+            CandidatePublisherConfiguration config;
+            config.service_name = L"USK_PUB_UNADMITTED_CONTROL";
+            bool hook_called = false, effects_may_exist = false;
+            config.prepare_disposable_boundary = [&](HANDLE, const std::string&) { hook_called = true; };
+            try { (void)execute_candidate_restricted_publisher(config, effects_may_exist); }
+            catch (const std::exception& error) {
+                engine_refused = std::string(error.what()) ==
+                    "publisher engine ordinary origin cannot omit its claimed child execution owner";
+            }
+            require(engine_refused && !hook_called && !effects_may_exist,
+                "claimed child without its concrete engine owner reached legacy fixture admission/effects");
+            // The parent receives the terminal acknowledgement directly: no
+            // second native-proof packet or ordinary service readback occurs.
+            // This proves failed-attempt refusal, not a restricted-pair run.
+            peer.send(Value("refused_unadmitted_broker"), 10000);
         } else if (action == "sentinel") {
             const auto handle = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(
                 body.at("handle").as_unsigned()));
@@ -224,6 +265,16 @@ void controls(const usk::base::StableFile& image, const std::wstring& sid) {
             {"file_id_high", Value(static_cast<std::uint64_t>(file.nFileIndexHigh))},
             {"file_id_low", Value(static_cast<std::uint64_t>(file.nFileIndexLow))}}), 10000);
         require(!custody.receive(10000).as_boolean(), "unlisted native inheritable file leaked into the child");
+        custody.send(Value(Value::Object{{"action", Value("refuse_child_owner")}}), 10000);
+        const auto readback = custody.receive(10000);
+        require(readback.as_object().size() == 2 && readback.at("schema").as_string() ==
+            "usk.publisher_effect_broker_readback_request.v1" && readback.at("kind").as_string() == "service_admission",
+            "actual child owner did not request fresh finite native admission");
+        custody.send(Value(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_response.v1")},
+            {"kind", Value("service_admission")}, {"profile", Value(Value::Object{})},
+            {"result", Value(Value::Object{})}}), 10000);
+        require(custody.receive(10000).as_string() == "refused_unadmitted_broker",
+            "actual child accepted ordinary transport custody as execution admission");
         custody.send(Value(Value::Object{{"action", Value("wait")}}), 10000);
         require(custody.receive(10000).as_string() == "waiting", "child did not enter its owned wait");
         const auto closed = custody.close(10000);

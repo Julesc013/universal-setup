@@ -11,6 +11,7 @@
 #include "usk_publisher_rename_information.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_record_io.h"
@@ -171,7 +172,7 @@ struct PublisherMetadataSession::Impl {
         : volume(boundary), volume_path(guid), root_path(physical_root.lexically_normal()),
           final_root_path(root_path), public_alias(alias_path.empty() ? fs::path{} : fs::absolute(alias_path).lexically_normal()),
           root_name(root_path.filename().wstring()) {
-        const auto service = observe_current_restricted_publisher_service(service_name);
+        const auto service = observe_current_publisher_native_execution_owner(service_name).service;
         service_sid = service.service_sid;
         descriptor = make_publisher_directory_security_descriptor(std::wstring(service_sid.begin(), service_sid.end()));
         // MSVC treats Volume{GUID} as a relative component below \\?\ rather

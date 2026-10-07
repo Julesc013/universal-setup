@@ -13,6 +13,7 @@ namespace usk::platform::windows {
 class PublisherMaintenanceNames;
 class PublisherRequestChannel;
 class RegisteredPublisherAdmission;
+class PublisherEffectExecutionOwner;
 // Private candidate host configuration. This is not a public SDK capability.
 // Live SCM/token and held-volume observations precede any execution. The lab
 // hook provisions its independently admitted disposable boundary only; apply
@@ -43,6 +44,10 @@ struct CandidatePublisherConfiguration {
     // Its authenticated identification token never enters configuration JSON.
     const PublisherRequestChannel* authenticated_request=nullptr;
     const RegisteredPublisherAdmission* registered_admission=nullptr;
+    // Actual original child owner; mutually exclusive with the SCM admission,
+    // request channel and disposable-boundary hook. It supplies fresh native
+    // readbacks, never a JSON/provider activation or transferred file handle.
+    PublisherEffectExecutionOwner* effect_execution=nullptr;
     std::function<void(HANDLE,const std::string&)> prepare_disposable_boundary;
 };
 class StaleReviewedInstallRequest final : public std::runtime_error {

@@ -20,6 +20,7 @@
 #include "usk_protected_install_publisher_internal.h"
 #include "usk_publisher_metadata.h"
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_native_maintenance_transaction_internal.h"
@@ -1926,8 +1927,8 @@ static std::string require_held_publisher_evidence(
         evidence.service_name.empty() || evidence.volume_guid_root.empty()) {
         throw std::runtime_error("protected publisher held evidence is absent");
     }
-    const auto service = observe_current_restricted_publisher_service(
-        evidence.service_name);
+    const auto service = observe_current_publisher_native_execution_owner(
+        evidence.service_name).service;
     const auto volume = observe_local_ntfs_volume_handle(evidence.volume);
     const auto journal = observe_publisher_tree(evidence.journal);
     const auto state = observe_publisher_tree(evidence.state);
@@ -1992,7 +1993,8 @@ static std::string require_held_publisher_evidence(
     const auto& binding = prepared.at("source_binding");
     require_candidate_publisher_execution_records(prepared, bound, evidence.service_name, service.service_sid);
     if ((prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v8" ||
-            prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9") &&
+            prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v9" ||
+            prepared.at("schema").as_string() == "usk.publisher.lab_phase_evidence.v10") &&
         json::canonical(prepared.at("operation_admission")) != "null" &&
         prepared.at("operation_admission").at("transaction_id").as_string() != snapshot.at("transaction_id").as_string())
         throw std::runtime_error("publisher operation admission transaction differs from the durable snapshot");
@@ -2003,7 +2005,8 @@ static std::string require_held_publisher_evidence(
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v6" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v7" &&
             prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v8" &&
-            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v9") ||
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v9" &&
+            prepared.at("schema").as_string() != "usk.publisher.lab_phase_evidence.v10") ||
         bound.at("schema").as_string() != prepared.at("schema").as_string() ||
         (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
             snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&

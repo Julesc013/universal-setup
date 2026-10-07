@@ -18,6 +18,7 @@
 #include <vector>
 
 namespace usk::platform::windows {
+class PublisherEffectExecutionOwner;
 class PublisherRequestChannel;
 
 struct PublisherTreeEntry {
@@ -84,6 +85,12 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root, bool backup_observa
 // seal's facts. Handles remain private and close before publication.
 usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
     const PublisherTreeObservation& bound, const PublisherRequestChannel& request,
+    const usk::json::Value& client);
+// The same complete held-tree checks, using only the actual native child
+// owner's finite authenticated broker readbacks. No caller-token transfer or
+// supplied access provider is accepted.
+usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
+    const PublisherTreeObservation& bound, PublisherEffectExecutionOwner& owner,
     const usk::json::Value& client);
 
 // Consistency oracle for two independently observed phases. A non-empty

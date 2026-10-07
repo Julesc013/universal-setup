@@ -3,6 +3,7 @@
 
 #include "usk_publisher_process_boundary.h"
 #include "usk_publisher_execution_observation.h"
+#include "usk_protected_install_publisher_internal.h"
 #include "usk_publisher_worker_security.h"
 #include "usk_publisher_effect_broker_internal.h"
 #include "usk_publisher_creation_observation.h"
@@ -262,6 +263,97 @@ void effect_execution_record_controls() {
         {"created_object_count", Value(static_cast<std::uint64_t>(graph.as_array().size()))},
         {"created_graph_sha256", Value(usk::json::sha256_canonical(graph))}});
     require_publisher_creation_certificate(certificate, anchors, tree, valid);
+    // Full v10 retained install phase/control joins. Every PID, birth, object,
+    // creator and request below is synthetic; no native admission is claimed.
+    const std::string volume_guid = "\\\\?\\Volume{00000000-0000-0000-0000-000000000123}\\";
+    auto phase_broker = broker;
+    auto& phase_target = phase_broker.as_object().at("registered_admission").as_object().at("target_identity")
+        .as_object().at("volume_identity").as_object();
+    phase_target.at("volume_root") = Value(volume_guid);
+    phase_target.emplace("volume_serial", Value("4660"));
+    auto& phase_configuration = phase_broker.as_object().at("service_configuration").as_object();
+    phase_configuration.at("arguments") = Value(Value::Array{Value("C:\\publisher.exe"), Value("--service"),
+        Value("USK_Record_Child_Broker"), Value("--no-receipt"), Value(volume_guid),
+        Value("--reviewed-plan-envelope"), Value("C:\\envelope.json"), Value(std::string(64, 'a')),
+        Value("--service-admitted-client"), Value("--authorized-client-sid"), Value(consumer_sid)});
+    phase_configuration.at("command") = Value("C:\\publisher.exe --service USK_Record_Child_Broker --no-receipt " +
+        volume_guid + " --reviewed-plan-envelope C:\\envelope.json " + std::string(64, 'a') +
+        " --service-admitted-client --authorized-client-sid " + consumer_sid);
+    auto phase_execution = valid;
+    phase_execution.as_object().at("broker_readback") = phase_broker;
+    phase_execution.as_object().at("handles").as_array().at(3).as_object().at("granted_access") =
+        Value(std::uint64_t{READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_ADD_SUBDIRECTORY});
+    phase_execution.as_object().at("handles").as_array().at(6).as_object().at("granted_access") =
+        Value(std::uint64_t{READ_CONTROL | FILE_READ_ATTRIBUTES | DELETE});
+    auto phase_certificate = certificate;
+    phase_certificate.as_object().at("broker_readback") = phase_broker;
+    const Value descendants(Value::Object{{"schema", Value("usk.publisher_authenticated_descendant_access.v1")},
+        {"scope", Value("fresh_held_descriptors_for_bound_tree_no_content_rehash")},
+        {"client_sha256", Value(usk::json::sha256_canonical(client))}, {"objects", Value(Value::Array{})}});
+    const auto phase = [&](const char* label, const Value& bound_tree) {
+        auto execution = phase_execution;
+        execution.as_object().at("phase") = Value(label);
+        auto& payload = execution.as_object().at("handles").as_array().at(6).as_object();
+        payload.at("object_observation") = bound_tree.at("root");
+        payload.at("authenticated_access").as_object().at("native_object_sha256") =
+            Value(usk::json::sha256_canonical(bound_tree.at("root")));
+        return Value(Value::Object{{"execution", execution},
+            {"protected_anchors_sha256", Value(usk::json::sha256_canonical(anchors))},
+            {"tree_sha256", Value(usk::json::sha256_canonical(bound_tree))}, {"authenticated_descendants", descendants}});
+    };
+    const Value operation_admission(Value::Object{{"schema", Value("usk.publisher_operation_admission.v1")},
+        {"scope", Value("live_registered_request_and_held_volume_before_effects")},
+        {"route", Value("registered_service_admitted_production")}, {"service_name", service.at("service_name")},
+        {"service_sid", Value(service_sid)}, {"service_process_id", Value(std::uint64_t{500})},
+        {"configured_caller_sid", Value(consumer_sid)}, {"authenticated_client_sha256", Value(usk::json::sha256_canonical(client))},
+        {"captured_client_process_id", client.at("captured_process_id")}, {"registration_sha256", admitted.at("registration_sha256")},
+        {"target_admitted_sha256", admitted.at("target_admitted_sha256")}, {"publisher_image_sha256", image.at("sha256")},
+        {"volume_guid_root", Value(volume_guid)}, {"root_file_id", Value(object_id(0))}, {"volume_serial", Value(std::uint64_t{4660})},
+        {"reviewed_plan_digest", Value(std::string(64, 'e'))}, {"reviewed_plan_snapshot_sha256", Value(std::string(64, 'f'))},
+        {"transaction_id", Value("install.synthetic")}});
+    const Value prepared(Value::Object{{"schema", Value("usk.publisher.lab_phase_evidence.v10")},
+        {"phase", Value("lab_prepared_evidence")}, {"service_sid", Value(service_sid)}, {"volume_serial", Value(std::uint64_t{4660})},
+        {"source_file_id", Value(object_id(6))}, {"destination_parent_file_id", Value(object_id(3))}, {"destination_name", Value("visible")},
+        {"selected_file_set_digest", Value(std::string(64, 'a'))}, {"source_binding", Value(Value::Object{
+            {"reviewed_plan_digest", Value(std::string(64, 'e'))}, {"reviewed_plan_snapshot_sha256", Value(std::string(64, 'f'))},
+            {"plan_envelope_sha256", Value(std::string(64, 'a'))}})}, {"protected_anchors", anchors}, {"sealed_tree", tree},
+        {"execution_origin", Value("created_empty_in_current_worker")}, {"operation_admission", operation_admission},
+        {"creation_evidence", phase_certificate}, {"execution_phases", Value(Value::Array{
+            phase("protected_empty", tree), phase("sealed", tree), phase("publish_prepared", tree)})}});
+    auto visible_tree = tree;
+    visible_tree.as_object().at("root").as_object().at("native_name") = Value("\\publication\\role3\\visible");
+    const Value rename(Value::Object{{"schema", Value("usk.publisher_bound_rename_call.v2")}, {"api", Value("NtSetInformationFile")},
+        {"source_file_id", Value(object_id(6))}, {"destination_parent_file_id", Value(object_id(3))}, {"destination_component", Value("visible")},
+        {"former_name", tree.at("root").at("native_name")}, {"visible_name", visible_tree.at("root").at("native_name")},
+        {"destination_absence_status", Value(std::uint64_t{0xc0000034u})}, {"information_class", Value(std::uint64_t{10})},
+        {"information_bytes", Value(static_cast<std::uint64_t>(sizeof(FILE_RENAME_INFO) + 14))}, {"file_name_bytes", Value(std::uint64_t{14})},
+        {"replace_if_exists", Value(false)}, {"native_status", Value(std::uint64_t{0})}, {"io_status", Value(std::uint64_t{0})},
+        {"source_granted_access", phase_execution.at("handles").as_array().at(6).at("granted_access")},
+        {"destination_parent_granted_access", phase_execution.at("handles").as_array().at(3).at("granted_access")},
+        {"handle_access_api", Value("NtQueryObject:ObjectBasicInformation")}, {"clock", Value("qpc")},
+        {"start_tick", Value(std::uint64_t{100})}, {"end_tick", Value(std::uint64_t{110})}, {"frequency", Value(std::uint64_t{1000})}});
+    const Value visible(Value::Object{{"schema", Value("usk.publisher.lab_phase_evidence.v10")}, {"phase", Value("lab_visible_evidence")},
+        {"source_file_id", Value(object_id(6))}, {"destination_parent_file_id", Value(object_id(3))}, {"destination_name", Value("visible")},
+        {"selected_file_set_digest", Value(std::string(64, 'a'))}, {"prepared_record_sha256", Value(std::string(64, 'b'))},
+        {"protected_anchors", anchors}, {"visible_tree", visible_tree}, {"execution_transition", Value("renamed_by_current_worker")},
+        {"rename_call", rename}, {"execution_phases", Value(Value::Array{phase("before_rename", tree), phase("visible_bound", visible_tree)})}});
+    require_candidate_publisher_execution_records(prepared, visible, name, service_sid);
+    const auto refuses_phases = [&](const std::function<void(Value&, Value&)>& change) {
+        auto changed_prepared = prepared, changed_visible = visible;
+        change(changed_prepared, changed_visible); bool refused = false;
+        try { require_candidate_publisher_execution_records(changed_prepared, changed_visible, name, service_sid); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "synthetic v10 accepted changed native child/creator/operation/phase joins");
+    };
+    refuses_phases([](Value& p, Value&) { p.as_object().at("operation_admission") = Value{}; });
+    refuses_phases([](Value& p, Value&) { p.as_object().at("operation_admission").as_object().at("service_process_id") = Value(std::uint64_t{600}); });
+    for (const char* key : {"registration_sha256", "target_admitted_sha256", "publisher_image_sha256", "volume_guid_root"})
+        refuses_phases([&](Value& p, Value&) { p.as_object().at("operation_admission").as_object().at(key) = Value(std::string(64, '1')); });
+    refuses_phases([](Value& p, Value&) { p.as_object().at("source_binding").as_object().at("plan_envelope_sha256") = Value(std::string(64, '1')); });
+    refuses_phases([](Value& p, Value&) { p.as_object().at("creation_evidence").as_object().at("schema") = Value("usk.publisher.creation_observation.v3"); });
+    refuses_phases([](Value& p, Value& v) { p.as_object().at("schema") = Value("usk.publisher.lab_phase_evidence.v9"); v.as_object().at("schema") = p.at("schema"); });
+    refuses_phases([](Value&, Value& v) { v.as_object().at("execution_phases").as_array().back().as_object().at("execution")
+        .as_object().at("effect_worker").as_object().at("process_birth") = Value("0000000000000601"); });
     const auto refuses_certificate = [&](const std::function<void(Value&)>& change) {
         auto invalid = certificate; change(invalid); bool refused = false;
         try { require_publisher_creation_certificate(invalid, anchors, tree, valid); }

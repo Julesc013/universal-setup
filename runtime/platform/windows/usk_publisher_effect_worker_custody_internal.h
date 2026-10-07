@@ -93,6 +93,7 @@ public:
     const std::string& canonical_request() const;
 private:
     friend class PublisherEffectWorkerReadback;
+    friend class PublisherEffectExecutionOwner;
     // Borrowed only inside the fixed native readback's startup wait; never
     // returned publicly or serialized, and never grants event modification.
     HANDLE cancellation_observer() const;

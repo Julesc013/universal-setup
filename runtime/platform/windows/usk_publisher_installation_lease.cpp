@@ -9,6 +9,7 @@
 #include "usk_publisher_metadata.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_record_io.h"
@@ -223,7 +224,7 @@ std::optional<Value> observe_publisher_completed_installation_lease(HANDLE state
     require_install_lease_record(original_active);
     const auto& install_id = original_active.at("install_id").as_string();
     guard.require_owned(volume_root, install_id);
-    const auto service = observe_current_restricted_publisher_service(service_name);
+    const auto service = observe_current_publisher_native_execution_owner(service_name).service;
     const auto before = observe_publisher_directory_handle(state_root);
     const auto root = root_identity(state_root, service.service_sid);
     if (!equal(root, original_active.at("state_root_identity"))) throw InstallLeaseStale();
@@ -294,7 +295,7 @@ static Value observe_original_maintenance_custody(HANDLE state_root,
     const auto& install_id = intent.at("install_id").as_string();
     const auto& operation_id = intent.at("operation_id").as_string();
     guard.require_owned(volume_root, install_id);
-    const auto service = observe_current_restricted_publisher_service(service_name);
+    const auto service = observe_current_publisher_native_execution_owner(service_name).service;
     const auto state_facts = observe_publisher_directory_handle(state_root);
     if (!equal(root_identity(state_root, service.service_sid), snapshot.at("state_root_identity")))
         throw InstallLeaseStale();
@@ -381,7 +382,7 @@ std::string observe_publisher_completed_maintenance_root_id(HANDLE state_root,
         spec.plan_digest != original.at("plan_digest").as_string()) throw InstallLeaseStale();
     std::string root_id = original.at("installed_root").at("file_id").as_string();
     if (operation == "move") {
-        const auto service = observe_current_restricted_publisher_service(service_name);
+        const auto service = observe_current_publisher_native_execution_owner(service_name).service;
         const auto transactions_entry = child(state_root, L"transactions");
         if (!transactions_entry) throw InstallLeaseStale();
         Handle transactions(open_publisher_listed_child(state_root, *transactions_entry));
@@ -752,7 +753,7 @@ struct PublisherMaintenanceStateSnapshot::Impl {
         guard.require_owned(volume_root, install_id);
         if (!is_publisher_canonical_component(component) || !usk::record_io::valid_identifier(id))
             throw InstallLeaseStale();
-        service_sid = observe_current_restricted_publisher_service(service).service_sid;
+        service_sid = observe_current_publisher_native_execution_owner(service).service.service_sid;
         volume_facts = directory_facts(volume);
         setup = open_directory(volume, component);
         state = open_directory(setup->get(), L"state");
@@ -929,7 +930,7 @@ struct PublisherInstallOperationContext::Impl {
         guard.require_owned(volume_root, install_id);
         if (!usk::record_io::valid_identifier(install_id) || !usk::record_io::valid_identifier(operation_id))
             throw std::runtime_error("operation context identity invalid");
-        service_sid = observe_current_restricted_publisher_service(service).service_sid;
+        service_sid = observe_current_publisher_native_execution_owner(service).service.service_sid;
         volume_identity = root_identity(volume, service_sid);
         descriptor = make_publisher_directory_security_descriptor(std::wstring(service_sid.begin(), service_sid.end()));
         const auto install_sha = usk::json::sha256_canonical(Value(install_id));
@@ -1410,7 +1411,7 @@ std::unique_ptr<PublisherInstallOperationContext> PublisherInstallOperationConte
     guard.require_owned(root, install_id);
     if (!usk::record_io::valid_identifier(install_id) || !usk::record_io::valid_identifier(operation_id))
         throw InstallLeaseStale();
-    const auto sid = observe_current_restricted_publisher_service(service).service_sid;
+    const auto sid = observe_current_publisher_native_execution_owner(service).service.service_sid;
     (void)root_identity(volume, sid);
     const auto open = [&](HANDLE parent, const std::wstring& name) {
         const auto entry = child(parent, name);
@@ -1505,7 +1506,7 @@ struct PublisherInstallationLease::Impl {
         : state_root(state), volume_root(volume), guard(held), request(wanted), observe_revision(revision) {
         guard.require_owned(volume_root, request.install_id);
         if (!observe_revision) throw std::runtime_error("lease state observation unavailable");
-        const auto current_service = observe_current_restricted_publisher_service(service);
+        const auto current_service = observe_current_publisher_native_execution_owner(service).service;
         service_sid = current_service.service_sid;
         root = root_identity(state_root, service_sid);
         state_name = observe_publisher_directory_handle(state_root).native_name;
