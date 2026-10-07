@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_worker_security.h"
 #if defined(_WIN32)
+#include "usk_publisher_handle_observation.h"
 #include <tlhelp32.h>
 #include <sddl.h>
 #include <algorithm>
@@ -30,9 +31,10 @@ public:
             throw std::runtime_error("publisher worker security handle is inheritable or protected from close");
         }
     }
-    ~Handle() { CloseHandle(value_); }
+    ~Handle() { if (value_) CloseHandle(value_); }
     Handle(const Handle&) = delete;
     Handle& operator=(const Handle&) = delete;
+    Handle(Handle&& other) noexcept : value_(other.value_) { other.value_ = nullptr; }
     HANDLE get() const { return value_; }
 private:
     HANDLE value_;
@@ -158,6 +160,47 @@ std::vector<DWORD> thread_ids() {
         "publisher worker current thread absent or population duplicated");
     return result;
 }
+using ThreadHandles = std::map<DWORD, std::unique_ptr<Handle>>;
+std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
+    std::vector<DWORD> result;
+    for (const auto& item : handles) result.push_back(item.first);
+    return result;
+}
+ThreadHandles native_broker_threads() {
+    // Acquire current-process objects directly. A numeric snapshot followed by
+    // OpenThread can lose an SDK helper before acquiring any original handle.
+    // Independent Toolhelp coverage below also rejects native access filtering.
+    using NextThread = LONG (NTAPI*)(HANDLE, HANDLE, ACCESS_MASK, ULONG, ULONG, PHANDLE);
+    const auto next = reinterpret_cast<NextThread>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtGetNextThread"));
+    require(next != nullptr, "SCM broker native thread enumeration export unavailable");
+    constexpr DWORD rights = THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE;
+    constexpr std::uint32_t no_more_entries = 0x8000001au;
+    ThreadHandles result;
+    HANDLE cursor = nullptr;
+    for (;;) {
+        HANDLE raw = nullptr;
+        const auto status = static_cast<std::uint32_t>(next(GetCurrentProcess(), cursor, rights, 0, 0, &raw));
+        if (status == no_more_entries && raw == nullptr) break;
+        if (status != 0 || !raw || raw == INVALID_HANDLE_VALUE) {
+            if (raw && raw != INVALID_HANDLE_VALUE) CloseHandle(raw);
+            throw std::runtime_error("SCM broker native thread enumeration failed: ntstatus=" + hex64(status));
+        }
+        Handle acquired(raw);
+        auto held = std::make_unique<Handle>(std::move(acquired));
+        const auto id = GetThreadId(held->get());
+        require(id && GetProcessIdOfThread(held->get()) == GetCurrentProcessId() &&
+            observe_publisher_handle_granted_access(held->get()) == rights,
+            "SCM broker native thread identity or query-only access differs");
+        require(result.size() < 4096 && !result.count(id),
+            "SCM broker native thread enumeration exceeds bound or repeats an identity");
+        cursor = held->get();
+        result.emplace(id, std::move(held)); // Retain the cursor through the next call.
+    }
+    const auto ids = handle_ids(result);
+    require(!ids.empty() && std::binary_search(ids.begin(), ids.end(), GetCurrentThreadId()) && ids == thread_ids(),
+        "SCM broker native thread enumeration differs from independent complete census");
+    return result;
+}
 void require_no_thread_token(HANDLE thread) {
     HANDLE raw = nullptr;
     if (OpenThreadToken(thread, TOKEN_QUERY, TRUE, &raw)) {
@@ -222,14 +265,17 @@ void require_primary_unchanged(HANDLE token, const TOKEN_STATISTICS& before, con
 }
 } // namespace
 
-Value observe_current_publisher_worker_security() {
+namespace {
+Value observe_worker_security(bool native_broker, const std::function<void(const char*)>* checkpoint = nullptr) {
     HANDLE raw = nullptr;
     require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL, &raw),
         "publisher worker primary token security unavailable");
     Handle token(raw);
     const auto before = statistics(token.get());
     auto primary = read_primary_security(token.get(), before);
-    auto ids = thread_ids();
+    auto acquired = native_broker ? native_broker_threads() : ThreadHandles{};
+    auto ids = native_broker ? handle_ids(acquired) : thread_ids();
+    if (checkpoint) (*checkpoint)("broker_native_threads_pinned");
     std::map<DWORD, std::unique_ptr<Handle>> held_threads;
     std::map<DWORD, Value> recorded_threads;
     bool population_complete = false;
@@ -239,7 +285,7 @@ Value observe_current_publisher_worker_security() {
     for (unsigned round = 0; round != 4; ++round) {
         for (const auto id : ids) {
             if (held_threads.count(id)) continue;
-            auto held = std::make_unique<Handle>(OpenThread(
+            auto held = native_broker ? std::move(acquired.at(id)) : std::make_unique<Handle>(OpenThread(
                 THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE, FALSE, id));
             const auto thread = held->get();
             require(GetProcessIdOfThread(thread) == GetCurrentProcessId() && GetThreadId(thread) == id,
@@ -259,6 +305,7 @@ Value observe_current_publisher_worker_security() {
             recorded_threads.emplace(id, Value(std::move(facts)));
             held_threads.emplace(id, std::move(held));
         }
+        if (checkpoint) (*checkpoint)("broker_native_before_thread_readback");
         for (const auto& item : held_threads) {
             FILETIME creation{}, exit{}, kernel{}, user{};
             const auto& recorded = recorded_threads.at(item.first);
@@ -277,7 +324,9 @@ Value observe_current_publisher_worker_security() {
             require(usk::json::canonical(Value(repeated)) == usk::json::canonical(recorded),
                 "publisher worker held thread security changed across population readback");
         }
-        const auto final_ids = thread_ids();
+        if (checkpoint) (*checkpoint)("broker_native_before_final_census");
+        if (native_broker) acquired = native_broker_threads();
+        const auto final_ids = native_broker ? handle_ids(acquired) : thread_ids();
         if (final_ids == ids) { population_complete = true; break; }
         require(std::includes(final_ids.begin(), final_ids.end(), ids.begin(), ids.end()),
             "publisher worker lost an observed thread during population readback");
@@ -292,6 +341,25 @@ Value observe_current_publisher_worker_security() {
         {"process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
         {"current_thread_id", Value(static_cast<std::uint64_t>(GetCurrentThreadId()))},
         {"primary_token", Value(std::move(primary))}, {"threads", Value(std::move(threads))}});
+}
+} // namespace
+Value observe_current_publisher_worker_security() {
+    return observe_worker_security(false);
+}
+Value observe_current_publisher_broker_worker_security(const PublisherServiceObservation& service) {
+    require(service.process_id == GetCurrentProcessId(), "SCM broker worker security context is another process");
+    try {
+        auto result = observe_worker_security(true);
+        require_publisher_worker_security(result, service);
+        return result;
+    } catch (const std::exception& error) {
+        throw std::runtime_error("SCM broker current worker security observation refused: process=" +
+            std::to_string(GetCurrentProcessId()) + " thread=" + std::to_string(GetCurrentThreadId()) +
+            "; cause=" + error.what());
+    }
+}
+Value detail::observe_publisher_broker_worker_security_for_test(const std::function<void(const char*)>& checkpoint) {
+    return observe_worker_security(true, &checkpoint);
 }
 
 Value observe_settled_publisher_worker_security(const PublisherServiceObservation& service, HANDLE cancel_event) {

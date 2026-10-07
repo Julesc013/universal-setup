@@ -870,7 +870,7 @@ struct PublisherEffectBrokerReadback::State {
         const auto process = observe_current_publisher_process_boundary();
         require_publisher_process_boundary(process, actual_service.process_id, actual_service.service_sid,
             actual_service.token.process_groups);
-        const auto security = observe_current_publisher_worker_security();
+        const auto security = observe_current_publisher_broker_worker_security(actual_service);
         require_publisher_worker_security(security, actual_service);
         const auto configuration = admission.execution_configuration_observation();
         const auto actual_custody = custody.observation();
@@ -894,7 +894,7 @@ struct PublisherEffectBrokerReadback::State {
         // observed native fact, never the child's supplied SID.
         result.as_object().emplace("authenticated_client", access.at("client"));
         require_projection(result, actual_custody, actual_service.token, child, false);
-        const auto final_security = observe_current_publisher_worker_security();
+        const auto final_security = observe_current_publisher_broker_worker_security(actual_service);
         require_publisher_worker_security(final_security, actual_service);
         require(same(observe_current_publisher_process_boundary(), process) &&
             same(final_security.at("primary_token"), security.at("primary_token")) &&

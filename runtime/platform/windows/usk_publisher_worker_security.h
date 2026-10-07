@@ -26,6 +26,12 @@ struct PublisherWorkerTokenContext {
 // Handles are non-inheritable, retained during readback, and never exported.
 // This is a bracketed observation, not an atomic population or handle census.
 usk::json::Value observe_current_publisher_worker_security();
+// The read-only SCM broker permits a changing current population, separately
+// from the child's immutable original-held continuity. Acquire native thread
+// objects before reading their facts, require independent complete coverage,
+// and bind the same full v1 policy to the actual restricted service. Retirement
+// during sampling still refuses; no original baseline is installed/refreshed.
+usk::json::Value observe_current_publisher_broker_worker_security(const PublisherServiceObservation& service);
 // The SCM/process/primary-token context must already have been validated.
 void require_publisher_worker_security(const usk::json::Value& value,
     const PublisherServiceObservation& service);
@@ -59,6 +65,9 @@ usk::json::Value observe_settled_publisher_worker_security(
 // bracketed observation, not an atomic population or continuous census.
 class PublisherWorkerSecurityContinuity;
 namespace detail {
+// Ordinary owned-thread controls only; this reads facts and grants no authority.
+usk::json::Value observe_publisher_broker_worker_security_for_test(
+    const std::function<void(const char*)>& checkpoint);
 // Private deterministic ordinary-thread control seam. The production owner
 // supplies no callback; this neither constructs authority nor changes facts.
 usk::json::Value observe_publisher_worker_continuity_for_test(

@@ -817,7 +817,7 @@ private:
 };
 class TestThreadDacl {
 public:
-    explicit TestThreadDacl(HANDLE thread) : thread_(thread) {
+    explicit TestThreadDacl(HANDLE thread, DWORD denied_rights = THREAD_SET_INFORMATION) : thread_(thread) {
         DWORD size = 0;
         constexpr auto information = DACL_SECURITY_INFORMATION;
         check(!GetKernelObjectSecurity(thread_, information, nullptr, 0, &size) &&
@@ -840,7 +840,7 @@ public:
         std::vector<unsigned char> changed(size_with_deny);
         auto* changed_acl = reinterpret_cast<PACL>(changed.data());
         check(InitializeAcl(changed_acl, size_with_deny, ACL_REVISION) &&
-            AddAccessDeniedAce(changed_acl, ACL_REVISION, THREAD_SET_INFORMATION, sid),
+            AddAccessDeniedAce(changed_acl, ACL_REVISION, denied_rights, sid),
             "test thread control deny ACE unavailable");
         for (DWORD index = 0; index != dacl->AceCount; ++index) {
             void* ace_value = nullptr;
@@ -1086,6 +1086,88 @@ void worker_retirement_readback_controls() {
     }
     std::cout << "actual census/readback retirement windows and coupled security/addition refusals passed\n";
 }
+void broker_worker_native_acquisition_controls() {
+    // Ordinary owned objects only. These do not activate a restricted SCM
+    // broker, grant product effects or qualify the hosted public journey.
+    const auto capture = [](const std::function<void(const char*)>& checkpoint) {
+        return detail::observe_publisher_broker_worker_security_for_test(checkpoint);
+    };
+    {
+        TestThread live;
+        const auto legacy = observe_current_publisher_worker_security();
+        const auto native = capture([](const char*) {});
+        check(usk::json::canonical(native) == usk::json::canonical(legacy),
+            "native broker acquisition changed complete stable v1 worker facts");
+        const auto& rows = native.at("threads").as_array();
+        const auto found = std::find_if(rows.begin(), rows.end(), [&](const Value& row) {
+            return row.at("thread_id").as_unsigned() == live.id();
+        });
+        FILETIME birth{}, exit{}, kernel{}, user{};
+        check(found != rows.end() && GetThreadTimes(live.handle(), &birth, &exit, &kernel, &user) &&
+            std::stoull(found->at("creation_time").as_string(), nullptr, 16) ==
+                ((static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime) &&
+            WaitForSingleObject(live.handle(), 0) == WAIT_TIMEOUT,
+            "native broker acquisition omitted or rebound an actual owned live thread");
+    }
+    {
+        TestThread original;
+        std::string diagnostic;
+        try {
+            (void)capture([&](const char* checkpoint) {
+                if (std::string(checkpoint) == "broker_native_threads_pinned") original.retire();
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(diagnostic.find("observed thread is unavailable or exited") != std::string::npos,
+            "native broker acquisition silently omitted a pinned thread retirement");
+    }
+    {
+        TestThread surviving;
+        std::unique_ptr<TestThreadDacl> changed;
+        std::string diagnostic;
+        try {
+            (void)capture([&](const char* checkpoint) {
+                if (std::string(checkpoint) == "broker_native_before_thread_readback" && !changed)
+                    changed = std::make_unique<TestThreadDacl>(surviving.handle());
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(changed && diagnostic.find("held thread security changed across population readback") != std::string::npos,
+            "native broker acquisition refreshed a surviving thread security change");
+        changed.reset();
+    }
+    {
+        TestThread inaccessible;
+        TestThreadDacl denied(inaccessible.handle(), THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION);
+        const auto opened = OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE,
+            FALSE, inaccessible.id());
+        const auto error = opened ? ERROR_SUCCESS : GetLastError();
+        if (opened) CloseHandle(opened);
+        check(!opened && error == ERROR_ACCESS_DENIED, "native broker incomplete-census control did not deny actual query access");
+        std::string diagnostic;
+        try { (void)capture([](const char*) {}); }
+        catch (const std::exception& failure) { diagnostic = failure.what(); }
+        check(diagnostic.find("independent complete census") != std::string::npos ||
+            diagnostic.find("native thread enumeration failed") != std::string::npos,
+            "native broker acquisition accepted incomplete access-filtered coverage");
+    }
+    {
+        std::vector<std::unique_ptr<TestThread>> added;
+        std::string diagnostic;
+        try {
+            (void)capture([&](const char* checkpoint) {
+                if (std::string(checkpoint) == "broker_native_before_final_census")
+                    added.push_back(std::make_unique<TestThread>());
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(added.size() == 4u && diagnostic.find("did not settle within its observation bound") != std::string::npos,
+            "native broker acquisition exceeded its finite additive observation bound");
+    }
+    PublisherServiceObservation wrong{};
+    bool refused = false;
+    try { (void)observe_current_publisher_broker_worker_security(wrong); }
+    catch (const std::exception& error) { refused = std::string(error.what()).find("another process") != std::string::npos; }
+    check(refused, "native broker sampler admitted another process context");
+    std::cout << "native broker complete held-thread acquisition and retirement/security/coverage/churn refusals passed\n";
+}
 } // namespace
 
 int main() {
@@ -1101,6 +1183,7 @@ int main() {
         effect_execution_record_controls();
         worker_lifetime_controls();
         worker_retirement_readback_controls();
+        broker_worker_native_acquisition_controls();
 
         // Synthetic policy controls are separate from the native observation.
         require_publisher_process_boundary(boundary(), 500, service_sid, groups);
