@@ -175,6 +175,198 @@ $receipt = [ordered]@{
 $mounted = $false
 $failure = $null
 
+function Initialize-OwnedVhdImageSecurity {
+    if('UskOwnedVhdImage' -as [type]){return}
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+public sealed class UskOwnedVhdImage {
+    readonly IntPtr original;
+    readonly Func<IntPtr,Tuple<bool,int>> closer;
+    public FileStream Stream {get;private set;}
+    public bool CloseAttempted {get;private set;}
+    public bool NativeCloseConfirmed {get;private set;}
+    public int NativeCloseError {get;private set;}
+    UskOwnedVhdImage(IntPtr file,Func<IntPtr,Tuple<bool,int>> close) {original=file;closer=close;}
+    [StructLayout(LayoutKind.Sequential)] struct FileId {
+        public ulong Volume; public ulong Low; public ulong High;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern IntPtr CreateFileW(string path,uint access,uint share,IntPtr security,
+        uint disposition,uint flags,IntPtr template);
+    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool CloseHandle(IntPtr file);
+    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetFileInformationByHandleEx(SafeFileHandle file,int kind,byte[] data,uint size);
+    [DllImport("kernel32.dll", EntryPoint="GetFileInformationByHandleEx", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetFileId(SafeFileHandle file,int kind,out FileId id,uint size);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern uint GetFinalPathNameByHandleW(SafeFileHandle file,StringBuilder path,uint size,uint flags);
+    static Exception Failure(string operation) {return new Win32Exception(Marshal.GetLastWin32Error(),operation);}
+    static Tuple<bool,int> NativeClose(IntPtr file) {
+        bool closed=CloseHandle(file);int error=closed ? 0 : Marshal.GetLastWin32Error();
+        return Tuple.Create(closed,error);
+    }
+    public bool Close() {
+        if(CloseAttempted)return NativeCloseConfirmed;
+        // Retire managed use, then issue exactly ONE native close. The stream
+        // wrapper never owns native closure; no finalizer or retry uses original.
+        CloseAttempted=true;
+        try {if(Stream!=null)Stream.Dispose();}
+        finally {
+            Stream=null;
+            Tuple<bool,int> result=closer(original);
+            NativeCloseConfirmed=result.Item1;NativeCloseError=result.Item2;
+        }
+        return NativeCloseConfirmed;
+    }
+    public static UskOwnedVhdImage Open(string path) {
+        // OPEN_EXISTING, no sharing/inheritance, no data-write access, and no
+        // final reparse traversal. Ownership/DACL rights are for this image only.
+        IntPtr file=CreateFileW(path,0x800e0000,0,IntPtr.Zero,3,0x00200000,IntPtr.Zero);
+        if(file==new IntPtr(-1))throw Failure("Hold new owned VHD image");
+        UskOwnedVhdImage image=null;SafeFileHandle wrapper=null;
+        try {
+            image=new UskOwnedVhdImage(file,NativeClose);wrapper=new SafeFileHandle(file,false);
+            image.Stream=new FileStream(wrapper,FileAccess.Read,65536,false);return image;
+        }
+        catch(Exception primary) {
+            bool attempted=false,confirmed=false;int error=0;
+            try {if(wrapper!=null)wrapper.Dispose();} catch {}
+            if(image!=null) {
+                try {image.Close();} catch {}
+                attempted=image.CloseAttempted;confirmed=image.NativeCloseConfirmed;error=image.NativeCloseError;
+            } else {
+                // Cover allocation failure before an owner wrapper exists.
+                attempted=true;confirmed=CloseHandle(file);error=confirmed ? 0 : Marshal.GetLastWin32Error();
+            }
+            try {
+                primary.Data["OwnedVhdNativeCloseAttempted"]=attempted;
+                primary.Data["OwnedVhdNativeCloseConfirmed"]=confirmed;
+                primary.Data["OwnedVhdNativeCloseError"]=error;
+            } catch {}
+            throw;
+        }
+    }
+    public static object[] Observe(FileStream stream,string expectedPath) {
+        SafeFileHandle file=stream.SafeFileHandle;
+        byte[] tag=new byte[8],standard=new byte[24];FileId id;
+        if(!GetFileInformationByHandleEx(file,9,tag,8))throw Failure("Read owned VHD image tag");
+        if(!GetFileInformationByHandleEx(file,1,standard,24))throw Failure("Read owned VHD image role");
+        if(!GetFileId(file,18,out id,(uint)Marshal.SizeOf(typeof(FileId))))throw Failure("Read owned VHD image identity");
+        long size=BitConverter.ToInt64(standard,8);
+        if((BitConverter.ToUInt32(tag,0)&0x410)!=0 || BitConverter.ToUInt32(tag,4)!=0 ||
+            BitConverter.ToUInt32(standard,16)!=1 || standard[20]!=0 || standard[21]!=0 ||
+            size<=0 || size>512L*1024*1024 || stream.Length!=size)
+            throw new InvalidOperationException("Owned VHD image is not one ordinary bounded file");
+        StringBuilder path=new StringBuilder(32768);
+        uint count=GetFinalPathNameByHandleW(file,path,(uint)path.Capacity,0);
+        if(count==0)throw Failure("Read held owned VHD image path");
+        if(count>=path.Capacity)throw new InvalidOperationException("Held VHD image path is unbounded");
+        string actual=path.ToString();
+        if(actual.StartsWith(@"\\?\",StringComparison.Ordinal))actual=actual.Substring(4);
+        if(!String.Equals(actual,Path.GetFullPath(expectedPath),StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Held VHD image path differs from the newly created file");
+        string identity=id.Volume.ToString("x16")+":"+
+            BitConverter.ToString(BitConverter.GetBytes(id.Low)).Replace("-","").ToLowerInvariant()+
+            BitConverter.ToString(BitConverter.GetBytes(id.High)).Replace("-","").ToLowerInvariant();
+        return new object[]{identity,size,actual};
+    }
+}
+'@
+}
+function Assert-OwnedVhdImageSecurity($Security) {
+    $raw=[Security.AccessControl.RawSecurityDescriptor]::new($Security.GetSecurityDescriptorBinaryForm(),0)
+    if($null -eq $raw.Owner -or $raw.Owner.Value -cne 'S-1-5-32-544' -or $null -eq $raw.DiscretionaryAcl -or
+        -not ($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -or
+        -not ($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or
+        $raw.DiscretionaryAcl.Count -ne 3){throw 'Owned VHD image owner or protected DACL differs'}
+    $sids=@('S-1-5-32-544','S-1-5-18','S-1-5-32-545');$masks=@(0x1f01ff,0x1f01ff,0x1200a9)
+    for($i=0;$i -lt 3;$i++) {
+        $ace=$raw.DiscretionaryAcl[$i]
+        if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or
+            $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or
+            $ace.AceFlags -ne [Security.AccessControl.AceFlags]::None -or
+            $ace.SecurityIdentifier.Value -cne $sids[$i] -or $ace.AccessMask -ne $masks[$i]) {
+            throw 'Owned VHD image ordered ACE policy differs'
+        }
+    }
+    return $raw.GetSddlForm([Security.AccessControl.AccessControlSections]::Owner -bor
+        [Security.AccessControl.AccessControlSections]::Access)
+}
+function Protect-NewOwnedVhdImage([string]$ImagePath,[Collections.IDictionary]$Receipt) {
+    # The caller has just created this unique owned image; no attachment or
+    # volume exists yet. This observation never substitutes for product admission.
+    Initialize-OwnedVhdImageSecurity
+    $image=$null;$owner=$null;$primaryFailure=$null;$sha=$null
+    $observation=[ordered]@{schema='usk.owned_vhd_image_provisioning.v1';scope='new_image_before_first_attachment';
+        status='preparing';custody='unknown';native_close_attempted=$false;native_close_confirmed=$false;
+        native_close_error=$null;observations_closed=$false;volume_admission_granted=$false}
+    $Receipt['backing_image_provisioning']=$observation
+    try {
+        $owner=[UskOwnedVhdImage]::Open($ImagePath);$image=$owner.Stream;$observation.custody='held'
+        $before=[UskOwnedVhdImage]::Observe($image,$ImagePath)
+        $sha=[Security.Cryptography.SHA256]::Create()
+        $beforeHash=[Convert]::ToHexString($sha.ComputeHash($image)).ToLowerInvariant()
+        $sections=[Security.AccessControl.AccessControlSections]::Owner -bor
+            [Security.AccessControl.AccessControlSections]::Access
+        $original=[IO.FileSystemAclExtensions]::GetAccessControl($image).GetSecurityDescriptorSddlForm($sections)
+        $policy=[Security.AccessControl.FileSecurity]::new()
+        $policy.SetSecurityDescriptorSddlForm('O:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)',$sections)
+        [IO.FileSystemAclExtensions]::SetAccessControl($image,$policy)
+        $actual=Assert-OwnedVhdImageSecurity ([IO.FileSystemAclExtensions]::GetAccessControl($image))
+        $image.Position=0
+        $afterHash=[Convert]::ToHexString($sha.ComputeHash($image)).ToLowerInvariant()
+        $after=[UskOwnedVhdImage]::Observe($image,$ImagePath)
+        if($before[0] -cne $after[0] -or $before[1] -ne $after[1] -or $before[2] -cne $after[2] -or
+            $beforeHash -cne $afterHash){throw 'Owned VHD image changed while provisioning its attachment policy'}
+        # Refresh security after byte/identity observations on the SAME handle.
+        if((Assert-OwnedVhdImageSecurity ([IO.FileSystemAclExtensions]::GetAccessControl($image))) -cne $actual) {
+            throw 'Owned VHD image policy changed before attachment'
+        }
+        $observation['file_identity']=$before[0];$observation['size_bytes']=$before[1];$observation['sha256']=$beforeHash
+        $observation['original_owner_dacl']=$original;$observation['provisioned_owner_dacl']=$actual
+        $observation['unchanged_bytes']=$true
+    } catch {
+        $primaryFailure=$_
+        # A constructor failure retains its own original checked close facts.
+        $inner=$_.Exception
+        for($depth=0;$null -ne $inner -and $depth -lt 8;$depth++) {
+            if($inner.Data.Contains('OwnedVhdNativeCloseAttempted')) {
+                $observation.native_close_attempted=$inner.Data['OwnedVhdNativeCloseAttempted']
+                $observation.native_close_confirmed=$inner.Data['OwnedVhdNativeCloseConfirmed']
+                $observation.native_close_error=$inner.Data['OwnedVhdNativeCloseError']
+                $observation.custody=if($observation.native_close_confirmed){'released'}else{'unknown'}
+                break
+            }
+            $inner=$inner.InnerException
+        }
+    } finally {
+        if($null -ne $owner) {
+            try {[void]$owner.Close()} catch {if($null -eq $primaryFailure){$primaryFailure=$_}}
+            $observation.native_close_attempted=$owner.CloseAttempted
+            $observation.native_close_confirmed=$owner.NativeCloseConfirmed
+            $observation.native_close_error=$owner.NativeCloseError
+            $observation.custody=if($owner.NativeCloseConfirmed){'released'}else{'unknown'}
+        }
+        try {if($null -ne $sha){$sha.Dispose()}} catch {if($null -eq $primaryFailure){$primaryFailure=$_}}
+    }
+    $observation.observations_closed=$observation.native_close_confirmed
+    if($null -ne $primaryFailure){$observation.status='failed';throw $primaryFailure}
+    if(-not $observation.native_close_confirmed) {
+        $observation.status='failed'
+        throw 'Owned VHD image native close unconfirmed; refuse attachment and retain unknown custody until runner VM disposal'
+    }
+    $observation.status='provisioned'
+    $observation.observations_closed=$true
+    return $observation
+}
+
 function Read-PublicBuildProfile([string]$Binary) {
     $build=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($Binary)))
     $projectPath=Join-Path $build 'usk_publisher_service.vcxproj'
@@ -404,6 +596,7 @@ try {
         throw 'file-backed VHD was not created'
     }
 
+    if($PublicInstallation){$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage $vhd $receipt}
     Mount-DiskImage -ImagePath $vhd -NoDriveLetter -ErrorAction Stop | Out-Null
     $mounted = $true
     $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop
@@ -518,6 +711,9 @@ try {
     }
 } finally {
     try {
+        if($receipt.backing_image_provisioning -and $receipt.backing_image_provisioning.custody -ceq 'unknown') {
+            throw 'Owned VHD image closure unconfirmed; retain backing file until runner VM disposal'
+        }
         if($PublicStandardClient -and -not $standardLauncherClosed){
             throw 'Owned SYSTEM launcher cleanup unconfirmed; retain backing volume until runner VM disposal'
         }
