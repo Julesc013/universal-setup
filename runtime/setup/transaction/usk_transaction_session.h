@@ -159,6 +159,10 @@ private:
         const std::string& expected_current_snapshot_sha256, bool completed_history);
 #if defined(_WIN32)
     const detail::NativeMaintenanceTransactionOperations* require_native_owner() const;
+    // Select only this session's original private scope. This is not fresh
+    // authority; use solely to dispatch to callbacks that perform their own
+    // native fences, retaining the standalone require_native_owner checks.
+    const detail::NativeMaintenanceTransactionOperations* native_owner_binding() const;
     bool native_origin_ = false;
     std::weak_ptr<const void> native_origin_binding_;
 #endif

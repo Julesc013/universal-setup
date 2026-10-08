@@ -735,14 +735,18 @@ void TransactionSession::verify_roots_for_plan()
 }
 
 #if defined(_WIN32)
-const detail::NativeMaintenanceTransactionOperations* TransactionSession::require_native_owner() const {
+const detail::NativeMaintenanceTransactionOperations* TransactionSession::native_owner_binding() const {
     detail::require_native_maintenance_origin_binding(native_origin_, native_origin_binding_,
         detail::ScopedNativeMaintenanceTransaction::current_binding());
     const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
     if (native_origin_) {
         if (!native) throw std::runtime_error("native maintenance transaction owner is absent");
-        native->require_authority(spec_);
     } else if (native) throw std::runtime_error("ordinary transaction cannot enter native maintenance custody");
+    return native;
+}
+const detail::NativeMaintenanceTransactionOperations* TransactionSession::require_native_owner() const {
+    const auto* native = native_owner_binding();
+    if (native) native->require_authority(spec_);
     return native;
 }
 #endif
@@ -799,9 +803,12 @@ void TransactionSession::persist_journal(std::uint64_t sequence, bool first)
 {
     const std::string text = render_journal();
 #if defined(_WIN32)
-    if (const auto* native = require_native_owner()) {
+    if (const auto* native = native_owner_binding()) {
         native->persist_journal(spec_, journal_path_, text, persisted_journal_sha256_, first);
-        (void)require_native_owner();
+        // The concrete callback completed full native fences before and after
+        // its durable effect. Recheck original scope, without nesting another
+        // authority observation around that already completed callback.
+        (void)native_owner_binding();
         usk::base::Sha256 persisted;
         persisted.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
         persisted_journal_sha256_ = persisted.finish();
@@ -818,10 +825,10 @@ void TransactionSession::create_staging_root()
         throw std::runtime_error("staging parent changed or staging root now exists");
     }
 #if defined(_WIN32)
-    const auto* native = require_native_owner();
+    const auto* native = native_owner_binding();
     if (native) {
         native->create_staging_root(spec_, staging_root_);
-        (void)require_native_owner();
+        (void)native_owner_binding();
     } else
 #endif
     {
@@ -1047,9 +1054,9 @@ StreamStageResult TransactionSession::stage_file_stream(
     for (auto iterator = relative_path.begin(); iterator != last; ++iterator) {
         current /= *iterator;
 #if defined(_WIN32)
-        if (const auto* native = require_native_owner()) {
+        if (const auto* native = native_owner_binding()) {
             native->ensure_stream_parent(spec_, current);
-            (void)require_native_owner();
+            (void)native_owner_binding();
         } else
 #endif
         {
@@ -1074,9 +1081,9 @@ StreamStageResult TransactionSession::stage_file_stream(
     try {
         if (injector_) injector_(current_state_, "before_stage_stream");
 #if defined(_WIN32)
-        if (const auto* native = require_native_owner()) {
+        if (const auto* native = native_owner_binding()) {
             handle = reinterpret_cast<HANDLE>(native->open_stream(spec_, destination, expected_size, expected_sha256));
-            require_native_owner()->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+            native_owner_binding()->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
         } else handle = CreateFileW(destination.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (handle == INVALID_HANDLE_VALUE) {
@@ -1120,7 +1127,7 @@ StreamStageResult TransactionSession::stage_file_stream(
 #if defined(_WIN32)
                 const DWORD request = static_cast<DWORD>(count - written_total);
                 DWORD written = 0;
-                if (const auto* native = require_native_owner()) {
+                if (const auto* native = native_owner_binding()) {
                     native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
                 }
                 if (!WriteFile(handle, buffer.data() + written_total, request, &written, nullptr) ||
@@ -1148,14 +1155,14 @@ StreamStageResult TransactionSession::stage_file_stream(
         if (injector_) injector_(current_state_, "before_stream_finalize");
         std::string actual_sha256;
 #if defined(_WIN32)
-        if (const auto* native = require_native_owner()) {
+        if (const auto* native = native_owner_binding()) {
             actual_sha256 = digest.finish();
             if (total != expected_size || actual_sha256 != expected_sha256)
                 throw std::runtime_error("streamed staged file integrity changed");
             native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
             native->finish_stream(spec_, reinterpret_cast<std::intptr_t>(handle),
                 observation.output_identity, total, actual_sha256);
-            (void)require_native_owner();
+            (void)native_owner_binding();
             // Borrowed custody stays with the concrete engine. No close or
             // rollback by pathname follows failure of its native operation.
             handle = INVALID_HANDLE_VALUE;
