@@ -59,7 +59,7 @@ $receipt=[ordered]@{
     trace_start_issued=$false;trace_started=$false;trace_stop_issued=$false;trace_closed=$false;
     probe_invoked=$false;probe_passed=$false;probe_failure=$null;probe_receipt=$null;
     commands=[Collections.Generic.List[object]]::new();diagnostic_failures=[Collections.Generic.List[string]]::new();
-    etl=$null;events_lost=$null;capture_completeness='not_established';
+    etl=$null;events_lost=$null;capture_completeness='not_established';product_symbols=$null;
     # Circular retention and event/header/payload joins must be checked against
     # actual PID/birth/TID/birth and owner checkpoints before interpreting stacks.
     interpretation='Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'
@@ -85,6 +85,33 @@ function Invoke-OwnedWpr([string]$Label,[string[]]$CommandArgs) {
 function Test-RecordingAbsent($Observation) {
     $Observation.exit_code -eq 0 -and -not $Observation.truncated -and
         $Observation.text -match '(?m)^WPR is not recording\s*$'
+}
+
+function Copy-BoundedProductFile([string]$Source,[string]$Name,[long]$MaximumBytes) {
+    $full=[IO.Path]::GetFullPath($Source)
+    $file=Get-Item -LiteralPath $full -ErrorAction Stop
+    if($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Product symbol input is not a regular build file'
+    }
+    $inputStream=$null;$outputStream=$null;$hash=$null
+    try {
+        # Deny concurrent write/delete while hashing and copying the same bytes.
+        $inputStream=[IO.FileStream]::new($full,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $length=$inputStream.Length
+        if($length -le 0 -or $length -gt $MaximumBytes) {throw 'Product symbol input exceeds its separate retention bound'}
+        $hash=[Security.Cryptography.SHA256]::Create()
+        $sha=[BitConverter]::ToString($hash.ComputeHash($inputStream)).Replace('-','').ToLowerInvariant()
+        $inputStream.Position=0
+        $destination=Join-Path $retainedRoot $Name
+        $outputStream=[IO.FileStream]::new($destination,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        $inputStream.CopyTo($outputStream,65536)
+        if($outputStream.Length -ne $length -or $inputStream.Length -ne $length) {throw 'Product symbol copy length changed'}
+        [ordered]@{name=$Name;bytes=$length;sha256=$sha;source_path=$full;maximum_bytes=$MaximumBytes}
+    } finally {
+        if($outputStream){$outputStream.Dispose()}
+        if($inputStream){$inputStream.Dispose()}
+        if($hash){$hash.Dispose()}
+    }
 }
 
 try {
@@ -173,6 +200,36 @@ try {
             sha256=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant();
             status=$original.status;build_profile=$original.build_profile}
     } catch {$receipt.diagnostic_failures.Add('Original probe receipt readback failed: '+[string]$_.Exception.Message)}
+    if($FreshQualification) {
+        try {
+            if(-not $receipt.probe_receipt -or -not $receipt.trace_closed) {throw 'Closed trace and joined original probe receipt are required for product symbol retention'}
+            $installedHash=[string]$original.service_observation.service_sha256
+            if($installedHash -cnotmatch '^[0-9a-f]{64}$') {throw 'Actual installed service image hash is unavailable'}
+            $image=Copy-BoundedProductFile $ServiceBinary 'usk_publisher_service.exe' 16777216
+            if($image.sha256 -cne $installedHash) {throw 'Build service image differs from the actual installed image'}
+            $symbols=Copy-BoundedProductFile ([IO.Path]::ChangeExtension([IO.Path]::GetFullPath($ServiceBinary),'.pdb')) 'usk_publisher_service.pdb' 67108864
+            $product=[ordered]@{
+                schema='usk.publisher_service_symbols.v1';scope='external_owned_diagnostic_no_authority';
+                source_commit=$receipt.source_commit;source_tree=$receipt.source_tree;pull_request_head=$receipt.pull_request_head;
+                ci_run_id=$receipt.ci_run_id;ci_run_attempt=$receipt.ci_run_attempt;build_profile=$original.build_profile;
+                image=$image;pdb=$symbols;installed_image_sha256=$installedHash;installed_image_hash_equal=$true;
+                symbol_identity='not_established_require_PE_CodeView_GUID_age_and_PDB_validation';
+                runtime_qualification=$false;publication_authority=$false;
+                interpretation='Optimized Release symbols retain inlining and ICF; hash equality joins image bytes only, not process birth, request ancestry, PDB identity or runtime authority'
+            }
+            $manifest=Join-Path $retainedRoot 'publisher-service-symbols.json'
+            $manifestBytes=[Text.UTF8Encoding]::new($false).GetBytes(($product|ConvertTo-Json -Depth 32 -Compress)+"`n")
+            if($manifestBytes.Length -gt 65536) {throw 'Product symbol manifest exceeds its separate retention bound'}
+            $manifestStream=$null
+            try {
+                $manifestStream=[IO.FileStream]::new($manifest,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+                $manifestStream.Write($manifestBytes,0,$manifestBytes.Length)
+            } finally {if($manifestStream){$manifestStream.Dispose()}}
+            $receipt.product_symbols=[ordered]@{name='publisher-service-symbols.json';bytes=$manifestBytes.Length;
+                sha256=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant();
+                installed_image_hash_equal=$true;symbol_identity=$product.symbol_identity}
+        } catch {$receipt.diagnostic_failures.Add('Product image/symbol retention failed: '+[string]$_.Exception.Message)}
+    }
     $receipt['completed_utc']=[DateTime]::UtcNow.ToString('o')
     $receipt.status=if($probeFailure){'probe_failed'}elseif($receipt.diagnostic_failures.Count){'diagnostic_failed'}else{'diagnostic_retained'}
     try {

@@ -469,6 +469,23 @@ if(USK_BUILD_APPS)
     target_link_libraries(usk_publisher_service PRIVATE
       usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
     usk_enable_strict_warnings(usk_publisher_service)
+    if(MSVC)
+      # Keep the optimized production image and its full matching symbols.
+      # /Z7 embeds debug information in objects without a compiler PDB.
+      foreach(USK_PUBLISHER_SYMBOL_TARGET IN ITEMS
+          usk_base_static usk_publisher_windows_static usk_archive_static
+          usk_policy_static usk_state_static usk_transaction_static
+          usk_lifecycle_static usk_zlib_inflate_objects usk_publisher_service)
+        target_compile_options(${USK_PUBLISHER_SYMBOL_TARGET} PRIVATE
+          "$<$<CONFIG:Release>:/Z7>")
+      endforeach()
+      # /DEBUG changes link optimization defaults; preserve Release behavior.
+      target_link_options(usk_publisher_service PRIVATE
+        "$<$<CONFIG:Release>:/DEBUG:FULL>"
+        "$<$<CONFIG:Release>:/INCREMENTAL:NO>"
+        "$<$<CONFIG:Release>:/OPT:REF>"
+        "$<$<CONFIG:Release>:/OPT:ICF>")
+    endif()
 
     add_executable(usk_publisher_lab_service
       apps/daemon/usk_publisher_lab_service.cpp)
