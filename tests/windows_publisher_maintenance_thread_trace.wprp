@@ -11,14 +11,22 @@
       <Keywords>
         <Keyword Value="ProcessThread" Strict="true" />
         <Keyword Value="Loader" Strict="true" />
+        <Keyword Value="SampledProfile" Strict="true" />
+        <Keyword Value="CSwitch" Strict="true" />
+        <Keyword Value="ReadyThread" Strict="true" />
       </Keywords>
-      <Stacks><Stack Value="ThreadCreate" /></Stacks>
+      <Stacks>
+        <Stack Value="ThreadCreate" />
+        <Stack Value="SampledProfile" />
+        <Stack Value="CSwitch" />
+        <Stack Value="ReadyThread" />
+      </Stacks>
     </SystemProvider>
-    <Profile Id="USKThreadCreator.Verbose.Memory" Name="USKThreadCreator" Description="Owned maintenance thread creation diagnostic" DetailLevel="Verbose" LoggingMode="Memory">
+    <Profile Id="USKThreadCreator.Verbose.Memory" Name="USKThreadCreator" Description="Owned maintenance CPU wait and thread creation diagnostic" DetailLevel="Verbose" LoggingMode="Memory">
       <Collectors><SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId></Collectors>
     </Profile>
     <!-- WPR's schema requires the paired profile; the wrapper never selects file mode. -->
-    <Profile Id="USKThreadCreator.Verbose.File" Name="USKThreadCreator" Description="Owned maintenance thread creation diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
+    <Profile Id="USKThreadCreator.Verbose.File" Name="USKThreadCreator" Description="Owned maintenance CPU wait and thread creation diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
       <Collectors><SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId></Collectors>
     </Profile>
   </Profiles>

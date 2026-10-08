@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputPath,
     [Parameter(Mandatory=$true)][string]$ServiceBinary,
     [Parameter(Mandatory=$true)][string]$ServiceControlBinary,
-    [Parameter(Mandatory=$true)][string]$MachineBinary
+    [Parameter(Mandatory=$true)][string]$MachineBinary,
+    [switch]$FreshQualification
 )
 
 $ErrorActionPreference='Stop'
@@ -21,9 +22,14 @@ $out=[IO.Path]::GetFullPath($OutputPath)
 if((Split-Path -Parent $out) -cne $runnerTemp -or (Test-Path -LiteralPath $out)) {
     throw 'Thread trace requires a fresh original probe receipt inside runner temporary storage'
 }
-$traceRoot=Join-Path $runnerTemp 'usk-wu007-maintenance-thread-trace'
+$journey=if($FreshQualification){'fresh'}else{'ended_recovery'}
+$traceDirectory=if($FreshQualification){'usk-wu007-maintenance-fresh-trace'}else{'usk-wu007-maintenance-thread-trace'}
+$traceRoot=Join-Path $runnerTemp $traceDirectory
 if(Test-Path -LiteralPath $traceRoot) {throw 'Preserve the existing diagnostic trace directory'}
 New-Item -ItemType Directory -Path $traceRoot -ErrorAction Stop | Out-Null
+# Upload only bounded validated files, never the unchecked raw stop output.
+$retainedRoot=Join-Path $traceRoot 'retained'
+New-Item -ItemType Directory -Path $retainedRoot -ErrorAction Stop | Out-Null
 $instance='USKMaintenanceCreator'+[Guid]::NewGuid().ToString('N')
 $etl=Join-Path $traceRoot 'maintenance-thread-creator.etl'
 $profile=Join-Path $PSScriptRoot 'windows_publisher_maintenance_thread_trace.wprp'
@@ -38,6 +44,12 @@ $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
 $receipt=[ordered]@{
     schema='usk.publisher_maintenance_thread_trace.v1';scope='external_owned_diagnostic_no_authority';
     profile_qualified=$false;creator_attribution_proven=$false;status='running';
+    journey=$journey;capture_kind='cpu_scheduler_and_thread_creation';
+    captured_keywords=@('ProcessThread','Loader','SampledProfile','CSwitch','ReadyThread');
+    captured_stacks=@('ThreadCreate','SampledProfile','CSwitch','ReadyThread');
+    maximum_retained_etl_bytes=134217728;maximum_command_log_characters=32768;
+    original_request_identity_source='Original probe receipt; join native process birth and ancestry with raw ETL';
+    capture_start_precedes_probe=$false;capture_end_follows_probe=$false;
     instance_name=$instance;identity=$identity.Name;windows_build=[Environment]::OSVersion.Version.ToString();
     created_utc=[DateTime]::UtcNow.ToString('o');configured_buffer_bytes=67108864;
     logging_mode='Memory';profile_sha256=(Get-FileHash -LiteralPath $profile -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -50,7 +62,7 @@ $receipt=[ordered]@{
     etl=$null;events_lost=$null;capture_completeness='not_established';
     # Circular retention and event/header/payload joins must be checked against
     # actual PID/birth/TID/birth and owner checkpoints before interpreting stacks.
-    interpretation='Requires actual creation-event/stack/module/time joins; module or shared pool routine alone does not attribute a callback'
+    interpretation='Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'
 }
 $probeFailure=$null
 $ownedInstance=$false
@@ -61,7 +73,7 @@ function Invoke-OwnedWpr([string]$Label,[string[]]$CommandArgs) {
     $body=($commandOutput|ForEach-Object {[string]$_}) -join "`n"
     $truncated=$body.Length -gt 32768
     if($truncated){$body=$body.Substring(0,32768)}
-    $log=Join-Path $traceRoot ($Label+'.log')
+    $log=Join-Path $retainedRoot ($Label+'.log')
     [IO.File]::WriteAllText($log,$body+"`n",[Text.UTF8Encoding]::new($false))
     $entry=[ordered]@{label=$Label;arguments=@($CommandArgs)+@('-instancename',$instance);
         exit_code=$exit;utc=[DateTime]::UtcNow.ToString('o');output_truncated=$truncated;
@@ -92,14 +104,19 @@ try {
         throw 'Owned thread creation memory profile is not positively observed'
     }
     $receipt.probe_invoked=$true
-    & (Join-Path $PSScriptRoot 'windows_publisher_lab_probe.ps1') -OutputPath $out `
-        -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -MachineBinary $MachineBinary `
-        -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceRecoveryQualification
+    $receipt['probe_started_utc']=[DateTime]::UtcNow.ToString('o')
+    $receipt.capture_start_precedes_probe=$true
+    $probeArguments=@{OutputPath=$out;ServiceBinary=$ServiceBinary;ServiceControlBinary=$ServiceControlBinary;
+        MachineBinary=$MachineBinary;PublicInstallation=$true;PublicStandardClient=$true}
+    if($FreshQualification){$probeArguments.PublicStandardMaintenanceQualification=$true}
+    else{$probeArguments.PublicStandardMaintenanceRecoveryQualification=$true}
+    & (Join-Path $PSScriptRoot 'windows_publisher_lab_probe.ps1') @probeArguments
     $receipt.probe_passed=$true
 } catch {
     $probeFailure=$_
     $receipt.probe_failure=([string]$_.Exception.Message).Substring(0,[Math]::Min(4096,([string]$_.Exception.Message).Length))
 } finally {
+    $receipt['probe_returned_utc']=[DateTime]::UtcNow.ToString('o')
     if($ownedInstance) {
         try {
             $status=Invoke-OwnedWpr 'before-stop-status' @('-status','collectors','-details')
@@ -116,6 +133,8 @@ try {
         # Stop remains independent of status failure; no default/global cancel.
         try {
             $receipt.trace_stop_issued=$true
+            $receipt['stop_issued_utc']=[DateTime]::UtcNow.ToString('o')
+            $receipt.capture_end_follows_probe=$receipt.probe_invoked
             $stopped=Invoke-OwnedWpr 'stop' @('-stop',$etl)
             if($stopped.exit_code -ne 0 -or $stopped.truncated) {
                 $receipt.diagnostic_failures.Add('Owned trace stop did not confirm success')
@@ -134,6 +153,7 @@ try {
             }
             $receipt.etl=[ordered]@{name=$file.Name;bytes=$file.Length;
                 sha256=(Get-FileHash -LiteralPath $etl -Algorithm SHA256).Hash.ToLowerInvariant()}
+            Move-Item -LiteralPath $etl -Destination (Join-Path $retainedRoot $file.Name) -ErrorAction Stop
         } else {throw 'Owned raw ETL is absent'}
     } catch {$receipt.diagnostic_failures.Add('ETL readback failed: '+[string]$_.Exception.Message)}
     try {
@@ -156,7 +176,7 @@ try {
     $receipt['completed_utc']=[DateTime]::UtcNow.ToString('o')
     $receipt.status=if($probeFailure){'probe_failed'}elseif($receipt.diagnostic_failures.Count){'diagnostic_failed'}else{'diagnostic_retained'}
     try {
-        [IO.File]::WriteAllText((Join-Path $traceRoot 'maintenance-thread-creator.json'),
+        [IO.File]::WriteAllText((Join-Path $retainedRoot 'maintenance-thread-creator.json'),
             ($receipt|ConvertTo-Json -Depth 32 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     } catch {
         if($probeFailure){throw $probeFailure}
@@ -165,4 +185,4 @@ try {
 }
 if($probeFailure){throw $probeFailure}
 if($receipt.diagnostic_failures.Count){throw ($receipt.diagnostic_failures -join '; ')}
-Write-Output 'Owned thread creation trace retained; creator attribution and runtime qualification remain unproved'
+Write-Output 'Owned CPU wait and thread trace retained; coverage attribution and runtime qualification remain unproved'
