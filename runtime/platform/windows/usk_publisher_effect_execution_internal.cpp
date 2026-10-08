@@ -38,29 +38,34 @@ struct PublisherEffectExecutionOwner::State {
         request(p.canonical_request()), original(readback.service_admission()) {
         (void)observe();
     }
+    void require_owner() const {
+        require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
+            peer.canonical_request() == request, "publisher child original observation owner/thread/request changed");
+    }
+    void require_native_binding(const Value& profile, const Value& native) const {
+        require(same(publisher_effect_broker_immutable_record(profile),
+            publisher_effect_broker_immutable_record(original)), "publisher child original broker binding changed");
+        const auto broker = publisher_effect_broker_service_record(profile);
+        const auto worker = publisher_effect_worker_record_context(profile);
+        require(broker.service_name == name && broker.process_id != process_id && worker.process_id == process_id &&
+            broker.service_sid == worker.service_sid, "publisher child requires its actual worker and distinct original SCM owner");
+        require(native.at("worker").at("process_id").as_unsigned() == worker.process_id &&
+            native.at("worker").at("service_sid").as_string() == worker.service_sid &&
+            same(native.at("worker").at("primary_token"), profile.at("effect_primary_token")),
+            "publisher child security belongs to another original worker");
+        require_publisher_worker_security(native.at("worker_security"), worker);
+        require_publisher_process_boundary(native.at("process_boundary"), worker.process_id,
+            worker.service_sid, worker.token.process_groups);
+    }
     Value observe() {
         try {
-            require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
-                peer.canonical_request() == request, "publisher child original observation owner/thread/request changed");
+            require_owner();
             // The original native security owner performs this whole bracket.
             // Its two profiles are actual validated replies around unchanged
             // local child checks, not supplied or previously cached records.
             auto observed = security.observe_brokered();
             const auto& before = observed.before;
-            require(same(publisher_effect_broker_immutable_record(before),
-                publisher_effect_broker_immutable_record(original)), "publisher child original broker binding changed");
-            const auto broker = publisher_effect_broker_service_record(before);
-            const auto worker = publisher_effect_worker_record_context(before);
-            require(broker.service_name == name && broker.process_id != process_id && worker.process_id == process_id &&
-                broker.service_sid == worker.service_sid, "publisher child requires its actual worker and distinct original SCM owner");
-            const auto& native = observed.native;
-            require(native.at("worker").at("process_id").as_unsigned() == worker.process_id &&
-                native.at("worker").at("service_sid").as_string() == worker.service_sid &&
-                same(native.at("worker").at("primary_token"), before.at("effect_primary_token")),
-                "publisher child security belongs to another original worker");
-            require_publisher_worker_security(native.at("worker_security"), worker);
-            require_publisher_process_boundary(native.at("process_boundary"), worker.process_id,
-                worker.service_sid, worker.token.process_groups);
+            require_native_binding(before, observed.native);
             const auto& after = observed.after;
             require(same(publisher_effect_broker_immutable_record(after),
                 publisher_effect_broker_immutable_record(before)), "publisher child native owner changed across readback");
@@ -146,10 +151,22 @@ Value PublisherEffectExecutionOwner::selected_reviewed_operation() {
 Value PublisherEffectExecutionOwner::authenticated_object_access(HANDLE handle) {
     require_current();
     try {
-        (void)state_->observe();
-        auto access = state_->readback.authenticated_object_access(handle);
-        (void)state_->observe();
-        return access;
+        state_->require_owner();
+        // Complete original child-local native proofs surround the actual
+        // read-only query. The parent independently encloses that same query
+        // with its full fresh native checks and returns BOTH actual profiles.
+        // These brackets overlap; no former wire sampling instant is claimed.
+        const auto native_before = state_->security.observe_local_current();
+        auto observed = state_->readback.authenticated_object_access_bracket(handle);
+        const auto native_after = state_->security.observe_local_current();
+        state_->require_native_binding(observed.before, native_before);
+        state_->require_native_binding(observed.after, native_after);
+        require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
+        require(same(publisher_effect_broker_immutable_record(observed.before),
+            publisher_effect_broker_immutable_record(observed.after)), "publisher child native owner changed across object access");
+        state_->require_owner();
+        state_->readback.retain_object_access_bracket(observed);
+        return std::move(observed.access);
     } catch (...) { state_->failed = true; throw; }
 }
 Value PublisherEffectExecutionOwner::selected_original_maintenance_recovery() {

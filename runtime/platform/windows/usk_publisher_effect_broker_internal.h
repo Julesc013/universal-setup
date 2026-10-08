@@ -134,6 +134,17 @@ public:
     usk::json::Value authenticated_object_access(HANDLE, DWORD timeout_ms = 120000);
 private:
     friend class PublisherEffectWorkerNativeSecurity;
+    friend class PublisherEffectExecutionOwner;
+    // One closed read-only exchange returns the parent's actual native brackets
+    // of this query. Only the original execution owner may use this alongside
+    // its original child's complete local security observations.
+    struct ObjectAccessObservation {
+        usk::json::Value before;
+        usk::json::Value after;
+        usk::json::Value access;
+    };
+    ObjectAccessObservation authenticated_object_access_bracket(HANDLE, DWORD timeout = 120000);
+    void retain_object_access_bracket(const ObjectAccessObservation&);
     // Both facts originate from the SAME actual validated wire read. This is
     // private to the original native security owner, never a JSON input API.
     struct CurrentWorkerObservation {
@@ -172,6 +183,9 @@ private:
         usk::json::Value native;
     };
     BrokeredObservation observe_brokered(const std::string& failure_context = {});
+    // Complete actual local checks from the same pinned native owner. No wire
+    // profile, caller context or replacement baseline is accepted here.
+    usk::json::Value observe_local_current(const std::string& failure_context = {});
     struct State;
     std::unique_ptr<State> state_;
 };

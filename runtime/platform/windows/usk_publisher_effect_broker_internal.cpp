@@ -1016,7 +1016,7 @@ void PublisherEffectBrokerReadback::respond_to_one_readback(DWORD timeout) {
 std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD timeout) {
     auto& state = *state_;
     try {
-        const auto before = state.fresh();
+        auto before = state.fresh();
         require_publisher_effect_broker_readback_continuity(state.baseline, before);
         require(same(immutable_profile(before), immutable_profile(state.baseline)), "broker original service/target/caller/worker binding changed");
         const auto request = state.custody.receive(timeout);
@@ -1041,10 +1041,13 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             return request;
         }
         const auto kind = request.at("kind").as_string();
-        require(request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v1" &&
+        const bool paired_access = kind == "object_access_bracket";
+        require((request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v1" &&
             (kind == "service_admission" || kind == "selected_operation" || kind == "object_access" ||
                 kind == "original_maintenance_recovery" || kind == "original_installation_recovery") &&
-            request.as_object().size() == (kind == "object_access" ? 3u : 2u), "broker readback request grammar differs");
+            request.as_object().size() == (kind == "object_access" ? 3u : 2u)) ||
+            (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v2" &&
+                paired_access && request.as_object().size() == 3), "broker readback request grammar differs");
         Value result(Value::Object{});
         if (kind == "selected_operation") result = state.selected_current();
         if (kind == "original_maintenance_recovery" || kind == "original_installation_recovery") {
@@ -1052,7 +1055,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                 "broker original recovery query has another request family");
             result = state.recovery_current();
         }
-        if (kind == "object_access") {
+        if (kind == "object_access" || paired_access) {
             PublisherBrokerObjectQuery query(state.volume, request.at("native_object"));
             result = query.authenticated_access(state.channel);
             require(same(result.at("client"), before.at("authenticated_client")), "broker original authenticated caller changed");
@@ -1071,8 +1074,12 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
             "broker native scope or original selected operation changed across readback");
         Value::Object response;
-        response.emplace("schema", Value("usk.publisher_effect_broker_readback_response.v1"));
+        response.emplace("schema", Value(paired_access ? "usk.publisher_effect_broker_readback_response.v2" :
+            "usk.publisher_effect_broker_readback_response.v1"));
         response.emplace("kind", Value(kind));
+        // These are this packet's actual fresh native reads, not cached profiles.
+        // Full native checks and checked query closure precede either reply.
+        if (paired_access) response.emplace("profile_before", std::move(before));
         response.emplace("profile", std::move(after));
         response.emplace("result", std::move(result));
         state.custody.send(Value(std::move(response)), timeout);
@@ -1093,24 +1100,35 @@ struct PublisherEffectWorkerReadback::State {
     Value read(const std::string& kind, const Value* native_object, DWORD timeout) {
         require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
             peer.canonical_request() == request, "effect readback original native owner/thread/request changed");
+        const bool paired_access = kind == "object_access_bracket";
+        require(!paired_access || (native_object && initialized), "effect paired access requires its original admitted readback");
         const auto before = peer.observation();
         const auto parent = peer.peer_primary_token();
         const auto child = observe_current_publisher_token();
-        Value message(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_request.v1")}, {"kind", Value(kind)}});
+        Value message(Value::Object{{"schema", Value(paired_access ? "usk.publisher_effect_broker_readback_request.v2" :
+            "usk.publisher_effect_broker_readback_request.v1")}, {"kind", Value(kind)}});
         if (native_object) message.as_object().emplace("native_object", *native_object);
         peer.send(message, timeout);
         const auto reply = peer.receive(timeout);
-        require(reply.as_object().size() == 4 && reply.at("schema").as_string() ==
-            "usk.publisher_effect_broker_readback_response.v1" && reply.at("kind").as_string() == kind &&
+        require(reply.as_object().size() == (paired_access ? 5u : 4u) && reply.at("schema").as_string() ==
+            (paired_access ? "usk.publisher_effect_broker_readback_response.v2" : "usk.publisher_effect_broker_readback_response.v1") &&
+            reply.at("kind").as_string() == kind &&
             same(peer.observation(), before) && same(token(peer.peer_primary_token()), token(parent)) &&
             same(token(observe_current_publisher_token()), token(child)), "effect fresh readback reply or actual native token/custody changed");
         require_projection(reply.at("profile"), before, parent, child, true);
-        if (initialized) require_publisher_effect_broker_readback_continuity(previous, reply.at("profile"));
+        if (paired_access) {
+            require_projection(reply.at("profile_before"), before, parent, child, true);
+            require_publisher_effect_broker_readback_continuity(previous, reply.at("profile_before"));
+            require_publisher_effect_broker_readback_continuity(reply.at("profile_before"), reply.at("profile"));
+        }
+        else if (initialized) require_publisher_effect_broker_readback_continuity(previous, reply.at("profile"));
         else { baseline = reply.at("profile"); initialized = true; }
         if (kind == "service_admission") require(reply.at("result").as_object().empty(), "effect service readback has an unexpected result");
-        else if (kind == "object_access") require(same(reply.at("result").at("native_object"), *native_object) &&
+        else if (kind == "object_access" || paired_access) require(same(reply.at("result").at("native_object"), *native_object) &&
             same(reply.at("result").at("client"), baseline.at("authenticated_client")), "effect broker access belongs to another object/caller");
-        previous = reply.at("profile");
+        // The paired route retains its independent proof only after the
+        // execution owner completes both local native brackets and all joins.
+        if (!paired_access) previous = reply.at("profile");
         return reply;
     }
 };
@@ -1128,16 +1146,30 @@ PublisherWorkerTokenContext PublisherEffectWorkerReadback::worker_token_context(
     try { return observe_current_worker(timeout).worker; }
     catch (...) { state_->failed = true; throw; }
 }
+namespace {
+PublisherWorkerTokenContext actual_worker_context(const Value& profile) {
+    const auto actual = observe_current_publisher_token();
+    const auto& sid = profile.at("service").at("service_sid").as_string();
+    require(same(token(actual), profile.at("effect_primary_token")) &&
+        GetCurrentProcessId() == profile.at("custody").at("peer_process_id").as_unsigned() &&
+        has_restricted_publisher_token_facts(actual, sid), "effect actual local primary-token context changed");
+    return PublisherWorkerTokenContext{GetCurrentProcessId(), sid, actual};
+}
+void require_raw_object_access(const Value& result, const Value& native_object) {
+    auto access = result;
+    // Unchanged closed raw-descriptor/native-object/client validation, including
+    // all actual AccessCheck results. The temporary is never effect authority.
+    access.as_object().erase("client"); access.as_object().erase("native_object");
+    access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(result.at("client"))));
+    access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(native_object)));
+    require_publisher_authenticated_object_access(access, result.at("client"), native_object);
+}
+}
 PublisherEffectWorkerReadback::CurrentWorkerObservation
 PublisherEffectWorkerReadback::observe_current_worker(DWORD timeout) {
     try {
         auto profile = service_admission(timeout);
-        const auto actual = observe_current_publisher_token();
-        const auto& sid = profile.at("service").at("service_sid").as_string();
-        require(same(token(actual), profile.at("effect_primary_token")) &&
-            GetCurrentProcessId() == profile.at("custody").at("peer_process_id").as_unsigned() &&
-            has_restricted_publisher_token_facts(actual, sid), "effect actual local primary-token context changed");
-        const PublisherWorkerTokenContext worker{GetCurrentProcessId(), sid, actual};
+        const auto worker = actual_worker_context(profile);
         return CurrentWorkerObservation{std::move(profile), worker};
     } catch (...) { state_->failed = true; throw; }
 }
@@ -1195,14 +1227,35 @@ Value PublisherEffectWorkerReadback::authenticated_object_access(HANDLE held, DW
         auto reply = state_->read("object_access", &before, timeout);
         require(same(object(held), before) && observe_publisher_noninheritable_handle_flags(held) == 0,
             "effect original held object changed across broker readback");
-        auto access = reply.at("result");
-        // Run the unchanged closed raw-descriptor/native-object/client checks;
-        // this validates the fresh broker result, never supplied ACE authority.
-        access.as_object().erase("client"); access.as_object().erase("native_object");
-        access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(reply.at("result").at("client"))));
-        access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(before)));
-        require_publisher_authenticated_object_access(access, reply.at("result").at("client"), before);
+        require_raw_object_access(reply.at("result"), before);
         return std::move(reply.as_object().at("result"));
+    } catch (...) { state_->failed = true; throw; }
+}
+PublisherEffectWorkerReadback::ObjectAccessObservation
+PublisherEffectWorkerReadback::authenticated_object_access_bracket(HANDLE held, DWORD timeout) {
+    try {
+        require(observe_publisher_noninheritable_handle_flags(held) == 0, "effect access object is inheritable");
+        const auto before = object(held);
+        auto reply = state_->read("object_access_bracket", &before, timeout);
+        require(same(object(held), before) && observe_publisher_noninheritable_handle_flags(held) == 0,
+            "effect original held object changed across broker readback");
+        // Retain the actual post-wire token/restricted-SID/PID joins for BOTH
+        // fresh parent profiles, beyond the transport token/custody checks.
+        (void)actual_worker_context(reply.at("profile_before"));
+        (void)actual_worker_context(reply.at("profile"));
+        require_raw_object_access(reply.at("result"), before);
+        return ObjectAccessObservation{std::move(reply.as_object().at("profile_before")),
+            std::move(reply.as_object().at("profile")), std::move(reply.as_object().at("result"))};
+    } catch (...) { state_->failed = true; throw; }
+}
+void PublisherEffectWorkerReadback::retain_object_access_bracket(const ObjectAccessObservation& observed) {
+    try {
+        require(!state_->failed && state_->initialized && state_->process_id == GetCurrentProcessId() &&
+            state_->thread_id == GetCurrentThreadId() && state_->peer.canonical_request() == state_->request,
+            "effect paired access original retention owner/thread/request changed");
+        require_publisher_effect_broker_readback_continuity(state_->previous, observed.before);
+        require_publisher_effect_broker_readback_continuity(observed.before, observed.after);
+        state_->previous = observed.after;
     } catch (...) { state_->failed = true; throw; }
 }
 namespace {
@@ -1235,30 +1288,47 @@ struct PublisherEffectWorkerNativeSecurity::State {
                 "effect security original execution process/thread changed");
             auto before = readback.observe_current_worker();
             const auto& current = before.worker;
-            require(same(worker_context(current), worker_context(original)), "effect security original primary-token binding changed");
-            auto current_process = observe_current_publisher_process_boundary();
-            require_publisher_process_boundary(current_process, current.process_id, current.service_sid, current.token.process_groups);
-            require(same(current_process, process), "effect security original process owner/DACL changed");
-            auto security = continuity->observe_current_with_retirement(failure_context);
-            require_publisher_worker_security(security, current);
-            require(same(token(observe_current_publisher_token()), token(original.token)) &&
-                same(observe_current_publisher_process_boundary(), process),
-                "effect security native token/process/broker changed across original-thread readback");
+            auto native = observe_local(current, failure_context);
             // Preserve the post-token/process native read before the final wire
             // observation, including its independent actual local token join.
             auto after = readback.observe_current_worker();
             require(same(worker_context(after.worker), worker_context(original)),
                 "effect security native token/process/broker changed across original-thread readback");
-            Value::Object native_fields;
-            native_fields.emplace("schema", Value("usk.publisher_effect_worker_native_security.v2"));
-            native_fields.emplace("authority", Value("read_only_observation"));
-            native_fields.emplace("scope", Value("actual_current_child_with_original_native_retirement_partition"));
-            native_fields.emplace("worker", worker_context(current));
-            native_fields.emplace("process_boundary", std::move(current_process));
-            native_fields.emplace("worker_security", std::move(security));
-            Value native(std::move(native_fields));
             return PublisherEffectWorkerNativeSecurity::BrokeredObservation{
                 std::move(before.broker), std::move(after.broker), std::move(native)};
+        } catch (...) { failed = true; throw; }
+    }
+    Value observe_local(const PublisherWorkerTokenContext& current, const std::string& failure_context) {
+        require(!failed && thread_id == GetCurrentThreadId() && GetCurrentProcessId() == original.process_id,
+            "effect security original execution process/thread changed");
+        require(same(worker_context(current), worker_context(original)), "effect security original primary-token binding changed");
+        auto current_process = observe_current_publisher_process_boundary();
+        require_publisher_process_boundary(current_process, current.process_id, current.service_sid, current.token.process_groups);
+        require(same(current_process, process), "effect security original process owner/DACL changed");
+        auto security = continuity->observe_current_with_retirement(failure_context);
+        require_publisher_worker_security(security, current);
+        require(same(token(observe_current_publisher_token()), token(original.token)) &&
+            same(observe_current_publisher_process_boundary(), process),
+            "effect security native token/process/broker changed across original-thread readback");
+        Value::Object native_fields;
+        native_fields.emplace("schema", Value("usk.publisher_effect_worker_native_security.v2"));
+        native_fields.emplace("authority", Value("read_only_observation"));
+        native_fields.emplace("scope", Value("actual_current_child_with_original_native_retirement_partition"));
+        native_fields.emplace("worker", worker_context(current));
+        native_fields.emplace("process_boundary", std::move(current_process));
+        native_fields.emplace("worker_security", std::move(security));
+        return Value(std::move(native_fields));
+    }
+    Value observe_local_current(const std::string& failure_context) {
+        try {
+            require(!failed && thread_id == GetCurrentThreadId() && GetCurrentProcessId() == original.process_id,
+                "effect security original execution process/thread changed");
+            const auto actual = observe_current_publisher_token();
+            require(has_restricted_publisher_token_facts(actual, original.service_sid),
+                "effect security actual local restricted primary token changed");
+            // The SID is held by the original native owner; no response JSON
+            // supplies this context or replaces the pinned continuity baseline.
+            return observe_local(PublisherWorkerTokenContext{GetCurrentProcessId(), original.service_sid, actual}, failure_context);
         } catch (...) { failed = true; throw; }
     }
 };
@@ -1271,6 +1341,9 @@ Value PublisherEffectWorkerNativeSecurity::observe_current(const std::string& co
 PublisherEffectWorkerNativeSecurity::BrokeredObservation
 PublisherEffectWorkerNativeSecurity::observe_brokered(const std::string& context) {
     return state_->observe_brokered(context);
+}
+Value PublisherEffectWorkerNativeSecurity::observe_local_current(const std::string& context) {
+    return state_->observe_local_current(context);
 }
 }
 #endif
