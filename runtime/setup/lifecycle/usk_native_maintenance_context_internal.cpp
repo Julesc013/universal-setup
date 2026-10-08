@@ -1112,13 +1112,16 @@ struct NativeMaintenanceContext::Impl {
         require_client_read_only(handle, observed);
         return observed;
     }
-    void require_entry_batch(const std::vector<const Entry*>& entries, Entry* creation = nullptr) const {
+    void require_entry_batch(const std::vector<const Entry*>& entries, Entry* creation = nullptr,
+        bool leading_volume_access = false) const {
+        if (leading_volume_access && (!original_child || creation))
+            throw std::runtime_error("native maintenance volume access composition lacks its original child role");
         if (creation && (entries.size() != 1u || entries.front() != creation || !creation->created ||
             creation->restored_creation || creation->reopened_observer || creation->complete ||
             !creation->facts.native_name.empty() || creation->handle.value == INVALID_HANDLE_VALUE))
             throw std::runtime_error("native maintenance creation facts are not a new original handle");
         struct PendingAccess {
-            const Entry* entry;
+            const Entry* entry; // Null only for the distinct original held-volume occurrence.
             HANDLE handle;
             PublisherHandleObservation observed;
             std::unique_ptr<Held> independent;
@@ -1136,7 +1139,9 @@ struct NativeMaintenanceContext::Impl {
             for (std::size_t index = 0; index < pending.size(); ++index) {
                 const auto& item = pending[index];
                 require_client_read_only_access(std::move(results.as_array()[index]), item.observed);
-                if (!same(native_facts(item.handle, item.entry->directory), item.observed))
+                const auto after = item.entry ? native_facts(item.handle, item.entry->directory) :
+                    observe_publisher_directory_handle(item.handle);
+                if (!same(after, item.observed))
                     throw std::runtime_error("native maintenance batch object changed after access observation");
             }
             // Finish every occurrence and its post-native join before closing
@@ -1167,6 +1172,15 @@ struct NativeMaintenanceContext::Impl {
             const HANDLE handle = independent->value;
             remember(current, handle, std::move(independent));
         };
+        if (leading_volume_access) {
+            // This is the original volume policy occurrence, not an Entry or a
+            // reopened ancestry observer. Its raw facts and all nine native
+            // access checks remain independent of every ordered entry below.
+            auto observed = observe_publisher_directory_handle(volume);
+            if (!same(observed, volume_facts))
+                throw std::runtime_error("native maintenance volume changed before composed access observation");
+            pending.push_back(PendingAccess{nullptr, volume, std::move(observed), nullptr});
+        }
         if (creation) {
             // Preserve the original standalone held occurrence before the full
             // entry ancestry. Its facts stay private and provisional until ALL
@@ -1197,6 +1211,8 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance retained parent link changed after batch");
             independent.close_observer_once();
         };
+        if (leading_volume_access && !same(observe_publisher_directory_handle(volume), volume_facts))
+            throw std::runtime_error("native maintenance held volume changed after composed access group");
         for (const auto* entry : entries) recheck(recheck, *entry);
     }
     void observe_created_entry(Entry& entry) const {
@@ -1213,10 +1229,12 @@ struct NativeMaintenanceContext::Impl {
         try { require_entry_batch({&entry}, &entry); }
         catch (...) { entry_readback_failed = true; throw; }
     }
-    void require_entries(const std::vector<const Entry*>& entries) const {
+    void require_entries(const std::vector<const Entry*>& entries, bool leading_volume_access = false) const {
         if (entry_readback_failed)
             throw std::runtime_error("native maintenance original entry readback already failed");
-        if (entries.empty()) return;
+        if (leading_volume_access && !original_child)
+            throw std::runtime_error("native maintenance volume access composition lacks its original child");
+        if (entries.empty() && !leading_volume_access) return;
         if (!original_child) {
             for (const auto* entry : entries) require_entry(*entry);
             return;
@@ -1225,7 +1243,7 @@ struct NativeMaintenanceContext::Impl {
         // leaf/root occurrence, all AccessChecks, final native ancestry joins
         // and checked observer closure. Only bounded query transport spans
         // several entries; former per-entry sampling instants are unclaimed.
-        try { require_entry_batch(entries); }
+        try { require_entry_batch(entries, nullptr, leading_volume_access); }
         catch (...) { entry_readback_failed = true; throw; }
     }
     void require_entry(const Entry& entry) const {
@@ -1375,7 +1393,11 @@ struct NativeMaintenanceContext::Impl {
             throw transaction::InstallStateRevisionStale();
         require_installed_custody();
         (void)relative_volume_path(spec.state_root); (void)relative_volume_path(spec.target_root);
-        require_client_read_only(volume, volume_facts);
+        if (!original_child) require_client_read_only(volume, volume_facts);
+        // For the original child, prepend the distinct volume access occurrence
+        // to these adjacent read-only checks. Full fresh broker/child native
+        // endpoints enclose each actual max-eight batch; former standalone
+        // volume sampling instants are unclaimed. No effect spans the group.
         // Adjacent read-only entry checks keep their complete occurrence before
         // or after the original parent occurrences. No result leaves this fence
         // until every native check and closure finishes; sampling instants from
@@ -1385,7 +1407,7 @@ struct NativeMaintenanceContext::Impl {
         if (staging_parent) parents.push_back(staging_parent);
         if (target_parent) parents.push_back(target_parent);
         if (trailing_entry) parents.push_back(trailing_entry);
-        require_entries(parents);
+        require_entries(parents, original_child != nullptr);
     }
     void require_installed_custody() const {
         if (!installed_postimage_file || installed_postimage_file->handle.value == INVALID_HANDLE_VALUE) return;
