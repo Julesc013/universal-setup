@@ -13,6 +13,8 @@
 #include "usk_publisher_security_descriptor.h"
 #include "usk_sha256.h"
 #include <sddl.h>
+#include <winternl.h>
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <exception>
@@ -37,6 +39,56 @@ constexpr std::uint32_t query_rights = SYNCHRONIZE | READ_CONTROL |
 
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+
+void system_thread_census_buffer_controls() {
+    // Supplied bytes exercise parsing only. Existing owned-thread lifetime,
+    // broker acquisition and retirement controls exercise the actual query.
+    constexpr DWORD pid = 500, tid = 600;
+    const auto first_size = sizeof(SYSTEM_PROCESS_INFORMATION) + 2u * sizeof(SYSTEM_THREAD_INFORMATION);
+    std::vector<std::uint8_t> good(first_size + sizeof(SYSTEM_PROCESS_INFORMATION));
+    SYSTEM_PROCESS_INFORMATION process{};
+    process.NextEntryOffset = static_cast<ULONG>(first_size); process.NumberOfThreads = 2;
+    process.UniqueProcessId = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(pid));
+    std::memcpy(good.data(), &process, sizeof(process));
+    SYSTEM_THREAD_INFORMATION thread{};
+    thread.ClientId.UniqueProcess = process.UniqueProcessId;
+    thread.ClientId.UniqueThread = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(tid + 1));
+    std::memcpy(good.data() + sizeof(process), &thread, sizeof(thread));
+    thread.ClientId.UniqueThread = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(tid));
+    std::memcpy(good.data() + sizeof(process) + sizeof(thread), &thread, sizeof(thread));
+    SYSTEM_PROCESS_INFORMATION other{};
+    other.UniqueProcessId = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(pid + 1));
+    std::memcpy(good.data() + first_size, &other, sizeof(other));
+    check(detail::parse_publisher_system_thread_census(good.data(), good.size(), pid, tid) ==
+        std::vector<DWORD>({tid, tid + 1}), "independent census parser lost complete sorted current population");
+    const auto refuses = [&](const std::vector<std::uint8_t>& bytes) {
+        bool rejected = false;
+        try { (void)detail::parse_publisher_system_thread_census(bytes.data(), bytes.size(), pid, tid); }
+        catch (const std::exception&) { rejected = true; }
+        check(rejected, "independent census parser accepted malformed or incomplete population");
+    };
+    auto bad = good; bad.resize(sizeof(process) - 1u); refuses(bad);
+    const auto change_process = [&](SYSTEM_PROCESS_INFORMATION value) {
+        auto bytes = good; std::memcpy(bytes.data(), &value, sizeof(value)); refuses(bytes);
+    };
+    auto changed = process; changed.NextEntryOffset = 1; change_process(changed);
+    changed = process; changed.NextEntryOffset = static_cast<ULONG>(good.size() + 8u); change_process(changed);
+    changed = process; changed.NextEntryOffset = static_cast<ULONG>(sizeof(process)); change_process(changed);
+    changed = process; changed.NumberOfThreads = MAXDWORD; change_process(changed);
+    changed = process; changed.UniqueProcessId = other.UniqueProcessId; change_process(changed);
+    bad.resize(2u * first_size);
+    std::memcpy(bad.data(), good.data(), first_size);
+    std::memcpy(bad.data() + first_size, good.data(), first_size);
+    changed = process; changed.NextEntryOffset = 0;
+    std::memcpy(bad.data() + first_size, &changed, sizeof(changed)); refuses(bad);
+    thread.ClientId.UniqueProcess = other.UniqueProcessId;
+    bad = good; std::memcpy(bad.data() + sizeof(process), &thread, sizeof(thread)); refuses(bad);
+    thread.ClientId.UniqueProcess = process.UniqueProcessId;
+    // Duplicate original and missing execution ID both refuse.
+    bad = good; std::memcpy(bad.data() + sizeof(process), &thread, sizeof(thread)); refuses(bad);
+    thread.ClientId.UniqueThread = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(tid + 2));
+    bad = good; std::memcpy(bad.data() + sizeof(process) + sizeof(thread), &thread, sizeof(thread)); refuses(bad);
 }
 
 Value ace(const std::string& sid, std::uint32_t mask) {
@@ -1479,6 +1531,9 @@ void broker_worker_native_acquisition_controls() {
                 std::cerr << "native broker query-denial setup: opened=" << (opened != nullptr) << " error=" << error
                     << " debug_privilege_disabled=" << query_context.changed() << '\n';
             check(!opened && error == ERROR_ACCESS_DENIED, "native broker incomplete-census control did not deny actual query access");
+            const auto census = detail::observe_publisher_system_thread_census_for_test();
+            check(std::binary_search(census.begin(), census.end(), inaccessible.id()),
+                "independent system census omitted actual query-denied owned thread");
             std::string diagnostic;
             try { (void)capture([](const char*) {}); }
             catch (const std::exception& failure) { diagnostic = failure.what(); }
@@ -1698,6 +1753,7 @@ int main() {
         check(actual.as_object().size() == 7 && actual.at("process_id").as_unsigned() == GetCurrentProcessId() &&
             actual.at("dacl_present").as_boolean() && !actual.at("owner_sid").as_string().empty(),
             "current process owner/DACL facts were not observed");
+        system_thread_census_buffer_controls();
         worker_security_controls();
         worker_retirement_data_controls();
         effect_execution_record_controls();

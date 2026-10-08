@@ -8,8 +8,10 @@
 #endif
 #include <windows.h>
 #include <functional>
+#include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 #include "usk_json.h"
 #include "usk_publisher_token_observation.h"
 
@@ -95,6 +97,11 @@ usk::json::Value observe_settled_publisher_worker_security(
 // bracketed observation, not an atomic population or continuous census.
 class PublisherWorkerSecurityContinuity;
 namespace detail {
+// Private bounded data parser shared with malformed-buffer controls. Only the
+// production native query can supply a census; supplied bytes grant no authority.
+std::vector<DWORD> parse_publisher_system_thread_census(const std::uint8_t*, std::size_t,
+    DWORD current_process, DWORD current_thread);
+std::vector<DWORD> observe_publisher_system_thread_census_for_test();
 // Actual ordinary owned-thread controls; no service/effect authorization.
 struct BrokerWorkerSecurityTestOwner;
 std::shared_ptr<BrokerWorkerSecurityTestOwner> pin_broker_worker_security_for_test();

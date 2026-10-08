@@ -3,7 +3,7 @@
 #include "usk_publisher_worker_security.h"
 #if defined(_WIN32)
 #include "usk_publisher_handle_observation.h"
-#include <tlhelp32.h>
+#include <winternl.h>
 #include <sddl.h>
 #include <algorithm>
 #include <cstddef>
@@ -142,25 +142,34 @@ Value::Object object_security(HANDLE handle) {
         {"dacl_aces", Value(acl_aces(dacl))}};
 }
 std::vector<DWORD> thread_ids() {
-    Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0));
-    THREADENTRY32 entry{}; entry.dwSize = sizeof(entry);
-    require(Thread32First(snapshot.get(), &entry), "publisher worker thread population unavailable");
-    std::vector<DWORD> result;
-    do {
-        require(entry.dwSize >= offsetof(THREADENTRY32, th32OwnerProcessID) + sizeof(DWORD),
-            "publisher worker thread entry truncated");
-        if (entry.th32OwnerProcessID == GetCurrentProcessId()) {
-            require(entry.th32ThreadID && result.size() < 4096, "publisher worker thread population exceeds bound");
-            result.push_back(entry.th32ThreadID);
+    // One fresh system-wide census at EVERY existing before/after boundary.
+    // Unlike NtGetNextThread, this snapshot does not open/filter thread objects
+    // by our query rights. Original handles and all admission gates are separate.
+    // Toolhelp's per-entry mapping walk was a substantial sampled cost; do not
+    // reuse a census or merge boundaries to avoid that cost.
+    using Query = LONG (NTAPI*)(ULONG, PVOID, ULONG, PULONG);
+    const auto query = reinterpret_cast<Query>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQuerySystemInformation"));
+    require(query != nullptr, "publisher worker independent system census export unavailable");
+    constexpr ULONG limit = 16u * 1024u * 1024u;
+    constexpr std::uint32_t length_mismatch = 0xc0000004u;
+    std::vector<std::uint8_t> bytes(1024u * 1024u);
+    for (unsigned attempt = 0; attempt != 4; ++attempt) {
+        ULONG returned = 0;
+        const auto status = static_cast<std::uint32_t>(query(static_cast<ULONG>(SystemProcessInformation),
+            bytes.data(), static_cast<ULONG>(bytes.size()), &returned));
+        if (status == 0) {
+            require(returned && returned <= bytes.size(), "publisher worker independent census length unavailable");
+            return detail::parse_publisher_system_thread_census(bytes.data(), returned, GetCurrentProcessId(), GetCurrentThreadId());
         }
-        entry.dwSize = sizeof(entry);
-    } while (Thread32Next(snapshot.get(), &entry));
-    require(GetLastError() == ERROR_NO_MORE_FILES, "publisher worker thread population incomplete");
-    std::sort(result.begin(), result.end());
-    require(!result.empty() && std::adjacent_find(result.begin(), result.end()) == result.end() &&
-        std::binary_search(result.begin(), result.end(), GetCurrentThreadId()),
-        "publisher worker current thread absent or population duplicated");
-    return result;
+        // Only incomplete buffer sizing can expand BEFORE any census is used.
+        // Every other status, exhausted bound or failed observation refuses.
+        require(status == length_mismatch && attempt != 3 && returned <= limit && bytes.size() < limit,
+            "publisher worker independent system census unavailable or exceeds bound");
+        const auto next = (std::max)(static_cast<std::size_t>(returned), bytes.size() * 2u);
+        require(next <= limit, "publisher worker independent system census exceeds byte bound");
+        bytes.resize(next);
+    }
+    throw std::runtime_error("publisher worker independent system census exhausted sizing bound");
 }
 using ThreadHandles = std::map<DWORD, std::unique_ptr<Handle>>;
 std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
@@ -847,7 +856,48 @@ Value sample_broker_originals(BrokerOriginalThreads& originals, const PublisherW
     } catch (...) { originals.failed = true; throw; }
 }
 } // namespace
+std::vector<DWORD> detail::parse_publisher_system_thread_census(const std::uint8_t* bytes,
+    std::size_t size, DWORD current_process, DWORD current_thread) {
+    require(bytes && size >= sizeof(SYSTEM_PROCESS_INFORMATION) && size <= 16u * 1024u * 1024u &&
+        current_process && current_thread, "publisher worker independent census buffer invalid");
+    std::vector<DWORD> result;
+    std::size_t offset = 0, processes = 0;
+    bool found = false;
+    for (;;) {
+        require(++processes <= 65536u && size - offset >= sizeof(SYSTEM_PROCESS_INFORMATION),
+            "publisher worker independent census process header truncated");
+        SYSTEM_PROCESS_INFORMATION process{};
+        std::memcpy(&process, bytes + offset, sizeof(process));
+        const auto extent = process.NextEntryOffset ? static_cast<std::size_t>(process.NextEntryOffset) : size - offset;
+        require(extent >= sizeof(process) && extent <= size - offset &&
+            (!process.NextEntryOffset || process.NextEntryOffset % alignof(SYSTEM_PROCESS_INFORMATION) == 0) &&
+            process.NumberOfThreads <= (extent - sizeof(process)) / sizeof(SYSTEM_THREAD_INFORMATION),
+            "publisher worker independent census process/thread extent invalid");
+        if (reinterpret_cast<std::uintptr_t>(process.UniqueProcessId) == current_process) {
+            require(!found && process.NumberOfThreads && process.NumberOfThreads <= 4096u,
+                "publisher worker independent census process repeated or thread bound invalid");
+            found = true;
+            for (ULONG index = 0; index != process.NumberOfThreads; ++index) {
+                SYSTEM_THREAD_INFORMATION thread{};
+                std::memcpy(&thread, bytes + offset + sizeof(process) +
+                    static_cast<std::size_t>(index) * sizeof(thread), sizeof(thread));
+                const auto id = reinterpret_cast<std::uintptr_t>(thread.ClientId.UniqueThread);
+                require(reinterpret_cast<std::uintptr_t>(thread.ClientId.UniqueProcess) == current_process &&
+                    id && id <= MAXDWORD, "publisher worker independent census thread identity invalid");
+                result.push_back(static_cast<DWORD>(id));
+            }
+        }
+        if (!process.NextEntryOffset) break;
+        offset += extent;
+    }
+    std::sort(result.begin(), result.end());
+    require(found && !result.empty() && std::adjacent_find(result.begin(), result.end()) == result.end() &&
+        std::binary_search(result.begin(), result.end(), current_thread),
+        "publisher worker current thread absent or population duplicated");
+    return result;
+}
 struct PublisherBrokerWorkerSecurity::Impl { BrokerOriginalThreads originals; };
+std::vector<DWORD> detail::observe_publisher_system_thread_census_for_test() { return thread_ids(); }
 PublisherBrokerWorkerSecurity::PublisherBrokerWorkerSecurity(const PublisherServiceObservation& service)
     : impl_(std::make_unique<Impl>()) {
     require(service.process_id == GetCurrentProcessId(), "SCM broker lifetime context is another process");
