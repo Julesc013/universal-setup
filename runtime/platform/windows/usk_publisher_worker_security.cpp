@@ -689,7 +689,7 @@ bool BrokerOriginalThreads::read(DWORD id, HANDLE another) {
     security.emplace("thread_id", original.at("thread_id"));
     security.emplace("creation_time", original.at("creation_time"));
     security.emplace("thread_impersonating", Value(false));
-    require(usk::json::canonical(Value(security)) == usk::json::canonical(original),
+    require(usk::json::canonical(Value(std::move(security))) == usk::json::canonical(original),
         "SCM broker original-held stored thread security changed");
     state = wait();
     if (state == WAIT_TIMEOUT) {
@@ -754,23 +754,38 @@ Value read_pending_broker_thread(HANDLE handle, DWORD id, const Value* original,
 }
 Value broker_partition(const BrokerOriginalThreads& originals, const std::map<DWORD, Value>& pending,
     const std::vector<DWORD>& live) {
-    auto admitted = originals.baseline;
     Value::Array all, observed, retired;
-    auto facts = originals.facts;
-    facts.insert(pending.begin(), pending.end());
-    for (const auto& item : facts) {
+    const auto append = [&](const auto& item) {
+        // Each output owns its evidence; original and pending proofs stay put.
         all.push_back(item.second);
         if (std::binary_search(live.begin(), live.end(), item.first)) observed.push_back(item.second);
+    };
+    auto original = originals.facts.begin();
+    auto addition = pending.begin();
+    while (original != originals.facts.end() || addition != pending.end()) {
+        if (addition == pending.end() ||
+            (original != originals.facts.end() && original->first <= addition->first)) {
+            append(*original);
+            // Match map::insert: an original wins any duplicate pending key.
+            if (addition != pending.end() && addition->first == original->first) ++addition;
+            ++original;
+        } else append(*addition++);
     }
     for (const auto& item : originals.retired) retired.push_back(item.second);
-    admitted.as_object().at("threads") = Value(std::move(all));
-    auto result = originals.baseline;
-    result.as_object().at("schema") = Value("usk.publisher_broker_worker_security.v1");
-    result.as_object().at("scope") = Value("completed_policy_original_native_custody_and_pending_additions");
-    result.as_object().at("threads") = Value(std::move(observed));
-    result.as_object().emplace("admitted_baseline", std::move(admitted));
-    result.as_object().emplace("retired_threads", Value(std::move(retired)));
-    return result;
+    Value::Object admitted_fields, result_fields;
+    for (const auto& field : originals.baseline.as_object()) {
+        // The thread arrays below replace this field; do not copy it first.
+        if (field.first == "threads") continue;
+        admitted_fields.emplace(field.first, field.second);
+        result_fields.emplace(field.first, field.second);
+    }
+    admitted_fields.emplace("threads", Value(std::move(all)));
+    result_fields.at("schema") = Value("usk.publisher_broker_worker_security.v1");
+    result_fields.at("scope") = Value("completed_policy_original_native_custody_and_pending_additions");
+    result_fields.emplace("threads", Value(std::move(observed)));
+    result_fields.emplace("admitted_baseline", Value(std::move(admitted_fields)));
+    result_fields.emplace("retired_threads", Value(std::move(retired)));
+    return Value(std::move(result_fields));
 }
 void pin_broker_originals(BrokerOriginalThreads& originals, const PublisherWorkerTokenContext& context) {
     // Move original handles out of the successful native sampler. They remain

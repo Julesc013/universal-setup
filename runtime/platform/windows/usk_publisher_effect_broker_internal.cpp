@@ -883,16 +883,16 @@ struct PublisherEffectBrokerReadback::State {
         require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
             request == channel.authenticated_canonical_request() && request == custody.canonical_request(),
             "broker original native owner/thread/authenticated request changed");
-        const auto admitted = admission.evidence();
+        auto admitted = admission.evidence();
         const auto name = std::filesystem::u8path(admitted.at("service_name").as_string()).wstring();
         const auto actual_service = observe_current_restricted_publisher_service(name);
-        const auto process = observe_current_publisher_process_boundary();
+        auto process = observe_current_publisher_process_boundary();
         require_publisher_process_boundary(process, actual_service.process_id, actual_service.service_sid,
             actual_service.token.process_groups);
         if (!worker_security) worker_security = std::make_unique<PublisherBrokerWorkerSecurity>(actual_service);
-        const auto security = worker_security->observe_current(actual_service);
-        const auto configuration = admission.execution_configuration_observation();
-        const auto actual_custody = custody.observation();
+        auto security = worker_security->observe_current(actual_service);
+        auto configuration = admission.execution_configuration_observation();
+        auto actual_custody = custody.observation();
         const auto child = custody.peer_primary_token();
         const auto volume_facts = observe_publisher_directory_handle(volume);
         require_ntfs_root(volume, publisher_handle_observation_json(volume_facts));
@@ -902,27 +902,43 @@ struct PublisherEffectBrokerReadback::State {
         const auto access = channel.observe_authenticated_object_access(volume);
         require(same(access.at("native_object"), publisher_handle_observation_json(volume_facts)),
             "broker authenticated original volume changed");
-        auto result = Value(Value::Object{{"schema", Value("usk.publisher_effect_broker_native_readback.v3")},
-            {"authority", Value("read_only_observation")}, {"request_sha256", actual_custody.at("request_sha256")},
-            {"service", service(actual_service)}, {"effect_primary_token", token(child)},
-            {"registered_admission", admitted}, {"custody", actual_custody},
-            {"volume_root", publisher_handle_observation_json(volume_facts)}, {"service_configuration", configuration},
-            {"broker_volume_granted_access", Value(static_cast<std::uint64_t>(observe_publisher_handle_granted_access(volume)))},
-            {"broker_security", Value(Value::Object{{"process_boundary", process}, {"worker_security", security}})}});
+        // Transfer owned subtrees once; retained proofs remain independent.
+        Value::Object fields;
+        fields.emplace("schema", Value("usk.publisher_effect_broker_native_readback.v3"));
+        fields.emplace("authority", Value("read_only_observation"));
+        fields.emplace("request_sha256", actual_custody.at("request_sha256"));
+        fields.emplace("service", service(actual_service));
+        fields.emplace("effect_primary_token", token(child));
+        fields.emplace("registered_admission", std::move(admitted));
+        fields.emplace("custody", std::move(actual_custody));
+        fields.emplace("volume_root", publisher_handle_observation_json(volume_facts));
+        fields.emplace("service_configuration", std::move(configuration));
+        fields.emplace("broker_volume_granted_access",
+            Value(static_cast<std::uint64_t>(observe_publisher_handle_granted_access(volume))));
+        Value::Object security_fields;
+        security_fields.emplace("process_boundary", std::move(process));
+        security_fields.emplace("worker_security", std::move(security));
+        fields.emplace("broker_security", Value(std::move(security_fields)));
+        Value result(std::move(fields));
+        const auto& collected_admitted = result.at("registered_admission");
+        const auto& collected_custody = result.at("custody");
+        const auto& collected_configuration = result.at("service_configuration");
+        const auto& collected_process = result.at("broker_security").at("process_boundary");
+        const auto& collected_security = result.at("broker_security").at("worker_security");
         // The original authenticated caller is an independently
         // observed native fact, never the child's supplied SID.
         result.as_object().emplace("authenticated_client", access.at("client"));
-        require_projection(result, actual_custody, actual_service.token, child, false);
-        const auto final_security = worker_security->observe_current(actual_service);
-        require_publisher_broker_worker_security_continuity(security, final_security);
-        require(same(observe_current_publisher_process_boundary(), process) &&
-            same(final_security.at("primary_token"), security.at("primary_token")) &&
-            same(admission.execution_configuration_observation(), configuration) && same(admission.evidence(), admitted) &&
+        require_projection(result, collected_custody, actual_service.token, child, false);
+        auto final_security = worker_security->observe_current(actual_service);
+        require_publisher_broker_worker_security_continuity(collected_security, final_security);
+        require(same(observe_current_publisher_process_boundary(), collected_process) &&
+            same(final_security.at("primary_token"), collected_security.at("primary_token")) &&
+            same(admission.execution_configuration_observation(), collected_configuration) && same(admission.evidence(), collected_admitted) &&
             same(service(observe_current_restricted_publisher_service(name)), service(actual_service)) &&
-            same(custody.observation(), actual_custody) && same(token(custody.peer_primary_token()), token(child)) &&
+            same(custody.observation(), collected_custody) && same(token(custody.peer_primary_token()), token(child)) &&
             same(object(volume), result.at("volume_root")) && observe_publisher_handle_granted_access(volume) == query_rights,
             "broker native facts changed during collection");
-        result.as_object().at("broker_security").as_object().at("worker_security") = final_security;
+        result.as_object().at("broker_security").as_object().at("worker_security") = std::move(final_security);
         return result;
     }
 };
@@ -1027,7 +1043,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             // child's subsequent root rename. Unknown close stops the route.
             require(query.close(), "broker original native query handle closure is unknown");
         }
-        const auto after = state.fresh();
+        auto after = state.fresh();
         require_publisher_effect_broker_readback_continuity(before, after);
         if (kind == "original_maintenance_recovery") require_publisher_effect_original_maintenance_selection(
             result, usk::json::parse(state.request), after);
@@ -1037,8 +1053,12 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             same(state.selected_current(), state.selected_baseline) &&
             (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
             "broker native scope or original selected operation changed across readback");
-        state.custody.send(Value(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_response.v1")},
-            {"kind", Value(kind)}, {"profile", after}, {"result", result}}), timeout);
+        Value::Object response;
+        response.emplace("schema", Value("usk.publisher_effect_broker_readback_response.v1"));
+        response.emplace("kind", Value(kind));
+        response.emplace("profile", std::move(after));
+        response.emplace("result", std::move(result));
+        state.custody.send(Value(std::move(response)), timeout);
         return std::nullopt;
     } catch (...) { state.failed = true; throw; }
 }
@@ -1080,7 +1100,11 @@ struct PublisherEffectWorkerReadback::State {
 PublisherEffectWorkerReadback::PublisherEffectWorkerReadback(PublisherEffectWorkerPeer& p) : state_(std::make_unique<State>(p)) {}
 PublisherEffectWorkerReadback::~PublisherEffectWorkerReadback() = default;
 Value PublisherEffectWorkerReadback::service_admission(DWORD timeout) {
-    try { return state_->read("service_admission", nullptr, timeout).at("profile"); }
+    try {
+        auto reply = state_->read("service_admission", nullptr, timeout);
+        // read() has already retained independent baseline/previous proofs.
+        return std::move(reply.as_object().at("profile"));
+    }
     catch (...) { state_->failed = true; throw; }
 }
 PublisherWorkerTokenContext PublisherEffectWorkerReadback::worker_token_context(DWORD timeout) {
@@ -1151,7 +1175,7 @@ Value PublisherEffectWorkerReadback::authenticated_object_access(HANDLE held, DW
     try {
         require(observe_publisher_noninheritable_handle_flags(held) == 0, "effect access object is inheritable");
         const auto before = object(held);
-        const auto reply = state_->read("object_access", &before, timeout);
+        auto reply = state_->read("object_access", &before, timeout);
         require(same(object(held), before) && observe_publisher_noninheritable_handle_flags(held) == 0,
             "effect original held object changed across broker readback");
         auto access = reply.at("result");
@@ -1161,7 +1185,7 @@ Value PublisherEffectWorkerReadback::authenticated_object_access(HANDLE held, DW
         access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(reply.at("result").at("client"))));
         access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(before)));
         require_publisher_authenticated_object_access(access, reply.at("result").at("client"), before);
-        return reply.at("result");
+        return std::move(reply.as_object().at("result"));
     } catch (...) { state_->failed = true; throw; }
 }
 namespace {
