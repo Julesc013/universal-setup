@@ -1112,7 +1112,7 @@ struct NativeMaintenanceContext::Impl {
         require_client_read_only(handle, observed);
         return observed;
     }
-    void require_entry_batch(const Entry& entry) const {
+    void require_entry_batch(const std::vector<const Entry*>& entries) const {
         struct PendingAccess {
             const Entry* entry;
             HANDLE handle;
@@ -1163,7 +1163,7 @@ struct NativeMaintenanceContext::Impl {
             const HANDLE handle = independent->value;
             remember(current, handle, std::move(independent));
         };
-        collect(collect, entry);
+        for (const auto* entry : entries) collect(collect, *entry);
         flush();
         // Re-read complete held facts and every actual parent link after ALL
         // chunks. A saved listing or serialized identity cannot replace this
@@ -1182,13 +1182,28 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance retained parent link changed after batch");
             independent.close_observer_once();
         };
-        recheck(recheck, entry);
+        for (const auto* entry : entries) recheck(recheck, *entry);
+    }
+    void require_entries(const std::vector<const Entry*>& entries) const {
+        if (entry_readback_failed)
+            throw std::runtime_error("native maintenance original entry readback already failed");
+        if (entries.empty()) return;
+        if (!original_child) {
+            for (const auto* entry : entries) require_entry(*entry);
+            return;
+        }
+        // All entries remain original owner-held objects. Keep every ordered
+        // leaf/root occurrence, all AccessChecks, final native ancestry joins
+        // and checked observer closure. Only bounded query transport spans
+        // several entries; former per-entry sampling instants are unclaimed.
+        try { require_entry_batch(entries); }
+        catch (...) { entry_readback_failed = true; throw; }
     }
     void require_entry(const Entry& entry) const {
         if (entry_readback_failed)
             throw std::runtime_error("native maintenance original entry readback already failed");
         if (original_child) {
-            try { require_entry_batch(entry); }
+            try { require_entry_batch({&entry}); }
             catch (...) { entry_readback_failed = true; throw; }
             return;
         }
@@ -1249,7 +1264,7 @@ struct NativeMaintenanceContext::Impl {
             !equal(ownership.at("state_root_identity"), snapshot.at("state_root_identity")))
             throw transaction::InstallLeaseStale();
         if (restored_owner) lease.require_recovery_lineage(original_lease_ownership);
-        for (const auto& observer : restoration_record_observers) require_bytes(*observer);
+        require_observer_bytes(restoration_record_observers);
         if (removed_original_root_parent) {
             require_entry(*removed_original_root_parent);
             if (child(removed_original_root_parent->handle.value, removed_original_root_name))
@@ -1321,8 +1336,10 @@ struct NativeMaintenanceContext::Impl {
         require_installed_custody();
         (void)relative_volume_path(spec.state_root); (void)relative_volume_path(spec.target_root);
         require_client_read_only(volume, volume_facts);
-        if (staging_parent) require_entry(*staging_parent);
-        if (target_parent) require_entry(*target_parent);
+        std::vector<const Entry*> parents;
+        if (staging_parent) parents.push_back(staging_parent);
+        if (target_parent) parents.push_back(target_parent);
+        require_entries(parents);
     }
     void require_installed_custody() const {
         if (!installed_postimage_file || installed_postimage_file->handle.value == INVALID_HANDLE_VALUE) return;
@@ -1673,6 +1690,25 @@ struct NativeMaintenanceContext::Impl {
     }
     void require_bytes(const Entry& entry) const {
         require_entry(entry);
+        require_byte_content(entry);
+        require_entry(entry);
+    }
+    void require_observer_bytes(const std::vector<std::unique_ptr<Entry>>& observers) const {
+        if (!original_child) {
+            for (const auto& observer : observers) require_bytes(*observer);
+            return;
+        }
+        std::vector<const Entry*> entries;
+        entries.reserve(observers.size());
+        for (const auto& observer : observers) entries.push_back(observer.get());
+        // Read-only content checks stay inside complete original native entry
+        // brackets. Each held read keeps its own exact size/hash/time checks;
+        // no saved access result authorizes another read or later effect.
+        require_entries(entries);
+        for (const auto& observer : observers) require_byte_content(*observer);
+        require_entries(entries);
+    }
+    void require_byte_content(const Entry& entry) const {
         FILE_STANDARD_INFO before{}, after{}; FILE_BASIC_INFO first{}, last{};
         LARGE_INTEGER zero{};
         if (!GetFileInformationByHandleEx(entry.handle.value, FileStandardInfo, &before, sizeof(before)) ||
@@ -1690,7 +1726,6 @@ struct NativeMaintenanceContext::Impl {
             !GetFileInformationByHandleEx(entry.handle.value, FileBasicInfo, &last, sizeof(last)) || after.DeletePending ||
             after.EndOfFile.QuadPart != before.EndOfFile.QuadPart || last.LastWriteTime.QuadPart != first.LastWriteTime.QuadPart ||
             last.ChangeTime.QuadPart != first.ChangeTime.QuadPart) throw std::runtime_error("native maintenance held stream bytes changed");
-        require_entry(entry);
     }
     void finish_stream(const transaction::TransactionSpec& s, std::intptr_t handle, const std::string& id, std::uint64_t size, const std::string& sha) {
         require_stream(s, handle); auto& entry = stream(handle);
