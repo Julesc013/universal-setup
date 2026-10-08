@@ -1112,7 +1112,11 @@ struct NativeMaintenanceContext::Impl {
         require_client_read_only(handle, observed);
         return observed;
     }
-    void require_entry_batch(const std::vector<const Entry*>& entries) const {
+    void require_entry_batch(const std::vector<const Entry*>& entries, Entry* creation = nullptr) const {
+        if (creation && (entries.size() != 1u || entries.front() != creation || !creation->created ||
+            creation->restored_creation || creation->reopened_observer || creation->complete ||
+            !creation->facts.native_name.empty() || creation->handle.value == INVALID_HANDLE_VALUE))
+            throw std::runtime_error("native maintenance creation facts are not a new original handle");
         struct PendingAccess {
             const Entry* entry;
             HANDLE handle;
@@ -1163,6 +1167,17 @@ struct NativeMaintenanceContext::Impl {
             const HANDLE handle = independent->value;
             remember(current, handle, std::move(independent));
         };
+        if (creation) {
+            // Preserve the original standalone held occurrence before the full
+            // entry ancestry. Its facts stay private and provisional until ALL
+            // ordered access checks, native joins and checked closures finish.
+            auto observed = native_facts(creation->handle.value, creation->directory);
+            creation->facts = observed;
+            pending.push_back(PendingAccess{creation, creation->handle.value, std::move(observed), nullptr});
+            if (!creation->directory)
+                creation->stream_identity = transaction::stream_output_identity(
+                    reinterpret_cast<std::intptr_t>(creation->handle.value));
+        }
         for (const auto* entry : entries) collect(collect, *entry);
         flush();
         // Re-read complete held facts and every actual parent link after ALL
@@ -1183,6 +1198,20 @@ struct NativeMaintenanceContext::Impl {
             independent.close_observer_once();
         };
         for (const auto* entry : entries) recheck(recheck, *entry);
+    }
+    void observe_created_entry(Entry& entry) const {
+        if (!original_child) {
+            entry.facts = facts(entry.handle.value, entry.directory);
+            if (!entry.directory)
+                entry.stream_identity = transaction::stream_output_identity(
+                    reinterpret_cast<std::intptr_t>(entry.handle.value));
+            require_entry(entry);
+            return;
+        }
+        if (entry_readback_failed)
+            throw std::runtime_error("native maintenance original entry readback already failed");
+        try { require_entry_batch({&entry}, &entry); }
+        catch (...) { entry_readback_failed = true; throw; }
     }
     void require_entries(const std::vector<const Entry*>& entries) const {
         if (entry_readback_failed)
@@ -1243,7 +1272,18 @@ struct NativeMaintenanceContext::Impl {
         if (!parent) throw std::runtime_error("native maintenance refuses using the volume as an operation parent");
         return *parent;
     }
-    void require_authority(const transaction::TransactionSpec& supplied) const {
+    void require_entry_then_authority(const transaction::TransactionSpec& supplied, const Entry& entry) const {
+        if (!original_child) { require_entry(entry); require_authority(supplied); return; }
+        require_authority(supplied, &entry, nullptr);
+    }
+    void require_authority_then_entry(const transaction::TransactionSpec& supplied, const Entry& entry) const {
+        if (!original_child) { require_authority(supplied); require_entry(entry); return; }
+        require_authority(supplied, nullptr, &entry);
+    }
+    void require_authority(const transaction::TransactionSpec& supplied,
+        const Entry* leading_entry = nullptr, const Entry* trailing_entry = nullptr) const {
+        if ((leading_entry || trailing_entry) && !original_child)
+            throw std::runtime_error("native maintenance entry composition lacks its original child");
         if (supplied.transaction_id != spec.transaction_id || supplied.plan_id != spec.plan_id || supplied.plan_digest != spec.plan_digest ||
             supplied.operation != spec.operation || normalized(supplied.staging_parent) != normalized(spec.staging_parent) ||
             normalized(supplied.target_root) != normalized(spec.target_root) || normalized(supplied.state_root) != normalized(spec.state_root) ||
@@ -1336,9 +1376,15 @@ struct NativeMaintenanceContext::Impl {
         require_installed_custody();
         (void)relative_volume_path(spec.state_root); (void)relative_volume_path(spec.target_root);
         require_client_read_only(volume, volume_facts);
+        // Adjacent read-only entry checks keep their complete occurrence before
+        // or after the original parent occurrences. No result leaves this fence
+        // until every native check and closure finishes; sampling instants from
+        // the separate former calls are unclaimed. Never span an effect here.
         std::vector<const Entry*> parents;
+        if (leading_entry) parents.push_back(leading_entry);
         if (staging_parent) parents.push_back(staging_parent);
         if (target_parent) parents.push_back(target_parent);
+        if (trailing_entry) parents.push_back(trailing_entry);
         require_entries(parents);
     }
     void require_installed_custody() const {
@@ -1549,12 +1595,12 @@ struct NativeMaintenanceContext::Impl {
             first.LastWriteTime.QuadPart != last.LastWriteTime.QuadPart ||
             first.ChangeTime.QuadPart != last.ChangeTime.QuadPart || !same(facts(file, false), object))
             throw std::runtime_error("native maintenance metadata creation postimage changed");
-        require_entry(parent); require_authority(spec);
+        require_entry_then_authority(spec, parent);
         persist_native_custody("created_metadata", Value(Value::Object{
             {"setup_relative_path", Value(normalized(path).lexically_relative(normalized(spec.state_root.parent_path())).generic_u8string())},
             {"object", publisher_handle_observation_json(object)}, {"parent", publisher_handle_observation_json(parent.facts)},
             {"size_bytes", Value(static_cast<std::uint64_t>(text.size()))}, {"sha256", Value(expected_sha256)}}));
-        require_entry(parent); require_authority(spec);
+        require_entry_then_authority(spec, parent);
     }
     void metadata_failed(const fs::path& path) noexcept {
         if (installed_prepared && path == prepared_record_path && installed_issue_active) {
@@ -1573,7 +1619,7 @@ struct NativeMaintenanceContext::Impl {
         if (!entry.directory || !entry.parent || (!entry.created && !entry.restored_creation))
             throw std::runtime_error("native maintenance parent observer lacks original directory custody");
         try {
-            require_authority(spec); require_entry(entry);
+            require_authority_then_entry(spec, entry);
             const auto listed = child(entry.parent->handle.value, entry.name);
             if (!listed) throw std::runtime_error("native maintenance directory observer child is absent");
             Held replacement;
@@ -1586,11 +1632,11 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance directory parent observer changed identity/access");
             // Open before closing: the exact root/object remains held across
             // this transition, while its later destination role has no DELETE.
-            require_entry(entry); require_authority(spec);
+            require_entry_then_authority(spec, entry);
             entry.handle.close_observer_once();
             entry.handle.adopt_after_confirmed_close(replacement);
             entry.reopened_observer = true;
-            require_entry(entry); require_authority(spec);
+            require_entry_then_authority(spec, entry);
         } catch (...) { custody_failed = true; throw; }
     }
     void reopen_created_descendant(Entry& entry, const std::string& native_identity) {
@@ -1621,7 +1667,7 @@ struct NativeMaintenanceContext::Impl {
         auto& held = *inserted.first->second;
         held.handle.value = create_staged_directory_relative_with_descriptor(parent.handle.value, name, descriptor,
             maintenance_names.get());
-        held.facts = facts(held.handle.value, true); require_entry(held);
+        observe_created_entry(held);
         if (publication_confirmed) {
             try {
                 persist_native_custody("later_created_directory", Value(Value::Object{
@@ -1671,9 +1717,8 @@ struct NativeMaintenanceContext::Impl {
         auto inserted = files.emplace(relative, std::move(entry)); auto& held = *inserted.first->second;
         require_entry(*held.parent);
         held.handle.value = create_file_relative_with_descriptor(held.parent->handle.value, held.name, descriptor);
-        held.facts = facts(held.handle.value, false);
-        held.stream_identity = transaction::stream_output_identity(reinterpret_cast<std::intptr_t>(held.handle.value));
-        require_entry(held); require_authority(s);
+        observe_created_entry(held);
+        require_authority(s);
         return reinterpret_cast<std::intptr_t>(held.handle.value);
     }
     Entry& stream(std::intptr_t handle) const {
@@ -1681,10 +1726,20 @@ struct NativeMaintenanceContext::Impl {
         throw std::runtime_error("native maintenance stream handle is outside engine custody");
     }
     void require_stream(const transaction::TransactionSpec& s, std::intptr_t handle) const {
-        require_authority(s); const auto& entry = stream(handle);
+        // Original lookup is read-only; the native tail completes the original
+        // authority parents and this separate stream occurrence together.
+        const Entry* selected = nullptr;
+        if (original_child) {
+            selected = &stream(handle);
+            require_authority(s, nullptr, selected);
+        } else {
+            require_authority(s);
+            selected = &stream(handle);
+        }
+        const auto& entry = *selected;
         if (publication_attempted || !entry.created || entry.directory || entry.reopened_observer)
             throw std::runtime_error("native maintenance stream is unavailable for staging");
-        require_entry(entry);
+        if (!original_child) require_entry(entry);
         if (transaction::stream_output_identity(handle) != entry.stream_identity)
             throw std::runtime_error("native maintenance stream creation identity changed");
     }
