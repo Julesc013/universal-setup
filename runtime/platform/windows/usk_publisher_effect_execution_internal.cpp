@@ -57,19 +57,25 @@ struct PublisherEffectExecutionOwner::State {
         require_publisher_process_boundary(native.at("process_boundary"), worker.process_id,
             worker.service_sid, worker.token.process_groups);
     }
-    Value observe() {
+    PublisherEffectSecurityObservation observe(const std::string& failure_context = {}) {
         try {
             require_owner();
-            // The original native security owner performs this whole bracket.
-            // Its two profiles are actual validated replies around unchanged
-            // local child checks, not supplied or previously cached records.
-            auto observed = security.observe_brokered();
-            const auto& before = observed.before;
-            require_native_binding(before, observed.native);
-            const auto& after = observed.after;
-            require(same(publisher_effect_broker_immutable_record(after),
-                publisher_effect_broker_immutable_record(before)), "publisher child native owner changed across readback");
-            return std::move(observed.after);
+            // This private path also runs during original construction, after
+            // security initialization and before TLS route installation. It
+            // never constructs a second security owner or bypasses a public
+            // route check. Full actual child proofs surround this one reply;
+            // the parent independently brackets it with full native fresh reads.
+            const auto native_before = security.observe_local_current(failure_context);
+            auto observed = readback.service_admission_bracket();
+            auto native_after = security.observe_local_current(failure_context);
+            require_native_binding(observed.before, native_before);
+            require_native_binding(observed.after, native_after);
+            require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
+            require(same(publisher_effect_broker_immutable_record(observed.after),
+                publisher_effect_broker_immutable_record(observed.before)), "publisher child native owner changed across readback");
+            require_owner();
+            readback.retain_readback_bracket(observed.before, observed.after);
+            return PublisherEffectSecurityObservation(std::move(observed.after), std::move(native_after));
         } catch (...) { failed = true; throw; }
     }
 };
@@ -138,7 +144,15 @@ PublisherNativeExecutionObservation PublisherEffectExecutionOwner::observe_curre
     const auto profile = service_admission();
     return {publisher_effect_broker_service_record(profile), publisher_effect_worker_record_context(profile)};
 }
-Value PublisherEffectExecutionOwner::service_admission() { require_current(); return state_->observe(); }
+Value PublisherEffectExecutionOwner::service_admission() {
+    require_current();
+    auto observed = state_->observe();
+    return std::move(observed.broker_);
+}
+PublisherEffectSecurityObservation PublisherEffectExecutionOwner::observe_security(const std::string& failure_context) {
+    require_current();
+    return state_->observe(failure_context);
+}
 Value PublisherEffectExecutionOwner::selected_reviewed_operation() {
     require_current();
     try {
@@ -165,7 +179,7 @@ Value PublisherEffectExecutionOwner::authenticated_object_access(HANDLE handle) 
         require(same(publisher_effect_broker_immutable_record(observed.before),
             publisher_effect_broker_immutable_record(observed.after)), "publisher child native owner changed across object access");
         state_->require_owner();
-        state_->readback.retain_object_access_bracket(observed);
+        state_->readback.retain_readback_bracket(observed.before, observed.after);
         return std::move(observed.access);
     } catch (...) { state_->failed = true; throw; }
 }
@@ -182,7 +196,7 @@ Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std
         require(same(publisher_effect_broker_immutable_record(observed.before),
             publisher_effect_broker_immutable_record(observed.after)), "publisher child native owner changed across object access batch");
         state_->require_owner();
-        state_->readback.retain_object_access_bracket(observed);
+        state_->readback.retain_readback_bracket(observed.before, observed.after);
         return std::move(observed.access);
     } catch (...) { state_->failed = true; throw; }
 }
@@ -219,7 +233,8 @@ PublisherNativeExecutionObservation observe_current_publisher_native_execution_o
         require(original && original->routing_id == routing.active_id && original->process_id == GetCurrentProcessId() &&
             original->thread_id == GetCurrentThreadId() && original->name == name,
             "publisher original child observation route is expired or mismatched");
-        const auto profile = original->observe();
+        const auto observed = original->observe();
+        const auto& profile = observed.broker();
         return {publisher_effect_broker_service_record(profile), publisher_effect_worker_record_context(profile)};
     }
     require(!child_route_used.load(), "publisher child observation requires its original active execution owner");

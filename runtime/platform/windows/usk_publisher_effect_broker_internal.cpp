@@ -1052,7 +1052,9 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         }
         const auto kind = request.at("kind").as_string();
         const bool batch_access = kind == "object_access_batch_bracket";
+        const bool paired_admission = kind == "service_admission_bracket";
         const bool paired_access = kind == "object_access_bracket" || batch_access;
+        const bool paired = paired_access || paired_admission;
         require((request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v1" &&
             (kind == "service_admission" || kind == "selected_operation" || kind == "object_access" ||
                 kind == "original_maintenance_recovery" || kind == "original_installation_recovery") &&
@@ -1060,7 +1062,10 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v2" &&
                 kind == "object_access_bracket" && request.as_object().size() == 3) ||
             (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v3" &&
-                batch_access && request.as_object().size() == 3), "broker readback request grammar differs");
+                batch_access && request.as_object().size() == 3) ||
+            (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v4" &&
+                paired_admission && request.as_object().size() == 2), "broker readback request grammar differs");
+        if (paired_admission) require_batch_packet_budget(request);
         if (batch_access) {
             const auto& objects = request.at("native_objects").as_array();
             require(!objects.empty() && objects.size() <= publisher_object_access_batch_limit,
@@ -1107,17 +1112,18 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
             "broker native scope or original selected operation changed across readback");
         Value::Object response;
-        response.emplace("schema", Value(batch_access ? "usk.publisher_effect_broker_readback_response.v3" :
+        response.emplace("schema", Value(paired_admission ? "usk.publisher_effect_broker_readback_response.v4" :
+            batch_access ? "usk.publisher_effect_broker_readback_response.v3" :
             paired_access ? "usk.publisher_effect_broker_readback_response.v2" :
             "usk.publisher_effect_broker_readback_response.v1"));
         response.emplace("kind", Value(kind));
         // These are this packet's actual fresh native reads, not cached profiles.
         // Full native checks and checked query closure precede either reply.
-        if (paired_access) response.emplace("profile_before", std::move(before));
+        if (paired) response.emplace("profile_before", std::move(before));
         response.emplace("profile", std::move(after));
         response.emplace("result", std::move(result));
         const Value reply(std::move(response));
-        if (batch_access) require_batch_packet_budget(reply);
+        if (batch_access || paired_admission) require_batch_packet_budget(reply);
         state.custody.send(reply, timeout);
         return std::nullopt;
     } catch (...) { state.failed = true; throw; }
@@ -1137,36 +1143,45 @@ struct PublisherEffectWorkerReadback::State {
         require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
             peer.canonical_request() == request, "effect readback original native owner/thread/request changed");
         const bool batch_access = kind == "object_access_batch_bracket";
+        const bool paired_admission = kind == "service_admission_bracket";
         const bool paired_access = kind == "object_access_bracket" || batch_access;
+        const bool paired = paired_access || paired_admission;
         require(!paired_access || (native_object && initialized), "effect paired access requires its original admitted readback");
+        require(!paired_admission || (!native_object && initialized),
+            "effect paired admission requires its original initialized readback");
         if (batch_access) require(!native_object->as_array().empty() &&
             native_object->as_array().size() <= publisher_object_access_batch_limit,
             "effect object access batch count exceeds its bound");
         const auto before = peer.observation();
         const auto parent = peer.peer_primary_token();
         const auto child = observe_current_publisher_token();
-        Value message(Value::Object{{"schema", Value(batch_access ? "usk.publisher_effect_broker_readback_request.v3" :
+        Value message(Value::Object{{"schema", Value(paired_admission ? "usk.publisher_effect_broker_readback_request.v4" :
+            batch_access ? "usk.publisher_effect_broker_readback_request.v3" :
             paired_access ? "usk.publisher_effect_broker_readback_request.v2" :
             "usk.publisher_effect_broker_readback_request.v1")}, {"kind", Value(kind)}});
         if (native_object) message.as_object().emplace(batch_access ? "native_objects" : "native_object", *native_object);
-        if (batch_access) require_batch_packet_budget(message);
+        if (batch_access || paired_admission) require_batch_packet_budget(message);
         peer.send(message, timeout);
         const auto reply = peer.receive(timeout);
-        require(reply.as_object().size() == (paired_access ? 5u : 4u) && reply.at("schema").as_string() ==
-            (batch_access ? "usk.publisher_effect_broker_readback_response.v3" :
+        require(reply.as_object().size() == (paired ? 5u : 4u) && reply.at("schema").as_string() ==
+            (paired_admission ? "usk.publisher_effect_broker_readback_response.v4" :
+                batch_access ? "usk.publisher_effect_broker_readback_response.v3" :
                 paired_access ? "usk.publisher_effect_broker_readback_response.v2" : "usk.publisher_effect_broker_readback_response.v1") &&
             reply.at("kind").as_string() == kind &&
             same(peer.observation(), before) && same(token(peer.peer_primary_token()), token(parent)) &&
             same(token(observe_current_publisher_token()), token(child)), "effect fresh readback reply or actual native token/custody changed");
         require_projection(reply.at("profile"), before, parent, child, true);
-        if (paired_access) {
+        if (paired) {
             require_projection(reply.at("profile_before"), before, parent, child, true);
             require_publisher_effect_broker_readback_continuity(previous, reply.at("profile_before"));
             require_publisher_effect_broker_readback_continuity(reply.at("profile_before"), reply.at("profile"));
         }
         else if (initialized) require_publisher_effect_broker_readback_continuity(previous, reply.at("profile"));
         else { baseline = reply.at("profile"); initialized = true; }
-        if (kind == "service_admission") require(reply.at("result").as_object().empty(), "effect service readback has an unexpected result");
+        if (kind == "service_admission" || paired_admission) {
+            require(reply.at("result").as_object().empty(), "effect service readback has an unexpected result");
+            if (paired_admission) require_batch_packet_budget(reply);
+        }
         else if (batch_access) {
             require_batch_packet_budget(reply);
             const auto& results = reply.at("result").as_array();
@@ -1181,7 +1196,7 @@ struct PublisherEffectWorkerReadback::State {
             same(reply.at("result").at("client"), baseline.at("authenticated_client")), "effect broker access belongs to another object/caller");
         // The paired route retains its independent proof only after the
         // execution owner completes both local native brackets and all joins.
-        if (!paired_access) previous = reply.at("profile");
+        if (!paired) previous = reply.at("profile");
         return reply;
     }
 };
@@ -1325,14 +1340,24 @@ PublisherEffectWorkerReadback::authenticated_object_access_batch_bracket(const s
             std::move(reply.as_object().at("profile")), std::move(reply.as_object().at("result"))};
     } catch (...) { state_->failed = true; throw; }
 }
-void PublisherEffectWorkerReadback::retain_object_access_bracket(const ObjectAccessObservation& observed) {
+PublisherEffectWorkerReadback::AdmissionObservation
+PublisherEffectWorkerReadback::service_admission_bracket(DWORD timeout) {
+    try {
+        auto reply = state_->read("service_admission_bracket", nullptr, timeout);
+        (void)actual_worker_context(reply.at("profile_before"));
+        (void)actual_worker_context(reply.at("profile"));
+        return AdmissionObservation{std::move(reply.as_object().at("profile_before")),
+            std::move(reply.as_object().at("profile"))};
+    } catch (...) { state_->failed = true; throw; }
+}
+void PublisherEffectWorkerReadback::retain_readback_bracket(const Value& before, const Value& after) {
     try {
         require(!state_->failed && state_->initialized && state_->process_id == GetCurrentProcessId() &&
             state_->thread_id == GetCurrentThreadId() && state_->peer.canonical_request() == state_->request,
             "effect paired access original retention owner/thread/request changed");
-        require_publisher_effect_broker_readback_continuity(state_->previous, observed.before);
-        require_publisher_effect_broker_readback_continuity(observed.before, observed.after);
-        state_->previous = observed.after;
+        require_publisher_effect_broker_readback_continuity(state_->previous, before);
+        require_publisher_effect_broker_readback_continuity(before, after);
+        state_->previous = after;
     } catch (...) { state_->failed = true; throw; }
 }
 namespace {

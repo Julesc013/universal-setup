@@ -150,7 +150,14 @@ private:
     ObjectAccessObservation authenticated_object_access_bracket(HANDLE, DWORD timeout = 120000);
     ObjectAccessObservation authenticated_object_access_batch_bracket(const std::vector<HANDLE>&,
         DWORD timeout = 120000);
-    void retain_object_access_bracket(const ObjectAccessObservation&);
+    struct AdmissionObservation {
+        usk::json::Value before;
+        usk::json::Value after;
+    };
+    AdmissionObservation service_admission_bracket(DWORD timeout = 120000);
+    // Only actual completed observations from the original execution owner
+    // reach this private retention step, after all of its native joins.
+    void retain_readback_bracket(const usk::json::Value& before, const usk::json::Value& after);
     // Both facts originate from the SAME actual validated wire read. This is
     // private to the original native security owner, never a JSON input API.
     struct CurrentWorkerObservation {

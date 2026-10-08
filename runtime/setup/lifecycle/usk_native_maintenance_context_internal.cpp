@@ -1273,11 +1273,15 @@ struct NativeMaintenanceContext::Impl {
             {"installed_confirmed", Value(installed_confirmed)}}));
         Value current_worker, current_process;
         if (original_child) {
-            const auto current_broker = original_child->service_admission();
+            // Consume this owner's completed actual admission and child proof
+            // only within this read-only fence. No result survives to another
+            // effect, and all context-specific native policy checks below remain.
+            const auto observed = original_child->observe_security(failure_context);
+            const auto& current_broker = observed.broker();
             if (!equal(publisher_effect_broker_immutable_record(current_broker),
                 publisher_effect_broker_immutable_record(original_broker)))
                 throw std::runtime_error("native maintenance original child broker changed");
-            const auto security = original_child->security().observe_current(failure_context);
+            const auto& security = observed.native();
             current_worker = security.at("worker_security");
             current_process = security.at("process_boundary");
         } else {

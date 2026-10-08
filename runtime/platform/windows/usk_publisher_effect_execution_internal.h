@@ -5,6 +5,7 @@
 #if defined(_WIN32)
 #include "usk_publisher_effect_broker_internal.h"
 #include <memory>
+#include <utility>
 
 namespace usk::platform::windows {
 struct CandidatePublisherConfiguration;
@@ -17,6 +18,19 @@ std::string execute_candidate_restricted_publisher(
 struct PublisherNativeExecutionObservation {
     PublisherServiceObservation service;
     PublisherWorkerTokenContext worker;
+};
+// Independently owned read-only results from one completed original-owner
+// bracket. Only that native owner can produce them. These values export no
+// handle, install no route and cannot authorize another fence or effect.
+class PublisherEffectSecurityObservation final {
+public:
+    const usk::json::Value& broker() const { return broker_; }
+    const usk::json::Value& native() const { return native_; }
+private:
+    friend class PublisherEffectExecutionOwner;
+    PublisherEffectSecurityObservation(usk::json::Value broker, usk::json::Value native) :
+        broker_(std::move(broker)), native_(std::move(native)) {}
+    usk::json::Value broker_, native_;
 };
 PublisherNativeExecutionObservation observe_current_publisher_native_execution_owner(
     const std::wstring& service_name);
@@ -45,6 +59,7 @@ public:
     PublisherEffectExecutionOwner& operator=(PublisherEffectExecutionOwner&&) = delete;
     PublisherNativeExecutionObservation observe_current();
     usk::json::Value service_admission();
+    PublisherEffectSecurityObservation observe_security(const std::string& failure_context = {});
     usk::json::Value selected_reviewed_operation();
     usk::json::Value selected_original_maintenance_recovery();
     usk::json::Value selected_original_installation_recovery();
