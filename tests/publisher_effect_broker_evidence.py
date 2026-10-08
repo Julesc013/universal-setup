@@ -12,7 +12,8 @@ import re
 
 from publisher_execution_evidence import canonical_sha, closed, integer, require, sid
 from publisher_process_boundary import validate_process_boundary
-from publisher_worker_security import validate_worker_security
+from publisher_worker_security import (validate_worker_security, validate_broker_worker_security,
+                                      validate_broker_worker_continuity)
 
 BROKER_KEYS = frozenset({'schema', 'authority', 'request_sha256', 'custody', 'service',
     'effect_primary_token', 'registered_admission', 'volume_root', 'broker_volume_granted_access',
@@ -136,7 +137,7 @@ def validate_broker_record(broker):
     closed(broker, BROKER_KEYS, 'broker readback keys differ')
     custody, service = broker['custody'], broker['service']
     closed(custody, CUSTODY_KEYS, 'broker original custody keys differ')
-    require(broker['schema'] == 'usk.publisher_effect_broker_native_readback.v2' and
+    require(broker['schema'] in ('usk.publisher_effect_broker_native_readback.v2', 'usk.publisher_effect_broker_native_readback.v3') and
         broker['authority'] == 'read_only_observation' and
         custody['schema'] == 'usk.publisher_effect_transport_custody.v1' and custody['authority'] == 'none' and
         hex_value(broker['request_sha256'], SHA256) and broker['request_sha256'] == custody['request_sha256'] and
@@ -216,8 +217,11 @@ def validate_broker_record(broker):
     closed(security, frozenset({'process_boundary', 'worker_security'}), 'broker native security keys differ')
     context = worker_security_context(service['process_id'], service_sid, parent_token)
     validate_process_boundary(security['process_boundary'], context['process_id'], service_sid, context['process_groups'])
-    require(security['worker_security']['schema'] == 'usk.publisher_worker_security.v1', 'SCM broker reinterpreted retirement provenance')
-    validate_worker_security(security['worker_security'], context)
+    if broker['schema'] == 'usk.publisher_effect_broker_native_readback.v3':
+        validate_broker_worker_security(security['worker_security'], context)
+    else:
+        require(security['worker_security']['schema'] == 'usk.publisher_worker_security.v1', 'SCM broker reinterpreted retirement provenance')
+        validate_worker_security(security['worker_security'], context)
     return worker_security_context(custody['peer_process_id'], service_sid, child_token)
 
 
@@ -226,7 +230,16 @@ def immutable_broker_record(broker):
     validate_broker_record(broker)
     retained = copy.deepcopy(broker)
     del retained['broker_security']['worker_security']['threads']
+    if broker['schema'] == 'usk.publisher_effect_broker_native_readback.v3':
+        del retained['broker_security']['worker_security']['admitted_baseline']
+        del retained['broker_security']['worker_security']['retired_threads']
     return retained
+
+
+def validate_broker_continuity(earlier, later):
+    require(immutable_broker_record(earlier) == immutable_broker_record(later), 'immutable broker changed')
+    if earlier['schema'] == 'usk.publisher_effect_broker_native_readback.v3':
+        validate_broker_worker_continuity(earlier['broker_security']['worker_security'], later['broker_security']['worker_security'])
 
 
 def validate_effect_execution_identity(execution, service_name, service_sid, volume_root):

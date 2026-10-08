@@ -17,6 +17,10 @@ class PublisherEffectBrokerReadback;
 // transport, corroborate live SCM, activate a scope or grant effect authority.
 void require_publisher_effect_broker_readback_record(const usk::json::Value&);
 usk::json::Value publisher_effect_broker_immutable_record(const usk::json::Value&);
+// Both closed records are validated first. Prospective broker originals and
+// retirement facts must accumulate without loss, revival or security changes.
+void require_publisher_effect_broker_readback_continuity(const usk::json::Value& earlier,
+    const usk::json::Value& later);
 PublisherWorkerTokenContext publisher_effect_worker_record_context(const usk::json::Value&);
 PublisherServiceObservation publisher_effect_broker_service_record(const usk::json::Value&);
 void require_publisher_effect_original_maintenance_selection(const usk::json::Value& selection,

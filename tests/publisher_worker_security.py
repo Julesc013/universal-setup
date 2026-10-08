@@ -149,3 +149,31 @@ def validate_worker_continuity(earlier, later):
     require(len(retired) == len(later["retired_threads"]) and
             all(retired.get(thread["thread_id"]) == thread for thread in earlier["retired_threads"]),
             "original retirement disappeared, revived or changed exit")
+
+
+def validate_broker_worker_security(value, service):
+    """Closed data checks; JSON does not establish native original custody."""
+    require(isinstance(value, dict) and set(value) == {"schema", "scope", "process_id", "current_thread_id",
+            "primary_token", "threads", "admitted_baseline", "retired_threads"} and
+            value["schema"] == "usk.publisher_broker_worker_security.v1" and
+            value["scope"] == "completed_policy_original_native_custody_and_pending_additions",
+            "broker lifetime closed schema differs")
+    partition = dict(value)
+    partition.update(schema="usk.publisher_worker_security.v2",
+                     scope="original_pinned_token_defaults_and_native_thread_retirement_partition",
+                     original_baseline=partition.pop("admitted_baseline"))
+    validate_retirement_security(partition, service)
+    return value
+
+
+def validate_broker_worker_continuity(earlier, later):
+    """Both records must already pass their independently bound policy."""
+    require(earlier["schema"] == later["schema"] == "usk.publisher_broker_worker_security.v1" and
+            all(earlier[key] == later[key] for key in ("scope", "process_id", "current_thread_id", "primary_token")),
+            "broker lifetime frozen context changed")
+    admitted = {row["thread_id"]: row for row in later["admitted_baseline"]["threads"]}
+    retired = {row["thread_id"]: row for row in later["retired_threads"]}
+    require(all(admitted.get(row["thread_id"]) == row for row in earlier["admitted_baseline"]["threads"]),
+            "broker admitted original disappeared or changed")
+    require(all(retired.get(row["thread_id"]) == row for row in earlier["retired_threads"]),
+            "broker retirement disappeared, revived or changed")

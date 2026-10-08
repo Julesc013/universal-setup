@@ -292,5 +292,77 @@ class NativeRetirementEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.check_records(prepared, visible)
 
+def broker_lifetime_security(baseline, retired_ids=()):
+    value = retirement_security(baseline, retired_ids)
+    for row in value["retired_threads"]:
+        row["exit_time"] = f'{int(row["creation_time"], 16) + 256:016x}'
+    value.update(schema="usk.publisher_broker_worker_security.v1",
+                 scope="completed_policy_original_native_custody_and_pending_additions",
+                 admitted_baseline=value.pop("original_baseline"))
+    return value
+
+
+class BrokerLifetimeSecurityTests(unittest.TestCase):
+    def context(self):
+        prepared, _ = process_creation_fixture()
+        return prepared["execution_phases"][0]["execution"]["service"]
+
+    def baseline(self):
+        value = worker_security(self.context())
+        helper = deepcopy(value["threads"][0])
+        helper.update(thread_id=701, creation_time="0000000000000701")
+        value["threads"].append(helper)
+        return value
+
+    def test_complete_admission_retirement_and_monotonic_additions(self):
+        from publisher_worker_security import validate_broker_worker_security, validate_broker_worker_continuity
+        baseline = self.baseline()
+        first = broker_lifetime_security(baseline)
+        later = broker_lifetime_security(baseline, (701,))
+        for value in (first, later):
+            self.assertEqual(validate_broker_worker_security(value, self.context()), value)
+        validate_broker_worker_continuity(first, later)
+        extra = deepcopy(baseline["threads"][-1])
+        extra.update(thread_id=702, creation_time="0000000000000702")
+        baseline["threads"].append(extra)
+        admitted = broker_lifetime_security(baseline, (701,))
+        validate_broker_worker_security(admitted, self.context())
+        validate_broker_worker_continuity(later, admitted)
+        retired = broker_lifetime_security(baseline, (701, 702))
+        validate_broker_worker_security(retired, self.context())
+        validate_broker_worker_continuity(admitted, retired)
+
+    def test_valid_records_cannot_drop_change_revive_or_rewrite_originals(self):
+        from publisher_worker_security import validate_broker_worker_security, validate_broker_worker_continuity
+        first = broker_lifetime_security(self.baseline(), (701,))
+        dropped = self.baseline()
+        dropped["threads"].pop()
+        changed = self.baseline()
+        changed["threads"][-1]["dacl_protected"] = True
+        changed_exit = deepcopy(first)
+        changed_exit["retired_threads"][0]["exit_time"] = "0000000000010000"
+        for later in (broker_lifetime_security(dropped), broker_lifetime_security(changed, (701,)),
+                      broker_lifetime_security(self.baseline()), changed_exit):
+            validate_broker_worker_security(later, self.context())
+            with self.assertRaises(ValueError):
+                validate_broker_worker_continuity(first, later)
+
+    def test_closed_policy_partition_context_and_legacy_floors(self):
+        from publisher_worker_security import validate_broker_worker_security
+        proof = broker_lifetime_security(self.baseline(), (701,))
+        changes = [lambda v: v.update(authority="granted"), lambda v: v.update(process_id=True),
+                   lambda v: v["admitted_baseline"]["threads"].pop(), lambda v: v.update(retired_threads=[]),
+                   lambda v: v["retired_threads"][0].update(exit_time="0000000000000001"),
+                   lambda v: v["admitted_baseline"]["primary_token"].update(default_owner_sid=CONSUMER),
+                   lambda v: v["threads"][0].update(thread_impersonating=True)]
+        for change in changes:
+            invalid = deepcopy(proof)
+            change(invalid)
+            with self.assertRaises((ValueError, KeyError, TypeError)):
+                validate_broker_worker_security(invalid, self.context())
+        with self.assertRaises(ValueError):
+            validate_worker_security(proof, self.context())
+
+
 if __name__ == "__main__":
     unittest.main()

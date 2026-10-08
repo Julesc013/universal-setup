@@ -257,7 +257,8 @@ def validate_phase(value: dict, phase: str, anchors: dict, tree: dict, service_n
 
 def worker_match(earlier: dict, later: dict) -> None:
     if earlier['schema'] in ('usk.publisher_execution_observation.v7', 'usk.publisher_execution_observation.v8'):
-        from publisher_effect_broker_evidence import immutable_broker_record
+        from publisher_effect_broker_evidence import immutable_broker_record, validate_broker_continuity
+        validate_broker_continuity(earlier['broker_readback'], later['broker_readback'])
         require(earlier['effect_worker'] == later.get('effect_worker') and
             immutable_broker_record(earlier['broker_readback']) == immutable_broker_record(later['broker_readback']),
             'original child or immutable native broker changed between phases')
@@ -364,6 +365,11 @@ def reconcile(prepared_json: str, visible_json: str | None, service_name: str, s
         try:
             creation = reconcile_creation(prepared["creation_evidence"], prepared["protected_anchors"],
                                           prepared["sealed_tree"], executions[0])
+            if effect_bound:
+                from publisher_effect_broker_evidence import validate_broker_continuity
+                certificate_broker = prepared["creation_evidence"]["broker_readback"]
+                validate_broker_continuity(executions[-2]["broker_readback"], certificate_broker)
+                validate_broker_continuity(certificate_broker, executions[-1]["broker_readback"])
             if retirement_bound:
                 from publisher_worker_security import validate_worker_continuity
                 validate_worker_continuity(prepared["creation_evidence"]["completed_worker_security"], executions[-1]["worker_security"])

@@ -316,8 +316,24 @@ struct NativeBrokerThreads {
     ThreadHandles handles;
     std::vector<DWORD> independent_after;
 };
+// Only this private owner contains completed-policy original native custody.
+// A pending object never enters this map, even if some of its facts were read.
+struct BrokerOriginalThreads {
+    ThreadHandles handles;
+    std::map<DWORD, Value> facts, retired;
+    Value baseline, previous;
+    bool failed = false;
+    bool read(DWORD id, HANDLE another = nullptr);
+};
+void require_broker_census_binding(BrokerOriginalThreads& originals, const std::vector<DWORD>& census,
+    const std::map<DWORD, HANDLE>& native) {
+    for (const auto id : census) if (originals.handles.count(id) && !originals.read(id)) {
+        require(native.count(id), "SCM broker census-present retired ID lacks same-object native coverage");
+        (void)originals.read(id, native.at(id));
+    }
+}
 NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, unsigned round, const char* phase,
-    const std::function<void(const char*)>* checkpoint) {
+    const std::function<void(const char*)>* checkpoint, BrokerOriginalThreads* originals = nullptr) {
     // Acquire current-process objects directly. A numeric snapshot followed by
     // OpenThread can lose an SDK helper before acquiring any original handle.
     // Independent Toolhelp coverage below also rejects native access filtering.
@@ -337,9 +353,18 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
         if (checkpoint) (*checkpoint)("broker_native_before_independent_before");
         before = thread_ids();
     } else if (checkpoint) (*checkpoint)("broker_native_before_initial_native_walk");
+    const auto surviving = [&](const std::vector<DWORD>& population) {
+        auto result = population;
+        if (originals) result.erase(std::remove_if(result.begin(), result.end(), [&](DWORD id) {
+            return originals->handles.count(id) && !originals->read(id);
+        }), result.end());
+        return result;
+    };
+    const auto required_live = surviving(mandatory);
+    const auto before_live = surviving(before);
     // Subsequent walks keep every prior census ID mandatory in BEFORE, native
     // and AFTER. Never restart a failed read or drop a prior observation.
-    if (!first && !std::includes(before.begin(), before.end(), mandatory.begin(), mandatory.end()))
+    if (!first && !std::includes(before_live.begin(), before_live.end(), required_live.begin(), required_live.end()))
         refuse_broker_census(mandatory, before, {}, {}, round, phase, checkpoint, false);
     if (!first && checkpoint) (*checkpoint)("broker_native_after_independent_before");
     ThreadHandles result;
@@ -365,6 +390,7 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
             "SCM broker native thread identity or query-only access differs");
         require(result.size() < 4096 && !result.count(id),
             "SCM broker native thread enumeration exceeds bound or repeats an identity");
+        if (originals && originals->handles.count(id)) (void)originals->read(id, held->get());
         if (checkpoint) {
             const auto point = "broker_native_before_original_first_probe." + std::to_string(id);
             (*checkpoint)(point.c_str());
@@ -382,16 +408,31 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
         cursor = held->get();
         result.emplace(id, std::move(held)); // Retain the cursor through the next call.
     }
-    const auto ids = handle_ids(result);
+    auto ids = handle_ids(result);
     if (checkpoint) (*checkpoint)("broker_native_after_native_walk");
     if (first && checkpoint) (*checkpoint)("broker_native_before_first_independent_census");
     const auto after = thread_ids();
+    // BOTH independent census entries need current same-object native evidence
+    // before a remembered retired ID can be removed. An original signal alone
+    // cannot identify a BEFORE-only or access-filtered numerical entry.
+    if (originals) {
+        std::map<DWORD, HANDLE> native;
+        for (const auto& item : result) native.emplace(item.first, item.second->get());
+        require_broker_census_binding(*originals, before, native);
+        require_broker_census_binding(*originals, after, native);
+    }
     if (first && checkpoint) (*checkpoint)("broker_native_after_first_independent_census");
+    const auto covered_before = surviving(before);
+    if (originals) ids = surviving(ids);
     if (ids.empty() || !std::binary_search(ids.begin(), ids.end(), GetCurrentThreadId()) ||
-            (!first && !std::includes(ids.begin(), ids.end(), before.begin(), before.end())) ||
+            (!first && !std::includes(ids.begin(), ids.end(), covered_before.begin(), covered_before.end())) ||
             !std::includes(after.begin(), after.end(), ids.begin(), ids.end()))
         refuse_broker_census(mandatory, before, ids, after, round, phase, checkpoint, true, !first,
             &result, first_probes.get(), result.size());
+    if (originals) for (auto item = result.begin(); item != result.end();) {
+        if (originals->handles.count(item->first) && !originals->read(item->first)) item = result.erase(item);
+        else ++item;
+    }
     return {std::move(result), after};
 }
 void require_no_thread_token(HANDLE thread) {
@@ -500,7 +541,8 @@ namespace {
     } catch (...) {} // Preserve the already captured refusal if formatting fails.
     std::rethrow_exception(reported);
 }
-Value observe_worker_security(bool native_broker, const std::function<void(const char*)>* checkpoint = nullptr) {
+Value observe_worker_security(bool native_broker, const std::function<void(const char*)>* checkpoint = nullptr,
+    ThreadHandles* retained = nullptr) {
     HANDLE raw = nullptr;
     require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL, &raw),
         "publisher worker primary token security unavailable");
@@ -602,13 +644,238 @@ Value observe_worker_security(bool native_broker, const std::function<void(const
     Value::Array threads;
     for (auto& item : recorded_threads) threads.push_back(std::move(item.second));
     require_primary_unchanged(token.get(), before, primary);
-    return Value(Value::Object{{"schema", Value("usk.publisher_worker_security.v1")},
+    Value result(Value::Object{{"schema", Value("usk.publisher_worker_security.v1")},
         {"scope", Value("stored_primary_token_defaults_and_process_thread_owner_dacls")},
         {"process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
         {"current_thread_id", Value(static_cast<std::uint64_t>(GetCurrentThreadId()))},
         {"primary_token", Value(std::move(primary))}, {"threads", Value(std::move(threads))}});
+    if (retained) *retained = std::move(held_threads);
+    return result;
+}
+bool BrokerOriginalThreads::read(DWORD id, HANDLE another) {
+    const auto handle = handles.at(id)->get();
+    const auto& original = facts.at(id);
+    if (another) {
+        using Compare = BOOL (WINAPI*)(HANDLE, HANDLE);
+        const auto compare = reinterpret_cast<Compare>(GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "CompareObjectHandles"));
+        require(compare && compare(handle, another), "SCM broker native walk returned another object for an admitted TID");
+    }
+    const auto identity = [&] {
+        FILETIME creation{}, exit{}, kernel{}, user{};
+        require(GetProcessIdOfThread(handle) == baseline.at("process_id").as_unsigned() && GetThreadId(handle) == id &&
+            GetThreadTimes(handle, &creation, &exit, &kernel, &user) &&
+            hex64(census_time_value(creation)) == original.at("creation_time").as_string(),
+            "SCM broker original-held thread identity unavailable or changed");
+        return census_time_value(exit); // Defined only when called AFTER a signal.
+    };
+    const auto wait = [&] {
+        const auto result = WaitForSingleObject(handle, 0);
+        require(result == WAIT_TIMEOUT || result == WAIT_OBJECT_0, "SCM broker original-held thread wait unavailable");
+        return result;
+    };
+    (void)identity();
+    auto state = wait();
+    if (state == WAIT_TIMEOUT) require_no_thread_token(handle);
+    auto security = object_security(handle);
+    security.emplace("thread_id", original.at("thread_id"));
+    security.emplace("creation_time", original.at("creation_time"));
+    security.emplace("thread_impersonating", Value(false));
+    require(usk::json::canonical(Value(security)) == usk::json::canonical(original),
+        "SCM broker original-held stored thread security changed");
+    state = wait();
+    if (state == WAIT_TIMEOUT) {
+        require(!retired.count(id), "SCM broker original-held thread revived");
+        require_no_thread_token(handle);
+        (void)identity();
+        return true;
+    }
+    require(id != baseline.at("current_thread_id").as_unsigned(), "SCM broker original execution thread retired");
+    // Separate native time query AFTER signal; never consume live ExitTime.
+    const auto exit = identity();
+    require(exit && hex64(exit) >= original.at("creation_time").as_string() && wait() == WAIT_OBJECT_0 &&
+        identity() == exit && wait() == WAIT_OBJECT_0, "SCM broker original-held native retirement changed or unavailable");
+    Value proof(Value::Object{{"thread_id", original.at("thread_id")}, {"creation_time", original.at("creation_time")},
+        {"exit_time", Value(hex64(exit))}});
+    if (retired.count(id)) require(usk::json::canonical(retired.at(id)) == usk::json::canonical(proof),
+        "SCM broker original-held exit evidence changed");
+    else retired.emplace(id, std::move(proof));
+    return false;
+}
+void require_same_thread_object(HANDLE original, HANDLE repeated) {
+    using Compare = BOOL (WINAPI*)(HANDLE, HANDLE);
+    const auto compare = reinterpret_cast<Compare>(GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "CompareObjectHandles"));
+    require(compare && compare(original, repeated), "SCM broker pending native thread object changed");
+}
+Value read_pending_broker_thread(HANDLE handle, DWORD id, const Value* original, unsigned round,
+    const std::function<void(const char*)>* checkpoint) {
+    require(GetProcessIdOfThread(handle) == GetCurrentProcessId() && GetThreadId(handle) == id,
+        "SCM broker pending thread identity differs");
+    require_no_thread_token(handle);
+    FILETIME creation{}, ignored_exit{}, kernel{}, user{};
+    const bool read = GetThreadTimes(handle, &creation, &ignored_exit, &kernel, &user) != FALSE;
+    const auto error = read ? ERROR_SUCCESS : GetLastError();
+    if (checkpoint && read) {
+        const auto point = "broker_native_initial_times_read." + std::to_string(id);
+        (*checkpoint)(point.c_str());
+    }
+    std::optional<DWORD> waited;
+    DWORD wait_error = ERROR_SUCCESS;
+    if (read && census_time_value(creation)) {
+        waited = WaitForSingleObject(handle, 0);
+        if (*waited == WAIT_FAILED) wait_error = GetLastError();
+    }
+    if (!read || !census_time_value(creation) || waited != static_cast<DWORD>(WAIT_TIMEOUT))
+        refuse_thread_observation("SCM broker pending thread is unavailable or exited", handle, id, round,
+            "pending_full_policy_read", read, error, creation, waited, wait_error, original, checkpoint);
+    auto facts = object_security(handle);
+    require(usk::json::canonical(Value(facts)) == usk::json::canonical(Value(object_security(handle))),
+        "SCM broker pending thread security changed during readback");
+    facts.emplace("thread_id", Value(static_cast<std::uint64_t>(id)));
+    facts.emplace("creation_time", Value(hex64(census_time_value(creation))));
+    facts.emplace("thread_impersonating", Value(false));
+    require_no_thread_token(handle);
+    FILETIME repeated{}, repeated_exit{};
+    require(GetProcessIdOfThread(handle) == GetCurrentProcessId() && GetThreadId(handle) == id &&
+        GetThreadTimes(handle, &repeated, &repeated_exit, &kernel, &user) && CompareFileTime(&creation, &repeated) == 0 &&
+        WaitForSingleObject(handle, 0) == WAIT_TIMEOUT, "SCM broker pending thread ended or changed before full admission");
+    Value result(std::move(facts));
+    if (original) require(usk::json::canonical(result) == usk::json::canonical(*original),
+        "SCM broker pending stored thread security changed across readback");
+    return result;
+}
+Value broker_partition(const BrokerOriginalThreads& originals, const std::map<DWORD, Value>& pending,
+    const std::vector<DWORD>& live) {
+    auto admitted = originals.baseline;
+    Value::Array all, observed, retired;
+    auto facts = originals.facts;
+    facts.insert(pending.begin(), pending.end());
+    for (const auto& item : facts) {
+        all.push_back(item.second);
+        if (std::binary_search(live.begin(), live.end(), item.first)) observed.push_back(item.second);
+    }
+    for (const auto& item : originals.retired) retired.push_back(item.second);
+    admitted.as_object().at("threads") = Value(std::move(all));
+    auto result = originals.baseline;
+    result.as_object().at("schema") = Value("usk.publisher_broker_worker_security.v1");
+    result.as_object().at("scope") = Value("completed_policy_original_native_custody_and_pending_additions");
+    result.as_object().at("threads") = Value(std::move(observed));
+    result.as_object().emplace("admitted_baseline", std::move(admitted));
+    result.as_object().emplace("retired_threads", Value(std::move(retired)));
+    return result;
+}
+void pin_broker_originals(BrokerOriginalThreads& originals, const PublisherWorkerTokenContext& context) {
+    // Move original handles out of the successful native sampler. They remain
+    // owned locally during full bound validation and allocation; no reopen.
+    ThreadHandles retained;
+    auto baseline = observe_worker_security(true, nullptr, &retained);
+    require_publisher_worker_security(baseline, context);
+    std::map<DWORD, Value> facts;
+    for (const auto& row : baseline.at("threads").as_array()) facts.emplace(static_cast<DWORD>(row.at("thread_id").as_unsigned()), row);
+    originals.baseline = std::move(baseline);
+    originals.facts = std::move(facts);
+    originals.handles = std::move(retained);
+    originals.previous = broker_partition(originals, {}, handle_ids(originals.handles));
+    require_publisher_broker_worker_security(originals.previous, context);
+}
+Value sample_broker_originals(BrokerOriginalThreads& originals, const PublisherWorkerTokenContext& context,
+    const std::function<void(const char*)>* checkpoint) {
+    require(!originals.failed && GetCurrentProcessId() == originals.baseline.at("process_id").as_unsigned() &&
+        GetCurrentThreadId() == originals.baseline.at("current_thread_id").as_unsigned(),
+        "SCM broker original lifetime owner failed or execution context changed");
+    try {
+        HANDLE raw = nullptr;
+        require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL, &raw), "SCM broker primary security unavailable");
+        Handle token(raw);
+        const auto before = statistics(token.get());
+        const auto primary = read_primary_security(token.get(), before);
+        require(usk::json::canonical(Value(primary)) == usk::json::canonical(originals.baseline.at("primary_token")),
+            "SCM broker frozen primary token or defaults changed");
+        ThreadHandles pending;
+        std::map<DWORD, Value> pending_facts;
+        auto acquisition = native_broker_threads({}, 0, "initial_acquisition", checkpoint, &originals);
+        for (unsigned round = 0; round != 4; ++round) {
+            for (auto& item : acquisition.handles) {
+                if (originals.handles.count(item.first)) { (void)originals.read(item.first, item.second->get()); continue; }
+                if (pending.count(item.first)) { require_same_thread_object(pending.at(item.first)->get(), item.second->get()); continue; }
+                require(originals.handles.size() + pending.size() < 4096, "SCM broker total original provenance exceeds bound");
+                auto facts = read_pending_broker_thread(item.second->get(), item.first, nullptr, round, checkpoint);
+                pending_facts.emplace(item.first, std::move(facts));
+                pending.emplace(item.first, std::move(item.second));
+            }
+            if (checkpoint) (*checkpoint)("broker_native_before_thread_readback");
+            std::vector<DWORD> live;
+            for (const auto& item : originals.handles) if (originals.read(item.first)) live.push_back(item.first);
+            for (const auto& item : pending) {
+                (void)read_pending_broker_thread(item.second->get(), item.first, &pending_facts.at(item.first), round, checkpoint);
+                live.push_back(item.first);
+            }
+            std::sort(live.begin(), live.end());
+            if (checkpoint) (*checkpoint)("broker_native_before_final_census");
+            auto final = native_broker_threads(acquisition.independent_after, round, "final_population_census", checkpoint, &originals);
+            const auto ids = handle_ids(final.handles);
+            // Pending handles/facts remain original throughout every walk.
+            // A per-thread partial read never grants a retirement exception.
+            for (const auto& item : pending) {
+                require(final.handles.count(item.first), "SCM broker lost a pending thread before completed policy admission");
+                require_same_thread_object(item.second->get(), final.handles.at(item.first)->get());
+                (void)read_pending_broker_thread(item.second->get(), item.first, &pending_facts.at(item.first), round, checkpoint);
+            }
+            std::vector<DWORD> repeated_live;
+            for (const auto& item : originals.handles) if (originals.read(item.first)) repeated_live.push_back(item.first);
+            for (const auto& item : pending) repeated_live.push_back(item.first);
+            std::sort(repeated_live.begin(), repeated_live.end());
+            require_primary_unchanged(token.get(), before, primary);
+            if (ids == repeated_live && final.independent_after == ids && live == repeated_live) {
+                auto result = broker_partition(originals, pending_facts, repeated_live);
+                require_publisher_broker_worker_security(result, context);
+                require_publisher_broker_worker_security_continuity(originals.previous, result);
+                auto previous = result;
+                // No fallible proof/allocation follows admission. Node transfer
+                // preserves each FIRST original native handle and full facts.
+                originals.handles.merge(pending);
+                originals.facts.merge(pending_facts);
+                originals.previous = std::move(previous);
+                return result;
+            }
+            // Only positive old-object retirement or still-pending additions
+            // can extend this successful read, within the same four rounds.
+            for (const auto id : repeated_live)
+                require(std::binary_search(ids.begin(), ids.end(), id), "SCM broker live original absent from native walk");
+            acquisition = std::move(final);
+        }
+        throw std::runtime_error("SCM broker lifetime population did not settle within its observation bound");
+    } catch (...) { originals.failed = true; throw; }
 }
 } // namespace
+struct PublisherBrokerWorkerSecurity::Impl { BrokerOriginalThreads originals; };
+PublisherBrokerWorkerSecurity::PublisherBrokerWorkerSecurity(const PublisherServiceObservation& service)
+    : impl_(std::make_unique<Impl>()) {
+    require(service.process_id == GetCurrentProcessId(), "SCM broker lifetime context is another process");
+    pin_broker_originals(impl_->originals, PublisherWorkerTokenContext{service.process_id, service.service_sid, service.token});
+}
+PublisherBrokerWorkerSecurity::~PublisherBrokerWorkerSecurity() = default;
+Value PublisherBrokerWorkerSecurity::observe_current(const PublisherServiceObservation& service) {
+    return sample_broker_originals(impl_->originals,
+        PublisherWorkerTokenContext{service.process_id, service.service_sid, service.token}, nullptr);
+}
+struct detail::BrokerWorkerSecurityTestOwner { BrokerOriginalThreads originals; PublisherWorkerTokenContext context; };
+std::shared_ptr<detail::BrokerWorkerSecurityTestOwner> detail::pin_broker_worker_security_for_test() {
+    auto result = std::make_shared<BrokerWorkerSecurityTestOwner>();
+    const auto actual = observe_current_publisher_token();
+    result->context = PublisherWorkerTokenContext{GetCurrentProcessId(), actual.process_user_sid, actual};
+    pin_broker_originals(result->originals, result->context);
+    return result;
+}
+Value detail::observe_broker_worker_security_for_test(BrokerWorkerSecurityTestOwner& owner,
+    const std::function<void(const char*)>& checkpoint) {
+    return sample_broker_originals(owner.originals, owner.context, &checkpoint);
+}
+void detail::require_broker_retired_census_binding_for_test(BrokerWorkerSecurityTestOwner& owner,
+    DWORD id, HANDLE object) {
+    std::map<DWORD, HANDLE> native;
+    if (object) native.emplace(id, object);
+    require_broker_census_binding(owner.originals, {id}, native);
+}
 Value observe_current_publisher_worker_security() {
     return observe_worker_security(false);
 }
@@ -1073,6 +1340,39 @@ void require_publisher_worker_security(const Value& value, const PublisherWorker
         previous = id; found = found || id == current;
     }
     require(found, "publisher worker current thread missing from closure");
+}
+void require_publisher_broker_worker_security(const Value& value, const PublisherWorkerTokenContext& worker) {
+    require(value.as_object().size() == 8 && value.at("schema").as_string() == "usk.publisher_broker_worker_security.v1" &&
+        value.at("scope").as_string() == "completed_policy_original_native_custody_and_pending_additions",
+        "SCM broker lifetime closed schema differs");
+    // Reuse the complete stored-policy and partition DATA checks. This does
+    // not turn a growing broker admission history into child native custody.
+    auto partition = value;
+    partition.as_object().at("schema") = Value("usk.publisher_worker_security.v2");
+    partition.as_object().at("scope") = Value("original_pinned_token_defaults_and_native_thread_retirement_partition");
+    partition.as_object().emplace("original_baseline", partition.at("admitted_baseline"));
+    partition.as_object().erase("admitted_baseline");
+    require_publisher_worker_security(partition, worker);
+}
+void require_publisher_broker_worker_security_continuity(const Value& earlier, const Value& later) {
+    require(earlier.at("schema").as_string() == "usk.publisher_broker_worker_security.v1" &&
+        later.at("schema").as_string() == earlier.at("schema").as_string(), "SCM broker lifetime version changed");
+    for (const auto* key : {"scope", "process_id", "current_thread_id", "primary_token"})
+        require(usk::json::canonical(earlier.at(key)) == usk::json::canonical(later.at(key)),
+            "SCM broker frozen lifetime context changed");
+    std::map<std::uint64_t, const Value*> admitted, retired;
+    for (const auto& row : later.at("admitted_baseline").at("threads").as_array())
+        require(admitted.emplace(row.at("thread_id").as_unsigned(), &row).second, "SCM broker repeated admitted identity");
+    for (const auto& row : earlier.at("admitted_baseline").at("threads").as_array())
+        require(admitted.count(row.at("thread_id").as_unsigned()) &&
+            usk::json::canonical(row) == usk::json::canonical(*admitted.at(row.at("thread_id").as_unsigned())),
+            "SCM broker admitted original disappeared or changed");
+    for (const auto& row : later.at("retired_threads").as_array())
+        require(retired.emplace(row.at("thread_id").as_unsigned(), &row).second, "SCM broker repeated retired identity");
+    for (const auto& row : earlier.at("retired_threads").as_array())
+        require(retired.count(row.at("thread_id").as_unsigned()) &&
+            usk::json::canonical(row) == usk::json::canonical(*retired.at(row.at("thread_id").as_unsigned())),
+            "SCM broker admitted retirement disappeared, revived or changed");
 }
 void require_publisher_worker_security_continuity(const Value& earlier, const Value& later) {
     if (earlier.at("schema").as_string() != "usk.publisher_worker_security.v2") {

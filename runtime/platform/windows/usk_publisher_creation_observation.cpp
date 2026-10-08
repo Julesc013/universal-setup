@@ -470,10 +470,12 @@ void require_publisher_creation_certificate(const Value& certificate,
         certificate.at("created_object_count").as_unsigned() == graph.as_array().size() &&
         certificate.at("created_graph_sha256").as_string() == usk::json::sha256_canonical(graph),
         "publisher retained creation certificate differs from its sealed graph or creator binding");
-    if (effect_bound)
+    if (effect_bound) {
+        require_publisher_effect_broker_readback_continuity(execution.at("broker_readback"), certificate.at("broker_readback"));
         require(usk::json::canonical(publisher_effect_broker_immutable_record(certificate.at("broker_readback"))) ==
             usk::json::canonical(publisher_effect_broker_immutable_record(execution.at("broker_readback"))),
             "publisher retained creation broker/child differs from its original native execution binding");
+    }
     if (process_bound) {
         require(usk::json::canonical(certificate.at("process_boundary")) ==
                 usk::json::canonical(execution.at("process_boundary")),

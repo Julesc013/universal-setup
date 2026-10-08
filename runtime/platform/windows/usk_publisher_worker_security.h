@@ -42,6 +42,26 @@ usk::json::Value observe_current_publisher_worker_security();
 // A signaled first probe means ended by that sample, not before native return;
 // it cannot exempt an acquired ID from the first or subsequent census gates.
 usk::json::Value observe_current_publisher_broker_worker_security(const PublisherServiceObservation& service);
+// Distinct prospective SCM observer. It transfers the SAME original native
+// handles from a completed service-bound policy read, before the first reply.
+// Later additions remain pending until the whole read passes. Only completely
+// admitted, continuously held non-execution objects can positively retire.
+// No JSON/reopened-ID baseline, eviction, child continuity or effect authority.
+class PublisherBrokerWorkerSecurity final {
+public:
+    explicit PublisherBrokerWorkerSecurity(const PublisherServiceObservation&);
+    ~PublisherBrokerWorkerSecurity();
+    PublisherBrokerWorkerSecurity(const PublisherBrokerWorkerSecurity&) = delete;
+    PublisherBrokerWorkerSecurity& operator=(const PublisherBrokerWorkerSecurity&) = delete;
+    usk::json::Value observe_current(const PublisherServiceObservation&);
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+// Closed data checks only; they cannot establish native lifetime custody.
+void require_publisher_broker_worker_security(const usk::json::Value&, const PublisherWorkerTokenContext&);
+void require_publisher_broker_worker_security_continuity(const usk::json::Value& earlier,
+    const usk::json::Value& later);
 // The SCM/process/primary-token context must already have been validated.
 void require_publisher_worker_security(const usk::json::Value& value,
     const PublisherServiceObservation& service);
@@ -75,6 +95,14 @@ usk::json::Value observe_settled_publisher_worker_security(
 // bracketed observation, not an atomic population or continuous census.
 class PublisherWorkerSecurityContinuity;
 namespace detail {
+// Actual ordinary owned-thread controls; no service/effect authorization.
+struct BrokerWorkerSecurityTestOwner;
+std::shared_ptr<BrokerWorkerSecurityTestOwner> pin_broker_worker_security_for_test();
+usk::json::Value observe_broker_worker_security_for_test(BrokerWorkerSecurityTestOwner&,
+    const std::function<void(const char*)>& checkpoint);
+// Numerical census control with actual held objects; never native census proof.
+void require_broker_retired_census_binding_for_test(BrokerWorkerSecurityTestOwner&,
+    DWORD census_id, HANDLE observed_object = nullptr);
 // Ordinary owned-thread controls only; this reads facts and grants no authority.
 usk::json::Value observe_publisher_broker_worker_security_for_test(
     const std::function<void(const char*)>& checkpoint);

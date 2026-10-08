@@ -587,6 +587,7 @@ void require_publisher_execution_worker_match(const Value& earlier, const Value&
     }
     if (earlier.at("schema").as_string() == "usk.publisher_execution_observation.v7" ||
         earlier.at("schema").as_string() == "usk.publisher_execution_observation.v8") {
+        require_publisher_effect_broker_readback_continuity(earlier.at("broker_readback"), later.at("broker_readback"));
         require(usk::json::canonical(earlier.at("effect_worker")) == usk::json::canonical(later.at("effect_worker")) &&
             usk::json::canonical(publisher_effect_broker_immutable_record(earlier.at("broker_readback"))) ==
                 usk::json::canonical(publisher_effect_broker_immutable_record(later.at("broker_readback"))),

@@ -12,7 +12,7 @@ from publisher_native_profile_evidence import project
 from test_publisher_authenticated_access_evidence import descendant_fixture
 from test_publisher_execution_evidence import BUILD, SDK, SERVICE, SID, encode
 from test_publisher_native_profile_evidence import CLIENT, CONTEXT, SOURCE, profile_fixture
-from test_publisher_worker_security import worker_security
+from test_publisher_worker_security import worker_security, broker_lifetime_security
 
 
 def effect_fixture():
@@ -200,6 +200,102 @@ class EffectBrokerEvidenceTests(unittest.TestCase):
         thread['dacl_aces'].append({'type': 0, 'flags': 0, 'access_mask': 2, 'sid': CLIENT})
         with self.assertRaises(ValueError):
             validate_broker_record(later)
+
+    def test_prospective_broker_family_joins_all_phases_and_preserves_legacy_floors(self):
+        from publisher_effect_broker_evidence import validate_broker_continuity
+        prepared, visible = effect_fixture()
+        brokers = [prepared['creation_evidence']['broker_readback']] + [row['execution']['broker_readback']
+            for row in prepared['execution_phases'] + visible['execution_phases']]
+        for broker in brokers:
+            broker['schema'] = 'usk.publisher_effect_broker_native_readback.v3'
+            broker['broker_security']['worker_security'] = broker_lifetime_security(broker['broker_security']['worker_security'])
+            validate_broker_record(broker)
+        self.assertEqual(self.check(prepared, visible)['effect_worker_phase_count'], 5)
+        baseline = copy.deepcopy(brokers[0]['broker_security']['worker_security']['admitted_baseline'])
+        extra = copy.deepcopy(baseline['threads'][0])
+        extra.update(thread_id=720, creation_time='0000000000000720')
+        baseline['threads'].append(extra)
+        first = copy.deepcopy(brokers[0])
+        first['broker_security']['worker_security'] = broker_lifetime_security(baseline)
+        later = copy.deepcopy(first)
+        later['broker_security']['worker_security'] = broker_lifetime_security(baseline, (720,))
+        validate_broker_continuity(first, later)
+        validate_broker_record(later)
+        with self.assertRaises(ValueError):
+            validate_broker_continuity(later, first)
+        legacy = copy.deepcopy(later)
+        legacy['schema'] = 'usk.publisher_effect_broker_native_readback.v2'
+        with self.assertRaises(ValueError):
+            validate_broker_record(legacy)
+        child = copy.deepcopy(first)
+        child['broker_security']['worker_security']['schema'] = 'usk.publisher_worker_security.v2'
+        with self.assertRaises(ValueError):
+            validate_broker_record(child)
+
+    def test_prospective_broker_phase_cannot_drop_a_valid_admitted_original(self):
+        prepared, visible = effect_fixture()
+        brokers = [prepared['creation_evidence']['broker_readback']] + [row['execution']['broker_readback']
+            for row in prepared['execution_phases'] + visible['execution_phases']]
+        for index, broker in enumerate(brokers):
+            baseline = copy.deepcopy(broker['broker_security']['worker_security'])
+            extra = copy.deepcopy(baseline['threads'][0])
+            extra.update(thread_id=720, creation_time='0000000000000720')
+            if index != 2:
+                baseline['threads'].append(extra)
+            broker['schema'] = 'usk.publisher_effect_broker_native_readback.v3'
+            broker['broker_security']['worker_security'] = broker_lifetime_security(baseline)
+            validate_broker_record(broker)
+        with self.assertRaises(ValueError):
+            self.check(prepared, visible)
+
+    def test_growing_broker_history_orders_sealed_certificate_and_publication(self):
+        prepared, visible = effect_fixture()
+        phases = prepared['execution_phases'] + visible['execution_phases']
+        baseline = copy.deepcopy(phases[0]['execution']['broker_readback']['broker_security']['worker_security'])
+        initial = broker_lifetime_security(baseline)
+        helper = copy.deepcopy(baseline['threads'][0])
+        helper.update(thread_id=720, creation_time='0000000000000720')
+        baseline['threads'].append(helper)
+        sealed = broker_lifetime_security(baseline)
+        certificate = broker_lifetime_security(baseline, (720,))
+        helper = copy.deepcopy(helper)
+        helper.update(thread_id=721, creation_time='0000000000000721')
+        baseline['threads'].append(helper)
+        publication = broker_lifetime_security(baseline, (720,))
+        final = broker_lifetime_security(baseline, (720, 721))
+        for row, proof in zip(phases, (initial, sealed, publication, final, final)):
+            broker = row['execution']['broker_readback']
+            broker['schema'] = 'usk.publisher_effect_broker_native_readback.v3'
+            broker['broker_security']['worker_security'] = copy.deepcopy(proof)
+        creation_broker = prepared['creation_evidence']['broker_readback']
+        creation_broker['schema'] = 'usk.publisher_effect_broker_native_readback.v3'
+        creation_broker['broker_security']['worker_security'] = copy.deepcopy(certificate)
+        self.assertEqual(self.check(prepared, visible)['effect_worker_phase_count'], 5)
+        # Alternative valid chronology: the sealed original retires AFTER the
+        # certificate, rather than rewriting an earlier snapshot to match it.
+        alternate = copy.deepcopy(prepared)
+        alternate['creation_evidence']['broker_readback']['broker_security']['worker_security'] = copy.deepcopy(sealed)
+        self.assertEqual(self.check(alternate, visible)['effect_worker_phase_count'], 5)
+        helper = copy.deepcopy(helper)
+        helper.update(thread_id=722, creation_time='0000000000000722')
+        baseline['threads'].append(helper)
+        future = broker_lifetime_security(baseline, (720,))
+        for wrong in (initial, future, final):
+            invalid = copy.deepcopy(prepared)
+            broker = invalid['creation_evidence']['broker_readback']
+            broker['broker_security']['worker_security'] = copy.deepcopy(wrong)
+            validate_broker_record(broker)  # Individually valid; chronology refuses.
+            with self.assertRaises(ValueError):
+                self.check(invalid, visible)
+        invalid = copy.deepcopy(prepared)
+        revived = copy.deepcopy(publication)
+        revived['threads'] = copy.deepcopy(revived['admitted_baseline']['threads'])
+        revived['retired_threads'] = []
+        broker = invalid['execution_phases'][-1]['execution']['broker_readback']
+        broker['broker_security']['worker_security'] = revived
+        validate_broker_record(broker)
+        with self.assertRaises(ValueError):
+            self.check(invalid, visible)
 
     def test_windows_registered_command_preserves_slashes_quotes_and_argument_boundaries(self):
         prepared, _ = effect_fixture()

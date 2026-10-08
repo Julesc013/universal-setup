@@ -130,6 +130,14 @@ void worker_retirement_data_controls() {
     try { require_publisher_worker_security_continuity(baseline, omitted); } catch (const std::exception&) { refused = true; }
     check(refused, "legacy omission was promoted into retirement proof");
 }
+Value broker_lifetime_security(const Value& baseline, const std::vector<std::uint64_t>& retired = {}) {
+    auto result = retirement_security(baseline, retired);
+    result.as_object().at("schema") = Value("usk.publisher_broker_worker_security.v1");
+    result.as_object().at("scope") = Value("completed_policy_original_native_custody_and_pending_additions");
+    result.as_object().emplace("admitted_baseline", result.at("original_baseline"));
+    result.as_object().erase("original_baseline");
+    return result;
+}
 void worker_security_controls() {
     const auto observed = observe_current_publisher_worker_security();
     check(observed.as_object().size() == 6 && observed.at("process_id").as_unsigned() == GetCurrentProcessId() &&
@@ -705,6 +713,58 @@ void effect_execution_record_controls() {
     current_certificate.at("worker_security") = initial_security;
     current_certificate.emplace("completed_worker_security", completed_security);
     require_candidate_publisher_execution_records(current_prepared, current_visible, name, service_sid);
+    // ACTUAL producer order: empty -> sealed -> certificate current -> prepared
+    // -> visible. Growing broker history must not be compared backwards.
+    auto lifetime_prepared = current_prepared, lifetime_visible = current_visible;
+    auto original_broker_security = worker_security();
+    const auto initial_broker = broker_lifetime_security(original_broker_security);
+    auto broker_helper = original_broker_security.at("threads").as_array().front();
+    broker_helper.as_object().at("thread_id") = Value(std::uint64_t{701});
+    broker_helper.as_object().at("creation_time") = Value("0000000000000701");
+    original_broker_security.as_object().at("threads").as_array().push_back(broker_helper);
+    const auto sealed_broker = broker_lifetime_security(original_broker_security);
+    const auto certificate_broker = broker_lifetime_security(original_broker_security, {701});
+    broker_helper.as_object().at("thread_id") = Value(std::uint64_t{702});
+    broker_helper.as_object().at("creation_time") = Value("0000000000000702");
+    original_broker_security.as_object().at("threads").as_array().push_back(broker_helper);
+    const auto prepared_broker = broker_lifetime_security(original_broker_security, {701});
+    const auto visible_broker = broker_lifetime_security(original_broker_security, {701, 702});
+    auto future_security = original_broker_security;
+    broker_helper.as_object().at("thread_id") = Value(std::uint64_t{703});
+    broker_helper.as_object().at("creation_time") = Value("0000000000000703");
+    future_security.as_object().at("threads").as_array().push_back(broker_helper);
+    const auto future_broker = broker_lifetime_security(future_security, {701});
+    const auto set_broker = [](Value& broker, const Value& security) {
+        broker.as_object().at("schema") = Value("usk.publisher_effect_broker_native_readback.v3");
+        broker.as_object().at("broker_security").as_object().at("worker_security") = security;
+    };
+    auto& lifetime_phases = lifetime_prepared.as_object().at("execution_phases").as_array();
+    for (std::size_t index = 0; index != 3; ++index)
+        set_broker(lifetime_phases[index].as_object().at("execution").as_object().at("broker_readback"),
+            index == 0 ? initial_broker : index == 1 ? sealed_broker : prepared_broker);
+    set_broker(lifetime_prepared.as_object().at("creation_evidence").as_object().at("broker_readback"), certificate_broker);
+    for (auto& item : lifetime_visible.as_object().at("execution_phases").as_array())
+        set_broker(item.as_object().at("execution").as_object().at("broker_readback"), visible_broker);
+    require_candidate_publisher_execution_records(lifetime_prepared, lifetime_visible, name, service_sid);
+    for (const auto& wrong : {initial_broker, sealed_broker, visible_broker, future_broker}) {
+        auto invalid = lifetime_prepared;
+        set_broker(invalid.as_object().at("creation_evidence").as_object().at("broker_readback"), wrong);
+        bool refused = false;
+        try { require_candidate_publisher_execution_records(invalid, lifetime_visible, name, service_sid); }
+        catch (const std::exception&) { refused = true; }
+        // sealed is allowed at certificate if retirement occurs later; only
+        // earlier omission and future retirement violate adjacent history.
+        if (usk::json::canonical(wrong) != usk::json::canonical(sealed_broker))
+            check(refused, "broker certificate omitted an admitted original or claimed future retirement");
+        else check(!refused, "broker certificate required retirement before it actually occurred");
+    }
+    auto revived_prepared = lifetime_prepared;
+    set_broker(revived_prepared.as_object().at("execution_phases").as_array().back().as_object()
+        .at("execution").as_object().at("broker_readback"), broker_lifetime_security(original_broker_security));
+    bool revival_refused = false;
+    try { require_candidate_publisher_execution_records(revived_prepared, lifetime_visible, name, service_sid); }
+    catch (const std::exception&) { revival_refused = true; }
+    check(revival_refused, "broker publication revived a certificate's retired original");
     const auto refuses_current = [&](const std::function<void(Value&, Value&)>& change) {
         auto p = current_prepared, v = current_visible; change(p, v); bool refused = false;
         try { require_candidate_publisher_execution_records(p, v, name, service_sid); }
@@ -1520,6 +1580,116 @@ void broker_worker_native_acquisition_controls() {
 }
 } // namespace
 
+void broker_worker_lifetime_controls() {
+    using namespace usk::platform::windows;
+    const auto observe = [](detail::BrokerWorkerSecurityTestOwner& owner) {
+        return detail::observe_broker_worker_security_for_test(owner, [](const char*) {});
+    };
+    {
+        TestThread original;
+        auto owner = detail::pin_broker_worker_security_for_test();
+        const auto first = observe(*owner);
+        original.retire();
+        const auto retired = observe(*owner);
+        // A numerical census entry is not identified by an OLD object's exit.
+        // These supplied entries exercise the shared gate, not a kernel census.
+        for (const HANDLE candidate : {static_cast<HANDLE>(nullptr), GetCurrentThread()}) {
+            std::string diagnostic;
+            try { detail::require_broker_retired_census_binding_for_test(*owner, original.id(), candidate); }
+            catch (const std::exception& error) { diagnostic = error.what(); }
+            check(diagnostic.find(candidate ? "another object" : "lacks same-object") != std::string::npos,
+                "broker assigned a census-only/alien native object to an old retired original");
+        }
+        require_publisher_broker_worker_security_continuity(first, retired);
+        const auto& proofs = retired.at("retired_threads").as_array();
+        const auto found = std::find_if(proofs.begin(), proofs.end(), [&](const Value& row) {
+            return row.at("thread_id").as_unsigned() == original.id();
+        });
+        FILETIME birth{}, exit{}, kernel{}, user{};
+        check(found != proofs.end() && WaitForSingleObject(original.handle(), 0) == WAIT_OBJECT_0 &&
+            GetThreadTimes(original.handle(), &birth, &exit, &kernel, &user) &&
+            std::stoull(found->at("creation_time").as_string(), nullptr, 16) ==
+                ((static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime) &&
+            std::stoull(found->at("exit_time").as_string(), nullptr, 16) ==
+                ((static_cast<std::uint64_t>(exit.dwHighDateTime) << 32) | exit.dwLowDateTime),
+            "broker retirement lacks actual original-held native birth/defined exit");
+        TestThread added;
+        const auto admitted = observe(*owner);
+        require_publisher_broker_worker_security_continuity(retired, admitted);
+        check(admitted.at("admitted_baseline").at("threads").as_array().size() ==
+            retired.at("admitted_baseline").at("threads").as_array().size() + 1,
+            "broker additional original was not committed by complete policy observation");
+        added.retire();
+        const auto later = observe(*owner);
+        require_publisher_broker_worker_security_continuity(admitted, later);
+        check(later.at("retired_threads").as_array().size() == retired.at("retired_threads").as_array().size() + 1,
+            "broker newly admitted original did not retain its prospective retirement custody");
+    }
+    for (const auto window : {"broker_native_after_native_walk", "broker_native_initial_times_read",
+            "broker_native_before_final_census"}) {
+        auto owner = detail::pin_broker_worker_security_for_test();
+        TestThread pending;
+        bool ended = false;
+        std::string diagnostic;
+        try {
+            (void)detail::observe_broker_worker_security_for_test(*owner, [&](const char* point) {
+                const auto match = std::string(window) == "broker_native_initial_times_read" ?
+                    std::string(point) == std::string(window) + "." + std::to_string(pending.id()) : std::string(point) == window;
+                if (match && !ended) { pending.retire(); ended = true; }
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(ended && !diagnostic.empty(), "broker allowed unknown/partially read thread retirement");
+        diagnostic.clear();
+        try { (void)observe(*owner); } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(diagnostic.find("owner failed") != std::string::npos, "broker reused an owner after failed pending admission");
+    }
+    {
+        TestThread original;
+        auto owner = detail::pin_broker_worker_security_for_test();
+        original.retire();
+        TestThreadDacl changed(original.handle());
+        std::string diagnostic;
+        try { (void)observe(*owner); } catch (const std::exception& error) { diagnostic = error.what(); }
+        changed.restore_checked();
+        check(diagnostic.find("stored thread security changed") != std::string::npos,
+            "broker positive retirement masked changed original stored security");
+    }
+    {
+        TestThread original;
+        auto owner = detail::pin_broker_worker_security_for_test();
+        bool ended = false;
+        const auto current = detail::observe_broker_worker_security_for_test(*owner, [&](const char* point) {
+            if (!ended && std::string(point) == "broker_native_after_native_walk") { original.retire(); ended = true; }
+        });
+        check(ended && !current.at("retired_threads").as_array().empty(),
+            "broker failed to account for completed-policy original retirement during its native walk");
+    }
+    {
+        TestQueryDenialContext query_context;
+        query_context.disable_checked();
+        auto owner = detail::pin_broker_worker_security_for_test();
+        TestThread unknown;
+        TestThreadDacl denied(unknown.handle(), THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION);
+        std::exception_ptr failure;
+        try {
+            const auto opened = OpenThread(THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION | READ_CONTROL | SYNCHRONIZE,
+                FALSE, unknown.id());
+            const auto error = opened ? ERROR_SUCCESS : GetLastError();
+            if (opened) CloseHandle(opened);
+            check(!opened && error == ERROR_ACCESS_DENIED, "broker lifetime query-filter control did not deny native access");
+            std::string diagnostic;
+            try { (void)observe(*owner); } catch (const std::exception& error) { diagnostic = error.what(); }
+            check(diagnostic.find("independent complete census") != std::string::npos ||
+                diagnostic.find("native thread enumeration failed") != std::string::npos,
+                "broker original retirement bypassed unknown access-filtered census coverage");
+        } catch (...) { failure = std::current_exception(); }
+        denied.restore_checked();
+        owner.reset();
+        query_context.restore_checked();
+        if (failure) std::rethrow_exception(failure);
+    }
+    std::cout << "broker prospective original retirement/addition and unknown/pending/security refusals passed\n";
+}
 int main() {
     try {
         // Ordinary-process readback and owned test-thread controls only. No
@@ -1534,6 +1704,7 @@ int main() {
         worker_lifetime_controls();
         worker_retirement_readback_controls();
         broker_worker_native_acquisition_controls();
+        broker_worker_lifetime_controls();
 
         // Synthetic policy controls are separate from the native observation.
         require_publisher_process_boundary(boundary(), 500, service_sid, groups);

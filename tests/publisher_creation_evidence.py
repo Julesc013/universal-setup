@@ -165,7 +165,9 @@ def reconcile_creation(certificate, anchors, tree, execution):
                                      process_bound else "successful_service_file_create_calls_to_bound_graph"),
             "creation certificate schema/scope differs")
     if effect_bound:
-        from publisher_effect_broker_evidence import immutable_broker_record, validate_effect_execution_identity
+        from publisher_effect_broker_evidence import (immutable_broker_record, validate_effect_execution_identity,
+                                                    validate_broker_continuity)
+        validate_broker_continuity(execution['broker_readback'], certificate['broker_readback'])
         context = validate_effect_execution_identity(execution, execution['service']['service_name'],
                                                     execution['service']['service_sid'], anchors['boundary'])
         closed(certificate['creator'], frozenset({'service_name', 'service_sid', 'broker_process_id', 'effect_worker'}),

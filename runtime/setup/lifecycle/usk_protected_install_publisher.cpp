@@ -973,6 +973,13 @@ void require_prepared_execution_phases(const usk::json::Value& prepared,
         if (!fresh) throw std::runtime_error("reopened staging cannot claim current-worker creation evidence");
         usk::platform::windows::require_publisher_creation_certificate(prepared.at("creation_evidence"),
             prepared.at("protected_anchors"), prepared.at("sealed_tree"), phases.front().at("execution"));
+        if (schema == "usk.publisher.lab_phase_evidence.v10" || schema == "usk.publisher.lab_phase_evidence.v11") {
+            const auto& certificate_broker = prepared.at("creation_evidence").at("broker_readback");
+            usk::platform::windows::require_publisher_effect_broker_readback_continuity(
+                phases[sealed_index].at("execution").at("broker_readback"), certificate_broker);
+            usk::platform::windows::require_publisher_effect_broker_readback_continuity(
+                certificate_broker, phases[sealed_index + 1].at("execution").at("broker_readback"));
+        }
         if (schema == "usk.publisher.lab_phase_evidence.v11")
             usk::platform::windows::require_publisher_worker_security_continuity(
                 prepared.at("creation_evidence").at("completed_worker_security"),
