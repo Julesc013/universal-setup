@@ -169,6 +169,23 @@ Value PublisherEffectExecutionOwner::authenticated_object_access(HANDLE handle) 
         return std::move(observed.access);
     } catch (...) { state_->failed = true; throw; }
 }
+Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std::vector<HANDLE>& handles) {
+    require_current();
+    try {
+        state_->require_owner();
+        const auto native_before = state_->security.observe_local_current();
+        auto observed = state_->readback.authenticated_object_access_batch_bracket(handles);
+        const auto native_after = state_->security.observe_local_current();
+        state_->require_native_binding(observed.before, native_before);
+        state_->require_native_binding(observed.after, native_after);
+        require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
+        require(same(publisher_effect_broker_immutable_record(observed.before),
+            publisher_effect_broker_immutable_record(observed.after)), "publisher child native owner changed across object access batch");
+        state_->require_owner();
+        state_->readback.retain_object_access_bracket(observed);
+        return std::move(observed.access);
+    } catch (...) { state_->failed = true; throw; }
+}
 Value PublisherEffectExecutionOwner::selected_original_maintenance_recovery() {
     require_current();
     try {

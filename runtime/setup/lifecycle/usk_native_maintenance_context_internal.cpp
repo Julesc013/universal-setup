@@ -30,6 +30,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace usk::lifecycle::detail {
 namespace fs = std::filesystem;
@@ -189,6 +190,7 @@ struct NativeMaintenanceContext::Impl {
     std::size_t native_custody_bytes = 0;
     std::string native_custody_digest;
     bool custody_failed = false;
+    mutable bool entry_readback_failed = false;
     bool restored_owner = false;
     Value original_lease_ownership;
     std::string admitted_lease_revision;
@@ -1072,7 +1074,9 @@ struct NativeMaintenanceContext::Impl {
             channel->observe_authenticated_object_access(handle);
     }
     void require_client_read_only(HANDLE handle, const PublisherHandleObservation& facts) const {
-        auto access = authenticated_native_access(handle);
+        require_client_read_only_access(authenticated_native_access(handle), facts);
+    }
+    void require_client_read_only_access(Value access, const PublisherHandleObservation& facts) const {
         if (!equal(access.at("client"), client) || !equal(access.at("native_object"), publisher_handle_observation_json(facts)))
             throw std::runtime_error("native maintenance authenticated object binding changed");
         access.as_object().erase("client"); access.as_object().erase("native_object");
@@ -1086,7 +1090,7 @@ struct NativeMaintenanceContext::Impl {
                 check.at("allowed").as_boolean() || check.at("granted").as_unsigned() != 0)
                 throw std::runtime_error("native maintenance caller retains object mutation rights");
     }
-    PublisherHandleObservation facts(HANDLE handle, bool directory) const {
+    PublisherHandleObservation native_facts(HANDLE handle, bool directory) const {
         const auto observed = directory ? observe_publisher_directory_handle(handle) : observe_publisher_file_handle(handle);
         if (observed.dacl_aces.size() == 3u) {
             const bool payload = std::any_of(consumer_payload_roots.begin(), consumer_payload_roots.end(), [&](const auto& root) {
@@ -1101,10 +1105,93 @@ struct NativeMaintenanceContext::Impl {
         observe_publisher_noninheritable_handle_flags(handle);
         if (observe_local_ntfs_volume_handle(handle).file_id_volume_serial != volume_observation.file_id_volume_serial)
             throw std::runtime_error("native maintenance object changed volume");
+        return observed;
+    }
+    PublisherHandleObservation facts(HANDLE handle, bool directory) const {
+        const auto observed = native_facts(handle, directory);
         require_client_read_only(handle, observed);
         return observed;
     }
+    void require_entry_batch(const Entry& entry) const {
+        struct PendingAccess {
+            const Entry* entry;
+            HANDLE handle;
+            PublisherHandleObservation observed;
+            std::unique_ptr<Held> independent;
+        };
+        std::vector<PendingAccess> pending;
+        pending.reserve(publisher_object_access_batch_limit);
+        const auto flush = [&]() {
+            if (pending.empty()) return;
+            std::vector<HANDLE> handles;
+            handles.reserve(pending.size());
+            for (const auto& item : pending) handles.push_back(item.handle);
+            auto results = original_child->authenticated_object_access_batch(handles);
+            if (results.as_array().size() != pending.size())
+                throw std::runtime_error("native maintenance read-only batch result count changed");
+            for (std::size_t index = 0; index < pending.size(); ++index) {
+                const auto& item = pending[index];
+                require_client_read_only_access(std::move(results.as_array()[index]), item.observed);
+                if (!same(native_facts(item.handle, item.entry->directory), item.observed))
+                    throw std::runtime_error("native maintenance batch object changed after access observation");
+            }
+            // Finish every occurrence and its post-native join before closing
+            // query-only observers. Unknown closure permanently stops this
+            // context; no batch prefix can be used to authorize an effect.
+            for (auto& item : pending) if (item.independent) item.independent->close_observer_once();
+            pending.clear();
+        };
+        const auto remember = [&](const Entry& current, HANDLE handle, std::unique_ptr<Held> independent) {
+            auto observed = native_facts(handle, current.directory);
+            if (!same(observed, current.facts))
+                throw std::runtime_error("native maintenance retained batch object changed");
+            pending.push_back(PendingAccess{&current, handle, std::move(observed), std::move(independent)});
+            if (pending.size() == publisher_object_access_batch_limit) flush();
+        };
+        // Preserve the original leaf-to-root held reads, recursive parent
+        // validation and root-to-leaf listing/reopen chronology. Only the
+        // read-only transport is deferred, in bounded ordered chunks.
+        const auto collect = [&](const auto& self, const Entry& current) -> void {
+            remember(current, current.handle.value, nullptr);
+            if (current.parent) self(self, *current.parent);
+            const HANDLE parent = current.parent ? current.parent->handle.value : volume;
+            const auto listed = child(parent, current.name);
+            if (!listed) throw std::runtime_error("native maintenance retained batch child is absent");
+            auto independent = std::make_unique<Held>();
+            independent->value = open_publisher_listed_child(parent, *listed, false, false, false,
+                false, false, maintenance_names.get());
+            const HANDLE handle = independent->value;
+            remember(current, handle, std::move(independent));
+        };
+        collect(collect, entry);
+        flush();
+        // Re-read complete held facts and every actual parent link after ALL
+        // chunks. A saved listing or serialized identity cannot replace this
+        // final native join. These fresh query-only reopens close before return.
+        const auto recheck = [&](const auto& self, const Entry& current) -> void {
+            if (!same(native_facts(current.handle.value, current.directory), current.facts))
+                throw std::runtime_error("native maintenance retained object changed after batch");
+            if (current.parent) self(self, *current.parent);
+            const HANDLE parent = current.parent ? current.parent->handle.value : volume;
+            const auto listed = child(parent, current.name);
+            if (!listed) throw std::runtime_error("native maintenance retained child disappeared after batch");
+            Held independent;
+            independent.value = open_publisher_listed_child(parent, *listed, false, false, false,
+                false, false, maintenance_names.get());
+            if (!same(native_facts(independent.value, current.directory), current.facts))
+                throw std::runtime_error("native maintenance retained parent link changed after batch");
+            independent.close_observer_once();
+        };
+        recheck(recheck, entry);
+    }
     void require_entry(const Entry& entry) const {
+        if (entry_readback_failed)
+            throw std::runtime_error("native maintenance original entry readback already failed");
+        if (original_child) {
+            try { require_entry_batch(entry); }
+            catch (...) { entry_readback_failed = true; throw; }
+            return;
+        }
         if (!same(facts(entry.handle.value, entry.directory), entry.facts))
             throw std::runtime_error("native maintenance retained object changed");
         const HANDLE parent = entry.parent ? entry.parent->handle.value : volume;
@@ -1202,7 +1289,7 @@ struct NativeMaintenanceContext::Impl {
             worker_context.service_sid, worker_context.token.process_groups);
         if (!equal(current_process, process_boundary))
             throw std::runtime_error("native maintenance frozen process boundary changed");
-        if (installed_uncertain || payload_failed || custody_failed)
+        if (installed_uncertain || payload_failed || custody_failed || entry_readback_failed)
             throw std::runtime_error("native maintenance effect is uncertain; no further effects");
         if (!active_payload_history.empty()) {
             const auto current = transaction::TransactionSession::inspect_recovery(spec);

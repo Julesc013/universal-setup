@@ -49,6 +49,9 @@ public:
     usk::json::Value selected_original_maintenance_recovery();
     usk::json::Value selected_original_installation_recovery();
     usk::json::Value authenticated_object_access(HANDLE original_child_handle);
+    // Ordered actual handles, including repeated objects. Whole-batch parent
+    // and child native brackets are read-only evidence, never effect authority.
+    usk::json::Value authenticated_object_access_batch(const std::vector<HANDLE>& original_child_handles);
     const std::string& canonical_request() const;
     // Borrowed concrete owners for the native v7/v4 observers. Their lifetime
     // remains this owner, on its original thread; no native handle is exported.

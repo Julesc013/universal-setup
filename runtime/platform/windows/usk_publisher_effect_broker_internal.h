@@ -8,8 +8,12 @@
 #include "usk_publisher_worker_security.h"
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace usk::platform::windows {
+// Read-only transport bound. Each occurrence has its own native query and
+// checked closure; the existing packet byte/value limits also remain in force.
+inline constexpr std::size_t publisher_object_access_batch_limit = 8u;
 class RegisteredPublisherAdmission;
 class PublisherRequestChannel;
 class PublisherEffectBrokerReadback;
@@ -144,6 +148,8 @@ private:
         usk::json::Value access;
     };
     ObjectAccessObservation authenticated_object_access_bracket(HANDLE, DWORD timeout = 120000);
+    ObjectAccessObservation authenticated_object_access_batch_bracket(const std::vector<HANDLE>&,
+        DWORD timeout = 120000);
     void retain_object_access_bracket(const ObjectAccessObservation&);
     // Both facts originate from the SAME actual validated wire read. This is
     // private to the original native security owner, never a JSON input API.
