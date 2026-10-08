@@ -36,7 +36,7 @@ namespace fs = std::filesystem;
 using usk::json::Value;
 using namespace usk::platform::windows;
 namespace {
-bool equal(const Value& a, const Value& b) { return json::canonical(a) == json::canonical(b); }
+bool equal(const Value& a, const Value& b) { return json::equal_values(a, b); }
 void members(const Value& value, const std::set<std::string>& expected) {
     if (value.as_object().size() != expected.size())
         throw std::runtime_error("native maintenance custody fields differ");

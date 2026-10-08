@@ -366,6 +366,37 @@ std::string canonical(const Value& value)
     return result;
 }
 
+bool equal_values(const Value& left, const Value& right)
+{
+    if (left.type() != right.type()) return false;
+    switch (left.type()) {
+    case Value::Type::null_value: return true;
+    case Value::Type::boolean: return left.as_boolean() == right.as_boolean();
+    case Value::Type::unsigned_integer: return left.as_unsigned() == right.as_unsigned();
+    case Value::Type::string: return left.as_string() == right.as_string();
+    case Value::Type::array: {
+        const auto& a = left.as_array();
+        const auto& b = right.as_array();
+        if (a.size() != b.size()) return false;
+        for (std::size_t i = 0; i < a.size(); ++i)
+            if (!equal_values(a[i], b[i])) return false;
+        return true;
+    }
+    case Value::Type::object: {
+        const auto& a = left.as_object();
+        const auto& b = right.as_object();
+        if (a.size() != b.size()) return false;
+        auto other = b.begin();
+        for (const auto& member : a) {
+            if (member.first != other->first || !equal_values(member.second, other->second)) return false;
+            ++other;
+        }
+        return true;
+    }
+    }
+    return false;
+}
+
 std::string sha256_canonical(const Value& value)
 {
     const std::string text = canonical(value);

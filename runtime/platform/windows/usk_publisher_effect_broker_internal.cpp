@@ -32,7 +32,7 @@ std::atomic<void*> active_query{nullptr};
 constexpr DWORD query_rights = FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
 void require(bool okay, const char* reason) { if (!okay) throw std::runtime_error(reason); }
 bool same(const Value& left, const Value& right) {
-    return usk::json::canonical(left) == usk::json::canonical(right);
+    return usk::json::equal_values(left, right);
 }
 bool canonical_sid(const std::string& text) {
     if (text.empty() || text.size() > 184) return false;

@@ -54,6 +54,8 @@ struct ParseLimits {
 
 Value parse(const std::string& text, const ParseLimits& limits = {});
 std::string canonical(const Value& value);
+// Exact value equality, equivalent to comparing the canonical encodings.
+bool equal_values(const Value& left, const Value& right);
 std::string sha256_canonical(const Value& value);
 
 } // namespace usk::json

@@ -4,8 +4,10 @@
 #include "usk_json.h"
 
 #include <functional>
+#include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -44,6 +46,32 @@ int main()
     usk::json::ParseLimits limits;
     limits.max_values = 2;
     if (!refuses([&] { (void)usk::json::parse("[1,2]", limits); })) return 3;
+    // Differential equality checks retain the canonical encoder as the oracle.
+    // Types, byte escaping, integer precision, key ordering and array ordering
+    // must agree without changing either input or the serialized wire format.
+    using usk::json::Value;
+    std::string controls;
+    for (unsigned char ch = 0; ch < 32; ++ch) controls.push_back(static_cast<char>(ch));
+    const std::vector<Value> values{
+        Value(), Value(false), Value(true), Value(std::uint64_t{0}), Value(std::uint64_t{1}),
+        Value(std::uint64_t{9007199254740992ull}), Value(std::uint64_t{9007199254740993ull}),
+        Value(std::numeric_limits<std::uint64_t>::max()), Value(""), Value("null"), Value("true"),
+        Value("0"), Value(controls), Value("\\u0000"), Value("\"\\\n\t"),
+        Value(Value::Array{}), Value(Value::Object{}), parsed, usk::json::parse(expected),
+        usk::json::parse("[1,2]"), usk::json::parse("[2,1]"),
+        usk::json::parse("{\"z\":1,\"a\":[null,true]}"),
+        usk::json::parse("{\"\\u0061\":[null,true],\"z\":1}"),
+        usk::json::parse("{\"a\":[null,false],\"z\":1}"),
+        usk::json::parse("{\"a\":[null,true],\"z\":2}"),
+        usk::json::parse("{\"a\":[null,true],\"zz\":1}")};
+    std::vector<std::string> encodings;
+    for (const auto& value : values) encodings.push_back(usk::json::canonical(value));
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        for (std::size_t j = 0; j < values.size(); ++j) {
+            if (usk::json::equal_values(values[i], values[j]) != (encodings[i] == encodings[j])) return 5;
+        }
+        if (usk::json::canonical(values[i]) != encodings[i]) return 6;
+    }
     return usk::json::sha256_canonical(usk::json::parse("{}")) ==
         "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" ? 0 : 4;
 }

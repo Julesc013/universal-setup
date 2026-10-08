@@ -20,7 +20,7 @@ void require(bool condition, const char* reason) {
     if (!condition) throw std::runtime_error(reason);
 }
 bool same(const Value& first, const Value& second) {
-    return usk::json::canonical(first) == usk::json::canonical(second);
+    return usk::json::equal_values(first, second);
 }
 }
 struct PublisherEffectExecutionOwner::State {
