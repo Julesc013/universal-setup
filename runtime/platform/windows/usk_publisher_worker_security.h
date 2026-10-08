@@ -38,6 +38,9 @@ usk::json::Value observe_current_publisher_worker_security();
 // retaining all first handles/facts within the same four-round bound,
 // and bind the same full v1 policy to the actual restricted service. Retirement
 // during sampling still refuses; no original baseline is installed/refreshed.
+// Optional first-probe/missing-original lifetime diagnostics grant no authority.
+// A signaled first probe means ended by that sample, not before native return;
+// it cannot exempt an acquired ID from the first or subsequent census gates.
 usk::json::Value observe_current_publisher_broker_worker_security(const PublisherServiceObservation& service);
 // The SCM/process/primary-token context must already have been validated.
 void require_publisher_worker_security(const usk::json::Value& value,

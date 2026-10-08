@@ -168,9 +168,93 @@ std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
     for (const auto& item : handles) result.push_back(item.first);
     return result;
 }
+struct BrokerThreadFirstProbe {
+    HANDLE original = nullptr; // Borrowed only while the native map owns it.
+    DWORD process_id = 0, thread_id = 0;
+    std::size_t ordinal = 0;
+    bool times_read = false;
+    DWORD times_error = ERROR_SUCCESS, wait_result = WAIT_FAILED, wait_error = ERROR_SUCCESS;
+    std::uint64_t birth = 0;
+};
+std::uint64_t census_time_value(const FILETIME& value) {
+    return (static_cast<std::uint64_t>(value.dwHighDateTime) << 32) | value.dwLowDateTime;
+}
+Value missing_broker_original_probe(DWORD id, HANDLE original, const BrokerThreadFirstProbe* first) {
+    // Read only the very same still-owned native handle. This is failure
+    // provenance, not a live-population exception or safe-creator assertion.
+    const auto process_id = GetProcessIdOfThread(original);
+    const auto process_error = process_id ? ERROR_SUCCESS : GetLastError();
+    const auto thread_id = GetThreadId(original);
+    const auto thread_error = thread_id ? ERROR_SUCCESS : GetLastError();
+    const bool identity_matches = process_id == GetCurrentProcessId() && thread_id == id;
+    FILETIME creation{}, ignored_exit{}, kernel{}, user{};
+    const bool times_read = GetThreadTimes(original, &creation, &ignored_exit, &kernel, &user) != FALSE;
+    const auto times_error = times_read ? ERROR_SUCCESS : GetLastError();
+    const auto birth = times_read ? census_time_value(creation) : 0;
+    const auto wait_result = WaitForSingleObject(original, 0);
+    const auto wait_error = wait_result == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
+    const bool first_bound = first && first->original == original &&
+        first->process_id == GetCurrentProcessId() && first->thread_id == id && first->times_read && first->birth;
+    const bool same_birth = first_bound && identity_matches && birth && first->birth == birth;
+    const bool readable = identity_matches && times_read && birth;
+    std::optional<std::uint64_t> confirmed_exit;
+    std::optional<DWORD> exit_query_error, exit_wait_result, exit_wait_error;
+    if (readable && wait_result == WAIT_OBJECT_0) {
+        // Exit output from the earlier timing read is undefined if that read
+        // preceded termination. Query it separately AFTER a positive signal.
+        FILETIME later_creation{}, later_exit{}, later_kernel{}, later_user{};
+        const bool later_read = GetThreadTimes(original, &later_creation, &later_exit, &later_kernel, &later_user) != FALSE;
+        exit_query_error = later_read ? ERROR_SUCCESS : GetLastError();
+        const bool later_identity = GetProcessIdOfThread(original) == process_id && GetThreadId(original) == id;
+        exit_wait_result = WaitForSingleObject(original, 0);
+        exit_wait_error = *exit_wait_result == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
+        if (later_read && later_identity && census_time_value(later_creation) == birth &&
+                census_time_value(later_exit) && census_time_value(later_exit) >= birth && *exit_wait_result == WAIT_OBJECT_0)
+            confirmed_exit = census_time_value(later_exit);
+    }
+    const char* lifetime = "unavailable_identity_or_query";
+    if (readable && wait_result == WAIT_TIMEOUT) lifetime = "still_nonsignaled_at_refusal";
+    else if (same_birth && confirmed_exit && first->wait_result == WAIT_TIMEOUT)
+        lifetime = "observed_live_then_signaled";
+    else if (same_birth && confirmed_exit && first->wait_result == WAIT_OBJECT_0)
+        lifetime = "signaled_at_first_probe";
+    const auto optional_dword = [](const std::optional<DWORD>& value) {
+        return value ? Value(static_cast<std::uint64_t>(*value)) : Value();
+    };
+    Value initial;
+    if (first && first->original == original) initial = Value(Value::Object{
+        {"ordinal", Value(static_cast<std::uint64_t>(first->ordinal))},
+        {"process_id", Value(static_cast<std::uint64_t>(first->process_id))},
+        {"thread_id", Value(static_cast<std::uint64_t>(first->thread_id))},
+        {"get_thread_times", Value(first->times_read)},
+        {"get_thread_times_error", Value(static_cast<std::uint64_t>(first->times_error))},
+        {"creation_time", first->times_read ? Value(hex64(first->birth)) : Value()},
+        {"wait_result", Value(static_cast<std::uint64_t>(first->wait_result))},
+        {"wait_error", Value(static_cast<std::uint64_t>(first->wait_error))}});
+    return Value(Value::Object{{"thread_id", Value(static_cast<std::uint64_t>(id))},
+        {"scope", Value("same_original_handle_sampled_lifetime_no_authority")},
+        {"first_probe", std::move(initial)}, {"lifetime_status", Value(lifetime)},
+        {"refusal_probe", Value(Value::Object{
+            {"process_id", Value(static_cast<std::uint64_t>(process_id))},
+            {"thread_id", Value(static_cast<std::uint64_t>(thread_id))},
+            {"process_query_error", Value(static_cast<std::uint64_t>(process_error))},
+            {"thread_query_error", Value(static_cast<std::uint64_t>(thread_error))},
+            {"identity_matches", Value(identity_matches)}, {"get_thread_times", Value(times_read)},
+            {"get_thread_times_error", Value(static_cast<std::uint64_t>(times_error))},
+            {"creation_time", times_read ? Value(hex64(birth)) : Value()},
+            {"birth_matches_first_probe", first_bound ? Value(same_birth) : Value()},
+            {"wait_result", Value(static_cast<std::uint64_t>(wait_result))},
+            {"wait_error", Value(static_cast<std::uint64_t>(wait_error))},
+            {"post_signal_times_error", optional_dword(exit_query_error)},
+            {"post_signal_wait_result", optional_dword(exit_wait_result)},
+            {"post_signal_wait_error", optional_dword(exit_wait_error)},
+            {"confirmed_exit_time", confirmed_exit ? Value(hex64(*confirmed_exit)) : Value()}})}});
+}
 [[noreturn]] void refuse_broker_census(const std::vector<DWORD>& mandatory, const std::vector<DWORD>& before,
     const std::vector<DWORD>& native, const std::vector<DWORD>& after, unsigned round, const char* phase,
-    const std::function<void(const char*)>* checkpoint, bool native_after_observed, bool before_observed = true) {
+    const std::function<void(const char*)>* checkpoint, bool native_after_observed, bool before_observed = true,
+    const ThreadHandles* originals = nullptr, const BrokerThreadFirstProbe* first_probes = nullptr,
+    std::size_t first_probe_count = 0) {
     const auto original = std::make_exception_ptr(std::runtime_error(
         "SCM broker native thread enumeration differs from independent complete census"));
     auto reported = original;
@@ -206,9 +290,24 @@ std::vector<DWORD> handle_ids(const ThreadHandles& handles) {
             if (before_observed) difference("before_missing_native", before, native);
             difference("native_missing_after", native, after);
             difference("after_missing_native", after, native);
+            Value::Array original_prefix;
+            if (originals) for (const auto id : native) {
+                if (std::binary_search(after.begin(), after.end(), id)) continue;
+                if (original_prefix.size() == 8) break;
+                const auto held = originals->find(id);
+                if (held == originals->end() || !held->second) continue;
+                const BrokerThreadFirstProbe* first = nullptr;
+                if (first_probes) for (std::size_t index = 0; index < first_probe_count; ++index)
+                    if (first_probes[index].thread_id == id && first_probes[index].original == held->second->get()) {
+                        first = &first_probes[index]; break;
+                    }
+                if (checkpoint) (*checkpoint)("broker_native_before_missing_original_probe");
+                original_prefix.emplace_back(missing_broker_original_probe(id, held->second->get(), first));
+            }
+            diagnostic.emplace("native_missing_after_original_prefix", Value(std::move(original_prefix)));
         }
         const auto text = usk::json::canonical(Value(std::move(diagnostic)));
-        if (text.size() <= 3072) reported = std::make_exception_ptr(std::runtime_error(
+        if (text.size() <= 12288) reported = std::make_exception_ptr(std::runtime_error(
             "SCM broker native thread enumeration differs from independent complete census; census=" + text));
     } catch (...) {} // Optional diagnostics cannot replace the first refusal.
     std::rethrow_exception(reported);
@@ -244,6 +343,10 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
         refuse_broker_census(mandatory, before, {}, {}, round, phase, checkpoint, false);
     if (!first && checkpoint) (*checkpoint)("broker_native_after_independent_before");
     ThreadHandles result;
+    // Optional fixed-capacity provenance. Allocation/query failure never
+    // changes admission, custody or the first-census survival obligation.
+    std::unique_ptr<BrokerThreadFirstProbe[]> first_probes;
+    try { first_probes = std::make_unique<BrokerThreadFirstProbe[]>(4096); } catch (...) {}
     HANDLE cursor = nullptr;
     for (;;) {
         HANDLE raw = nullptr;
@@ -256,11 +359,26 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
         Handle acquired(raw);
         auto held = std::make_unique<Handle>(std::move(acquired));
         const auto id = GetThreadId(held->get());
-        require(id && GetProcessIdOfThread(held->get()) == GetCurrentProcessId() &&
+        const auto process_id = GetProcessIdOfThread(held->get());
+        require(id && process_id == GetCurrentProcessId() &&
             observe_publisher_handle_granted_access(held->get()) == rights,
             "SCM broker native thread identity or query-only access differs");
         require(result.size() < 4096 && !result.count(id),
             "SCM broker native thread enumeration exceeds bound or repeats an identity");
+        if (checkpoint) {
+            const auto point = "broker_native_before_original_first_probe." + std::to_string(id);
+            (*checkpoint)(point.c_str());
+        }
+        if (first_probes) {
+            auto& probe = first_probes[result.size()];
+            probe.original = held->get(); probe.process_id = process_id; probe.thread_id = id; probe.ordinal = result.size();
+            FILETIME creation{}, ignored_exit{}, kernel{}, user{};
+            probe.times_read = GetThreadTimes(held->get(), &creation, &ignored_exit, &kernel, &user) != FALSE;
+            probe.times_error = probe.times_read ? ERROR_SUCCESS : GetLastError();
+            if (probe.times_read) probe.birth = census_time_value(creation);
+            probe.wait_result = WaitForSingleObject(held->get(), 0);
+            probe.wait_error = probe.wait_result == WAIT_FAILED ? GetLastError() : ERROR_SUCCESS;
+        }
         cursor = held->get();
         result.emplace(id, std::move(held)); // Retain the cursor through the next call.
     }
@@ -272,7 +390,8 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
     if (ids.empty() || !std::binary_search(ids.begin(), ids.end(), GetCurrentThreadId()) ||
             (!first && !std::includes(ids.begin(), ids.end(), before.begin(), before.end())) ||
             !std::includes(after.begin(), after.end(), ids.begin(), ids.end()))
-        refuse_broker_census(mandatory, before, ids, after, round, phase, checkpoint, true, !first);
+        refuse_broker_census(mandatory, before, ids, after, round, phase, checkpoint, true, !first,
+            &result, first_probes.get(), result.size());
     return {std::move(result), after};
 }
 void require_no_thread_token(HANDLE thread) {

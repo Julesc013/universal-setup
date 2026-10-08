@@ -1186,7 +1186,9 @@ void broker_worker_native_acquisition_controls() {
         const auto legacy = observe_current_publisher_worker_security();
         std::vector<std::string> first_acquisition;
         const auto native = capture([&](const char* checkpoint) {
-            if (first_acquisition.size() < 4) first_acquisition.emplace_back(checkpoint);
+            if (first_acquisition.size() < 4 &&
+                    std::string(checkpoint).find("broker_native_before_original_first_probe.") != 0)
+                first_acquisition.emplace_back(checkpoint);
         });
         check(first_acquisition == std::vector<std::string>{
                 "broker_native_before_initial_native_walk", "broker_native_after_native_walk",
@@ -1233,17 +1235,30 @@ void broker_worker_native_acquisition_controls() {
             read_rounds == 2u,
             "native acquisition admitted an addition without its original native facts and complete read rounds");
     }
-    {
+    for (const auto scenario : {0u, 1u, 2u}) {
         TestThread original;
         std::string diagnostic;
-        bool retired = false;
+        bool retired = false, optional_failure = false;
+        const bool first_probe_ended = scenario == 1u;
+        const auto target = first_probe_ended ? "broker_native_before_original_first_probe." + std::to_string(original.id()) :
+            std::string("broker_native_after_native_walk");
         try {
             (void)capture([&](const char* checkpoint) {
-                if (std::string(checkpoint) == "broker_native_after_native_walk" && !retired) {
+                if (std::string(checkpoint) == target && !retired) {
                     original.retire(); retired = true;
+                }
+                if (scenario == 2u && std::string(checkpoint) == "broker_native_before_missing_original_probe") {
+                    optional_failure = true;
+                    throw std::runtime_error("synthetic optional original-handle diagnostic failure");
                 }
             });
         } catch (const std::exception& error) { diagnostic = error.what(); }
+        if (scenario == 2u) {
+            check(retired && optional_failure && diagnostic ==
+                "SCM broker native thread enumeration differs from independent complete census",
+                "optional original-handle readback replaced the captured census refusal");
+            continue;
+        }
         const auto facts = census_diagnostic(diagnostic);
         const auto& missing = facts.at("native_missing_after_prefix").as_array();
         check(retired && !facts.at("before_census_observed").as_boolean() &&
@@ -1254,6 +1269,35 @@ void broker_worker_native_acquisition_controls() {
             facts.at("native_missing_after_count").as_unsigned() != 0 &&
             std::any_of(missing.begin(), missing.end(), [&](const Value& id) { return id.as_unsigned() == original.id(); }),
             "native acquisition silently omitted an originally held thread lost before AFTER");
+        const auto& probes = facts.at("native_missing_after_original_prefix").as_array();
+        const auto found = std::find_if(probes.begin(), probes.end(), [&](const Value& row) {
+            return row.at("thread_id").as_unsigned() == original.id();
+        });
+        FILETIME birth{}, exit{}, kernel{}, user{};
+        check(found != probes.end() && GetThreadTimes(original.handle(), &birth, &exit, &kernel, &user) &&
+            WaitForSingleObject(original.handle(), 0) == WAIT_OBJECT_0,
+            "missing-original lifetime diagnostic lacks actual owned thread facts");
+        const auto birth_value = (static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime;
+        const auto exit_value = (static_cast<std::uint64_t>(exit.dwHighDateTime) << 32) | exit.dwLowDateTime;
+        const auto& first_probe = found->at("first_probe");
+        const auto& refusal_probe = found->at("refusal_probe");
+        check(found->at("scope").as_string() == "same_original_handle_sampled_lifetime_no_authority" &&
+            found->at("lifetime_status").as_string() == (first_probe_ended ? "signaled_at_first_probe" :
+                "observed_live_then_signaled") &&
+            first_probe.at("process_id").as_unsigned() == GetCurrentProcessId() &&
+            first_probe.at("thread_id").as_unsigned() == original.id() && first_probe.at("get_thread_times").as_boolean() &&
+            first_probe.at("get_thread_times_error").as_unsigned() == ERROR_SUCCESS &&
+            std::stoull(first_probe.at("creation_time").as_string(), nullptr, 16) == birth_value &&
+            first_probe.at("wait_result").as_unsigned() == (first_probe_ended ? WAIT_OBJECT_0 : WAIT_TIMEOUT) &&
+            first_probe.at("wait_error").as_unsigned() == ERROR_SUCCESS &&
+            refusal_probe.at("identity_matches").as_boolean() && refusal_probe.at("birth_matches_first_probe").as_boolean() &&
+            std::stoull(refusal_probe.at("creation_time").as_string(), nullptr, 16) == birth_value &&
+            refusal_probe.at("wait_result").as_unsigned() == WAIT_OBJECT_0 &&
+            refusal_probe.at("post_signal_times_error").as_unsigned() == ERROR_SUCCESS &&
+            refusal_probe.at("post_signal_wait_result").as_unsigned() == WAIT_OBJECT_0 &&
+            std::stoull(refusal_probe.at("confirmed_exit_time").as_string(), nullptr, 16) == exit_value &&
+            exit_value >= birth_value && probes.size() <= 8 && diagnostic.size() <= 12384,
+            "missing-original diagnostic conflated first signal with acquisition or rebound native lifetime facts");
     }
     for (const bool fail_optional_diagnostic : {false, true}) {
         std::unique_ptr<TestThread> pending;
