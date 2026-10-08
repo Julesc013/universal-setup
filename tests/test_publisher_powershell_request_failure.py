@@ -226,7 +226,14 @@ foreach($p in ($original|Select-Object -First 4)) {
 }
 $presentCoordination=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
 $present=$presentCoordination;$wakeCoordination=& $wake
-foreach($p in ($original|Select-Object -Skip 4)){New-Item -ItemType Directory -Path $p -Force|Out-Null}
+$publication=Split-Path -Parent $original[4]
+New-Item -ItemType Directory -Path $publication -Force|Out-Null
+$presentRootOnly=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
+$present=$presentRootOnly;$wakeRootOnly=& $wake
+foreach($p in ($original|Select-Object -Skip 4 -First 4)){New-Item -ItemType Directory -Path $p -Force|Out-Null}
+$presentAnchors=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
+$present=$presentAnchors;$wakeAnchors=& $wake
+New-Item -ItemType Directory -Path $original[8] -Force|Out-Null
 $presentAll=@(foreach($p in $original){[bool](Test-Path -LiteralPath $p)})
 $present=$presentAll;$wakeAll=& $wake
 $apply.transaction_id='operation.foreign';. $flow
@@ -236,7 +243,8 @@ $present=@($presentAll);$present[0]=$false;$wakeMissingOriginal=& $wake
 $apply.transaction_id='operation/invalid';$invalid=$null
 try {. $flow} catch {$invalid=$_.Exception.Message}
 @{original=$original;foreign=$foreign;before=$presentBefore;all=$presentAll;foreign_present=$foreignPresent;
-  coordination_only=$presentCoordination;wake_before=$wakeBefore;wake_coordination=$wakeCoordination;
+  coordination_only=$presentCoordination;root_only=$presentRootOnly;anchors_only=$presentAnchors;
+  wake_before=$wakeBefore;wake_coordination=$wakeCoordination;wake_root_only=$wakeRootOnly;wake_anchors=$wakeAnchors;
   wake_all=$wakeAll;wake_foreign=$wakeForeign;wake_missing_original=$wakeMissingOriginal;
   invalid=$invalid;native_activation_invoked=$false}|ConvertTo-Json -Depth 8 -Compress
 '''
@@ -277,17 +285,21 @@ class PublisherPowerShellRequestFailureTests(unittest.TestCase):
                 '-Root', str(ROOT), '-Scratch', str(scratch)], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         row = json.loads(result.stdout)
-        self.assertEqual(len(row['original']), 8)
-        self.assertEqual(len(set(row['original'])), 8)
-        self.assertEqual(row['before'], [False]*8)
-        self.assertEqual(row['all'], [True]*8)
-        self.assertEqual(row['coordination_only'], [True]*4+[False]*4)
+        self.assertEqual(len(row['original']), 9)
+        self.assertEqual(len(set(row['original'])), 9)
+        self.assertEqual(row['before'], [False]*9)
+        self.assertEqual(row['all'], [True]*9)
+        self.assertEqual(row['coordination_only'], [True]*4+[False]*5)
+        self.assertEqual(row['root_only'], [True]*4+[False]*5)
+        self.assertEqual(row['anchors_only'], [True]*8+[False])
         self.assertFalse(row['wake_before'])
-        self.assertTrue(row['wake_coordination'])
+        self.assertFalse(row['wake_coordination'])
+        self.assertFalse(row['wake_root_only'])
+        self.assertFalse(row['wake_anchors'])
         self.assertTrue(row['wake_all'])
         self.assertFalse(row['wake_foreign'])
         self.assertFalse(row['wake_missing_original'])
-        self.assertEqual(row['foreign_present'], [True, False, False, False, True, True, True, True])
+        self.assertEqual(row['foreign_present'], [True, False, False, False, True, True, True, True, True])
         self.assertEqual(row['invalid'], 'Active ownership cue identity differs')
         self.assertFalse(row['native_activation_invoked'])
         import hashlib

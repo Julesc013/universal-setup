@@ -348,7 +348,9 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     # These exact paths only wake the original SCM/pair/readback checks. They
     # grant no readiness or ownership; the paused native reader validates the
     # complete original lease/context/roots/reservation and publication phase.
-    # Publication creation is later than ownership and is not a wake prerequisite.
+    # The candidate is created only after the reviewed journal is written,
+    # flushed and reread. Earlier creation prefixes are legitimate progress,
+    # but are outside the complete active snapshot used by this contention case.
     $ids=@($apply.plan_request.install_id,$apply.transaction_id);$hashes=@()
     foreach($value in $ids) {
         if($value -cnotmatch '^[A-Za-z0-9_.-]{1,128}$'){throw 'Active ownership cue identity differs'}
@@ -359,7 +361,8 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     $originalPrefix=$drive+'installation-operations\install-'+$hashes[0]+'\operation-'+$hashes[1]
     $cuePaths=@(($drive+'setup-state\state\leases\install-'+$hashes[0]+'\g00000000000000000001-active.json'),
         ($originalPrefix+'.json'),($originalPrefix+'-roots.json'),($originalPrefix+'-bootstrap-g00000000000000000001.json'),
-        ($drive+'publication\staging'),($drive+'publication\destination'),($drive+'publication\state'),($drive+'publication\journal'))
+        ($drive+'publication\staging'),($drive+'publication\destination'),($drive+'publication\state'),($drive+'publication\journal'),
+        ($drive+'publication\staging\candidate'))
     $lastCue=$null;$cueSamples=0;$registration=$null
     $worker=$null;$pause=$null;$pauseAttempted=$false;$effectPair=$null
     $childPause=$null;$childPauseAttempted=$false;$activeFailure=$null;$pairPauseFailure=$null
@@ -375,7 +378,7 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
             if($Installer.HasExited){throw 'Active installer observation window already passed'}
             $present=@(foreach($path in $cuePaths){[bool](Test-Path -LiteralPath $path)})
             $cueSamples++;$lastCue=$present
-            if(@($present|Select-Object -First 4|Where-Object {-not $_}).Count -eq 0) {
+            if(@($present|Where-Object {-not $_}).Count -eq 0) {
                 $registration=Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'") -ErrorAction Stop
                 if($registration.State -ceq 'Running' -and $registration.ProcessId -gt 0) {
                     $worker=Get-Process -Id $registration.ProcessId -ErrorAction Stop;$null=$worker.Handle
