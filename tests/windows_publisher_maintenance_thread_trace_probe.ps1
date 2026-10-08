@@ -32,7 +32,12 @@ $retainedRoot=Join-Path $traceRoot 'retained'
 New-Item -ItemType Directory -Path $retainedRoot -ErrorAction Stop | Out-Null
 $instance='USKMaintenanceCreator'+[Guid]::NewGuid().ToString('N')
 $etl=Join-Path $traceRoot 'maintenance-thread-creator.etl'
-$profile=Join-Path $PSScriptRoot 'windows_publisher_maintenance_thread_trace.wprp'
+$profileFile=if($FreshQualification){'windows_publisher_maintenance_fresh_cpu_trace.wprp'}else{'windows_publisher_maintenance_thread_trace.wprp'}
+$profileName=if($FreshQualification){'USKFreshCPU'}else{'USKThreadCreator'}
+$captureKind=if($FreshQualification){'cpu_stacks_scheduler_events_and_thread_creation'}else{'cpu_scheduler_and_thread_creation'}
+$captureStacks=if($FreshQualification){@('ThreadCreate','SampledProfile')}else{@('ThreadCreate','SampledProfile','CSwitch','ReadyThread')}
+$interpretation=if($FreshQualification){'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU/thread stacks or scheduler events. Scheduler/wakeup stacks are omitted; this capture cannot attribute wait call stacks or establish a call cycle or thread creator'}else{'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'}
+$profile=Join-Path $PSScriptRoot $profileFile
 # Pin the OS tool: hosted PATH can contain both System32 and WPT installations.
 $wpr=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\wpr.exe'))
 if(-not (Test-Path -LiteralPath $wpr -PathType Leaf)) {throw 'The pinned Windows WPR executable is absent'}
@@ -44,9 +49,10 @@ $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw|ConvertFrom-Json
 $receipt=[ordered]@{
     schema='usk.publisher_maintenance_thread_trace.v1';scope='external_owned_diagnostic_no_authority';
     profile_qualified=$false;creator_attribution_proven=$false;status='running';
-    journey=$journey;capture_kind='cpu_scheduler_and_thread_creation';
+    journey=$journey;capture_kind=$captureKind;
     captured_keywords=@('ProcessThread','Loader','SampledProfile','CSwitch','ReadyThread');
-    captured_stacks=@('ThreadCreate','SampledProfile','CSwitch','ReadyThread');
+    captured_stacks=$captureStacks;profile_file=$profileFile;profile_name=$profileName;
+    scheduler_stacks_requested=(-not $FreshQualification);
     maximum_retained_etl_bytes=134217728;maximum_command_log_characters=32768;
     original_request_identity_source='Original probe receipt; join native process birth and ancestry with raw ETL';
     capture_start_precedes_probe=$false;capture_end_follows_probe=$false;
@@ -62,7 +68,7 @@ $receipt=[ordered]@{
     etl=$null;events_lost=$null;capture_completeness='not_established';product_symbols=$null;
     # Circular retention and event/header/payload joins must be checked against
     # actual PID/birth/TID/birth and owner checkpoints before interpreting stacks.
-    interpretation='Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'
+    interpretation=$interpretation
 }
 $probeFailure=$null
 $ownedInstance=$false
@@ -121,13 +127,13 @@ try {
     # A partially successful start is stopped only through this exact instance.
     $ownedInstance=$true
     $receipt.trace_start_issued=$true
-    $started=Invoke-OwnedWpr 'start' @('-start',($profile+'!USKThreadCreator.Verbose'))
+    $started=Invoke-OwnedWpr 'start' @('-start',($profile+'!'+$profileName+'.Verbose'))
     if($started.exit_code -ne 0 -or $started.truncated) {throw 'Owned memory thread creation trace did not start'}
     $receipt.trace_started=$true
     $receipt['started_utc']=[DateTime]::UtcNow.ToString('o')
     $active=Invoke-OwnedWpr 'active-profiles' @('-status','profiles')
     if($active.exit_code -ne 0 -or $active.truncated -or
-        $active.text -notmatch 'USKThreadCreator\.Verbose\.Memory') {
+        $active.text -notmatch ([regex]::Escape($profileName+'.Verbose.Memory'))) {
         throw 'Owned thread creation memory profile is not positively observed'
     }
     $receipt.probe_invoked=$true
@@ -242,4 +248,4 @@ try {
 }
 if($probeFailure){throw $probeFailure}
 if($receipt.diagnostic_failures.Count){throw ($receipt.diagnostic_failures -join '; ')}
-Write-Output 'Owned CPU wait and thread trace retained; coverage attribution and runtime qualification remain unproved'
+Write-Output 'Owned maintenance CPU scheduler and thread diagnostic retained; coverage attribution and runtime qualification remain unproved'
