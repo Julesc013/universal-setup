@@ -2782,7 +2782,24 @@ RegisteredPublisherAdmission::State::observe_native(bool include_configuration) 
             throw std::runtime_error("held reviewed operation approval changed");
         selected_envelope_source->verify_unchanged();
     }
-    return ExecutionObservation(admission_evidence, std::move(execution), current);
+    // The broker's selected facts come from this same original native guard.
+    // Standalone evidence/selection APIs retain their own observation paths.
+    const bool selected = include_configuration && selected_envelope_source != nullptr;
+    usk::json::Value envelope, observation;
+    if (selected) {
+        using usk::json::Value;
+        envelope = selected_envelope;
+        observation = Value(Value::Object{
+            {"schema", Value("usk.publisher_selected_reviewed_operation_observation.v1")},
+            {"scope", Value("authenticated_exact_request_and_held_protected_enrollment_files")},
+            {"approval", selected_approval},
+            {"approval_sha256", Value(usk::json::sha256_canonical(selected_approval))},
+            {"approval_file", publisher_handle_observation_json(observe_publisher_file_handle(selected_approval_file->get()))},
+            {"envelope_sha256", Value(selected_envelope_source->sha256_hex())},
+            {"envelope_file", publisher_handle_observation_json(observe_publisher_file_handle(selected_envelope_file->get()))}});
+    }
+    return ExecutionObservation(admission_evidence, std::move(execution), current,
+        selected, std::move(envelope), std::move(observation));
 }
 usk::json::Value RegisteredPublisherAdmission::evidence() const {
     return state_->observe_native(false).take_admission();

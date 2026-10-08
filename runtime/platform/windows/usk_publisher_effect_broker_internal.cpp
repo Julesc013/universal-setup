@@ -303,18 +303,16 @@ std::string selected_bracket_kind(PublisherEffectSelectionKind kind) {
     }
     throw std::runtime_error("effect selection kind is outside its closed bound");
 }
-Value selected_operation(const RegisteredPublisherAdmission& admission, const std::string& request) {
+Value selected_operation(bool present, Value envelope, Value observation, const std::string& request) {
     Value result(Value::Object{{"schema", Value("usk.publisher_effect_selected_operation_readback.v1")},
         {"scope", Value("original_native_held_exact_request_selection")},
-        {"present", Value(admission.has_selected_reviewed_operation())}});
-    if (admission.has_selected_reviewed_operation()) {
-        const auto envelope = admission.selected_reviewed_envelope();
-        const auto observation = admission.selected_reviewed_operation_observation();
+        {"present", Value(present)}});
+    if (present) {
         require(same(envelope.at("apply_request"), usk::json::parse(request)) &&
             observation.at("approval").at("request_sha256").as_string() == usk::json::sha256_canonical(usk::json::parse(request)),
             "broker selected operation is not the actual received exact request");
-        result.as_object().emplace("envelope", envelope);
-        result.as_object().emplace("observation", observation);
+        result.as_object().emplace("envelope", std::move(envelope));
+        result.as_object().emplace("observation", std::move(observation));
     }
     return result;
 }
@@ -888,12 +886,21 @@ struct PublisherEffectBrokerReadback::State {
         installation_recovery = is_installation_minimum(usk::json::parse(request));
         if (installation_recovery) (void)parse_original_installation_minimum(request);
     }
-    Value selected_current() const {
-        if (maintenance_recovery || installation_recovery) return Value(Value::Object{
-            {"schema", Value("usk.publisher_effect_selected_operation_readback.v1")},
-            {"scope", Value("original_native_held_exact_request_selection")}, {"present", Value(false)}});
-        return selected_operation(admission, request);
-    }
+    // A collected endpoint is not completed proof. Only complete() can create
+    // a result eligible for retention or a reply, after checking both endpoints.
+    struct PendingObservation { Value profile, selection; };
+    class CompletedObservation final {
+    public:
+        const Value& profile() const { return profile_; }
+        const Value& selection() const { return selection_; }
+        Value take_profile() { return std::move(profile_); }
+        Value take_selection() { return std::move(selection_); }
+    private:
+        friend struct State;
+        explicit CompletedObservation(PendingObservation observation) :
+            profile_(std::move(observation.profile)), selection_(std::move(observation.selection)) {}
+        Value profile_, selection_;
+    };
     Value recovery_current(bool select_original = false) const {
         require(maintenance_recovery || installation_recovery, "broker original selection requires its actual minimal request");
         PublisherOriginalRecoveryIntentQuery query(admission, channel, volume);
@@ -926,11 +933,14 @@ struct PublisherEffectBrokerReadback::State {
         if (!query.close()) throw PublisherBrokerQueryClosureUnknown(query.close_error(), {});
         return result;
     }
-    Value fresh() const {
+    PendingObservation collect() const {
         require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
             request == channel.authenticated_canonical_request() && request == custody.canonical_request(),
             "broker original native owner/thread/authenticated request changed");
         auto execution = admission.observe_native_execution();
+        auto selection = selected_operation(
+            !(maintenance_recovery || installation_recovery) && execution.has_selection(),
+            execution.take_selected_envelope(), execution.take_selected_observation(), request);
         auto admitted = execution.take_admission();
         const auto& actual_service = execution.service();
         auto process = observe_current_publisher_process_boundary();
@@ -967,40 +977,37 @@ struct PublisherEffectBrokerReadback::State {
         security_fields.emplace("worker_security", std::move(security));
         fields.emplace("broker_security", Value(std::move(security_fields)));
         Value result(std::move(fields));
-        const auto& collected_admitted = result.at("registered_admission");
         const auto& collected_custody = result.at("custody");
-        const auto& collected_configuration = result.at("service_configuration");
-        const auto& collected_process = result.at("broker_security").at("process_boundary");
-        const auto& collected_security = result.at("broker_security").at("worker_security");
         // The original authenticated caller is an independently
         // observed native fact, never the child's supplied SID.
         result.as_object().emplace("authenticated_client", access.at("client"));
         require_projection(result, collected_custody, actual_service.token, child, false);
-        auto final_security = worker_security->observe_current(actual_service);
-        require_publisher_broker_worker_security_continuity(collected_security, final_security);
-        require(same(observe_current_publisher_process_boundary(), collected_process) &&
-            same(final_security.at("primary_token"), collected_security.at("primary_token")),
-            "broker native facts changed during collection");
-        auto final_execution = admission.observe_native_execution();
-        require(same(final_execution.take_configuration(), collected_configuration) &&
-            same(final_execution.take_admission(), collected_admitted) &&
-            same(service(final_execution.service()), service(actual_service)) &&
-            same(custody.observation(), collected_custody) && same(token(custody.peer_primary_token()), token(child)) &&
-            same(object(volume), result.at("volume_root")) && observe_publisher_handle_granted_access(volume) == query_rights,
-            "broker native facts changed during collection");
-        result.as_object().at("broker_security").as_object().at("worker_security") = std::move(final_security);
-        return result;
+        return PendingObservation{std::move(result), std::move(selection)};
+    }
+    CompletedObservation complete(const PendingObservation& before, PendingObservation after) const {
+        // Each endpoint independently performed all original native reads and
+        // projection checks. Continuity compares every immutable field plus the
+        // original worker retirement relation; no intermediate instant is claimed.
+        require_publisher_effect_broker_readback_continuity(before.profile, after.profile);
+        require(same(before.selection, after.selection),
+            "broker held exact-request selection changed across the native bracket");
+        return CompletedObservation(std::move(after));
+    }
+    CompletedObservation fresh() const {
+        const auto before = collect();
+        return complete(before, collect());
     }
 };
 PublisherEffectBrokerReadback::PublisherEffectBrokerReadback(const RegisteredPublisherAdmission& a,
     const PublisherRequestChannel& c, HANDLE v, PublisherEffectWorkerCustody& owner) : state_(std::make_unique<State>(a, c, v, owner)) {
-    state_->baseline = state_->fresh();
+    auto initial = state_->fresh();
+    state_->baseline = initial.take_profile();
+    state_->selected_baseline = initial.take_selection();
     if (state_->maintenance_recovery || state_->installation_recovery) state_->recovery_baseline = state_->recovery_current(true);
-    state_->selected_baseline = state_->selected_current();
     if (state_->maintenance_recovery) require_publisher_effect_original_maintenance_selection(
-        state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh());
+        state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh().profile());
     if (state_->installation_recovery) require_publisher_effect_original_installation_selection(
-        state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh());
+        state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh().profile());
 }
 PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() = default;
 void require_publisher_effect_selection_readback(const Value& reply, const Value& actual_request) {
@@ -1070,9 +1077,12 @@ void PublisherEffectBrokerReadback::respond_to_one_readback(DWORD timeout) {
 std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD timeout) {
     auto& state = *state_;
     try {
-        auto before = state.fresh();
+        auto pending_before = state.collect();
+        auto& before = pending_before.profile;
         require_publisher_effect_broker_readback_continuity(state.baseline, before);
         require(same(immutable_profile(before), immutable_profile(state.baseline)), "broker original service/target/caller/worker binding changed");
+        require(same(pending_before.selection, state.selected_baseline),
+            "broker original held selection changed before readback");
         const auto request = state.custody.receive(timeout);
         if (request.at("schema").as_string() == "usk.publisher_effect_worker_failure_diagnostic.v1") {
             require_publisher_effect_failure_diagnostic(request);
@@ -1082,10 +1092,10 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                 request.at("message").as_string());
         }
         if (request.at("schema").as_string() == "usk.publisher_effect_worker_terminal.v1") {
-            const auto after = state.fresh();
-            require_publisher_effect_broker_readback_continuity(before, after);
+            const auto completed = state.complete(pending_before, state.collect());
+            const auto& after = completed.profile();
             require(same(immutable_profile(before), immutable_profile(after)) &&
-                same(state.selected_current(), state.selected_baseline) &&
+                same(completed.selection(), state.selected_baseline) &&
                 (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
                 "broker original native scope changed across terminal selection");
             require_publisher_effect_terminal_record(request, after);
@@ -1121,7 +1131,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         }
         Value result(Value::Object{});
         if (kind == "selected_operation" || kind == "selected_operation_bracket") {
-            result = state.selected_current();
+            result = pending_before.selection;
             if (paired_selection) require(same(result, state.selected_baseline),
                 "broker selected bracket changed its original held selection");
         }
@@ -1157,14 +1167,14 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             // child's subsequent root rename. Unknown close stops the route.
             require(query.close(), "broker original native query handle closure is unknown");
         }
-        auto after = state.fresh();
-        require_publisher_effect_broker_readback_continuity(before, after);
+        auto completed = state.complete(pending_before, state.collect());
+        const auto& after = completed.profile();
         if (kind == "original_maintenance_recovery") require_publisher_effect_original_maintenance_selection(
             result, usk::json::parse(state.request), after);
         if (kind == "original_installation_recovery") require_publisher_effect_original_installation_selection(
             result, usk::json::parse(state.request), after);
         require(same(immutable_profile(before), immutable_profile(after)) &&
-            same(state.selected_current(), state.selected_baseline) &&
+            same(completed.selection(), state.selected_baseline) &&
             (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
             "broker native scope or original selected operation changed across readback");
         Value::Object response;
@@ -1177,7 +1187,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         // These are this packet's actual fresh native reads, not cached profiles.
         // Full native checks and checked query closure precede either reply.
         if (paired) response.emplace("profile_before", std::move(before));
-        response.emplace("profile", std::move(after));
+        response.emplace("profile", completed.take_profile());
         response.emplace("result", std::move(result));
         const Value reply(std::move(response));
         if (paired_selection) require_publisher_effect_selection_readback(reply, usk::json::parse(state.request));

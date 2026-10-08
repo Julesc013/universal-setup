@@ -641,6 +641,29 @@ void effect_execution_record_controls() {
         refuses_bracket(fresh_reply, apply, [](Value& v) {
             v.as_object().at("profile_before").as_object().at("custody").as_object().at("peer_process_birth") =
                 Value("0000000000000601"); });
+        // The broker now completes one native packet bracket. Changes in any
+        // retained immutable family must still fail at either endpoint. These
+        // are record controls, not a claim of native interval coverage.
+        for (const char* endpoint : {"profile_before", "profile"}) {
+            refuses_bracket(fresh_reply, apply, [&](Value& v) {
+                v.as_object().at(endpoint).as_object().at("service_configuration").as_object().at("display_name") =
+                    Value("changed original service"); });
+            refuses_bracket(fresh_reply, apply, [&](Value& v) {
+                v.as_object().at(endpoint).as_object().at("registered_admission").as_object().at("registration_sha256") =
+                    Value(std::string(64, 'a')); });
+            refuses_bracket(fresh_reply, apply, [&](Value& v) {
+                v.as_object().at(endpoint).as_object().at("volume_root").as_object().at("file_id") =
+                    Value("0000000000001234:" + std::string(31, '0') + "4"); });
+            refuses_bracket(fresh_reply, apply, [&](Value& v) {
+                v.as_object().at(endpoint).as_object().at("broker_volume_granted_access") =
+                    Value(std::uint64_t{FILE_ALL_ACCESS}); });
+            refuses_bracket(fresh_reply, apply, [&](Value& v) {
+                v.as_object().at(endpoint).as_object().at("broker_security").as_object().at("process_boundary")
+                    .as_object().emplace("authority", Value("effect")); });
+            refuses_bracket(recovery_reply, minimum, [&](Value& v) {
+                v.as_object().at(endpoint).as_object().at("service_configuration").as_object().at("display_name") =
+                    Value("changed original recovery service"); });
+        }
         // Identical endpoints with a changed registration still cannot rebind
         // the unchanged original approval to a different admitted registration.
         refuses_bracket(fresh_reply, apply, [](Value& v) {

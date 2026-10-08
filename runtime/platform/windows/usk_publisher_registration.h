@@ -67,13 +67,21 @@ private:
         usk::json::Value take_admission() { return std::move(admission_); }
         usk::json::Value take_configuration() { return std::move(configuration_); }
         const PublisherServiceObservation& service() const { return service_; }
+        bool has_selection() const { return selected_; }
+        usk::json::Value take_selected_envelope() { return std::move(selected_envelope_); }
+        usk::json::Value take_selected_observation() { return std::move(selected_observation_); }
     private:
         friend class RegisteredPublisherAdmission;
         ExecutionObservation(usk::json::Value admission, usk::json::Value configuration,
-            PublisherServiceObservation service) : admission_(std::move(admission)),
-            configuration_(std::move(configuration)), service_(std::move(service)) {}
+            PublisherServiceObservation service, bool selected, usk::json::Value envelope,
+            usk::json::Value observation) : admission_(std::move(admission)),
+            configuration_(std::move(configuration)), service_(std::move(service)),
+            selected_(selected), selected_envelope_(std::move(envelope)),
+            selected_observation_(std::move(observation)) {}
         usk::json::Value admission_, configuration_;
         PublisherServiceObservation service_;
+        bool selected_;
+        usk::json::Value selected_envelope_, selected_observation_;
     };
     ExecutionObservation observe_native_execution() const;
     struct State;
